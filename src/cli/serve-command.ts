@@ -6,6 +6,12 @@ import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 
 import { HELP, lanUrls, parseArgs, serveAuthWarning } from "./serve-args.js";
+import {
+  MEMORY_GUARD_EXIT_CODE,
+  memoryGuardDisabled,
+  startServeMemoryGuard,
+  type ServeMemoryGuard,
+} from "./serve-memory-guard.js";
 import { watchForOrphaning } from "./serve-orphan-guard.js";
 import {
   startWebhookTunnel,
@@ -87,6 +93,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   let releaseRecord: (() => void) | null = null;
   let orphanWatch: OrphanWatch | null = null;
   let tunnel: WebhookTunnel | null = null;
+  let memoryGuard: ServeMemoryGuard | null = null;
   try {
     runtime = await createAgentRuntime({
       workingDir: parsed.workingDir,
@@ -197,19 +204,31 @@ export async function serveCommand(args: string[]): Promise<number> {
           parsed.parentPid ?? undefined,
         );
 
+    // ATO-1111: end through the teardown below, with its own exit code,
+    // before the OS refuses memory (Windows 0xC000009A) and kills it mid-write.
+    memoryGuard = memoryGuardDisabled()
+      ? null
+      : startServeMemoryGuard({
+          isBusy: () => liveRuntime.turnController.busySessionIds().length > 0,
+        });
+    let exitCode = 0;
     await Promise.race([
       waitForShutdownSignal().then((signal) => {
         process.stderr.write(`[atomic-agent] ${signal} received, closing\n`);
       }),
       orphanWatch?.orphaned ?? new Promise<void>(() => {}),
+      memoryGuard?.exhausted.then(() => {
+        exitCode = MEMORY_GUARD_EXIT_CODE;
+      }) ?? new Promise<void>(() => {}),
     ]);
-    return 0;
+    return exitCode;
   } catch (err) {
     const message =
       err instanceof Error ? (err.stack ?? err.message) : String(err);
     process.stderr.write(`serve failed: ${message}\n`);
     return 1;
   } finally {
+    memoryGuard?.stop();
     orphanWatch?.stop();
     // The public address goes first, before the API it fronts.
     if (tunnel) await tunnel.stop().catch(() => {});
