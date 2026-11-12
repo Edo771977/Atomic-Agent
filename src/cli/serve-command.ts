@@ -89,6 +89,8 @@ export async function serveCommand(args: string[]): Promise<number> {
   const metricsRegistry = new PrometheusRegistry();
 
   let runtime: AgentRuntime | null = null;
+  // ATO-1419: the memory guard ended this serve; its task runs are left as crashed.
+  let crashedShutdown = false;
   let handle: HttpServerHandle | null = null;
   let releaseRecord: (() => void) | null = null;
   let orphanWatch: OrphanWatch | null = null;
@@ -221,6 +223,7 @@ export async function serveCommand(args: string[]): Promise<number> {
       orphanWatch?.orphaned ?? new Promise<void>(() => {}),
       memoryGuard?.exhausted.then(() => {
         exitCode = MEMORY_GUARD_EXIT_CODE;
+        crashedShutdown = true;
       }) ?? new Promise<void>(() => {}),
     ]);
     return exitCode;
@@ -235,7 +238,7 @@ export async function serveCommand(args: string[]): Promise<number> {
     // The public address goes first, before the API it fronts.
     if (tunnel) await tunnel.stop().catch(() => {});
     if (handle) await handle.close();
-    if (runtime) await runtime.shutdown();
+    if (runtime) await runtime.shutdown(crashedShutdown ? { crashed: true } : undefined);
     // Released last, and only once the port and the databases are
     // actually let go. A teardown that wedges must stay on record:
     // a process still holding its port with no record is precisely the
