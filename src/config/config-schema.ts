@@ -1154,6 +1154,9 @@ export interface UserConfigFile {
 // Unversioned, additive: `tools.verify.maxCopyBytes` (default 2 GiB). The
 // byte ceiling for `verify.run`'s workspace copy off macOS; a bigger tree
 // is refused. At most 1 TiB. An older file has no field and keeps the 2 GiB limit.
+// Unversioned, additive: `tools.lsp.enabled` (default `false`, ATO-503).
+// After-edit diagnostics from a language server already on PATH; an
+// older file has no field and keeps them off.
 // Unversioned, additive: `localModels.managed.coreBackendVariant`
 // (`auto` | `cpu`, default `auto`, ATO-372/373) — the build Atomic Core
 // installs on Windows x64. Its own key, not `backendVariant`: the
@@ -1635,6 +1638,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
   const browser = (obj.browser as Record<string, unknown> | undefined) ?? {};
   const toolsScreen = (tools.screen as Record<string, unknown> | undefined) ?? {};
   const toolsVerify = (tools.verify as Record<string, unknown> | undefined) ?? {};
+  const toolsLsp = (tools.lsp as Record<string, unknown> | undefined) ?? {};
   const webSearch = (web.search as Record<string, unknown> | undefined) ?? {};
   const webFetch = (web.fetch as Record<string, unknown> | undefined) ?? {};
   const webSearchInputs = prepareWebSearchInputs(
@@ -1758,7 +1762,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
       ...parseProjectsConfig(projects, () => USER_CONFIG_DEFAULTS.projects),
       constraints: projectConstraints,
     },
-    tools: parseToolsConfig(toolsShell, () => USER_CONFIG_DEFAULTS.tools, toolsScreen, toolsVerify),
+    tools: parseToolsConfig(toolsShell, () => USER_CONFIG_DEFAULTS.tools, toolsScreen, toolsVerify, toolsLsp),
     browser: parseBrowserConfig(browser, () => USER_CONFIG_DEFAULTS.browser),
     sessions: parseSessionConfig(sessionsRetention, () => USER_CONFIG_DEFAULTS.sessions),
     tracing: parseTracingConfig(mergedTrace, () => USER_CONFIG_DEFAULTS.tracing),

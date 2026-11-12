@@ -500,6 +500,7 @@ export function loadConfig(): AtomicAgentConfig {
       },
       screen: { enabled: user.tools.screen.enabled, point: user.tools.screen.point },
       verify: { maxCopyBytes: user.tools.verify.maxCopyBytes, maxGitObjectBytes: user.tools.verify.maxGitObjectBytes ?? DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES },
+      lsp: { enabled: user.tools.lsp.enabled },
     },
     log: { level: logLevel },
     tasks: {
