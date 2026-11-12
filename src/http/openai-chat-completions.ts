@@ -97,6 +97,12 @@ interface ChatCompletionRequest {
    * any other value change nothing (`reasoningOverrideFromRequest`).
    */
   reasoning_effort?: unknown;
+  /**
+   * ATO-586: open a NEW session as an incognito chat (nothing written to
+   * memory, never listed, deleted by `DELETE /api/sessions/{id}` or the
+   * next start). An existing session keeps what it was.
+   */
+  incognito?: boolean;
 }
 
 interface ParsedRequest {
@@ -110,6 +116,8 @@ interface ParsedRequest {
   sessionIdOverride: string | null;
   /** ATO-731: `working_dir`, checked; null for the server's own folder. */
   workingDir: string | null;
+  /** ATO-586: `incognito: true` on the request. */
+  incognito: boolean;
   extensionsEnabled: boolean;
   /** `X-Atomic-Screen-Overlay` on an extensions request (ATO-1018). */
   screenOverlay: boolean;
@@ -1277,6 +1285,7 @@ async function parseRequestBody(
     firstUserMessage: firstUser?.content ?? lastUser.content,
     sessionIdOverride,
     workingDir,
+    incognito: body.incognito === true,
     extensionsEnabled: isExtensionsHeaderTruthy(
       getHeader(req, EXTENSIONS_HEADER),
     ),
@@ -1314,15 +1323,23 @@ function resolveSession(
   parsed: ParsedRequest,
   ctx: HandlerContext,
 ): SessionState {
+  // An incognito chat never takes the derived id: the same opening prompt
+  // would resume an ordinary chat that started with it, and that one
+  // remembers. It gets its own id, and continues by `session_id`.
   const desiredId =
     parsed.sessionIdOverride ??
-    deriveChatSessionId(parsed.systemPrompt, parsed.firstUserMessage);
+    (parsed.incognito
+      ? `api-${randomUUID()}`
+      : deriveChatSessionId(parsed.systemPrompt, parsed.firstUserMessage));
   const existing = ctx.runtime.sessionStore.load(desiredId);
   if (existing) return existing;
   const state = createEmptySessionState({
     id: desiredId,
     workingDir: parsed.workingDir ?? ctx.runtime.capabilities.workingDir,
     metadata: { source: "openai-chat", model: parsed.model },
+    ...(parsed.incognito
+      ? { incognito: ctx.runtime.sessionStore.newIncognitoMark() }
+      : {}),
   });
   ctx.runtime.sessionStore.save(state);
   return state;

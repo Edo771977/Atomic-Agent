@@ -9,6 +9,7 @@ import { createRuntimeToolRegistry, registerRuntimeCoreTools, registerRuntimeVis
 import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
 import { createInterruptedTurns } from "./interrupted-turns.js";
 import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition/runtime-turn-service.js";
+import { createIncognitoSessions } from "./incognito-sessions.js";
 import { createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
 import type { AgentRuntime, CreateAgentRuntimeOptions } from "./runtime-contract.js";
@@ -841,13 +842,20 @@ export async function createAgentRuntime(
   const createEphemeralSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
-  const { executeTurn, steer, runTurn, controlGoal } = createRuntimeTurnService(config, {
+  const { executeTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
     inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
+  // ATO-586: an incognito chat closed mid-turn is deleted once the turn
+  // has left the queue (`isBusy` is still true inside `executeTurn`).
+  const incognitoSessions = createIncognitoSessions({
+    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger,
+  });
+  const runTurn: typeof runQueuedTurn = (session, ...rest) =>
+    runQueuedTurn(session, ...rest).finally(() => incognitoSessions.settle(session.id));
 
   const taskRunner = createRuntimeTaskRunner({
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,
@@ -964,6 +972,7 @@ export async function createAgentRuntime(
     logger,
     metrics,
     createSession,
+    discardIncognitoSession: incognitoSessions.discard,
     createEphemeralSession,
     runTurn,
     controlGoal,
