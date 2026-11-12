@@ -4,6 +4,7 @@ import { USER_CONFIG_DEFAULTS } from "../config/config-schema.js";
 import {
   DEFAULT_LOCAL_WORKER_REASONING_BUDGET_TOKENS,
   DEFAULT_REASONING_BUDGET_TOKENS,
+  LOCAL_CHAT_REASONING_BUDGET_TOKENS,
   LOCAL_WORKER_REASONING_BUDGET_TOKENS,
   REASONING_CHARS_PER_TOKEN,
   effectiveReasoningBudgetTokens,
@@ -85,5 +86,12 @@ describe("a local fusion worker's reasoning bound (workerReasoning on a grammar 
     for (const configured of [0, 256, 8000]) {
       expect(localWorkerReasoningBudgetTokens("unbounded", configured)).toBe(0);
     }
+  });
+});
+
+describe("LOCAL_CHAT_REASONING_BUDGET_TOKENS (ATO-490)", () => {
+  it("maps the chat levels onto budgets: Low below Medium, High unbounded", () => {
+    expect(LOCAL_CHAT_REASONING_BUDGET_TOKENS.low).toBeLessThan(LOCAL_CHAT_REASONING_BUDGET_TOKENS.medium);
+    expect(LOCAL_CHAT_REASONING_BUDGET_TOKENS.high).toBe(0);
   });
 });

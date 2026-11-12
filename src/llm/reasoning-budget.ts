@@ -66,6 +66,22 @@ export function effectiveReasoningBudgetTokens(budgetTokens: number): number {
 }
 
 /**
+ * The think-block budget of a local grammar-served model per chat
+ * reasoning level (ATO-490, `POST /v1/chat/completions`
+ * `reasoning_effort`), in budget tokens. `0` is no bound. High lifts the
+ * bound entirely; Low and Medium sit around the low end and the middle
+ * of what the fusion bench measured per tool step (500 to 7,152 reasoning
+ * tokens). An ordinary chat turn, unlike a fusion worker
+ * (`LOCAL_WORKER_REASONING_BUDGET_TOKENS`), has no time limit, hence the
+ * larger values.
+ */
+export const LOCAL_CHAT_REASONING_BUDGET_TOKENS: Readonly<Record<ReasoningEffort, number>> = {
+  low: 1_000,
+  medium: 4_000,
+  high: 0,
+};
+
+/**
  * The think-block bound of a fusion worker on a local (grammar) leg,
  * per `llm.runMode.fusion.workerReasoning` level. A local llama-server
  * has no reasoning-effort parameter, so the level is spelled as this

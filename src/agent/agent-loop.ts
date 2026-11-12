@@ -48,6 +48,7 @@ import { composeSteerNotice } from "./steer-notice.js";
 import { planReminderNotice } from "./plan/plan-snapshot.js";
 
 import { getConfig } from "../config/index.js";
+import { LOCAL_CHAT_REASONING_BUDGET_TOKENS } from "../llm/reasoning-budget.js";
 
 import { ProfileClipWarnings, reportProfileClip } from "./profile-clip-warning.js";
 import { HistoryTrimWarnings, reportHistoryTrim } from "./history-trim-warning.js";
@@ -479,12 +480,20 @@ export class AgentLoop {
             ...(options.reasoningEffort !== undefined
               ? { reasoningEffort: options.reasoningEffort }
               : {}),
+            ...(options.reasoningOverride !== undefined
+              ? { reasoningOverride: options.reasoningOverride }
+              : {}),
             ...(options.maxOutputTokens !== undefined
               ? { maxOutputTokens: options.maxOutputTokens }
               : {}),
+            // The caller's own bound (a fusion worker's) wins; otherwise the
+            // chat's reasoning level (ATO-490) becomes the turn's bound, so the
+            // grammar, the trace, the repair cap and cut detection all see it.
             ...(options.reasoningBudgetTokens !== undefined
               ? { reasoningBudgetTokens: options.reasoningBudgetTokens }
-              : {}),
+              : options.reasoningOverride !== undefined
+                ? { reasoningBudgetTokens: LOCAL_CHAT_REASONING_BUDGET_TOKENS[options.reasoningOverride] }
+                : {}),
           };
         const contextProviderId = options.providerId ?? this.deps.contextProviderId?.(state.id);
         const initialMode = options.modelModePolicy ? resolveModelMode(options.modelModePolicy, options.providerId) : undefined;

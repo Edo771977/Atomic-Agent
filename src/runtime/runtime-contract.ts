@@ -473,6 +473,8 @@ export interface AgentRuntime {
       toolRole?: ToolRole;
       /** See `RunTurnOptions.reasoningEffort` — a fusion worker's setting. */
       reasoningEffort?: ReasoningEffort;
+      /** See `RunTurnOptions.reasoningOverride` — the chat's level (ATO-490). */
+      reasoningOverride?: ReasoningEffort;
       /** See `RunTurnOptions.maxOutputTokens` — a fusion worker's cap. */
       maxOutputTokens?: number;
       /** See `RunTurnOptions.reasoningBudgetTokens` — a local fusion worker's bound. */
@@ -540,6 +542,7 @@ export interface AgentRuntime {
       toolFilter?: (name: string) => boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
+      reasoningOverride?: ReasoningEffort;
       maxOutputTokens?: number;
       reasoningBudgetTokens?: number;
       /** See `runTurn`'s `interactive`. */
