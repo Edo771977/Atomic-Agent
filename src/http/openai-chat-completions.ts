@@ -30,6 +30,8 @@ import { checkWorkingDir } from "./session-working-dir.js";
 import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { perTurnModelRefusal } from "../runtime/per-turn-model.js";
+import { resolveLlmConfig } from "../llm/provider/index.js";
 import { openaiError } from "./openai-errors.js";
 import {
   beginSse,
@@ -63,6 +65,18 @@ import {
 
 export const SESSION_ID_HEADER = "X-Atomic-Session-Id";
 export const COMPLETION_ID_HEADER = "X-Atomic-Completion-Id";
+/**
+ * ATO-1148: set when the turn runs on the request's `provider_id` +
+ * `provider_model` (`<provider id>/<model>`), so a client can tell this
+ * agent from an older one that ignored the fields and ran the active model.
+ */
+export const TURN_MODEL_HEADER = "X-Atomic-Turn-Model";
+
+function turnModelHeader(request: ParsedRequest): Record<string, string> {
+  return request.turnModel
+    ? { [TURN_MODEL_HEADER]: `${request.turnModel.providerId}/${request.turnModel.model}` }
+    : {};
+}
 /**
  * Opt-in toggle for atomic-agent-specific SSE extensions on the streaming
  * chat-completions endpoint. When absent, the stream is a strict subset of
@@ -108,6 +122,14 @@ interface ChatCompletionRequest {
    * whatever the field says.
    */
   incognito?: boolean;
+  /**
+   * ATO-1148: run this turn on a configured CLOUD provider and chat model
+   * (a project's own model) without switching the agent's active model.
+   * `provider_model` needs `provider_id`; a local provider is refused,
+   * its model is one per agent. Absent: the active model, as before.
+   */
+  provider_id?: string;
+  provider_model?: string;
 }
 
 interface ParsedRequest {
@@ -123,6 +145,8 @@ interface ParsedRequest {
   workingDir: string | null;
   /** ATO-586: `incognito: true` on the request. */
   incognito: boolean;
+  /** ATO-1148: `provider_id` + `provider_model`, checked; null for the active model. */
+  turnModel: { providerId: string; model: string } | null;
   extensionsEnabled: boolean;
   /** `X-Atomic-Screen-Overlay` on an extensions request (ATO-1018). */
   screenOverlay: boolean;
@@ -214,6 +238,10 @@ async function handleNonStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      // ATO-1148: a project's own cloud model, for this turn only.
+      ...(env.request.turnModel
+        ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }
+        : {}),
       // An extensions client (the desktop) draws approval prompts, so a
       // person can be asked before an out-of-memory restart (ATO-334); a
       // plain OpenAI client cannot answer and gets the automatic one.
@@ -292,6 +320,7 @@ async function handleNonStream(
   sendJson(res, 200, payload, {
     [SESSION_ID_HEADER]: result.session.id,
     [COMPLETION_ID_HEADER]: env.completionId,
+    ...turnModelHeader(env.request),
   });
 }
 
@@ -313,6 +342,7 @@ async function handleStream(
     {
       [SESSION_ID_HEADER]: env.session.id,
       [COMPLETION_ID_HEADER]: env.completionId,
+      ...turnModelHeader(env.request),
     },
     { heartbeatMs: SSE_HEARTBEAT_MS },
   );
@@ -388,6 +418,10 @@ async function handleStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      // ATO-1148: a project's own cloud model, for this turn only.
+      ...(env.request.turnModel
+        ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }
+        : {}),
       eventHook: hook,
       // See the non-stream path: only a client that draws approval
       // prompts is asked before an out-of-memory restart (ATO-334).
@@ -1335,6 +1369,11 @@ async function parseRequestBody(
     workingDir = check.dir;
   }
   const reasoningOverride = reasoningOverrideFromRequest(body.reasoning_effort);
+  const turnModel = parseTurnModel(body);
+  if (typeof turnModel === "string") {
+    sendError(res, 400, openaiError(turnModel, "invalid_request_error", "provider_model"));
+    return null;
+  }
   return {
     model:
       typeof body.model === "string" && body.model.length > 0
@@ -1348,6 +1387,7 @@ async function parseRequestBody(
     sessionIdOverride,
     workingDir,
     incognito: body.incognito === true,
+    turnModel,
     extensionsEnabled: isExtensionsHeaderTruthy(
       getHeader(req, EXTENSIONS_HEADER),
     ),
@@ -1356,6 +1396,25 @@ async function parseRequestBody(
       isExtensionsHeaderTruthy(getHeader(req, SCREEN_OVERLAY_HEADER)),
     ...(reasoningOverride !== undefined ? { reasoningOverride } : {}),
   };
+}
+
+/**
+ * ATO-1148: the turn's own cloud provider + model, or why the request
+ * cannot have one. Both absent is the normal case (null). The cloud
+ * check reads the live config, the same one the turn will run on.
+ */
+export function parseTurnModel(
+  body: { provider_id?: unknown; provider_model?: unknown },
+): { providerId: string; model: string } | null | string {
+  const { provider_id: providerId, provider_model: model } = body;
+  const none = (v: unknown) => v === undefined || v === null;
+  if (none(providerId) && none(model)) return null;
+  if (typeof providerId !== "string" || providerId.trim().length === 0) {
+    return "provider_model needs provider_id, the configured provider it runs on";
+  }
+  if (typeof model !== "string") return "provider_id needs provider_model, the model to run on it";
+  const refusal = perTurnModelRefusal(resolveLlmConfig(getConfig()), providerId.trim(), model.trim());
+  return refusal ?? { providerId: providerId.trim(), model: model.trim() };
 }
 
 /**
