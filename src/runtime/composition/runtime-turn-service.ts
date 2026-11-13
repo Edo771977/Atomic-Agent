@@ -38,6 +38,7 @@ import type { SessionReadTaint } from "../session-read-taint.js";
 import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
 import { answerChannelForOrigin, type AnswerChannel } from "../../prompt/answer-style.js";
 import type { RequestBudgetNotices } from "../request-budget-notices.js";
+import { surfaceShowsQuestions, withAskUserVisibility } from "../../tools/conversation/ask-user-surface.js";
 
 export function prepareRuntimeTurnState() {
   /**
@@ -393,6 +394,11 @@ export function createRuntimeTurnService(
        * extensions client is the desktop app. Wins over `origin`.
        */
       answerChannel?: AnswerChannel;
+      /**
+       * The client declared whether it can show a question card
+       * (`ask_user`, ATO-489). Absent: decided from origin and channel.
+       */
+      questions?: boolean;
     } = {},
   ): Promise<RunTurnResult> => {
     // A folder's provider constraint can leave only one Fusion leg (issue
@@ -570,6 +576,17 @@ export function createRuntimeTurnService(
           turnPreviousReplies?.set(session.id, previousReply);
         }
         const answerChannel = runOptions.answerChannel ?? answerChannelForOrigin(runOptions.origin);
+        // `ask_user` only where a person can see and answer the question
+        // (ATO-489). The desktop has no question card until ATO-1502, so
+        // its turns do not get the tool; remove that hide when it lands.
+        const toolFilter = withAskUserVisibility(
+          runOptions.toolFilter,
+          surfaceShowsQuestions({
+            ...(runOptions.origin !== undefined ? { origin: runOptions.origin } : {}),
+            ...(answerChannel !== undefined ? { answerChannel } : {}),
+            ...(runOptions.questions !== undefined ? { questions: runOptions.questions } : {}),
+          }),
+        );
         // An explicit `maxSteps` from a caller (a durable task that pins
         // its own budget, `run --max-steps`) is a *ceiling* that caller
         // chose — honour it as one. Absent that, the config value is the
@@ -592,7 +609,10 @@ export function createRuntimeTurnService(
           // `origin: "fusion"` and gets no block (its reply goes to the
           // orchestrator, not to a person).
           ...(answerChannel !== undefined ? { answerChannel } : {}),
-          ...buildLoopTurnBudget(runOptions),
+          ...buildLoopTurnBudget({
+            ...runOptions,
+            ...(toolFilter !== undefined ? { toolFilter } : {}),
+          }),
           onStepCheckpoint: (state, step) =>
             checkpointStep(state, progress.atStep(step)),
         });
@@ -743,6 +763,8 @@ export function createRuntimeTurnService(
       onGoalProgress?: (goal: GoalState) => void;
       /** See `executeTurn`'s `answerChannel`. */
       answerChannel?: AnswerChannel;
+      /** See `executeTurn`'s `questions`. */
+      questions?: boolean;
     } = {},
   ): Promise<RunTurnResult> => {
     if (runOptions.goal !== undefined) {
