@@ -538,6 +538,7 @@ export async function createAgentRuntime(
     memoryNotes: {
       enabled: () => getConfig().memory.notes.enabled,
       store: (note) => notesStore.store(note),
+      outsideContentSources: (sessionId) => approvals.outsideContentSources(sessionId),
       log: (level, message, fields) => logger[level](message, fields),
     },
     background: createBackgroundCompaction({

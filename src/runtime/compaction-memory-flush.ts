@@ -3,12 +3,13 @@ import type { CompletionResult } from "../llm/provider/completion-types.js";
 import { getReasoningTurnFraming } from "../llm/model-profile.js";
 import { hashPrefix } from "../llm/slot-manager.js";
 import { MEMORY_CONTENT_MAX_LENGTH, type MemoryStoreInput } from "../memory/memory-store.js";
+import { filterUngroundedReflection } from "../memory/reflection/index.js";
 import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { estimateTokens } from "../prompt/token-budget.js";
 import { stripTitleReasoning } from "../session/session-title.js";
+import type { ConversationTurn } from "../session/conversation-turn.js";
+import { untrustedContentNote } from "../tools/untrusted-tool-output.js";
 import { abortableSubcall } from "./abortable-subcall.js";
-import { prepareCompactionSource } from "./context-compaction-chunks.js";
-import { buildExtractiveSummary } from "./compaction-extractive.js";
 import { compactionReplyBudget } from "./compaction-reply-budget.js";
 import type { ModelSummaryRoute } from "./context-compaction-model.js";
 
@@ -21,6 +22,14 @@ import type { ModelSummaryRoute } from "./context-compaction-model.js";
  * memory note through the notes store, the same writer reflection uses.
  * This copies OpenClaw's "automatic memory flush" step; the checkpoint
  * itself stays a single rolling summary.
+ *
+ * Only the user's and the assistant's own words are read, never a tool
+ * result: a web page, MCP answer or file saying "the user prefers X"
+ * must not become a durable note. When the span (or the running turn, per
+ * the approval gate) read outside content, the assistant's text is left
+ * out too, since it may repeat that content, and a line is kept only when
+ * its words come from the user's messages. Every line also passes the
+ * reflection grounding filter (`filterUngroundedReflection`).
  *
  * The call runs on its own prompt built from the session's records: the
  * session, its visible chat and its transcript are never changed. It is
@@ -47,6 +56,12 @@ export interface MemoryFlushNotes {
   /** `memory.notes.enabled`, read per flush. */
   enabled(): boolean;
   store(input: MemoryStoreInput): unknown;
+  /**
+   * The outside sources the session read in its running turn
+   * (`ApprovalGate.outsideContentSources`); non-empty treats the span as
+   * holding outside content. Absent: only the span's own records decide.
+   */
+  outsideContentSources?(sessionId: string): readonly string[];
   log?(level: "info" | "warn", message: string, fields: Record<string, unknown>): void;
 }
 
@@ -76,6 +91,73 @@ export type MemoryFlushOutcome =
   | { status: "failed"; message: string; costUsd?: number };
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const [FRAME_HEAD, FRAME_TAIL] = untrustedContentNote("\u0000").split("\u0000") as [string, string];
+
+/** A tool result framed as outside data by `markUntrustedResult` (web, MCP, HTTP...). */
+function isOutsideContentResult(turn: ConversationTurn): boolean {
+  if (turn.kind !== "tool_result") return false;
+  const first = turn.summary.split("\n", 1)[0] ?? "";
+  return first.startsWith(FRAME_HEAD) && first.endsWith(FRAME_TAIL);
+}
+
+interface FlushSource {
+  /** Records the flush reads, oldest first. */
+  records: string[];
+  /** The user's own messages in the span, the grounding source. */
+  userTexts: string[];
+  /** The span (or the turn) read outside content. */
+  outside: boolean;
+}
+
+/**
+ * The span as the flush reads it: user messages and, unless outside
+ * content is in play, the assistant's replies. Tool calls and results are
+ * never read (their text may be written by anyone).
+ */
+function flushSource(input: BuildPromptInput, from: number, through: number, taintedTurn: boolean): FlushSource {
+  const turns = input.session.turns.slice(from, through);
+  const outside = taintedTurn || turns.some(isOutsideContentResult);
+  const records: string[] = [];
+  const userTexts: string[] = [];
+  turns.forEach((turn, offset) => {
+    if (turn.kind === "user" && turn.text.trim()) {
+      userTexts.push(turn.text);
+      records.push(`Record ${from + offset} (user): ${turn.text}`);
+    } else if (turn.kind === "assistant_reply" && !outside && turn.text.trim()) {
+      records.push(`Record ${from + offset} (assistant): ${turn.text}`);
+    }
+  });
+  return { records, userTexts, outside };
+}
+
+const WORD = /[\p{L}\p{N}]{4,}/gu;
+const stem = (word: string) => word.toLowerCase().slice(0, 5);
+
+/** At least half of the line's longer words also occur (by stem) in the user's messages. */
+function groundedInUserWords(line: string, userStems: ReadonlySet<string>): boolean {
+  const words = line.match(WORD) ?? [];
+  if (words.length === 0) return false;
+  return words.filter((word) => userStems.has(stem(word))).length * 2 >= words.length;
+}
+
+/** The observation lines that survive grounding; `dropped` counts the rest. */
+function groundObservations(lines: readonly string[], source: FlushSource, sessionUserTexts: readonly string[]) {
+  const bodies = lines.map((line) => ({ line, body: line.replace(/^\d{4}-\d{2}-\d{2}: /, "") }));
+  const grounded = filterUngroundedReflection(
+    { facts: [], notes: bodies.map(({ body }) => ({ body, tags: [] })) },
+    { userTexts: source.userTexts, nameEvidence: sessionUserTexts },
+  );
+  const keptBodies = grounded.notes.map((note) => note.body);
+  const userStems = new Set(source.userTexts.flatMap((text) => (text.match(WORD) ?? []).map(stem)));
+  const kept = bodies.filter(({ body }) => {
+    const at = keptBodies.indexOf(body);
+    if (at < 0) return false;
+    keptBodies.splice(at, 1);
+    return !source.outside || groundedInUserWords(body, userStems);
+  }).map(({ line }) => line);
+  return { kept, dropped: lines.length - kept.length };
+}
 
 /** A local calendar day as `YYYY-MM-DD`. */
 export function localDay(ms: number): string {
@@ -167,11 +249,20 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
       log("info", "compaction memory flush skipped: window too small");
       return { status: "skipped", reason: "window_too_small" };
     }
-    // The records as the summary sees them; when they do not fit, the
-    // extractive digest of the same span (bounded, no model needed).
-    let records = prepareCompactionSource(state.turns, from, through).text;
-    if (estimateTokens(records) > room) records = buildExtractiveSummary(state.turns, from, through, { maxTokens: room });
-    const user = preamble + records;
+    let taintedTurn = false;
+    try { taintedTurn = (notes.outsideContentSources?.(state.id) ?? []).length > 0; } catch { taintedTurn = true; }
+    const source = flushSource(input, from, through, taintedTurn);
+    // The newest records that fit the window.
+    const kept: string[] = [];
+    let used = 0;
+    for (let i = source.records.length - 1; i >= 0; i--) {
+      const cost = estimateTokens(`${source.records[i]!}\n`);
+      if (used + cost > room) break;
+      kept.unshift(source.records[i]!);
+      used += cost;
+    }
+    if (kept.length === 0) return { status: "skipped", reason: "empty_span" };
+    const user = preamble + kept.join("\n");
     const framing = input.profile ? getReasoningTurnFraming(input.profile) : undefined;
     const plain = `${system}\n\n${user}`;
     const raw = framing
@@ -203,7 +294,10 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     costUsd = request.costOf?.(result, route.providerId);
     if (result.toolCalls?.length) throw new Error("The model answered with tool calls instead of observations.");
     const fallbackDay = days[days.length - 1] ?? today;
-    const lines = parseObservations(stripTitleReasoning(result.content), fallbackDay, today);
+    const parsed = parseObservations(stripTitleReasoning(result.content), fallbackDay, today);
+    const sessionUserTexts = state.turns.flatMap((turn) => (turn.kind === "user" ? [turn.text] : []));
+    const { kept: lines, dropped } = groundObservations(parsed, source, sessionUserTexts);
+    if (dropped > 0) log("info", "compaction memory flush dropped ungrounded observations", { dropped, outsideContent: source.outside });
     if (lines.length === 0) {
       log("info", "compaction memory flush found nothing to keep");
       return withCost({ status: "none" as const });

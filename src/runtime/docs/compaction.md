@@ -284,8 +284,14 @@ With `agent.compaction.memoryFlush` on (off by default; ATO-676) and
 `memory.notes.enabled`, a compaction that has a plan first makes one side call
 ([flush](../compaction-memory-flush.ts)) for dated observations about the records
 it is about to cover: lines of `YYYY-MM-DD: one short sentence`, at most 12, or
-`NONE`. The input is the same record text the summary reads, or its extractive
-digest when that does not fit the window. The call uses the compaction route,
+`NONE`. The input is the user's messages and the assistant's replies in that
+span, newest first when they do not all fit; tool calls and tool results (web
+pages, MCP answers, files) are never read, so outside text cannot become a
+durable note. When the span holds a result framed as outside content, or the
+approval gate reports outside content for the running turn, the assistant's
+replies are left out too, and a line is kept only when at least half of its
+longer words come from the user's messages. Every line also passes the
+reflection grounding filter (`filterUngroundedReflection`). The call uses the compaction route,
 provider framing, side slot and `compaction:<sessionId>` usage, with thinking off
 and at most 60 s (or `timeoutMs`, if smaller). Lines without a usable date get the
 newest record's day. The lines are stored as one note through the notes store,
