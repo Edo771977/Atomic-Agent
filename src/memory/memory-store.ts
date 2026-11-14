@@ -154,6 +154,10 @@ export interface MemoryListOptions {
    * `LIMIT`, like `excludeArchived`.
    */
   excludeTags?: readonly string[];
+  /** ATO-672. Only rows written by this session. Applied in SQL before `LIMIT`. */
+  sessionId?: string;
+  /** ATO-672. Only rows created at or after this time (epoch ms). Applied in SQL before `LIMIT`. */
+  createdSince?: number;
 }
 
 /**
@@ -833,6 +837,14 @@ export class MemoryStore {
         `(tags IS NULL OR NOT EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE json_each.value = ?))`,
       );
       params.push(tag);
+    }
+    if (opts.sessionId !== undefined) {
+      where.push(`session_id = ?`);
+      params.push(opts.sessionId);
+    }
+    if (opts.createdSince !== undefined && Number.isFinite(opts.createdSince)) {
+      where.push(`created_at >= ?`);
+      params.push(opts.createdSince);
     }
     if (opts.updatedBefore !== undefined) {
       if (!Number.isFinite(opts.updatedBefore)) {

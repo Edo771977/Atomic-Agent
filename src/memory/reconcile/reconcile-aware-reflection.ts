@@ -7,7 +7,8 @@ import type { NoteReconcileRunner } from "./note-reconcile-runner.js";
  * ATO-672. Decorator: base reflection first, then note reconciliation
  * over the notes that reflection call just wrote. The reflection runner
  * itself is untouched; the new notes are found as the session's
- * `reflection`-tagged rows created since this call started (a dedup merge
+ * `reflection`-tagged agent rows with no working directory created since
+ * this call started, selected in SQL by session and time (a dedup merge
  * into an older row is not new and is skipped, which is right: nothing
  * new was said).
  *
@@ -31,13 +32,14 @@ export function createReconcileAwareReflectionRunner(args: {
       }
       let fresh: MemoryEntry[];
       try {
+        // Selected in SQL, so other sessions' writes cannot push this
+        // run's notes out of the page. Reflection writes agent notes with
+        // no working directory; a notes-tool write always carries one,
+        // so a tool note that copied the tag is not taken for ours.
         fresh = args.notesStore
-          .list({ limit: 10 })
+          .list({ sessionId: input.sessionId, createdSince: startedAt, limit: 20 })
           .filter(
-            (e) =>
-              e.sessionId === input.sessionId &&
-              e.createdAt >= startedAt &&
-              e.tags.includes("reflection"),
+            (e) => e.source === "agent" && e.workingDir === null && e.tags.includes("reflection"),
           );
       } catch {
         return;

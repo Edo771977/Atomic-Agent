@@ -255,6 +255,35 @@ describe("note reconciliation (ATO-672)", () => {
     expect(seen).not.toContain(old.id);
   });
 
+  it("the decorator ignores notes other writers stored during the reflection", async () => {
+    let seen: number[] = [];
+    let own = -1;
+    const reflection: ReflectionRunner = {
+      async reflect() {
+        // Another session's reflection, and a notes-tool write (it carries a
+        // working directory) that copied the reflection tag.
+        for (let i = 0; i < 12; i += 1) store.store({ content: `other session note ${i}`, sessionId: "s2", tags: ["reflection"] });
+        store.store({ content: "tool note tagged like reflection", sessionId: "s1", workingDir: "/work", tags: ["reflection"] });
+        own = store.store({ content: "The user works at Globex now", sessionId: "s1", tags: ["reflection"] }).id;
+        for (let i = 0; i < 12; i += 1) store.store({ content: `later other note ${i}`, sessionId: "s3", tags: ["reflection"] });
+      },
+      abortPending() {},
+    };
+    const decorated = createReconcileAwareReflectionRunner({
+      reflection,
+      reconciler: {
+        async reconcile(input) {
+          seen = input.notes.map((n) => n.id);
+          return { outcome: "none", marked: [] };
+        },
+        abortPending() {},
+      },
+      notesStore: store,
+    });
+    await decorated.reflect({ sessionId: "s1", userMessage: "u", assistantReply: "a" });
+    expect(seen).toEqual([own]);
+  });
+
   it("the decorator stays fire-safe when the store is closed", async () => {
     const reflection: ReflectionRunner = {
       async reflect() {
