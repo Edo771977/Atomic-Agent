@@ -90,6 +90,25 @@ describe("superseded notes (ATO-672)", () => {
     expect(shown).not.toContain(marked.id);
   });
 
+  it("hidden notes take no recall slot and get no recall_count bump", async () => {
+    const stale1 = store.store({ content: "kiwi orchard kiwi orchard kiwi" });
+    const stale2 = store.store({ content: "kiwi orchard kiwi orchard" });
+    const live = store.store({ content: "the kiwi orchard is now in the north field, past the barn and the shed" });
+    store.markSuperseded(stale1.id, live.id, { leaseMs: 0 });
+    store.markSuperseded(stale2.id, live.id, { leaseMs: 0 });
+    const context = (await createDefaultMemoryContextProvider({
+      store,
+      recall: { enabled: true, k: 2 },
+      index: { enabled: false, limit: 0, previewChars: 80 },
+      hideSuperseded: true,
+    }).buildMemoryContext({ sessionId: "s1", userMessage: "kiwi orchard", toolResultSummaries: [], signal: new AbortController().signal })) as unknown as {
+      recalled: Array<{ id: number }>;
+    };
+    expect(context.recalled.map((e) => e.id)).toEqual([live.id]);
+    expect(store.get(stale1.id)!.recallCount).toBe(0);
+    expect(store.get(stale2.id)!.recallCount).toBe(0);
+  });
+
   describe("dedup never merges into a hidden note", () => {
     const fact = "the staging database runs postgres sixteen on the shared host";
     let deduping: MemoryStore;

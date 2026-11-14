@@ -127,6 +127,12 @@ export interface MemoryRecallOptions {
   scope?: "project" | "all";
   workingDir?: string | null;
   tags?: string[];
+  /**
+   * ATO-672. Leave out notes the reconciler marked stale
+   * (`isSupersededNote`) before `k` is applied, so they neither take a
+   * slot nor get a `recall_count` bump.
+   */
+  excludeSuperseded?: boolean;
 }
 
 export interface MemoryListOptions {
@@ -710,6 +716,7 @@ export class MemoryStore {
       where.push(`m.working_dir = ?`);
       params.push(dir);
     }
+    if (opts.excludeSuperseded) where.push(`NOT ${supersededSql("m.tags")}`);
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,
@@ -1280,11 +1287,13 @@ export class MemoryStore {
       workingDir = dir;
     }
 
+    const excludeSuperseded = opts.excludeSuperseded === true;
     const bm25Hits = this.recallRaw(
       ftsQuery,
       workingDir ?? null,
       requiredTags,
       k * 4,
+      excludeSuperseded,
     );
     if (!this.embeddingWriter || !this.embeddingStore) {
       // No hybrid wiring — return BM25 top-K and bump recall_count
@@ -1302,7 +1311,10 @@ export class MemoryStore {
       ...(this.metrics ? { metrics: this.metrics } : {}),
       // Notes found by meaning alone come back as full entries, the same
       // shape (and the same recall_count bump below) as keyword hits.
-      hydrate: (ids) => this.getMany(ids),
+      hydrate: (ids) => {
+        const entries = this.getMany(ids);
+        return excludeSuperseded ? entries.filter((e) => !isSupersededNote(e)) : entries;
+      },
       ...(this.embeddingMinCosine !== undefined ? { minCosine: this.embeddingMinCosine } : {}),
     };
     const blended = await recallHybrid(deps, {
@@ -1341,6 +1353,7 @@ export class MemoryStore {
     workingDir: string | null,
     requiredTags: readonly string[],
     limit: number,
+    excludeSuperseded: boolean,
   ): HybridRecallInputEntry[] {
     const where: string[] = [`memories_fts MATCH ?`];
     const params: unknown[] = [ftsQuery];
@@ -1348,6 +1361,7 @@ export class MemoryStore {
       where.push(`m.working_dir = ?`);
       params.push(workingDir);
     }
+    if (excludeSuperseded) where.push(`NOT ${supersededSql("m.tags")}`);
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,

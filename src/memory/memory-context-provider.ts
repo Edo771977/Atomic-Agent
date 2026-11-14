@@ -301,13 +301,15 @@ async function loadRecalled(
   const query = args.query.trim();
   if (query.length === 0) return [];
   try {
-    const hits = await args.store.recallHybridAsync(query, {
+    // Hidden notes are left out in SQL, before `k`: filtering after
+    // the fetch wasted slots and still bumped their recall_count.
+    return await args.store.recallHybridAsync(query, {
       k: args.k,
       ...(args.workingDir !== undefined
         ? { scope: "project" as const, workingDir: args.workingDir }
         : {}),
+      ...(args.hideSuperseded ? { excludeSuperseded: true } : {}),
     });
-    return args.hideSuperseded ? hits.filter((e) => !isSupersededNote(e)) : hits;
   } catch {
     return [];
   }
