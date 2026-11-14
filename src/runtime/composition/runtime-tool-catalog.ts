@@ -14,6 +14,7 @@ import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { visionCapableAlternatives } from "../../llm/provider/model-vision.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { createRequestBudgetScope, type RequestBudgetScope } from "../request-budget.js";
+import { verifiedAdmissionPricing } from "../link-spend-billing.js";
 import type { CompletionRequest } from "../../llm/provider/completion-types.js";
 import type { DailySpendBudget } from "../daily-spend-budget.js";
 import type { ModelProfile } from "../../llm/model-profile.js";
@@ -837,6 +838,14 @@ export function registerRuntimeFusionAndReadScope(input: {
           modelId,
           providerId,
         )?.pricing,
+      // The same minus snapshot-only prices: only verified pricing may
+      // refuse an escalation by its worst case or enable its re-run.
+      resolveWorkerAdmissionPricing: (providerId, modelId) =>
+        verifiedAdmissionPricing(resolveModelPricingFor(
+          resolveLlmConfig(getConfig()),
+          modelId,
+          providerId,
+        )),
       // The same client the llama-server provider serves workers with,
       // so the speed a worker's time limit is sized from is the speed
       // its own completions run at.
