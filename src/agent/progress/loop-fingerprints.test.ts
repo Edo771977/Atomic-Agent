@@ -37,4 +37,19 @@ describe("deterministic progress owner compatibility", () => {
     expect(fingerprints.hashToolCall("fixture", { a: 1, b: 2 })).toBe(fingerprints.hashToolCall("fixture", { b: 2, a: 1 }));
     expect(fingerprints.hashBatchCompositeArgs([{ tool: "a", args: {} }, { tool: "b", args: {} }])).not.toBe(fingerprints.hashBatchCompositeArgs([{ tool: "b", args: {} }, { tool: "a", args: {} }]));
   });
+
+  it("hashes the arguments the tool reads, so alternating key spellings stay one repeated call", () => {
+    const camel = { cmd: "make", timeoutMs: 1000 };
+    const snake = { cmd: "make", timeout_ms: 1000 };
+    expect(fingerprints.hashToolCall("os.shell.run", snake)).toBe(fingerprints.hashToolCall("os.shell.run", camel));
+    expect(fingerprints.hashBatchCompositeArgs([{ tool: "os.shell.run", args: snake }])).toBe(fingerprints.hashBatchCompositeArgs([{ tool: "os.shell.run", args: camel }]));
+    const tracker = new publicLoop.ToolLoopTracker(); const counts: number[] = [];
+    const failed = compressToolResult({ tool: "os.shell.run", status: "error", output: "make: *** no rule" });
+    for (const args of [camel, snake, camel, snake]) {
+      tracker.recordCall("os.shell.run", args); counts.push(tracker.recordOutcome("os.shell.run", args, failed).count);
+    }
+    expect(counts).toEqual([1, 2, 3, 4]);
+    // A tool without a schema hashes its arguments as sent.
+    expect(fingerprints.hashToolCall("mcp.fixture.tool", { timeout_ms: 1 })).not.toBe(fingerprints.hashToolCall("mcp.fixture.tool", { timeoutMs: 1 }));
+  });
 });

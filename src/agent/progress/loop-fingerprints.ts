@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
 import { LOOP_VETO_DENIED_REASON } from "./loop-constants.js";
 import type { ReadObservation } from "./read-coverage.js";
+import { canonicalArgs } from "../../tools/argument-aliases.js";
+import { coerceToolArgs } from "../../tools/coerce-tool-args.js";
 /** How much of a result's summary the outcome fingerprint reads. */
 const OUTCOME_FINGERPRINT_CHARS = 200;
 
@@ -56,9 +58,23 @@ export function isLoopVetoResult(result: CompressedToolResult): boolean {
   );
 }
 
-/** Stable signature for a `(tool, args)` pair. */
+/**
+ * Stable signature for a `(tool, args)` pair. It hashes the arguments
+ * the tool will read, not the bytes the model sent: dispatch renames a
+ * snake_case or mangled key to its schema key, reads alias shapes and
+ * unwraps over-encoded values (`ToolRegistry.invoke`), so `timeout_ms`
+ * and `timeoutMs` run the same call and must not alternate past the
+ * repeat gates. A tool with no registered schema hashes as sent.
+ */
 export function hashToolCall(tool: string, args: unknown): string {
-  return `${tool}:${hashCanonical(args)}`;
+  return `${tool}:${hashCanonical(dispatchedArgs(tool, args))}`;
+}
+
+/** `args` as `ToolRegistry.invoke` hands them to the tool. */
+function dispatchedArgs(tool: string, args: unknown): unknown {
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return args;
+  const record = args as Record<string, unknown>;
+  return coerceToolArgs(tool, canonicalArgs(tool, record));
 }
 
 /**
@@ -139,7 +155,7 @@ function stripVolatile(value: unknown): unknown {
 export function hashBatchCompositeArgs(
   calls: readonly { tool: string; args: unknown }[],
 ): string {
-  return hashCanonical(calls.map((c) => [c.tool, c.args]));
+  return hashCanonical(calls.map((c) => [c.tool, dispatchedArgs(c.tool, c.args)]));
 }
 
 export function hashBatchCompositeResults(
