@@ -109,6 +109,16 @@ describe("superseded notes (ATO-672)", () => {
     expect(store.get(stale2.id)!.recallCount).toBe(0);
   });
 
+  it("clearSuperseded() makes a superseded note visible again", () => {
+    const a = store.store({ content: "office is in lisbon", tags: ["place"] });
+    store.markSuperseded(a.id, 42, { leaseMs: 0 });
+    expect(store.clearSuperseded(a.id)).toBe(true);
+    expect(store.get(a.id)!.tags).toEqual(["place"]);
+    expect(store.list({ excludeSuperseded: true }).map((e) => e.id)).toContain(a.id);
+    expect(store.clearSuperseded(a.id)).toBe(false);
+    expect(store.clearSuperseded(9_999)).toBe(false);
+  });
+
   describe("dedup never merges into a hidden note", () => {
     const fact = "the staging database runs postgres sixteen on the shared host";
     let deduping: MemoryStore;

@@ -1126,6 +1126,27 @@ export class MemoryStore {
       { ...opts, evictable: (tag) => !isReservedSupersedeTag(tag) }, true);
   }
 
+  /**
+   * ATO-672. Undo `markSuperseded`: drops `superseded` and every
+   * `superseded-by-<id>` tag from `id`, so the note is visible to recall
+   * and the index again. A user action (`atomic-agent memory
+   * unsupersede`), so the consolidator lease does not apply. True when a
+   * tag was removed; false for an unknown id or an unmarked note.
+   */
+  clearSuperseded(id: number): boolean {
+    const normalizedId = validateId(id);
+    const row = this.db.prepare(`SELECT tags FROM memories WHERE id = ?`).get(normalizedId) as
+      { tags: string | null } | undefined;
+    if (!row) return false;
+    const existing = parseTags(row.tags);
+    const kept = withoutReservedTags(existing);
+    if (kept.length === existing.length) return false;
+    this.db
+      .prepare(`UPDATE memories SET tags = ?, updated_at = ? WHERE id = ?`)
+      .run(kept.length > 0 ? JSON.stringify(kept) : null, this.now(), normalizedId);
+    return true;
+  }
+
   private applyTagEvolution(
     id: number,
     addTags: readonly string[],
