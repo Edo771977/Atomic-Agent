@@ -236,8 +236,11 @@ function assembleOpenAiChatBody(
   // a small output cap.
   // A level the person picked for the chat (ATO-490) comes first, and
   // only for a model that reasons: anything else keeps the body it had.
+  // A request that asked for no thinking (`disableThinking`, the
+  // compaction summary) keeps it off: the level does not apply there.
   const override =
     filtered.reasoningOverride !== undefined &&
+    filtered.disableThinking !== true &&
     cloudTakesReasoningOverride(options.providerKind, defaultChatModel)
       ? filtered.reasoningOverride
       : undefined;

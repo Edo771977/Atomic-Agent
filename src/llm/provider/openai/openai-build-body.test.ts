@@ -988,6 +988,19 @@ describe("buildOpenAiChatBody reasoningOverride (ATO-490)", () => {
     }
   });
 
+  it("does not turn thinking back on for a request that asked for none (disableThinking)", () => {
+    const build2 = (reasoningOverride?: "high", modelParams?: Record<string, unknown>) =>
+      buildOpenAiChatBody(
+        { prompt: "hi", disableThinking: true, ...(reasoningOverride ? { reasoningOverride } : {}) },
+        "anthropic/claude-fable-5.2", false, undefined, undefined, undefined, undefined,
+        { providerKind: "openrouter", ...(modelParams ? { modelParams } : {}) },
+      );
+    expect(build2("high")).toEqual(build2());
+    expect(build2("high").reasoning).toBeUndefined();
+    // The config's own params keep their say, as without a level.
+    expect(build2("high", { reasoning: { max_tokens: 1_000 } })).toEqual(build2(undefined, { reasoning: { max_tokens: 1_000 } }));
+  });
+
   it("changes nothing when absent: the config's params still win as before", () => {
     const body = build({ prompt: "hi", reasoningEffort: "low" }, "gpt-5.4", "openai-compatible", undefined, { reasoning_effort: "high" });
     expect(body.reasoning_effort).toBe("high");
