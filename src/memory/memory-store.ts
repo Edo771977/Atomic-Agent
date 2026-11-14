@@ -154,6 +154,11 @@ export interface MemoryListOptions {
    * `LIMIT`, like `excludeArchived`.
    */
   excludeTags?: readonly string[];
+  /**
+   * ATO-672. Leave out notes the reconciler marked stale
+   * (`isSupersededNote`). Applied in SQL before `LIMIT`.
+   */
+  excludeSuperseded?: boolean;
   /** ATO-672. Only rows written by this session. Applied in SQL before `LIMIT`. */
   sessionId?: string;
   /** ATO-672. Only rows created at or after this time (epoch ms). Applied in SQL before `LIMIT`. */
@@ -229,18 +234,26 @@ export function isReservedSupersedeTag(tag: string): boolean {
   return t === SUPERSEDED_NOTE_TAG || t.startsWith("superseded-by-");
 }
 
+const SUPERSEDED_BY_TAG = /^superseded-by-\d+$/;
+
 /**
- * ATO-672. True when the reconciler marked `entry` stale. With
+ * ATO-672. True when the reconciler marked `entry` stale: it carries
+ * both `superseded` and `superseded-by-<id>`, the pair only
+ * `markSuperseded()` writes. A lone `superseded` tag (a user's own,
+ * stored before the tags were reserved) does not count. With
  * `memory.notes.reconcile` on, recall and the index hide such a note.
  */
 export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
-  return entry.tags.includes(SUPERSEDED_NOTE_TAG);
+  return entry.tags.includes(SUPERSEDED_NOTE_TAG) && entry.tags.some((tag) => SUPERSEDED_BY_TAG.test(tag));
 }
 
 /** SQL twin of {@link isSupersededNote} over a `tags` JSON column. */
 function supersededSql(tagsColumn: string): string {
   return `(${tagsColumn} IS NOT NULL AND json_valid(${tagsColumn})
-    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}'))`;
+    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}')
+    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn})
+                 WHERE json_each.value GLOB 'superseded-by-[0-9]*'
+                   AND substr(json_each.value, 15) NOT GLOB '*[^0-9]*'))`;
 }
 
 function withoutReservedTags(tags: string[]): string[] {
@@ -855,6 +868,9 @@ export class MemoryStore {
         `(tags IS NULL OR NOT EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE json_each.value = ?))`,
       );
       params.push(tag);
+    }
+    if (opts.excludeSuperseded) {
+      where.push(`NOT ${supersededSql("tags")}`);
     }
     if (opts.sessionId !== undefined) {
       where.push(`session_id = ?`);

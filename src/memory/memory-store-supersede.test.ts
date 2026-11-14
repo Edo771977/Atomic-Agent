@@ -66,6 +66,30 @@ describe("superseded notes (ATO-672)", () => {
     expect(off.recalled.map((e) => e.id)).toContain(old.id);
   });
 
+  it("a user's own legacy `superseded` tag does not hide a note; only the reconciler's pair does", async () => {
+    const legacy = store.store({ content: "lisbon office legacy note" });
+    const legacyCaps = store.store({ content: "lisbon office another legacy note" });
+    const marked = store.store({ content: "lisbon office stale note" });
+    const db = store.getDatabaseHandleForEmbeddings();
+    // Written before the tags were reserved: store() strips them today.
+    db.prepare("UPDATE memories SET tags = ? WHERE id = ?").run(JSON.stringify(["superseded"]), legacy.id);
+    db.prepare("UPDATE memories SET tags = ? WHERE id = ?").run(JSON.stringify(["Superseded", "todo"]), legacyCaps.id);
+    store.markSuperseded(marked.id, 999, { leaseMs: 0 });
+    const context = (await createDefaultMemoryContextProvider({
+      store,
+      recall: { enabled: true, k: 5 },
+      index: { enabled: true, limit: 20, previewChars: 80 },
+      hideSuperseded: true,
+    }).buildMemoryContext({ sessionId: "s1", userMessage: "lisbon office", toolResultSummaries: [], signal: new AbortController().signal })) as unknown as {
+      recalled: Array<{ id: number }>;
+      index: Array<{ id: number }>;
+    };
+    const shown = [...context.recalled, ...context.index].map((e) => e.id);
+    expect(shown).toContain(legacy.id);
+    expect(shown).toContain(legacyCaps.id);
+    expect(shown).not.toContain(marked.id);
+  });
+
   describe("dedup never merges into a hidden note", () => {
     const fact = "the staging database runs postgres sixteen on the shared host";
     let deduping: MemoryStore;

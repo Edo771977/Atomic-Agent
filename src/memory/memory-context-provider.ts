@@ -16,7 +16,7 @@ import type {
   ProcedureStore,
 } from "./procedures/procedure-store.js";
 import type { RecallNameGuard } from "./recall-name-guard.js";
-import { SUPERSEDED_NOTE_TAG, isSupersededNote } from "./reconcile/note-reconcile-runner.js";
+import { isSupersededNote } from "./memory-store.js";
 
 /**
  * Configuration for the default memory context provider.
@@ -401,7 +401,7 @@ function loadIndex(args: LoadIndexArgs): readonly MemoryIndexEntry[] {
       // is now distilled into a lesson. They remain readable by id
       // via `memory.notes.recall { id }` (cross-phase invariant 9).
       excludeArchived: true,
-      ...(args.hideSuperseded ? { excludeTags: [SUPERSEDED_NOTE_TAG] } : {}),
+      ...(args.hideSuperseded ? { excludeSuperseded: true } : {}),
       ...(args.workingDir !== undefined
         ? { scope: "project" as const, workingDir: args.workingDir }
         : {}),
