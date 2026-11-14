@@ -8,7 +8,9 @@ import {
   coreOperationInProgress,
   coreOperationLooksActive,
   readCoreOperationLock,
+  processStartedAtMs,
   readCoreOperationLockForTurn,
+  readCoreOperationLockOwner,
   writtenBeforeBoot,
 } from "./core-operation.js";
 
@@ -176,5 +178,59 @@ describe("readCoreOperationLockForTurn / coreOperationLooksActive", () => {
     readCoreOperationLockForTurn(dataDir);
     expect(readFileSync(lockPath(), "utf8")).toBe(String(process.ppid));
     expect(statSync(lockPath()).mtimeMs).toBe(before);
+  });
+});
+
+/**
+ * ATO-1434: a live-looking lock owner may be a pid the crashed owner left
+ * and another program now holds. One started after the lock was written
+ * cannot have written it.
+ */
+describe("readCoreOperationLockOwner", () => {
+  let dataDir: string;
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "core-op-owner-"));
+  });
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const lockPath = (): string => join(dataDir, "core", "operation.lock");
+  const writeLock = (content: string, ageMs: number): number => {
+    mkdirSync(join(dataDir, "core"), { recursive: true });
+    writeFileSync(lockPath(), content);
+    const then = new Date(Date.now() - ageMs);
+    utimesSync(lockPath(), then, then);
+    return statSync(lockPath()).mtimeMs;
+  };
+
+  it("no lock: nothing to say", () => {
+    expect(readCoreOperationLockOwner(dataDir)).toBeNull();
+  });
+
+  it("gives the lock's age, and an owner that started before it is its owner", () => {
+    const mtime = writeLock("4242", 60_000);
+    const owner = readCoreOperationLockOwner(dataDir, { now: () => mtime + 60_000, processStartedAtMs: () => mtime - 3_600_000 });
+    expect(owner).toEqual({ ageMs: 60_000, startedAfterLock: false });
+  });
+
+  it("an owner pid that started after the lock was written is a reused pid", () => {
+    const mtime = writeLock("4242", 60_000);
+    expect(readCoreOperationLockOwner(dataDir, { now: () => mtime + 60_000, processStartedAtMs: () => mtime + 30_000 }))
+      .toEqual({ ageMs: 60_000, startedAfterLock: true });
+  });
+
+  it("an unreadable start time (Windows) or this very process is never called reused", () => {
+    const mtime = writeLock("4242", 60_000);
+    expect(readCoreOperationLockOwner(dataDir, { now: () => mtime + 60_000, processStartedAtMs: () => null })?.startedAfterLock).toBe(false);
+    writeLock(String(process.pid), 0);
+    expect(readCoreOperationLockOwner(dataDir, { processStartedAtMs: () => Date.now() + 60_000 })?.startedAfterLock).toBe(false);
+  });
+
+  it.runIf(process.platform === "linux" || process.platform === "darwin")("reads a real process's start time", () => {
+    const started = processStartedAtMs(process.pid);
+    expect(started).not.toBeNull();
+    expect(started!).toBeLessThanOrEqual(Date.now() + 2_000);
+    expect(started!).toBeGreaterThan(Date.now() - 3_600_000);
+    expect(processStartedAtMs(2 ** 22 + 7)).toBeNull();
   });
 });

@@ -643,14 +643,19 @@ export function recoverTurnStep(
   let localEngineGone = false;
   let localEngineDown = false;
   // ATO-1434: the engine lock is held (a start or load, as far as the
-  // liveness can tell) and no model process exists at all. A real load
-  // writes its pid within a minute or so; a lock held with nothing behind
-  // it never will. Such a turn waits at most
-  // `LOCAL_ENGINE_NO_PROCESS_CEILING_MS`, then ends with the same
-  // `local_engine_down` reason as a dead engine. A pid that appears
-  // resets the count and the ordinary wait applies, as does a lock whose
-  // owner is a live process (a slow Core load).
+  // liveness can tell) and no model process exists at all. A lock whose
+  // owner is not a live process (no pid yet, or a pid reused by a program
+  // that started after the lock was written) has nothing behind it: such
+  // a turn waits at most `LOCAL_ENGINE_NO_PROCESS_CEILING_MS`, then ends
+  // with the same `local_engine_down` reason as a dead engine. A live
+  // owner may be a slow Atomic Core load, which writes the pid only when
+  // it returns; it waits up to `LOCAL_ENGINE_LIVE_OWNER_CEILING_MS`
+  // counted from when the lock was taken, so a hung loader (or a pid
+  // Windows gave to another program) ends every later turn at once
+  // instead of each waiting out the whole budget. A pid that appears
+  // resets the count and the ordinary wait applies.
   let lockedNoProcess = false;
+  let liveOwnerLoading = false;
   let noProcessCeilingLeftMs = Number.POSITIVE_INFINITY;
   if (
     category === "transport" &&
@@ -667,17 +672,17 @@ export function recoverTurnStep(
     // the turn ends, the disk may say something else.
     turn.engineWaitVerdicts = { first: turn.engineWaitVerdicts?.first ?? verdict, last: verdict };
     const engineState = verdict.state;
-    // A live lock owner with no pid yet is a load under way (Atomic Core
-    // writes the pid only once its load returns, and a partial-offload
-    // shrink loads again): it keeps the ordinary wait, bounded by the lock's
-    // own staleness. A dead owner leaves the pid file visible and reads
-    // `dead` above.
-    lockedNoProcess = engineState === "unknown" && verdict.modelProcess === "none" && verdict.lockOwner !== "live";
+    const noProcessUnderLock = engineState === "unknown" && verdict.modelProcess === "none";
+    liveOwnerLoading = noProcessUnderLock && verdict.lockOwner === "live";
+    lockedNoProcess = noProcessUnderLock;
     if (lockedNoProcess) {
       turn.lockNoProcessSinceWaitedMs ??= turn.outageWaitedMs;
       const since = turn.lockNoProcessSinceWaitedMs;
-      noProcessCeilingLeftMs =
-        since + Math.min(LOCAL_ENGINE_NO_PROCESS_CEILING_MS, providerWaitCfg.maxWaitMs - since) - turn.outageWaitedMs;
+      noProcessCeilingLeftMs = liveOwnerLoading
+        ? verdict.lockAgeMs !== undefined
+          ? LOCAL_ENGINE_LIVE_OWNER_CEILING_MS - verdict.lockAgeMs
+          : since + LOCAL_ENGINE_LIVE_OWNER_CEILING_MS - turn.outageWaitedMs
+        : since + Math.min(LOCAL_ENGINE_NO_PROCESS_CEILING_MS, providerWaitCfg.maxWaitMs - since) - turn.outageWaitedMs;
     } else {
       turn.lockNoProcessSinceWaitedMs = null;
     }
@@ -715,7 +720,7 @@ export function recoverTurnStep(
         ...(verdict.reason !== undefined ? { engineReason: verdict.reason } : {}),
       });
       runError = new LocalEngineDownError(failingLink ?? "local-llama", err);
-    } else if (lockedNoProcess && (!providerWaitCfg.enabled || noProcessCeilingLeftMs <= 0)) {
+    } else if (lockedNoProcess && ((!providerWaitCfg.enabled && !liveOwnerLoading) || noProcessCeilingLeftMs <= 0)) {
       localEngineDown = true;
       const causeCode = readErrnoCode(err);
       deps.logger?.warn("engine lock held with no model process; ending the turn instead of waiting", {
@@ -1105,12 +1110,22 @@ export const LOCAL_ENGINE_RESTART_GRACE_MS = 8_000;
 const LOCAL_ENGINE_GONE_RETRY_MS = 2_000;
 /**
  * How long a turn keeps waiting while the managed engine's operation lock
- * is held and no model process exists at all (ATO-1434). A real start or
- * load writes its pid well before this; past it, the lock has nothing
- * behind it and the turn ends with `LocalEngineDownError`. A lock with a
- * live model process keeps the ordinary wait.
+ * is held by an owner that is not a live process (no pid written yet, or
+ * a reused pid) and no model process exists at all (ATO-1434). Past it the
+ * lock has nothing behind it and the turn ends with `LocalEngineDownError`.
+ * A live owner has its own ceiling, below; a live model process keeps the
+ * ordinary wait.
  */
 export const LOCAL_ENGINE_NO_PROCESS_CEILING_MS = 90_000;
+/**
+ * How long the engine lock may be held by a live owner with no model
+ * process before the turn stops waiting for it (ATO-1434), counted from
+ * when the lock was taken. Outlasts Atomic Core's model load request
+ * (`CORE_MODEL_LOAD_TIMEOUT_MS`, 240 s) with room for its connect, so a
+ * slow but genuine load is not called down; a hung loader or a reused pid
+ * ends later turns at once.
+ */
+export const LOCAL_ENGINE_LIVE_OWNER_CEILING_MS = 270_000;
 /**
  * How long a turn keeps retrying the Atomic Chat app's server while it
  * refuses connections before it ends with `AtomicChatNotRunningError`

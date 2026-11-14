@@ -321,6 +321,8 @@ export {
   type ManagedEngineLivenessReport,
   type ManagedModelProcess,
 } from "./server/engine-liveness.js";
+export { readCoreOperationLockOwner, type CoreOperationLockOwner } from "./core/core-operation.js";
+export { CORE_MODEL_LOAD_TIMEOUT_MS } from "./core/core-sessions.js";
 export {
   classifyPrefixReuse,
   countSlidingWindowLayers,
