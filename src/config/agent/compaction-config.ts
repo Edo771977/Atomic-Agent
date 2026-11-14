@@ -39,6 +39,9 @@ export interface CompactionConfig {
    * and store them as one memory note tagged `observations`. A private
    * side call: the visible chat is unchanged, and a failed flush never
    * stops the compaction. Optional: absent means off (the default).
+   * Cost: one more model call per foreground compaction, even before a
+   * rolling or extractive checkpoint that needs none (a paid call on a
+   * billed provider). Background compaction never flushes.
    */
   memoryFlush?: boolean;
 }

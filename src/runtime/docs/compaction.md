@@ -303,6 +303,12 @@ worker session never flush.
 The rolling summary (`compaction-rolling.ts`) is unchanged; the flush runs before
 the rolling, extractive or model checkpoint alike.
 
+Cost: the flush is one more model call per foreground compaction. A rolling or
+extractive checkpoint otherwise needs no model call, so with the flag on, on a
+billed provider, every compaction adds a paid call (counted in the compaction's
+spend and the session's request budget). Background compaction never flushes:
+only `runContextCompaction` calls it.
+
 ## Observability and validation
 
 Session-scoped `compaction_started`, `compaction_progress`, `compaction_completed` and
