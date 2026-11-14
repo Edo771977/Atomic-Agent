@@ -11,6 +11,12 @@ export interface NotesRecallToolOptions {
   store: MemoryStore;
   /** Default `k` when the caller omits it (comes from config). */
   defaultK: number;
+  /**
+   * ATO-672. `memory.notes.reconcile`: a search leaves out notes the
+   * reconciler marked stale, as the prompt's recall does. A fetch by
+   * `id` still returns them.
+   */
+  hideSuperseded?: boolean;
 }
 
 /**
@@ -23,6 +29,9 @@ export interface NotesRecallToolOptions {
  *   - direct fetch (when `id` is supplied): return the full note for
  *     that id, ignoring `query` / `k` / `scope`. Used by the agent when
  *     drilling into a pointer shown in `### memory-index`.
+ *
+ * With `hideSuperseded` (`memory.notes.reconcile` on) a search skips
+ * superseded notes; a fetch by id does not.
  */
 export function buildNotesRecallTool(
   options: NotesRecallToolOptions,
@@ -56,6 +65,7 @@ export function buildNotesRecallTool(
           scope,
           workingDir: scope === "project" ? ctx.workingDir : null,
           tags: rawArgs.tags as string[] | undefined,
+          ...(options.hideSuperseded ? { excludeSuperseded: true } : {}),
         };
         // Without embeddings `recallHybridAsync` is the keyword recall
         // (same hits, order and recall_count bump); with them it adds the

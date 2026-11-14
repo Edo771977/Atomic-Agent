@@ -150,7 +150,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 79.
 - `memory.notes.maxEntries` (default `1000`).
 - `memory.notes.maxContentChars` (default `4000`).
 - `memory.notes.recallDefaultK` (default `5`).
-- `memory.notes.reconcile` (default `false`): after reflection writes a note, one background model call marks older notes it replaces as `superseded` so they leave the prompt.
+- `memory.notes.reconcile` (default `false`): after reflection writes a note, at most one background model call per reflection, made only when an older note of the same project shares at least two topic words with it, marks older notes it replaces as `superseded` so they leave the prompt.
 - `memory.recallInjection.enabled` (default `true`).
 - `memory.recallInjection.k` (default `3`).
 - `memory.recallInjection.previewChars` (default `160`).

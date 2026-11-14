@@ -66,6 +66,92 @@ describe("superseded notes (ATO-672)", () => {
     expect(off.recalled.map((e) => e.id)).toContain(old.id);
   });
 
+  it("a user's own legacy `superseded` tag does not hide a note; only the reconciler's pair does", async () => {
+    const legacy = store.store({ content: "lisbon office legacy note" });
+    const legacyCaps = store.store({ content: "lisbon office another legacy note" });
+    const marked = store.store({ content: "lisbon office stale note" });
+    const db = store.getDatabaseHandleForEmbeddings();
+    // Written before the tags were reserved: store() strips them today.
+    db.prepare("UPDATE memories SET tags = ? WHERE id = ?").run(JSON.stringify(["superseded"]), legacy.id);
+    db.prepare("UPDATE memories SET tags = ? WHERE id = ?").run(JSON.stringify(["Superseded", "todo"]), legacyCaps.id);
+    store.markSuperseded(marked.id, 999, { leaseMs: 0 });
+    const context = (await createDefaultMemoryContextProvider({
+      store,
+      recall: { enabled: true, k: 5 },
+      index: { enabled: true, limit: 20, previewChars: 80 },
+      hideSuperseded: true,
+    }).buildMemoryContext({ sessionId: "s1", userMessage: "lisbon office", toolResultSummaries: [], signal: new AbortController().signal })) as unknown as {
+      recalled: Array<{ id: number }>;
+      index: Array<{ id: number }>;
+    };
+    const shown = [...context.recalled, ...context.index].map((e) => e.id);
+    expect(shown).toContain(legacy.id);
+    expect(shown).toContain(legacyCaps.id);
+    expect(shown).not.toContain(marked.id);
+  });
+
+  it("hidden notes take no recall slot and get no recall_count bump", async () => {
+    const stale1 = store.store({ content: "kiwi orchard kiwi orchard kiwi" });
+    const stale2 = store.store({ content: "kiwi orchard kiwi orchard" });
+    const live = store.store({ content: "the kiwi orchard is now in the north field, past the barn and the shed" });
+    store.markSuperseded(stale1.id, live.id, { leaseMs: 0 });
+    store.markSuperseded(stale2.id, live.id, { leaseMs: 0 });
+    const context = (await createDefaultMemoryContextProvider({
+      store,
+      recall: { enabled: true, k: 2 },
+      index: { enabled: false, limit: 0, previewChars: 80 },
+      hideSuperseded: true,
+    }).buildMemoryContext({ sessionId: "s1", userMessage: "kiwi orchard", toolResultSummaries: [], signal: new AbortController().signal })) as unknown as {
+      recalled: Array<{ id: number }>;
+    };
+    expect(context.recalled.map((e) => e.id)).toEqual([live.id]);
+    expect(store.get(stale1.id)!.recallCount).toBe(0);
+    expect(store.get(stale2.id)!.recallCount).toBe(0);
+  });
+
+  it("clearSuperseded() makes a superseded note visible again", () => {
+    const a = store.store({ content: "office is in lisbon", tags: ["place"] });
+    store.markSuperseded(a.id, 42, { leaseMs: 0 });
+    expect(store.clearSuperseded(a.id)).toBe(true);
+    expect(store.get(a.id)!.tags).toEqual(["place"]);
+    expect(store.list({ excludeSuperseded: true }).map((e) => e.id)).toContain(a.id);
+    expect(store.clearSuperseded(a.id)).toBe(false);
+    expect(store.clearSuperseded(9_999)).toBe(false);
+  });
+
+  describe("dedup never merges into a hidden note", () => {
+    const fact = "the staging database runs postgres sixteen on the shared host";
+    let deduping: MemoryStore;
+    beforeEach(() => {
+      deduping = new MemoryStore({ dbFile: join(dir, "dedup-hidden.sqlite"), maxEntries: 100, dedup: { enabled: true, fts5Threshold: 0.85 } });
+    });
+    afterEach(() => deduping.close());
+
+    it("a re-learned fact matching a superseded note is stored as a new visible note", () => {
+      const a = deduping.store({ content: fact });
+      const b = deduping.store({ content: "the staging database moved to mysql eight last week" });
+      deduping.markSuperseded(a.id, b.id, { leaseMs: 0 });
+      const again = deduping.store({ content: fact });
+      expect(again.id).not.toBe(a.id);
+      expect(again.tags).not.toContain("superseded");
+    });
+
+    it("an explicit user note matching a superseded note is stored as its own visible note", () => {
+      const a = deduping.store({ content: fact });
+      deduping.markSuperseded(a.id, 99, { leaseMs: 0 });
+      const user = deduping.store({ content: fact, source: "user" });
+      expect(user.id).not.toBe(a.id);
+      expect(user.source).toBe("user");
+      expect(user.tags).toEqual([]);
+    });
+
+    it("an archived (consolidated) note does not absorb a new write either", () => {
+      const a = deduping.store({ content: fact });
+      deduping.getDatabaseHandleForEmbeddings().prepare("UPDATE memories SET consolidated_into = 1 WHERE id = ?").run(a.id);
+      expect(deduping.store({ content: fact }).id).not.toBe(a.id);
+    });
+  });
+
   describe("reserved supersede tags", () => {
     const reserved = ["superseded", "Superseded", "superseded-by-7"];
 

@@ -3,6 +3,7 @@ import type { CompletionResult } from "../llm/provider/completion-types.js";
 import { getReasoningTurnFraming } from "../llm/model-profile.js";
 import { hashPrefix } from "../llm/slot-manager.js";
 import { MEMORY_CONTENT_MAX_LENGTH, type MemoryStoreInput } from "../memory/memory-store.js";
+import { containsSecret } from "../memory/memory-secret-guard.js";
 import { filterUngroundedReflection } from "../memory/reflection/index.js";
 import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { estimateTokens } from "../prompt/token-budget.js";
@@ -28,9 +29,12 @@ import type { ModelSummaryRoute } from "./context-compaction-model.js";
  * result: a web page, MCP answer or file saying "the user prefers X"
  * must not become a durable note. When the span (or the running turn, per
  * the approval gate) read outside content, the assistant's text is left
- * out too, since it may repeat that content, and a line is kept only when
- * its words come from the user's messages. Every line also passes the
- * reflection grounding filter (`filterUngroundedReflection`).
+ * out too, since it may repeat that content. Whatever was detected, a line
+ * is kept only when most of its topic words come from the user's messages
+ * in the span (outside text can arrive unframed, e.g. through a shell),
+ * and it also passes the reflection grounding filter
+ * (`filterUngroundedReflection`). This narrows, but cannot close, the way
+ * for outside text: a line that restates the user's words is kept.
  *
  * The call runs on its own prompt built from the session's records: the
  * session, its visible chat and its transcript are never changed. It is
@@ -63,6 +67,13 @@ export interface MemoryFlushNotes {
    * holding outside content. Absent: only the span's own records decide.
    */
   outsideContentSources?(sessionId: string): readonly string[];
+  /**
+   * True when the tool's results carry outside text: bootstrap answers
+   * from the tool registry (`untrustedOutput` / `externalSource`, and a
+   * tool no longer registered). Absent: only the built-in names and the
+   * outside-content frame decide.
+   */
+  isOutsideTool?(tool: string): boolean;
   log?(level: "info" | "warn", message: string, fields: Record<string, unknown>): void;
 }
 
@@ -95,9 +106,27 @@ const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const [FRAME_HEAD, FRAME_TAIL] = untrustedContentNote("\u0000").split("\u0000") as [string, string];
 
-/** A tool result framed as outside data by `markUntrustedResult` (web, MCP, HTTP...). */
-function isOutsideContentResult(turn: ConversationTurn): boolean {
+/**
+ * Tools whose results carry outside text without the registry's frame:
+ * the mail inbox frames its own listing (`externalSource`), and a Fusion
+ * worker's report repeats whatever the worker read
+ * (`FUSION_WORKER_TAINT_SOURCE`).
+ */
+const OUTSIDE_TOOLS: ReadonlySet<string> = new Set(["os.email.inbox", "fusion.delegate"]);
+
+/**
+ * A tool result holding outside text, decided by the tool (the registry's
+ * flags through `isOutsideTool`, or a built-in name) and, for records the
+ * registry no longer knows, by the `markUntrustedResult` frame.
+ */
+function isOutsideContentResult(turn: ConversationTurn, isOutsideTool: (tool: string) => boolean): boolean {
   if (turn.kind !== "tool_result") return false;
+  if (OUTSIDE_TOOLS.has(turn.tool)) return true;
+  try {
+    if (isOutsideTool(turn.tool)) return true;
+  } catch {
+    return true;
+  }
   const first = turn.summary.split("\n", 1)[0] ?? "";
   return first.startsWith(FRAME_HEAD) && first.endsWith(FRAME_TAIL);
 }
@@ -116,9 +145,10 @@ interface FlushSource {
  * content is in play, the assistant's replies. Tool calls and results are
  * never read (their text may be written by anyone).
  */
-function flushSource(input: BuildPromptInput, from: number, through: number, taintedTurn: boolean): FlushSource {
+function flushSource(input: BuildPromptInput, from: number, through: number, taintedTurn: boolean,
+  isOutsideTool: (tool: string) => boolean): FlushSource {
   const turns = input.session.turns.slice(from, through);
-  const outside = taintedTurn || turns.some(isOutsideContentResult);
+  const outside = taintedTurn || turns.some((turn) => isOutsideContentResult(turn, isOutsideTool));
   const records: string[] = [];
   const userTexts: string[] = [];
   turns.forEach((turn, offset) => {
@@ -134,10 +164,22 @@ function flushSource(input: BuildPromptInput, from: number, through: number, tai
 
 const WORD = /[\p{L}\p{N}]{4,}/gu;
 const stem = (word: string) => word.toLowerCase().slice(0, 5);
+/**
+ * Longer function words that say nothing about what a line claims; they
+ * count on neither side, so a user's "this", "with" or "they" cannot
+ * ground a line alone. Deliberately small and English.
+ */
+const COMMON_WORDS: ReadonlySet<string> = new Set([
+  "that", "this", "with", "from", "have", "were", "been", "they", "them", "their", "there",
+  "what", "when", "will", "would", "should", "could", "about", "into", "than", "then", "also",
+  "just", "only", "some", "such", "very", "more", "most", "other", "which", "while", "where",
+  "your", "user", "users", "here", "does", "being",
+]);
+const topicWords = (text: string) => (text.match(WORD) ?? []).filter((word) => !COMMON_WORDS.has(word.toLowerCase()));
 
-/** At least half of the line's longer words also occur (by stem) in the user's messages. */
+/** At least half of the line's longer topic words also occur (by stem) in the user's messages. */
 function groundedInUserWords(line: string, userStems: ReadonlySet<string>): boolean {
-  const words = line.match(WORD) ?? [];
+  const words = topicWords(line);
   if (words.length === 0) return false;
   return words.filter((word) => userStems.has(stem(word))).length * 2 >= words.length;
 }
@@ -150,12 +192,16 @@ function groundObservations(lines: readonly string[], source: FlushSource, sessi
     { userTexts: source.userTexts, nameEvidence: sessionUserTexts },
   );
   const keptBodies = grounded.notes.map((note) => note.body);
-  const userStems = new Set(source.userTexts.flatMap((text) => (text.match(WORD) ?? []).map(stem)));
+  const userStems = new Set(source.userTexts.flatMap((text) => topicWords(text).map(stem)));
+  // Always, not only when outside content was detected: text from
+  // outside can reach the span unframed (a shell `curl`, a downloaded
+  // file read back, the clipboard) through the assistant's replies, and
+  // no flag sees it. A line must rest on the user's own words.
   const kept = bodies.filter(({ body }) => {
     const at = keptBodies.indexOf(body);
     if (at < 0) return false;
     keptBodies.splice(at, 1);
-    return !source.outside || groundedInUserWords(body, userStems);
+    return groundedInUserWords(body, userStems);
   }).map(({ line }) => line);
   return { kept, dropped: lines.length - kept.length };
 }
@@ -254,7 +300,7 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     }
     let taintedTurn = false;
     try { taintedTurn = (notes.outsideContentSources?.(state.id) ?? []).length > 0; } catch { taintedTurn = true; }
-    const source = flushSource(input, from, through, taintedTurn);
+    const source = flushSource(input, from, through, taintedTurn, (tool) => notes.isOutsideTool?.(tool) ?? false);
     // The newest records that fit the window.
     const kept: string[] = [];
     let used = 0;
@@ -301,8 +347,14 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     const fallbackDay = days[days.length - 1] ?? today;
     const parsed = parseObservations(stripTitleReasoning(result.content), fallbackDay, today);
     const sessionUserTexts = state.turns.flatMap((turn) => (turn.kind === "user" ? [turn.text] : []));
-    const { kept: lines, dropped } = groundObservations(parsed, source, sessionUserTexts);
+    const { kept: grounded, dropped } = groundObservations(parsed, source, sessionUserTexts);
     if (dropped > 0) log("info", "compaction memory flush dropped ungrounded observations", { dropped, outsideContent: source.outside });
+    // The store refuses a whole note holding a credential; drop just
+    // those lines so one of them does not cost the rest.
+    const lines = grounded.filter((line) => !containsSecret(line));
+    if (lines.length < grounded.length) {
+      log("info", "compaction memory flush dropped observations holding a credential", { dropped: grounded.length - lines.length });
+    }
     if (lines.length === 0) {
       log("info", "compaction memory flush found nothing to keep");
       return withCost({ status: "none" as const });

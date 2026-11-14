@@ -37,6 +37,8 @@ export interface RegisterMemoryToolsOptions {
   notesEnabled: boolean;
   /** Used as the default `k` for `memory.notes.recall`. */
   notesRecallDefaultK: number;
+  /** `memory.notes.reconcile`: `memory.notes.recall` searches skip superseded notes. */
+  notesHideSuperseded?: boolean;
   /** Per-call input ceiling for `memory.notes.store.content`. */
   notesMaxContentChars: number;
   /**
@@ -106,6 +108,7 @@ export function registerMemoryTools(
       buildNotesRecallTool({
         store: options.notesStore,
         defaultK: options.notesRecallDefaultK,
+        ...(options.notesHideSuperseded ? { hideSuperseded: true } : {}),
       }),
     );
     registry.register(buildNotesForgetTool({ store: options.notesStore }));

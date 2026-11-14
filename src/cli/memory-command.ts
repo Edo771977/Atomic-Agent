@@ -62,6 +62,11 @@ const HELP =
     "                            it and deprecates lessons created before it.",
     "                            Profile facts are not touched. Without --yes",
     "                            it only prints what would be cleared.",
+    "  unsupersede <id>",
+    "                            Make a note that note reconciliation",
+    "                            (memory.notes.reconcile) marked superseded",
+    "                            visible again: removes its superseded and",
+    "                            superseded-by-<id> tags.",
     "",
     "Examples:",
     "  atomic-agent memory export --vault ~/Documents/MyVault",
@@ -69,6 +74,7 @@ const HELP =
     "  atomic-agent memory reindex",
     "  atomic-agent memory reindex --prune",
     "  atomic-agent memory forget --before 2026-10-15",
+    "  atomic-agent memory unsupersede 42",
   ].join("\n") + "\n";
 
 export async function memoryCommand(args: string[]): Promise<number> {
@@ -84,6 +90,8 @@ export async function memoryCommand(args: string[]): Promise<number> {
       return handleReindex(args.slice(1));
     case "forget":
       return handleForget(args.slice(1));
+    case "unsupersede":
+      return handleUnsupersede(args.slice(1));
     default:
       process.stderr.write(`unknown subcommand: ${sub}\n`);
       process.stderr.write(HELP);
@@ -171,6 +179,38 @@ export function handleForget(args: string[]): number {
   } catch (err) {
     process.stderr.write(`memory forget failed: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
+  }
+}
+
+const UNSUPERSEDE_USAGE = "usage: atomic-agent memory unsupersede <id>\n";
+
+/** `memory unsupersede <id>`: exit 0 when cleared, 1 when not marked / missing or on failure, 2 on usage errors. */
+export function handleUnsupersede(args: string[]): number {
+  if (args.includes("-h") || args.includes("--help")) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+  const raw = args[0];
+  if (args.length !== 1 || raw === undefined || !/^[1-9]\d*$/.test(raw)) {
+    process.stderr.write(UNSUPERSEDE_USAGE);
+    return 2;
+  }
+  const id = Number(raw);
+  const config = getConfig();
+  let store: MemoryStore | undefined;
+  try {
+    store = new MemoryStore({ dbFile: config.paths.memoryDbFile, maxEntries: config.memory.notes.maxEntries });
+    if (!store.clearSuperseded(id)) {
+      process.stderr.write(`note #${id} is not marked superseded (or does not exist)\n`);
+      return 1;
+    }
+    process.stdout.write(`note #${id} is visible again\n`);
+    return 0;
+  } catch (err) {
+    process.stderr.write(`memory unsupersede failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  } finally {
+    store?.close();
   }
 }
 

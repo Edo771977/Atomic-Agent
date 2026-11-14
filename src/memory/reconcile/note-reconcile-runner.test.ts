@@ -149,6 +149,19 @@ describe("note reconciliation (ATO-672)", () => {
     expect(calls).toBe(0);
   });
 
+  it("makes no model call when older notes share only common words", async () => {
+    store.store({ content: "The user lives in Lisbon and walks to the office" });
+    store.store({ content: "The user has a cat named Miso" });
+    const fresh = store.store({ content: "The user drinks green tea in the morning" });
+    let calls = 0;
+    const report = await runner(async () => {
+      calls += 1;
+      return completion("NONE");
+    }).reconcile({ sessionId: "s1", notes: [fresh] });
+    expect(report.outcome).toBe("skipped");
+    expect(calls).toBe(0);
+  });
+
   it("makes at most one model call for several new notes", async () => {
     store.store({ content: "The user lives in Lisbon" });
     store.store({ content: "The user drinks green tea" });

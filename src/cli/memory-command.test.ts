@@ -127,6 +127,28 @@ describe("memoryCommand", () => {
     expect(code).toBe(1);
     expect(stderr()).toMatch(/memory export failed: no memory database/);
   });
+  it("unsupersede <id> clears the reconciler's stale mark on a note", async () => {
+    const dbFile = join(stateDir, "memory.sqlite");
+    let id: number;
+    const seed = new MemoryStore({ dbFile, maxEntries: 100 });
+    try {
+      id = seed.store({ content: "office is in lisbon", tags: ["place"] }).id;
+      seed.markSuperseded(id, 42, { leaseMs: 0 });
+    } finally {
+      seed.close();
+    }
+    expect(await memoryCommand(["unsupersede", String(id)])).toBe(0);
+    expect(stdout()).toMatch(new RegExp(`note #${id} is visible again`));
+    const check = new MemoryStore({ dbFile, maxEntries: 100 });
+    try {
+      expect(check.get(id)!.tags).toEqual(["place"]);
+    } finally {
+      check.close();
+    }
+    expect(await memoryCommand(["unsupersede", String(id)])).toBe(1);
+    expect(await memoryCommand(["unsupersede", "abc"])).toBe(2);
+  });
+
   describe("reindex", () => {
     const dbFile = () => join(stateDir, "memory.sqlite");
     function seedNotes(...contents: string[]): number[] {
