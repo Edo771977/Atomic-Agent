@@ -111,6 +111,8 @@ describe("compaction memory flush", () => {
     const call = f.complete.mock.calls[0]![0];
     expect(isFlush(call)).toBe(true);
     expect(call.sessionId).toBe("compaction:chat");
+    // Spend is charged to the session like the summary call (context-compaction-model.ts).
+    expect(call.budgetOwnerSessionId).toBe("chat");
     expect(call.slotId).toBe(3);
     expect(call.disableThinking).toBe(true);
     expect(f.store).toHaveBeenCalledOnce();

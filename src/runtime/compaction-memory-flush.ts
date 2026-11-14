@@ -283,6 +283,8 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
         grammar: "", slotId: request.sideCallSlotId(), cachePrompt: false,
         // Counted with the compaction's own calls.
         sessionId: `compaction:${state.id}`, providerId: route.providerId,
+        // The session's request budget pays for it, as for the summary call.
+        budgetOwnerSessionId: state.id,
         maxTokens, maxOutputTokens: maxTokens,
         reasoningEffort: "low", disableThinking: true,
         signal: AbortSignal.any([request.signal, deadline.signal]),
