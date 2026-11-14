@@ -224,7 +224,12 @@ function loadChannelRows(
       }
       const q = opts.searchQuery.trim();
       if (q.length > 0) {
-        const hits = runtime.notesStore.recall(q, { k: 50 });
+        // As the prompt does, a search leaves out notes the reconciler
+        // marked stale; the unfiltered list still shows them.
+        const hits = runtime.notesStore.recall(q, {
+          k: 50,
+          ...(cfg.notes.reconcile ? { excludeSuperseded: true } : {}),
+        });
         return { rows: toNoteSummaryRowsFromEntries(hits), hint: null };
       }
       if (opts.notesArchiveFilter === "archived") {

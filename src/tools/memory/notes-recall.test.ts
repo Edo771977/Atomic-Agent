@@ -37,6 +37,19 @@ describe("memory.notes.recall", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("hides superseded notes from a query when asked, but still fetches them by id", async () => {
+    const stale = store.store({ content: "the kiwi orchard is in the south field" }, 1);
+    const live = store.store({ content: "the kiwi orchard moved to the north field" }, 2);
+    store.markSuperseded(stale.id, live.id, { leaseMs: 0 });
+    const ids = async (hideSuperseded: boolean) =>
+      ((await buildNotesRecallTool({ store, defaultK: 5, hideSuperseded }).run({ query: "kiwi orchard" }, makeCtx()))
+        .details.entries as Array<{ id: number }>).map((e) => e.id);
+    expect(await ids(true)).toEqual([live.id]);
+    expect(await ids(false)).toContain(stale.id);
+    const byId = await buildNotesRecallTool({ store, defaultK: 5, hideSuperseded: true }).run({ id: stale.id }, makeCtx());
+    expect((byId.details.entries as Array<{ id: number }>)[0]?.id).toBe(stale.id);
+  });
+
   it("returns ranked matches and exposes them in details", async () => {
     store.store({ content: "the cat sat on the mat" }, 1);
     store.store({ content: "unrelated trivia" }, 2);

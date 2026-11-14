@@ -32,7 +32,7 @@ import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format
  * note gets `superseded` plus `superseded-by-<newId>`. With
  * `memory.notes.reconcile` on, the context provider leaves `superseded`
  * notes out of `### recalled` and `### memory-index`; they stay readable
- * by id and in the memory view. A DUPLICATE marks the NEW note instead
+ * by id and in the memory view's list. A DUPLICATE marks the NEW note instead
  * (`superseded-by-<oldId>`).
  *
  * Fire-safe: `reconcile()` never throws.

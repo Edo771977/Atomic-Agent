@@ -308,6 +308,7 @@ export function registerRuntimeCoreTools(input: {
     notesStore,
     notesEnabled: config.memory.notes.enabled,
     notesRecallDefaultK: config.memory.notes.recallDefaultK,
+    notesHideSuperseded: config.memory.notes.reconcile,
     notesMaxContentChars: config.memory.notes.maxContentChars,
     lessonStore,
     lessonsEnabled: config.memory.lessons.enabled,
