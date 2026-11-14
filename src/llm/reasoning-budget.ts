@@ -92,7 +92,11 @@ export const LOCAL_CHAT_REASONING_BUDGET_TOKENS: Readonly<Record<ReasoningEffort
  * check in `runtime-local-profile.ts`, and every prompt's budget, which
  * read the configured value) was sized for that many think tokens, so a
  * larger level, or High's unbounded one, would think into the reply and
- * cut the tool call. Low still lowers it.
+ * cut the tool call. High is the configured bound; Low and Medium are
+ * their own budgets or a quarter and a half of the bound, whichever is
+ * smaller, so a small bound still gives three different levels (the
+ * switch offers them all), never below `LOCAL_CHAT_REASONING_FLOOR_TOKENS`
+ * nor above the bound.
  */
 export function localChatReasoningBudgetTokens(
   level: ReasoningEffort,
@@ -101,8 +105,20 @@ export function localChatReasoningBudgetTokens(
   const own = LOCAL_CHAT_REASONING_BUDGET_TOKENS[level];
   const configured = effectiveReasoningBudgetTokens(configuredBudgetTokens);
   if (configured <= 0) return own;
-  return own > 0 ? Math.min(own, configured) : configured;
+  if (own <= 0) return configured;
+  const scaled = Math.floor(configured * LOCAL_CHAT_REASONING_BOUND_SHARE[level]);
+  return Math.min(configured, Math.max(LOCAL_CHAT_REASONING_FLOOR_TOKENS, Math.min(own, scaled)));
 }
+
+/** The share of a configured think bound Low and Medium may take at most. */
+const LOCAL_CHAT_REASONING_BOUND_SHARE: Readonly<Record<ReasoningEffort, number>> = {
+  low: 0.25,
+  medium: 0.5,
+  high: 1,
+};
+
+/** The smallest think bound a level scaled down to a configured bound gets. */
+export const LOCAL_CHAT_REASONING_FLOOR_TOKENS = 128;
 
 /**
  * The think-block bound of a fusion worker on a local (grammar) leg,

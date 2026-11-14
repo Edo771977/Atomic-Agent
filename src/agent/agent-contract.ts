@@ -55,13 +55,17 @@ export interface LocalEngineVerdict {
   /**
    * Who holds the engine lock, asked beside `modelProcess`: `live` when a
    * live process (this one or another) owns it, `pending` when the owner
-   * has not written its pid yet. Atomic Core writes the model's pid only
-   * once a load returns, so a live owner with no model process is a load
-   * under way: the no-process ceiling does not apply to it, and the lock's
-   * own staleness (`CORE_OPERATION_STALE_MS`) bounds the wait instead.
-   * Absent: not asked (the ceiling applies).
+   * has not written its pid yet, `reused` when the recorded pid names a
+   * process that started after the lock was written (the owner is gone and
+   * its pid went to another program). Atomic Core writes the model's pid
+   * only once a load returns, so a live owner with no model process may be
+   * a slow load: it waits up to `LOCAL_ENGINE_LIVE_OWNER_CEILING_MS`
+   * counted from the lock (`lockAgeMs`), not the 90 s no-process ceiling.
+   * Absent, `pending` or `reused`: the no-process ceiling applies.
    */
-  lockOwner?: "live" | "pending";
+  lockOwner?: "live" | "pending" | "reused";
+  /** How long ago the engine lock was taken, ms, beside `lockOwner` when readable. */
+  lockAgeMs?: number;
 }
 
 /**

@@ -3,7 +3,9 @@ import type { LocalEngineState, LocalEngineVerdict } from "../agent/agent-contra
 import {
   explainManagedEngineLiveness,
   readManagedEngineLiveness,
+  readCoreOperationLockOwner,
   readManagedModelProcess,
+  type CoreOperationLockOwner,
   type ManagedEngineLiveness,
   type ManagedEngineLivenessReason,
   type ManagedEngineLivenessReport,
@@ -96,6 +98,7 @@ export function explainLocalEngineState(
   activeTextProvider: string,
   explain: (dataDir: string) => ManagedEngineLivenessReport = explainManagedEngineLiveness,
   modelProcess: (dataDir: string) => ManagedModelProcess = readManagedModelProcess,
+  lockOwner: (dataDir: string) => CoreOperationLockOwner | null = readCoreOperationLockOwner,
 ): LocalEngineVerdict & { reason: LocalEngineStateReason } {
   if (providerId === ATOMIC_CHAT_LINK) {
     return activeTextProvider === ATOMIC_CHAT_LINK
@@ -121,7 +124,21 @@ export function explainLocalEngineState(
     } catch {
       found = "unknown";
     }
-    return { ...verdict, modelProcess: found, lockOwner: report.reason === "lock_writing" ? "pending" : "live" };
+    if (report.reason === "lock_writing") return { ...verdict, modelProcess: found, lockOwner: "pending" };
+    // A live owner gets its own ceiling, counted from when it took the
+    // lock; a pid that started after that cannot be the owner (reused).
+    let owner: CoreOperationLockOwner | null;
+    try {
+      owner = lockOwner(cfg.paths.localModelsDataDir);
+    } catch {
+      owner = null;
+    }
+    return {
+      ...verdict,
+      modelProcess: found,
+      lockOwner: owner?.startedAfterLock === true ? "reused" : "live",
+      ...(owner ? { lockAgeMs: owner.ageMs } : {}),
+    };
   }
   return verdict;
 }

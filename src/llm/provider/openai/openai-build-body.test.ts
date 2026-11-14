@@ -980,6 +980,25 @@ describe("buildOpenAiChatBody reasoningOverride (ATO-490)", () => {
     expect(or.reasoning).toEqual({ effort: "medium" });
   });
 
+  it("merges the level into the operator's OpenRouter reasoning object instead of replacing it", () => {
+    const or = (reasoning: Record<string, unknown>, where: "params" | "extra" = "params") =>
+      build(
+        { prompt: "hi", reasoningOverride: "high" },
+        "anthropic/claude-fable-5.2",
+        "openrouter",
+        where === "extra" ? { reasoning } : undefined,
+        where === "params" ? { reasoning } : undefined,
+      ).reasoning;
+    // Reasoning kept out of the reply stays out.
+    expect(or({ exclude: true })).toEqual({ exclude: true, effort: "high" });
+    expect(or({ exclude: true }, "extra")).toEqual({ exclude: true, effort: "high" });
+    // Reasoning switched off stays off: the level does not turn it on.
+    expect(or({ enabled: false })).toEqual({ enabled: false });
+    expect(or({ enabled: false, exclude: true }, "extra")).toEqual({ enabled: false, exclude: true });
+    // A token budget is the other way to say "how much": the level replaces it.
+    expect(or({ max_tokens: 8_000, exclude: true })).toEqual({ exclude: true, effort: "high" });
+  });
+
   it("is dropped for a model that does not reason, leaving the body as without it", () => {
     for (const [model, kind] of [["gpt-4o", "openai-compatible"], ["meta-llama/llama-3.3-70b", "openrouter"]] as const) {
       const withLevel = build({ prompt: "hi", reasoningOverride: "high" }, model, kind, undefined, { reasoning_effort: "medium" });

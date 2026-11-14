@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedEngineLiveness } from "../local-llm/index.js";
+import { LOCAL_ENGINE_LIVE_OWNER_CEILING_MS, LOCAL_ENGINE_NO_PROCESS_CEILING_MS } from "../agent/turn/turn-recovery.js";
+import { CORE_MODEL_LOAD_TIMEOUT_MS } from "../local-llm/index.js";
 import { explainLocalEngineState, readLocalEngineState } from "./local-engine-state.js";
 
 const cfg = (mode: "managed" | "external") =>
@@ -130,5 +132,32 @@ describe("explainLocalEngineState: a held lock with no model process (ATO-1434)"
     expect(explainLocalEngineState("local-llama", cfg("managed"), "openrouter", held, probe).modelProcess).toBeUndefined();
     expect(explainLocalEngineState("my-llama", cfg("managed"), "local-llama", held, probe).modelProcess).toBeUndefined();
     expect(probe).not.toHaveBeenCalled();
+  });
+});
+
+describe("explainLocalEngineState: the lock owner's age and pid reuse", () => {
+  const held = vi.fn(() => ({ state: "unknown", reason: "lock_held", lock: "held" }) as never);
+  const none = () => "none" as const;
+
+  it("reports the lock's age beside a live owner", () => {
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, none, () => ({ ageMs: 42_000, startedAfterLock: false })))
+      .toEqual({ state: "unknown", reason: "lock_held", modelProcess: "none", lockOwner: "live", lockAgeMs: 42_000 });
+  });
+
+  it("an owner pid that started after the lock was written is a reused pid, not the lock's owner", () => {
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, none, () => ({ ageMs: 1_000, startedAfterLock: true })).lockOwner)
+      .toBe("reused");
+  });
+
+  it("an owner probe that throws or finds nothing leaves the owner live with no age", () => {
+    const thrown = explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, none, () => { throw new Error("EACCES"); });
+    expect(thrown.lockOwner).toBe("live");
+    expect(thrown.lockAgeMs).toBeUndefined();
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, none, () => null).lockAgeMs).toBeUndefined();
+  });
+
+  it("the live-owner ceiling outlasts Atomic Core's own model load timeout, and the no-process ceiling", () => {
+    expect(LOCAL_ENGINE_LIVE_OWNER_CEILING_MS).toBeGreaterThan(CORE_MODEL_LOAD_TIMEOUT_MS);
+    expect(LOCAL_ENGINE_LIVE_OWNER_CEILING_MS).toBeGreaterThan(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
   });
 });

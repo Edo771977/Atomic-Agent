@@ -29,6 +29,13 @@ export function coreLoadOverrides(args: readonly string[]): Record<string, unkno
     mtp: false, dflash: false, offload_mmproj: true, extra_args: extras.join(" ") };
 }
 
+/**
+ * How long a model load request to Atomic Core may take (Core's own load
+ * timeout is 180 s; this adds its connect and reply). The outage wait's
+ * live-owner ceiling outlasts it (ATO-1434).
+ */
+export const CORE_MODEL_LOAD_TIMEOUT_MS = 240_000;
+
 export async function loadCoreSession(dataDir: string, options: {
   role: "chat" | "embedding";
   modelId: string;
@@ -57,7 +64,7 @@ export async function loadCoreSession(dataDir: string, options: {
         timeoutSecs: 180,
         logPath: join(dataDir, options.role === "embedding" ? "llama-embed.log" : "llama-server.log"),
         overrides: { ...coreLoadOverrides(options.args), version_backend: `${backend.version}/${backend.backend}` },
-      }, { timeoutMs: 240_000 });
+      }, { timeoutMs: CORE_MODEL_LOAD_TIMEOUT_MS });
       options.signal?.throwIfAborted();
       const s = result.session;
       if (!Number.isInteger(s.pid) || s.pid <= 0 || s.port !== options.port || s.model_id !== options.modelId || s.model_path !== options.modelPath || s.is_embedding !== (options.role === "embedding") || typeof s.api_key !== "string" || !s.api_key) {

@@ -16,7 +16,7 @@ import { classifyFailureCause } from "../../llm/reliability/index.js";
 import { attachFailingLink } from "../../llm/fallback/failed-attempts.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import type { AgentLoopEvent, LocalEngineState, LocalEngineVerdict } from "../agent-contract.js";
-import { ATOMIC_CHAT_START_GRACE_MS, LOCAL_ENGINE_NO_PROCESS_CEILING_MS, LOCAL_ENGINE_RESTART_GRACE_MS, recoverTurnStep, type TurnRecoveryContext } from "./turn-recovery.js";
+import { ATOMIC_CHAT_START_GRACE_MS, LOCAL_ENGINE_LIVE_OWNER_CEILING_MS, LOCAL_ENGINE_NO_PROCESS_CEILING_MS, LOCAL_ENGINE_RESTART_GRACE_MS, recoverTurnStep, type TurnRecoveryContext } from "./turn-recovery.js";
 import { createTurnLoopState } from "./turn-state.js";
 
 /**
@@ -495,17 +495,32 @@ describe("turn recovery: a held engine lock with no model process", () => {
     expect(turn.outageWaitedMs).toBe(300_000);
   });
 
-  it("a live lock owner (a slow Atomic Core load that writes its pid only when it returns) keeps the full wait", () => {
-    // Core writes the session pid after the load returns, and a partial-offload
-    // shrink restarts the load: a big model can sit past 90 s with no pid
-    // while its loader is alive and working.
-    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, lockOwner: "live" }));
-    if (decision.kind === "failure") expect(decision.runError).not.toBeInstanceOf(LocalEngineDownError);
-    expect(turn.outageWaitedMs).toBe(300_000);
+  it("a live owner still loading past the 90 s ceiling keeps waiting until its own ceiling, counted from the lock", () => {
+    // The lock was taken 10 s before the turn's first look.
+    const { decision, turn } = runOutage((waited) => ({ ...lockedNoProcess, lockOwner: "live", lockAgeMs: 10_000 + waited }));
+    expect(turn.outageWaitedMs).toBeGreaterThan(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBe(LOCAL_ENGINE_LIVE_OWNER_CEILING_MS - 10_000);
   });
 
-  it("a lock whose owner has not written its pid yet still ends at the ceiling", () => {
-    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, reason: "lock_writing", lockOwner: "pending" }));
+  it("a live owner whose lock is already past its ceiling (a hung loader, a reused pid) ends the turn at once", () => {
+    // Every later turn meets the same lock: none waits the 300 s budget.
+    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, lockOwner: "live", lockAgeMs: LOCAL_ENGINE_LIVE_OWNER_CEILING_MS + 60_000 }));
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBe(0);
+  });
+
+  it("a live owner whose lock age is unknown counts its ceiling from the turn's first look", () => {
+    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, lockOwner: "live" }));
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBe(LOCAL_ENGINE_LIVE_OWNER_CEILING_MS);
+  });
+
+  it("an owner pid that started after the lock was taken (reused) is not live: the 90 s ceiling applies", () => {
+    const { decision, turn } = runOutage((waited) => ({ ...lockedNoProcess, lockOwner: "reused", lockAgeMs: 5_000 + waited }));
     expect(decision.kind).toBe("failure");
     if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
     expect(turn.outageWaitedMs).toBe(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
