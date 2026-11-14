@@ -1,6 +1,6 @@
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runIsolatedWave } from "./branch-merge.js";
 import { createBranchSet, defaultGitExec, removeWorkspaceTree, touchedPaths } from "./branch-workspace.js";
@@ -11,6 +11,7 @@ import type { RunTurnResult } from "../../agent/agent-loop.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { FUSION_WORKER_ID_PREFIX, type FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { makeGitRepo, runGitRaw, writeRepoFile } from "../os/git/test-helpers.js";
+import { runCommand } from "../../sandbox/command-runner.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -393,11 +394,18 @@ describe("private branch dependencies", () => {
       realDir: repo, tasks: [task("one")], writeScope: [repo], inputs: [],
       options: {
         tmpRoot: root,
-        git: async (args, cwd) => {
-          const result = await defaultGitExec(args, cwd);
-          if (!removed && args.includes("worktree") && args.includes("add")) {
+        ignoreGit: async (args, options) => {
+          const result = await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...args], {
+            ...options, env: { ...process.env, ...options.env }, timeoutMs: 120_000, maxOutputBytes: 32 * 1024 * 1024,
+          });
+          // Ignore-policy init happens after the base has been frozen and
+          // before task copies. Damage only that private frozen input.
+          if (!removed && args[0] === "init" && args.includes("--bare")) {
+            const frozenInput = await realpath(join(options.cwd, "..", "base", "input.txt"));
+            expect(relative(await realpath(root), frozenInput)).toMatch(/^atag-fusion-[^\\/]+[\\/]base[\\/]input\.txt$/);
+            expect(await readFile(frozenInput, "utf8")).toBe("untracked input\n");
+            await rm(frozenInput);
             removed = true;
-            await rm(join(repo, "input.txt"));
           }
           return result;
         },
@@ -406,6 +414,7 @@ describe("private branch dependencies", () => {
     });
     expect(removed).toBe(true);
     expect(runs).toBe(0);
+    expect(await readFile(join(repo, "input.txt"), "utf8")).toBe("untracked input\n");
     expect(result.results[0]!.error).toMatch(/^not started: could not create a private workspace/);
     expect((await runGitRaw(repo, ["worktree", "list", "--porcelain"])).stdout.match(/^worktree /gm)).toHaveLength(1);
     expect((await readdir(root)).filter((name) => name.startsWith("atag-fusion-"))).toEqual([]);
