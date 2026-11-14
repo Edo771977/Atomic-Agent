@@ -1,6 +1,6 @@
 import { isSubscriptionCliSetupError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { isDailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
-import type { AgentLoopDependencies, RunTurnOptions } from "../agent-contract.js";
+import type { AgentLoopDependencies, LocalEngineVerdict, RunTurnOptions } from "../agent-contract.js";
 import type { SessionState } from "../../session/session-state.js";
 import type { ToolCallTransport } from "../../llm/provider/completion-types.js";
 import { AtomicChatNotRunningError, CancelledError, LlamaServerError, LlmFailure, LocalEngineDownError, LocalPortTakenError, TransportError, classifyFailure, isRequestSizeRejection } from "../../llm/index.js";
@@ -23,7 +23,7 @@ import type { TurnLoopState } from "./turn-state.js";
 export type TurnRecoveryDependencies = Pick<
   AgentLoopDependencies,
   "contextWindow" | "onContextWindowObserved" | "onEvent" | "logger" | "metrics" | "localEngineState"
-  | "localOutOfMemory"
+  | "explainLocalEngineState" | "localOutOfMemory"
 >;
 
 export interface TurnRecoveryContext {
@@ -529,6 +529,8 @@ export function recoverTurnStep(
       turn.awaitingRecovery = false;
       turn.outageWaitedMs = 0;
       turn.outageAttempts = 0;
+      turn.engineWaitVerdicts = null;
+      turn.lockNoProcessSinceWaitedMs = null;
     }
     if (plan?.kind === "give_up") {
       return reportTurnFailure(
@@ -640,17 +642,45 @@ export function recoverTurnStep(
   // grace covers an app that is still bringing its server up.
   let localEngineGone = false;
   let localEngineDown = false;
+  // ATO-1434: the engine lock is held (a start or load, as far as the
+  // liveness can tell) and no model process exists at all. A real load
+  // writes its pid within a minute or so; a lock held with nothing behind
+  // it never will. Such a turn waits at most
+  // `LOCAL_ENGINE_NO_PROCESS_CEILING_MS`, then ends with the same
+  // `local_engine_down` reason as a dead engine. A pid that appears
+  // resets the count and the ordinary wait applies, as does a lock whose
+  // owner is a live process (a slow Core load).
+  let lockedNoProcess = false;
+  let noProcessCeilingLeftMs = Number.POSITIVE_INFINITY;
   if (
     category === "transport" &&
     !cancelled &&
     !creditRefused &&
     retryHint === null &&
-    deps.localEngineState !== undefined &&
+    (deps.localEngineState !== undefined || deps.explainLocalEngineState !== undefined) &&
     noAnswerAtAll(err) &&
     isWaitableOutage(err)
   ) {
     const failingLink = readFailingLink(err);
-    const engineState = deps.localEngineState(failingLink);
+    const verdict = readEngineVerdict(deps, failingLink);
+    // Kept at decision time for the error report (ATO-1432): by the time
+    // the turn ends, the disk may say something else.
+    turn.engineWaitVerdicts = { first: turn.engineWaitVerdicts?.first ?? verdict, last: verdict };
+    const engineState = verdict.state;
+    // A live lock owner with no pid yet is a load under way (Atomic Core
+    // writes the pid only once its load returns, and a partial-offload
+    // shrink loads again): it keeps the ordinary wait, bounded by the lock's
+    // own staleness. A dead owner leaves the pid file visible and reads
+    // `dead` above.
+    lockedNoProcess = engineState === "unknown" && verdict.modelProcess === "none" && verdict.lockOwner !== "live";
+    if (lockedNoProcess) {
+      turn.lockNoProcessSinceWaitedMs ??= turn.outageWaitedMs;
+      const since = turn.lockNoProcessSinceWaitedMs;
+      noProcessCeilingLeftMs =
+        since + Math.min(LOCAL_ENGINE_NO_PROCESS_CEILING_MS, providerWaitCfg.maxWaitMs - since) - turn.outageWaitedMs;
+    } else {
+      turn.lockNoProcessSinceWaitedMs = null;
+    }
     const atomicChatRefused =
       engineState === "atomic_chat_app" && readErrnoCode(err) === "ECONNREFUSED";
     localEngineGone = engineState === "dead" || atomicChatRefused;
@@ -682,6 +712,20 @@ export function recoverTurnStep(
         error: runError.message,
         ...(causeCode !== undefined ? { causeCode } : {}),
         ...(failingLink !== undefined ? { providerId: failingLink } : {}),
+        ...(verdict.reason !== undefined ? { engineReason: verdict.reason } : {}),
+      });
+      runError = new LocalEngineDownError(failingLink ?? "local-llama", err);
+    } else if (lockedNoProcess && (!providerWaitCfg.enabled || noProcessCeilingLeftMs <= 0)) {
+      localEngineDown = true;
+      const causeCode = readErrnoCode(err);
+      deps.logger?.warn("engine lock held with no model process; ending the turn instead of waiting", {
+        sessionId: state.id,
+        stepIndex: i,
+        waitedMs: turn.outageWaitedMs,
+        error: runError.message,
+        ...(causeCode !== undefined ? { causeCode } : {}),
+        ...(failingLink !== undefined ? { providerId: failingLink } : {}),
+        ...(verdict.reason !== undefined ? { engineReason: verdict.reason } : {}),
       });
       runError = new LocalEngineDownError(failingLink ?? "local-llama", err);
     }
@@ -709,6 +753,9 @@ export function recoverTurnStep(
       // A local model whose process is gone is looked at again soon:
       // either a restart brings it back or the grace above runs out.
       localEngineGone ? LOCAL_ENGINE_GONE_RETRY_MS : Number.POSITIVE_INFINITY,
+      // A held lock with no model process is looked at again by the end of
+      // its ceiling at the latest (ATO-1434).
+      lockedNoProcess ? Math.max(1, noProcessCeilingLeftMs) : Number.POSITIVE_INFINITY,
     );
     turn.outageAttempts += 1;
     turn.awaitingRecovery = true;
@@ -734,6 +781,7 @@ export function recoverTurnStep(
         ? { fallbackFailures: failedBefore }
         : {}),
     });
+    const engineVerdict = turn.engineWaitVerdicts?.last;
     deps.logger?.warn("provider unreachable; parking the turn", {
       sessionId: state.id,
       stepIndex: i,
@@ -743,6 +791,8 @@ export function recoverTurnStep(
       error: runError.message,
       ...(causeCode !== undefined ? { causeCode } : {}),
       ...(waitedOn !== undefined ? { providerId: waitedOn } : {}),
+      ...(engineVerdict !== undefined ? { engineState: engineVerdict.state } : {}),
+      ...(engineVerdict?.reason !== undefined ? { engineReason: engineVerdict.reason } : {}),
     });
     return { kind: "wait", nextRetryMs };
   }
@@ -796,6 +846,20 @@ export function recoverTurnStep(
 }
 
 /**
+ * The local engine reading the outage wait decides on, with its reason
+ * when the runtime gives one (ATO-1432). `explainLocalEngineState` is
+ * asked in place of `localEngineState`, never both, so the engine is read
+ * once per decision.
+ */
+function readEngineVerdict(
+  deps: Pick<TurnRecoveryDependencies, "localEngineState" | "explainLocalEngineState">,
+  failingLink: string | undefined,
+): LocalEngineVerdict {
+  if (deps.explainLocalEngineState !== undefined) return deps.explainLocalEngineState(failingLink);
+  return { state: deps.localEngineState?.(failingLink) ?? "unknown" };
+}
+
+/**
  * The end of a step that failed for good: log it, tell the surfaces
  * (`loop_failed`, which every one of them renders) and count it. Shared
  * with the out-of-memory recovery, whose verdict arrives after the
@@ -806,7 +870,7 @@ export function reportTurnFailure(
   outcome: { category: LlmFailureCategory; cancelled: boolean; creditRefused: boolean },
   where: { state: SessionState; stepIndex: number },
   deps: Pick<TurnRecoveryDependencies, "logger" | "onEvent" | "metrics">,
-  turn: Pick<TurnLoopState, "outageWaitedMs" | "outageAttempts">,
+  turn: Pick<TurnLoopState, "outageWaitedMs" | "outageAttempts"> & Partial<Pick<TurnLoopState, "engineWaitVerdicts">>,
 ): Extract<TurnRecoveryDecision, { kind: "failure" }> {
   const { category, cancelled, creditRefused } = outcome;
   const { state, stepIndex: i } = where;
@@ -831,7 +895,11 @@ export function reportTurnFailure(
     type: "loop_failed",
     error: runError,
     category,
-    outage: { waitedMs: turn.outageWaitedMs, attempts: turn.outageAttempts },
+    outage: {
+      waitedMs: turn.outageWaitedMs,
+      attempts: turn.outageAttempts,
+      ...(turn.engineWaitVerdicts ? { engineVerdicts: turn.engineWaitVerdicts } : {}),
+    },
     failure: classifyFailureCause(runError, category),
   });
   deps.metrics?.recordLlmFailure({
@@ -1035,6 +1103,14 @@ function isOwnLlamaDeadlineExpiry(err: unknown): boolean {
 export const LOCAL_ENGINE_RESTART_GRACE_MS = 8_000;
 /** The retry interval while that process is gone. */
 const LOCAL_ENGINE_GONE_RETRY_MS = 2_000;
+/**
+ * How long a turn keeps waiting while the managed engine's operation lock
+ * is held and no model process exists at all (ATO-1434). A real start or
+ * load writes its pid well before this; past it, the lock has nothing
+ * behind it and the turn ends with `LocalEngineDownError`. A lock with a
+ * live model process keeps the ordinary wait.
+ */
+export const LOCAL_ENGINE_NO_PROCESS_CEILING_MS = 90_000;
 /**
  * How long a turn keeps retrying the Atomic Chat app's server while it
  * refuses connections before it ends with `AtomicChatNotRunningError`

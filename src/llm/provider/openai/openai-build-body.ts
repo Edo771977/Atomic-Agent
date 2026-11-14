@@ -8,6 +8,7 @@ import {
   reasoningEffortField,
   resolveTemperature,
 } from "./model-params.js";
+import { cloudTakesReasoningOverride } from "../../reasoning-levels.js";
 import {
   buildNativeMessages,
   type NativeMessageOptions,
@@ -233,7 +234,18 @@ function assembleOpenAiChatBody(
   // A request that asked for no thinking at all (the risk reviewer, context
   // compaction) never gets the default: it would turn thinking on inside
   // a small output cap.
+  // A level the person picked for the chat (ATO-490) comes first, and
+  // only for a model that reasons: anything else keeps the body it had.
+  // A request that asked for no thinking (`disableThinking`, the
+  // compaction summary) keeps it off: the level does not apply there.
+  const override =
+    filtered.reasoningOverride !== undefined &&
+    filtered.disableThinking !== true &&
+    cloudTakesReasoningOverride(options.providerKind, defaultChatModel)
+      ? filtered.reasoningOverride
+      : undefined;
   const effort =
+    override ??
     filtered.reasoningEffort ??
     (options.providerKind === "openrouter" && !filtered.disableThinking
       ? defaultReasoningEffort(defaultChatModel)
@@ -334,6 +346,9 @@ function assembleOpenAiChatBody(
   }
   const modelParams = options.modelParams;
   if (!extraBody && !modelParams) return body;
+  const effortKeys = override === undefined ? [] : Object.keys(body).filter(
+    (key) => key === "reasoning" || key === "reasoning_effort",
+  );
   // Vendor passthrough, then the model's own parameters. Merged last so
   // they can reach fields this builder does not model, then reserved
   // keys are restored on top.
@@ -345,6 +360,13 @@ function assembleOpenAiChatBody(
   for (const key of RESERVED_BODY_KEYS) {
     if (key in body) merged[key] = body[key];
     else delete merged[key];
+  }
+  // The person's level beats the model's `params` and `extraBody`: the
+  // config's effort fields go, the level's own field is put back.
+  if (override !== undefined) {
+    delete merged.reasoning;
+    delete merged.reasoning_effort;
+    for (const key of effortKeys) merged[key] = body[key];
   }
   // A temperature the service itself named in a 400 beats the operator's
   // passthrough: that value is exactly what was just refused. So does a
