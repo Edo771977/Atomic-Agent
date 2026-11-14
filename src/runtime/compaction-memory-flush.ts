@@ -8,6 +8,7 @@ import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { estimateTokens } from "../prompt/token-budget.js";
 import { stripTitleReasoning } from "../session/session-title.js";
 import type { ConversationTurn } from "../session/conversation-turn.js";
+import { isFusionWorkerSessionId } from "../session/fusion-worker-session.js";
 import { untrustedContentNote } from "../tools/untrusted-tool-output.js";
 import { abortableSubcall } from "./abortable-subcall.js";
 import { compactionReplyBudget } from "./compaction-reply-budget.js";
@@ -87,7 +88,7 @@ export interface MemoryFlushRequest {
 export type MemoryFlushOutcome =
   | { status: "written"; observations: number; costUsd?: number }
   | { status: "none"; costUsd?: number }
-  | { status: "skipped"; reason: "notes_disabled" | "window_too_small" | "empty_span" }
+  | { status: "skipped"; reason: "notes_disabled" | "window_too_small" | "empty_span" | "fusion_worker" }
   | { status: "failed"; message: string; costUsd?: number };
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -236,6 +237,8 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
   const withCost = <T extends object>(outcome: T): T => (costUsd !== undefined ? { ...outcome, costUsd } : outcome);
   try {
     if (!notes.enabled()) return { status: "skipped", reason: "notes_disabled" };
+    // Fusion workers are throwaway sessions, never reflected on (compaction-background.ts too).
+    if (isFusionWorkerSessionId(state.id)) return { status: "skipped", reason: "fusion_worker" };
     if (through <= from) return { status: "skipped", reason: "empty_span" };
     const now = request.now?.() ?? Date.now();
     const today = localDay(now);

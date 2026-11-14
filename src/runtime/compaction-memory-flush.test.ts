@@ -209,3 +209,12 @@ describe("compaction memory flush: outside content never becomes a durable note"
     expect(f.store.mock.calls.map((c) => c[0].content).join("\n")).not.toContain("account 991");
   });
 });
+
+describe("compaction memory flush: fusion workers", () => {
+  it("never flushes a fusion worker's throwaway session", async () => {
+    const f = fixture({ mode: "extractive", memoryFlush: true }, undefined, history(22, { id: "s-w-worker-1" }));
+    expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
+    expect(f.complete.mock.calls.some((c) => isFlush(c[0]))).toBe(false);
+    expect(f.store).not.toHaveBeenCalled();
+  });
+});

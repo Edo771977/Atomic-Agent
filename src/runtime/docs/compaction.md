@@ -298,7 +298,8 @@ newest record's day. The lines are stored as one note through the notes store,
 tagged `observations` and `date-<today>`, with the session and working directory.
 Nothing is added to the session, the visible chat or the transcript. A failure,
 timeout or empty reply is logged and the compaction goes on as before; only a
-cancellation of the compaction itself stops it. An ephemeral turn never flushes.
+cancellation of the compaction itself stops it. An ephemeral turn and a fusion
+worker session never flush.
 The rolling summary (`compaction-rolling.ts`) is unchanged; the flush runs before
 the rolling, extractive or model checkpoint alike.
 
