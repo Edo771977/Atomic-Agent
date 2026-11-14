@@ -278,6 +278,37 @@ checkpoint is never replaced later by a rolling summary. Cloud state updates are
 not in it. Its background calls are counted as they run, not in the checkpoint's
 `calls`.
 
+## Memory flush before compaction
+
+With `agent.compaction.memoryFlush` on (off by default; ATO-676) and
+`memory.notes.enabled`, a compaction that has a plan first makes one side call
+([flush](../compaction-memory-flush.ts)) for dated observations about the records
+it is about to cover: lines of `YYYY-MM-DD: one short sentence`, at most 12, or
+`NONE`. The input is the user's messages and the assistant's replies in that
+span, newest first when they do not all fit; tool calls and tool results (web
+pages, MCP answers, files) are never read, so outside text cannot become a
+durable note. When the span holds a result framed as outside content, or the
+approval gate reports outside content for the running turn, the assistant's
+replies are left out too, and a line is kept only when at least half of its
+longer words come from the user's messages. Every line also passes the
+reflection grounding filter (`filterUngroundedReflection`). The call uses the compaction route,
+provider framing, side slot and `compaction:<sessionId>` usage, with thinking off
+and at most 60 s (or `timeoutMs`, if smaller). Lines without a usable date get the
+newest record's day. The lines are stored as one note through the notes store,
+tagged `observations` and `date-<today>`, with the session and working directory.
+Nothing is added to the session, the visible chat or the transcript. A failure,
+timeout or empty reply is logged and the compaction goes on as before; only a
+cancellation of the compaction itself stops it. An ephemeral turn and a fusion
+worker session never flush.
+The rolling summary (`compaction-rolling.ts`) is unchanged; the flush runs before
+the rolling, extractive or model checkpoint alike.
+
+Cost: the flush is one more model call per foreground compaction. A rolling or
+extractive checkpoint otherwise needs no model call, so with the flag on, on a
+billed provider, every compaction adds a paid call (counted in the compaction's
+spend and the session's request budget). Background compaction never flushes:
+only `runContextCompaction` calls it.
+
 ## Observability and validation
 
 Session-scoped `compaction_started`, `compaction_progress`, `compaction_completed` and
@@ -298,6 +329,7 @@ Contract tests: [planner/service](../context-compaction.test.ts),
 [request after the cut](../compaction-open-request.test.ts),
 [rolling summary](../context-compaction-rolling.test.ts),
 [rolling records](../compaction-rolling.test.ts),
+[memory flush](../compaction-memory-flush.test.ts),
 [rolling state](../../session/session-compaction-rolling.test.ts),
 [finished-turn cuts](../../session/session-compaction.test.ts),
 [HTTP/runtime/persistence](../../http/route-compaction.test.ts),

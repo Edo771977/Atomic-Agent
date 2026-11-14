@@ -13,6 +13,7 @@ const KIND_LABEL: Readonly<Record<MemoryHealthWarningEvent["kind"], string>> =
     link_generator: "link generation",
     vote: "voting",
     rewriter: "query rewriter",
+    note_reconcile: "note reconciliation",
   };
 
 /**

@@ -11,7 +11,7 @@ import {
 
 /** The memory sub-calls whose health is tracked. */
 export type MemorySubcallKind =
-  "reflection" | "link_generator" | "vote" | "rewriter";
+  "reflection" | "link_generator" | "vote" | "rewriter" | "note_reconcile";
 
 /** Every outcome any of the tracked runners reports. */
 export type MemorySubcallOutcome =
