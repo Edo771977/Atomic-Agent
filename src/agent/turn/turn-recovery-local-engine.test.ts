@@ -495,6 +495,31 @@ describe("turn recovery: a held engine lock with no model process", () => {
     expect(turn.outageWaitedMs).toBe(300_000);
   });
 
+  it("a live lock owner (a slow Atomic Core load that writes its pid only when it returns) keeps the full wait", () => {
+    // Core writes the session pid after the load returns, and a partial-offload
+    // shrink restarts the load: a big model can sit past 90 s with no pid
+    // while its loader is alive and working.
+    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, lockOwner: "live" }));
+    if (decision.kind === "failure") expect(decision.runError).not.toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBe(300_000);
+  });
+
+  it("a lock whose owner has not written its pid yet still ends at the ceiling", () => {
+    const { decision, turn } = runOutage(() => ({ ...lockedNoProcess, reason: "lock_writing", lockOwner: "pending" }));
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBe(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
+  });
+
+  it("a lock whose owner died reads dead and ends the turn after the restart grace", () => {
+    // `stale_dead_owner` does not hide the pid file: no pid reads `dead`.
+    const { decision, turn } = runOutage((waited) =>
+      waited < 30_000 ? { ...lockedNoProcess, lockOwner: "live" } : { state: "dead", reason: "no_pid_file" });
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+    expect(turn.outageWaitedMs).toBeLessThan(30_000 + LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
+  });
+
   it("with waiting disabled the turn ends at once with the same reason", () => {
     const { decision } = runOutage(() => lockedNoProcess, context({ providerWaitCfg: { enabled: false, maxWaitMs: 300_000 } }));
     expect(decision.kind).toBe("failure");

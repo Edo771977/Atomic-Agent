@@ -52,6 +52,16 @@ export interface LocalEngineVerdict {
    * the turn. Absent: not asked.
    */
   modelProcess?: "none" | "running" | "unknown";
+  /**
+   * Who holds the engine lock, asked beside `modelProcess`: `live` when a
+   * live process (this one or another) owns it, `pending` when the owner
+   * has not written its pid yet. Atomic Core writes the model's pid only
+   * once a load returns, so a live owner with no model process is a load
+   * under way: the no-process ceiling does not apply to it, and the lock's
+   * own staleness (`CORE_OPERATION_STALE_MS`) bounds the wait instead.
+   * Absent: not asked (the ceiling applies).
+   */
+  lockOwner?: "live" | "pending";
 }
 
 /**

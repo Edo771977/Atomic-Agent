@@ -121,7 +121,7 @@ export function explainLocalEngineState(
     } catch {
       found = "unknown";
     }
-    return { ...verdict, modelProcess: found };
+    return { ...verdict, modelProcess: found, lockOwner: report.reason === "lock_writing" ? "pending" : "live" };
   }
   return verdict;
 }

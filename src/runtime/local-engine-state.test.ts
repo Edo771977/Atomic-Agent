@@ -60,7 +60,7 @@ describe("explainLocalEngineState (ATO-1432)", () => {
 
   it("passes the liveness branch through as the reason", () => {
     expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", report("unknown", "lock_held"), () => "running"))
-      .toEqual({ state: "unknown", reason: "lock_held", modelProcess: "running" });
+      .toEqual({ state: "unknown", reason: "lock_held", modelProcess: "running", lockOwner: "live" });
     expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", report("no_pid", "no_pid_file")))
       .toEqual({ state: "dead", reason: "no_pid_file" });
     expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", report("unknown", "pid_unreadable")))
@@ -105,8 +105,16 @@ describe("explainLocalEngineState: a held lock with no model process (ATO-1434)"
   it("says whether a model process exists when the lock hides the pid", () => {
     const probe = vi.fn(() => "none" as const);
     expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, probe))
-      .toEqual({ state: "unknown", reason: "lock_held", modelProcess: "none" });
+      .toEqual({ state: "unknown", reason: "lock_held", modelProcess: "none", lockOwner: "live" });
     expect(probe).toHaveBeenCalledWith("/state/models");
+  });
+
+  it("says whether the lock's owner is a live process or one still writing its pid", () => {
+    const self = vi.fn(() => ({ state: "unknown", reason: "lock_held_self", lock: "held_self" }) as never);
+    const writing = vi.fn(() => ({ state: "unknown", reason: "lock_writing", lock: "writing" }) as never);
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", held, () => "none").lockOwner).toBe("live");
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", self, () => "none").lockOwner).toBe("live");
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", writing, () => "none").lockOwner).toBe("pending");
   });
 
   it("a probe that throws is unknown, never none", () => {

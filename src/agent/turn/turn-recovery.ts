@@ -648,7 +648,8 @@ export function recoverTurnStep(
   // it never will. Such a turn waits at most
   // `LOCAL_ENGINE_NO_PROCESS_CEILING_MS`, then ends with the same
   // `local_engine_down` reason as a dead engine. A pid that appears
-  // resets the count and the ordinary wait applies.
+  // resets the count and the ordinary wait applies, as does a lock whose
+  // owner is a live process (a slow Core load).
   let lockedNoProcess = false;
   let noProcessCeilingLeftMs = Number.POSITIVE_INFINITY;
   if (
@@ -666,7 +667,12 @@ export function recoverTurnStep(
     // the turn ends, the disk may say something else.
     turn.engineWaitVerdicts = { first: turn.engineWaitVerdicts?.first ?? verdict, last: verdict };
     const engineState = verdict.state;
-    lockedNoProcess = engineState === "unknown" && verdict.modelProcess === "none";
+    // A live lock owner with no pid yet is a load under way (Atomic Core
+    // writes the pid only once its load returns, and a partial-offload
+    // shrink loads again): it keeps the ordinary wait, bounded by the lock's
+    // own staleness. A dead owner leaves the pid file visible and reads
+    // `dead` above.
+    lockedNoProcess = engineState === "unknown" && verdict.modelProcess === "none" && verdict.lockOwner !== "live";
     if (lockedNoProcess) {
       turn.lockNoProcessSinceWaitedMs ??= turn.outageWaitedMs;
       const since = turn.lockNoProcessSinceWaitedMs;
