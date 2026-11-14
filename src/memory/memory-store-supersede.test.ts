@@ -76,7 +76,7 @@ describe("superseded notes (ATO-672)", () => {
     });
 
     it("a dedup merge cannot add them to an existing note", () => {
-      const deduping = new MemoryStore({ dbFile: join(dir, "dedup.sqlite"), maxEntries: 100, dedup: { enabled: true } });
+      const deduping = new MemoryStore({ dbFile: join(dir, "dedup.sqlite"), maxEntries: 100, dedup: { enabled: true, fts5Threshold: 0.85 } });
       try {
         const real = deduping.store({ content: "the user deploys from the main branch every friday", tags: ["user"] });
         const merged = deduping.store({ content: "the user deploys from the main branch every friday", tags: ["superseded", "superseded-by-1"] });
