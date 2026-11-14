@@ -2,6 +2,7 @@ import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ResponseFormatJsonSchema } from "../../llm/provider/completion-types.js";
 import { resolveSlotId, type SlotIdSource } from "../../llm/slot-manager.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
+import { createLinkGeneratorBackoff, type LinkGeneratorBackoffOptions } from "../links/link-generator-backoff.js";
 import { SUPERSEDED_NOTE_TAG, type MemoryEntry, type MemoryStore } from "../memory-store.js";
 
 import { NOTE_RECONCILE_GRAMMAR } from "./note-reconcile-grammar.js";
@@ -18,7 +19,8 @@ import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format
  *   - at most ONE model call per reflection, for the first new note that
  *     has any similar older note; no candidates → no call;
  *   - its own hard timeout; a timeout or failure gives up for this
- *     reflection (no retry);
+ *     reflection (no retry), and after a timeout the session skips the
+ *     next few calls (the link generator's backoff: 3, doubling to 24);
  *   - at most `maxSupersede` (default 2) older notes marked per call;
  *   - ids outside the candidates shown to the model are ignored;
  *   - candidates come from the new note's working directory only (global
@@ -75,6 +77,16 @@ export interface NoteReconcileRunnerDeps {
   leaseMs?: number;
   logger?: StructuredLogger;
   now?: () => number;
+  /**
+   * Per-session cooldown after a timeout, as for the link generator
+   * (`link-generator-backoff.ts`). `{ baseCalls: 0 }` turns it off.
+   */
+  timeoutBackoff?: LinkGeneratorBackoffOptions;
+  /**
+   * Every finished call's outcome, for the memory-health tracker
+   * (`memory/docs/formation.md`). Must not throw; a throw is swallowed.
+   */
+  onOutcome?: (sessionId: string, outcome: NoteReconcileOutcome, reason?: string) => void;
 }
 
 export interface NoteReconcileRunner {
@@ -92,6 +104,7 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
   const maxSupersede = deps.maxSupersede ?? 2;
   const leaseMs = deps.leaseMs ?? 60_000;
   const pending = new Map<string, AbortController>();
+  const backoff = createLinkGeneratorBackoff(deps.timeoutBackoff);
 
   const finish = (
     sessionId: string,
@@ -106,6 +119,9 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
       marked: marked.length,
       ...(reason ? { reason } : {}),
     };
+    if (outcome === "timeout") backoff.onTimeout(sessionId);
+    else if (outcome === "superseded" || outcome === "duplicate" || outcome === "none") backoff.onHealthy(sessionId);
+    try { deps.onOutcome?.(sessionId, outcome, reason); } catch { /* Observability never fails the call. */ }
     if (outcome === "timeout" || outcome === "failed") {
       deps.logger?.warn(`note_reconcile.${outcome}`, context);
     } else if (outcome === "skipped" || outcome === "aborted") {
@@ -166,6 +182,10 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
     }
     if (!picked) return finish(input.sessionId, startedAt, "skipped", [], "no similar older note");
     const target = picked;
+    const backoffLeft = backoff.take(input.sessionId);
+    if (backoffLeft > 0) {
+      return finish(input.sessionId, startedAt, "skipped", [], `backoff after timeout (${backoffLeft} call(s) left)`);
+    }
 
     pending.get(input.sessionId)?.abort();
     const controller = new AbortController();

@@ -40,6 +40,14 @@ const COPY: Readonly<Record<MemorySubcallKind, SubcallCopy>> = {
     timeoutNote: " (voting shares it)",
     disableSetting: "memory.voting.enabled",
   },
+  note_reconcile: {
+    label: "Memory note reconciliation",
+    consequence: "notes a newer note replaces are not being marked stale",
+    // Bootstrap builds the reconcile runner with the reflection timeout.
+    timeoutSetting: "memory.reflection.timeoutMs",
+    timeoutNote: " (note reconciliation shares it)",
+    disableSetting: "memory.notes.reconcile",
+  },
   rewriter: {
     label: "The memory query rewriter",
     consequence: "follow-up questions are recalled by their literal wording",

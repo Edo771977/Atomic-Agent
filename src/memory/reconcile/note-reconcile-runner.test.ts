@@ -188,6 +188,41 @@ describe("note reconciliation (ATO-672)", () => {
     expect(isSupersededNote(store.get(old.id)!)).toBe(false);
   });
 
+  it("reports every outcome for memory health and backs off after a timeout", async () => {
+    store.store({ content: "The user works at Acme" });
+    const fresh = store.store({ content: "The user works at Globex now" });
+    const outcomes: string[] = [];
+    let calls = 0;
+    let hang = true;
+    const reconciler = createNoteReconcileRunner({
+      llmComplete: (p) => {
+        calls += 1;
+        if (!hang) return Promise.resolve(completion("NONE\n"));
+        return new Promise<CompletionResult>((_, reject) => {
+          p.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+      notesStore: store,
+      reflectionSlotId: 0,
+      timeoutMs: 10,
+      timeoutBackoff: { baseCalls: 2, maxCalls: 8 },
+      onOutcome: (sessionId, outcome) => outcomes.push(`${sessionId}:${outcome}`),
+    });
+    expect((await reconciler.reconcile({ sessionId: "s1", notes: [fresh] })).outcome).toBe("timeout");
+    expect(calls).toBe(1);
+    // The next two calls are skipped without reaching the model.
+    expect((await reconciler.reconcile({ sessionId: "s1", notes: [fresh] })).outcome).toBe("skipped");
+    expect((await reconciler.reconcile({ sessionId: "s1", notes: [fresh] })).outcome).toBe("skipped");
+    expect(calls).toBe(1);
+    // Another session is not held back.
+    hang = false;
+    expect((await reconciler.reconcile({ sessionId: "s2", notes: [fresh] })).outcome).toBe("none");
+    expect(calls).toBe(2);
+    expect((await reconciler.reconcile({ sessionId: "s1", notes: [fresh] })).outcome).toBe("none");
+    expect(calls).toBe(3);
+    expect(outcomes).toEqual(["s1:timeout", "s1:skipped", "s1:skipped", "s2:none", "s1:none"]);
+  });
+
   it("the decorator reconciles only notes this reflection wrote", async () => {
     const old = store.store(
       { content: "The user works at Acme", sessionId: "s1", tags: ["reflection"] },

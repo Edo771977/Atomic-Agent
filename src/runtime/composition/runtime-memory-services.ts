@@ -130,6 +130,9 @@ export function createRuntimeMemoryServices(args: MemoryServiceDependencies & {
         timeoutMs: config.memory.reflection.timeoutMs,
         leaseMs: config.memory.evolution.leaseMs,
         logger,
+        // A call that marked something reached the model and came back: healthy.
+        onOutcome: (sessionId, outcome, reason) => memoryHealth.observe(sessionId, "note_reconcile",
+          outcome === "superseded" || outcome === "duplicate" ? "ok" : outcome, reason),
       }),
       notesStore,
     });
