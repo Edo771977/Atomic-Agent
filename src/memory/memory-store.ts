@@ -207,6 +207,28 @@ export const MEMORY_CONTENT_MAX_LENGTH = 4_000;
 /** Hard ceiling on a single tag string. */
 export const MEMORY_TAG_MAX_LENGTH = 40;
 /** Hard ceiling on the number of tags per entry. */
+/**
+ * ATO-672. The tag note reconciliation puts on a note a newer one
+ * replaces; with `memory.notes.reconcile` on, recall and the index hide it.
+ */
+export const SUPERSEDED_NOTE_TAG = "superseded";
+
+/**
+ * ATO-672. `superseded` and `superseded-by-<id>` hide a note from recall,
+ * so they are reserved: `store()` (the notes tool, reflection, imports,
+ * dedup merges) and `evolveTags()` (reflection EVOLVE) drop them, and only
+ * `markSuperseded()`, the reconciler's method, sets them. Case-insensitive,
+ * so a look-alike spelling cannot slip through either.
+ */
+export function isReservedSupersedeTag(tag: string): boolean {
+  const t = tag.trim().toLowerCase();
+  return t === SUPERSEDED_NOTE_TAG || t.startsWith("superseded-by-");
+}
+
+function withoutReservedTags(tags: string[]): string[] {
+  return tags.some(isReservedSupersedeTag) ? tags.filter((tag) => !isReservedSupersedeTag(tag)) : tags;
+}
+
 export const MEMORY_MAX_TAGS = 16;
 /** Hard ceiling on a recall query string. */
 export const MEMORY_QUERY_MAX_LENGTH = 500;
@@ -427,7 +449,7 @@ export class MemoryStore {
    */
   store(input: MemoryStoreInput, now: number = this.now()): MemoryEntry {
     const content = validateContent(input.content);
-    const tags = validateTags(input.tags);
+    const tags = withoutReservedTags(validateTags(input.tags));
     const source = validateSource(input.source ?? "agent");
     const sessionId = validateOptionalString(input.sessionId, "sessionId");
     const workingDir = validateOptionalString(input.workingDir, "workingDir");
@@ -999,14 +1021,40 @@ export class MemoryStore {
     addTags: readonly string[],
     opts: { leaseMs: number; now?: number; evictable?: (tag: string) => boolean } = { leaseMs: 0 },
   ): EvolveTagsResult {
+    return this.applyTagEvolution(id, addTags, opts, false);
+  }
+
+  /**
+   * ATO-672. The only writer of the reserved supersede tags: marks `id`
+   * `superseded` and `superseded-by-<byId>` with `evolveTags` semantics
+   * (metadata only, lease honoured). At the tag cap an ordinary tag is
+   * dropped to make room, never a supersede tag.
+   */
+  markSuperseded(
+    id: number,
+    byId: number,
+    opts: { leaseMs: number; now?: number },
+  ): EvolveTagsResult {
+    const by = validateId(byId);
+    return this.applyTagEvolution(id, [SUPERSEDED_NOTE_TAG, `superseded-by-${by}`],
+      { ...opts, evictable: (tag) => !isReservedSupersedeTag(tag) }, true);
+  }
+
+  private applyTagEvolution(
+    id: number,
+    addTags: readonly string[],
+    opts: { leaseMs: number; now?: number; evictable?: (tag: string) => boolean },
+    allowReserved: boolean,
+  ): EvolveTagsResult {
     const normalizedId = validateId(id);
-    const cleanTags = normalizeTagsInput(addTags);
-    if (cleanTags.length === 0) {
+    const validTags = normalizeTagsInput(addTags);
+    if (validTags.length === 0) {
       throw new MemoryValidationError(
         "tags",
         "evolveTags requires at least one valid tag",
       );
     }
+    const cleanTags = allowReserved ? validTags : withoutReservedTags(validTags);
     const now = opts.now ?? this.now();
     const row = this.db
       .prepare(`SELECT tags, consolidating_at FROM memories WHERE id = ?`)
@@ -1020,7 +1068,10 @@ export class MemoryStore {
       }
     }
     const existing = parseTags(row.tags);
-    const merged = applyEvolveTags(existing, cleanTags, opts.evictable);
+    // A reserved tag is never evicted to make room, whoever asks.
+    const evictable = opts.evictable;
+    const merged = applyEvolveTags(existing, cleanTags,
+      evictable ? (tag) => !isReservedSupersedeTag(tag) && evictable(tag) : undefined);
     if (merged.addedTags.length === 0) {
       return {
         outcome: "skipped_no_change",

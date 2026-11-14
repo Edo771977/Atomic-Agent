@@ -2,7 +2,7 @@ import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ResponseFormatJsonSchema } from "../../llm/provider/completion-types.js";
 import { resolveSlotId, type SlotIdSource } from "../../llm/slot-manager.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
-import type { MemoryEntry, MemoryStore } from "../memory-store.js";
+import { SUPERSEDED_NOTE_TAG, type MemoryEntry, type MemoryStore } from "../memory-store.js";
 
 import { NOTE_RECONCILE_GRAMMAR } from "./note-reconcile-grammar.js";
 import { parseNoteReconcileOutput } from "./note-reconcile-parser.js";
@@ -22,7 +22,7 @@ import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format
  *   - at most `maxSupersede` (default 2) older notes marked per call;
  *   - ids outside the candidates shown to the model are ignored.
  *
- * "Stale" is metadata only, through `MemoryStore.evolveTags` (content
+ * "Stale" is metadata only, through `MemoryStore.markSuperseded` (content
  * stays append-only, the consolidator lease is honoured): the replaced
  * note gets `superseded` plus `superseded-by-<newId>`. With
  * `memory.notes.reconcile` on, the context provider leaves `superseded`
@@ -32,7 +32,7 @@ import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format
  *
  * Fire-safe: `reconcile()` never throws.
  */
-export const SUPERSEDED_NOTE_TAG = "superseded";
+export { SUPERSEDED_NOTE_TAG };
 
 export type NoteReconcileOutcome =
   | "superseded"
@@ -77,10 +77,6 @@ export interface NoteReconcileRunnerDeps {
 export interface NoteReconcileRunner {
   reconcile(input: { sessionId: string; notes: readonly MemoryEntry[] }): Promise<NoteReconcileReport>;
   abortPending(options?: { sessionId?: string }): void;
-}
-
-function isSupersedeSystemTag(tag: string): boolean {
-  return tag === SUPERSEDED_NOTE_TAG || tag.startsWith("superseded-by-");
 }
 
 export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
@@ -134,13 +130,9 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
 
   const mark = (id: number, byId: number): boolean => {
     try {
-      // A note already at the tag cap would silently lose the mark,
-      // so the store may drop an ordinary tag to fit the system ones.
-      const result = deps.notesStore.evolveTags(id, [SUPERSEDED_NOTE_TAG, `superseded-by-${byId}`], {
-        leaseMs,
-        now: now(),
-        evictable: (tag) => !isSupersedeSystemTag(tag),
-      });
+      // The reserved tags are only written through markSuperseded; a
+      // note at the tag cap drops an ordinary tag to fit them.
+      const result = deps.notesStore.markSuperseded(id, byId, { leaseMs, now: now() });
       if (result.outcome === "applied" && result.tags.includes(SUPERSEDED_NOTE_TAG)) return true;
       const alreadyMarked =
         result.outcome === "skipped_no_change" && result.tags.includes(SUPERSEDED_NOTE_TAG);
