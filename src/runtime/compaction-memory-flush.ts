@@ -28,9 +28,12 @@ import type { ModelSummaryRoute } from "./context-compaction-model.js";
  * result: a web page, MCP answer or file saying "the user prefers X"
  * must not become a durable note. When the span (or the running turn, per
  * the approval gate) read outside content, the assistant's text is left
- * out too, since it may repeat that content, and a line is kept only when
- * its words come from the user's messages. Every line also passes the
- * reflection grounding filter (`filterUngroundedReflection`).
+ * out too, since it may repeat that content. Whatever was detected, a line
+ * is kept only when most of its topic words come from the user's messages
+ * in the span (outside text can arrive unframed, e.g. through a shell),
+ * and it also passes the reflection grounding filter
+ * (`filterUngroundedReflection`). This narrows, but cannot close, the way
+ * for outside text: a line that restates the user's words is kept.
  *
  * The call runs on its own prompt built from the session's records: the
  * session, its visible chat and its transcript are never changed. It is
@@ -160,10 +163,22 @@ function flushSource(input: BuildPromptInput, from: number, through: number, tai
 
 const WORD = /[\p{L}\p{N}]{4,}/gu;
 const stem = (word: string) => word.toLowerCase().slice(0, 5);
+/**
+ * Longer function words that say nothing about what a line claims; they
+ * count on neither side, so a user's "this", "with" or "they" cannot
+ * ground a line alone. Deliberately small and English.
+ */
+const COMMON_WORDS: ReadonlySet<string> = new Set([
+  "that", "this", "with", "from", "have", "were", "been", "they", "them", "their", "there",
+  "what", "when", "will", "would", "should", "could", "about", "into", "than", "then", "also",
+  "just", "only", "some", "such", "very", "more", "most", "other", "which", "while", "where",
+  "your", "user", "users", "here", "does", "being",
+]);
+const topicWords = (text: string) => (text.match(WORD) ?? []).filter((word) => !COMMON_WORDS.has(word.toLowerCase()));
 
-/** At least half of the line's longer words also occur (by stem) in the user's messages. */
+/** At least half of the line's longer topic words also occur (by stem) in the user's messages. */
 function groundedInUserWords(line: string, userStems: ReadonlySet<string>): boolean {
-  const words = line.match(WORD) ?? [];
+  const words = topicWords(line);
   if (words.length === 0) return false;
   return words.filter((word) => userStems.has(stem(word))).length * 2 >= words.length;
 }
@@ -176,12 +191,16 @@ function groundObservations(lines: readonly string[], source: FlushSource, sessi
     { userTexts: source.userTexts, nameEvidence: sessionUserTexts },
   );
   const keptBodies = grounded.notes.map((note) => note.body);
-  const userStems = new Set(source.userTexts.flatMap((text) => (text.match(WORD) ?? []).map(stem)));
+  const userStems = new Set(source.userTexts.flatMap((text) => topicWords(text).map(stem)));
+  // Always, not only when outside content was detected: text from
+  // outside can reach the span unframed (a shell `curl`, a downloaded
+  // file read back, the clipboard) through the assistant's replies, and
+  // no flag sees it. A line must rest on the user's own words.
   const kept = bodies.filter(({ body }) => {
     const at = keptBodies.indexOf(body);
     if (at < 0) return false;
     keptBodies.splice(at, 1);
-    return !source.outside || groundedInUserWords(body, userStems);
+    return groundedInUserWords(body, userStems);
   }).map(({ line }) => line);
   return { kept, dropped: lines.length - kept.length };
 }
