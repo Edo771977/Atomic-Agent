@@ -63,6 +63,13 @@ export interface MemoryFlushNotes {
    * holding outside content. Absent: only the span's own records decide.
    */
   outsideContentSources?(sessionId: string): readonly string[];
+  /**
+   * True when the tool's results carry outside text: bootstrap answers
+   * from the tool registry (`untrustedOutput` / `externalSource`, and a
+   * tool no longer registered). Absent: only the built-in names and the
+   * outside-content frame decide.
+   */
+  isOutsideTool?(tool: string): boolean;
   log?(level: "info" | "warn", message: string, fields: Record<string, unknown>): void;
 }
 
@@ -95,9 +102,27 @@ const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const [FRAME_HEAD, FRAME_TAIL] = untrustedContentNote("\u0000").split("\u0000") as [string, string];
 
-/** A tool result framed as outside data by `markUntrustedResult` (web, MCP, HTTP...). */
-function isOutsideContentResult(turn: ConversationTurn): boolean {
+/**
+ * Tools whose results carry outside text without the registry's frame:
+ * the mail inbox frames its own listing (`externalSource`), and a Fusion
+ * worker's report repeats whatever the worker read
+ * (`FUSION_WORKER_TAINT_SOURCE`).
+ */
+const OUTSIDE_TOOLS: ReadonlySet<string> = new Set(["os.email.inbox", "fusion.delegate"]);
+
+/**
+ * A tool result holding outside text, decided by the tool (the registry's
+ * flags through `isOutsideTool`, or a built-in name) and, for records the
+ * registry no longer knows, by the `markUntrustedResult` frame.
+ */
+function isOutsideContentResult(turn: ConversationTurn, isOutsideTool: (tool: string) => boolean): boolean {
   if (turn.kind !== "tool_result") return false;
+  if (OUTSIDE_TOOLS.has(turn.tool)) return true;
+  try {
+    if (isOutsideTool(turn.tool)) return true;
+  } catch {
+    return true;
+  }
   const first = turn.summary.split("\n", 1)[0] ?? "";
   return first.startsWith(FRAME_HEAD) && first.endsWith(FRAME_TAIL);
 }
@@ -116,9 +141,10 @@ interface FlushSource {
  * content is in play, the assistant's replies. Tool calls and results are
  * never read (their text may be written by anyone).
  */
-function flushSource(input: BuildPromptInput, from: number, through: number, taintedTurn: boolean): FlushSource {
+function flushSource(input: BuildPromptInput, from: number, through: number, taintedTurn: boolean,
+  isOutsideTool: (tool: string) => boolean): FlushSource {
   const turns = input.session.turns.slice(from, through);
-  const outside = taintedTurn || turns.some(isOutsideContentResult);
+  const outside = taintedTurn || turns.some((turn) => isOutsideContentResult(turn, isOutsideTool));
   const records: string[] = [];
   const userTexts: string[] = [];
   turns.forEach((turn, offset) => {
@@ -254,7 +280,7 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     }
     let taintedTurn = false;
     try { taintedTurn = (notes.outsideContentSources?.(state.id) ?? []).length > 0; } catch { taintedTurn = true; }
-    const source = flushSource(input, from, through, taintedTurn);
+    const source = flushSource(input, from, through, taintedTurn, (tool) => notes.isOutsideTool?.(tool) ?? false);
     // The newest records that fit the window.
     const kept: string[] = [];
     let used = 0;

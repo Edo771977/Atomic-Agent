@@ -287,8 +287,11 @@ it is about to cover: lines of `YYYY-MM-DD: one short sentence`, at most 12, or
 `NONE`. The input is the user's messages and the assistant's replies in that
 span, newest first when they do not all fit; tool calls and tool results (web
 pages, MCP answers, files) are never read, so outside text cannot become a
-durable note. When the span holds a result framed as outside content, or the
-approval gate reports outside content for the running turn, the assistant's
+durable note. When the span holds a result of a tool that returns outside text
+(decided by the tool: the registry's `untrustedOutput` / `externalSource` flags,
+the mail inbox, `fusion.delegate`, a tool no longer registered, or the outside
+content frame), or the approval gate reports outside content for the running
+turn, the assistant's
 replies are left out too, and a line is kept only when at least half of its
 longer words come from the user's messages. Every line also passes the
 reflection grounding filter (`filterUngroundedReflection`). The call uses the compaction route,

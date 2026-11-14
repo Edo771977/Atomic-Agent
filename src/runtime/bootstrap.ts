@@ -539,6 +539,13 @@ export async function createAgentRuntime(
       enabled: () => getConfig().memory.notes.enabled,
       store: (note) => notesStore.store(note),
       outsideContentSources: (sessionId) => approvals.outsideContentSources(sessionId),
+      // Decided by the tool, not by the result's first line: a tool that
+      // frames its own text (the inbox) or is gone now counts as outside.
+      isOutsideTool: (tool) => {
+        if (!toolRegistry.has(tool)) return true;
+        const definition = toolRegistry.get(tool);
+        return definition.untrustedOutput !== undefined || definition.externalSource !== undefined;
+      },
       log: (level, message, fields) => logger[level](message, fields),
     },
     background: createBackgroundCompaction({
