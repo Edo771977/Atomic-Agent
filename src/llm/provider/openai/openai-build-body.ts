@@ -362,11 +362,24 @@ function assembleOpenAiChatBody(
     else delete merged[key];
   }
   // The person's level beats the model's `params` and `extraBody`: the
-  // config's effort fields go, the level's own field is put back.
+  // config's effort fields go, the level's own field is put back. An
+  // operator's OpenRouter `reasoning` object says more than how much:
+  // `exclude` (keep reasoning out of the reply) stays, `enabled: false`
+  // wins over the level, and only a `max_tokens` budget (the other way to
+  // say how much) gives way to the level's `effort`.
   if (override !== undefined) {
+    const operatorReasoning = merged.reasoning;
     delete merged.reasoning;
     delete merged.reasoning_effort;
     for (const key of effortKeys) merged[key] = body[key];
+    if (effortKeys.includes("reasoning") && isPlainRecord(operatorReasoning)) {
+      if (operatorReasoning.enabled === false) {
+        merged.reasoning = operatorReasoning;
+      } else {
+        const { max_tokens: _budget, ...kept } = operatorReasoning;
+        merged.reasoning = { ...kept, ...(body.reasoning as Record<string, unknown>) };
+      }
+    }
   }
   // A temperature the service itself named in a 400 beats the operator's
   // passthrough: that value is exactly what was just refused. So does a
@@ -412,4 +425,8 @@ function capacityReserve(body: Record<string, unknown>, replyReserve: number): n
 function capacityUsed(body: Record<string, unknown>, replyReserve: number): number {
   return estimateTokens(JSON.stringify(capacityInput(body))) +
     capacityReserve(body, replyReserve) + 1024;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
