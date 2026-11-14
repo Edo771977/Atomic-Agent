@@ -3,6 +3,7 @@ import type { CompletionResult } from "../llm/provider/completion-types.js";
 import { getReasoningTurnFraming } from "../llm/model-profile.js";
 import { hashPrefix } from "../llm/slot-manager.js";
 import { MEMORY_CONTENT_MAX_LENGTH, type MemoryStoreInput } from "../memory/memory-store.js";
+import { containsSecret } from "../memory/memory-secret-guard.js";
 import { filterUngroundedReflection } from "../memory/reflection/index.js";
 import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { estimateTokens } from "../prompt/token-budget.js";
@@ -346,8 +347,14 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     const fallbackDay = days[days.length - 1] ?? today;
     const parsed = parseObservations(stripTitleReasoning(result.content), fallbackDay, today);
     const sessionUserTexts = state.turns.flatMap((turn) => (turn.kind === "user" ? [turn.text] : []));
-    const { kept: lines, dropped } = groundObservations(parsed, source, sessionUserTexts);
+    const { kept: grounded, dropped } = groundObservations(parsed, source, sessionUserTexts);
     if (dropped > 0) log("info", "compaction memory flush dropped ungrounded observations", { dropped, outsideContent: source.outside });
+    // The store refuses a whole note holding a credential; drop just
+    // those lines so one of them does not cost the rest.
+    const lines = grounded.filter((line) => !containsSecret(line));
+    if (lines.length < grounded.length) {
+      log("info", "compaction memory flush dropped observations holding a credential", { dropped: grounded.length - lines.length });
+    }
     if (lines.length === 0) {
       log("info", "compaction memory flush found nothing to keep");
       return withCost({ status: "none" as const });

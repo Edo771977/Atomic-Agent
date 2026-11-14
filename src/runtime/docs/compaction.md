@@ -295,7 +295,9 @@ replies are left out too. In every case a line is kept only when at least half
 of its longer topic words (common function words ignored) come from the user's
 messages in the span, since outside text can also arrive unframed (a shell
 `curl`, a downloaded file read back) through the assistant's replies. Every line
-also passes the reflection grounding filter (`filterUngroundedReflection`). This
+also passes the reflection grounding filter (`filterUngroundedReflection`), and
+a line holding a credential is dropped on its own (the store would refuse the
+whole note). This
 makes outside text unlikely, not impossible, to become a durable note: a line
 that restates the user's own words is kept. The call uses the compaction route,
 provider framing, side slot and `compaction:<sessionId>` usage, with thinking off

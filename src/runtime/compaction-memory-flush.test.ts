@@ -8,6 +8,7 @@ import { PLAIN_INSTRUCT_PROFILE } from "../llm/model-profile.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
 import type { LlmStreamParams } from "../agent/step/step-contract.js";
 import type { MemoryStoreInput } from "../memory/memory-store.js";
+import { containsSecret } from "../memory/memory-secret-guard.js";
 import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { assistantReplyTurn, assistantToolCallTurn, toolResultTurn, userTurn } from "../session/conversation-turn.js";
 import { markUntrustedResult } from "../tools/untrusted-tool-output.js";
@@ -244,6 +245,24 @@ describe("compaction memory flush: outside content never becomes a durable note"
     expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
     expect(flushPrompt(f)).not.toContain("account 991");
     expect(f.store.mock.calls.map((c) => c[0].content).join("\n")).not.toContain("account 991");
+  });
+});
+
+describe("compaction memory flush: secrets", () => {
+  it("drops a line holding a credential and stores the rest", async () => {
+    const f = fixture({ mode: "extractive", memoryFlush: true },
+      async () => completion("2026-01-01: Kept the green button.\n2026-01-01: The deploy password is hunter2-green-button."),
+      history(22, { bodyRepeat: 8, userText: "preserve the green button and do not deploy; the deploy password is hunter2-green-button" }));
+    // The real notes store refuses content holding a credential.
+    f.store.mockImplementation((note: MemoryStoreInput) => {
+      if (containsSecret(note.content)) throw new Error("memory content looks like a credential");
+      return {};
+    });
+    expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
+    expect(f.store).toHaveBeenCalledOnce();
+    const content = f.store.mock.calls[0]![0].content;
+    expect(content).toContain("Kept the green button.");
+    expect(content).not.toContain("hunter2");
   });
 });
 
