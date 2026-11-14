@@ -682,6 +682,13 @@ export class ToolLoopTracker {
    * outcome fingerprints, and a veto streak on a read -- and nothing
    * else: writes, tests, polls and wandering runs keep their state, and
    * a read repeated after this is caught again as usual.
+   *
+   * All reads, not only those whose rows left view: a checkpoint through
+   * row N also forgets reads recorded after N that are still in front of
+   * the model, so their repeat count starts over. Exact forgetting would
+   * need each history entry, coverage range and outcome fingerprint tied
+   * to the row that recorded it; since every point only moves forward,
+   * the cost is one restarted count per cut.
    */
   forgetReads(): void {
     this.readCoverage.clear();

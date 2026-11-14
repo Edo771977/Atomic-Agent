@@ -230,9 +230,11 @@ export class AgentLoop {
     // Follow-up to #827: once history this turn wrote leaves the model's
     // view (a compaction summarized it, or the packer cut it), a re-read
     // of a file is how the model gets the content back, so the tracker
-    // forgets its read state. Rows before `turnFirstRow` were written by
-    // earlier turns and the tracker knows nothing about them: losing
-    // them is no reason to forget the reads still in view. Each point
+    // forgets its read state. `turnFirstRow` is the first row this
+    // turn's tool activity writes: `prepareAgentTurn` has already
+    // recorded the user message, so it and the rows of earlier turns
+    // lie before it. The tracker knows nothing about those rows, and
+    // losing them is no reason to forget the reads still in view. Each point
     // only moves forward, so a held cut or an unchanged checkpoint
     // never forgets twice, and a cut moving back and forth cannot keep
     // a read loop clear of its veto.

@@ -57,11 +57,13 @@ const CAPS: CapabilitiesSummary = {
 /**
  * Compacts right before each step `at` accepts (1-based), every time with
  * a fresh checkpoint object that covers the transcript through row
- * `coveredThrough` (exclusive).
+ * `coveredThrough` (exclusive). The default, 2, covers this turn's user
+ * message (row 0) and its first read (row 1): the first row this turn's
+ * tool activity wrote.
  */
 function compactingBefore(
   at: (step: number) => boolean,
-  coveredThrough = 1,
+  coveredThrough = 2,
 ): ContextCompactionControl {
   let calls = 0;
   return {
@@ -149,10 +151,17 @@ describe("AgentLoop: a re-read after compaction is not a repeat (#827 follow-up)
     expect(await readRunsWith(compactingBefore((step) => step === READS))).toBe(READS);
   });
 
+  it("still vetoes the read when the compaction covered only this turn's user message", async () => {
+    // Row 0 is the request; the reads start at row 1, so a checkpoint
+    // through row 1 summarized nothing this turn read.
+    expect(await readRunsWith(compactingBefore((step) => step === READS, 1))).toBeLessThan(READS);
+  });
+
   it("still vetoes the read when the compaction covered only an earlier turn's rows", async () => {
-    // Rows 0 and 1 are the earlier turn; this turn starts at row 2, so a
-    // checkpoint through row 2 summarized nothing this turn read.
-    expect(await readRunsWith(compactingBefore((step) => step === READS, 2), 2)).toBeLessThan(READS);
+    // Rows 0 and 1 are the earlier turn and row 2 this turn's request;
+    // the reads start at row 3, so a checkpoint through row 3 (the
+    // request included) summarized nothing this turn read.
+    expect(await readRunsWith(compactingBefore((step) => step === READS, 3), 2)).toBeLessThan(READS);
   });
 
   it("forgets once per checkpoint, not once per step it is handed back", async () => {
