@@ -9,6 +9,7 @@ import { ToolRegistry, type ToolDefinition } from "../tools/tool-registry.js";
 import type { BrowserBackend } from "../tools/browser/browser-backend.js";
 import { READ_TOOL_TARGETS } from "../tools/read-scope/read-scope-targets.js";
 import * as readProtection from "../tools/read-scope/confine-reads.js";
+import * as verificationExecution from "../tools/verify/run-verify.js";
 
 const externalOperation = (): never => { throw new Error("Composition test must not perform external work"); };
 const backend: BrowserBackend = {
@@ -66,6 +67,15 @@ describe("runtime tool contract composition", () => {
       protectionStart = registrations.length;
       return originalProtection(...args);
     });
+    // Distinct refusal sentinels prove bootstrap threads both inline policies,
+    // and a guarded executor spy makes any missing policy fail before real IO.
+    const commandSentinel = "composition inline command read refused";
+    const targetSentinel = "composition inline local target read refused";
+    const commandReads = vi.fn<readProtection.CommandReadCheck>(async () => { throw new Error(commandSentinel); });
+    const readTargets = vi.fn<readProtection.ReadTargetCheck>(async () => { throw new Error(targetSentinel); });
+    const commandFactorySpy = vi.spyOn(readProtection, "createCommandReadCheck").mockReturnValue(commandReads);
+    const targetFactorySpy = vi.spyOn(readProtection, "createReadTargetCheck").mockReturnValue(readTargets);
+    const executionSpy = vi.spyOn(verificationExecution, "runVerify").mockImplementation(async () => externalOperation());
     let runtime: Awaited<ReturnType<typeof createAgentRuntime>> | undefined;
     try {
       runtime = await createAgentRuntime({ workingDir, approvalLevel: 5, overrides: { browserBackend: backend, skipLlamaHealthCheck: true, llamaComplete: async () => externalOperation() } });
@@ -74,7 +84,9 @@ describe("runtime tool contract composition", () => {
       const native = registrations.slice(0, protectionStart);
       const replacements = registrations.slice(protectionStart);
       expect(new Set(native.map((definition) => definition.name)).size).toBe(native.length);
-      const expectedReplacements = [...READ_TOOL_TARGETS.keys(), "os.shell.run", "verify.run"].filter((name) => runtime?.toolRegistry.has(name));
+      // verify.run already owns both canonical read guards when registered;
+      // its host identity deliberately prevents a second legacy wrapper.
+      const expectedReplacements = [...READ_TOOL_TARGETS.keys(), "os.shell.run"].filter((name) => runtime?.toolRegistry.has(name));
       expect(replacements.map((definition) => definition.name)).toEqual(expectedReplacements);
       for (const definition of replacements) {
         const original = native.find((candidate) => candidate.name === definition.name);
@@ -83,6 +95,20 @@ describe("runtime tool contract composition", () => {
         expect({ ...definition, run: original.run }).toEqual(original);
         expect(runtime.toolRegistry.get(definition.name)).toBe(definition);
       }
+      const nativeVerification = native.find((definition) => definition.name === "verify.run");
+      if (!nativeVerification) throw new Error("Bootstrap did not register verify.run");
+      expect(runtime.toolRegistry.get("verify.run")).toBe(nativeVerification);
+      const verificationContext = { workingDir, sessionId: "composition-verify", stepIndex: 0, signal: new AbortController().signal };
+      const command = await nativeVerification.run({ kind: "command", cmd: "node", args: ["fixture.js"], cwd: "declared", env: { NODE_ENV: "test" } }, verificationContext);
+      expect(command).toMatchObject({ status: "error", summary: commandSentinel });
+      expect(commandReads).toHaveBeenCalledWith("verify.run", expect.objectContaining({ cmd: "node", args: ["fixture.js"], env: { NODE_ENV: "test" } }), expect.objectContaining({ workingDir: join(workingDir, "declared"), sessionId: "composition-verify" }));
+      expect(readTargets).not.toHaveBeenCalled();
+      const page = await nativeVerification.run({ kind: "page", path: "fixture.html" }, verificationContext);
+      expect(page).toMatchObject({ status: "error", summary: targetSentinel });
+      expect(readTargets).toHaveBeenCalledTimes(1);
+      expect(readTargets).toHaveBeenCalledWith("verify.run", { path: join(workingDir, "fixture.html") }, expect.objectContaining({ workingDir, sessionId: "composition-verify" }), "os.fs.read");
+      expect(commandReads).toHaveBeenCalledTimes(1);
+      expect(executionSpy).not.toHaveBeenCalled();
       for (const group of [GATED_TOOL_NAMES.browser, GATED_TOOL_NAMES.memoryProfile, GATED_TOOL_NAMES.memoryNotes, GATED_TOOL_NAMES.memoryLessons, GATED_TOOL_NAMES.memoryProcedures]) {
         for (const name of group) {
           expect(runtime.toolRegistry.has(name), name).toBe(enabled);
@@ -106,6 +132,7 @@ describe("runtime tool contract composition", () => {
     } finally {
       try { await runtime?.shutdown(); } finally {
         registerSpy.mockRestore(); protectionSpy.mockRestore();
+        commandFactorySpy.mockRestore(); targetFactorySpy.mockRestore(); executionSpy.mockRestore();
         for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
         resetConfigCache(); rmSync(directory, { recursive: true, force: true });
       }
