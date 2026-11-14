@@ -82,6 +82,29 @@ export const LOCAL_CHAT_REASONING_BUDGET_TOKENS: Readonly<Record<ReasoningEffort
 };
 
 /**
+ * The think-block bound, in budget tokens, of an ordinary turn whose chat
+ * picked a reasoning level (ATO-490); `0` is no bound.
+ *
+ * With no configured bound (`localModels.reasoningBudgetTokens: 0`, the
+ * default) the level's own budget: nothing in the reply reserve was held
+ * for thinking, and Low or Medium only bound it more tightly. With a
+ * configured bound the level is capped at it: the reply reserve (boot-time
+ * check in `runtime-local-profile.ts`, and every prompt's budget, which
+ * read the configured value) was sized for that many think tokens, so a
+ * larger level, or High's unbounded one, would think into the reply and
+ * cut the tool call. Low still lowers it.
+ */
+export function localChatReasoningBudgetTokens(
+  level: ReasoningEffort,
+  configuredBudgetTokens: number,
+): number {
+  const own = LOCAL_CHAT_REASONING_BUDGET_TOKENS[level];
+  const configured = effectiveReasoningBudgetTokens(configuredBudgetTokens);
+  if (configured <= 0) return own;
+  return own > 0 ? Math.min(own, configured) : configured;
+}
+
+/**
  * The think-block bound of a fusion worker on a local (grammar) leg,
  * per `llm.runMode.fusion.workerReasoning` level. A local llama-server
  * has no reasoning-effort parameter, so the level is spelled as this

@@ -48,7 +48,7 @@ import { composeSteerNotice } from "./steer-notice.js";
 import { planReminderNotice } from "./plan/plan-snapshot.js";
 
 import { getConfig } from "../config/index.js";
-import { LOCAL_CHAT_REASONING_BUDGET_TOKENS } from "../llm/reasoning-budget.js";
+import { localChatReasoningBudgetTokens } from "../llm/reasoning-budget.js";
 
 import { ProfileClipWarnings, reportProfileClip } from "./profile-clip-warning.js";
 import { HistoryTrimWarnings, reportHistoryTrim } from "./history-trim-warning.js";
@@ -489,10 +489,16 @@ export class AgentLoop {
             // The caller's own bound (a fusion worker's) wins; otherwise the
             // chat's reasoning level (ATO-490) becomes the turn's bound, so the
             // grammar, the trace, the repair cap and cut detection all see it.
+            // Capped at a configured bound, which the reply reserve was sized for.
             ...(options.reasoningBudgetTokens !== undefined
               ? { reasoningBudgetTokens: options.reasoningBudgetTokens }
               : options.reasoningOverride !== undefined
-                ? { reasoningBudgetTokens: LOCAL_CHAT_REASONING_BUDGET_TOKENS[options.reasoningOverride] }
+                ? {
+                    reasoningBudgetTokens: localChatReasoningBudgetTokens(
+                      options.reasoningOverride,
+                      getConfig().localModels.reasoningBudgetTokens,
+                    ),
+                  }
                 : {}),
           };
         const contextProviderId = options.providerId ?? this.deps.contextProviderId?.(state.id);
