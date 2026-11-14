@@ -702,11 +702,30 @@ export class MemoryStore {
    * stay as they are): a background comparison is not a use of the
    * note. Archived rows are left out. A query FTS5 cannot parse yields
    * no rows instead of throwing.
+   *
+   * `opts.workingDir` (when given) keeps only rows of that exact working
+   * directory, `null` meaning global notes only, so one project's note is
+   * never compared with another's. `opts.excludeSource` leaves out rows
+   * of that source (the reconciler never touches a `user` note).
    */
-  findSimilar(content: string, k: number): MemoryEntry[] {
+  findSimilar(
+    content: string,
+    k: number,
+    opts: { workingDir?: string | null; excludeSource?: MemorySource } = {},
+  ): MemoryEntry[] {
     const ftsQuery = buildFtsQuery(content.slice(0, MEMORY_QUERY_MAX_LENGTH));
     if (ftsQuery.length === 0) return [];
     const limit = clampPositiveInt(k, 1, MEMORY_RECALL_MAX_K, "k");
+    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL"];
+    const params: unknown[] = [ftsQuery];
+    if (opts.workingDir !== undefined) {
+      where.push("m.working_dir IS ?");
+      params.push(opts.workingDir);
+    }
+    if (opts.excludeSource !== undefined) {
+      where.push("m.source <> ?");
+      params.push(opts.excludeSource);
+    }
     try {
       const rows = this.db
         .prepare(
@@ -715,11 +734,11 @@ export class MemoryStore {
                   m.recall_count, m.last_recalled_at
              FROM memories_fts
              JOIN memories m ON m.id = memories_fts.rowid
-            WHERE memories_fts MATCH ? AND m.consolidated_into IS NULL
+            WHERE ${where.join(" AND ")}
             ORDER BY bm25(memories_fts) ASC
             LIMIT ?`,
         )
-        .all(ftsQuery, limit) as MemoryRow[];
+        .all(...params, limit) as MemoryRow[];
       return rows.map(rowToEntry);
     } catch {
       return [];

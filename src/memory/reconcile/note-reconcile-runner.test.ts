@@ -109,6 +109,35 @@ describe("note reconciliation (ATO-672)", () => {
     expect(isSupersededNote(store.get(old.id)!)).toBe(false);
   });
 
+  it("only compares with notes of the same working directory", async () => {
+    const elsewhere = store.store({ content: "The deploy target is the staging cluster", workingDir: "/other-project" });
+    const fresh = store.store({ content: "The deploy target is now the production cluster", workingDir: "/project" });
+    let shown = "";
+    const report = await runner(async (p) => {
+      shown = p.prompt;
+      return completion(`SUPERSEDE ${elsewhere.id}\n`);
+    }).reconcile({ sessionId: "s1", notes: [fresh] });
+    expect(report.outcome).toBe("skipped");
+    expect(shown).not.toContain(`[${elsewhere.id}]`);
+    expect(isSupersededNote(store.get(elsewhere.id)!)).toBe(false);
+  });
+
+  it("a global note is compared only with global notes", async () => {
+    const scoped = store.store({ content: "The user prefers tabs for indentation", workingDir: "/project" });
+    const fresh = store.store({ content: "The user prefers spaces for indentation now" });
+    const report = await runner(async () => completion(`SUPERSEDE ${scoped.id}\n`)).reconcile({ sessionId: "s1", notes: [fresh] });
+    expect(report.outcome).toBe("skipped");
+    expect(isSupersededNote(store.get(scoped.id)!)).toBe(false);
+  });
+
+  it("never marks a note the user stored explicitly", async () => {
+    const explicit = store.store({ content: "The user works at Acme as a designer", source: "user", workingDir: "/project" });
+    const fresh = store.store({ content: "The user now works at Globex as a designer", tags: ["reflection"], workingDir: "/project" });
+    const report = await runner(async () => completion(`SUPERSEDE ${explicit.id}\n`)).reconcile({ sessionId: "s1", notes: [fresh] });
+    expect(report.marked).toEqual([]);
+    expect(isSupersededNote(store.get(explicit.id)!)).toBe(false);
+  });
+
   it("makes no model call when no older note shares words", async () => {
     const fresh = store.store({ content: "zebra quantum lighthouse" });
     let calls = 0;

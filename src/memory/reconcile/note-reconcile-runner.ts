@@ -20,7 +20,10 @@ import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format
  *   - its own hard timeout; a timeout or failure gives up for this
  *     reflection (no retry);
  *   - at most `maxSupersede` (default 2) older notes marked per call;
- *   - ids outside the candidates shown to the model are ignored.
+ *   - ids outside the candidates shown to the model are ignored;
+ *   - candidates come from the new note's working directory only (global
+ *     notes with global notes), and a `source: "user"` note is never one
+ *     nor ever marked.
  *
  * "Stale" is metadata only, through `MemoryStore.markSuperseded` (content
  * stays append-only, the consolidator lease is honoured): the replaced
@@ -120,7 +123,9 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
     for (const note of notes.slice(0, 3)) {
       if (isSupersededNote(note)) continue;
       const candidates = deps.notesStore
-        .findSimilar(note.content, maxCandidates + freshIds.size)
+        // Same working directory only (global with global), never a note
+        // the user stored explicitly.
+        .findSimilar(note.content, maxCandidates + freshIds.size, { workingDir: note.workingDir, excludeSource: "user" })
         .filter((c) => !freshIds.has(c.id) && !isSupersededNote(c))
         .slice(0, maxCandidates);
       if (candidates.length > 0) return { note, candidates };
@@ -130,6 +135,8 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
 
   const mark = (id: number, byId: number): boolean => {
     try {
+      // Defence in depth: a user's explicit note is never hidden.
+      if (deps.notesStore.get(id)?.source === "user") return false;
       // The reserved tags are only written through markSuperseded; a
       // note at the tag cap drops an ordinary tag to fit them.
       const result = deps.notesStore.markSuperseded(id, byId, { leaseMs, now: now() });
