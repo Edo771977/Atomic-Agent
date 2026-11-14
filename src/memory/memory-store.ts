@@ -748,8 +748,22 @@ export class MemoryStore {
     k: number,
     opts: { workingDir?: string | null; excludeSource?: MemorySource } = {},
   ): MemoryEntry[] {
-    const ftsQuery = buildFtsQuery(content.slice(0, MEMORY_QUERY_MAX_LENGTH));
+    // Topic words only: a prefix-OR over every token ("the", "user")
+    // matched nearly every note, and each hit costs the reconciler a
+    // model call. A candidate must share at least two of these words
+    // (one, for a one-word note) with `content`.
+    const words = [...tokeniseForSimilarity(content.slice(0, MEMORY_QUERY_MAX_LENGTH))]
+      .filter((t) => !SIMILARITY_STOPWORDS.has(t));
+    if (words.length === 0) return [];
+    const ftsQuery = buildFtsQuery(words.join(" "));
     if (ftsQuery.length === 0) return [];
+    const wordSet = new Set(words);
+    const minShared = Math.min(FIND_SIMILAR_MIN_SHARED_WORDS, wordSet.size);
+    const shares = (row: MemoryRow): boolean => {
+      let shared = 0;
+      for (const t of tokeniseForSimilarity(row.content)) if (wordSet.has(t)) shared += 1;
+      return shared >= minShared;
+    };
     const limit = clampPositiveInt(k, 1, MEMORY_RECALL_MAX_K, "k");
     const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL"];
     const params: unknown[] = [ftsQuery];
@@ -773,8 +787,8 @@ export class MemoryStore {
             ORDER BY bm25(memories_fts) ASC
             LIMIT ?`,
         )
-        .all(...params, limit) as MemoryRow[];
-      return rows.map(rowToEntry);
+        .all(...params, limit * 4) as MemoryRow[];
+      return rows.filter(shares).slice(0, limit).map(rowToEntry);
     } catch {
       return [];
     }
@@ -1604,6 +1618,23 @@ function tokeniseForSimilarity(text: string): Set<string> {
   }
   return set;
 }
+
+/** Shared topic words `findSimilar` requires (fewer only for a shorter note). */
+const FIND_SIMILAR_MIN_SHARED_WORDS = 2;
+
+/**
+ * Function words (over two letters) that say nothing about a note's
+ * topic; `findSimilar` ignores them. Deliberately small and English.
+ * One string, not an array of literals: a literal such as "has" would
+ * change TypeScript's union ordering in unrelated diagnostics.
+ */
+const SIMILARITY_STOPWORDS: ReadonlySet<string> = new Set(
+  ("the and for with that this from are was were has have had not but you "
+   + "your its into now then than also all any some our out his her she him "
+   + "they them their there when what which who will would can could should about been being "
+   + "does did just only very more most other such each over after before while where why "
+   + "how every").split(" "),
+);
 
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
