@@ -229,6 +229,20 @@ export function isReservedSupersedeTag(tag: string): boolean {
   return t === SUPERSEDED_NOTE_TAG || t.startsWith("superseded-by-");
 }
 
+/**
+ * ATO-672. True when the reconciler marked `entry` stale. With
+ * `memory.notes.reconcile` on, recall and the index hide such a note.
+ */
+export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
+  return entry.tags.includes(SUPERSEDED_NOTE_TAG);
+}
+
+/** SQL twin of {@link isSupersededNote} over a `tags` JSON column. */
+function supersededSql(tagsColumn: string): string {
+  return `(${tagsColumn} IS NOT NULL AND json_valid(${tagsColumn})
+    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}'))`;
+}
+
 function withoutReservedTags(tags: string[]): string[] {
   return tags.some(isReservedSupersedeTag) ? tags.filter((tag) => !isReservedSupersedeTag(tag)) : tags;
 }
@@ -419,12 +433,16 @@ export class MemoryStore {
     );
     // FTS5 candidate fetch for dedup. Returns the top 5 BM25 hits so
     // Jaccard similarity can be computed in JS over a small candidate
-    // set without paying the cost of a full scan.
+    // set without paying the cost of a full scan. Archived and
+    // superseded rows are never candidates: a write merged into a
+    // hidden row would stay hidden (a re-learned fact, a user's note).
     this.dedupCandidateStmt = this.db.prepare(
       `SELECT m.id, m.content, m.tags, bm25(memories_fts) AS score
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
+          AND m.consolidated_into IS NULL
+          AND NOT ${supersededSql("m.tags")}
         ORDER BY score ASC
         LIMIT 5`,
     );

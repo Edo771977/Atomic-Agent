@@ -66,6 +66,39 @@ describe("superseded notes (ATO-672)", () => {
     expect(off.recalled.map((e) => e.id)).toContain(old.id);
   });
 
+  describe("dedup never merges into a hidden note", () => {
+    const fact = "the staging database runs postgres sixteen on the shared host";
+    let deduping: MemoryStore;
+    beforeEach(() => {
+      deduping = new MemoryStore({ dbFile: join(dir, "dedup-hidden.sqlite"), maxEntries: 100, dedup: { enabled: true, fts5Threshold: 0.85 } });
+    });
+    afterEach(() => deduping.close());
+
+    it("a re-learned fact matching a superseded note is stored as a new visible note", () => {
+      const a = deduping.store({ content: fact });
+      const b = deduping.store({ content: "the staging database moved to mysql eight last week" });
+      deduping.markSuperseded(a.id, b.id, { leaseMs: 0 });
+      const again = deduping.store({ content: fact });
+      expect(again.id).not.toBe(a.id);
+      expect(again.tags).not.toContain("superseded");
+    });
+
+    it("an explicit user note matching a superseded note is stored as its own visible note", () => {
+      const a = deduping.store({ content: fact });
+      deduping.markSuperseded(a.id, 99, { leaseMs: 0 });
+      const user = deduping.store({ content: fact, source: "user" });
+      expect(user.id).not.toBe(a.id);
+      expect(user.source).toBe("user");
+      expect(user.tags).toEqual([]);
+    });
+
+    it("an archived (consolidated) note does not absorb a new write either", () => {
+      const a = deduping.store({ content: fact });
+      deduping.getDatabaseHandleForEmbeddings().prepare("UPDATE memories SET consolidated_into = 1 WHERE id = ?").run(a.id);
+      expect(deduping.store({ content: fact }).id).not.toBe(a.id);
+    });
+  });
+
   describe("reserved supersede tags", () => {
     const reserved = ["superseded", "Superseded", "superseded-by-7"];
 

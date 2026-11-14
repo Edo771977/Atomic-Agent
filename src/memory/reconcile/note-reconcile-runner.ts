@@ -3,7 +3,7 @@ import type { ResponseFormatJsonSchema } from "../../llm/provider/completion-typ
 import { resolveSlotId, type SlotIdSource } from "../../llm/slot-manager.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import { createLinkGeneratorBackoff, type LinkGeneratorBackoffOptions } from "../links/link-generator-backoff.js";
-import { SUPERSEDED_NOTE_TAG, type MemoryEntry, type MemoryStore } from "../memory-store.js";
+import { SUPERSEDED_NOTE_TAG, isSupersededNote, type MemoryEntry, type MemoryStore } from "../memory-store.js";
 
 import { NOTE_RECONCILE_GRAMMAR } from "./note-reconcile-grammar.js";
 import { parseNoteReconcileOutput } from "./note-reconcile-parser.js";
@@ -94,9 +94,7 @@ export interface NoteReconcileRunner {
   abortPending(options?: { sessionId?: string }): void;
 }
 
-export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
-  return entry.tags.includes(SUPERSEDED_NOTE_TAG);
-}
+export { isSupersededNote };
 
 export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteReconcileRunner {
   const now = deps.now ?? Date.now;
