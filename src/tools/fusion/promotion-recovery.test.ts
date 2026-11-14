@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -43,7 +43,7 @@ process.exit(18);
 }, 30_000);
 
 it("resumes safely after a second process stop between restore and its journal status update", async () => {
-  const project = await mkdtemp(join(tmpdir(), "atag-recovery-stop-")); roots.push(project);
+  const project = await realpath(await mkdtemp(join(tmpdir(), "atag-recovery-stop-"))); roots.push(project);
   const candidate = "candidate-012345abcdef", merge = join(project, ".atomic-agent", "fusion-merge");
   await mkdir(join(merge, `${candidate}.promotion-backup`), { recursive: true });
   await writeFile(join(project, "a.txt"), "promoted\n"); await writeFile(join(merge, `${candidate}.promotion-backup`, "0"), "original\n");

@@ -168,8 +168,15 @@ export async function recoverPromotion(input: { project: string; journal: string
   const deadline = AbortSignal.timeout(120_000), signal = input.signal === undefined ? deadline : AbortSignal.any([input.signal, deadline]);
   signal.throwIfAborted();
   const mode = input.mode ?? "status", root = await realpath(input.project);
-  const file = resolve(root, input.journal), rel = relative(root, file).replaceAll("\\", "/");
-  if (!/^\.atomic-agent\/fusion-merge\/candidate-[a-f0-9]{12}\.promotion\.json$/.test(rel)) return fail("journal must be in the selected project's fusion-merge directory");
+  // An external ancestor may be a junction or NTFS short name. Derive a
+  // strictly scoped relative name from the caller's spelling or canonical
+  // root, then reopen under the canonical root. Never realpath the journal:
+  // that would follow links inside .atomic-agent/fusion-merge before guards.
+  const callerRoot = resolve(input.project), requested = resolve(callerRoot, input.journal);
+  const rel = [callerRoot, root].map(base => relative(base, requested).replaceAll("\\", "/"))
+    .find(path => /^\.atomic-agent\/fusion-merge\/candidate-[a-f0-9]{12}\.promotion\.json$/.test(path));
+  if (rel === undefined) return fail("journal must be in the selected project's fusion-merge directory");
+  const file = join(root, rel);
   await parents(root, rel);
   let loaded = await regularBytes(file, JOURNAL_BYTES), journal = parsePromotionJournal(loaded.bytes.toString("utf8"));
   if (journal.project !== root || basename(file) !== `${journal.candidate}.promotion.json`) return fail("journal project or name does not match selected project");

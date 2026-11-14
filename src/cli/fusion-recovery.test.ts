@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { fusionCommand } from "./fusion-command.js";
 
@@ -9,8 +9,8 @@ const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const candidate = "candidate-012345abcdef";
-async function fixture(status: "intent" | "applied" = "applied") {
-  const project = await mkdtemp(join(tmpdir(), "atag-recovery-cli-")); roots.push(project);
+async function fixture(status: "intent" | "applied" = "applied", parent = tmpdir()) {
+  const project = await realpath(await mkdtemp(join(parent, "atag-recovery-cli-"))); roots.push(project);
   const merge = join(project, ".atomic-agent", "fusion-merge"), backup = `${candidate}.promotion-backup/0`;
   await mkdir(join(merge, `${candidate}.promotion-backup`), { recursive: true });
   await writeFile(join(project, "output.txt"), "promoted\n");
@@ -38,6 +38,49 @@ it("defaults to read-only recovery status and makes dry-run read-only too", asyn
     expect(result.code, result.stderr).toBe(0); expect(JSON.parse(result.stdout).state).toBe("promoting");
     expect(await readFile(join(f.project, "output.txt"), "utf8")).toBe("promoted\n");
     expect(await readFile(f.journal)).toEqual(before); expect(await readdir(f.merge)).toEqual(names);
+  }
+});
+
+it.each(["--status", "--dry-run", "--rollback"])("accepts an external ancestor alias for the selected project and absolute journal (%s)", async mode => {
+  const owned = await realpath(await mkdtemp(join(tmpdir(), "atag-recovery-project-alias-"))); roots.push(owned);
+  const realParent = join(owned, "real"); await mkdir(realParent);
+  const f = await fixture("applied", realParent), alias = join(owned, "outer-alias");
+  // The alias is a sibling of its target, never an ancestor loop or an
+  // internal link under the selected project's operator state.
+  await symlink(realParent, alias, process.platform === "win32" ? "junction" : "dir");
+  const callerProject = join(alias, basename(f.project)), callerJournal = join(callerProject, relative(f.project, f.journal));
+  expect(callerProject).not.toBe(f.project); expect(await realpath(callerProject)).toBe(f.project);
+  const before = await readFile(f.journal), result = await run(callerProject, callerJournal, [mode]);
+  expect(result.code, result.stderr).toBe(0);
+  expect(await readFile(join(f.project, "output.txt"), "utf8")).toBe(mode === "--rollback" ? "original\n" : "promoted\n");
+  if (mode !== "--rollback") expect(await readFile(f.journal)).toEqual(before);
+});
+
+it.each(["state-link", "merge-link", "outside-journal"])("keeps journal scope guards with an externally aliased project (%s)", async kind => {
+  const owned = await realpath(await mkdtemp(join(tmpdir(), "atag-recovery-project-scope-"))); roots.push(owned);
+  const realParent = join(owned, "real"); await mkdir(realParent);
+  const f = await fixture("applied", realParent), alias = join(owned, "outer-alias");
+  await symlink(realParent, alias, process.platform === "win32" ? "junction" : "dir");
+  let actualMerge: string;
+  if (kind === "state-link") {
+    const retained = join(owned, "retained-state"); await rename(dirname(f.merge), retained);
+    await symlink(retained, dirname(f.merge), process.platform === "win32" ? "junction" : "dir"); actualMerge = join(retained, "fusion-merge");
+  } else if (kind === "merge-link") {
+    actualMerge = join(owned, "retained-merge"); await rename(f.merge, actualMerge);
+    await symlink(actualMerge, f.merge, process.platform === "win32" ? "junction" : "dir");
+  } else {
+    actualMerge = join(owned, "outside-journal"); await mkdir(join(actualMerge, `${candidate}.promotion-backup`), { recursive: true });
+    await writeFile(join(actualMerge, `${candidate}.promotion-backup`, "0"), "original\n");
+    await writeFile(join(actualMerge, basename(f.journal)), await readFile(f.journal));
+  }
+  const actualJournal = join(actualMerge, basename(f.journal)), callerProject = join(alias, basename(f.project));
+  const callerJournal = kind === "outside-journal" ? actualJournal : join(callerProject, relative(f.project, f.journal));
+  const before = await readFile(actualJournal), insideBefore = await readFile(f.journal), names = await readdir(actualMerge);
+  for (const mode of ["--status", "--dry-run", "--rollback"]) {
+    const result = await run(callerProject, callerJournal, [mode]); expect(result.code).toBe(1);
+    expect(await readFile(join(f.project, "output.txt"), "utf8")).toBe("promoted\n");
+    expect(await readFile(actualJournal)).toEqual(before); expect(await readFile(f.journal)).toEqual(insideBefore);
+    expect(await readdir(actualMerge)).toEqual(names);
   }
 });
 
