@@ -6,7 +6,7 @@ import { createRequestBudgetScope } from "./request-budget.js";
 import { createDailySpendBudget } from "./daily-spend-budget.js";
 import { DailySpendStore } from "../session/daily-spend.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
-import { TurnBudgetExhaustedError } from "../llm/reliability/turn-budget-error.js";
+import { FINAL_REPORT_MAX_TOKENS, TurnBudgetExhaustedError } from "../llm/reliability/turn-budget-error.js";
 import { FusionTurnBudget } from "../tools/fusion/turn-budget.js";
 import { OpenAiProvider } from "../llm/provider/openai/openai-provider.js";
 import { OpenAiHttpError } from "../llm/provider/openai/openai-http.js";
@@ -656,7 +656,7 @@ describe("one final report past an exhausted turn cap (issue #29)", () => {
     return budget;
   }
   const meterModel = { ...model, source: "snapshot" } as ResolvedModel;
-  const report = { sessionId: "p", prompt: "hi", finalReport: true, maxTokens: 1024 } as CompletionRequest;
+  const report = { sessionId: "p", prompt: "hi", finalReport: true, maxTokens: FINAL_REPORT_MAX_TOKENS } as CompletionRequest;
 
   it("admits one metered final report, settles it as overspend and refuses a second", () => {
     const budget = overCap();
@@ -675,7 +675,7 @@ describe("one final report past an exhausted turn cap (issue #29)", () => {
     const s = createRequestBudgetScope(budget, { ...report, maxOutputTokens: 16_000 }, provider, entry, model)!;
     const body: Record<string, unknown> = { model: "m", messages: [], max_tokens: 32_000 };
     s.beforeSend(body);
-    expect(body.max_tokens).toBe(1024);
+    expect(body.max_tokens).toBe(FINAL_REPORT_MAX_TOKENS);
     s.finish({ usage: { promptTokens: 1_000, completionTokens: 1_000, totalTokens: 2_000 } } as never);
     expect(spent(budget)).toBeCloseTo(1.13 + (1_000 * 3 + 1_000 * 15) / 1_000_000, 9);
   });
