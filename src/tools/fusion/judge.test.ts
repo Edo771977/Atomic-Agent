@@ -910,11 +910,14 @@ describe("review exhausted: the director decides (issue #38)", () => {
     expect(result.summary).toContain("REVIEW PASSES USED");
   });
 
-  it("an answer that cannot be read after the passes is review-exhausted too", async () => {
-    const { row } = await run("not json");
-    expect(row.status).toBe("failed");
-    expect(row.failure).toBe("review-exhausted");
-    expect(row.error).toMatch(/^review-exhausted: unverified after 0 review passes/);
+  it("an answer that cannot be read is unverified for the orchestrator, never review-exhausted", async () => {
+    const { result, row } = await run("not json");
+    expect(row.status).toBe("needs_orchestrator");
+    expect(row.failure).toBeUndefined();
+    expect(row.error ?? "").not.toMatch(/review-exhausted/);
+    const replan = result.details.replan as { pending: Array<{ id: string }>; reviewExhausted: unknown[] };
+    expect(replan.reviewExhausted).toEqual([]);
+    expect(replan.pending.map((t) => t.id)).toEqual(["t"]);
   });
 
   it("shows the director a review clause and the full review in details.review (issue #38)", async () => {

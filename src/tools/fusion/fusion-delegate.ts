@@ -2464,9 +2464,11 @@ export function buildFusionDelegateTool(
             if (stop !== undefined) {
               return { ...row, notes: [...(row.notes ?? []), `review stopped: ${stop}`] };
             }
-            // The passes ran out and the review still does not accept: the
+            // The passes ran out and the review still asks for changes: the
             // director decides (`describeReplan`'s review-exhausted bucket).
-            if (verdict.review.decision === "accept" || reviewCutShort.has(r.id)) return row;
+            // An unverified review (no readable answer, the judge could not
+            // run) stays as `applyJudgeVerdict` left it.
+            if (verdict.review.decision !== "needs-changes" || reviewCutShort.has(r.id)) return row;
             const head = `review-exhausted: ${verdict.review.decision} after ${ran} review pass${ran === 1 ? "" : "es"}`;
             return {
               ...row,
