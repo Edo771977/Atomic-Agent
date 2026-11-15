@@ -289,9 +289,11 @@ export function taskOutcomeRecord(
     syntaxDemoted: (row.syntax?.failedFiles.length ?? 0) > 0,
     steps: row.stepCount,
     durationMs: Math.max(0, Math.round(row.durationMs)),
-    tokensIn: row.usage?.promptTokens ?? 0,
-    tokensOut: row.usage?.completionTokens ?? 0,
-    cachedTokens: row.usage?.cachedTokens ?? null,
+    // A local worker without reported usage: its timing tokens (#30),
+    // whose "in" includes each step's cached prompt part. Still unpriced.
+    tokensIn: row.usage?.promptTokens ?? row.localTokens?.promptTokens ?? 0,
+    tokensOut: row.usage?.completionTokens ?? row.localTokens?.predictedTokens ?? 0,
+    cachedTokens: row.usage !== undefined ? (row.usage.cachedTokens ?? null) : (row.localTokens?.cacheHitTokens ?? null),
     costUsd: roundUsd(rowCostUsd(row, context.pricing)),
     merge: context.merge,
   };

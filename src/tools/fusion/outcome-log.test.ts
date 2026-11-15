@@ -105,6 +105,46 @@ describe("fusion outcome records", () => {
     }
   });
 
+  it("records a local worker's timing tokens when its completions carry no usage (#30)", () => {
+    const collector = new WorkerRunCollector();
+    const completion = (promptTokens: number, predictedTokens: number, cacheHitTokens: number) =>
+      collector.observe({
+        type: "llm_event",
+        event: {
+          type: "llm_completed",
+          completion: {
+            content: "",
+            reasoningContent: "",
+            stop: true,
+            truncated: false,
+            timing: { promptMs: 1, predictedMs: 1, promptTokens, predictedTokens },
+            cacheHitTokens,
+            slotId: 0,
+            modelId: "m",
+          },
+        },
+      });
+    completion(1_000, 50, 0);
+    completion(1_200, 70, 900);
+    const local = collector.finish({ id: "t1", title: "t", reason: "reply", stepCount: 2, durationMs: 10 });
+    // Not synthetic usage: pricing and the budget split branch on it.
+    expect(local.usage).toBeUndefined();
+    expect(local.localTokens).toEqual({ promptTokens: 2_200, predictedTokens: 120, cacheHitTokens: 900 });
+    const record = taskOutcomeRecord(local, CONTEXT, "s", new Date(0));
+    expect(record).toMatchObject({ tokensIn: 2_200, tokensOut: 120, cachedTokens: 900, costUsd: null });
+    // Reported usage wins where a row carries both.
+    const both = taskOutcomeRecord(
+      row({
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 4 },
+        localTokens: { promptTokens: 5, predictedTokens: 1, cacheHitTokens: 3 },
+      }),
+      CONTEXT,
+      "s",
+      new Date(0),
+    );
+    expect(both).toMatchObject({ tokensIn: 10, tokensOut: 2, cachedTokens: 4 });
+  });
+
   it("writes a model set to a local file path as its file's base name only", () => {
     const at = (model: string, provider = "local-llama") =>
       taskOutcomeRecord(row(), { ...CONTEXT, model, provider }, "s", new Date(0));

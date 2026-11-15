@@ -1980,6 +1980,7 @@ async function runOneTask(
     // at the worker's rate, do not count the re-run a second time
     // (ATO-1319).
     const localUsage = result.usage;
+    const localTokens = result.localTokens;
     try {
       const turn = await deps.runTurn(
         replaceSession,
@@ -2070,8 +2071,12 @@ async function runOneTask(
       disarmWorkerSession(replaceSession.id);
     }
     {
-      const { usage: _replaceUsage, ...row } = result;
-      result = localUsage === undefined ? row : { ...row, usage: localUsage };
+      const { usage: _replaceUsage, localTokens: _replaceTokens, ...row } = result;
+      result = {
+        ...row,
+        ...(localUsage === undefined ? {} : { usage: localUsage }),
+        ...(localTokens === undefined ? {} : { localTokens }),
+      };
     }
     // The local turn's own endings no longer describe the row.
     timedOutOutcome = false;

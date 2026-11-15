@@ -351,6 +351,42 @@ describe("the re-run's money is counted once (ATO-1319)", () => {
     // advisor call(s) plus the re-run's one completion, each counted once
     expect(escalationSpend.some((usd) => Math.abs(usd - (10_000 * 1 + 1_000 * 4) / 1e6) < 1e-9)).toBe(true);
   });
+
+  it("keeps the local attempt's timing tokens, not the re-run's, on a row a cloud re-run replaced (#30)", async () => {
+    const completed = (hook: TurnOptions["eventHook"], timing: { promptTokens: number; predictedTokens: number } | undefined, usage?: { promptTokens: number; completionTokens: number; totalTokens: number }): void =>
+      hook?.({
+        type: "llm_event",
+        event: {
+          type: "llm_completed",
+          completion: { content: "", timing: { promptMs: 1, predictedMs: 1, promptTokens: 0, predictedTokens: 0, ...timing }, cacheHitTokens: timing ? 7 : 0, ...(usage ? { usage } : {}) },
+        },
+      } as never);
+    const h = harness(async (_s, options) => {
+      if (options.providerId === "cloud") {
+        // A usage-less completion on the re-run must not reach the row either.
+        completed(options.eventHook, { promptTokens: 9_000, predictedTokens: 900 });
+        completed(options.eventHook, undefined, { promptTokens: 10_000, completionTokens: 1_000, totalTokens: 11_000 });
+        return done();
+      }
+      completed(options.eventHook, { promptTokens: 300, predictedTokens: 30 });
+      for (let i = 0; i < 3; i += 1) sameStep(options.eventHook, i);
+      await flush();
+      for (let i = 3; i < 6; i += 1) sameStep(options.eventHook, i);
+      return {
+        session: createEmptySessionState({ id: "s-x", workingDir: "/repo" }),
+        reason: options.signal?.aborted ? "cancelled" : "reply",
+        stepCount: 6,
+      } as RunTurnResult;
+    });
+    const [row] = await runWorkerTasks(h.deps, {
+      ...BASE,
+      tasks: TASK,
+      signal: new AbortController().signal,
+      escalation: { target: { ...TARGET, replace: true, maxUsd: 10 }, pricing: PRICING },
+    });
+    expect(row!.usage).toBeUndefined();
+    expect(row!.localTokens).toEqual({ promptTokens: 300, predictedTokens: 30, cacheHitTokens: 7 });
+  });
 });
 
 describe("the re-run's side effects reach the checkpoint at once (ATO-1316)", () => {
