@@ -258,12 +258,35 @@ describe("loadDotenvFromStateDir", () => {
       expect(stderrCalls.join("")).toBe("");
     });
 
-    it("a file that still holds NUL bytes says to save it as UTF-8, without echoing it", () => {
+    it("reads a UTF-16LE file without a BOM by its NUL pattern (#29 review)", () => {
       writeFileSync(join(dir, ".env"), Buffer.from(line, "utf16le"));
       const result = loadDotenvFromStateDir(dir);
-      expect(result.loaded).toEqual([]);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+      expect(process.env.ATOMIC_DOTENV_TEST_FOO).toBe("sk-utf16");
+    });
+
+    it("reads a UTF-16BE file without a BOM by its NUL pattern (#29 review)", () => {
+      const le = Buffer.from(line, "utf16le");
+      const be = Buffer.alloc(le.length);
+      for (let i = 0; i + 1 < le.length; i += 2) { be[i] = le[i + 1]!; be[i + 1] = le[i]!; }
+      writeFileSync(join(dir, ".env"), be);
+      expect(loadDotenvFromStateDir(dir).loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+    });
+
+    it("a file with stray NUL bytes loads its clean lines and says to save it as UTF-8, without echoing it (#29 review)", () => {
+      writeFileSync(
+        join(dir, ".env"),
+        Buffer.concat([
+          Buffer.from("ATOMIC_DOTENV_TEST_FOO=sk-utf16\n", "utf8"),
+          Buffer.from([0x41, 0x00, 0x42, 0x3d, 0x00, 0x0a]),
+          Buffer.from("ATOMIC_DOTENV_TEST_BAR=second\n", "utf8"),
+        ]),
+      );
+      const result = loadDotenvFromStateDir(dir);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
       const err = stderrCalls.join("");
-      expect(err).toContain("looks UTF-16/binary; save as UTF-8");
+      expect(err).toContain("save as UTF-8");
+      expect(err).toContain("1 line with NUL bytes was skipped");
       expect(err).not.toContain("sk-utf16");
     });
   });
