@@ -42,7 +42,7 @@ A constrained folder's tools may not send its content off the machine unless the
 | --- | --- |
 | `web` | `os.web.search`, `os.web.fetch` (a loopback URL stays allowed) |
 | `http` | `os.http.request` (a loopback URL stays allowed) |
-| `browser` | every `browser.*` tool, local dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
+| `browser` | every `browser.*` tool and every `verify.run` page probe (`kind: "page"`), local files and dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
 | `github` | `github.*`; the TUI issue report (errors only for a refused session, its traces left out) |
 | `git` | `os.git.fetch`, `pull`, `push`, `clone` |
 | `mail` | `os.email.*` (Atomic Mail) |

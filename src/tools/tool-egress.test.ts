@@ -48,6 +48,10 @@ const CASES: Array<[string, Record<string, unknown>, string]> = [
   ["mcp.remote.search", {}, "mcp:remote"],
   ["mcp.resource.read", { server: "remote", uri: "x://y" }, "mcp:remote"],
   ["mcp.composio.COMPOSIO_SEARCH_TOOLS", {}, "composio"],
+  // A page probe is a headless browser: whatever it opens may load remote
+  // resources, so it is the browser class like the browser tools.
+  ["verify.run", { kind: "page", path: "index.html" }, "browser"],
+  ["verify.run", { kind: "page", url: "http://127.0.0.1:5173/" }, "browser"],
 ];
 
 describe("egress inventory (issue #33)", () => {
@@ -67,6 +71,7 @@ describe("egress inventory (issue #33)", () => {
     ["os.web.fetch", { url: "http://127.0.0.1:8080/" }],
     ["os.http.request", { url: "http://localhost:3000/health" }],
     ["reply", { text: "hi" }],
+    ["verify.run", { kind: "command", cmd: "npm", args: ["test"] }],
   ])("%s %j stays on this machine", (tool, args) => {
     expect(egressTargetOf(tool, args, { mcpEgress })).toBeNull();
   });
@@ -120,6 +125,12 @@ describe("egress guard", () => {
     expect(allowed("os.shell.run", { cmd: "git pull" }, { sessionId: "s1" })).toBeNull();
     expect(allowed("os.shell.run", { cmd: "scp a host:b" }, { sessionId: "s1" })).not.toBeNull();
     expect(createEgressGuard({ policyForSession: () => undefined })("os.shell.run", { cmd: "curl x" }, { sessionId: "s1" })).toBeNull();
+  });
+
+  it("a page probe whose start command is an allowed network client still needs browser", () => {
+    const args = { kind: "page", url: "http://127.0.0.1:3000/", start: { cmd: "git", args: ["pull"] } };
+    expect(createEgressGuard({ policyForSession: () => constrained(["git"]), mcpEgress })("verify.run", args, { sessionId: "s1" })?.message).toContain('add "browser"');
+    expect(createEgressGuard({ policyForSession: () => constrained(["git", "browser"]), mcpEgress })("verify.run", args, { sessionId: "s1" })).toBeNull();
   });
 
   it("asks for the policy of the dispatching session", () => {
