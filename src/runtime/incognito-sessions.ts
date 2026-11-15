@@ -39,7 +39,7 @@ export function removeIncognitoTrace(
 
 /**
  * The boot half: delete the incognito chats a dead process left behind,
- * with their trace files. Never throws — a sweep that fails leaves the
+ * with their trace files, fusion checkpoints and queued tasks. Never throws — a sweep that fails leaves the
  * rows for the next start and costs the user nothing else.
  */
 export function sweepOrphanIncognitoSessions(
@@ -47,12 +47,22 @@ export function sweepOrphanIncognitoSessions(
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
   fusionRuns?: Pick<FusionRunStore, "removeForSession">,
+  taskStore?: Pick<TaskStore, "removeForSession">,
 ): string[] {
   try {
     const ids = sessionStore.sweepOrphanIncognito();
     for (const id of ids) {
       removeIncognitoTrace(tracesDir, id);
       fusionRuns?.removeForSession(id);
+      // Its queued tasks would otherwise run later in an ordinary chat.
+      try {
+        taskStore?.removeForSession(id);
+      } catch (err) {
+        logger.warn("could not drop the tasks of an incognito chat left by a stopped agent", {
+          sessionId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     if (ids.length > 0) {
       logger.info("deleted incognito chats left by a stopped agent", {
