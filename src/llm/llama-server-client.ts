@@ -254,6 +254,16 @@ export type SlotProgressVerdict =
        */
       processing?: boolean;
       decoded?: number | null;
+      /**
+       * Prompt tokens evaluated across the processing slots
+       * (`n_prompt_tokens_processed`, else `prompt_progress.processed`,
+       * summed; `null` when a processing slot reports neither). With
+       * `promptDone` it tells a long prompt evaluation — `n_decoded`
+       * flat at 0 while this moves — from a contended decode.
+       */
+      prompted?: number | null;
+      /** Every processing slot reports a total and has evaluated all of it. */
+      promptDone?: boolean;
     }
   | { kind: "idle"; snapshot: string }
   /**
@@ -315,6 +325,9 @@ export function judgeSlotProgress(
   // A processing slot this build does not report both counters for.
   let blindProcessing = false;
   let decoded: number | null = null;
+  let prompted: number | null = null;
+  let promptBlind = false;
+  let promptDone = true;
   const parts: string[] = [];
   for (const raw of body) {
     if (!raw || typeof raw !== "object") continue;
@@ -325,6 +338,27 @@ export function judgeSlotProgress(
     const slotDecoded = next.n_decoded ?? slot.n_decoded;
     if (processing && typeof slotDecoded === "number") {
       decoded = (decoded ?? 0) + slotDecoded;
+    }
+    if (processing) {
+      const progress =
+        slot.prompt_progress && typeof slot.prompt_progress === "object"
+          ? (slot.prompt_progress as Record<string, unknown>)
+          : null;
+      const processed =
+        typeof slot.n_prompt_tokens_processed === "number"
+          ? slot.n_prompt_tokens_processed
+          : typeof progress?.processed === "number"
+            ? progress.processed
+            : null;
+      const total =
+        typeof progress?.total === "number"
+          ? progress.total
+          : typeof slot.n_prompt_tokens === "number"
+            ? slot.n_prompt_tokens
+            : null;
+      if (processed === null) promptBlind = true;
+      else prompted = (prompted ?? 0) + processed;
+      if (processed === null || total === null || processed < total) promptDone = false;
     }
     if (slotId >= 0 && slot.id === slotId && processing) ownProcessing = true;
     // Frozen can only be told from working when both phases have a
@@ -357,7 +391,14 @@ export function judgeSlotProgress(
   const moved = previousSnapshot !== null && previousSnapshot !== snapshot;
   if (ownProcessing || anyProcessing) {
     if (previousSnapshot === null || moved || blindProcessing) {
-      return { kind: "progress", snapshot, processing: true, decoded };
+      return {
+        kind: "progress",
+        snapshot,
+        processing: true,
+        decoded,
+        prompted: promptBlind ? null : prompted,
+        promptDone: !promptBlind && promptDone,
+      };
     }
     // Processing, counters reported, and not one of them moved.
     return { kind: "idle", snapshot };
@@ -1501,8 +1542,14 @@ export class LlamaServerClient {
     //    of such a run is a server that works and gets nowhere fast
     //    (another program on the GPU, more workers than it can serve),
     //    not one that is not answering: the error says so (`contended`).
+    //    Only once the prompt phase is over: through prompt evaluation
+    //    `n_decoded` reads 0 by construction, so a poll counts only when
+    //    the prompt counter is flat or every prompt is fully evaluated —
+    //    and never when the slot reports no prompt counter, since then a
+    //    long prompt eval and a contended decode read the same.
     let contendedPolls = 0;
     let lastDecoded: number | null = null;
+    let lastPrompted: number | null = null;
     const stopWatch = (): void => {
       watchStopped = true;
       if (watchTimer !== null) {
@@ -1622,14 +1669,20 @@ export class LlamaServerClient {
       refusedPolls = 0;
       if (verdict.kind === "progress" && verdict.processing === true) {
         const decodedNow = verdict.decoded ?? null;
-        contendedPolls =
-          decodedNow === null || (lastDecoded !== null && decodedNow > lastDecoded)
-            ? 0
-            : contendedPolls + 1;
+        const promptedNow = verdict.prompted ?? null;
+        const decodeMoved =
+          decodedNow === null || (lastDecoded !== null && decodedNow > lastDecoded);
+        const promptPhaseOver =
+          promptedNow !== null &&
+          (verdict.promptDone === true ||
+            (lastPrompted !== null && promptedNow <= lastPrompted));
+        contendedPolls = decodeMoved || !promptPhaseOver ? 0 : contendedPolls + 1;
         lastDecoded = decodedNow;
+        lastPrompted = promptedNow;
       } else if (verdict.kind !== "unknown") {
         contendedPolls = 0;
         lastDecoded = null;
+        lastPrompted = null;
       }
       if (verdict.kind !== "unknown") previousSnapshot = verdict.snapshot;
       if (verdict.kind === "idle") {
