@@ -15,7 +15,11 @@
  *  - only servers already on PATH (`typescript-language-server`,
  *    `pyright-langserver`); nothing is ever installed;
  *  - started lazily, on the first edit of a matching file, one per
- *    language per repository, and reused;
+ *    language per repository, and reused; at most `maxServers` run at
+ *    once (the least recently used is stopped for a new one), one idle
+ *    for `idleShutdownMs` is stopped, and a Fusion worker's session
+ *    (`skipSession`) starts none: a worktree per worker would be a
+ *    server per worker;
  *  - a language server runs the project's own code (tsconfig plugins,
  *    a local TypeScript, pyright's environment), so in a folder the
  *    operator has not trusted the first start asks once for the work
@@ -41,6 +45,10 @@ export const LSP_DIAGNOSTICS_TIMEOUT_MS = 3000;
 export const LSP_STARTUP_WAIT_MS = 5000;
 /** How long the `initialize` handshake may take before the server is dropped. */
 export const LSP_INITIALIZE_TIMEOUT_MS = 30_000;
+/** Servers running at once; a new one stops the least recently used. */
+export const LSP_MAX_SERVERS = 2;
+/** A server unused this long is stopped; the next edit starts it again. */
+export const LSP_IDLE_SHUTDOWN_MS = 10 * 60_000;
 
 export interface LspChangeInput {
   readonly absolute: string;
@@ -106,6 +114,15 @@ export interface LspDiagnosticsOptions {
    * without asking.
    */
   readonly askToStart?: (question: LspStartQuestion) => Promise<LspStartAnswer>;
+  /**
+   * Sessions that get no diagnostics and start no server: the runtime
+   * passes Fusion workers, each of which works in its own worktree.
+   */
+  readonly skipSession?: (sessionId: string) => boolean;
+  /** Default `LSP_MAX_SERVERS`. */
+  readonly maxServers?: number;
+  /** Default `LSP_IDLE_SHUTDOWN_MS`. */
+  readonly idleShutdownMs?: number;
 }
 
 interface ServerEntry {
@@ -115,6 +132,11 @@ interface ServerEntry {
   client: DiagnosticsClient | null;
   /** One sync at a time per server: before/after pairs must not interleave. */
   queue: Promise<unknown>;
+  /** Order of last use, for the `maxServers` eviction. */
+  lastUsed: number;
+  /** Syncs queued or running: an idle stop waits for them. */
+  busy: number;
+  idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 type Entry = { readonly state: "unavailable" } | ServerEntry;
@@ -140,6 +162,9 @@ export function createLspDiagnostics(
   const startClient = options.startClient ?? defaultStartClient;
   const timeoutMs = options.diagnosticsTimeoutMs ?? LSP_DIAGNOSTICS_TIMEOUT_MS;
   const startupWaitMs = options.startupWaitMs ?? LSP_STARTUP_WAIT_MS;
+  const maxServers = Math.max(1, options.maxServers ?? LSP_MAX_SERVERS);
+  const idleShutdownMs = options.idleShutdownMs ?? LSP_IDLE_SHUTDOWN_MS;
+  let useClock = 0;
   const binaries = new Map<string, string | null>();
   const entries = new Map<string, Entry>();
   /** A person's answer per work tree, kept for this process. */
@@ -188,6 +213,44 @@ export function createLspDiagnostics(
     return binaries.get(command) ?? null;
   };
 
+  /** Stop the server under `key` and forget it; the next edit may start it again. */
+  const stop = (key: string): void => {
+    const entry = entries.get(key);
+    if (entry === undefined) return;
+    entries.delete(key);
+    if (entry.state === "unavailable") return;
+    if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
+    entry.idleTimer = null;
+    void entry.ready.then((client) => client?.dispose());
+  };
+
+  /** Mark `entry` used now and restart its idle countdown. */
+  const touch = (key: string, entry: ServerEntry): void => {
+    entry.lastUsed = ++useClock;
+    if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
+    const timer = setTimeout(() => {
+      entry.idleTimer = null;
+      if (entries.get(key) !== entry) return;
+      if (entry.busy > 0) touch(key, entry);
+      else stop(key);
+    }, idleShutdownMs);
+    (timer as { unref?: () => void }).unref?.();
+    entry.idleTimer = timer;
+  };
+
+  /** Make room for one more server: stop the least recently used ones. */
+  const makeRoom = (): void => {
+    for (;;) {
+      const running = [...entries.entries()].filter(
+        (pair): pair is [string, ServerEntry] =>
+          pair[1].state === "starting" || pair[1].state === "ready",
+      );
+      if (running.length < maxServers) return;
+      running.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      stop(running[0]![0]);
+    }
+  };
+
   const entryFor = (spec: LspServerSpec, root: string): Entry => {
     const key = `${spec.id}\u0000${root}`;
     const existing = entries.get(key);
@@ -204,11 +267,15 @@ export function createLspDiagnostics(
       entries.set(key, UNAVAILABLE);
       return UNAVAILABLE;
     }
+    makeRoom();
     const entry: ServerEntry = {
       state: "starting",
       client: null,
       queue: Promise.resolve(),
       ready: Promise.resolve(null),
+      lastUsed: ++useClock,
+      busy: 0,
+      idleTimer: null,
     };
     entry.ready = startClient(spec, binary, root).then(
       (client) => {
@@ -224,10 +291,14 @@ export function createLspDiagnostics(
       },
     );
     entries.set(key, entry);
+    touch(key, entry);
     return entry;
   };
 
   const run = async (input: LspChangeInput): Promise<string | null> => {
+    if (input.sessionId !== undefined && options.skipSession?.(input.sessionId) === true) {
+      return null;
+    }
     const spec = serverForPath(input.absolute);
     if (spec === null) return null;
     const root = findRoot(dirname(input.absolute));
@@ -238,11 +309,14 @@ export function createLspDiagnostics(
       if (binaryFor(spec.command) === null) return null;
       if (!(await mayStart(spec, root, input))) return null;
     }
+    const key = `${spec.id}\u0000${root}`;
     const entry = entryFor(spec, root);
     if (entry.state === "unavailable" || entry.state === "failed") return null;
+    touch(key, entry);
     const client = await withTimeout(entry.ready, startupWaitMs);
     if (client === null || !client.alive) return null;
     const languageId = spec.languageId(input.absolute);
+    entry.busy += 1;
     const job = entry.queue.then(async () => {
       const before =
         input.before === undefined
@@ -263,7 +337,10 @@ export function createLspDiagnostics(
         newErrors(before, after),
       );
     });
-    entry.queue = job.catch(() => null);
+    entry.queue = job.catch(() => null).finally(() => {
+      entry.busy -= 1;
+      if (entries.get(key) === entry) touch(key, entry);
+    });
     return job;
   };
 
@@ -277,11 +354,7 @@ export function createLspDiagnostics(
       }
     },
     dispose() {
-      for (const entry of entries.values()) {
-        if (entry.state === "unavailable") continue;
-        void entry.ready.then((client) => client?.dispose());
-      }
-      entries.clear();
+      for (const key of [...entries.keys()]) stop(key);
     },
   };
 }

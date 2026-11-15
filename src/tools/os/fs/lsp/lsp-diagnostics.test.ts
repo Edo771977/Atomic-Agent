@@ -353,3 +353,63 @@ describe("askToStartLspThroughApprovals (ATO-503)", () => {
     await expect(gate({ approved: false, automatic: true }).ask(question)).resolves.toBe("unanswered");
   });
 });
+
+describe("language-server budget (ATO-503)", () => {
+  const ROOTS = ["/work/one", "/work/two", "/work/three"];
+
+  function multi(overrides: Partial<LspDiagnosticsOptions> = {}) {
+    const clients: Array<{ root: string; client: FakeClient }> = [];
+    const lsp = createLspDiagnostics({
+      enabled: true,
+      findBinary: (command) => `/usr/local/bin/${command}`,
+      findRoot: (dir) => ROOTS.find((root) => dir.startsWith(root)) ?? null,
+      startClient: async (_spec, _binary, root) => {
+        const client = new FakeClient();
+        clients.push({ root, client });
+        return client;
+      },
+      ...overrides,
+    });
+    const edit = (root: string, sessionId = "s1") =>
+      lsp.diagnoseChange(change({ absolute: `${root}/src/a.ts`, sessionId }));
+    return { lsp, clients, edit };
+  }
+
+  it("starts no server for a Fusion worker's session", async () => {
+    const { clients, edit } = multi({ skipSession: (id) => id === "worker-1" });
+    expect(await edit("/work/one", "worker-1")).toBeNull();
+    expect(clients).toEqual([]);
+    expect(await edit("/work/one", "main")).toContain("new error");
+    expect(clients).toHaveLength(1);
+  });
+
+  it("keeps at most maxServers running, stopping the least recently used", async () => {
+    const { clients, edit } = multi({ maxServers: 2 });
+    await edit("/work/one");
+    await edit("/work/two");
+    await edit("/work/one");
+    await edit("/work/three");
+    expect(clients.map((c) => c.root)).toEqual(["/work/one", "/work/two", "/work/three"]);
+    expect(clients.find((c) => c.root === "/work/two")!.client.disposed).toBe(true);
+    expect(clients.find((c) => c.root === "/work/one")!.client.disposed).toBe(false);
+  });
+
+  it("stops a server left idle for idleShutdownMs, and starts it again on the next edit", async () => {
+    const { clients, edit } = multi({ idleShutdownMs: 20 });
+    await edit("/work/one");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(clients[0]!.client.disposed).toBe(true);
+    expect(await edit("/work/one")).toContain("new error");
+    expect(clients).toHaveLength(2);
+  });
+
+  it("dispose stops every server", async () => {
+    const { lsp, clients, edit } = multi();
+    await edit("/work/one");
+    await edit("/work/two");
+    lsp.dispose();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(clients.every((c) => c.client.disposed)).toBe(true);
+  });
+});
