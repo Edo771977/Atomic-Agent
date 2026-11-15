@@ -86,7 +86,7 @@ describe("outbound HTTP and tool configuration ownership", () => {
 
   it("preserves host/root list bytes, order, duplicates and null/default versus explicit-empty behavior", () => {
     const http = { ...createHttpDefaults(), hostAllowlist: [" synthetic.invalid ", "synthetic.invalid", "synthetic.invalid"] };
-    const projects = { roots: [" synthetic root ", "same", "same"] };
+    const projects = { roots: [" synthetic root ", "same", "same"], constraints: {} };
     expect(parseHttpConfig({ hostAllowlist: null }, 25, () => http).hostAllowlist).toEqual(http.hostAllowlist);
     expect(parseHttpConfig({ hostAllowlist: null }, 25, () => http).hostAllowlist).not.toBe(http.hostAllowlist);
     expect(parseHttpConfig({ hostAllowlist: [] }, 25, () => http).hostAllowlist).toEqual([]);

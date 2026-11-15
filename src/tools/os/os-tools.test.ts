@@ -573,7 +573,7 @@ describe("registerOsTools", () => {
             brave: { apiKeyEnv: "BRAVE_SEARCH_API_KEY" },
           },
         },
-        projects: { roots: [] },
+        projects: { roots: [], constraints: {} },
       },
       listRecentSessionDirs: () => [],
     });

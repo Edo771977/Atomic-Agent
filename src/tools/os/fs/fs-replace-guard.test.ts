@@ -421,7 +421,7 @@ describe("replace guard (F36)", () => {
               retryMaxDelayMs: 5_000,
             },
           },
-          projects: { roots: [] },
+          projects: { roots: [], constraints: {} },
         },
         listRecentSessionDirs: () => [],
         stateDir,
