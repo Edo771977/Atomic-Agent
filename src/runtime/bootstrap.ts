@@ -1102,6 +1102,7 @@ export async function createAgentRuntime(
     readSettings: () => getConfig().notifications.approvalPending,
     isIncognito: (id) => sessionStore.isIncognito(id),
     anyIncognitoOpen: incognitoSessions.anyOpen,
+    isChannelOwned: (id) => approvalRouter.isRouted(id),
     resolveTelegram: () => telegramChannelForShutdown,
     resolveDiscord: () => discordChannelForShutdown,
     logger,

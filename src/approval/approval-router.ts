@@ -62,6 +62,14 @@ export class ApprovalRouter {
     handler(request);
   }
 
+  /**
+   * Whether a channel owns `sessionId`: its prompts go to that channel's
+   * handler (the owner's DM, with buttons), not to the host UI.
+   */
+  isRouted(sessionId: string): boolean {
+    return this.perSession.has(sessionId);
+  }
+
   /** Snapshot of currently routed session ids. Diagnostic only. */
   routedSessions(): readonly string[] {
     return [...this.perSession.keys()];

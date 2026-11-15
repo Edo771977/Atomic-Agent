@@ -21,6 +21,8 @@ export function installApprovalPendingNotifier(args: {
   isIncognito: (sessionId: string) => boolean;
   /** Any incognito chat open in this process (a worker of one has no row). */
   anyIncognitoOpen: () => boolean;
+  /** `ApprovalRouter.isRouted`: a channel owns the session and already shows its prompts. */
+  isChannelOwned: (sessionId: string) => boolean;
   resolveTelegram: () => OwnerNoticeSender | null;
   resolveDiscord: () => OwnerNoticeSender | null;
   logger: Pick<StructuredLogger, "debug" | "warn">;
@@ -37,6 +39,7 @@ export function installApprovalPendingNotifier(args: {
         return true;
       }
     },
+    channelOwned: args.isChannelOwned,
     telegram: args.resolveTelegram,
     discord: args.resolveDiscord,
     logger: args.logger,
