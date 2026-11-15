@@ -76,9 +76,31 @@ describe("incognito chats over HTTP", () => {
     expect(existsSync(join(harness.stateDir, "traces", `${id}.ndjson`))).toBe(false);
   });
 
-  it("an existing ordinary chat stays ordinary", async () => {
+  it("refuses incognito: true on an existing ordinary chat, which would remember", async () => {
     const plain = await chat({});
-    await chat({ session_id: plain, incognito: true });
+    const response = await fetch(`${harness.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "atomic-agent", messages: [{ role: "user", content: "secret" }], session_id: plain, incognito: true }),
+    });
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { message: string; param?: string } };
+    expect(body.error.message).toMatch(/incognito/);
     expect(harness.runtime.sessionStore.load(plain)?.incognito).toBeUndefined();
+    expect(JSON.stringify(harness.runtime.sessionStore.load(plain))).not.toContain("secret");
+  });
+
+  it("an incognito chat stays incognito when a later request leaves the field out or says false", async () => {
+    const id = await chat({ incognito: true });
+    expect(await chat({ session_id: id, incognito: false })).toBe(id);
+    expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+  });
+
+  it("closing the server discards the incognito chats it opened", async () => {
+    const id = await chat({ incognito: true });
+    const plain = await chat({});
+    await harness.handle.close();
+    expect(harness.runtime.sessionStore.load(id)).toBeNull();
+    expect(harness.runtime.sessionStore.load(plain)).not.toBeNull();
   });
 });
