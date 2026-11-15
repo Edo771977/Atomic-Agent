@@ -40,20 +40,22 @@ A constrained folder's tools may not send its content off the machine unless the
 | --- | --- |
 | `web` | `os.web.search`, `os.web.fetch` (a loopback URL stays allowed) |
 | `http` | `os.http.request` (a loopback URL stays allowed) |
-| `browser` | every `browser.*` tool (the page acted on may be remote whatever the arguments say) |
+| `browser` | every `browser.*` tool, local dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
 | `github` | `github.*` |
 | `git` | `os.git.fetch`, `pull`, `push`, `clone` |
 | `mail` | `os.email.*` (Atomic Mail) |
-| `channels` | `tasks.schedule` / `tasks.cron` with `notify` |
+| `channels` | `tasks.schedule` / `tasks.cron` with `notify`; a turn sent from Telegram, Discord or a swarm bot; a task's report and live snapshots |
 | `composio` | tools of the Composio MCP server |
 | `mcp:<server>` | tools of a remote (http, SSE) MCP server, and `mcp.resource.*` / `mcp.prompt.*` naming it; a tool whose server is unknown counts as remote |
+
+Chat turns: a turn whose origin is `telegram` or `discord` (swarm bots included) for a session in a constrained folder without `channels` is refused in `runTurn` before the queue and the model (`ChannelRestrictedError`); the adapters answer with the fixed `CHANNEL_RESTRICTED_NOTICE` ("This folder is restricted; open atomic-agent on the computer.") and nothing else. Task reports: `TaskRunner.notifyRefusal` asks at send time, before each report and before live snapshots, through `channelNotifyRefusal`; a withheld report is logged as `task report withheld` and the result stays local. Webhooks only enqueue tasks, so their outbound side is that report. Every check reads `effectivePolicyForSession`, which takes an id or a session object and never borrows a frame set for another session.
 
 A stdio MCP server is a local process and stays allowed, but it can reach the network itself, which nothing here sees. Fusion workers obey the stamped policy, egress included; an older stamp without the list allows none. `image.generate` / `video.generate` are checked as provider `openrouter` above, not as egress.
 
 ## Not covered
 
-`allowedProviders` covers model, embedding and media endpoints; `allowedEgress` covers the tool classes above. Not covered, and shown as such by `atomic-agent doctor`: shell commands (`os.shell.run`, `verify.run`, skill scripts), which can run `curl` or `git push` themselves, and the network use of stdio MCP servers. A turn a person starts from a Telegram or Discord chat still replies there: the channel is the surface they chose, not a tool call. MCP sampling talks to the local llama-server client directly, outside the registry, and is not checked. Memory scoping (tagging rows written under a constraint), read taint from files inside a constrained folder and the TUI chip are separate work. Background jobs with neither a frame nor a session id (the memory consolidator's timer) are refused while constraints exist.
+`allowedProviders` covers model, embedding and media endpoints; `allowedEgress` covers the tool classes above. Not covered, and shown as such by `atomic-agent doctor`: shell commands (`os.shell.run`, `verify.run`, skill scripts), which can run `curl` or `git push` themselves, and the network use of stdio MCP servers. MCP sampling talks to the local llama-server client directly, outside the registry, and is not checked. Memory scoping (tagging rows written under a constraint), read taint from files inside a constrained folder and the TUI chip are separate work. Background jobs with neither a frame nor a session id (the memory consolidator's timer) are refused while constraints exist.
 
 ## Tests
 
-[Policy and guard](../provider-policy.test.ts), [chain](../fallback/provider-policy-fallback.test.ts), [seam](../../runtime/llm-fallback-seam.test.ts), [session policy](../../runtime/session-provider-policy.test.ts), [turn frames and Fusion](../../runtime/composition/runtime-turn-service.test.ts), [escalation and judge](../../runtime/composition/runtime-tool-catalog.test.ts), [embeddings](../../memory/embeddings/embedding-policy-guard.test.ts), [egress inventory and guard](../../tools/tool-egress.test.ts), [egress before hooks and approval](../../agent/dispatch/batch-scheduler-egress.test.ts), [MCP classes](../../runtime/composition/runtime-egress-guard.test.ts).
+[Policy and guard](../provider-policy.test.ts), [chain](../fallback/provider-policy-fallback.test.ts), [seam](../../runtime/llm-fallback-seam.test.ts), [session policy](../../runtime/session-provider-policy.test.ts), [turn frames and Fusion](../../runtime/composition/runtime-turn-service.test.ts), [escalation and judge](../../runtime/composition/runtime-tool-catalog.test.ts), [embeddings](../../memory/embeddings/embedding-policy-guard.test.ts), [egress inventory and guard](../../tools/tool-egress.test.ts), [egress before hooks and approval](../../agent/dispatch/batch-scheduler-egress.test.ts), [MCP classes](../../runtime/composition/runtime-egress-guard.test.ts), [chat turns](../../runtime/composition/runtime-turn-service.test.ts), [task reports](../../tasks/task-runner.test.ts).
