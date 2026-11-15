@@ -466,9 +466,15 @@ export class SessionStore {
     this.listRecentStmt = this.db.prepare(
       `SELECT id, status, payload FROM sessions ORDER BY updated_at DESC LIMIT ?`,
     );
+    // ATO-586: an incognito chat's folder is not a recent one. `instr`
+    // first, so only a payload that names the key is parsed as JSON.
     this.listRecentDirsStmt = this.db.prepare(
       `SELECT working_dir AS workingDir, updated_at AS updatedAt
-       FROM sessions ORDER BY updated_at DESC LIMIT ?`,
+       FROM sessions
+       WHERE NOT (instr(payload, '"incognito"') > 0
+                  AND json_valid(payload)
+                  AND json_type(payload, '$.incognito') = 'object')
+       ORDER BY updated_at DESC LIMIT ?`,
     );
     // Two statements, one SQL text: the cursor has to be absent from
     // the first page's `WHERE` for SQLite to plan a plain index walk,

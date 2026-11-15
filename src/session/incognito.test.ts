@@ -84,6 +84,13 @@ describe("incognito sessions in the store", () => {
     expect(store.listSummaryPage({ limit: 10 }).map((s) => s.id)).toEqual(["s-plain"]);
   });
 
+  it("leaves an incognito chat's folder out of the recent working dirs", () => {
+    const store = open(1);
+    store.save({ ...spoken("s-plain", store, false), workingDir: "/plain", updatedAt: 1_000 });
+    store.save({ ...spoken("s-secret", store, true), workingDir: "/secret-project", updatedAt: 2_000 });
+    expect(store.listRecentWorkingDirs(10).map((row) => row.workingDir)).toEqual(["/plain"]);
+  });
+
   it("keeps the mark through a save of a later copy", () => {
     const store = open(1);
     const state = spoken("s-secret", store, true);
