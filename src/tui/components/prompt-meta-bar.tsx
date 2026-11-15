@@ -68,6 +68,13 @@ export interface PromptMetaBarProps {
   /** Turns the model slot into a `download model` call to action. */
   needsModelDownload?: boolean;
   /**
+   * The session's provider restriction (issue #33), `restricted to:
+   * local-llama`, drawn after the route in the warning colour. It is
+   * the first thing to give up columns: the bar truncates it before the
+   * route. `null` hides it.
+   */
+  restriction?: string | null;
+  /**
    * Re-skin the bar for the Fusion run mode: black ground, white ink,
    * orange accents — see `fusion-tint.ts`. The blue the bar normally
    * wears is the ordinary state, and leaving it under an orange chip
@@ -209,6 +216,7 @@ export function PromptMetaBar({
   model,
   provider,
   needsModelDownload,
+  restriction = null,
   fusion = false,
   contextSlot,
   modeSlot,
@@ -226,6 +234,7 @@ export function PromptMetaBar({
       model={model}
       provider={provider}
       needsModelDownload={needsModelDownload ?? false}
+      restriction={restriction}
       fusion={fusion}
       mouseLayer={mouseLayer}
       // The route wraps only where the plan left it a row to wrap onto.
@@ -353,6 +362,7 @@ interface MetaLeftProps {
   model: string | null;
   provider: string | null;
   needsModelDownload: boolean;
+  restriction: string | null;
   fusion: boolean;
   /**
    * Rows the route may occupy. At 1 it is the single clipped row it has
@@ -392,11 +402,12 @@ function MetaLeft({
   model,
   provider,
   needsModelDownload,
+  restriction,
   fusion,
   maxRows,
   mouseLayer,
 }: MetaLeftProps): ReactElement {
-  if (!leftSlot && !backend && !model && !provider && !needsModelDownload) {
+  if (!leftSlot && !backend && !model && !provider && !needsModelDownload && !restriction) {
     return <Text> </Text>;
   }
   const cleanModel = model ? formatModel(model) : null;
@@ -449,6 +460,14 @@ function MetaLeft({
         fusion={fusion}
         mouseLayer={mouseLayer}
       />
+      {restriction ? (
+        <Box flexShrink={1} minWidth={0}>
+          <Text color={theme.colors.railWarn} wrap="truncate">
+            {" "}
+            {theme.glyphs.dotSeparator} {restriction}
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

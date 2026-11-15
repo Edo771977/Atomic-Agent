@@ -85,6 +85,11 @@ export interface PromptShellProps extends Omit<
    */
   needsModelDownload?: boolean;
   /**
+   * The session's provider restriction (issue #33), drawn as a
+   * `restricted to: …` chip after the route; `null` hides it.
+   */
+  restriction?: string | null;
+  /**
    * Optional content rendered at the start of the action bar, before the
    * model/provider labels. Used by the chat surface to show the live
    * LLM health pill. Separated by a dot from the model when both are
@@ -122,6 +127,7 @@ export function PromptShell(props: PromptShellProps): ReactElement {
     model,
     provider,
     needsModelDownload,
+    restriction,
     leftSlot,
     contextSlot,
     modeSlot,
@@ -265,6 +271,7 @@ export function PromptShell(props: PromptShellProps): ReactElement {
           model={model ?? null}
           provider={provider ?? null}
           needsModelDownload={needsModelDownload ?? false}
+          restriction={restriction ?? null}
           fusion={fusion}
           contextSlot={contextSlot ?? null}
           modeSlot={modeSlot ?? null}

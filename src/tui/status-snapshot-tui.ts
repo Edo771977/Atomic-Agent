@@ -6,6 +6,7 @@ import {
   type TurnStatusState,
 } from "../agent/status-snapshot.js";
 import type { TuiState } from "./tui-state.js";
+import { formatProviderRestrictionLine } from "../llm/provider-policy.js";
 
 /**
  * The TUI's `/status` (ATO-965): the same snapshot Telegram and the
@@ -26,8 +27,17 @@ export function tuiTurnStatus(
     | "streamingToolCards"
     | "pendingApproval"
     | "runHistory"
-  >,
+  > & { session?: Pick<TuiState["session"], "providerRestriction"> },
   plan: PlanProgressLike | null = null,
+): TurnStatusState {
+  const restriction = state.session?.providerRestriction ?? null;
+  const restrictionLine = restriction === null ? {} : { restrictionLine: formatProviderRestrictionLine(restriction) };
+  return { ...turnStatus(state, plan), ...restrictionLine };
+}
+
+function turnStatus(
+  state: Parameters<typeof tuiTurnStatus>[0],
+  plan: PlanProgressLike | null,
 ): TurnStatusState {
   const running =
     state.status === "running" || state.status === "awaiting_approval";

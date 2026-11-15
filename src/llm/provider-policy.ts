@@ -134,6 +134,40 @@ export function currentPolicyAllows(providerId: string): boolean {
   return currentProviderPolicy()?.allows(providerId) ?? true;
 }
 
+/**
+ * What a frontend shows for a session's provider policy (issue #33 group
+ * C): the TUI chip next to the offline switch, `/status`, the sidecar's
+ * `get_provider_restriction` and `GET /api/sessions/{id}/provider-restriction`.
+ */
+export interface ProviderRestriction {
+  /** `restricted to: local-llama` */
+  label: string;
+  allowedProviders: string[];
+  /** The constraint entry (or entries, joined with " + "). */
+  folder: string;
+  /** The constrained folders the session read files from (read taint); empty for its own folder. */
+  readFrom: string[];
+}
+
+/** The restriction a policy puts on a session, or `null` for an unconstrained one. */
+export function describeProviderRestriction(policy: ProviderPolicy | undefined): ProviderRestriction | null {
+  if (policy === undefined) return null;
+  return {
+    label: `restricted to: ${describeAllowed(policy)}`,
+    allowedProviders: [...policy.allowedProviders],
+    folder: policy.key,
+    readFrom: [...(policy.readFrom ?? [])],
+  };
+}
+
+/** One `/status` line for the restriction. */
+export function formatProviderRestrictionLine(restriction: ProviderRestriction): string {
+  const why = restriction.readFrom.length > 0
+    ? `read files from ${restriction.readFrom.join(", ")}`
+    : `folder ${restriction.folder}`;
+  return `Providers: ${restriction.label} (${why})`;
+}
+
 export const PROVIDER_NOT_ALLOWED_CODE = "ATOMIC_AGENT_PROVIDER_NOT_ALLOWED";
 
 const DEFAULT_ROLE = "this request";

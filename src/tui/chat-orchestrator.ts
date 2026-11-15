@@ -1,3 +1,4 @@
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -1057,6 +1058,7 @@ export class ChatOrchestrator {
     // if the operator had never left, so only a lossy one asks for the
     // end-of-turn repaint from the saved session.
     if (resumed) this.reattachedMidTurn = !this.replayTurnEvents(loaded.id);
+    this.publishProviderRestriction(loaded);
     this.refreshRecentSessions();
     this.bus.emit({
       type: "runtime_info",
@@ -1401,6 +1403,7 @@ export class ChatOrchestrator {
       workingDir: this.session.workingDir,
       messages: [],
     });
+    this.publishProviderRestriction(this.session);
     this.refreshRecentSessions();
     this.bus.emit({
       type: "runtime_info",
@@ -1411,6 +1414,20 @@ export class ChatOrchestrator {
     if (options.incognito === true) {
       this.bus.emit({ type: "system_message", text: INCOGNITO_OPENED_NOTICE });
     }
+  }
+
+  /**
+   * Issue #33: tell the TUI the provider restriction on `session` (its
+   * folder's constraint, or a read taint), for the chip and `/status`.
+   */
+  private publishProviderRestriction(session: { id: string; workingDir: string; metadata?: Record<string, unknown> }): void {
+    let restriction: ProviderRestriction | null = null;
+    try {
+      restriction = this.runtime.providerRestrictionFor?.(session) ?? null;
+    } catch {
+      restriction = null;
+    }
+    this.bus.emit({ type: "provider_restriction_changed", sessionId: session.id, restriction });
   }
 
   private holdComposerSubmission(text: string): boolean {
@@ -1882,6 +1899,8 @@ export class ChatOrchestrator {
       // The turn wrote the session back, so the stored row can now
       // answer for itself and the stand-in retires.
       this.refreshRecentSessions();
+      // A read inside a constrained folder may have restricted it.
+      if (this.session?.id === turnSessionId) this.publishProviderRestriction(this.session);
     }
     if (this.session?.id !== turnSessionId) {
       // Finished in the background: the reply is saved in its own

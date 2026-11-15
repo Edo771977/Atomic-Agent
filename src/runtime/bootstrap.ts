@@ -35,6 +35,7 @@ import { join, resolve } from "node:path";
 import { getConfig } from "../config/index.js";
 import { createSessionProviderPolicy } from "./session-provider-policy.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
+import { describeProviderRestriction } from "../llm/provider-policy.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
 import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
@@ -1023,6 +1024,7 @@ export async function createAgentRuntime(
     discordChannel: null,
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
+    providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,
