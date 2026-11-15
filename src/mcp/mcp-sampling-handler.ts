@@ -18,6 +18,8 @@
  */
 
 import type { LlamaServerClient } from "../llm/llama-server-client.js";
+import { hostOfUrl, isLoopbackHost } from "../llm/offline-network.js";
+import { ProviderNotAllowedError } from "../llm/provider-policy.js";
 import type {
   CreateMessageRequest,
   CreateMessageResult,
@@ -31,6 +33,34 @@ export interface CreateMcpSamplingHandlerDeps {
   llamaServerClient: LlamaServerClient;
   /** Per-server name — used only for tagging when we have a structured log surface. */
   server: string;
+  /**
+   * Per-folder provider constraints (issue #33): whether any
+   * `projects.constraints` entry exists. Absent: never constrained.
+   */
+  constraintsActive?: () => boolean;
+}
+
+/** The provider id sampling is checked as: the managed local llama-server. */
+export const MCP_SAMPLING_PROVIDER_ID = "local-llama";
+
+/**
+ * Sampling goes to `LlamaServerClient` directly, outside the provider
+ * registry's guard. Judged by place, like memory embeddings: a
+ * llama-server on this machine sends nothing anywhere and always
+ * serves. One elsewhere (a remote `localModels.url`) is refused while
+ * any constraint exists (fail closed): an MCP client is shared by every
+ * session, so a sampling request belongs to no session and no turn. The
+ * policy frame it happens to run in is the one where the MCP transport
+ * was opened (whichever turn connected the server, or none), not the
+ * policy of whatever content the server sends, so it is never read.
+ */
+function assertSamplingAllowed(deps: CreateMcpSamplingHandlerDeps): void {
+  const constraintsActive = deps.constraintsActive;
+  if (constraintsActive === undefined || !constraintsActive()) return;
+  const url = (deps.llamaServerClient as { textRequestBaseUrl?: string }).textRequestBaseUrl;
+  const host = typeof url === "string" ? hostOfUrl(url) : null;
+  if (host !== null && isLoopbackHost(host)) return;
+  throw new ProviderNotAllowedError({ reason: "no-policy", providerId: MCP_SAMPLING_PROVIDER_ID, role: "MCP sampling" });
 }
 
 /**
@@ -59,6 +89,7 @@ export function createMcpSamplingHandler(
     if (signal.aborted) {
       throw new Error("aborted");
     }
+    assertSamplingAllowed(deps);
 
     const result = await deps.llamaServerClient.complete({
       prompt,

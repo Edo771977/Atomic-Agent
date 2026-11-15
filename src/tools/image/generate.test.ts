@@ -10,6 +10,7 @@ import { coreDownloadProgress } from "./core-download-progress.js";
 import { buildImageGenerateTool, cloudAspectRatio, cloudBatches, IMAGE_PARALLEL_JOBS, runWhenFree, settleLimited, type ImageGenerateToolOptions } from "./generate.js";
 import { openRouterImageKey } from "./openrouter-key.js";
 import { resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
+import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 
 let dir: string;
 let work: string;
@@ -66,6 +67,16 @@ describe("image.generate", () => {
       expect(request).not.toHaveBeenCalled();
       expect(core.call).not.toHaveBeenCalled();
     } finally { resetOfflineNetworkForTests(); }
+  });
+
+  it("refuses in a folder whose constraint does not allow openrouter, before asking or touching Core (issue #33)", async () => {
+    const core = fakeCore();
+    const { built, request } = tool({ withCore: core.withCore });
+    const result = await runWithProviderPolicy(makeProviderPolicy({ key: "/work/client", allowedProviders: ["local-llama"], matchedDir: "/work/client" }), () => built.run({ prompt: "a fox" }, ctx()));
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("folder /work/client is restricted to: local-llama");
+    expect(request).not.toHaveBeenCalled();
+    expect(core.call).not.toHaveBeenCalled();
   });
 
   it("asks before a paid cloud picture, saves it in the working folder and points at reply.attachments", async () => {

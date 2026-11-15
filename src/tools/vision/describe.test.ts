@@ -11,6 +11,7 @@ import type {
   VisionResult,
 } from "../../llm/index.js";
 import { buildVisionDescribeTool } from "./describe.js";
+import { guardProvider, makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 
 interface FakeProviderOptions {
   capabilities?: ProviderCapabilities;
@@ -208,6 +209,21 @@ describe("buildVisionDescribeTool", () => {
     expect(call.images).toHaveLength(1);
     expect(call.images[0]!.id).toBe(1);
     expect(call.images[0]!.mimeType).toBe("image/png");
+  });
+
+  it("is refused for a provider the folder does not allow, before the image is sent (issue #33)", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "vision-tool-"));
+    const path = join(tmp, "image.png");
+    await writeFile(path, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const inner = { ...fakeProvider(), id: "cloud-vision" } as LlmProvider;
+    // What the registry hands out: every provider is guarded.
+    const provider = guardProvider(inner, { constraintsActive: () => true });
+    const tool = buildVisionDescribeTool({ provider, maxImagesPerCall: 2, maxImageBytes: 1024 });
+    const policy = makeProviderPolicy({ key: tmp, allowedProviders: ["local-llama"], matchedDir: tmp });
+    const result = await runWithProviderPolicy(policy, () => tool.run({ prompt: "describe", path }, ctx(tmp)));
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain(`folder ${tmp} is restricted to: local-llama`);
+    expect(inner.describeImage).not.toHaveBeenCalled();
   });
 
   // A VLM answer is prose, routinely several paragraphs. The

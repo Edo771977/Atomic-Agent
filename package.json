@@ -17,6 +17,7 @@
   ],
   "allowScripts": {
     "@sentry/cli": false,
+    "better-sqlite3": false,
     "esbuild": true,
     "fsevents": false
   },

@@ -2615,6 +2615,7 @@ export function TuiApp({
                         model={promptLlm.model}
                         provider={promptLlm.provider}
                         needsModelDownload={promptNeedsModelDownload}
+                        restriction={state.session.providerRestriction?.label ?? null}
                         leftSlot={promptLeftSlot}
                         contextSlot={promptContextSlot}
                         modeSlot={promptModeSlot}

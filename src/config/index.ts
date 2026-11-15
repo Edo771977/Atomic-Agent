@@ -107,3 +107,4 @@ export {
 
 /** Swarm units — extra Telegram / Discord bots (config v52). */
 export type { SwarmConfig, SwarmUnitConfig } from "./config-schema.js";
+export { projectConstraintNotices } from "./project-constraints-config.js";

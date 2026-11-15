@@ -124,3 +124,14 @@ describe("serve on a network host without a key", () => {
     expect(boot.options).toBeNull();
   });
 });
+
+describe("serveConstraintNote (issue #33)", () => {
+  it("names the constrained folders a network server refuses, and is silent on loopback or when all allow serve", async () => {
+    const { serveConstraintNote } = await import("./serve-command.js");
+    const constraints = { "/clienti/acme": { allowedEgress: ["channels"] }, "/clienti/open": { allowedEgress: ["serve"] } };
+    expect(serveConstraintNote("0.0.0.0", constraints)).toContain("/clienti/acme");
+    expect(serveConstraintNote("0.0.0.0", constraints)).not.toContain("/clienti/open");
+    expect(serveConstraintNote("127.0.0.1", constraints)).toBeNull();
+    expect(serveConstraintNote("0.0.0.0", { "/clienti/open": { allowedEgress: ["serve"] } })).toBeNull();
+  });
+});

@@ -106,6 +106,7 @@ export const FIXED_CONFIG_BRANCHES: ReadonlySet<string> = new Set([
 
 export const DICTIONARY_CONFIG_BRANCHES: ReadonlySet<string> = new Set([
   "webhooks",
+  "projects.constraints",
   "mcp.servers",
   "llm.providers",
 ]);

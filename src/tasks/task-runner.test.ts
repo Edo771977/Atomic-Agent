@@ -276,6 +276,36 @@ describe("TaskRunner", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("does not recreate a deleted recurring session in the runtime's folder while a constraint refuses it (issue #33)", async () => {
+    const { runtime, calls } = fakeRuntime();
+    const create = vi.fn(() => createEmptySessionState({ id: "s-fresh", workingDir: "/home/u" }));
+    const runner = new TaskRunner({
+      store,
+      runtime,
+      sessionLoader: fakeSessionLoader(null),
+      sessionFactory: { create, save: () => {} },
+      defaultMaxSteps: 5,
+      backoff: { initialMs: 1, maxMs: 10 },
+      enabled: true,
+      runOnCreate: false,
+      sleep: async () => undefined,
+      recreateSessionRefusal: () => "provider constraints are configured",
+    });
+    const t = store.create({
+      sessionId: "s-deleted",
+      userMessage: "acme digest",
+      origin: "agent",
+      maxAttempts: 1,
+      schedule: { kind: "interval", everyMs: 300_000 },
+      scheduledFor: Date.now() - 1,
+    });
+    const final = await runner.runOne(t.id);
+    expect(create).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(final?.status).toBe("blocked");
+    expect(final?.lastError).toContain("provider constraints are configured");
+  });
+
   it("a recurring task that fails retryably waits out its backoff, then rearms for its next firing", async () => {
     const { runtime, calls } = fakeRuntime({
       scripts: [
@@ -847,6 +877,43 @@ describe("TaskRunner", () => {
         errorCategory: null,
       });
       expect(reports[0]!.durationMs).not.toBeNull();
+    });
+
+    it("withholds the report when the task's folder refuses channels at send time, keeping the result (issue #33)", async () => {
+      const reports: TaskReport[] = [];
+      const notes: Array<{ message: string; context: unknown }> = [];
+      let restricted = false;
+      const runtime: TaskRunnerRuntime = {
+        // The folder becomes constrained while the task runs: the check
+        // must be the one at send time, not at scheduling.
+        runTurn: async (sess) => {
+          restricted = true;
+          return { session: sess, reason: "reply", stepCount: 1 };
+        },
+      };
+      const asked: string[] = [];
+      const runner = new TaskRunner({
+        store,
+        runtime,
+        sessionLoader: fakeSessionLoader(session),
+        defaultMaxSteps: 5,
+        backoff: { initialMs: 1, maxMs: 10 },
+        enabled: true,
+        runOnCreate: false,
+        sleep: async () => undefined,
+        reportSink: (r) => { reports.push(r); },
+        notifyRefusal: (task) => {
+          asked.push(task.id);
+          return restricted ? "folder /w is restricted" : null;
+        },
+        logger: { info: (message: string, context: unknown) => notes.push({ message, context }), warn: () => undefined } as never,
+      });
+      const t = store.create({ sessionId: session.id, userMessage: "scan", origin: "cli", maxAttempts: 1, notify: "telegram" });
+      const final = await runner.runOne(t.id);
+      expect(final?.status).toBe("completed");
+      expect(reports).toEqual([]);
+      expect(asked).toContain(t.id);
+      expect(notes.some((n) => n.message === "task report withheld" && JSON.stringify(n.context).includes("restricted"))).toBe(true);
     });
 
     it("reports off the completed row before a recurring requeue flips it back to pending", async () => {

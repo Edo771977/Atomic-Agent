@@ -174,3 +174,43 @@ describe("createMcpSamplingHandler", () => {
     expect(result.content).toEqual({ type: "text", text: "hello world" });
   });
 });
+
+describe("createMcpSamplingHandler under per-folder provider constraints (issue #33)", () => {
+  const params = { messages: [{ role: "user" as const, content: { type: "text" as const, text: "hi" } }], maxTokens: 10 };
+  const llamaAt = (url: string, spy: (req: CompletionRequest) => Promise<CompletionResult>) =>
+    ({ complete: spy, textRequestBaseUrl: url }) as unknown as LlamaServerClient;
+
+  it("a llama-server on this machine always serves: nothing leaves it", async () => {
+    const spy = vi.fn(async (_req: CompletionRequest) => defaultResult());
+    const handler = createMcpSamplingHandler({
+      llamaServerClient: llamaAt("http://127.0.0.1:9931", spy),
+      server: "s",
+      constraintsActive: () => true,
+    });
+    await handler(params, new AbortController().signal);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a remote llama-server is refused while constraints exist, whatever frame the transport was opened in", async () => {
+    const { makeProviderPolicy, runWithProviderPolicy } = await import("../llm/provider-policy.js");
+    const spy = vi.fn(async (_req: CompletionRequest) => defaultResult());
+    let active = true;
+    const handler = createMcpSamplingHandler({
+      llamaServerClient: llamaAt("http://10.0.0.5:9931", spy),
+      server: "s",
+      constraintsActive: () => active,
+    });
+    const signal = new AbortController().signal;
+    await expect(handler(params, signal)).rejects.toThrow(/MCP sampling carries no folder policy/);
+    // A sampling request is tied to no session: a frame it inherits from
+    // where the MCP transport was created (an unconstrained turn that
+    // connected the server, or a constrained one) is not its policy.
+    await expect(runWithProviderPolicy(undefined, () => handler(params, signal))).rejects.toThrow(/MCP sampling carries no folder policy/);
+    const local = makeProviderPolicy({ key: "/w", allowedProviders: ["local-llama"], matchedDir: "/w" });
+    await expect(runWithProviderPolicy(local, () => handler(params, signal))).rejects.toThrow(/MCP sampling carries no folder policy/);
+    expect(spy).not.toHaveBeenCalled();
+    active = false;
+    await handler(params, signal);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

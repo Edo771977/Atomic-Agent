@@ -1,9 +1,17 @@
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import { TaskValidationError, type TaskRunner } from "../../tasks/index.js";
+import { TaskValidationError, validateSchedule, type TaskRunner, type TaskSchedule } from "../../tasks/index.js";
+import type { SessionState } from "../../session/index.js";
 import type { ToolDefinition } from "../tool-registry.js";
+import type { TaskSessionInput } from "./tasks-schedule.js";
 
 export interface TasksCronToolOptions {
   taskRunner: TaskRunner;
+  /**
+   * Provisions the recurring session from the calling session (its
+   * folder and provider constraint, issue #33) instead of letting the
+   * runner create one in the runtime's folder. Absent: the runner does.
+   */
+  createSession?(input?: TaskSessionInput): SessionState;
 }
 
 /**
@@ -27,7 +35,7 @@ export function buildTasksCronTool(
     description:
       "Schedule a recurring task via a standard 5- or 6-field cron expression. Args: { userMessage, expression, tz?, notify? }. Each firing runs in its own persistent session (not the caller's). Set notify: \"telegram\" to send each firing's final result to the paired Telegram chat.",
     readonly: false,
-    async run(rawArgs) {
+    async run(rawArgs, ctx) {
       const userMessage = rawArgs.userMessage;
       const expression = rawArgs.expression;
       if (typeof userMessage !== "string" || userMessage.length === 0) {
@@ -65,18 +73,26 @@ export function buildTasksCronTool(
         });
       }
       try {
+        const schedule: TaskSchedule = {
+          kind: "cron",
+          expression,
+          ...(typeof tz === "string" ? { tz } : {}),
+        };
+        // Validate before provisioning, so a bad expression leaves no session behind.
+        if (options.createSession) validateSchedule(schedule, Date.now());
+        const sessionId = options.createSession?.({
+          metadata: { recurringTask: true, scheduleKind: "cron", scheduledBy: ctx.sessionId },
+          parent: { sessionId: ctx.sessionId, workingDir: ctx.workingDir },
+        }).id;
         const record = options.taskRunner.create({
+          ...(sessionId === undefined ? {} : { sessionId }),
           userMessage,
           origin: "agent",
           triggerSource: "agent",
           maxAttempts: 1,
           maxSteps: null,
           ...(notify === "telegram" ? { notify } : {}),
-          schedule: {
-            kind: "cron",
-            expression,
-            ...(typeof tz === "string" ? { tz } : {}),
-          },
+          schedule,
         });
         return compressToolResult({
           tool: "tasks.cron",

@@ -33,6 +33,14 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
+import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal } from "./session-provider-policy.js";
+import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
+import type { McpManager } from "../mcp/mcp-manager.js";
+import { createSessionReadTaint } from "./session-read-taint.js";
+import { describeProviderRestriction, resolveProjectConstraint } from "../llm/provider-policy.js";
+import { createConstraintScopeBackfill } from "../memory/memory-constraint-scope.js";
+import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
+import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
 import type { SessionState } from "../session/session-state.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
@@ -312,6 +320,21 @@ export async function createAgentRuntime(
     },
   });
   const { profileStore, notesStore, embeddingClient, linkStore, lessonStore, procedureStore, voteStore } = memoryStores;
+  // Rows written before their folder's constraint existed are tagged now,
+  // and again when projects.constraints changes (before a turn or a
+  // consolidator tick), so they stop being visible everywhere (issue #33).
+  const constraintScopeBackfill = createConstraintScopeBackfill({
+    db: notesStore.getDatabaseHandleForEmbeddings(),
+    readConstraints: () => getConfig().projects.constraints,
+    resolvePolicy: (dir) => resolveProjectConstraint(getConfig(), dir),
+  });
+  try {
+    const result = constraintScopeBackfill.ensure();
+    const tagged = result === null ? 0 : result.tagged.memories + result.tagged.lessons + result.tagged.procedures;
+    if (tagged > 0) logger.info("memory rows tagged with their folder's constraint", { ...result!.tagged });
+  } catch (err) {
+    logger.info("memory constraint back-fill failed", { error: err instanceof Error ? err.message : String(err) });
+  }
   // A later embedding model pick reattaches memory through this switch
   // instead of waiting for a restart (ATO-351). It owns the backfill
   // from here on, so shutdown stops it through the switch.
@@ -328,6 +351,19 @@ export async function createAgentRuntime(
   });
 
   const sessionStore = prepareRuntimeSessionStore(config, logger);
+  // Per-folder provider constraints (issue #33): the policy of a session,
+  // matched live against `projects.constraints`; see session-provider-policy.ts.
+  const sessionProviderPolicy = createSessionProviderPolicy({
+    readConfig: () => getConfig(),
+    // A store that cannot answer (closed at shutdown) reads as no
+    // session, which fails closed.
+    loadSession: (id) => {
+      try { return sessionStore.load(id); } catch { return null; }
+    },
+    // A taint the running turn holds but has not saved yet (declared below;
+    // only read once the runtime runs).
+    liveSession: (id) => sessionReadTaint.liveSession<SessionState>(id),
+  });
   // The commands `os.shell.run` detached at the default timeout (F47).
   // One registry for the runtime, so the turn-end (`executeTurn`),
   // session-delete and shutdown paths below can stop what a session
@@ -343,7 +379,34 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 
-  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill);
+  // Read taint (issue #33 group C): a read inside a constrained folder
+  // narrows the session's provider policy at dispatch.
+  const sessionReadTaint = createSessionReadTaint({
+    readConfig: () => getConfig(),
+    patchStoredSession: (id, patch) => {
+      const stored = sessionStore.load(id);
+      if (stored === null) return;
+      stored.metadata = patch(stored.metadata ?? {});
+      sessionStore.save(stored);
+    },
+  });
+  // Per-folder egress (issue #33): tools that would send a constrained
+  // folder's content off the machine are refused at dispatch. MCP servers
+  // are classed by the manager, which exists once the catalog connects.
+  let egressMcp: McpManager | undefined;
+  // The same guard refuses a write that would carry a constrained (or
+  // read-tainted) session's content out of its folder (write-out rule).
+  const egressGuard = createRuntimeDispatchGuard({
+    effectivePolicyForSession: sessionProviderPolicy.effectivePolicyForSession,
+    mcp: () => egressMcp,
+    readConfig: () => getConfig(),
+  });
+  // The registry taints first (onDispatch), then checks egress against
+  // the narrowed policy (effectivePolicyForSession reads the tightened frame).
+  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, {
+    onDispatch: (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); },
+    dispatchGuard: egressGuard,
+  });
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)
@@ -464,6 +527,7 @@ export async function createAgentRuntime(
       : resolveCatalogContextWindow(),
   });
   const { mcpManager, getGrammar, effectiveToolDescriptors } = mcpCatalog;
+  egressMcp = mcpManager;
 
   if (config.vision.enabled) {
     logger.info("vision provider configured", {
@@ -479,6 +543,7 @@ export async function createAgentRuntime(
     fallbackChain, resolveActiveLlmSlice, localBackend: connectedLocal.localBackend, profileManager,
     costAccumulator, turnUsageMeter, sessionUsage, dailySpend, resolveModelPricing, resolveCatalogContextWindow,
     turnBudget: fusionTurnBudget, budgetNotices,
+    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
@@ -606,7 +671,12 @@ export async function createAgentRuntime(
     // The same live resolution the `fusion.delegate` descriptor gate
     // reads, so the tool the orchestrator is being pushed towards is
     // always in the catalog when the push happens.
-    isFusionMode: () => resolveCurrentRunMode().effective === "fusion",
+    // Not when the folder's provider constraint leaves only one leg
+    // (issue #33): the turn then runs as a single model.
+    isFusionMode: () => {
+      const runMode = resolveCurrentRunMode();
+      return runMode.effective === "fusion" && fusionPolicyDegradation(runMode, currentProviderPolicy()).kind === "none";
+    },
     // A fusion turn starts: its fan-out grant is dropped and its $ /
     // time caps (ATO-947) start from zero.
     clearFanoutTurnGrant: (sessionId: string) => {
@@ -853,7 +923,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
@@ -887,6 +957,9 @@ export async function createAgentRuntime(
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,
     resolveTelegram: () => telegramChannelForShutdown, logger, metrics,
     approvalLevel: () => approvals.getLevel(),
+    // A task in a constrained folder notifies its chat only with "channels" allowed (issue #33).
+    notifyRefusal: (task) => channelNotifyRefusal(sessionProviderPolicy, task.sessionId),
+    providerPolicy: sessionProviderPolicy,
   });
 
   registerRuntimeFusionAndReadScope({
@@ -917,6 +990,7 @@ export async function createAgentRuntime(
   const consolidatorJob = createRuntimeMemoryConsolidator({
     config, notesStore, linkStore, lessonStore, procedureStore, voteStore,
     slotManager, llmComplete, logger, metrics, traceBus,
+    beforeTick: () => { constraintScopeBackfill.ensure(); },
   });
   consolidatorJob?.start();
 
@@ -991,6 +1065,10 @@ export async function createAgentRuntime(
     discordChannel: null,
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
+    providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
+    channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
+    serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
+    egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,
@@ -1106,6 +1184,7 @@ export async function createAgentRuntime(
     resolveTelegram: () => telegramChannelForShutdown,
     resolveDiscord: () => discordChannelForShutdown,
     logger,
+    isRestricted: (id) => channelNotifyRefusal(sessionProviderPolicy, id) !== null,
   });
 
   // Deferred from the Scheduler construction site above: the first

@@ -10,6 +10,8 @@ import {
 import { describeFailedAttempts } from "../../llm/fallback/index.js";
 import type { LlmFailureCategory } from "../../llm/reliability/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
+import { CHANNEL_RESTRICTED_NOTICE, isChannelRestricted } from "../../runtime/session-provider-policy.js";
+import { channelSendWithheld } from "../channel-egress.js";
 import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 
@@ -866,6 +868,9 @@ async function dispatchToRuntime(
   ctx.ensureApprovalSession?.(session.id, ref.target);
   const controller = new AbortController();
   ctx.inflight.set(ref.key, controller);
+  // Asked before each send (issue #33): a read inside a constrained
+  // folder can taint the session mid-turn, after the runtime let it in.
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
 
   let reply: string | null = null;
   let replyAttachments: ReadonlyArray<string> = [];
@@ -901,6 +906,7 @@ async function dispatchToRuntime(
     const state = tracker.state();
     const now = Date.now();
     if (!state.running || !cadence.due(state.steps, now)) return;
+    if (withheld()) return;
     cadence.mark(state.steps, now);
     tracker.setBlockedOn(ctx.pendingApprovalTool?.(session.id) ?? null);
     const text = formatStatusSnapshot(
@@ -946,7 +952,7 @@ async function dispatchToRuntime(
     }
     if (progress === null) return;
     const label = progressLabel(event);
-    if (label !== null) progress.update(label);
+    if (label !== null && !withheld()) progress.update(label);
   };
 
   progress?.start("🤔 Thinking…");
@@ -959,7 +965,7 @@ async function dispatchToRuntime(
     });
     // A steer accepted for this turn but never delivered: the chat is
     // the host here, so tell it rather than dropping the text silently.
-    if (result.undelivered !== undefined && result.undelivered.length > 0) {
+    if (result.undelivered !== undefined && result.undelivered.length > 0 && !withheld()) {
       const lines = result.undelivered
         .map((t) => `• ${t.length > 120 ? `${t.slice(0, 119)}…` : t}`)
         .join("\n");
@@ -994,6 +1000,12 @@ async function dispatchToRuntime(
   await progress?.remove();
   if (snapshotBubble !== null && snapshotBubble !== progress) {
     await snapshotBubble.remove();
+  }
+  if (withheld()) {
+    // The fixed notice alone: no reply, file, notice or failure text.
+    await sendText(ctx, ref.target, CHANNEL_RESTRICTED_NOTICE);
+    ctx.runtime.metrics?.recordTelegramMessage({ direction: "out" });
+    return;
   }
   for (const notice of budgetNotices) await sendText(ctx, ref.target, notice);
 
@@ -1219,6 +1231,8 @@ function formatFailure(failure: {
   error: Error;
   category: LlmFailureCategory;
 }): string {
+  // A constrained folder's turn (issue #33): the fixed notice, nothing else.
+  if (isChannelRestricted(failure.error)) return CHANNEL_RESTRICTED_NOTICE;
   return `Turn failed [${failure.category}]: ${failure.error.message}${describeFailedAttempts(failure.error)}`;
 }
 

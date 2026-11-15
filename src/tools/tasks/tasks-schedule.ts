@@ -7,15 +7,23 @@ import {
 import type { SessionState } from "../../session/index.js";
 import type { ToolDefinition } from "../tool-registry.js";
 
+/** What a task tool asks of the session factory: the calling session as `parent`. */
+export interface TaskSessionInput {
+  metadata?: Record<string, unknown>;
+  parent?: { sessionId: string; workingDir: string };
+}
+
 export interface TasksScheduleToolOptions {
   taskRunner: TaskRunner;
   /**
    * Factory used when `newSession: true` — the tool needs to provision
    * a fresh ephemeral session at schedule time rather than letting the
    * runner do it lazily, so the returned task id has a stable
-   * sessionId the caller can inspect immediately.
+   * sessionId the caller can inspect immediately. `parent` is the
+   * calling session: the new one keeps its folder and its provider
+   * constraint (issue #33; the runtime wiring resolves it).
    */
-  createSession(input?: { metadata?: Record<string, unknown> }): SessionState;
+  createSession(input?: TaskSessionInput): SessionState;
   defaultMaxAttempts: number;
 }
 
@@ -88,6 +96,7 @@ export function buildTasksScheduleTool(
             scheduledBy: ctx.sessionId,
             triggerSource: "agent",
           },
+          parent: { sessionId: ctx.sessionId, workingDir: ctx.workingDir },
         });
         sessionId = fresh.id;
       }

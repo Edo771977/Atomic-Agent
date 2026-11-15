@@ -147,6 +147,22 @@ export interface TaskRunnerOptions {
    * a live status to send. Absent sink or cadence: off.
    */
   snapshotSink?: TaskSnapshotSink;
+  /**
+   * Asked at send time, for every report and before live snapshots
+   * start: a reason the task's notification may not leave this machine
+   * (its session is in a constrained folder whose allowedEgress lacks
+   * "channels", issue #33), or `null`. A refused report is withheld with
+   * an info note; the task's result stays local. Absent ⇒ never refused.
+   */
+  notifyRefusal?: (task: TaskRecord) => string | null;
+  /**
+   * Asked before a recurring task's deleted session is recreated: a
+   * reason not to, or `null`. The factory would put the new session in
+   * the runtime's folder, without the original's folder or read taint,
+   * so while provider constraints exist (issue #33) the task is blocked
+   * instead (fail closed). Absent ⇒ always recreated.
+   */
+  recreateSessionRefusal?: (task: TaskRecord) => string | null;
   snapshotCadence?: { everySteps: number; everyMs: number } | null;
   logger?: StructuredLogger;
   /**
@@ -434,10 +450,12 @@ export class TaskRunner {
     });
 
     const session = this.loadOrRecreateSession(claimed);
-    if (!session) {
+    if (!session || typeof session === "string") {
       const blocked = this.options.store.markBlocked(claimed.id, {
         category: "tool",
-        message: `session_not_found: ${claimed.sessionId ?? "<null>"}`,
+        message: typeof session === "string"
+          ? `session_not_recreated: ${claimed.sessionId ?? "<null>"}: ${session}`
+          : `session_not_found: ${claimed.sessionId ?? "<null>"}`,
       });
       this.recordTerminal(blocked);
       this.maybeReport(blocked, null);
@@ -526,7 +544,7 @@ export class TaskRunner {
     // timer whatever ends the run.
     let snapshots: ReturnType<typeof startTaskSnapshots> | null = null;
     const startSnapshots = (): ReturnType<typeof startTaskSnapshots> | null =>
-      collector && this.options.snapshotSink
+      collector && this.options.snapshotSink && this.notifyRefused(claimed) === null
         ? startTaskSnapshots({
             sink: this.options.snapshotSink,
             cadence: this.options.snapshotCadence,
@@ -1186,6 +1204,17 @@ export class TaskRunner {
    * supplies one). Fire-and-forget: a rejecting or throwing sink is
    * warn-logged and never alters the task's status or the drain.
    */
+  /** `notifyRefusal`'s answer; a throwing check refuses (fail closed). */
+  private notifyRefused(task: TaskRecord): string | null {
+    const check = this.options.notifyRefusal;
+    if (check === undefined) return null;
+    try {
+      return check(task);
+    } catch (err) {
+      return `notify check failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   private maybeReport(
     task: TaskRecord,
     replyText: string | null,
@@ -1194,6 +1223,11 @@ export class TaskRunner {
     const sink = this.options.reportSink;
     if (!sink || task.notify === null) return;
     if (!isReportableStatus(task.status)) return;
+    const refused = this.notifyRefused(task);
+    if (refused !== null) {
+      this.options.logger?.info("task report withheld", { taskId: task.id, notify: task.notify, reason: refused });
+      return;
+    }
     const report = buildTaskReport(task, task.status, replyText, run);
     void (async () => sink(report))().catch((err) => {
       this.options.logger?.warn("task report sink failed", {
@@ -1238,13 +1272,21 @@ export class TaskRunner {
    * session if the previous one has been deleted since the last
    * firing; one-shot tasks fall through to the `session_not_found`
    * block path. Returns `null` when neither branch can produce a
-   * session so the caller can block the task.
+   * session so the caller can block the task, or the reason
+   * `recreateSessionRefusal` gave (a throwing check refuses).
    */
-  private loadOrRecreateSession(task: TaskRecord): SessionState | null {
+  private loadOrRecreateSession(task: TaskRecord): SessionState | string | null {
     if (task.sessionId === null) return null;
     const existing = this.options.sessionLoader.load(task.sessionId);
     if (existing) return existing;
     if (!task.recurring || !this.options.sessionFactory) return null;
+    let refusal: string | null = null;
+    try {
+      refusal = this.options.recreateSessionRefusal?.(task) ?? null;
+    } catch (err) {
+      refusal = `recreate check failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (refusal !== null) return refusal;
     const fresh = this.options.sessionFactory.create({
       metadata: {
         recurringTask: true,

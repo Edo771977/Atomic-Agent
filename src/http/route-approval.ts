@@ -3,6 +3,7 @@ import {
   type ApprovalGate,
   type ApprovalRequest,
 } from "../approval/approval-gate.js";
+import { approvalForServe } from "./serve-egress.js";
 import { describeAlwaysRule } from "../approval/approval-rules.js";
 
 import { openaiError } from "./openai-errors.js";
@@ -190,13 +191,13 @@ export function createApprovalEventsHandler(): HttpHandler {
     for (const pending of ctx.approvalBus.snapshot()) {
       sse.writeEvent(
         "approval_request",
-        approvalEventPayload(pending, ctx.runtime.approvals),
+        approvalEventPayload(approvalForServe(ctx, pending), ctx.runtime.approvals),
       );
     }
     const unsubscribe = ctx.approvalBus.subscribe((request) => {
       sse.writeEvent(
         "approval_request",
-        approvalEventPayload(request, ctx.runtime.approvals),
+        approvalEventPayload(approvalForServe(ctx, request), ctx.runtime.approvals),
       );
     });
     await new Promise<void>((resolvePromise) => {

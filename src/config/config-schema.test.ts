@@ -1608,7 +1608,7 @@ describe("parseUserConfigFile", () => {
   it("accepts a v35 file and fills in projects.roots=[] transparently", () => {
     const parsed = parseUserConfigFile({ version: 35 });
     expect(parsed.version).toBe(USER_CONFIG_VERSION);
-    expect(parsed.projects).toEqual({ roots: [] });
+    expect(parsed.projects).toEqual({ roots: [], constraints: {} });
   });
 
   it("preserves explicit projects.roots entries", () => {

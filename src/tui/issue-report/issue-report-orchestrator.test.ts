@@ -187,6 +187,39 @@ describe("IssueReportOrchestrator", () => {
     expect(md).toContain("died <cwd>/a.ts");
   });
 
+  it("a session whose folder may not reach GitHub sends errors only, says why, and other restricted sessions' traces stay out (issue #33)", async () => {
+    writeFileSync(
+      join(traceDir, "sess-0.ndjson"),
+      `${JSON.stringify({ seq: 1, type: "error", sessionId: "sess-0", ts: 1, message: "acme-secret-error" })}\n`,
+    );
+    const githubRefusal = vi.fn(() => 'folder /clienti/acme is restricted; "github" is not in its allowedEgress');
+    const { orchestrator, bus, api } = make({ githubRefusal });
+    orchestrator.open();
+    await orchestrator.pick("full", state);
+    const preview = (bus.last("issue_report_previewed") as unknown as { preview: { level: string; zipPath: string } }).preview;
+    expect(preview.level).toBe("errors");
+    const note = bus.actions.find((a) => a.type === "system_message" && String(a.text).includes("restricted"));
+    expect(note).toBeDefined();
+    const zip = await JSZip.loadAsync(readFileSync(preview.zipPath));
+    expect(Object.keys(zip.files).filter((n) => n.startsWith("traces/") && n.endsWith(".ndjson"))).toEqual([]);
+    await orchestrator.send();
+    const issue = api.calls.find((c) => c.op === "issue")!;
+    expect(issue.body).not.toContain("private prompt");
+    expect(issue.body).not.toContain("acme-secret-error");
+    expect(issue.body).not.toContain("do the thing");
+  });
+
+  it("refuses to send a fuller report when the session became restricted after the pick (issue #33)", async () => {
+    let refused: string | null = null;
+    const { orchestrator, bus, api } = make({ githubRefusal: () => refused });
+    orchestrator.open();
+    await orchestrator.pick("full", state);
+    refused = "folder /clienti/acme is restricted";
+    await orchestrator.send();
+    expect(api.calls).toEqual([]);
+    expect(String((bus.last("issue_report_failed") as unknown as { error: string }).error)).toContain("restricted");
+  });
+
   it("send files the issue with the prepared body and reports the url", async () => {
     const { orchestrator, bus, api } = make();
     orchestrator.open();

@@ -20,11 +20,12 @@ import type { DailySpendBudget } from "../daily-spend-budget.js";
 import type { ModelProfile } from "../../llm/model-profile.js";
 import type { SlotManager } from "../../llm/slot-manager.js";
 import { createFusionFormatProbeFor } from "./fusion-format-check.js";
+import { assertProviderAllowed, hasProjectConstraints, runWithProviderRole } from "../../llm/provider-policy.js";
 import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
-import { ToolRegistry } from "../../tools/tool-registry.js";
+import { ToolRegistry, type ToolRegistryOptions } from "../../tools/tool-registry.js";
 import { runtimeKnownSecrets } from "../runtime-known-secrets.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { finishTool } from "../../tools/finish.js";
@@ -117,11 +118,15 @@ export function createRuntimeToolRegistry(
   browserBackend: BrowserBackend,
   dangerous: DangerousToolOptions,
   outputSpill?: ToolOutputSpill,
+  hooks: Pick<ToolRegistryOptions, "onDispatch" | "dispatchGuard"> = {},
 ) {
-
-
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
+    // Read taint (onDispatch) narrows the session's policy, then the
+    // egress guard (runtime-egress-guard.ts) refuses before hooks,
+    // approval and network, against that narrowed policy (issue #33).
+    ...(hooks.onDispatch ? { onDispatch: hooks.onDispatch } : {}),
+    ...(hooks.dispatchGuard ? { dispatchGuard: hooks.dispatchGuard } : {}),
     knownSecrets: () => runtimeKnownSecrets(getConfig()),
     // Outside text read on a session holds its risky silent approvals
     // for the rest of the turn when `agent.taintReview` is on (ATO-618).
@@ -440,6 +445,7 @@ export async function connectRuntimeMcpCatalog(input: {
       ? createMcpSamplingHandler({
           llamaServerClient: llama,
           server: "*",
+          constraintsActive: () => hasProjectConstraints(getConfig()),
         })
       : undefined,
     ...(options.handlers?.onChannelStatus
@@ -845,7 +851,11 @@ export function registerRuntimeFusionAndReadScope(input: {
                 if (provider === undefined) {
                   throw new Error(`format check: provider ${providerId} is not configured`);
                 }
-                return provider.complete(request);
+                // The worker leg must be one the folder allows (issue #33).
+                return runWithProviderRole("the fusion format check", async () => {
+                  assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
+                  return provider.complete(request);
+                });
               },
               slotOccupancy: async () => {
                 try {
@@ -875,6 +885,9 @@ export function registerRuntimeFusionAndReadScope(input: {
         if (provider === undefined) {
           throw new Error(`escalation provider ${providerId} is not configured`);
         }
+        // The folder's provider constraint (issue #33), on the provider
+        // actually returned, before the spend ceiling and anything sent.
+        assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
         const request = {
           prompt,
           maxOutputTokens,

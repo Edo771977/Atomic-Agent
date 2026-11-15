@@ -22,6 +22,8 @@ import { resolveModelMode } from "../../llm/model-mode.js";
 import { resolveLlmConfig } from "../../llm/provider/registry/provider-types.js";
 import type { TurnProgress } from "../../session/turn-progress.js";
 import { RequestBudgetNotices } from "../request-budget-notices.js";
+import { CHANNEL_RESTRICTED_CODE, CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError, createSessionProviderPolicy } from "../session-provider-policy.js";
+import { currentProviderPolicy, currentProviderPolicyFrame } from "../../llm/provider-policy.js";
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => { throw new Error("promise not initialized"); };
@@ -482,6 +484,108 @@ describe("runtime turn ownership recipes", () => {
     await service.executeTurn(session("timed-out"), "request");
     await flushNaming();
     expect(naming).toHaveBeenCalledTimes(1);
+  });
+
+  describe("per-folder provider policy (issue #33)", () => {
+    const fusionMode = (orchestrator: string, worker: string) => () => ({
+      ...fixture.providers.resolveCurrentRunMode(),
+      effective: "fusion" as const, stored: "fusion" as const,
+      orchestratorProviderId: orchestrator, workerProviderId: worker, primaryProviderId: orchestrator,
+    });
+    function serviceWith(allowed: string[] | null, runMode?: ReturnType<typeof fusionMode>, allowedEgress?: string[]) {
+      const sessionProviderPolicy = createSessionProviderPolicy({
+        readConfig: () => ({ projects: { roots: [], constraints: allowed === null ? {} : { [dir]: { allowedProviders: allowed, ...(allowedEgress ? { allowedEgress } : {}) } } } }),
+        loadSession: () => null,
+      });
+      return createRuntimeTurnService(fixture.config, {
+        ...fixture.deps,
+        inference: { ...fixture.deps.inference, sessionProviderPolicy, ...(runMode ? { resolveCurrentRunMode: runMode } : {}) },
+      });
+    }
+
+    it("runs the turn inside the session folder's provider frame", async () => {
+      let seen: unknown = "unset";
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
+        seen = currentProviderPolicyFrame();
+        return result(value, options);
+      });
+      await serviceWith(["local-llama"]).executeTurn(session(), "request");
+      expect(seen).toMatchObject({ policy: { key: dir, allowedProviders: ["local-llama"] }, role: "the main model" });
+    });
+
+    it("an unconstrained folder still runs inside a frame (with no policy)", async () => {
+      let seen: unknown = "unset";
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
+        seen = currentProviderPolicyFrame();
+        return result(value, options);
+      });
+      await serviceWith(null).executeTurn(session(), "request");
+      expect(seen).toMatchObject({ policy: undefined, role: "the main model" });
+    });
+
+    it.each(["telegram", "discord"] as const)("refuses a %s turn in a constrained folder before the model runs, with a fixed notice", async (origin) => {
+      const before = fixture.loop.runTurn.mock.calls.length;
+      const turn = serviceWith(["local-llama"]).runTurn(session(), "confidential question", { origin });
+      await expect(turn).rejects.toBeInstanceOf(ChannelRestrictedError);
+      await expect(turn).rejects.toMatchObject({ code: CHANNEL_RESTRICTED_CODE, message: CHANNEL_RESTRICTED_NOTICE });
+      expect(fixture.loop.runTurn.mock.calls.length).toBe(before);
+    });
+
+    it("lets a chat turn run when the folder allows \"channels\", and leaves other origins and unconstrained folders alone", async () => {
+      const before = fixture.loop.runTurn.mock.calls.length;
+      await serviceWith(["local-llama"], undefined, ["channels"]).runTurn(session(), "q", { origin: "telegram" });
+      await serviceWith(null).runTurn(session(), "q", { origin: "discord" });
+      await serviceWith(["local-llama"]).runTurn(session(), "q", { origin: "tui" });
+      expect(fixture.loop.runTurn.mock.calls.length).toBe(before + 3);
+    });
+
+    it("a fusion worker runs under its parent's stamped policy, not its own folder", async () => {
+      let seen: unknown;
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
+        seen = currentProviderPolicy()?.key;
+        return result(value, options);
+      });
+      const worker = createFusionWorkerSession({
+        workingDir: tmpdir(),
+        meta: { parentSessionId: "parent", taskId: "t", providerPolicy: { key: "/parent/folder", allowedProviders: ["local-llama"], matchedDir: "/parent/folder" } },
+      });
+      await serviceWith(["local-llama"]).executeTurn(worker, "brief", { providerId: "local-llama" });
+      expect(seen).toBe("/parent/folder");
+    });
+
+    it("degrades fusion to the allowed worker leg, alone and without fusion.delegate, when the orchestrator is not allowed", async () => {
+      let options: RunTurnOptions | undefined;
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, o: RunTurnOptions) => {
+        options = o;
+        return result(value, o);
+      });
+      await serviceWith(["local-llama"], fusionMode("cloudy", "local-llama")).executeTurn(session(), "request");
+      expect(options?.providerId).toBe("local-llama");
+      expect(options?.toolFilter?.("fusion.delegate")).toBe(false);
+      expect(options?.toolFilter?.("os.fs.read")).toBe(true);
+    });
+
+    it("keeps the orchestrator but hides fusion.delegate when only the worker leg is not allowed", async () => {
+      let options: RunTurnOptions | undefined;
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, o: RunTurnOptions) => {
+        options = o;
+        return result(value, o);
+      });
+      await serviceWith(["local-llama"], fusionMode("local-llama", "cloudy")).executeTurn(session(), "request");
+      expect(options?.providerId).toBeUndefined();
+      expect(options?.toolFilter?.("fusion.delegate")).toBe(false);
+    });
+
+    it("leaves fusion alone when both legs are allowed", async () => {
+      let options: RunTurnOptions | undefined;
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, o: RunTurnOptions) => {
+        options = o;
+        return result(value, o);
+      });
+      await serviceWith(["local-llama", "cloudy"], fusionMode("cloudy", "local-llama")).executeTurn(session(), "request");
+      expect(options?.providerId).toBeUndefined();
+      expect(options?.toolFilter).toBeUndefined();
+    });
   });
 });
 

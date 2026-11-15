@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { USER_CONFIG_DEFAULTS } from "./config-schema.js";
+import { editDistance } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
 import { writeOwnerOnlyFileAtomicSync } from "./owner-only-file.js";
 
@@ -120,28 +121,6 @@ export function suggestConfigKey(key: string): string | null {
   if (best === null) return null;
   const ceiling = Math.min(2, Math.floor(key.length / 3));
   return bestDistance <= ceiling ? best : null;
-}
-
-/** Levenshtein distance, two-row rolling table. */
-function editDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
-  let current = new Array<number>(b.length + 1).fill(0);
-  for (let i = 1; i <= a.length; i += 1) {
-    current[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const substitution = previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1);
-      current[j] = Math.min(
-        previous[j]! + 1,
-        current[j - 1]! + 1,
-        substitution,
-      );
-    }
-    [previous, current] = [current, previous];
-  }
-  return previous[b.length]!;
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import type { TurnCheckpointOptions } from "./turn-checkpoints.js";
 import type { InterruptedTurns } from "./interrupted-turns.js";
 import type { CompactionResult, SessionCompaction } from "../session/session-compaction.js";
@@ -383,6 +384,42 @@ export interface AgentRuntime {
    * always sets it. See `createOfflineModeControl`.
    */
   readonly offlineMode?: OfflineModeControl;
+  /**
+   * The provider restriction on a session (issue #33): its folder's
+   * constraint and any read taint (its stored metadata), or `null` when
+   * none applies. Optional so hand-built runtimes keep compiling.
+   */
+  readonly providerRestrictionFor?: (
+    session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => ProviderRestriction | null;
+  /**
+   * Why a chat adapter may not send this session's content to its chat
+   * right now (issue #33): a constrained folder, or a read taint, whose
+   * `allowedEgress` lacks "channels"; `null` when it may. Asked before
+   * each outbound send (reply, progress labels, notices, files, approval
+   * details), so a taint set mid-turn holds. Optional so hand-built
+   * runtimes keep compiling (absent: allowed).
+   */
+  readonly channelSendRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => string | null;
+  /**
+   * Why `serve`, listening on a network address, may not send this
+   * session's content (issue #33): its folder or read taint lacks
+   * "serve" in `allowedEgress`; `null` when it may. Optional (absent:
+   * allowed).
+   */
+  readonly serveRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => string | null;
+  /**
+   * The same answer for any egress class (`"github"` for the TUI's issue
+   * report, issue #33). Optional (absent: allowed).
+   */
+  readonly egressRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+    cls: string,
+  ) => string | null;
   /**
    * Discord remote-control channel, or `null` when the build never
    * constructed one. Same contract as `telegramChannel`.

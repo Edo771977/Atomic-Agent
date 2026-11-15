@@ -1,24 +1,45 @@
 import { parseBool, parseBoundedPositiveInt, parseNonNegativeInt, parsePositiveInt } from "./config-primitives.js";
 import { parseStringArrayOrNull } from "./config-values.js";
 
+/**
+ * Per-folder provider constraints (`projects.constraints`, v80): an
+ * absolute folder → the provider ids that may receive anything from a
+ * session working in it. Parsed, fail closed, by
+ * `project-constraints-config.ts`; matched by `project-constraint-match.ts`.
+ * Spelled out structurally here so this owner keeps its narrow imports.
+ */
+/**
+ * `projects.constraints` (issue #33): absolute folder → the provider ids
+ * that may receive its content and the egress classes its tools may use
+ * (`allowedEgress`, absent = none; see `EGRESS_CLASSES`).
+ */
+export type ProjectConstraintsConfig = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
+
 export interface RuntimeProjectsConfig {
   roots: string[];
+  constraints: ProjectConstraintsConfig;
 }
 
 export interface UserProjectsConfig {
   roots: string[];
+  constraints: ProjectConstraintsConfig;
 }
 
 export function createProjectsDefaults(): UserProjectsConfig {
   return {
     roots: [],
+    constraints: {},
   };
 }
 
+/**
+ * `projects.roots` only; the composing schema adds `constraints` from
+ * its own owner (`parseProjectConstraints`).
+ */
 export function parseProjectsConfig(
   raw: Record<string, unknown>,
   readDefaults: () => UserProjectsConfig,
-): UserProjectsConfig {
+): Omit<UserProjectsConfig, "constraints"> {
   return {
     roots:
       parseStringArrayOrNull(

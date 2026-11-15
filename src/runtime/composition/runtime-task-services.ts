@@ -9,6 +9,7 @@ import {
   type TaskReportSink,
 } from "../../tasks/index.js";
 import type { TaskRunnerRuntime } from "../../tasks/task-runner.js";
+import type { TaskRecord } from "../../tasks/index.js";
 import { createSchedulerLeadership, Scheduler } from "../../scheduler/index.js";
 import { WebhookSessionStore, WEBHOOK_SESSIONS_FILENAME } from "../../http/webhook-session-store.js";
 import { registerTaskTools } from "../../tools/tasks/index.js";
@@ -18,6 +19,9 @@ import { TelegramChannel } from "../../channels/telegram/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
 import type { AgentRuntime } from "../runtime-contract.js";
+import type { TaskSessionInput } from "../../tools/tasks/index.js";
+import type { SessionState } from "../../session/index.js";
+import { childSessionSeed, type SessionProviderPolicy } from "../session-provider-policy.js";
 
 export function createRuntimeTaskStores(args: {
   config: Pick<AtomicAgentConfig, "paths" | "tasks">;
@@ -72,13 +76,23 @@ export function createRuntimeTaskRunner(args: {
   runTurn: TaskRunnerRuntime["runTurn"];
   sessionStore: Pick<SessionStore, "load" | "save" | "readTurnProgress" | "clearTurnProgress">
     & Partial<Pick<SessionStore, "isIncognito">>;
-  createSession: AgentRuntime["createSession"];
+  /** The runtime's factory; `workingDir` puts a task's session in its caller's folder. */
+  createSession: (input?: Parameters<AgentRuntime["createSession"]>[0] & { workingDir?: string }) => SessionState;
   toolRegistry: ToolRegistry;
   resolveTelegram: () => TelegramChannel | null;
   logger: StructuredLogger;
   metrics: AgentMetrics;
   /** The live approval level, so a task started under another is left alone (ATO-1324). */
   approvalLevel?: () => number;
+  /** A constrained folder's veto on a task's notification, at send time (issue #33). */
+  notifyRefusal?: (task: TaskRecord) => string | null;
+  /**
+   * Per-folder provider constraints (issue #33): a session a task tool
+   * creates keeps its caller's folder and policy (`childSessionSeed`),
+   * and a recurring task's deleted session is not recreated while any
+   * constraint exists.
+   */
+  providerPolicy?: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">;
 }): TaskRunner {
   const { config, taskStore, runTurn, sessionStore, createSession, toolRegistry, resolveTelegram, logger, metrics } = args;
   const taskRunner = new TaskRunner({
@@ -122,6 +136,8 @@ export function createRuntimeTaskRunner(args: {
     logger,
     metrics,
     ...(args.approvalLevel ? { approvalLevel: args.approvalLevel } : {}),
+    ...(args.notifyRefusal ? { notifyRefusal: args.notifyRefusal } : {}),
+    ...(args.providerPolicy ? { recreateSessionRefusal: recreateRefusalFor(args.providerPolicy) } : {}),
     // Continue a run a crash, a kill or a restart cut off from its
     // session's checkpoint (ATO-1109).
     resume: {
@@ -137,7 +153,7 @@ export function createRuntimeTaskRunner(args: {
   registerTaskTools(toolRegistry, {
     taskStore,
     taskRunner,
-    createSession,
+    createSession: createTaskToolSession(createSession, args.providerPolicy),
     agentToolsEnabled: config.tasks.enabled && config.tasks.agentToolsEnabled,
     defaultMaxAttempts: config.tasks.maxAttempts,
     defaultListLimit: 20,
@@ -148,6 +164,35 @@ export function createRuntimeTaskRunner(args: {
   });
 
   return taskRunner;
+}
+
+/**
+ * The factory the task tools call: a session created for a caller
+ * (`parent`) starts in the caller's folder and carries the caller's
+ * effective provider policy as its read taint (issue #33), so a task
+ * scheduled from a constrained session cannot run unconstrained in the
+ * runtime's folder.
+ */
+export function createTaskToolSession(
+  createSession: (input?: { metadata?: Record<string, unknown>; workingDir?: string }) => SessionState,
+  providerPolicy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession"> | undefined,
+): (input?: TaskSessionInput) => SessionState {
+  return (input = {}) => {
+    const { parent, metadata } = input;
+    if (parent === undefined) return createSession(metadata === undefined ? {} : { metadata });
+    const seed = providerPolicy === undefined
+      ? { workingDir: parent.workingDir, metadata: {} }
+      : childSessionSeed(providerPolicy, parent);
+    return createSession({ workingDir: seed.workingDir, metadata: { ...metadata, ...seed.metadata } });
+  };
+}
+
+function recreateRefusalFor(
+  providerPolicy: Pick<SessionProviderPolicy, "constraintsActive">,
+): () => string | null {
+  return () => providerPolicy.constraintsActive()
+    ? "provider constraints are configured; a recreated session would lose the original folder and read taint"
+    : null;
 }
 
 /**

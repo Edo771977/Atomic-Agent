@@ -135,6 +135,23 @@ export class McpManager {
     return out;
   }
 
+  /**
+   * The server whose registered tools include `toolName`, or `undefined`.
+   * Read by the per-folder egress guard (issue #33) to tell a local
+   * (stdio) server from a remote one.
+   */
+  serverForTool(toolName: string): string | undefined {
+    for (const [name, s] of this.servers) {
+      if (s.registeredToolNames.includes(toolName)) return name;
+    }
+    return undefined;
+  }
+
+  /** A configured server's transport kind, or `undefined` when there is no such server. */
+  transportKindOf(server: string): McpServerConfig["transport"]["kind"] | undefined {
+    return this.servers.get(server)?.config.transport.kind;
+  }
+
   /** Aggregate list of every connected server's `McpToolMeta`. */
   listAllToolMeta(): McpToolMeta[] {
     const out: McpToolMeta[] = [];

@@ -5,6 +5,9 @@ import { coreEmbeddingStatus, createCoreEmbeddingClient } from "../../local-llm/
 
 import type { EmbeddingClient } from "./embedding-client.js";
 import { createLocalEmbeddingClient } from "./local-embedding-client.js";
+import { embeddingEndpointOnMachine, guardEmbeddingClient } from "./embedding-policy-guard.js";
+import { getConfig } from "../../config/index.js";
+import { hasProjectConstraints } from "../../llm/provider-policy.js";
 
 /**
  * Where the configured memory embedding model stands. `reachable`
@@ -34,6 +37,10 @@ export type MemoryEmbeddingConnection =
  */
 export async function connectMemoryEmbeddings(
   config: Pick<AtomicAgentConfig, "paths" | "memory" | "localModels">,
+  options: {
+    /** Live "is any folder constrained" (issue #33); default reads `getConfig()`. */
+    constraintsActive?: () => boolean;
+  } = {},
 ): Promise<MemoryEmbeddingConnection> {
   const modelId = config.localModels.embeddings.modelId;
   if (
@@ -66,7 +73,9 @@ export async function connectMemoryEmbeddings(
     // requires the key (#582), and `/health` above is exempt from it, so
     // a keyless client would pass the probe and then get 401 on every
     // `/embedding`.
-    createClient: () =>
+    // Guarded by place (issue #33): an endpoint off this machine is
+    // refused in a constrained folder; see `embedding-policy-guard.ts`.
+    createClient: () => guardEmbeddingClient(
       viaCore
         ? createCoreEmbeddingClient({
             dataDir: config.paths.localModelsDataDir,
@@ -80,6 +89,11 @@ export async function connectMemoryEmbeddings(
             model: def.id,
             ...(def.prompts ? { prompts: def.prompts } : {}),
           }),
+      {
+        onMachine: embeddingEndpointOnMachine(url, viaCore),
+        constraintsActive: options.constraintsActive ?? (() => hasProjectConstraints(getConfig())),
+      },
+    ),
   };
 }
 

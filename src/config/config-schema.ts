@@ -23,6 +23,7 @@ export { DEFAULT_SKILLS_CATALOG_BUDGET, parseSkillNameArray, parseSkillTapArray 
 import { createSessionDefaults, parseSessionConfig, type RuntimeSessionsConfig, type UserSessionsConfig } from "./session-retention-config.js";
 import { createTracingDefaults, parseTracingConfig, type RuntimeTracingConfig, type UserTracingConfig } from "./tracing-config.js";
 import { createNetworkDefaults, parseNetworkConfig, type NetworkConfig } from "./network-config.js";
+import { noteProjectConstraintNotices, parseProjectConstraints } from "./project-constraints-config.js";
 
 import {
   createTuiDefaults, parseTuiConfig,
@@ -1202,7 +1203,14 @@ export interface UserConfigFile {
 // 300 000 ms, ATO-922). It used to be env-only
 // (`ATOMIC_AGENT_LLAMA_REQUEST_TIMEOUT_MS`, which still wins over the
 // file). An older file has no field and reads the default, as before.
-export const USER_CONFIG_VERSION = 79;
+// v80: new `projects.constraints` dictionary (issue #33): an absolute
+// folder → `{ allowedProviders }`, the provider ids that may receive any
+// request carrying a session's content while it works in that folder.
+// Parsed fail closed (`project-constraints-config.ts`); a malformed entry
+// rejects the file rather than lifting the constraint. Global config only.
+// An older file inherits `{}` (no folder is constrained) and keeps its
+// `projects.roots`.
+export const USER_CONFIG_VERSION = 80;
 
 /**
  * Config versions that `parseUserConfigFile` still accepts on input.
@@ -1357,6 +1365,7 @@ const SUPPORTED_INPUT_VERSIONS: readonly number[] = [
   76,
   77,
   78,
+  79,
   USER_CONFIG_VERSION,
 ];
 
@@ -1711,6 +1720,12 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     };
   }
 
+  const projectConstraints = parseProjectConstraints(projects.constraints);
+  noteProjectConstraintNotices(
+    projects.constraints,
+    llmBlock?.providers.map((p) => p.id) ?? ["local-llama"],
+  );
+
   return {
     // Spread first so a known key can never be shadowed by a stray one.
     ...unknownTopLevelKeys(obj),
@@ -1739,7 +1754,10 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
         () => USER_CONFIG_DEFAULTS.web.fetch,
       ),
     },
-    projects: parseProjectsConfig(projects, () => USER_CONFIG_DEFAULTS.projects),
+    projects: {
+      ...parseProjectsConfig(projects, () => USER_CONFIG_DEFAULTS.projects),
+      constraints: projectConstraints,
+    },
     tools: parseToolsConfig(toolsShell, () => USER_CONFIG_DEFAULTS.tools, toolsScreen, toolsVerify),
     browser: parseBrowserConfig(browser, () => USER_CONFIG_DEFAULTS.browser),
     sessions: parseSessionConfig(sessionsRetention, () => USER_CONFIG_DEFAULTS.sessions),

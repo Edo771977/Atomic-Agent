@@ -349,13 +349,19 @@ export async function executeBatch(
     const startedAt = Date.now();
     let compressed: CompressedToolResult;
     // A call that is not what the model meant never reaches the
-    // registry — see `refuseBeforeDispatch`. Terminals are exempt for
-    // the reason every gate exempts them: a reply's text is shown, not
-    // run, and the turn must be able to close.
+    // registry — see `refuseBeforeDispatch`. Nor does one the registry's
+    // dispatch guard refuses (a constrained folder's egress, issue #33):
+    // before the hooks and the approval ledger, so it never prompts.
+    // Terminals are exempt for the reason every gate exempts them: a
+    // reply's text is shown, not run, and the turn must be able to close.
     const refusal =
       input.resourceClass === "terminal"
         ? null
-        : refuseBeforeDispatch(input.call);
+        : refuseBeforeDispatch(input.call) ??
+          registry.refusalBeforeDispatch(input.call.tool, input.call.args, {
+            sessionId: ctx.sessionId,
+            workingDir: ctx.workingDir,
+          });
     // Collects the approvals this call raises, whatever async context the
     // verdict arrives from (an HTTP resolve, a Telegram button). A denial
     // throws out of the tool and `invokeRegistry` turns it into an error

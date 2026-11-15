@@ -9,6 +9,17 @@ import type { LlmProvider } from "../llm/provider/llm-provider.js";
 import { primeStream, type PrimedStream } from "../llm/fallback/index.js";
 import { resolveModelMode } from "../llm/model-mode.js";
 import type { RequestBudgetScope } from "./request-budget.js";
+import { assertProviderAllowed, type ProviderPolicy } from "../llm/provider-policy.js";
+
+/**
+ * The seam's provider-policy wiring (issue #33): whether any folder is
+ * constrained, and the policy of a session a background caller names by
+ * id only (re-derived from that session's working folder).
+ */
+export interface SeamProviderPolicy {
+  constraintsActive: () => boolean;
+  policyForSession: (sessionId: string) => ProviderPolicy | undefined;
+}
 
 /**
  * The `{ provider, transport }` slice for one chosen link. `bootstrap`
@@ -31,6 +42,20 @@ export interface LinkAttemptDeps {
   resolveSlice: (providerId: string) => ResolvedLinkSlice;
   prepareLink?: (providerId: string) => Promise<void>;
   requestBudget?: (providerId: string, request: CompletionRequest, provider: LlmProvider) => RequestBudgetScope | undefined;
+  /** Absent: no folder is ever constrained at this seam (test rigs). */
+  providerPolicy?: SeamProviderPolicy;
+}
+
+/**
+ * Refuse, before the link is warmed and again once it is resolved, a
+ * provider the calling folder does not allow. The second check is on
+ * the provider the slice actually returned: `resolveSlice` maps an id it
+ * does not hold to the active provider, so the asked id is not proof.
+ */
+function checkLink(deps: LinkAttemptDeps, providerId: string): void {
+  assertProviderAllowed(providerId, {
+    constraintsActive: deps.providerPolicy?.constraintsActive ?? (() => false),
+  });
 }
 
 /**
@@ -142,8 +167,10 @@ export async function completeOnLink(
   params: LlmStreamParams,
   providerId: string,
 ): Promise<{ result: CompletionResult; transport: ToolCallTransport }> {
+  checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
   const { provider, transport, contextWindow } = deps.resolveSlice(providerId);
+  checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
     prompt: promptFor(params, transport),
@@ -192,8 +219,10 @@ export async function openStreamOnLink(
   primed: PrimedStream<StreamChunk, CompletionResult>;
   transport: ToolCallTransport;
 }> {
+  checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
   const { provider, transport, contextWindow } = deps.resolveSlice(providerId);
+  checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
     prompt: promptFor(params, transport),

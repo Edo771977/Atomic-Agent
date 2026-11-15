@@ -106,6 +106,24 @@ describe("McpManager", () => {
     CONSTRUCTED.length = 0;
   });
 
+  it("names the server behind a registered tool and its transport (issue #33 egress)", async () => {
+    const tools = new ToolRegistry();
+    FAKE_BY_NAME.set("files", { connect: async () => {}, close: async () => {}, catalog: { server: "files", tools: [metaOf("files", "read")], resources: [], prompts: [] } });
+    FAKE_BY_NAME.set("remote", { connect: async () => {}, close: async () => {}, catalog: { server: "remote", tools: [metaOf("remote", "search")], resources: [], prompts: [] } });
+    const mgr = new McpManager([
+      stdioConfig("files"),
+      { name: "remote", enabled: true, transport: { kind: "streamable_http", url: "https://mcp.example/mcp" } },
+    ], { toolRegistry: tools });
+    await mgr.start();
+    expect(mgr.serverForTool("mcp.files.read")).toBe("files");
+    expect(mgr.serverForTool("mcp.remote.search")).toBe("remote");
+    expect(mgr.serverForTool("mcp.nobody.x")).toBeUndefined();
+    expect(mgr.transportKindOf("files")).toBe("stdio");
+    expect(mgr.transportKindOf("remote")).toBe("streamable_http");
+    expect(mgr.transportKindOf("nobody")).toBeUndefined();
+    await mgr.shutdown();
+  });
+
   afterEach(() => {
     setDynamicResourceClassResolver(null);
   });

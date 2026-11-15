@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { DownloadFileOptions } from "../downloads/download-file.js";
 import { offlineRefusalFor } from "../../llm/offline-network.js";
+import { providerPolicyRefusalFor } from "../../llm/provider-policy.js";
 import { acquireCoreLease, connectCore, CoreRequestError, ensureCore, type CoreControlClient } from "./core-client.js";
 import { shutdownIdleCoreClient } from "./core-idle.js";
 import { installCore, isCoreInstalled } from "./core-install.js";
@@ -154,6 +155,10 @@ export async function registerOpenRouterMedia(client: CoreControlClient, apiKey:
   // OpenRouter. Offline mode refuses here, before the key reaches Core.
   const offline = offlineRefusalFor("openrouter.ai", "cloud media");
   if (offline) throw offline;
+  // A backstop for a folder whose provider constraint does not allow
+  // "openrouter" (issue #33): the media jobs would follow the key.
+  const constrained = providerPolicyRefusalFor("openrouter", "cloud media");
+  if (constrained) throw constrained;
   try {
     await client.call("/cloud/providers/openrouter", {
       api_key: apiKey,

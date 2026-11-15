@@ -14,6 +14,7 @@ This area owns runtime assembly and ownership. Read [AGENTS.md](AGENTS.md) befor
 - [steering-inbox.ts](steering-inbox.ts)
 - [turn-checkpoints.ts](turn-checkpoints.ts)
 - [llm-fallback-seam.ts](llm-fallback-seam.ts)
+- [session-provider-policy.ts](session-provider-policy.ts) and [fusion-policy-degradation.ts](fusion-policy-degradation.ts): the provider-policy frame of each turn, fusion worker stamps and what a folder constraint leaves of Fusion ([provider policy](../llm/docs/provider-policy.md)).
 - [session-workspace.ts](session-workspace.ts): per-session cloud preparation; [workspace contract](docs/cloud-workspace.md).
 
 ## Ownership and dependencies

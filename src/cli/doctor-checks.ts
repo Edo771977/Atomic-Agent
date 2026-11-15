@@ -1,11 +1,14 @@
-import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 
-import { ConfigValidationError, parseUserConfigFile } from "../config/index.js";
+import { ConfigValidationError, parseUserConfigFile, projectConstraintNotices } from "../config/index.js";
 import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
 import { Database } from "../native/index.js";
+import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 
 /**
@@ -43,8 +46,11 @@ export interface DoctorContext {
   /** Whether a process id is running; injectable for tests. */
   pidAlive: (pid: number) => boolean;
   now: () => Date;
-  /** Opens and closes a database; injectable for tests. Defaults to an in-memory better-sqlite3 one. */
-  openSqlite?: () => void;
+  /**
+   * Opens and closes a database; injectable for tests. Defaults to an
+   * in-memory better-sqlite3 one. May return a detail for the ok line.
+   */
+  openSqlite?: () => string | void;
 }
 
 type Tree = Record<string, unknown>;
@@ -86,6 +92,91 @@ function checkConfig(ctx: DoctorContext): DoctorFinding[] {
       }
     }
     return [{ check: "config", status: "fail", message: `${err.field}: ${err.reason} (no automatic fix; \`atag config set\` or edit the file)` }];
+  }
+}
+
+/**
+ * `projects.constraints` (issue #33): one line per folder saying what it
+ * allows and what is not policed, then the same warnings the load prints
+ * (an unknown key inside an entry, an allowed provider that is not
+ * configured). Only for a file that parses; `checkConfig` reports the rest.
+ */
+function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
+  if (!existsSync(ctx.configPath)) return [];
+  let parsed: ReturnType<typeof parseUserConfigFile>;
+  let tree: Tree;
+  try {
+    tree = readRawConfigTree(ctx.configPath);
+    parsed = parseUserConfigFile(tree);
+  } catch {
+    return [];
+  }
+  const raw = asObject(tree.projects)?.constraints;
+  const known = parsed.llm?.providers.map((p) => p.id) ?? ["local-llama"];
+  // What each folder allows, and, said plainly, what the dispatch guard
+  // cannot see: programs a shell or script runs open their own sockets.
+  const coverage: DoctorFinding[] = Object.entries(parsed.projects.constraints).map(([folder, entry]) => ({
+    check: "project-constraints",
+    status: "ok",
+    message: `${folder} restricted to: ${entry.allowedProviders.length === 0 ? "no provider" : entry.allowedProviders.join(", ")}; ` +
+      `egress allowed: ${(entry.allowedEgress ?? []).length === 0 ? "none" : entry.allowedEgress!.join(", ")}; ` +
+      "best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers",
+  }));
+  return [
+    ...coverage,
+    ...projectConstraintNotices(raw, known).map((line) => ({
+      check: "project-constraints",
+      status: "warn" as const,
+      message: line.replace(/^\[atomic-agent\] /, ""),
+    })),
+  ];
+}
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Durable memory under `projects.constraints` (issue #33): how many rows
+ * the back-fill tagged with their folder's constraint, how many untagged
+ * rows a constraint covers now (tagged at the next start), and the live
+ * profile facts with no scope, which name no folder and stay visible to
+ * every session. Read-only; nothing when there is no constraint or no
+ * memory file this build has opened.
+ */
+function checkMemoryConstraintScope(ctx: DoctorContext): DoctorFinding[] {
+  if (!existsSync(ctx.configPath)) return [];
+  const dbFile = join(ctx.stateDir, "memory.sqlite");
+  if (!existsSync(dbFile)) return [];
+  let config: ReturnType<typeof parseUserConfigFile>;
+  try {
+    config = parseUserConfigFile(readRawConfigTree(ctx.configPath));
+  } catch {
+    return [];
+  }
+  if (Object.keys(config.projects.constraints).length === 0) return [];
+  let db: InstanceType<typeof Database> | undefined;
+  try {
+    db = new Database(dbFile, { readonly: true, fileMustExist: true });
+    const record = readConstraintScopeBackfillRecord(db);
+    const now = pendingConstraintScopes(db, (dir) => resolveProjectConstraint(config, dir));
+    const findings: DoctorFinding[] = [{
+      check: "memory-constraint-scope",
+      status: "ok",
+      message: `${plural(record?.retroTagged ?? 0, "memory row", "memory rows")} retro-tagged with its folder's constraint; ` +
+        `${plural(now.pendingRows, "untagged row", "untagged rows")} under a constraint now (tagged at the next start)`,
+    }];
+    if (now.untaggedProfileFacts > 0) {
+      findings.push({
+        check: "memory-constraint-scope",
+        status: "warn",
+        message: `${plural(now.untaggedProfileFacts, "profile fact is", "profile facts are")} untagged: a profile fact names no folder, so one written before its folder's constraint existed is visible to every session; ask the agent to list them (memory.profile) and remove any that came from a constrained folder`,
+      });
+    }
+    return findings;
+  } catch {
+    // An older file without the scope column, or one in use: nothing to say.
+    return [];
+  } finally {
+    db?.close();
   }
 }
 
@@ -172,17 +263,64 @@ function checkSessionPins(ctx: DoctorContext): DoctorFinding[] {
  * command that opens a store; the loader's message carries the fix.
  */
 function checkSqlite(ctx: DoctorContext): DoctorFinding[] {
-  const open = ctx.openSqlite ?? (() => new Database(":memory:").close());
+  const open = ctx.openSqlite ?? openDefaultSqlite;
   try {
-    open();
-    return [{ check: "sqlite", status: "ok", message: "better-sqlite3 opens a database" }];
+    const detail = open();
+    const suffix = detail ? ` (${detail})` : "";
+    return [{ check: "sqlite", status: "ok", message: `better-sqlite3 opens a database${suffix}` }];
   } catch (err) {
     return [{ check: "sqlite", status: "fail", message: err instanceof Error ? err.message : String(err) }];
   }
 }
 
+/**
+ * Which native binding better-sqlite3 loads, in its own order: a locally
+ * compiled `build/Release/better_sqlite3.node` first, else the prebuilt
+ * N-API binary in `prebuilds/<platform>-<arch>.node` (issue #29: on 13.x the
+ * compiled file is normally absent and that is fine).
+ */
+export function describeBetterSqliteBinding(
+  packageDir: string,
+  platform: NodeJS.Platform,
+  arch: string,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (exists(join(packageDir, "build", "Release", "better_sqlite3.node"))) {
+    return "compiled binding build/Release/better_sqlite3.node";
+  }
+  const targets = platform === "linux" ? [`linux-${arch}`, `linuxmusl-${arch}`] : [`${platform}-${arch}`];
+  const found = targets.find((target) => exists(join(packageDir, "prebuilds", `${target}.node`)));
+  return found ? `prebuilt binding prebuilds/${found}.node` : "no binding file found";
+}
+
+/** Opens an in-memory database and names the versions and the binding used. */
+function openDefaultSqlite(): string {
+  const db = new Database(":memory:");
+  let sqliteVersion: string | undefined;
+  try {
+    const row = db.prepare("select sqlite_version() as v").get() as { v?: string } | undefined;
+    sqliteVersion = row?.v;
+  } finally {
+    db.close();
+  }
+  const parts: string[] = [];
+  try {
+    const manifest = createRequire(import.meta.url).resolve("better-sqlite3/package.json");
+    const version = (JSON.parse(readFileSync(manifest, "utf8")) as { version?: string }).version;
+    if (version) parts.push(`better-sqlite3 ${version}`);
+    if (sqliteVersion) parts.push(`SQLite ${sqliteVersion}`);
+    parts.push(describeBetterSqliteBinding(dirname(manifest), process.platform, process.arch));
+  } catch {
+    // The single-executable build carries the binding next to the exe, not a package dir.
+    if (sqliteVersion) parts.push(`SQLite ${sqliteVersion}`);
+  }
+  return parts.join(", ");
+}
+
 export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[]> = [
   checkConfig,
+  checkProjectConstraints,
+  checkMemoryConstraintScope,
   checkConfigMode,
   checkMcpCommands,
   checkCoreLocks,

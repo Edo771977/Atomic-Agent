@@ -20,6 +20,7 @@ import { EMPTY_COMPLETION_RECOVERY_BUDGET, composeEmptyCompletionNotice, isRecov
 import { FINALIZATION_REQUEST_DEADLINE_MS, type RequestDeadline } from "../request-deadline.js";
 import { getConfig } from "../../config/index.js";
 import { isOfflineRefusal } from "../../llm/offline-network.js";
+import { isProviderNotAllowed } from "../../llm/provider-policy.js";
 import type { TurnLoopState } from "./turn-state.js";
 
 export type TurnRecoveryDependencies = Pick<
@@ -977,6 +978,8 @@ function isWaitableOutage(err: unknown): boolean {
   // Offline mode (ATO-1084): this machine refused the request; it stays
   // refused until the person turns the switch off, so waiting is no use.
   if (isOfflineRefusal(err)) return false;
+  // A folder's provider constraint (issue #33): only a config edit lifts it.
+  if (isProviderNotAllowed(err)) return false;
   // Our own clock ran out. Never evidence about the provider, so it is
   // decided before the status split rather than inside it: the shape
   // arrives as `status === null`, which is otherwise the strongest

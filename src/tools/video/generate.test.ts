@@ -8,6 +8,7 @@ import type { ToolContext } from "../tool-registry.js";
 import { parseVideoArgs } from "./args.js";
 import { fitVideoToModel } from "./fit-model.js";
 import { resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
+import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { buildVideoGenerateTool, videoApprovalReason, type VideoGenerateToolOptions } from "./generate.js";
 
 const VEO = {
@@ -71,6 +72,16 @@ function tool(over: Partial<VideoGenerateToolOptions> & Pick<VideoGenerateToolOp
 }
 
 describe("video.generate", () => {
+  it("refuses in a folder whose constraint does not allow openrouter, before asking or touching Core (issue #33)", async () => {
+    const core = fakeCore();
+    const { built, request } = tool({ withCore: core.withCore });
+    const result = await runWithProviderPolicy(makeProviderPolicy({ key: "/work/client", allowedProviders: ["local-llama"], matchedDir: "/work/client" }), () => built.run({ prompt: "a fox" }, ctx()));
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("folder /work/client is restricted to: local-llama");
+    expect(request).not.toHaveBeenCalled();
+    expect(core.call).not.toHaveBeenCalled();
+  });
+
   it("refuses while offline mode is on, before asking or touching Core (the prompt and first frame would go to OpenRouter)", async () => {
     setOfflineNetwork(true);
     try {
