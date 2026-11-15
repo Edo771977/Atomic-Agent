@@ -15,7 +15,7 @@ import { markUntrustedResult } from "../tools/untrusted-tool-output.js";
 import { createEmptySessionState, recordTurn, type SessionState } from "../session/session-state.js";
 import { createContextCompaction } from "./context-compaction.js";
 import { TurnController } from "./turn-controller.js";
-import { localDay, MEMORY_FLUSH_MAX_LINES, MEMORY_FLUSH_TAG, parseObservations } from "./compaction-memory-flush.js";
+import { flushMemoryBeforeCompaction, localDay, MEMORY_FLUSH_MAX_LINES, MEMORY_FLUSH_TAG, parseObservations } from "./compaction-memory-flush.js";
 
 let dir: string;
 beforeEach(() => {
@@ -272,5 +272,30 @@ describe("compaction memory flush: fusion workers", () => {
     expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
     expect(f.complete.mock.calls.some((c) => isFlush(c[0]))).toBe(false);
     expect(f.store).not.toHaveBeenCalled();
+  });
+});
+
+describe("compaction memory flush: incognito chats (ATO-586)", () => {
+  const incognito = (state: SessionState): SessionState => ({ ...state, incognito: { since: 1, owner: "{}" } });
+
+  it("never writes dated notes from an incognito chat while compacting it", async () => {
+    const f = fixture({ mode: "extractive", memoryFlush: true }, undefined, incognito(history()));
+    expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
+    expect(f.complete.mock.calls.some((c) => isFlush(c[0]))).toBe(false);
+    expect(f.store).not.toHaveBeenCalled();
+  });
+
+  it("refuses inside the flush itself, whatever its caller checked", async () => {
+    const store = vi.fn((_note: MemoryStoreInput) => ({}));
+    const complete = vi.fn(async () => completion("2026-01-01: a secret plan."));
+    const outcome = await flushMemoryBeforeCompaction({
+      input: input(incognito(history())), from: 0, through: 20,
+      route: { providerId: "current", transport: "grammar", serverTemplate: true },
+      window: 12000, reasoningReserveTokens: 0, timeoutMs: 10_000, signal: new AbortController().signal,
+      complete, sideCallSlotId: () => 3, notes: { enabled: () => true, store },
+    });
+    expect(outcome).toEqual({ status: "skipped", reason: "incognito" });
+    expect(complete).not.toHaveBeenCalled();
+    expect(store).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import type { CompactionPlan } from "../prompt/plan-compaction.js";
 import { estimateTokens } from "../prompt/token-budget.js";
 import { compactionBoundaryHash, validSessionCompaction, type CompactionResult, type SessionCompaction } from "../session/session-compaction.js";
 import type { SessionState } from "../session/session-state.js";
+import { isIncognitoSession } from "../session/incognito.js";
 import { prepareCompactionSource, type CompactionSource } from "./context-compaction-chunks.js";
 import { buildExtractiveSummary } from "./compaction-extractive.js";
 import { compactFromRolling } from "./compaction-rolling.js";
@@ -99,7 +100,8 @@ export async function runContextCompaction(
     const through = rolled?.through ?? plan.through;
     // ATO-676: dated observations about the span go to memory before it is
     // folded away. A private side call; it never fails or changes the checkpoint.
-    if (config.memoryFlush === true && deps.memoryNotes && !options.ephemeral) {
+    // ATO-586: never from an incognito chat (the flush refuses one as well).
+    if (config.memoryFlush === true && deps.memoryNotes && !options.ephemeral && !isIncognitoSession(state)) {
       const flushed = await flushMemoryBeforeCompaction({
         input, from: plan.from, through, route, notes: deps.memoryNotes,
         window: Math.min(route.contextWindow ?? Infinity, prompt.contextWindow ?? prompt.conversationCapEffective),
