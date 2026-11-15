@@ -71,3 +71,19 @@ describe("resolveTeamRouting (issue #37)", () => {
     expect(refused.reviewerFor(member("cli-b:model-b"))).toBeNull();
   });
 });
+
+describe("resolveTeamRouting reviewer strength (issue #38)", () => {
+  it("passes the context's strength to the pick: never a weaker reviewer, a stronger same-family one first", () => {
+    const tiers: Record<string, "cheap" | "balanced" | "best"> = {
+      "cli-b:model-b": "balanced",
+      "cli-b:model-r": "best",
+      "api-a:model-o": "cheap",
+    };
+    const routing = resolveTeamRouting(
+      context({ strength: (m) => tiers[m.ref] ?? null }),
+      { allows: () => true },
+    );
+    // Without strength the other family (api-a) would win; it is weaker.
+    expect(routing.reviewerFor(member("cli-b:model-b"))?.ref).toBe("cli-b:model-r");
+  });
+});

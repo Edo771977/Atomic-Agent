@@ -1,5 +1,5 @@
 import type { ApprovalGate } from "../../approval/approval-gate.js";
-import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
+import { reviewEnabled, reviewPassesOf, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
   ApprovalDeniedError,
   requireApproval,
@@ -1276,11 +1276,20 @@ export function buildFusionDelegateTool(
 
       // The judge's acceptance lists (ATO-944), built before any work so
       // every brief carries its own, read-only. Off: no list, no suffix.
-      // With a team's reviewers (issue #37) and the judge on, the judge of
-      // a task is the reviewer `pickReviewer` gives for the member that ran
-      // it, on that reviewer's own model; none fits: `judgeProvider`, as
-      // before. Reviewers only choose who judges: the judge off stays off.
+      // With a team (issue #38) review is on by `reviewEnabled`: listed
+      // reviewers turn it on whatever `fusion.judge` says, `team.review`
+      // wins. A task's judge is then the reviewer `pickReviewer` gives for
+      // the member that ran it (never weaker, issue #38), on that
+      // reviewer's own model; none fits: `judgeProvider` while the judge
+      // is on, else no model review. Without a team: `fusion.judge`.
       const judgeTarget = mode.judge ?? null;
+      const teamReview =
+        teamContext === undefined
+          ? undefined
+          : {
+              on: reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
+              passes: reviewPassesOf(teamContext.team),
+            };
       const taskMember = (taskId: string): TeamMember => {
         const leg = taskLegs.get(taskId);
         const providerId = leg?.providerId ?? workerProviderId;
@@ -1290,8 +1299,12 @@ export function buildFusionDelegateTool(
       const judgeTargets = new Map<string, JudgeTarget | null>();
       const judgeTargetFor = (taskId: string): JudgeTarget | null => {
         if (!judgeTargets.has(taskId)) {
+          if (teamReview?.on === false) {
+            judgeTargets.set(taskId, null);
+            return null;
+          }
           const reviewer =
-            judgeTarget !== null && team?.hasReviewers === true
+            team?.hasReviewers === true && (teamReview !== undefined || judgeTarget !== null)
               ? team.reviewerFor(taskMember(taskId))
               : null;
           judgeTargets.set(
@@ -1307,7 +1320,9 @@ export function buildFusionDelegateTool(
         }
         return judgeTargets.get(taskId)!;
       };
-      const judging = deps.escalationComplete !== undefined && judgeTarget !== null;
+      const judging =
+        deps.escalationComplete !== undefined &&
+        (teamReview === undefined ? judgeTarget !== null : teamReview.on);
       const acceptance = new Map(
         judging
           ? parsed.tasks

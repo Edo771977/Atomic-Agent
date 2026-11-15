@@ -31,9 +31,12 @@ export type UserFusionTeamConfig = {
    */
   reviewers?: string[];
   /**
-   * Pick the first reachable reviewer whose family (Anthropic, OpenAI,
-   * local, other) differs from the worker's. `false`: the first
-   * reachable reviewer. Default `true`.
+   * Among reviewers no weaker than the worker (by the model tier table;
+   * a local model is below any cloud one), prefer one whose family
+   * (Anthropic, OpenAI, local, other) differs from the worker's. A
+   * stronger reviewer of the worker's own family still comes before an
+   * equal one of another. `false`: config order within each strength.
+   * Default `true`.
    */
   crossFamilyReview?: boolean;
   /**

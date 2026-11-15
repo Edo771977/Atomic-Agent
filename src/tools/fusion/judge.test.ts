@@ -701,16 +701,33 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
   });
 
-  it("falls back to judgeProvider when no reviewer fits, and never turns a judge that is off on", async () => {
+  it("falls back to judgeProvider when no reviewer fits, only while the judge is on", async () => {
     const none = await run(team({ reviewers: ["local:other"] }));
     expect(none.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
-    // The judge is off: reviewers only choose WHO judges, so nobody does.
-    const reviewerOnly = await run(team(), TASK, { judge: null });
-    expect(reviewerOnly.calls).toEqual([]);
-    expect(reviewerOnly.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
+    // No fitting reviewer and the judge off: no model reviews the task.
     const off = await run(team({ reviewers: ["local:other"] }), TASK, { judge: null });
     expect(off.calls).toEqual([]);
     expect(off.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
+  });
+
+  it("listed reviewers turn review on with the judge off; team.review decides when set (issue #38)", async () => {
+    const reviewerOnly = await run(team(), TASK, { judge: null });
+    expect(reviewerOnly.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
+    expect(reviewerOnly.briefs[0]).toContain("ACCEPTANCE CHECKLIST");
+    const off = await run(team({ review: "off" }));
+    expect(off.calls).toEqual([]);
+    expect(off.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
+    // `review: "on"` with no reviewer listed: judgeProvider, as the judge is on.
+    const on = await run(team({ reviewers: [], review: "on" }), TASK);
+    expect(on.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
+  });
+
+  it("asks a stronger reviewer of the worker's family before a weaker one of another (issue #38)", async () => {
+    const tiers: Record<string, "cheap" | "balanced" | "best"> = {
+      "cli-b:model-b": "balanced", "cli-b:model-r": "best", "api-a:model-o": "cheap",
+    };
+    const onCli = await run({ ...team(), strength: (m) => tiers[m.ref] ?? null }, [{ ...TASK[0]!, model: "cli-b:model-b" }]);
+    expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
   });
 
   it("without a team judges on judgeProvider as before", async () => {
