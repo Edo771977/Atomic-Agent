@@ -894,6 +894,7 @@ export function buildStreamEventHook(
           role: event.role ?? "worker",
           ...(event.model === undefined ? {} : { model: event.model }),
           ...(event.tool === undefined ? {} : { tool: event.tool }),
+          ...(event.edge === undefined ? {} : { edge: event.edge }),
           // The orchestrator's own estimate, so a host can print elapsed
           // beside it the way the TUI's live readout does. Advisory only.
           ...(event.etaSeconds === undefined ? {} : { eta_seconds: event.etaSeconds }),

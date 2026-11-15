@@ -6,6 +6,7 @@ import {
   fanoutExpectation,
   formatElapsed,
   formatFusionLiveWorker,
+  fusionPendingApprovalLine,
   fusionWorkerActionsHint,
 } from "../fusion-live-workers.js";
 import { theme } from "../theme/theme.js";
@@ -90,6 +91,14 @@ export function ThinkingIndicator({
             </Text>
           </Box>
         )))(fanoutExpectation(state.fusionLiveWorkers))}
+      {((line) =>
+        compacting || line === null ? null : (
+          <Box marginLeft={4}>
+            <Text color={theme.colors.warnStrong} wrap="truncate">
+              {line}
+            </Text>
+          </Box>
+        ))(fusionPendingApprovalLine(state.fusionLiveWorkers, state.pendingApproval))}
       {((hint) =>
         compacting || hint === null ? null : (
           <Box marginLeft={4}>

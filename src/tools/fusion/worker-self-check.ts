@@ -156,6 +156,8 @@ const NON_MUTATING_TOOLS: ReadonlySet<string> = new Set(["verify.run", "reply", 
 export class WorkerCheckRuns {
   private readonly passedAt = new Map<string, number>();
   private lastChangeStep = -1;
+  /** The worker's most recent `verify.run`, whatever its spec. */
+  private lastRun: { key: string; ok: boolean; step: number } | undefined;
   private readonly parsed = new Map<number, Record<string, unknown>>();
 
   constructor(private readonly readOnlyTools: ReadonlySet<string>) {}
@@ -171,6 +173,7 @@ export class WorkerCheckRuns {
       this.parsed.delete(batchIndex);
       const key = args === undefined ? undefined : checkSpecKey(args);
       if (key === undefined) return;
+      this.lastRun = { key, ok: status === "ok", step };
       if (status === "ok") this.passedAt.set(key, step);
       else this.passedAt.delete(key);
       return;
@@ -178,6 +181,17 @@ export class WorkerCheckRuns {
     if (!NON_MUTATING_TOOLS.has(tool) && !this.readOnlyTools.has(tool)) {
       this.lastChangeStep = step;
     }
+  }
+
+  /**
+   * Whether the worker's last `verify.run` was one of `checks` (the
+   * identical spec) and passed after its last change: the outcome log's
+   * `selfCheckPassed` telemetry (issue #30), never acceptance.
+   */
+  lastRunPassedOneOf(checks: readonly ContractCheck[]): boolean {
+    const last = this.lastRun;
+    if (last === undefined || !last.ok || last.step <= this.lastChangeStep) return false;
+    return checks.some((check) => checkSpecKey(check) === last.key);
   }
 
   /** Whether `check` passed after the worker's last change. */

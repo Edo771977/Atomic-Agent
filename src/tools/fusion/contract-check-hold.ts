@@ -73,9 +73,12 @@ export function createContractCheckHold(options: {
   const runner: ContractCheckRunner | undefined = inner === undefined ? undefined : Object.assign(
     async (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) => {
       let approved: readonly Record<string, unknown>[];
+      ctx.onHold?.start();
       try { approved = await authorize(specs, ctx.workingDir, ctx.signal, ctx.inputIntegrity?.paths); }
       catch (err) { throw new ContractChecksHeldError(note(err, ctx.signal)); }
-      return inner(approved, ctx);
+      finally { ctx.onHold?.end(); }
+      const { onHold: _onHold, ...rest } = ctx;
+      return inner(approved, rest);
     },
     inner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {},
   );

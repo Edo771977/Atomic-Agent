@@ -33,6 +33,26 @@ describe("contract check authorization", () => {
     expect(runner).toHaveBeenCalledOnce();
   });
 
+  it("tells the caller's onHold when authorization (the prompt) starts and ends, before the runner, and keeps it from the runner (#30)", async () => {
+    const { hold, runner, requests } = setup();
+    const seen: string[] = [];
+    await hold.runner!([{ kind: "command", cmd: "node", args: ["child-a.js"] }], {
+      workingDir: cwd,
+      signal,
+      onHold: { start: () => seen.push(`start:${requests.length}`), end: () => seen.push(`end:${requests.length}`) },
+    });
+    expect(seen).toEqual(["start:0", `end:${requests.length}`]);
+    expect(requests.length).toBeGreaterThan(0);
+    expect(runner.mock.calls[0]![1]).not.toHaveProperty("onHold");
+    // A refused batch closes its interval too.
+    const denied = setup({ deny: true });
+    const ends: string[] = [];
+    await expect(denied.hold.runner!([{ kind: "command", cmd: "node", args: ["x.js"] }], {
+      workingDir: cwd, signal, onHold: { start: () => ends.push("start"), end: () => ends.push("end") },
+    })).rejects.toThrow();
+    expect(ends).toEqual(["start", "end"]);
+  });
+
   it("does not let a root decision authorize different child batches", async () => {
     const { hold, requests } = setup({ tainted: true });
     await run(hold, [{ kind: "command", cmd: "node", args: ["child-a.js"] }]);

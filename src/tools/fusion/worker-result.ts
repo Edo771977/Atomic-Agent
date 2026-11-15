@@ -103,6 +103,13 @@ export const WORKER_STATUS_ORDER: readonly WorkerTaskStatus[] = [
 /** Which ceiling ended a worker's loop — see `RunTurnResult.stopCause`. */
 export type WorkerStopCause = NonNullable<RunTurnResult["stopCause"]>;
 
+/** `WorkerTaskResult.localTokens`: Σ timing tokens of usage-less completions. */
+export interface WorkerLocalTokens {
+  promptTokens: number;
+  predictedTokens: number;
+  cacheHitTokens: number;
+}
+
 export interface WorkerToolStats {
   calls: number;
   errors: number;
@@ -199,10 +206,32 @@ export interface WorkerTaskResult {
    * the daemon rather than at the fan-out's width.
    */
   queueWaitMs?: number | null;
+  /**
+   * Of `durationMs`, the time before the server's first token (issue
+   * #30): `queueWaitMs`, or the whole duration for a worker never
+   * served. Not work; the outcome log leaves it out of its duration.
+   */
+  queuedMs?: number;
+  /**
+   * Of `durationMs`, the time this worker's self-check spent in the held
+   * runner's authorization (`contract-check-hold.ts`), an operator prompt
+   * included (issue #30). Not work either.
+   */
+  heldMs?: number;
   /** Call-wide scheduler wait before dispatch; excluded from durationMs and provider queueWaitMs. */
   schedulerQueueWaitMs?: number;
   tools: WorkerToolStats;
   usage?: CompletionUsage;
+  /**
+   * Token counts of the completions that reported no `usage` (a
+   * llama-server worker reports only its `timing` and `cacheHitTokens`),
+   * summed apart from `usage` (issue #30). Never synthetic usage: pricing
+   * (`rowCostUsd`), the status header and the budget split branch on
+   * `usage !== undefined`, and an unpriced local leg must stay unpriced.
+   * `promptTokens` includes each step's cached part. On a row a cloud
+   * re-run replaced, only the local attempt's counts (like its `usage`).
+   */
+  localTokens?: WorkerLocalTokens;
   /**
    * Present only when some of the worker's completions carried the
    * service's bill and some did not: `usage.costUsd` is then absent (a
@@ -276,6 +305,13 @@ export interface WorkerTaskResult {
    * (`worker-self-check.ts`). For the outcome log; nothing renders it.
    */
   selfCheckNotice?: true;
+  /**
+   * Telemetry only, never acceptance (issue #30): the worker's own last
+   * `verify.run` had the identical spec of one of its task's declared
+   * checks and passed after its last change (`WorkerCheckRuns`). Not set
+   * on a row a cloud re-run replaced.
+   */
+  selfCheckPassed?: true;
   /** Escalations that reached the worker (advisor hints, a re-run), for the outcome log. */
   escalations?: number;
   /**
@@ -346,6 +382,8 @@ export class WorkerRunCollector {
   private writes = 0;
   private readonly byTool: Record<string, number> = {};
   private usage: CompletionUsage | undefined;
+  /** Σ timing tokens of the completions without `usage` (issue #30). */
+  private localTokens: WorkerLocalTokens | undefined;
   /**
    * Priced one completion at a time: the service's bill over the
    * completions that reported one, plus the estimate of each unbilled
@@ -437,6 +475,16 @@ export class WorkerRunCollector {
         `${result.tool} ${result.status}: ${oneLine(result.summary, FINDING_CHARS)}`,
       );
       if (this.recent.length > FINDINGS_KEPT) this.recent.shift();
+      return;
+    }
+    if (inner.type === "llm_completed" && inner.completion.usage === undefined) {
+      const timing = inner.completion.timing;
+      const prev = this.localTokens ?? { promptTokens: 0, predictedTokens: 0, cacheHitTokens: 0 };
+      this.localTokens = {
+        promptTokens: prev.promptTokens + finiteTokens(timing?.promptTokens),
+        predictedTokens: prev.predictedTokens + finiteTokens(timing?.predictedTokens),
+        cacheHitTokens: prev.cacheHitTokens + finiteTokens(inner.completion.cacheHitTokens),
+      };
       return;
     }
     if (inner.type === "llm_completed" && inner.completion.usage) {
@@ -573,6 +621,7 @@ export class WorkerRunCollector {
         byTool: { ...this.byTool },
       },
       ...(this.usage ? { usage: this.usage } : {}),
+      ...(this.localTokens ? { localTokens: { ...this.localTokens } } : {}),
       // A sum that still carries the whole bill (`usage.costUsd`) needs
       // no split.
       ...(this.anyBilled && this.usage !== undefined && this.usage.costUsd === undefined
@@ -589,6 +638,10 @@ export class WorkerRunCollector {
       ...(finishedWithoutReply ? { finishedWithoutReply: true as const } : {}),
     };
   }
+}
+
+function finiteTokens(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 /**

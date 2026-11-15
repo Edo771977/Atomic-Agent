@@ -1606,7 +1606,7 @@ describe("fusion.delegate", () => {
       const rows = (result.details.tasks as WorkerTaskResult[]).map(
         // Both are wall-clock readings and neither is what this snapshot
         // is pinning.
-        ({ durationMs: _ms, queueWaitMs: _q, ...row }) => row,
+        ({ durationMs: _ms, queueWaitMs: _q, queuedMs: _qm, ...row }) => row,
       );
       expect(lines.join("\n")).toMatchInlineSnapshot(`
         "2 tasks: 2 ok

@@ -988,7 +988,17 @@ export type AgentLoopEvent =
         | "escalated"
         | "finished"
         | "failed"
-        | "cancelled";
+        | "cancelled"
+        /**
+         * Not lines either (issue #30): an interval the leg spent queued
+         * for a server slot (`started` to the first token) or held on the
+         * operator's approval of its checks, opened and closed by `edge`.
+         * The live row shows it and leaves it out of the leg's work time.
+         */
+        | "queued"
+        | "awaiting-approval";
+      /** `phase: "queued"` / `"awaiting-approval"` only: the interval opens or closes. */
+      edge?: "start" | "end";
       /**
        * Which leg this line is about. `worker` when absent, so the
        * event's original shape still reads correctly. The orchestrator

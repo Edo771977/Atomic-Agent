@@ -83,6 +83,7 @@ describe("fusion outcome records", () => {
       model: "small",
       leg: "local",
       role: null,
+      selfCheckPassed: false,
       status: "failed",
       failure: "tool-protocol",
       attempt: 1,
@@ -93,6 +94,7 @@ describe("fusion outcome records", () => {
       syntaxDemoted: true,
       steps: 3,
       durationMs: 1234,
+      wallMs: 1234,
       tokensIn: 100,
       tokensOut: 20,
       cachedTokens: 40,
@@ -103,6 +105,58 @@ describe("fusion outcome records", () => {
     for (const leak of ["REPLY-TEXT", "Secret title", "sk-live", "/home/u", "s-parent", "a.ts"]) {
       expect(text).not.toContain(leak);
     }
+  });
+
+  it("records a local worker's timing tokens when its completions carry no usage (#30)", () => {
+    const collector = new WorkerRunCollector();
+    const completion = (promptTokens: number, predictedTokens: number, cacheHitTokens: number) =>
+      collector.observe({
+        type: "llm_event",
+        event: {
+          type: "llm_completed",
+          completion: {
+            content: "",
+            reasoningContent: "",
+            stop: true,
+            truncated: false,
+            timing: { promptMs: 1, predictedMs: 1, promptTokens, predictedTokens },
+            cacheHitTokens,
+            slotId: 0,
+            modelId: "m",
+          },
+        },
+      });
+    completion(1_000, 50, 0);
+    completion(1_200, 70, 900);
+    const local = collector.finish({ id: "t1", title: "t", reason: "reply", stepCount: 2, durationMs: 10 });
+    // Not synthetic usage: pricing and the budget split branch on it.
+    expect(local.usage).toBeUndefined();
+    expect(local.localTokens).toEqual({ promptTokens: 2_200, predictedTokens: 120, cacheHitTokens: 900 });
+    const record = taskOutcomeRecord(local, CONTEXT, "s", new Date(0));
+    expect(record).toMatchObject({ tokensIn: 2_200, tokensOut: 120, cachedTokens: 900, costUsd: null });
+    // Reported usage wins where a row carries both.
+    const both = taskOutcomeRecord(
+      row({
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 4 },
+        localTokens: { promptTokens: 5, predictedTokens: 1, cacheHitTokens: 3 },
+      }),
+      CONTEXT,
+      "s",
+      new Date(0),
+    );
+    expect(both).toMatchObject({ tokensIn: 10, tokensOut: 2, cachedTokens: 4 });
+  });
+
+  it("records work time as durationMs and the wall time apart, leaving out queue and approval waits (#30)", () => {
+    const record = taskOutcomeRecord(
+      row({ durationMs: 53 * 60_000, queuedMs: 30 * 60_000, heldMs: 2 * 60_000 }),
+      CONTEXT,
+      "s",
+      new Date(0),
+    );
+    expect(record).toMatchObject({ durationMs: 21 * 60_000, wallMs: 53 * 60_000 });
+    // Nothing recorded: work is the wall time.
+    expect(taskOutcomeRecord(row(), CONTEXT, "s", new Date(0))).toMatchObject({ durationMs: 1234, wallMs: 1234 });
   });
 
   it("writes a model set to a local file path as its file's base name only", () => {

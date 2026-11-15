@@ -129,6 +129,37 @@ describe("fusion report", () => {
     });
   });
 
+  it("puts a task with no declared checks in no-checks, apart from a judge-unverified one (#30)", () => {
+    const row: WorkerTaskResult = {
+      id: "task", title: "test", status: "ok", reply: "done", stepCount: 1,
+      durationMs: 1, tools: { calls: 0, errors: 0, writes: 0, byTool: {} },
+    };
+    const context = { provider: "local", model: "small", leg: "local" as const,
+      role: null, attempt: 1, pricing: undefined, merge: null };
+    const noChecks = taskOutcomeRecord(row, { ...context, taskChecks: 0 }, "session", NOW);
+    const judgeUnverified = taskOutcomeRecord({ ...row, checks: { total: 1, failed: 0 },
+      judge: { green: false, total: 1, failed: 0, retried: false, costUsd: null, items: [], unverified: "judge did not answer" },
+    } as WorkerTaskResult, { ...context, taskChecks: 1 }, "session", NOW);
+    const held = taskOutcomeRecord({ ...row, checks: { total: 1, failed: 0 } }, { ...context, taskChecks: 1, merge: "held" }, "session", NOW);
+    // A declared check that never ran (the row has no checks) is missing evidence, not "no checks".
+    const neverRan = taskOutcomeRecord(row, { ...context, taskChecks: 2 }, "session", NOW);
+    const stats = aggregateOutcomes([noChecks, judgeUnverified, held, neverRan]).workers[0]!;
+    expect(stats).toMatchObject({ checksPassed: 0, checksFailed: 0, checksUnverified: 3, checksNone: 1 });
+    // An older record without the declared count stays unverified.
+    const { taskChecks: _dropped, ...legacy } = noChecks;
+    expect(aggregateOutcomes([legacy as TaskOutcomeRecord]).workers[0]).toMatchObject({ checksUnverified: 1, checksNone: 0 });
+    const text = formatFusionReport(aggregateOutcomes([noChecks, judgeUnverified]));
+    expect(text).toContain("checks pass/fail/unverified/no-checks");
+    expect(text).toContain("0/0/1/1");
+  });
+
+  it("shows a worker's own passing run of a declared check as self-checked telemetry, not acceptance (#30)", () => {
+    const record = task({ taskChecks: 1, selfCheckPassed: true });
+    const stats = aggregateOutcomes([record, task({ taskChecks: 1 })]).workers[0]!;
+    expect(stats).toMatchObject({ selfChecked: 1, checksPassed: 0, checksUnverified: 2 });
+    expect(formatFusionReport(aggregateOutcomes([record]))).toContain("self-checked");
+  });
+
   it("keeps legacy, missing and contradictory check evidence unverified", () => {
     const accepted = task({ acceptance: "checks-passed", acceptanceScope: "task-checks" });
     const records = [

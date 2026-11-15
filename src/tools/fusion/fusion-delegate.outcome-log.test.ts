@@ -122,6 +122,9 @@ describe("fusion.delegate → outcome log", () => {
       escalations: 0,
       syntaxDemoted: false,
       costUsd: null,
+      // No contract: no task-attributed check was declared (#30).
+      taskChecks: 0,
+      selfCheckPassed: false,
     });
     const text = JSON.stringify(written);
     for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent", "t1", "t2"]) {

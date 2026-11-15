@@ -79,6 +79,7 @@ import {
   concurrentPaths,
   describeSelfCheck,
   hasFindings,
+  ownChecks,
   renderSelfCheckNotice,
   runSelfCheck,
 } from "./worker-self-check.js";
@@ -861,6 +862,18 @@ interface TaskPermitControl {
   reacquire(signal: AbortSignal): Promise<boolean>;
 }
 
+/** The held runner, telling `onHold` how long it authorized (issue #30). */
+function withHoldTiming(
+  runner: ContractCheckRunner,
+  onHold: { start(): void; end(): void },
+): ContractCheckRunner {
+  return Object.assign(
+    (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) =>
+      runner(specs, { ...ctx, onHold }),
+    runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {},
+  );
+}
+
 async function runOneTask(
   deps: WorkerRunnerDeps,
   options: RunWorkerTasksOptions,
@@ -983,6 +996,40 @@ async function runOneTask(
   // routed by the ambient frame would be tagged with a throwaway session
   // that has no recorder, no hook and no UI, and would reach nobody.
   let announced = false;
+  // Intervals that are not the worker's work (issue #30): queued for
+  // the server's first token, held on the operator's approval of its
+  // checks. The live row pauses its clock over them; the row records
+  // them (`queueWaitMs`, `heldMs`) so the outcome log's duration is work.
+  const announceInterval = (
+    phase: "queued" | "awaiting-approval",
+    edge: "start" | "end",
+  ): void => {
+    deps.emitEvent(options.parentSessionId, {
+      type: "fusion_worker",
+      taskId: task.id,
+      title: task.title,
+      phase,
+      edge,
+      role: "worker",
+      model: options.workerModel,
+    });
+  };
+  let queueAnnounced = false;
+  let heldMs = 0;
+  let heldSince: number | null = null;
+  const onHold = {
+    start: (): void => {
+      if (heldSince !== null) return;
+      heldSince = Date.now();
+      announceInterval("awaiting-approval", "start");
+    },
+    end: (): void => {
+      if (heldSince === null) return;
+      heldMs += Math.max(0, Date.now() - heldSince);
+      heldSince = null;
+      announceInterval("awaiting-approval", "end");
+    },
+  };
   const announceStart = (): void => {
     if (announced) return;
     announced = true;
@@ -995,6 +1042,12 @@ async function runOneTask(
       model: options.workerModel,
       ...(task.etaSeconds === undefined ? {} : { etaSeconds: task.etaSeconds }),
     });
+    // Until the first token the worker is waiting on the server, not
+    // working: up to the first-token budget on a full local server.
+    if (servedAt === null && !settled) {
+      queueAnnounced = true;
+      announceInterval("queued", "start");
+    }
   };
 
   // Which tool this worker just picked up, named with the model running
@@ -1285,6 +1338,7 @@ async function runOneTask(
   const markServed = (): void => {
     if (servedAt !== null) return;
     servedAt = Date.now();
+    if (queueAnnounced) announceInterval("queued", "end");
     clearTimeout(queueTimer);
     wallTimer = setTimeout(abortForTime, timeoutMs);
     wallTimer.unref?.();
@@ -1337,6 +1391,7 @@ async function runOneTask(
   // The worker's own `verify.run` passes, so the self-check does not
   // run a check a third time that the worker already saw pass.
   const checkRuns = new WorkerCheckRuns(READ_ONLY_TOOLS);
+  let replacedByRerun = false;
   const maybeHandBack = (): void => {
     if (declaredFiles === 0 || wroteSomething || handBack.signal.aborted)
       return;
@@ -1627,7 +1682,9 @@ async function runOneTask(
       ...(options.contract === undefined ? {} : { contract: options.contract }),
       workingDir,
       startedAt,
-      ...(deps.runChecks === undefined ? {} : { runChecks: deps.runChecks }),
+      ...(deps.runChecks === undefined
+        ? {}
+        : { runChecks: withHoldTiming(deps.runChecks, onHold) }),
       signal: AbortSignal.any([
         options.signal,
         timeLimit,
@@ -1939,6 +1996,7 @@ async function runOneTask(
     }
   }
   if (replaceAllowed && target !== undefined && pricing !== undefined) {
+    replacedByRerun = true;
     const replaceSession = deps.createEphemeralSession(
       { parentSessionId: options.parentSessionId, taskId: task.id },
       workingDir,
@@ -1980,6 +2038,7 @@ async function runOneTask(
     // at the worker's rate, do not count the re-run a second time
     // (ATO-1319).
     const localUsage = result.usage;
+    const localTokens = result.localTokens;
     try {
       const turn = await deps.runTurn(
         replaceSession,
@@ -2070,8 +2129,12 @@ async function runOneTask(
       disarmWorkerSession(replaceSession.id);
     }
     {
-      const { usage: _replaceUsage, ...row } = result;
-      result = localUsage === undefined ? row : { ...row, usage: localUsage };
+      const { usage: _replaceUsage, localTokens: _replaceTokens, ...row } = result;
+      result = {
+        ...row,
+        ...(localUsage === undefined ? {} : { usage: localUsage }),
+        ...(localTokens === undefined ? {} : { localTokens }),
+      };
     }
     // The local turn's own endings no longer describe the row.
     timedOutOutcome = false;
@@ -2107,10 +2170,17 @@ async function runOneTask(
 
   // How long the server took to say anything. The one number that tells
   // a queued worker from one nothing ever answered — see `queueWaitMs`.
-  result = {
-    ...result,
-    queueWaitMs: servedAt === null ? null : servedAt - startedAt,
-  };
+  {
+    // Issue #30: a worker never served spent its whole time queued; the
+    // time its checks waited on the operator is not work either.
+    const queuedMs = Math.min(result.durationMs, servedAt === null ? result.durationMs : servedAt - startedAt);
+    result = {
+      ...result,
+      queueWaitMs: servedAt === null ? null : servedAt - startedAt,
+      queuedMs: Math.max(0, queuedMs),
+      ...(heldMs > 0 ? { heldMs: Math.min(heldMs, Math.max(0, result.durationMs - queuedMs)) } : {}),
+    };
+  }
 
   // Out of time, not out of steps. Only this function knows whose clock
   // fired — `classifyWorkerStatus` sees a `cancelled` turn with a
@@ -2133,6 +2203,11 @@ async function runOneTask(
     result = { ...result, notes: [...(result.notes ?? []), ...selfCheckNotes] };
   }
   if (selfCheckNoticed) result = { ...result, selfCheckNotice: true };
+  // Telemetry only (issue #30): the worker's own last check run, on the
+  // final state of its own workspace. A cloud re-run's files are not it.
+  if (!replacedByRerun && checkRuns.lastRunPassedOneOf(ownChecks(options.contract, task.id))) {
+    result = { ...result, selfCheckPassed: true };
+  }
   if (escalationsUsed > 0) result = { ...result, escalations: escalationsUsed };
 
   // A budget the orchestrator asked for and did not get is something it
