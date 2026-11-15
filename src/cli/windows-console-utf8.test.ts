@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ensureUtf8Console,
   parseCodePage,
+  readConsoleCodePage,
   type ConsoleCodePageHost,
 } from "./windows-console-utf8.js";
 
@@ -107,5 +108,12 @@ describe("ensureUtf8Console", () => {
     });
     expect(ensureUtf8Console(h)).toBe(true);
     expect(() => h.exitHandlers[0]!()).not.toThrow();
+  });
+});
+
+describe("readConsoleCodePage", () => {
+  it("reads the number from chcp and is undefined when chcp fails", () => {
+    expect(readConsoleCodePage({ runChcp: () => "Tabella codici attiva: 850\r\n" })).toBe("850");
+    expect(readConsoleCodePage({ runChcp: () => { throw new Error("no console"); } })).toBeUndefined();
   });
 });

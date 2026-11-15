@@ -19,7 +19,10 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  * - `http`: `os.http.request` (curl underneath; loopback stays local);
  * - `browser`: every `browser.*` tool. The page a click or a read acts
  *   on may be remote whatever this call's arguments say, so the whole
- *   browser is one class;
+ *   browser is one class. A `verify.run` page probe (`kind: "page"`)
+ *   is a headless browser too and is classed the same, whatever it
+ *   opens: a local file or a loopback page can still load remote
+ *   resources (its `network: false` block is a soft one);
  * - `github`: every `github.*` tool (the GitHub API);
  * - `git`: `os.git.fetch`, `pull`, `push`, `clone` (a remote);
  * - `mail`: `os.email.*` (Atomic Mail);
@@ -79,6 +82,7 @@ export function egressTargetOf(
   if (tool === "os.web.fetch") return isLocalUrl(args.url) ? null : { cls: "web" };
   if (tool === "os.http.request") return isLocalUrl(args.url) ? null : { cls: "http" };
   if (tool.startsWith("browser.")) return { cls: "browser" };
+  if (tool === VERIFY_TOOL && args.kind === "page") return { cls: "browser" };
   if (tool.startsWith("github.")) return { cls: "github" };
   if (GIT_REMOTE_TOOLS.has(tool)) return { cls: "git" };
   if (tool.startsWith("os.email.")) return { cls: "mail" };
@@ -172,8 +176,10 @@ export function createEgressGuard(deps: EgressGuardDeps) {
     const shell = shellNetworkUseOf(tool, args);
     if (shell !== null) {
       const policy = deps.policyForSession(ctx.sessionId);
-      if (policy === undefined || (shell.cls !== null && policy.allowsEgress(shell.cls))) return null;
-      return new ShellNetworkNotAllowedError(tool, shell, policy);
+      if (policy === undefined) return null;
+      if (shell.cls === null || !policy.allowsEgress(shell.cls)) return new ShellNetworkNotAllowedError(tool, shell, policy);
+      // An allowed client does not settle the call: a page probe it
+      // serves is still a browser.
     }
     const target = egressTargetOf(tool, args, deps);
     if (target === null) return null;

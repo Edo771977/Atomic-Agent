@@ -36,6 +36,7 @@ export const criticalFiles = [
   'src/tools/fusion/branch-private-git.test.ts',
   'src/tools/fusion/contract-check-authorization.test.ts',
   'src/tools/verify/verify-authorization.test.ts',
+  'src/tools/verify/verify-page-local.test.ts',
   'src/tools/fusion/candidate-check-inputs.test.ts',
   'src/tools/verify/rebase-verify-workspace.test.ts',
   'src/tools/verify/rebase-verify-workspace-literals.test.ts',

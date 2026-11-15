@@ -40,6 +40,7 @@ const ALL_CATEGORIES: readonly ApprovalCategory[] = [
   "screen_capture",
   "local_model_restart",
   "hook_ask",
+  "verify_page_local",
   "other",
 ];
 
@@ -138,6 +139,8 @@ describe("approval ladder", () => {
       screen_capture: 3,
       local_model_restart: 5,
       hook_ask: 5,
+      // A local verify.run page probe: the auto rung beside workspace writes.
+      verify_page_local: 2,
       other: 5,
     };
     for (const [category, from] of Object.entries(silentFrom) as [
