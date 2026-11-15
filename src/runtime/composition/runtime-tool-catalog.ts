@@ -29,14 +29,17 @@ import { ToolRegistry, type ToolRegistryOptions } from "../../tools/tool-registr
 import { runtimeKnownSecrets } from "../runtime-known-secrets.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { finishTool } from "../../tools/finish.js";
-import { replyTool } from "../../tools/conversation/index.js";
+import { buildAskUserTool, replyTool } from "../../tools/conversation/index.js";
 import { buildBrowserTools, UserSiteApprovals } from "../../tools/browser/index.js";
 import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
-import { registerOsScreenTools, registerOsTools, type DeclaredInputsRegistry, type ShellJobRegistry, type WebSearchKeyHelp } from "../../tools/os/index.js";
+import { registerOsScreenTools, registerOsTools, type RegisteredOsTools, type DeclaredInputsRegistry, type ShellJobRegistry, type WebSearchKeyHelp } from "../../tools/os/index.js";
 import { registerVerifyTools, runChecks, verifySyntax } from "../../tools/verify/index.js";
 import { registerGithubTools } from "../../tools/github/index.js";
 import { resolveGithubToken } from "../../github/index.js";
 import { registerSkillTools } from "../../tools/skill/index.js";
+import { isProjectFolderTrusted } from "../../skills/project-trust.js";
+import { isFusionWorkerTurn } from "./runtime-egress-guard.js";
+import { hasConstrainedFolderInside } from "../../config/project-constraint-match.js";
 import { buildToolViewTool } from "../../tools/tool-view/index.js";
 import { planUpdateTool } from "../../tools/plan/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
@@ -159,17 +162,19 @@ export function registerRuntimeCoreTools(input: {
   logger: StructuredLogger;
   resolveOriginalRequest: (sessionId: string) => string | undefined;
   resolvePreviousReply?: (sessionId: string) => string | undefined;
+  /** Whether the session's running turn can show an `ask_user` card (ATO-489). */
+  canAskUser?: (sessionId: string) => boolean;
   declaredInputs: DeclaredInputsRegistry;
   shellJobs: ShellJobRegistry;
   skillRegistry: SkillRegistry;
   /** Where the user adds an Exa key, for the web-search error (ATO-345). */
   webSearchKeyHelp?: WebSearchKeyHelp;
-} & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): void {
+} & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): RegisteredOsTools {
   const { config, toolRegistry, dangerous, sessionStore, resolveOriginalRequest, resolvePreviousReply, declaredInputs,
     shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, logger,
-    webSearchKeyHelp } = input;
+    webSearchKeyHelp, canAskUser } = input;
 
-  registerOsTools(toolRegistry, {
+  const osTools = registerOsTools(toolRegistry, {
     ...dangerous,
     config: {
       http: config.http,
@@ -200,6 +205,18 @@ export function registerRuntimeCoreTools(input: {
     },
     shellJobs,
     ...(webSearchKeyHelp === undefined ? {} : { webSearchKeyHelp }),
+    // A folder the operator trusted to run its code (a project skill
+    // said yes to; an instruction file alone is not enough) starts
+    // language servers without a question
+    // (ATO-503). Read live, like the skill gate.
+    isTrustedProject: (dir) => isProjectFolderTrusted(config.paths.userConfigFile, config.skills.projectTrust, dir),
+    // A Fusion worker edits in its own worktree: a server each would be
+    // N servers for one fan-out, so workers get none (ATO-503).
+    skipLspSession: isFusionWorkerTurn,
+    // A repository holding a constrained folder: the server would read
+    // it and its errors could quote it past the read taint (issue #33).
+    // Read live, like the egress guard.
+    skipLspRoot: (root) => hasConstrainedFolderInside(getConfig(), root),
   });
   // Computer use (ATO-525): screenshot, click, type, key — macOS only and
   // opt-in (`tools.screen.enabled`, default off). A screenshot asks as
@@ -246,6 +263,17 @@ export function registerRuntimeCoreTools(input: {
   // it reads the same live descriptor list.
   // The live checklist (ATO-486): pure, always on, no approval.
   toolRegistry.register(planUpdateTool);
+  // Clarifying questions with ready answers (ATO-489): through the
+  // approval gate, so the turn waits like an approval and only the
+  // person answers. Registered for the whole process, but each turn
+  // offers it only where a question card is drawn (TUI, CLI, Telegram,
+  // an HTTP client sending `X-Atomic-Questions`): `surfaceShowsQuestions`
+  // in executeTurn. Hidden from the desktop until ATO-1502 ships its card.
+  // A call from a turn where it is hidden is answered at once, no question raised.
+  toolRegistry.register(buildAskUserTool({
+    approvals: dangerous.approvals,
+    ...(canAskUser !== undefined ? { canAsk: canAskUser } : {}),
+  }));
   // Older stored names stay out of the prompt until checked against actual
   // user messages. The background walk never deletes facts or blocks boot.
   const nameGroundingSource = sessionGroundingSource(sessionStore);
@@ -275,6 +303,7 @@ export function registerRuntimeCoreTools(input: {
       ? { isIncognitoSession: (sessionId: string) => sessionStore.isIncognito!(sessionId) }
       : {}),
   });
+  return osTools;
 }
 
 export function registerRuntimeVisionTools(input: {

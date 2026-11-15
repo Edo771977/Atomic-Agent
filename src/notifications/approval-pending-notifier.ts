@@ -49,7 +49,9 @@ export function formatApprovalPendingNotice(
   request: Pick<ApprovalRequest, "tool" | "category" | "workdir">,
   options: { minutes: number; private: boolean },
 ): string {
-  const head = `atomic-agent is waiting for your approval for ${options.minutes} min`;
+  // An `ask_user` question (ATO-489) waits for an answer, not a yes.
+  const what = request.category === "user_question" ? "answer" : "approval";
+  const head = `atomic-agent is waiting for your ${what} for ${options.minutes} min`;
   if (options.private) return `${head}. Answer it in the app.`;
   const folder = request.workdir ? basename(request.workdir) : "";
   const where = folder ? ` in ${folder}` : "";

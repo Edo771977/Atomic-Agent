@@ -71,15 +71,23 @@ export interface RuntimeSkillsConfig {
 }
 
 export interface UserSkillsConfig {
+  /**
+   * Per-folder skill settings for cloud workspaces: whether the folder's
+   * project skills load and which skills are off there.
+   */
   cloudWorkspaces: CloudWorkspaceSkillsPolicy[];
   projectTrust: ProjectTrustRecord[];
   catalogTokenBudget: number;
   disabled: string[];
   taps: string[];
   clawhub: {
+    /** Browse and install skills from the ClawHub registry. */
     enabled: boolean;
+    /** Base URL of the ClawHub registry. */
     apiBase: string;
+    /** Most skills one ClawHub listing fetches. */
     browseLimit: number;
+    /** Hide ClawHub skills the registry flags as suspicious. */
     nonSuspiciousOnly: boolean;
   };
 }

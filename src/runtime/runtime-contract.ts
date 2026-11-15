@@ -533,6 +533,12 @@ export interface AgentRuntime {
       eventHook?: TurnEventHook;
       origin?: TurnOrigin;
       providerId?: string;
+      /**
+       * With `providerId`: the cloud chat model for this turn only
+       * (`RunTurnOptions.model`, ATO-1148). Refused before the turn is
+       * queued on a local provider or without `providerId`.
+       */
+      model?: string;
       taskMaxDurationMs?: number;
       /** Spend ceiling in USD (see `RunTurnOptions.taskMaxCostUsd`). */
       taskMaxCostUsd?: number;
@@ -579,6 +585,13 @@ export interface AgentRuntime {
        * `### answer-style` and its polish (ATO-966, ATO-967).
        */
       answerChannel?: AnswerChannel;
+      /**
+       * The client declared whether it can show a question card, so the
+       * turn is offered `ask_user` (ATO-489). Absent: the TUI, the CLI
+       * and Telegram get it; the desktop (sidecar or an HTTP extensions
+       * client) does not until ATO-1502, nor does any other origin.
+       */
+      questions?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**
@@ -608,6 +621,8 @@ export interface AgentRuntime {
       maxSteps?: number;
       signal?: AbortSignal;
       providerId?: string;
+      /** See `runTurn`'s `model`. */
+      model?: string;
       taskMaxDurationMs?: number;
       /** Spend ceiling in USD (see `RunTurnOptions.taskMaxCostUsd`). */
       taskMaxCostUsd?: number;
@@ -629,6 +644,8 @@ export interface AgentRuntime {
       origin?: TurnOrigin;
       /** See `runTurn`'s `answerChannel`; wins over `origin`. */
       answerChannel?: AnswerChannel;
+      /** See `runTurn`'s `questions`. */
+      questions?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**

@@ -43,12 +43,14 @@ import {
   type RiskReviewer,
 } from "./risk-review.js";
 import {
+  formatQuestionTaintNote,
   formatTaintNote,
   FUSION_WORKER_TAINT_SOURCE,
   isTaintSensitive,
   TAINT_REVIEW_LOW_REASON,
   UntrustedTaint,
 } from "./untrusted-taint.js";
+import type { UserQuestion, UserQuestionAnswer } from "./user-question.js";
 
 export interface ApprovalRequest {
   approvalId: string;
@@ -141,6 +143,13 @@ export interface ApprovalRequest {
   riskNote?: string;
   /** The level behind `riskNote`; absent when the review gave no verdict. */
   riskLevel?: RiskLevel;
+  /**
+   * Set only on a `user_question` request (`ask_user`, ATO-489): the
+   * question and its options. A surface that knows it draws option cards
+   * and answers with `ApprovalDecision.answer`; one that does not still
+   * shows `reason` (the question) and `preview` (the numbered options).
+   */
+  question?: UserQuestion;
 }
 
 /**
@@ -192,6 +201,12 @@ export interface ApprovalDecision {
    * and by every tool that did not set `redirectablePath`.
    */
   pathOverride?: string;
+  /**
+   * The person's answer to a `user_question` request (ATO-489), checked
+   * by the surface with `validateUserQuestionAnswer`. Passed through
+   * untouched; `ask_user` checks it again. Ignored when denied.
+   */
+  answer?: UserQuestionAnswer;
 }
 
 export type ApprovalEmitter = (request: ApprovalRequest) => void;
@@ -636,10 +651,16 @@ export class ApprovalGate {
   ): Promise<ApprovalDecision> {
     const approvalId = params.approvalId ?? randomUUID();
     const workdir = params.workdir ?? currentApprovalWorkdir();
+    // A question asked after outside content may be that content's: warn.
+    const questionSources =
+      params.category === "user_question" && params.riskNote === undefined
+        ? this.taintSourcesOf(params.sessionId)
+        : [];
     const request: ApprovalRequest = {
       ...params,
       approvalId,
       ...(workdir !== undefined ? { workdir } : {}),
+      ...(questionSources.length > 0 ? { riskNote: formatQuestionTaintNote(questionSources) } : {}),
     };
     // Before auto-approval: a level or a grant that would run a write
     // silently must not become the way round the user's own Deny of it

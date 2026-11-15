@@ -46,14 +46,19 @@ export function createRuntimeEgressGuard(deps: {
   });
 }
 
+/** Whether the turn running now is fusion worker `sessionId`'s own. */
+export function isFusionWorkerTurn(sessionId: string): boolean {
+  const frame = currentProviderPolicyFrame();
+  return frame?.role === "a fusion worker" && frame.sessionId === sessionId;
+}
+
 /**
  * A fusion worker's own temp copy (a folder under the fusion temp area,
  * `atag-fusion-*`), when the turn running now is that worker's: the one
  * place a constrained session may write outside its folder.
  */
 export function fusionWorkerScratchDir(sessionId: string, workingDir: string): string | undefined {
-  const frame = currentProviderPolicyFrame();
-  if (frame?.role !== "a fusion worker" || frame.sessionId !== sessionId) return undefined;
+  if (!isFusionWorkerTurn(sessionId)) return undefined;
   return workingDir.split(/[\\/]/).some((part) => part.startsWith(FUSION_TMP_PREFIX)) ? workingDir : undefined;
 }
 

@@ -34,6 +34,8 @@ import { buildOsFsPatchTool } from "./fs/fs-patch.js";
 import { buildOsFsRestoreTool } from "./fs/fs-restore.js";
 import { buildOsFsMoveTool } from "./fs/fs-move.js";
 import { FileRestoreStore } from "./fs/fs-restore-store.js";
+import { createLspDiagnostics } from "./fs/lsp/index.js";
+import { askToStartLspThroughApprovals } from "./fs/lsp/lsp-start-question.js";
 import type { DeclaredInputsRegistry } from "./fs/fs-declared-inputs.js";
 import { osFsWatchTool } from "./fs/fs-watch.js";
 import {
@@ -196,12 +198,56 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    * keeps the desktop / `.env` advice.
    */
   webSearchKeyHelp?: WebSearchKeyHelp;
+  /**
+   * Whether the operator trusts a folder (project folder trust,
+   * `skills.projectTrust`), read live. A language server (ATO-503)
+   * starts without a question only in a trusted work tree; elsewhere the
+   * first start asks once. Omitted: no folder is trusted.
+   */
+  isTrustedProject?: (dir: string) => boolean;
+  /**
+   * Sessions that get no language-server diagnostics and start no
+   * server (ATO-503): the runtime passes Fusion workers, each in its own
+   * worktree.
+   */
+  skipLspSession?: (sessionId: string) => boolean;
+  /** Work trees that start no language server (one holding a constrained folder). */
+  skipLspRoot?: (root: string) => boolean;
+}
+
+/** What `registerOsTools` leaves running, for the runtime's shutdown. */
+export interface RegisteredOsTools {
+  /** The after-edit language servers, when `tools.lsp.enabled`. */
+  languageServers?: { dispose(): void };
 }
 
 export function registerOsTools(
   registry: ToolRegistry,
   options: RegisterOsToolsOptions,
-): void {
+): RegisteredOsTools {
+  // Opt-in (ATO-503): nothing starts until the first edit of a
+  // TypeScript/JavaScript/Python file inside a git repository.
+  const lspDiagnostics =
+    options.config.tools.lsp?.enabled === true
+      ? createLspDiagnostics({
+          enabled: true,
+          // A server runs project code: outside a trusted folder the
+          // first start in a work tree asks once (trust_config).
+          askToStart: askToStartLspThroughApprovals({
+            approvals: options.approvals,
+            approvalRequired: options.approvalRequired,
+          }),
+          ...(options.isTrustedProject === undefined
+            ? {}
+            : { isTrustedProject: options.isTrustedProject }),
+          ...(options.skipLspSession === undefined
+            ? {}
+            : { skipSession: options.skipLspSession }),
+          ...(options.skipLspRoot === undefined
+            ? {}
+            : { skipRoot: options.skipLspRoot }),
+        })
+      : undefined;
   registry.register(
     buildOsShellTool({
       approvals: options.approvals,
@@ -234,6 +280,7 @@ export function registerOsTools(
     ...(options.declaredInputs === undefined
       ? {}
       : { declaredInputs: options.declaredInputs }),
+    ...(lspDiagnostics === undefined ? {} : { lspDiagnostics }),
   };
   registry.register(osFsReadTool);
   registry.register(buildOsFsWriteTool(fsMutation));
@@ -345,4 +392,5 @@ export function registerOsTools(
       approvalRequired: options.approvalRequired,
     }),
   );
+  return lspDiagnostics === undefined ? {} : { languageServers: lspDiagnostics };
 }

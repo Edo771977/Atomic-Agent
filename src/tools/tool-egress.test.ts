@@ -34,6 +34,8 @@ const CASES: Array<[string, Record<string, unknown>, string]> = [
   ["browser.click", { ref: "e1" }, "browser"],
   ["browser.search", { query: "x" }, "browser"],
   ["browser.screenshot", {}, "browser"],
+  // Reads the page's own console and network log, which can quote remote content.
+  ["browser.debug", { action: "network" }, "browser"],
   ["github.pr.create", { title: "t" }, "github"],
   ["github.issue.list", {}, "github"],
   ["github.whoami", {}, "github"],

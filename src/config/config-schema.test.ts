@@ -1643,6 +1643,7 @@ describe("parseUserConfigFile", () => {
       },
       screen: { enabled: false, point: true },
       verify: { maxCopyBytes: 2 * 1024 * 1024 * 1024, maxGitObjectBytes: 2 * 1024 * 1024 * 1024 },
+      lsp: { enabled: false },
     });
   });
 

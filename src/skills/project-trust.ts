@@ -43,6 +43,19 @@ export function readProjectTrust(configFile: string, startup: readonly ProjectTr
   return findProjectTrust(records, workingDir);
 }
 
+/**
+ * Whether the operator has trusted the folder to run what it ships: they
+ * said yes to at least one project skill. Used where the question is
+ * about the folder rather than one skill, such as starting a language
+ * server in it (ATO-503), which loads the project's tsserver plugins. A
+ * trusted instruction file alone does not count: agreeing to read an
+ * AGENTS.md is not agreeing to run the folder's code.
+ */
+export function isProjectFolderTrusted(configFile: string, startup: readonly ProjectTrustRecord[] | undefined, workingDir: string): boolean {
+  const record = readProjectTrust(configFile, startup, workingDir);
+  return record !== undefined && record.trustedSkills.length > 0;
+}
+
 export function skillTrust(record: ProjectTrustRecord | undefined, name: string): ProjectItemTrust {
   if (record?.trustedSkills.includes(name)) return "trusted";
   return record?.declinedSkills.includes(name) ? "declined" : "pending";

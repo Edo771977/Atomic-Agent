@@ -2,6 +2,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { resolveUserPath } from "../os/expand-home.js";
 import { READ_TOOL_TARGETS, SHELL_TOOL, URL_LIKE, VERIFY_TOOL, verifyRunShellCalls } from "./read-scope-targets.js";
 import { shellTokens } from "./read-scope-shell.js";
+import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
 
 /**
  * The absolute paths a tool call reads, for the read taint of per-folder
@@ -19,13 +20,22 @@ import { shellTokens } from "./read-scope-shell.js";
  * still read a constrained folder through a plain relative path from a
  * `cwd` outside it (`cd`, a script), or a computed path; that is not
  * detected.
+ *
+ * `options.lspWrites` says whether the after-edit language servers were
+ * built at boot (`tools.lsp.enabled`); only then can an `os.fs.write`
+ * result quote the project, so only then does a write taint.
  */
 export function readTaintTargets(
   tool: string,
   args: Record<string, unknown>,
   workingDir: string,
+  options: { lspWrites?: boolean } = {},
 ): string[] {
   const raw: string[] = [];
+  if (tool === "os.fs.write") {
+    const path = str(args.path);
+    if (options.lspWrites === true && path !== undefined && serverForPath(path) !== null) raw.push(path);
+  }
   const targetsOf = READ_TOOL_TARGETS.get(tool) ?? TAINT_ONLY_TARGETS.get(tool);
   if (targetsOf !== undefined) raw.push(...targetsOf(args));
   const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
@@ -67,7 +77,8 @@ const repoArg = (args: Record<string, unknown>): string[] => {
  * its checkpoint, an extraction copies an archive's entries out, and
  * the git mutations print the repository's files and history (a push
  * or fetch then sends them: tainting first lets the egress guard see
- * the repository's constraint).
+ * the repository's constraint). `os.fs.write` is handled in
+ * `readTaintTargets`: it taints only when language servers exist.
  */
 const TAINT_ONLY_TARGETS: ReadonlyMap<string, (args: Record<string, unknown>) => string[]> = new Map([
   ["os.fs.archive.extract", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],

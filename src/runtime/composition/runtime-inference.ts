@@ -5,7 +5,7 @@ import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { RuntimeLocalProfile, RuntimeConnectedLocalProfile } from "./runtime-local-profile.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
-import { ProviderRegistry, resolveLlmConfig, type LlmProvider } from "../../llm/provider/index.js";
+import { ProviderRegistry, resolveLlmConfig, type LlmProvider, type LlmProviderConfigEntry } from "../../llm/provider/index.js";
 import { hasProjectConstraints } from "../../llm/provider-policy.js";
 import { resolveActiveToolTransport } from "../../llm/provider/registry/resolve-tool-transport.js";
 import { modelWantsStrictTools } from "../../llm/provider/model-strict-tools.js";
@@ -325,6 +325,29 @@ export function createRuntimeModelContext(
 
 export type RuntimeModelContext = ReturnType<typeof createRuntimeModelContext>;
 
+/**
+ * A catalogue window, or null for none: `source === "default"` is the
+ * nominal 128k placeholder, not a fact about the model (see
+ * `resolveCatalogContextWindow`).
+ */
+export function catalogWindowOf(model: ResolvedModel | undefined): number | null {
+  return !model || model.source === "default" || model.contextWindow <= 0 ? null : model.contextWindow;
+}
+
+/**
+ * The model a request is admitted and settled at: the provider's own chat
+ * model, which for a per-turn model copy (ATO-1148) is the turn's model,
+ * never the entry's default. An override model with no verified price
+ * therefore runs metered under a turn cap or daily limit and the scope
+ * says so, the same rule as a snapshot-priced preset.
+ */
+export function budgetPricingModelId(
+  provider: Pick<LlmProvider, "chatModelId">,
+  entry: Pick<LlmProviderConfigEntry, "defaultChatModel" | "model"> | undefined,
+): string | null {
+  return provider.chatModelId ?? entry?.defaultChatModel ?? entry?.model ?? null;
+}
+
 export function connectRuntimeFallback(
   options: RuntimeInferenceOptions,
   deps: {
@@ -344,6 +367,8 @@ export function connectRuntimeFallback(
     budgetNotices?: RequestBudgetNotices;
     /** Per-folder provider constraints at the seam (issue #33). */
     providerPolicy?: FallbackSeamDeps["providerPolicy"];
+    /** Builds a pinned provider's per-turn model copy (ATO-1148). */
+    providerRegistry?: Pick<ProviderRegistry, "modelVariant">;
   },
 ) {
   const {
@@ -546,10 +571,19 @@ export function connectRuntimeFallback(
 
   const fallbackSeamDeps: FallbackSeamDeps = {
     fallbackChain,
-    resolveSlice: (providerId) => {
+    resolveSlice: (providerId, model) => {
       const { provider, transport, isLlamaServer } = resolveActiveLlmSlice(providerId);
-      return { provider, transport, contextWindow: (isLlamaServer ? profileManager?.getProfile().contextWindow : undefined)
+      const slice = { provider, transport, contextWindow: (isLlamaServer ? profileManager?.getProfile().contextWindow : undefined)
         ?? deps.resolveCatalogContextWindow?.(providerId) ?? null };
+      if (model === undefined || isLlamaServer || !deps.providerRegistry) return slice;
+      // ATO-1148: a turn on a project's own cloud model asks the pinned
+      // provider's copy built for that model; the config and the active
+      // provider stay as they are. The window is that model's, not the
+      // entry's default model's.
+      return deps.providerRegistry.modelVariant(providerId, model).then((variant) => {
+        if (!variant) throw new Error(`cannot run llm provider "${providerId}" on model "${model}"`);
+        return { provider: variant, transport, contextWindow: catalogWindowOf(resolveModelPricing(model, providerId)) };
+      });
     },
     // Issue #112. The one place that knows a cloud→local fallover is
     // about to happen: the chain has already picked the link and the
@@ -572,7 +606,7 @@ export function connectRuntimeFallback(
         if (!turnLimited && dailyBudget === undefined) return undefined;
         const entry = resolveLlmConfig(getConfig()).providers.find(p => p.id === providerId);
         return observeScope(providerId, request, createRequestBudgetScope(deps.turnBudget, request, provider, entry,
-          resolveModelPricing(provider.chatModelId ?? entry?.defaultChatModel ?? entry?.model ?? null, providerId),
+          resolveModelPricing(budgetPricingModelId(provider, entry), providerId),
           dailyBudget));
       },
     } satisfies Pick<FallbackSeamDeps, "requestBudget">),

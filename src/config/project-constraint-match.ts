@@ -177,6 +177,32 @@ function formsOf(path: string, options: Required<ConstraintMatchOptions>): strin
 }
 
 /**
+ * Whether a `projects.constraints` folder lies strictly inside `dir`
+ * (lexically or through real paths, like `resolveProjectConstraint`).
+ * A tool that reads a whole tree from `dir` — a language server for a
+ * repository (ATO-503) — would read that folder too, while the read
+ * taint only sees `dir`, which no such entry covers.
+ */
+export function hasConstrainedFolderInside(
+  config: ConstraintSource,
+  dir: string,
+  options: ConstraintMatchOptions = {},
+): boolean {
+  const constraints = config.projects.constraints;
+  if (constraints === undefined) return false;
+  const opts: Required<ConstraintMatchOptions> = {
+    platform: options.platform ?? process.platform,
+    realpath: options.realpath ?? defaultRealpath,
+  };
+  const dirForms = formsOf(dir, opts);
+  return Object.keys(constraints).some((key) =>
+    formsOf(key, opts).some((entry) =>
+      dirForms.some((d) => d !== entry && contains(d, entry, opts.platform)),
+    ),
+  );
+}
+
+/**
  * The policy for a session working in `workingDir`, or `undefined` when
  * no `projects.constraints` entry covers it.
  *

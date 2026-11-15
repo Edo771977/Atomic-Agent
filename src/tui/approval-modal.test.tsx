@@ -41,6 +41,13 @@ function frameOf(
 }
 
 describe("ApprovalModal", () => {
+  it("shows the outside-content warning on an ask_user question", () => {
+    const question = { prompt: "Which one?", options: [{ label: "a" }, { label: "b" }], multiSelect: false, allowOther: false };
+    const warned = frameOf(request({ tool: "ask_user", category: "user_question", question, riskNote: "read outside content this turn (a web page); careful" }));
+    expect(warned).toContain("read outside content this turn (a web page)");
+    expect(frameOf(request({ tool: "ask_user", category: "user_question", question }))).not.toContain("outside content");
+  });
+
   it("renders the request and the decision buttons", () => {
     const frame = frameOf(request());
     expect(frame).toContain("approval required");

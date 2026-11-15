@@ -83,6 +83,17 @@ describe("runtime lifecycle ownership", () => {
     expect(events.indexOf("approvalPending.dispose")).toBeLessThan(events.indexOf("telegram.stop"));
   });
 
+  it("stops the language servers beside the shell jobs", async () => {
+    const events: string[] = [];
+    const { resources } = fixture(events);
+    const lifecycle = createRuntimeLifecycle({
+      ...resources,
+      languageServers: { dispose: () => { events.push("lsp.dispose"); } },
+    });
+    await lifecycle.shutdown();
+    expect(events.indexOf("lsp.dispose")).toBe(events.indexOf("shell.endAll") + 1);
+  });
+
   it("aborts an in-flight prompt enhance on shutdown", async () => {
     const events: string[] = [];
     const { resources } = fixture(events);

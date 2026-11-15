@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
-import { createRuntimeDispatchGuard, createRuntimeEgressGuard, mcpEgressClass } from "./runtime-egress-guard.js";
+import { createRuntimeDispatchGuard, createRuntimeEgressGuard, isFusionWorkerTurn, mcpEgressClass } from "./runtime-egress-guard.js";
 
 const servers: Record<string, { kind: "stdio" | "streamable_http" | "sse"; tools: string[] }> = {
   files: { kind: "stdio", tools: ["mcp.files.read"] },
@@ -48,5 +48,15 @@ describe("runtime egress guard (issue #33)", () => {
     expect(inWorker).toBeNull();
     const otherSession = runWithProviderPolicy(policy, () => guard("os.fs.write", { path: "a" }, { sessionId: "s2", workingDir: copy }), { role: "a fusion worker", sessionId: "w" });
     expect(otherSession).not.toBeNull();
+  });
+});
+
+describe("isFusionWorkerTurn (the LSP skip for workers, ATO-503)", () => {
+  it("is true only inside that worker's own turn", () => {
+    const policy = makeProviderPolicy({ key: "/p", allowedProviders: ["a"], matchedDir: "/p" });
+    expect(isFusionWorkerTurn("w")).toBe(false);
+    expect(runWithProviderPolicy(policy, () => isFusionWorkerTurn("w"), { role: "a fusion worker", sessionId: "w" })).toBe(true);
+    expect(runWithProviderPolicy(policy, () => isFusionWorkerTurn("s2"), { role: "a fusion worker", sessionId: "w" })).toBe(false);
+    expect(runWithProviderPolicy(policy, () => isFusionWorkerTurn("w"), { role: "the main model", sessionId: "w" })).toBe(false);
   });
 });

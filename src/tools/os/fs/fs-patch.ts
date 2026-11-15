@@ -1,3 +1,4 @@
+import { sessionReadRoots } from "../../read-scope/index.js";
 import { OS_FS_PATCH_CONTRACT } from "./fs-patch-contract.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { refuseMaskedSecretWrite } from "./fs-masked-secret-guard.js";
@@ -10,7 +11,8 @@ import {
 } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import { checkChangedFile } from "./fs-content-check.js";
-import { withParseWarning } from "./fs-parse-check.js";
+import { displayPath, withParseWarning } from "./fs-parse-check.js";
+import { joinWarnings } from "./lsp/index.js";
 import { dryRunFile, type PreviewOutcome } from "./fs-patch-preview.js";
 import {
   changedSinceRead,
@@ -145,10 +147,23 @@ export function buildOsFsPatchTool(
         await writeFile(outcome.absolute, patched, "utf8");
         await recordOwnWrite(ctx.fileVersions, outcome.absolute);
         guards.push(await guardAfterPatch(options, ctx, outcome, patched));
-        const warning = parseWarningAfterPatch(
-          outcome,
-          patched,
-          ctx.workingDir,
+        const original = outcome.originalContent ?? "";
+        const lspWarning =
+          patched.length === 0
+            ? null
+            : ((await options.lspDiagnostics?.diagnoseChange({
+                absolute: outcome.absolute,
+                display: displayPath(outcome.absolute, ctx.workingDir),
+                change: "patch",
+                after: patched,
+                sessionId: ctx.sessionId,
+                signal: ctx.signal,
+                scopeRoots: sessionReadRoots(ctx),
+                ...(original.length > 0 ? { before: original } : {}),
+              })) ?? null);
+        const warning = joinWarnings(
+          parseWarningAfterPatch(outcome, patched, ctx.workingDir),
+          lspWarning,
         );
         if (warning !== null) parseWarnings.push(warning);
       }

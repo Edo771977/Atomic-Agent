@@ -156,6 +156,55 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.loop.runTurn.mock.calls[1]?.[1]).not.toHaveProperty("taskMaxSteps");
   });
 
+  it("hides ask_user from desktop turns and keeps it for the TUI, the CLI and Telegram (ATO-489)", async () => {
+    const optionsFor = async (id: string, extra: Parameters<typeof fixture.service.executeTurn>[2]) => {
+      await fixture.service.executeTurn(session(id), "request", extra);
+      return fixture.loop.runTurn.mock.calls.at(-1)?.[1];
+    };
+    // The desktop: the sidecar, and an HTTP extensions client without the flag.
+    for (const [id, extra] of [
+      ["sidecar", { origin: "sidecar" as const }],
+      ["desktop-http", { origin: "http" as const, answerChannel: "desktop" as const }],
+      ["plain-http", { origin: "http" as const }],
+    ] as const) {
+      const filter = (await optionsFor(id, extra))?.toolFilter;
+      expect(filter, id).toBeDefined();
+      expect(filter!("ask_user"), id).toBe(false);
+      expect(filter!("fs.read"), id).toBe(true);
+    }
+    // Surfaces that draw the question card get no filter at all.
+    for (const [id, extra] of [
+      ["tui", { origin: "tui" as const }],
+      ["telegram", { origin: "telegram" as const }],
+      ["cli", {}],
+      ["declared", { origin: "http" as const, answerChannel: "desktop" as const, questions: true }],
+    ] as const) {
+      expect(await optionsFor(id, extra), id).not.toHaveProperty("toolFilter");
+    }
+    // A caller's own filter still applies on a desktop turn.
+    const own = await optionsFor("own", { origin: "sidecar", toolFilter: (name) => name !== "fs.write" });
+    expect(own?.toolFilter?.("fs.write")).toBe(false);
+    expect(own?.toolFilter?.("ask_user")).toBe(false);
+    expect(own?.toolFilter?.("fs.read")).toBe(true);
+  });
+
+  it("records a desktop turn as unable to ask for the length of the turn only (ATO-489)", async () => {
+    const turnsWithoutQuestions = new Set<string>();
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      sessions: { ...fixture.deps.sessions, turnsWithoutQuestions },
+    });
+    const seen: boolean[] = [];
+    fixture.loop.runTurn.mockImplementation(async (value: SessionState, options: RunTurnOptions) => {
+      seen.push(turnsWithoutQuestions.has(value.id));
+      return result(value, options);
+    });
+    await service.executeTurn(session("desk"), "request", { origin: "sidecar" });
+    await service.executeTurn(session("term"), "request", { origin: "tui" });
+    expect(seen).toEqual([true, false]);
+    expect(turnsWithoutQuestions.size).toBe(0);
+  });
+
   it("marks the turn's progress at its start and checkpoints every completed step (ATO-1109)", async () => {
     const begin = vi.spyOn(fixture.sessionStore, "beginTurn");
     fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
@@ -207,6 +256,46 @@ describe("runtime turn ownership recipes", () => {
       .rejects.toThrow('cannot pin turn to llm provider "unknown": not configured');
     expect(enqueue).not.toHaveBeenCalled();
     expect(fixture.events).toEqual([]);
+  });
+
+  it("a turn on a project's own cloud model runs pinned to it and leaves the active provider and config alone (ATO-1148)", async () => {
+    const local = resolveLlmConfig(fixture.config).providers[0]!;
+    fixture.config.llm = {
+      activeTextProvider: "local-llama",
+      activeEmbeddingProvider: "local-llama-embed",
+      toolTransport: "auto",
+      providers: [
+        local,
+        { id: "cloud", kind: "openai-compatible", baseUrl: "https://api.example.invalid/v1", apiKey: "k", defaultChatModel: "default-model",
+          userModels: [{ id: "project-model" }] },
+      ],
+    } as never;
+    const registry = fixture.providers.providerRegistry;
+    await registry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
+    const swap = vi.spyOn(registry, "swapActive");
+
+    const output = await fixture.service.runTurn(session(), "request", { providerId: "cloud", model: "project-model" });
+
+    const options = fixture.loop.runTurn.mock.calls[0]?.[1];
+    expect(options).toMatchObject({ providerId: "cloud", model: "project-model" });
+    // Marked per-turn: resuming the session must not adopt it as the
+    // global default (planModelRestore skips per-turn stamps).
+    expect(output.session.metadata?.llm).toEqual({ providerId: "cloud", chatModel: "project-model", perTurn: true });
+    expect(output.session.metadata?.llmRoute).toMatchObject({ main: { providerId: "cloud", model: "project-model" } });
+    expect(swap).not.toHaveBeenCalled();
+    expect(registry.activeTextProviderId).toBe("local-llama");
+    expect(resolveLlmConfig(fixture.config).activeTextProvider).toBe("local-llama");
+    expect(resolveLlmConfig(fixture.config).providers.find((p) => p.id === "cloud")?.defaultChatModel).toBe("default-model");
+  });
+
+  it("a per-turn model is refused before enqueue on a local provider or without a provider (ATO-1148)", async () => {
+    const enqueue = vi.spyOn(fixture.turnController, "enqueue");
+    await expect(fixture.service.runTurn(session(), "request", { providerId: "local-llama", model: "other.gguf" }))
+      .rejects.toThrow(/local model, which is shared by all projects/);
+    await expect(fixture.service.runTurn(session(), "request", { model: "some-model" }))
+      .rejects.toThrow(/needs the provider it runs on/);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
   });
 
   it("same-session queued callbacks load state when they acquire the lock", async () => {

@@ -256,6 +256,10 @@ export interface RuntimeMemoryConfig {
 
 export interface UserMemoryConfig {
   profile: {
+    /**
+     * Keep a profile of durable facts about the user and render it into the
+     * prompt as `### profile`.
+     */
     enabled: boolean;
     maxTokens: number;
     contextualKeywordGate: boolean;
@@ -263,6 +267,10 @@ export interface UserMemoryConfig {
     maxEntries: number;
   };
   reflection: {
+    /**
+     * After each turn, distil durable facts and notes from the exchange in a
+     * background model call.
+     */
     enabled: boolean;
     timeoutMs: number;
     maxFactsPerCall: number;
@@ -310,6 +318,11 @@ export interface UserMemoryConfig {
      */
     anySpeaker: boolean;
     segmentation: {
+      /**
+       * Collect several exchanges and reflect on them every
+       * `triggerEveryTurns` turns instead of after every turn. Default
+       * `false`.
+       */
       enabled: boolean;
       /**
        * Trigger reflection every N turns. Must be a positive
@@ -328,6 +341,7 @@ export interface UserMemoryConfig {
     };
   };
   notes: {
+    /** The notes store the agent reads and writes with the memory tools. */
     enabled: boolean;
     maxEntries: number;
     maxContentChars: number;
@@ -335,12 +349,20 @@ export interface UserMemoryConfig {
     reconcile: boolean;
   };
   recallInjection: {
+    /**
+     * Before each turn, recall the notes most relevant to the user message
+     * and show them as `### recalled` in the prompt.
+     */
     enabled: boolean;
     k: number;
     previewChars: number;
     maxTokens: number;
   };
   index: {
+    /**
+     * Show compact pointers to the most recent notes as `### memory-index` in
+     * the prompt.
+     */
     enabled: boolean;
     limit: number;
     previewChars: number;
@@ -351,7 +373,15 @@ export interface UserMemoryConfig {
    * older files transparently upgraded with the defaults below.
    */
   dedup: {
+    /**
+     * Before a note is stored, merge it into a near-identical existing note
+     * instead of adding a copy.
+     */
     enabled: boolean;
+    /**
+     * Similarity (0 to 1) above which a new note counts as a copy of an
+     * existing one. Higher is stricter.
+     */
     fts5Threshold: number;
   };
   /**
@@ -359,7 +389,15 @@ export interface UserMemoryConfig {
    * config v11.
    */
   eviction: {
+    /**
+     * When the notes store overflows, evict the least recalled notes first
+     * instead of the oldest.
+     */
     utilityWeighted: boolean;
+    /**
+     * Age in ms past which the consolidator's sweep may drop an unused note.
+     * Default 30 days.
+     */
     maxAgeMs: number;
   };
   /**
@@ -369,9 +407,25 @@ export interface UserMemoryConfig {
    * available.
    */
   embeddings: {
+    /**
+     * Hybrid recall: rank notes by keyword match and embedding similarity
+     * together. Needs an embedding model; default `false`.
+     */
     enabled: boolean;
+    /**
+     * Weight of the keyword score in hybrid recall; with `vectorWeight` it
+     * should sum to about 1.
+     */
     fts5Weight: number;
+    /**
+     * Weight of the embedding similarity in hybrid recall; with `fts5Weight`
+     * it should sum to about 1.
+     */
     vectorWeight: number;
+    /**
+     * Most note vectors one recall compares; above it the newest ones and the
+     * keyword hits are scanned.
+     */
     bruteForceCeiling: number;
     /**
      * Embed, in the background, the notes that have no vector for the
@@ -516,12 +570,25 @@ export interface UserMemoryConfig {
     deprecationAgeMs: number;
   };
   consolidation: {
+    /**
+     * Run the background consolidator that distils lessons and procedures
+     * from past episodes.
+     */
     enabled: boolean;
+    /** Pause between consolidator runs, in ms. Default 6 hours. */
     intervalMs: number;
+    /**
+     * Episodes younger than this are not consolidated yet, in ms. Default 24
+     * hours.
+     */
     cooldownMs: number;
+    /** Fewest related episodes the consolidator distils into a lesson. */
     minClusterSize: number;
+    /** Most clusters one consolidator run distils. */
     maxClustersPerTick: number;
+    /** Only cluster episodes that share at least one tag. */
     requireSharedTag: boolean;
+    /** Timeout of the model call that distils one cluster, in ms. */
     distillTimeoutMs: number;
   };
   /**
@@ -603,12 +670,27 @@ export interface UserMemoryConfig {
    */
   retrieve: {
     rewriter: {
+      /**
+       * Rewrite a referential message ("what about that one?") into a self-
+       * contained query before memory recall, with one side model call.
+       */
       enabled: boolean;
+      /** Timeout of one rewrite call, in ms. */
       timeoutMs: number;
+      /** Recent turns the rewriter sees. */
       historyTurns: number;
+      /**
+       * When to rewrite: `heuristic` (short or pronoun-heavy messages),
+       * `embedding` (similarity to referential phrases) or `always`.
+       */
       gateMode: RewriterGateMode;
       embeddingGate: {
+        /** Similarity floor for a rewrite when `gateMode` is `embedding`. */
         threshold: number;
+        /**
+         * Referential phrases the `embedding` gate compares with. `null`: the
+         * built-in set.
+         */
         exemplars: string[] | null;
       };
     };

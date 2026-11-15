@@ -84,6 +84,7 @@ const TOOL_RESOURCE_CLASS: Record<string, ResourceClass> = {
   "browser.tabs": "browser",
   "browser.scroll": "browser",
   "browser.screenshot": "browser",
+  "browser.debug": "browser",
 
   // os.shell.* — always approval-gated when approvals are on
   "os.shell.run": "approval_gated",
@@ -182,6 +183,8 @@ const TOOL_RESOURCE_CLASS: Record<string, ResourceClass> = {
   // The live plan (ATO-486): writes only the session's own record, so it
   // batches with anything; the step commit applies results in order.
   "plan.update": "pure_read",
+  // ATO-489: waits for the person like an approval, so it runs alone.
+  ask_user: "approval_gated",
   "tool.search": "pure_read",
   "skill.run_script": "approval_gated",
 
@@ -409,6 +412,9 @@ const APPROVAL_CATEGORIES_BY_TOOL: Record<string, readonly ApprovalCategory[]> =
  */
 const SOLO_REGARDLESS_OF_APPROVAL: ReadonlySet<string> = new Set([
   "fusion.delegate",
+  // Waits for a person's answer at every approval level; it has no
+  // category on purpose, so no level runs it unattended.
+  "ask_user",
 ]);
 
 /**

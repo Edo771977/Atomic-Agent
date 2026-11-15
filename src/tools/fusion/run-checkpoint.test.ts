@@ -379,7 +379,7 @@ describe("toolHasSideEffects", () => {
     }
   });
   it("treats commands, pushes, requests and MCP tools as side effects", () => {
-    for (const tool of ["os.shell.run", "os.git.push", "os.http.request", "os.email.send", "mcp.linear.save_issue", "image.generate"]) {
+    for (const tool of ["os.shell.run", "os.git.push", "os.http.request", "os.email.send", "mcp.linear.save_issue", "image.generate", "browser.debug"]) {
       expect(toolHasSideEffects(tool)).toBe(true);
     }
   });

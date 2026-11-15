@@ -23,8 +23,9 @@ import { createRuntimeObservability } from "./composition/runtime-observability.
 import { createRuntimeTraces } from "./composition/runtime-traces.js";
 import { createRuntimeFusionOutcomes } from "./composition/runtime-fusion-outcomes.js";
 import { prepareRuntimeLocalProfile, connectRuntimeLocalProfile } from "./composition/runtime-local-profile.js";
-import { connectRuntimeProviders, createRuntimeModelContext, connectRuntimeFallback, createRuntimeProviderReloads } from "./composition/runtime-inference.js";
+import { connectRuntimeProviders, createRuntimeModelContext, connectRuntimeFallback, createRuntimeProviderReloads, catalogWindowOf } from "./composition/runtime-inference.js";
 import { RequestBudgetNotices } from "./request-budget-notices.js";
+import { modelWantsStrictTools } from "../llm/provider/model-strict-tools.js";
 import { createRuntimeMemoryStores } from "./composition/runtime-memory-stores.js";
 import { createMemoryEmbeddingSwitch } from "./composition/runtime-memory-embedding-switch.js";
 import { createRuntimeMemoryServices, createRuntimeMemoryConsolidator } from "./composition/runtime-memory-services.js";
@@ -384,6 +385,9 @@ export async function createAgentRuntime(
   // narrows the session's provider policy at dispatch.
   const sessionReadTaint = createSessionReadTaint({
     readConfig: () => getConfig(),
+    // The same boot config and test `registerOsTools` builds the
+    // language servers from: a write taints only when they exist.
+    lspWrites: config.tools.lsp?.enabled === true,
     patchStoredSession: (id, patch) => {
       const stored = sessionStore.load(id);
       if (stored === null) return;
@@ -423,13 +427,19 @@ export async function createAgentRuntime(
   // "Replace sales.csv?" replaces that file (ATO-860). Kept beside
   // `turnRequests`, set and cleared with it.
   const turnPreviousReplies = new Map<string, string>();
+  // Sessions whose running turn is on a surface with no question card
+  // (the desktop until ATO-1502): `ask_user` answers there at once
+  // instead of raising a question nobody can answer (ATO-489). Set and
+  // cleared by `executeTurn` with the two maps above.
+  const turnsWithoutQuestions = new Set<string>();
   // The files a fan-out's contract declared as inputs, per worker
   // session: the worker runner declares them, `os.fs.write` refuses to
   // replace them (`fs-declared-inputs.ts`).
   const declaredInputs = new DeclaredInputsRegistry();
-  registerRuntimeCoreTools({
+  const { languageServers } = registerRuntimeCoreTools({
     config, toolRegistry, dangerous, sessionStore, logger, resolveOriginalRequest: (id) => turnRequests.get(id),
     resolvePreviousReply: (id) => turnPreviousReplies.get(id),
+    canAskUser: (id) => !turnsWithoutQuestions.has(id),
     declaredInputs, shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore,
     // Only the terminal UI has an `/integrations` screen that saves an Exa
     // key into this process; every other entry point keeps the desktop /
@@ -545,6 +555,7 @@ export async function createAgentRuntime(
     costAccumulator, turnUsageMeter, sessionUsage, dailySpend, resolveModelPricing, resolveCatalogContextWindow,
     turnBudget: fusionTurnBudget, budgetNotices,
     providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
+    providerRegistry,
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
@@ -748,15 +759,22 @@ export async function createAgentRuntime(
     // way compaction prices its own: cache-aware, unpriced (local) = $0.
     priceCompletion: (result: CompletionResult, providerId: string | undefined) =>
       compactionCost(result, providerId ?? providerRegistry.activeText.id),
-    resolveLlmSlice: (providerId: string) => {
+    resolveLlmSlice: (providerId: string, model?: string) => {
       const slice = resolveActiveLlmSlice(providerId);
+      // A per-turn cloud model (ATO-1148) is sized and flagged as that
+      // model, not the entry's default one.
+      const turnModel = model !== undefined && !slice.isLlamaServer ? model : undefined;
       return {
-        contextWindow: resolveCatalogContextWindow(providerId),
+        contextWindow: turnModel === undefined
+          ? resolveCatalogContextWindow(providerId)
+          : catalogWindowOf(resolveModelPricing(turnModel, providerId)),
         toolTransport: slice.transport,
         toolCallAdapter: slice.adapter,
         supportsSlotAffinity: slice.slotAffinity,
         supportsParallelTools: slice.parallelTools,
-        strictTools: slice.strictTools,
+        strictTools: turnModel === undefined
+          ? slice.strictTools
+          : modelWantsStrictTools(resolveLlmConfig(getConfig()), providerId, turnModel),
         isLlamaServer: slice.isLlamaServer,
       };
     },
@@ -889,6 +907,7 @@ export async function createAgentRuntime(
     sessionStore, logger, steeringInbox, shellJobs, reflectionRunner, pendingSessionNamings, pendingPromptEnhances, turnsInFlight, compaction,
     browserBackend, mcpManager, profileStore, notesStore, lessonStore, procedureStore,
     embeddingBackfill: memoryEmbeddings,
+    ...(languageServers === undefined ? {} : { languageServers }),
     get scheduler() { return scheduler; },
     get taskRunner() { return taskRunner; },
     get telegramChannelForShutdown() { return telegramChannelForShutdown; },
@@ -922,7 +941,7 @@ export async function createAgentRuntime(
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
-    sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
+    sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies, turnsWithoutQuestions },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
     inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },

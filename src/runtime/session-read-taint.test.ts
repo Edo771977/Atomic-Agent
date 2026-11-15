@@ -20,7 +20,7 @@ describe("session read taint", () => {
     root = undefined;
   });
 
-  function setup() {
+  function setup(opts: { lspWrites?: boolean } = {}) {
     root = mkdtempSync(join(tmpdir(), "pc-read-taint-"));
     const secret = join(root, "secret");
     const finance = join(root, "finance");
@@ -38,6 +38,7 @@ describe("session read taint", () => {
     const stored = new Map<string, { workingDir: string; metadata?: Record<string, unknown> }>();
     const taint = createSessionReadTaint({
       readConfig: () => config,
+      ...(opts.lspWrites === undefined ? {} : { lspWrites: opts.lspWrites }),
       patchStoredSession: (id, patch) => {
         const s = stored.get(id);
         if (s) s.metadata = patch(s.metadata ?? {});
@@ -159,5 +160,12 @@ describe("session read taint", () => {
       t.taint.noteDispatch("os.fs.read", { path: join(t.secret, "a.md") }, ctx("s-6", t.open)));
     expect(applied).toBeUndefined();
     expect(makeProviderPolicy({ key: "k", allowedProviders: [], matchedDir: "" }).readFrom).toBeUndefined();
+  });
+  it("a write of a diagnosed file taints only when the language servers were built at boot", () => {
+    const off = setup();
+    expect(off.taint.noteDispatch("os.fs.write", { path: join(off.secret, "a.ts"), content: "x" }, { sessionId: "w-off", workingDir: off.open })).toBeUndefined();
+    rmSync(root!, { recursive: true, force: true });
+    const on = setup({ lspWrites: true });
+    expect(on.taint.noteDispatch("os.fs.write", { path: join(on.secret, "a.ts"), content: "x" }, { sessionId: "w-on", workingDir: on.open })?.key).toBe(on.secret);
   });
 });

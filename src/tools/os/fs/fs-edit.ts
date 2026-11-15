@@ -1,3 +1,4 @@
+import { sessionReadRoots } from "../../read-scope/index.js";
 import { OS_FS_EDIT_CONTRACT, parseEditArgs as parseArgs } from "./fs-edit-contract.js";
 import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -24,7 +25,8 @@ import {
   type TolerantEdit,
 } from "./fs-edit-tolerant.js";
 import { refuseMaskedSecretWrite } from "./fs-masked-secret-guard.js";
-import { withParseWarning } from "./fs-parse-check.js";
+import { displayPath, withParseWarning } from "./fs-parse-check.js";
+import { joinWarnings } from "./lsp/index.js";
 import {
   guardReplacedFile,
   priorFromText,
@@ -154,6 +156,17 @@ async function editFile(
     after: updated,
     replacedOccurrences,
   });
+  const lspWarning =
+    (await options.lspDiagnostics?.diagnoseChange({
+      absolute,
+      display: displayPath(absolute, ctx.workingDir),
+      change: "edit",
+      before: original,
+      after: updated,
+      sessionId: ctx.sessionId,
+      signal: ctx.signal,
+      scopeRoots: sessionReadRoots(ctx),
+    })) ?? null;
 
   return withReplaceNotes(
     withParseWarning(
@@ -186,7 +199,7 @@ async function editFile(
         ),
         loose,
       ),
-      parseWarning,
+      joinWarnings(parseWarning, lspWarning),
     ),
     [guard],
   );

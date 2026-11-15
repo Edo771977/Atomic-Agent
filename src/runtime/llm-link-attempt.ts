@@ -39,7 +39,12 @@ export interface ResolvedLinkSlice {
  * path without either knowing about the other.
  */
 export interface LinkAttemptDeps {
-  resolveSlice: (providerId: string) => ResolvedLinkSlice;
+  /**
+   * `model`: the pinned link's per-turn chat model (ATO-1148,
+   * `LlmStreamParams.model`); the slice then carries that model's copy
+   * of the provider, which may have to be built first.
+   */
+  resolveSlice: (providerId: string, model?: string) => ResolvedLinkSlice | Promise<ResolvedLinkSlice>;
   prepareLink?: (providerId: string) => Promise<void>;
   requestBudget?: (providerId: string, request: CompletionRequest, provider: LlmProvider) => RequestBudgetScope | undefined;
   /** Absent: no folder is ever constrained at this seam (test rigs). */
@@ -169,7 +174,7 @@ export async function completeOnLink(
 ): Promise<{ result: CompletionResult; transport: ToolCallTransport }> {
   checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
-  const { provider, transport, contextWindow } = deps.resolveSlice(providerId);
+  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(params, providerId));
   checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
@@ -221,7 +226,7 @@ export async function openStreamOnLink(
 }> {
   checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
-  const { provider, transport, contextWindow } = deps.resolveSlice(providerId);
+  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(params, providerId));
   checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
@@ -276,6 +281,14 @@ export async function openStreamOnLink(
   }
   const stream = scope === undefined ? provider.completeStream(request) : budgetedStream();
   return { primed: await primeStream(stream), transport };
+}
+
+/**
+ * The per-turn model, for the pinned link only: a pinned request never
+ * reaches another link, and a chain-picked one carries no model.
+ */
+function linkModel(params: LlmStreamParams, providerId: string): string | undefined {
+  return params.model !== undefined && params.providerId === providerId ? params.model : undefined;
 }
 
 function prepareParams(params: LlmStreamParams, providerId: string, transport: ToolCallTransport, contextWindow?: number | null): LlmStreamParams {

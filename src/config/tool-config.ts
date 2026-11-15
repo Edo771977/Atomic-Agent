@@ -13,7 +13,22 @@ import { parseStringArrayOrNull } from "./config-values.js";
  * that may receive its content and the egress classes its tools may use
  * (`allowedEgress`, absent = none; see `EGRESS_CLASSES`).
  */
-export type ProjectConstraintsConfig = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
+export type ProjectConstraintsConfig = Record<string, ProjectConstraintEntry>;
+
+/** One folder's entry in `projects.constraints`. */
+export interface ProjectConstraintEntry {
+  /**
+   * Provider ids that may receive a request carrying content of a session
+   * working in or under this folder. An empty list lets no provider serve it.
+   */
+  allowedProviders: string[];
+  /**
+   * Egress classes the folder's tools may use to send content off the
+   * machine (`web`, `http`, `browser`, `github`, `git`, `channels`, `mail`,
+   * `composio`, `serve`, `mcp:<server>`). Absent or empty: none.
+   */
+  allowedEgress?: string[];
+}
 
 export interface RuntimeProjectsConfig {
   roots: string[];
@@ -21,7 +36,16 @@ export interface RuntimeProjectsConfig {
 }
 
 export interface UserProjectsConfig {
+  /**
+   * Folders whose direct children are your projects; the agent matches
+   * project names against them. Empty: nothing is scanned.
+   */
   roots: string[];
+  /**
+   * Absolute folder → which providers may receive a session's content while
+   * it works in or under that folder, and which egress its tools may use.
+   * Empty: nothing is constrained.
+   */
   constraints: ProjectConstraintsConfig;
 }
 
@@ -81,6 +105,12 @@ export interface RuntimeToolsConfig {
     /** Independent byte ceiling for Fusion's private Git object imports. */
     maxGitObjectBytes?: number;
   };
+  /**
+   * After-edit language-server diagnostics. Mirrors `UserToolsConfig.lsp`;
+   * optional so hand-built configs (embedders, tests) need not name it,
+   * and absent reads as off.
+   */
+  lsp?: { enabled: boolean };
 }
 
 export interface UserToolsConfig {
@@ -150,6 +180,20 @@ export interface UserToolsConfig {
     /** Fusion Git metadata inspection/import ceiling, independent of payload copies. Default 2 GiB, maximum 1 TiB. */
     maxGitObjectBytes?: number;
   };
+  lsp: {
+    /**
+     * After-edit diagnostics from language servers (ATO-503): after
+     * `os.fs.write` / `edit` / `patch` change a TypeScript, JavaScript
+     * or Python file inside a git repository, the result lists the
+     * compiler and type errors the change added. Uses only
+     * `typescript-language-server` / `pyright-langserver` already on
+     * PATH (never installs one), started on the first such edit. Default
+     * `false`: each server costs memory and start-up time next to a
+     * local model, and it runs the project's own toolchain. Read at
+     * start.
+     */
+    enabled: boolean;
+  };
 }
 
 /** `tools.verify.maxCopyBytes` default; the one definition (`VERIFY_COPY_MAX_BYTES` re-exports it). */
@@ -183,20 +227,24 @@ export function createToolsDefaults(): UserToolsConfig {
     // Pointing only draws, so it is on; clicking and typing stay off.
     screen: { enabled: false, point: true },
     verify: { maxCopyBytes: DEFAULT_VERIFY_MAX_COPY_BYTES, maxGitObjectBytes: DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES },
+    // Off until asked for: a language server per repository is memory
+    // and start-up time a small machine running a local model may lack.
+    lsp: { enabled: false },
   };
 }
 
 /**
  * `raw` is the `tools.shell` block (the historical signature);
  * `rawScreen` the `tools.screen` block, `rawVerify` the `tools.verify`
- * block. A file without them takes the defaults — both are unversioned
- * and additive.
+ * block, `rawLsp` the `tools.lsp` one. A file without them takes the
+ * defaults — all are unversioned and additive.
  */
 export function parseToolsConfig(
   raw: Record<string, unknown>,
   readDefaults: () => UserToolsConfig,
   rawScreen: Record<string, unknown> = {},
   rawVerify: Record<string, unknown> = {},
+  rawLsp: Record<string, unknown> = {},
 ): UserToolsConfig {
   return {
     shell: {
@@ -245,6 +293,12 @@ export function parseToolsConfig(
       maxGitObjectBytes: parseBoundedPositiveInt(
         rawVerify.maxGitObjectBytes ?? readDefaults().verify.maxGitObjectBytes ?? DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES,
         "tools.verify.maxGitObjectBytes", 1, MAX_VERIFY_MAX_COPY_BYTES,
+      ),
+    },
+    lsp: {
+      enabled: parseBool(
+        rawLsp.enabled ?? readDefaults().lsp.enabled,
+        "tools.lsp.enabled",
       ),
     },
   };

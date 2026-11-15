@@ -24,10 +24,21 @@ export interface RuntimeHttpConfig {
 }
 
 export interface UserHttpConfig {
+  /** Register the `os.http.request` tool. */
   enabled: boolean;
+  /**
+   * When `os.http.request` asks for approval: `never`; `writes` (a GET skips
+   * the gate, a POST asks); `always` (every call goes through the gate).
+   */
   approvalMode: HttpApprovalMode;
+  /**
+   * Hosts `os.http.request` may call (`*.example.com` matches subdomains).
+   * `null`: any host.
+   */
   hostAllowlist: string[] | null;
+  /** Largest response body `os.http.request` reads, in bytes. */
   maxResponseBytes: number;
+  /** Timeout of one `os.http.request` call that sets none, in ms. */
   defaultTimeoutMs: number;
 }
 

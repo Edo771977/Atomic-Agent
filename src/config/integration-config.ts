@@ -86,6 +86,10 @@ export type ApprovalPendingNotifyChannel = "telegram" | "discord" | "auto";
 export const APPROVAL_PENDING_MAX_MINUTES = 1440;
 
 export interface ApprovalPendingNotifyConfig {
+  /**
+   * Ping the operator on Telegram or Discord when an approval prompt has
+   * waited `afterMinutes` without an answer. Default `false`.
+   */
   enabled: boolean;
   /** Whole minutes a prompt waits before the ping, 1 to 1440. */
   afterMinutes: number;

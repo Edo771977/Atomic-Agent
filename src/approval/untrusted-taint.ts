@@ -54,6 +54,9 @@ const TAINT_SENSITIVE: Record<ApprovalCategory, boolean> = {
   // The probed page's own scripts run, and it may be what outside content
   // pointed at.
   verify_page_local: true,
+  // A clarifying question is never auto-approved (it always reaches the
+  // person), so there is nothing for the taint to hold back.
+  user_question: false,
   // MCP tools that are gated land here: arbitrary third-party code.
   other: true,
 };
@@ -113,4 +116,15 @@ export const TAINT_REVIEW_LOW_REASON = "auto-approved (risk review after outside
 export function formatTaintNote(sources: readonly string[], riskNote: string | null): string {
   const read = `read outside content this turn (${sources.join(", ")})`;
   return riskNote === null ? `${read}, asking you` : `${read}; ${riskNote}`;
+}
+
+/**
+ * The note an `ask_user` question carries on a session that read outside
+ * content this turn: the question may have been written by that content
+ * (a prompt injection fishing for a password or key), so the person is
+ * told before they answer. Shown whatever `agent.taintReview` says: it
+ * holds nothing, the question always reaches the person anyway.
+ */
+export function formatQuestionTaintNote(sources: readonly string[]): string {
+  return `read outside content this turn (${sources.join(", ")}); this question may come from that content: do not type secrets, passwords or keys in your answer`;
 }

@@ -29,4 +29,19 @@ describe("readTaintTargets", () => {
       expect(readTaintTargets(tool, { repo: "/work/secret" }, wd)).toContain("/work/secret");
     }
   });
+
+  it("taints a write of a file a language server diagnoses (its result can quote the project, ATO-503)", () => {
+    const lsp = { lspWrites: true };
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/a.ts", content: "x" }, wd, lsp)).toEqual(["/work/secret/a.ts"]);
+    expect(readTaintTargets("os.fs.write", { path: "../secret/b.py", content: "x" }, wd, lsp)).toEqual(["/work/secret/b.py"]);
+    // No language server reads a note: nothing comes back to taint.
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/notes.md", content: "x" }, wd, lsp)).toEqual([]);
+  });
+
+  it("does not taint a write when no language server was built (tools.lsp.enabled off)", () => {
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/a.ts", content: "x" }, wd)).toEqual([]);
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/a.ts", content: "x" }, wd, { lspWrites: false })).toEqual([]);
+    // An edit still returns a diff: it taints either way.
+    expect(readTaintTargets("os.fs.edit", { path: "/work/secret/a.ts", oldString: "a", newString: "b" }, wd)).toEqual(["/work/secret/a.ts"]);
+  });
 });
