@@ -3,6 +3,7 @@ import { openaiError } from "./openai-errors.js";
 import { APPROVAL_DECISIONS } from "./route-approval.js";
 import type { AgentRuntime } from "../runtime/runtime-contract.js";
 import { resolveLlmConfig } from "../llm/provider/registry/index.js";
+import { effectiveProviderKind } from "../llm/provider/anthropic/anthropic-route.js";
 import { getConfig } from "../config/index.js";
 import {
   reasoningControlFor,
@@ -31,7 +32,7 @@ export function activeReasoningControl(
       resolveLlmConfig(getConfig()).providers.find((p) => p.id === id);
     const caps = active.capabilities;
     const control = reasoningControlFor({
-      providerKind: entry?.kind,
+      providerKind: entry === undefined ? undefined : effectiveProviderKind(entry),
       baseUrl: entry?.baseUrl,
       modelId: active.chatModelId,
       localThinks: caps.toolTransport === "grammar" && caps.reasoningFormat !== "none",

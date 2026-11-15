@@ -63,7 +63,7 @@ describe("PROVIDER_PRESETS", () => {
     // check, and `anthropic-version` is mandatory on every request.
     expect(findProviderPreset("anthropic")?.apiKeyHeader).toBe("x-api-key");
     expect(findProviderPreset("anthropic")?.headers).toEqual({
-      "anthropic-version": "2023-06-01",
+      "anthropic-version": "2026-10-21",
     });
   });
 
@@ -309,7 +309,7 @@ describe("Anthropic preset — outgoing request headers", () => {
   it("survives the wizard save and the config.json round trip", () => {
     const entry = entryAfterRestart();
     expect(entry.apiKeyHeader).toBe("x-api-key");
-    expect(entry.headers).toEqual({ "anthropic-version": "2023-06-01" });
+    expect(entry.headers).toEqual({ "anthropic-version": "2026-10-21" });
     // The key itself must NOT be in the entry — it stays in the env var
     // so it never lands in a config file.
     expect(entry.apiKeyEnvVar).toBe("ANTHROPIC_API_KEY");
@@ -337,23 +337,19 @@ describe("Anthropic preset — outgoing request headers", () => {
       string
     >;
     expect(headers["x-api-key"]).toBe(KEY);
-    expect(headers["anthropic-version"]).toBe("2023-06-01");
+    expect(headers["anthropic-version"]).toBe("2026-10-21");
     expect(headers.authorization).toBeUndefined();
   });
 
-  it("sends x-api-key and anthropic-version on every chat turn", async () => {
+  it("sends x-api-key and anthropic-version on every chat turn, to the native Messages API", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             model: "claude-opus-4-5",
-            choices: [
-              {
-                message: { role: "assistant", content: "ok" },
-                finish_reason: "stop",
-              },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            content: [{ type: "text", text: "ok" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -372,13 +368,17 @@ describe("Anthropic preset — outgoing request headers", () => {
       logger: {} as never,
     });
 
-    await provider.complete({ prompt: "hi" });
+    const result = await provider.complete({ prompt: "hi" });
+    expect(result.content).toBe("ok");
 
+    // The preset's entry is `openai-compatible` on api.anthropic.com,
+    // which resolves to the native kind (`anthropic-route.ts`).
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe("https://api.anthropic.com/v1/messages");
     const sent = new Headers(
       (fetchMock.mock.calls[0]?.[1] as RequestInit).headers as HeadersInit,
     );
     expect(sent.get("x-api-key")).toBe(KEY);
-    expect(sent.get("anthropic-version")).toBe("2023-06-01");
+    expect(sent.get("anthropic-version")).toBe("2026-10-21");
     expect(sent.get("authorization")).toBeNull();
   });
 });

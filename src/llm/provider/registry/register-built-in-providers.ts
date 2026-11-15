@@ -2,6 +2,7 @@ import { getConfig } from "../../../config/index.js";
 import { LlamaServerClient } from "../../llama-server-client.js";
 import { AimlapiProvider } from "../aimlapi/aimlapi-provider.js";
 import { AnthropicProvider } from "../anthropic/anthropic-provider.js";
+import { routesToNativeAnthropic } from "../anthropic/anthropic-route.js";
 import { AIMLAPI_DEFAULT_CHAT_MODEL } from "../aimlapi/aimlapi-models-catalog.js";
 import {
   GeminiProvider,
@@ -158,6 +159,12 @@ export function registerBuiltInProviderKinds(): void {
 
   registerProviderKind("openai-compatible", (ctx) => {
     const entry = ctx.entry;
+    // An old `anthropic` preset entry: Anthropic's OpenAI-compatible
+    // endpoint neither caches nor honours an effort, so the entry runs on
+    // the native Messages client instead (`anthropic-route.ts`).
+    if (routesToNativeAnthropic(entry)) {
+      return buildAnthropicProvider(entry, ctx.logger);
+    }
     const isEmbeddingOnly = isEmbeddingOnlyEntry(entry);
     if (!entry.baseUrl) {
       throw new Error(

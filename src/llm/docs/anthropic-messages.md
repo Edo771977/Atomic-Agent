@@ -71,3 +71,19 @@ both paths agree:
   `input_json_delta`, `thinking_delta`), `message_delta`, `message_stop`
   (→ `[DONE]`), `error` (type → status: 400, 401, 403, 404, 413, 429, 500,
   529 overloaded) and `ping`.
+
+## Preset and migration of old entries
+
+The `anthropic` preset still saves an `openai-compatible` entry on
+`https://api.anthropic.com` (now with `anthropic-version: 2026-10-21`).
+At provider construction, an `openai-compatible` entry whose host is
+exactly `api.anthropic.com` (with or without `/v1`, any letter case) is
+built as the native client (`anthropic-route.ts`); `config.json` is not
+rewritten, so key resolution (`ANTHROPIC_API_KEY` via `apiKeyEnvVar`),
+model mode and the wizard read it as before. A gateway, another
+Anthropic host or `qwen-openai-compatible` keeps chat completions.
+`kind: "anthropic"` can also be written explicitly (`baseUrl` optional;
+the key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
+
+Not moved: the wizard's key check and contract probe, and `describeImage`,
+still use Anthropic's OpenAI-compatible routes, which accept the same key.
