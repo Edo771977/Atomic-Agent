@@ -144,6 +144,12 @@ export interface CompletionRequest {
   /** Internal active-turn budget owner; never serialized or used for provider routing. */
   budgetOwnerSessionId?: string;
   requestBudget?: CompletionRequestBudget;
+  /**
+   * Internal: the owning turn's one final report after its USD cap
+   * refused (issue #29). The request scope admits it once past an
+   * exhausted cap with a small output ceiling; never serialized.
+   */
+  finalReport?: boolean;
   /** Full-context capacity check; internal, never serialized as an API field. */
   contextBudget?: { window: number | null; replyReserve: number };
   /** Internal policy of the attempted link; never part of the API request body. */

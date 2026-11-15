@@ -41,6 +41,12 @@ export function turnBudgetRefusalSentence(params: { capUsd: number; accountedUsd
   return `turn budget cannot cover this request: ${usd(params.requestUsd)} reserved cost would exceed the ${usd(params.capUsd)} cap (${usd(params.accountedUsd)} accounted, ${usd(params.heldUsd)} held)`;
 }
 
+/**
+ * Output ceiling of the final report a turn gets after its cap refused
+ * (issue #29): the agent step asks for it and the request scope clamps to it.
+ */
+export const FINAL_REPORT_MAX_TOKENS = 1024;
+
 /** The short stop line every surface shows for a turn its cap ended. */
 export function turnBudgetStopLine(spentUsd: number, capUsd: number): string {
   return `turn stopped: budget exhausted (${usd(spentUsd)} of ${usd(capUsd)})`;
