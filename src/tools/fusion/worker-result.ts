@@ -277,11 +277,17 @@ export interface WorkerTaskResult {
   /**
    * Why a `failed` row failed, when a status and error alone cannot say:
    * `review-exhausted` (issue #38), a fusion team's review still asked
-   * for changes (or could not verify) after the last review pass; the
+   * for changes after the last review pass; the
    * director decides (`describeReplan`'s own bucket), it is not re-run
    * as pending.
    */
   failure?: "review-exhausted";
+  /**
+   * The tasks a dependent was held on (not started because they did not
+   * close), so `describeReplan` can tell one held only on review-exhausted
+   * tasks, which waits for the director's decision (issue #38).
+   */
+  heldOn?: string[];
   /**
    * A fusion team's per-task review (issue #38): the last decision, the
    * review passes the task got, the reviewer's label and every issue.

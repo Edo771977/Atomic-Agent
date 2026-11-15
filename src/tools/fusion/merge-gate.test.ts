@@ -374,6 +374,47 @@ describe("merge only green tasks (isolation)", () => {
     expect(replan.pending.map((t) => t.id)).toEqual(["core", "ui"]);
   });
 
+  it("leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const d = deps(
+      repo,
+      (id, _n, dir) => writeFile(join(dir, `${id}.js`), "x\n"),
+      {
+        escalationComplete: async () => ({
+          content: JSON.stringify({ decision: "needs-changes", issues: [{ item: null, severity: "blocker", file: "core.js", why: "wrong" }] }),
+        }),
+        resolveFusionTeam: () => ({
+          team: { directors: ["cloud:big"], reviewers: ["cloud:judge"] },
+          fusion: { workerProvider: "local" },
+          familyOf: (m) => (m.providerId === "local" ? "local" : "anthropic"),
+          reachable: () => true,
+          pinsModel: (id) => id !== "local",
+        }),
+      },
+      { judge: { providerId: "cloud", model: "judge" }, autoReplan: 1 },
+    );
+    const result = await buildFusionDelegateTool(d).run(
+      {
+        tasks: [
+          { id: "core", title: "Core", instructions: "make core.js", files: ["core.js"] },
+          { id: "ui", title: "UI", instructions: "make ui.js", files: ["ui.js"] },
+        ],
+        contract: {
+          provides: [{ task: "core", kind: "symbol", name: "x", in: "core.js" }],
+          requires: [{ task: "ui", name: "x" }],
+        },
+      },
+      ctx(repo),
+    );
+    const rows = result.details.tasks as WorkerTaskResult[];
+    expect(rows[0]!.failure).toBe("review-exhausted");
+    const replan = result.details.replan as { pending: Array<{ id: string; awaitsReview?: string[] }>; reviewExhausted: Array<{ id: string }> };
+    expect(replan.reviewExhausted.map((t) => t.id)).toEqual(["core"]);
+    expect(replan.pending).toEqual([expect.objectContaining({ id: "ui", awaitsReview: ["core"] })]);
+    expect(result.summary).not.toContain("REPLAN REQUIRED");
+    expect(result.summary).toContain("HELD ON THAT REVIEW");
+  });
+
   it("holds back a task whose changed file fails the syntax pass in its workspace", async () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     const syntaxDirs: string[] = [];

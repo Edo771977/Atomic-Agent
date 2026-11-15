@@ -47,6 +47,32 @@ describe("automatic replan hold (ATO-941)", () => {
     expect(takeReplanNotice(s).notice).toBeNull();
   });
 
+  it("does not hold the planner for tasks held only on a review-exhausted task (issue #38)", () => {
+    const s = observeReplanStep(createReplanState(), [
+      delegate({
+        replan: {
+          pending: [{ id: "ui", status: "cancelled", awaitsReview: ["core"] }],
+          reviewExhausted: [{ id: "core", status: "failed" }],
+        },
+      }),
+    ]);
+    expect(replanToolSet(s)).toBeNull();
+    expect(takeReplanNotice(s).notice).toBeNull();
+    // Another task that did not close still holds the step, and only it is named.
+    const mixed = observeReplanStep(createReplanState(), [
+      delegate({
+        replan: {
+          pending: [
+            { id: "ui", status: "cancelled", awaitsReview: ["core"] },
+            { id: "api", status: "failed" },
+          ],
+        },
+      }),
+    ]);
+    expect(replanToolSet(mixed)?.names).toEqual(["fusion.delegate"]);
+    expect(takeReplanNotice(mixed).notice).toMatch(/Replan required: api did not close/);
+  });
+
   it("does not count an unparsed or refused delegate as the replan", () => {
     let s = observeReplanStep(createReplanState(), [
       delegate({ replan: { pending: [{ id: "a" }] } }),

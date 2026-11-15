@@ -363,6 +363,33 @@ describe("tasks whose review passes ran out (issue #38)", () => {
     expect(block).toContain("- hud (failed): review-exhausted: needs-changes after 2 review passes");
   });
 
+  it("marks a dependent held only on review-exhausted tasks as awaiting the director's decision", () => {
+    const held = (id: string, on: string[]) =>
+      ({ id, status: "cancelled", error: `not started: held for the replan: it depends on ${on.join(", ")}, which did not close`, heldOn: on }) as never;
+    const report = describeReplan(
+      [held("ui", ["hud"]), exhausted, { id: "api", status: "failed" } as never, held("cli", ["hud", "api"])],
+      () => 1,
+      2,
+    );
+    expect(report.pending.map((t) => [t.id, t.awaitsReview])).toEqual([
+      ["ui", ["hud"]],
+      ["api", undefined],
+      ["cli", undefined],
+    ]);
+    const block = renderReplanBlock(report);
+    // The REPLAN REQUIRED list names only the tasks that hold the step.
+    const required = block.split("\n\n").find((p) => p.startsWith("REPLAN REQUIRED"))!;
+    expect(required).toContain("- api ");
+    expect(required).toContain("- cli ");
+    expect(required).not.toContain("- ui ");
+    expect(block).toMatch(/after you decide on[^\n]*re-send[^\n]*:\n- ui \(cancelled\)/i);
+    // Held only on the review: no REPLAN REQUIRED at all.
+    const only = renderReplanBlock(describeReplan([held("ui", ["hud"]), exhausted], () => 1, 2));
+    expect(only).not.toContain("REPLAN REQUIRED");
+    expect(only).toContain("REVIEW PASSES USED");
+    expect(only).toContain("- ui (cancelled)");
+  });
+
   it("with no replans left stays in its own bucket, without the re-delegate option", () => {
     for (const report of [describeReplan([exhausted], () => 2, 1), describeReplan([exhausted], () => 3, 2)]) {
       expect(report.exhausted).toEqual([]);

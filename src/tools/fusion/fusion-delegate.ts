@@ -2065,13 +2065,13 @@ export function buildFusionDelegateTool(
                   return done?.status !== "ok" && !releasedNoChanges.has(provider);
                 },
               );
-              finished.set(
-                id,
-                notStartedResult(
+              finished.set(id, {
+                ...notStartedResult(
                   task,
                   `${autoReplan > 0 ? "held for the replan" : "dependency blocked"}: it depends on ${waitingOn.join(", ")}, which did not close${plan.cycle === undefined ? "" : `; ${plan.cycle}`}`,
                 ),
-              );
+                heldOn: waitingOn,
+              });
             }
             const waveTasks = parsed.tasks.filter(
               (t) =>
