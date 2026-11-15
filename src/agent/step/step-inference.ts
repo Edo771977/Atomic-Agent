@@ -327,6 +327,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
         }
       : {}),
     ...(ctx.maxTokens !== undefined ? { maxTokens: ctx.maxTokens } : {}),
+    ...(ctx.finalReport === true ? { finalReport: true } : {}),
     ...(localReplyCap !== null ? { localReplyCap } : {}),
     // The turn's own settings ride on every completion of the step; the
     // repair retry spreads `llmParams`, so they inherit without a second

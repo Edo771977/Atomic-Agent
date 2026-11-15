@@ -1,5 +1,6 @@
 import { isSubscriptionCliSetupError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { isDailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
+import { findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 import type { AgentLoopDependencies, LocalEngineVerdict, RunTurnOptions } from "../agent-contract.js";
 import type { SessionState } from "../../session/session-state.js";
 import type { ToolCallTransport } from "../../llm/provider/completion-types.js";
@@ -114,6 +115,29 @@ export function recoverTurnStep(
       (err instanceof LlmFailure && err.category === "cancelled") ||
       category === "cancelled");
   if (cancelled) category = "cancelled";
+  // The fusion turn's USD cap refused this request before anything was
+  // sent (issue #29). Not a failure: the next iteration is one final
+  // no-tools report step the request scope admits once past the cap. A
+  // refusal of that step, or any failure of it, ends the turn as stopped
+  // by its budget. The daily limit is a different error and stays a
+  // failure, with no final call.
+  if (!cancelled) {
+    const capRefusal = findTurnBudgetExhaustedError(err);
+    if (capRefusal !== null && turn.turnBudgetStop === null) {
+      turn.turnBudgetStop = { spentUsd: capRefusal.accountedUsd, capUsd: capRefusal.capUsd, spendAtStopUsd: turn.spendUsd };
+      deps.logger?.warn("fusion turn cap reached; running the final report step", {
+        sessionId: state.id, stepIndex: i, spentUsd: capRefusal.accountedUsd, capUsd: capRefusal.capUsd,
+      });
+      return { kind: "retry_same" };
+    }
+    if (turn.turnBudgetStop !== null) {
+      deps.logger?.warn("final report after the fusion turn cap did not complete; stopping the turn", {
+        sessionId: state.id, stepIndex: i, error: runError.message,
+      });
+      turn.reason = "budget";
+      return { kind: "stop" };
+    }
+  }
   if (ceilingFired) {
     if (!finalizationStep) {
       // Abandon the request and take the reserved summary step

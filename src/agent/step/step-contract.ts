@@ -25,6 +25,8 @@ import type { BatchLoopSignal } from "../dispatch/batch-contract.js";
 export interface LlmStreamParams {
   /** Owning active turn for a sidecall; independent of its routing/breaker partition. */
   budgetOwnerSessionId?: string;
+  /** The turn's one report after its USD cap refused (`CompletionRequest.finalReport`). */
+  finalReport?: boolean;
   contextBudget?: { window: number | null; replyReserve: number };
   /** Rebuild and commit context for the actual attempted policy/window, including fallback. */
   prepareForLink?: (options: {
@@ -398,6 +400,13 @@ export interface StepContext {
    * result (`batch-executor.ts`), a tail terminal still lands.
    */
   terminalOnly?: boolean;
+  /**
+   * The final report after the fusion turn's USD cap refused a request
+   * (issue #29): rides on the step's completions as
+   * `LlmStreamParams.finalReport`, which the request scope admits once
+   * past the exhausted cap. Set with `terminalOnly` and a small `maxTokens`.
+   */
+  finalReport?: boolean;
   /**
    * The only tool names this step may emit or run (`step-tool-set.ts`)
    * — `terminalOnly` with the names supplied. Narrows the per-request

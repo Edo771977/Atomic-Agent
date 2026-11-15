@@ -6,7 +6,9 @@ import type {
   RunTurnOptions,
   RunTurnResult,
   TaskStopCause,
+  TurnBudgetStopFigures,
 } from "../agent-contract.js";
+import { turnBudgetStopLine } from "../../llm/reliability/turn-budget-error.js";
 import type { LlmFailureCategory } from "../../llm/index.js";
 import type { SessionState } from "../../session/session-state.js";
 import { incrementTurnCount, recordTurn } from "../../session/session-state.js";
@@ -48,6 +50,8 @@ export interface TurnFinalizationContext extends TurnCompletionState {
   surfacedNoteIds: ReadonlySet<number>;
   /** The task's spend ceiling, `0` when none; named by a `cost_ceiling` stop. */
   costCeilingUsd?: number;
+  /** Set with reason `budget`: the fusion turn cap's figures (issue #29). */
+  turnBudget?: TurnBudgetStopFigures;
 }
 
 export interface FailedTurnFinalizationContext extends TurnCompletionState {
@@ -163,6 +167,23 @@ export function finalizeAgentTurn(
   } else if (reason === "reply") {
     state = { ...state, status: "pending" };
     deps.onEvent?.({ type: "loop_completed", reason });
+  } else if (reason === "budget") {
+    // The fusion turn's USD cap stopped the turn (issue #29). The final
+    // report, when it arrived, is the turn's reply; without one the turn
+    // still closes with the stop in words, so the person is never left
+    // with a bare failure and the next turn sees where this one ended.
+    const figures = context.turnBudget ?? { spentUsd: 0, capUsd: 0 };
+    // The report step records its reply last; anything else (the user's
+    // message, tool rows) means no report arrived.
+    if (!isFinalReplyTurn(state.turns.at(-1))) {
+      const synthetic =
+        `(${turnBudgetStopLine(figures.spentUsd, figures.capUsd)}.) ` +
+        "No final report could be sent. The work so far is kept in this session; raise llm.runMode.fusion.turnBudgetUsd or say how to continue.";
+      state = recordTurn(state, assistantReplyTurn(synthetic));
+      deps.onEvent?.({ type: "llm_event", event: { type: "assistant_reply", text: synthetic } });
+    }
+    if (state.status !== "completed") state = { ...state, status: "pending" };
+    deps.onEvent?.({ type: "loop_completed", reason, budget: figures });
   } else if (reason === "finish") {
     deps.logger?.info("agent loop finished via finish tool", {
       sessionId: state.id,
@@ -178,6 +199,7 @@ export function finalizeAgentTurn(
     reason,
     stepCount: stepsTaken,
     durationMs,
+    ...(reason === "budget" && context.turnBudget !== undefined ? { budget: context.turnBudget } : {}),
   });
 
   // Phase 6 — bump success/failure counters on surfaced lessons.
