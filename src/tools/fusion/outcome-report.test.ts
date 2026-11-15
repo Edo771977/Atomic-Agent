@@ -257,6 +257,43 @@ describe("fusion report", () => {
     expect(text).toContain("Strong-side spend: $0.50 + unpriced (subscription or no price known)");
   });
 
+  it("reports reviewed decisions, median review passes and a reviewer table; old records show -", () => {
+    const review = (decision: "accept" | "needs-changes" | "unverified", passes: number, reviewer: string | null, blockers = 0, majors = 0, minors = 0) =>
+      ({ decision, passes, reviewer, blockers, majors, minors });
+    const records = [
+      task({ review: review("accept", 0, "rev-a", 0, 0, 1) }),
+      task({ review: review("accept", 1, "rev-a"), judgeRetried: true }),
+      task({ review: review("needs-changes", 2, "rev-b", 1, 2, 0), status: "failed", failure: "judge-red", judgeRetried: true }),
+      task({ review: review("unverified", 2, null), judgeRetried: true }),
+      task(), // an older record, or review off
+      { ...task(), review: { decision: "maybe" } } as unknown as TaskOutcomeRecord,
+      task({ provider: "openrouter", model: "mid", leg: "cloud" }),
+    ];
+    const report = aggregateOutcomes(records);
+    const small = report.workers.find((w) => w.model === "small")!;
+    expect(small.review).toEqual({ reviewed: 4, accept: 2, needsChanges: 1, unverified: 1, notReviewed: 2, medianPasses: 1.5 });
+    expect(report.workers.find((w) => w.model === "mid")!.review).toEqual({
+      reviewed: 0, accept: 0, needsChanges: 0, unverified: 0, notReviewed: 1, medianPasses: null,
+    });
+    expect(report.reviewers).toEqual([
+      { reviewer: "rev-a", reviews: 2, accept: 2, needsChanges: 0, unverified: 0, medianPasses: 0.5, blockers: 0, majors: 0, minors: 1 },
+      { reviewer: "(automated checks only)", reviews: 1, accept: 0, needsChanges: 0, unverified: 1, medianPasses: 2, blockers: 0, majors: 0, minors: 0 },
+      { reviewer: "rev-b", reviews: 1, accept: 0, needsChanges: 1, unverified: 0, medianPasses: 2, blockers: 1, majors: 2, minors: 0 },
+    ]);
+    const text = formatFusionReport(report);
+    expect(text).toContain("reviewed accept/needs-changes/unverified");
+    expect(text).toContain("review passes");
+    expect(text).toMatch(/small \(local-llama\)\s+local\s+6\s.*\s2\/1\/1\s+1\.5\s/);
+    expect(text).toMatch(/mid \(openrouter\)\s+cloud\s+1\s.*\/0\s+-\s+-\s/);
+    expect(text).toMatch(/Reviewer models\nreviewer\s+reviews\s+accept\/needs-changes\/unverified\s+median passes\s+issues blocker\/major\/minor/);
+    expect(text).toMatch(/rev-b\s+1\s+0\/1\/0\s+2\s+1\/2\/0/);
+    expect(text).toContain("a review pass");
+    // Without any reviewed record: no reviewer table, and the columns read "-".
+    const old = formatFusionReport(aggregateOutcomes([task()]));
+    expect(old).not.toMatch(/\nReviewer models\n/);
+    expect(old).toMatch(/small \(local-llama\)\s+local\s+1\s.*\s-\s+-\s/);
+  });
+
   it("says so when nothing is recorded", () => {
     expect(formatFusionReport(aggregateOutcomes([], {}))).toContain("Nothing recorded yet");
   });
