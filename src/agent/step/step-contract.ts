@@ -1,4 +1,4 @@
-import type { PromptMessages, ChatPromptParts, PromptProgress, ReasoningEffort, ResponseFormatJsonSchema, ToolCallTransport } from "../../llm/provider/completion-types.js";
+import type { PromptMessages, ChatPromptParts, PromptProgress, ExtendedReasoningEffort, ReasoningEffort, ResponseFormatJsonSchema, ToolCallTransport } from "../../llm/provider/completion-types.js";
 import type { StreamChunk, CompletionResult } from "../../llm/llama-server-client.js";
 import type { ToolRegistry } from "../../tools/tool-registry.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
@@ -97,8 +97,8 @@ export interface LlmStreamParams {
    * fusion worker's `workerMaxOutputTokens` rides here.
    */
   maxOutputTokens?: number;
-  /** The turn's reasoning effort (`RunTurnOptions.reasoningEffort`). */
-  reasoningEffort?: ReasoningEffort;
+  /** The turn's reasoning effort (`RunTurnOptions.reasoningEffort`, or the fusion orchestrator's). */
+  reasoningEffort?: ExtendedReasoningEffort;
   /** The chat's reasoning level (`RunTurnOptions.reasoningOverride`, ATO-490). */
   reasoningOverride?: ReasoningEffort;
   /** See `CompletionRequest.disableThinking`. */
@@ -371,7 +371,7 @@ export interface StepContext {
   /** `RunTurnOptions.answerChannel`, rendered as `### answer-style` (`answer-style.ts`). */
   answerChannel?: import("../../prompt/answer-style.js").AnswerChannel;
   /** The turn's reasoning effort — see `LlmStreamParams.reasoningEffort`. */
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ExtendedReasoningEffort;
   /**
    * The chat's reasoning level (ATO-490): a cloud reasoning effort over
    * the model's `params`. Its local think budget reaches the grammar as

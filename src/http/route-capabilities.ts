@@ -32,6 +32,7 @@ export function activeReasoningControl(
     const caps = active.capabilities;
     const control = reasoningControlFor({
       providerKind: entry?.kind,
+      baseUrl: entry?.baseUrl,
       modelId: active.chatModelId,
       localThinks: caps.toolTransport === "grammar" && caps.reasoningFormat !== "none",
     });

@@ -26,6 +26,7 @@
 
 import type { ReasoningEffort } from "./provider/completion-types.js";
 import { reasoningEffortField } from "./provider/openai/model-params.js";
+import { isAnthropicHost } from "./provider/openai/prompt-cache-control.js";
 
 export type ReasoningLevel = "auto" | ReasoningEffort;
 
@@ -104,10 +105,22 @@ export type ReasoningControl = "effort" | "budget" | "none";
 export function reasoningControlFor(route: {
   providerKind: string | undefined;
   modelId: string | undefined;
+  /** The route's base URL, for a compat kind whose host decides what it honours. */
+  baseUrl?: string | undefined;
   /** For a `llama-server` route: the loaded model thinks inside a grammar prelude. */
   localThinks?: boolean;
 }): ReasoningControl {
   if (route.providerKind === "llama-server") return route.localThinks === true ? "budget" : "none";
+  // Anthropic's OpenAI-compatible endpoint accepts `reasoning_effort` and
+  // ignores it: a switch there did nothing. The native `anthropic` kind
+  // (which an `openai-compatible` entry on exactly api.anthropic.com
+  // resolves to) spells it `output_config.effort`.
+  if (
+    (route.providerKind === "openai-compatible" || route.providerKind === "qwen-openai-compatible") &&
+    isAnthropicHost(route.baseUrl)
+  ) {
+    return "none";
+  }
   return cloudTakesReasoningOverride(route.providerKind, route.modelId) ? "effort" : "none";
 }
 
