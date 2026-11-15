@@ -43,6 +43,7 @@ import {
   isFailedSessionStatus,
   type SessionState,
 } from "../session/session-state.js";
+import { findConstraintRefusal, formatConstraintRefusal } from "../runtime/constraint-refusal.js";
 import {
   createStdinLineQueue,
   type StdinLineQueue,
@@ -266,6 +267,8 @@ export interface LlamaHintContext {
    */
   llamaUrl?: string | null;
   hintShown?: { value: boolean };
+  /** A local model is configured: a constraint refusal offers switching to it. */
+  localModelConfigured?: boolean;
 }
 
 /**
@@ -354,6 +357,13 @@ export function formatAgentEvent(
     case "loop_completed":
       return null;
     case "loop_failed": {
+      // A per-folder constraint refused the turn: the same sentence and
+      // hint as the TUI and the stable code, never a provider failure.
+      const constraint = findConstraintRefusal(event.error);
+      if (constraint !== null) {
+        const text = formatConstraintRefusal(constraint, { localModelConfigured: ctx?.localModelConfigured ?? false });
+        return `» turn stopped [${constraint.code}]: ${text.split("\n").join("\n  ")}`;
+      }
       const base = `» loop failed [${event.category}]: ${event.error.message}`;
       // ATO-772: the managed local model's process is gone; the turn ended
       // without waiting, and the fix is one command.
@@ -547,6 +557,8 @@ export async function runAgentCommand(args: string[]): Promise<number> {
     : null;
   const llamaUrl = onLocalRoute ? config.localModels.url : null;
   const hintShown = { value: false };
+  const localModelConfigured =
+    config.localModels.managed.modelId !== null || config.localModels.mode === "external";
 
   const runtime = await createAgentRuntime({
     workingDir: parsed.workingDir,
@@ -562,6 +574,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
           llamaHint,
           llamaUrl,
           hintShown,
+          localModelConfigured,
         });
         if (line) process.stderr.write(`${line}\n`);
       },

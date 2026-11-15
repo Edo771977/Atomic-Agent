@@ -56,6 +56,12 @@ export function buildIssueReport(input: {
   facts: IssueReportFacts;
   level: IssueReportLevel;
   redaction: RedactionContext;
+  /**
+   * Why the on-screen session's content may not go to GitHub (its folder
+   * is restricted). The orchestrator has already emptied its content
+   * from `snapshot`; the report says so in place of the log section.
+   */
+  withheld?: string;
 }): IssueReport {
   const { snapshot, facts, level, redaction } = input;
   // Both reduced levels mask absolute paths: `redactPersonal` only knows
@@ -111,7 +117,12 @@ export function buildIssueReport(input: {
       collapsed: true,
     });
   }
-  sections.push({
+  if (input.withheld !== undefined) {
+    sections.push({
+      title: "Session content withheld",
+      body: "This session's folder is restricted (projects.constraints), so its failures, logs and traces stay on this machine.",
+    });
+  } else sections.push({
     title:
       level === "errors"
         ? `Warnings and errors (${logs.length})`
