@@ -158,6 +158,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `tools.screen.point` | `boolean` | `true` | "Show where to click" on macOS (ATO-1018): `os.screen.point` draws arrows, boxes and labels through the desktop app's overlay and never clicks or types, and `os.screen.capture` comes with it (still asking as `screen_capture`) so the model can see what it points at. Default `true`; independent of `enabled`. Read at start. |
 | `tools.verify.maxCopyBytes` | `number` | `2147483648` | Largest tree, in bytes, `verify.run` copies into its throwaway workspace off macOS (the linked build/dependency directories do not count). A bigger tree is refused, never run in place. Default 2 GiB. A positive integer, at most 1 TiB. |
 | `tools.verify.maxGitObjectBytes` | `number` | `2147483648` | Fusion Git metadata inspection/import ceiling, independent of payload copies. Default 2 GiB, maximum 1 TiB. |
+| `tools.lsp.enabled` | `boolean` | `false` | After-edit diagnostics from language servers (ATO-503): after `os.fs.write` / `edit` / `patch` change a TypeScript, JavaScript or Python file inside a git repository, the result lists the compiler and type errors the change added. |
 
 ## browser
 
