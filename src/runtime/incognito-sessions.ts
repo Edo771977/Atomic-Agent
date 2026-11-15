@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
+import { isIncognitoSession, type IncognitoMark } from "../session/incognito.js";
 import type { SessionStore } from "../session/session-store.js";
 import type { TaskStore } from "../tasks/task-store.js";
 import { traceFilePath } from "../tracing/trace/trace-sink.js";
@@ -81,6 +82,18 @@ export interface IncognitoSessionsDependencies {
    * none runs later in an ordinary chat. Absent in callers with no queue.
    */
   taskStore?: Pick<TaskStore, "removeForSession">;
+  /**
+   * The managed chat server's prompt cache on disk (ATO-456). An
+   * incognito turn marks the launch private so the next stop saves no
+   * slot; closing the chat erases the slots that held its prompt. Both
+   * best effort; absent in callers with no local server.
+   */
+  promptCache?: {
+    markPrivate(): void;
+    eraseSlots(slotIds: readonly number[]): void | Promise<unknown>;
+  };
+  /** The server slots a session's prompt was in (its pin, the side-call slot). */
+  slotsOf?: (sessionId: string) => readonly number[];
   logger: Pick<StructuredLogger, "warn">;
 }
 
@@ -93,12 +106,25 @@ export interface IncognitoSessionsDependencies {
 export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
   const pending = new Set<string>();
 
+  const eraseSlots = (sessionId: string): void => {
+    try {
+      const slots = deps.slotsOf?.(sessionId) ?? [];
+      if (slots.length === 0 || !deps.promptCache) return;
+      void Promise.resolve(deps.promptCache.eraseSlots(slots)).catch(() => {
+        /* best effort: the launch stays marked private, so no stop saves it */
+      });
+    } catch {
+      /* as above */
+    }
+  };
+
   const remove = (sessionId: string): boolean => {
     try {
       if (!deps.sessionStore.isIncognito(sessionId)) return false;
       deps.taskStore?.removeForSession(sessionId);
       deps.sessionStore.delete(sessionId);
       removeIncognitoTrace(deps.tracesDir, sessionId);
+      eraseSlots(sessionId);
       return true;
     } catch (err) {
       // Left for the next start's sweep.
@@ -127,5 +153,15 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
     remove(sessionId);
   };
 
-  return { discard, settle };
+  /** Before an incognito turn runs: keep this launch's slots off the disk. */
+  const noteTurn = (session: { readonly incognito?: IncognitoMark | undefined }): void => {
+    if (!isIncognitoSession(session)) return;
+    try {
+      deps.promptCache?.markPrivate();
+    } catch {
+      /* best effort, like the save it guards */
+    }
+  };
+
+  return { discard, settle, noteTurn };
 }

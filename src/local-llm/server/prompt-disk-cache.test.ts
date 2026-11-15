@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resolvePromptCacheDir } from "../backend-paths.js";
 import {
+  erasePromptCacheSlots,
   evictPromptCache,
+  markPromptCachePrivate,
   PROMPT_CACHE_MIN_TOKENS,
   promptCacheFingerprint,
   promptCacheAtLaunch,
@@ -135,6 +137,45 @@ describe("saving and restoring the slots' caches (ATO-456)", () => {
     expect(await restorePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", slots: 1, fetchImpl: server.fetchImpl })).toBe(0);
     expect(server.calls).toEqual([{ slot: 0, action: "restore", filename: "slot-5-0.bin" }]);
     expect(existsSync(join(dir, "slot-5-0.bin"))).toBe(false);
+  });
+
+  it("an incognito chat since the last save: the stop saves no slot (ATO-586)", async () => {
+    markPromptCachePrivate(dataDir);
+    const server = fakeServer({
+      slots: [{ id: 0, is_processing: false }, { id: 1, is_processing: false }],
+      savedTokens: { 0: 40_000, 1: 40_000 },
+    });
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(0);
+    expect(server.calls.filter((c) => c.action === "save")).toEqual([]);
+    expect(readdirSync(dir).filter((n) => n.endsWith(".bin"))).toEqual([]);
+    // The mark covers one launch: the next stop saves again.
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(2);
+  });
+
+  it("a new launch clears the mark the previous server's run left (ATO-586)", async () => {
+    markPromptCachePrivate(dataDir);
+    promptCacheLaunchArgs(dataDir);
+    const server = fakeServer({ slots: [{ id: 0, is_processing: false }], savedTokens: { 0: 40_000 } });
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(1);
+  });
+
+  it("marking is a no-op while the disk cache is off (no folder)", () => {
+    purgePromptCache(dataDir);
+    markPromptCachePrivate(dataDir);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("erasePromptCacheSlots asks the server to erase each slot, once (ATO-586)", async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer k");
+      const url = new URL(String(input));
+      calls.push(`${url.pathname}?${url.searchParams.toString()}`);
+      return new Response(JSON.stringify({ id_slot: 0, n_erased: 10 }));
+    }) as typeof fetch;
+    expect(await erasePromptCacheSlots({ port: 19091, apiKey: "k", slotIds: [2, 0, 2, -1], fetchImpl })).toBe(2);
+    expect(calls).toEqual(["/slots/2?action=erase", "/slots/0?action=erase"]);
   });
 
   it("eviction drops a state file with no fingerprint, then the oldest saves past the cap", () => {

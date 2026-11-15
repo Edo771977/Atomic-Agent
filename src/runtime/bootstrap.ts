@@ -10,6 +10,7 @@ import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeS
 import { createInterruptedTurns } from "./interrupted-turns.js";
 import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition/runtime-turn-service.js";
 import { createIncognitoSessions } from "./incognito-sessions.js";
+import { eraseManagedChatSlots, markPromptCachePrivate } from "../local-llm/index.js";
 import { createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
 import type { AgentRuntime, CreateAgentRuntimeOptions } from "./runtime-contract.js";
@@ -842,7 +843,7 @@ export async function createAgentRuntime(
   const createEphemeralSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
-  const { executeTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
+  const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
     inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices },
@@ -853,9 +854,22 @@ export async function createAgentRuntime(
   // has left the queue (`isBusy` is still true inside `executeTurn`).
   const incognitoSessions = createIncognitoSessions({
     sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore,
+    // ATO-586: keep the chat's prompt out of the managed server's disk cache.
+    promptCache: {
+      markPrivate: () => { markPromptCachePrivate(config.paths.localModelsDataDir); },
+      eraseSlots: (slotIds) => eraseManagedChatSlots(config.paths.localModelsDataDir, slotIds),
+    },
+    slotsOf: (id) => [slotManager.pinnedSlot(id), slotManager.reservedSideCallSlotId()]
+      .filter((slot): slot is number => slot !== null && slot >= 0),
   });
-  const runTurn: typeof runQueuedTurn = (session, ...rest) =>
-    runQueuedTurn(session, ...rest).finally(() => incognitoSessions.settle(session.id));
+  const runTurn: typeof runQueuedTurn = (session, ...rest) => {
+    incognitoSessions.noteTurn(session);
+    return runQueuedTurn(session, ...rest).finally(() => incognitoSessions.settle(session.id));
+  };
+  const executeTurn: typeof executeLockedTurn = (session, ...rest) => {
+    incognitoSessions.noteTurn(session);
+    return executeLockedTurn(session, ...rest);
+  };
 
   const taskRunner = createRuntimeTaskRunner({
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,

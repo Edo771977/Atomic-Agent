@@ -124,4 +124,45 @@ describe("incognito sessions in the runtime", () => {
     expect(existsSync(outside)).toBe(true);
     expect(removeIncognitoTrace(null, "s-any")).toBe(false);
   });
+  it("an incognito turn marks the launch's prompt cache private; an ordinary one does not", () => {
+    const store = open(1);
+    const marks: number[] = [];
+    const sessions = createIncognitoSessions({
+      sessionStore: store, tracesDir, isBusy: () => false, logger,
+      promptCache: { markPrivate: () => { marks.push(1); }, eraseSlots: () => {} },
+    });
+    sessions.noteTurn(createEmptySessionState({ id: "s-plain", workingDir: "/w" }));
+    expect(marks).toHaveLength(0);
+    sessions.noteTurn(createEmptySessionState({ id: "s-secret", workingDir: "/w", incognito: store.newIncognitoMark() }));
+    expect(marks).toHaveLength(1);
+  });
+
+  it("closing an incognito chat erases the slots that held its prompt", async () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    save(store, "s-plain", false);
+    const erased: number[][] = [];
+    const sessions = createIncognitoSessions({
+      sessionStore: store, tracesDir, isBusy: () => false, logger,
+      slotsOf: (id) => (id === "s-secret" ? [1, 3] : [0]),
+      promptCache: { markPrivate: () => {}, eraseSlots: async (ids) => { erased.push([...ids]); } },
+    });
+    expect(sessions.discard("s-plain")).toBe("not_incognito");
+    expect(erased).toEqual([]);
+    expect(sessions.discard("s-secret")).toBe("deleted");
+    expect(erased).toEqual([[1, 3]]);
+  });
+
+  it("a failing erase never fails the close", async () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    const sessions = createIncognitoSessions({
+      sessionStore: store, tracesDir, isBusy: () => false, logger,
+      slotsOf: () => [0],
+      promptCache: { markPrivate: () => { throw new Error("disk"); }, eraseSlots: () => Promise.reject(new Error("down")) },
+    });
+    expect(() => sessions.noteTurn(store.load("s-secret")!)).not.toThrow();
+    expect(sessions.discard("s-secret")).toBe("deleted");
+    await new Promise((r) => setTimeout(r, 0));
+  });
 });
