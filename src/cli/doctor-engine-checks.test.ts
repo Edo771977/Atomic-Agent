@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type { AtomicAgentConfig } from "../config/index.js";
 import { runEngineChecks, verifyTargetForEntry, type EngineProbes } from "./doctor-engine-checks.js";
@@ -14,6 +14,7 @@ const PROVIDER_KEY_ENV_VARS = [
   "OPENAI_COMPAT_API_KEY",
   "OPENAI_API_KEY",
   "ATOMIC_AGENT_OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
 ] as const;
 const savedProviderKeyEnv = new Map<string, string | undefined>();
 beforeAll(() => {
@@ -55,6 +56,7 @@ function probes(over: Partial<EngineProbes> = {}): EngineProbes {
     portFree: async () => true,
     reachable: async () => true,
     verifyKey: async () => ({ status: "ok", probedModel: "m", httpStatus: 200, detail: "", latencyMs: 1 }),
+    readDotenv: () => ({ path: "/state/.env", text: null }),
     ...over,
   };
 }
@@ -118,3 +120,57 @@ describe("doctor engine checks (ATO-577)", () => {
     expect(verifyTargetForEntry({ id: "c", kind: "openai-compatible", baseUrl: "https://api.example.com/v1", apiKey: "k" })?.baseUrl).toBeTruthy();
   });
 });
+
+describe("doctor names where the key came from (owner's Windows run)", () => {
+  const REAL = "sk-ant-api03-real-looking-key-0123456789";
+  const anthropic = { id: "anthropic", kind: "anthropic", defaultChatModel: "claude-haiku-5-5" };
+  const dotenv = (text: string | null) => () => ({ path: "/state/.env", text });
+  afterEach(() => { delete process.env.ANTHROPIC_API_KEY; });
+
+  it("a shell value that differs from .env is named, warned about, and never printed", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-other-shell-key-987654321";
+    const seen: string[] = [];
+    const fs = await runEngineChecks(cfg({ active: "anthropic", providers: [anthropic] }), probes({
+      readDotenv: dotenv(`ANTHROPIC_API_KEY=${REAL}\n`),
+      verifyKey: async (t) => { seen.push(t.apiKey); return { status: "invalid_key", probedModel: null, httpStatus: 401, detail: "", latencyMs: 1 }; },
+    }));
+    expect(seen).toEqual(["sk-ant-api03-other-shell-key-987654321"]);
+    const key = by(fs, "key")!;
+    expect(key).toMatchObject({ status: "fail", message: expect.stringContaining("ANTHROPIC_API_KEY from this shell's environment") });
+    expect(fs.find((f) => f.check === "key-source")).toMatchObject({
+      status: "warn",
+      message: expect.stringContaining("ANTHROPIC_API_KEY is set in this shell and overrides the one in /state/.env; they differ"),
+    });
+    const all = JSON.stringify(fs);
+    expect(all).not.toContain(REAL);
+    expect(all).not.toContain("other-shell-key");
+  });
+
+  it("a key that matches .env is named as coming from .env", async () => {
+    process.env.ANTHROPIC_API_KEY = REAL;
+    const fs = await runEngineChecks(cfg({ active: "anthropic", providers: [anthropic] }), probes({ readDotenv: dotenv(`ANTHROPIC_API_KEY=${REAL}\n`) }));
+    expect(by(fs, "key")).toMatchObject({ status: "ok", message: expect.stringContaining(`ANTHROPIC_API_KEY from /state/.env (${REAL.length} characters)`) });
+    expect(fs.find((f) => f.check === "key-source")).toBeUndefined();
+  });
+
+  it("a placeholder in the shell is reported as missing, not rejected, and is not sent", async () => {
+    process.env.ANTHROPIC_API_KEY = "...";
+    let sent = false;
+    const fs = await runEngineChecks(cfg({ active: "anthropic", providers: [anthropic] }), probes({
+      readDotenv: dotenv(null),
+      verifyKey: async () => { sent = true; return { status: "invalid_key", probedModel: null, httpStatus: 401, detail: "", latencyMs: 1 }; },
+    }));
+    expect(sent).toBe(false);
+    expect(by(fs, "key")).toMatchObject({
+      status: "warn",
+      message: expect.stringContaining("ANTHROPIC_API_KEY in this shell's environment looks like a placeholder (3 characters)"),
+    });
+    expect(by(fs, "key")?.message).not.toContain("rejected");
+  });
+
+  it("a stored apiKey is named as config.json", async () => {
+    const fs = await runEngineChecks(cfg({ active: "or", providers: [{ id: "or", kind: "openrouter", apiKey: "sk-or-stored-key", defaultChatModel: "x/y" }] }), probes({ readDotenv: dotenv(null) }));
+    expect(by(fs, "key")?.message).toContain("apiKey in config.json");
+  });
+});
+
