@@ -46,8 +46,12 @@ describe("ask_user over POST /v1/chat/completions", () => {
     });
     expect(response.status).toBe(200);
     await response.json();
-    expect(prompts.length).toBeGreaterThan(0);
-    return prompts.at(-1)!;
+    // The turn's own step prompt (it lists the tool catalog), not a side
+    // call such as the session-title namer or the memory extractor, which
+    // can run after it and never list tools.
+    const turn = prompts.filter((p) => p.includes(text) && p.includes("os.fs.read"));
+    expect(turn.length).toBeGreaterThan(0);
+    return turn.at(-1)!;
   }
 
   it("leaves ask_user out of a desktop (extensions) turn that does not declare questions", async () => {
