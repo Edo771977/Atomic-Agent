@@ -187,6 +187,14 @@ export const SLOTS_UNREACHABLE_BUDGET_MS = 10 * 60_000;
 export const SLOTS_UNREACHABLE_MIN_POLLS = 8;
 
 /**
+ * Answered `/slots` polls in a row, each with a slot processing and no
+ * more tokens decoded than the last, before a `first-token` expiry is
+ * reported as slow/contended (`LlamaServerError.contended`) instead of
+ * a plain timeout. Three polls are 45 s at the default interval.
+ */
+export const SLOTS_CONTENDED_MIN_POLLS = 3;
+
+/**
  * Errnos that mean the request never reached a listening socket, so the
  * server is provably not there — as opposed to not answering yet.
  *
@@ -234,7 +242,19 @@ export function slotsPollFailure(err: unknown): "refused" | "unanswered" {
 
 /** What one `/slots` poll said about progress. */
 export type SlotProgressVerdict =
-  | { kind: "progress"; snapshot: string }
+  | {
+      kind: "progress";
+      snapshot: string;
+      /**
+       * Some slot was processing, and the tokens decoded across the
+       * processing slots (`n_decoded`, summed; `null` when none reports
+       * it). The watch compares these between answers to tell a server
+       * that works but decodes nothing (contended, `contended` on the
+       * first-token error) from one generating for another request.
+       */
+      processing?: boolean;
+      decoded?: number | null;
+    }
   | { kind: "idle"; snapshot: string }
   /**
    * The server answered, but the answer carries no verdict — an error
@@ -294,6 +314,7 @@ export function judgeSlotProgress(
   let ownProcessing = false;
   // A processing slot this build does not report both counters for.
   let blindProcessing = false;
+  let decoded: number | null = null;
   const parts: string[] = [];
   for (const raw of body) {
     if (!raw || typeof raw !== "object") continue;
@@ -301,6 +322,10 @@ export function judgeSlotProgress(
     const next = readNextToken(slot.next_token);
     const processing = slot.is_processing === true;
     anyProcessing ||= processing;
+    const slotDecoded = next.n_decoded ?? slot.n_decoded;
+    if (processing && typeof slotDecoded === "number") {
+      decoded = (decoded ?? 0) + slotDecoded;
+    }
     if (slotId >= 0 && slot.id === slotId && processing) ownProcessing = true;
     // Frozen can only be told from working when both phases have a
     // counter: one that moves through prompt evaluation and one that
@@ -332,7 +357,7 @@ export function judgeSlotProgress(
   const moved = previousSnapshot !== null && previousSnapshot !== snapshot;
   if (ownProcessing || anyProcessing) {
     if (previousSnapshot === null || moved || blindProcessing) {
-      return { kind: "progress", snapshot };
+      return { kind: "progress", snapshot, processing: true, decoded };
     }
     // Processing, counters reported, and not one of them moved.
     return { kind: "idle", snapshot };
@@ -388,10 +413,11 @@ export class LlamaServerError extends Error {
      * that both surface as `status === null`.
      */
     public readonly code: string | undefined = undefined,
-    options?: { cause?: unknown; body?: LlamaErrorBody; midStream?: boolean },
+    options?: { cause?: unknown; body?: LlamaErrorBody; midStream?: boolean; contended?: boolean },
   ) {
     super(message);
     this.name = "LlamaServerError";
+    this.contended = options?.contended === true;
     if (options?.cause !== undefined) {
       (this as { cause?: unknown }).cause = options.cause;
     }
@@ -407,6 +433,14 @@ export class LlamaServerError extends Error {
    * retries such a step once on a managed model that is still alive.
    */
   readonly midStream: boolean;
+
+  /**
+   * A `first-token` timeout at the end of a run of `/slots` answers with
+   * a slot processing and nothing decoded (`SLOTS_CONTENDED_MIN_POLLS`):
+   * the server is slow or contended, its GPU possibly shared, rather than
+   * not answering. Read by `classifyProviderWaitCause` (`contended`).
+   */
+  readonly contended: boolean;
 
   /**
    * The reason code out of an HTTP error body, when llama.cpp sent one
@@ -997,6 +1031,7 @@ export class LlamaServerClient {
       controller: AbortController;
       cleanup: () => void;
       timedOut: () => LlamaTimeoutKind | null;
+      contended: () => boolean;
       keepAlive: (next: Exclude<LlamaTimeoutKind, "total">) => void;
       startStreamDeadline: () => void;
     };
@@ -1008,6 +1043,7 @@ export class LlamaServerClient {
             controller,
             cleanup,
             timedOut,
+            contended,
             keepAlive,
             startStreamDeadline,
           } = this.createRequestController(request.signal, "first-token", {
@@ -1041,6 +1077,7 @@ export class LlamaServerClient {
               controller,
               cleanup,
               timedOut,
+              contended,
               keepAlive,
               startStreamDeadline,
             };
@@ -1056,7 +1093,7 @@ export class LlamaServerClient {
               deadline: timedOut(),
               error: err instanceof Error ? err.message : String(err),
             });
-            throw this.wrapTransportError(err, url, timedOut());
+            throw this.wrapTransportError(err, url, timedOut(), undefined, contended());
           }
         },
         request.signal,
@@ -1081,6 +1118,7 @@ export class LlamaServerClient {
       controller,
       cleanup,
       timedOut,
+      contended,
       keepAlive,
       startStreamDeadline,
     } = opened;
@@ -1268,7 +1306,7 @@ export class LlamaServerClient {
     } catch (err) {
       outcome = "error";
       failure = err instanceof Error ? err.message : String(err);
-      const wrapped = this.wrapTransportError(err, url, timedOut());
+      const wrapped = this.wrapTransportError(err, url, timedOut(), undefined, contended());
       // The body was open and the connection broke under it: the server
       // cut the reply, not our clock and not the caller (ATO-1279).
       if (
@@ -1381,6 +1419,12 @@ export class LlamaServerClient {
      */
     timedOut: () => LlamaTimeoutKind | null;
     /**
+     * Whether a `first-token` expiry came at the end of a run of
+     * `SLOTS_CONTENDED_MIN_POLLS` answers with a slot processing and no
+     * token decoded: slow or contended, not silent.
+     */
+    contended: () => boolean;
+    /**
      * Restart the deadline on `next`'s budget and record what a
      * subsequent expiry means — `idle` once the body has actually
      * produced something. A no-op once the request is already
@@ -1407,6 +1451,8 @@ export class LlamaServerClient {
     let timer = arm();
     let streamTimer: ReturnType<typeof setTimeout> | null = null;
     const timedOut = (): LlamaTimeoutKind | null => expired;
+    const contended = (): boolean =>
+      expired === "first-token" && contendedPolls >= SLOTS_CONTENDED_MIN_POLLS;
 
     // The progress watch. Two clocks, because "the server says nothing
     // is happening" and "there is no server" are different failures
@@ -1449,6 +1495,14 @@ export class LlamaServerClient {
     //    and any answer of any kind resets it.
     let unansweredSince: number | null = null;
     let unansweredPolls = 0;
+    //  - `contendedPolls` — the current run of answers in which a slot
+    //    was processing and not one more token was decoded across the
+    //    processing slots. A first-token budget that runs out at the end
+    //    of such a run is a server that works and gets nowhere fast
+    //    (another program on the GPU, more workers than it can serve),
+    //    not one that is not answering: the error says so (`contended`).
+    let contendedPolls = 0;
+    let lastDecoded: number | null = null;
     const stopWatch = (): void => {
       watchStopped = true;
       if (watchTimer !== null) {
@@ -1566,6 +1620,17 @@ export class LlamaServerClient {
       }
       refusedSince = null;
       refusedPolls = 0;
+      if (verdict.kind === "progress" && verdict.processing === true) {
+        const decodedNow = verdict.decoded ?? null;
+        contendedPolls =
+          decodedNow === null || (lastDecoded !== null && decodedNow > lastDecoded)
+            ? 0
+            : contendedPolls + 1;
+        lastDecoded = decodedNow;
+      } else if (verdict.kind !== "unknown") {
+        contendedPolls = 0;
+        lastDecoded = null;
+      }
       if (verdict.kind !== "unknown") previousSnapshot = verdict.snapshot;
       if (verdict.kind === "idle") {
         if (now - lastProgressAt >= this.requestTimeoutMs) {
@@ -1618,6 +1683,7 @@ export class LlamaServerClient {
         controller,
         cleanup: clearTimers,
         timedOut,
+        contended,
         keepAlive,
         startStreamDeadline,
       };
@@ -1628,6 +1694,7 @@ export class LlamaServerClient {
         controller,
         cleanup: clearTimers,
         timedOut,
+        contended,
         keepAlive,
         startStreamDeadline,
       };
@@ -1637,6 +1704,7 @@ export class LlamaServerClient {
     return {
       controller,
       timedOut,
+      contended,
       keepAlive,
       startStreamDeadline,
       cleanup: () => {
@@ -1663,6 +1731,7 @@ export class LlamaServerClient {
     url: string,
     timedOut: LlamaTimeoutKind | null,
     totalBudgetMs: number = this.requestTimeoutMs,
+    contended = false,
   ): LlamaServerError {
     if (err instanceof LlamaServerError) return err;
     // Each deadline needs its own advice. "Lower completionMaxTokens"
@@ -1670,6 +1739,20 @@ export class LlamaServerClient {
     // was not too long, it never came — and "the server stopped
     // responding" is wrong when it never started, which for llama.cpp
     // is the ordinary look of a long prompt eval.
+    if (timedOut === "first-token" && contended) {
+      return new LlamaServerError(
+        `llama-server is slow or contended: /slots showed a slot processing with no token decoded ` +
+          `across ${SLOTS_CONTENDED_MIN_POLLS} or more polls, and no first token came within ${this.firstTokenTimeoutMs}ms — ` +
+          `the server answers and works, only too slowly; the GPU may be shared with another program ` +
+          `(check nvidia-smi or the task manager), or more local workers run than it can serve. ` +
+          `Close the other GPU program or run fewer local workers at once, then retry`,
+        null,
+        url,
+        true,
+        undefined,
+        { cause: err, contended: true },
+      );
+    }
     if (timedOut === "first-token") {
       // Say it when the progress watch was blind: on a build without
       // `/slots` this budget is the *only* thing that bounded the wait,

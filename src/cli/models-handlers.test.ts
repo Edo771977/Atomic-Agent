@@ -20,6 +20,7 @@ vi.mock("../local-llm/index.js", async () => {
     holdEmbeddingForLowMemory: vi.fn(async () => ({ ok: true })),
     stopDaemon: vi.fn(),
     stopChatAndEmbeddingDaemons: vi.fn(),
+    probeNvidiaGpuUsage: vi.fn(async () => null),
   };
 });
 
@@ -123,6 +124,20 @@ describe("runLocalModelsStart CPU-backend fallback", () => {
     vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockClear();
     await runLocalModelsStart();
     expect(vi.mocked(localLlm.startChatAndEmbeddingDaemons).mock.calls[0]![0].chat.throughputProbe).toBeUndefined();
+  });
+  it("warns at start when other processes hold GPU memory, from nvidia-smi's measurement (#29)", async () => {
+    prepareManagedWindowsInstall();
+    vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockRejectedValue(new Error("test stop"));
+    vi.mocked(localLlm.probeNvidiaGpuUsage).mockResolvedValueOnce({
+      gpus: [{ usedMiB: 3200, totalMiB: 8192 }],
+      apps: [{ pid: 4242, usedMiB: 3072 }],
+    });
+    await runLocalModelsStart();
+    expect(stderrChunks.join("")).toContain("other processes hold 3072 MiB on the GPU");
+    stderrChunks = [];
+    // Absent nvidia-smi (null): nothing is said.
+    await runLocalModelsStart();
+    expect(stderrChunks.join("")).not.toContain("other processes hold");
   });
   it("starts with a one-off context size without writing it to the config (ATO-334)", async () => {
     prepareManagedWindowsInstall();

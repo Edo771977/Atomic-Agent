@@ -186,6 +186,7 @@ function waitCauseToId(cause: ProviderWaitCause): FailureCauseId {
     case "unreachable":
       return "offline";
     case "timeout":
+    case "contended":
       return "provider_timeout";
     case "loading":
       return "model_loading";

@@ -176,6 +176,22 @@ describe("formatProviderOutage", () => {
   });
 });
 
+describe("formatProviderWaitNotice: a contended local model (#29)", () => {
+  it("says slow or contended rather than not answering", () => {
+    const line = formatProviderWaitNotice("llama-server is slow or contended", 600_000, true, { kind: "contended" });
+    expect(line).not.toContain("not answering");
+    expect(line).toContain("The local model is slow or contended (its GPU may be shared");
+    // The same reading from the reason text alone (no cause on the event).
+    const fromText = formatProviderWaitNotice(
+      "llama-server is slow or contended: /slots showed a slot processing",
+      600_000,
+      true,
+    );
+    expect(fromText).toContain("slow or contended");
+    expect(fromText).not.toContain("not answering");
+  });
+});
+
 describe("formatProviderWaitNotice", () => {
   const TAIL =
     " The turn is paused and retries by itself for up to 5 min — Esc stops it.";

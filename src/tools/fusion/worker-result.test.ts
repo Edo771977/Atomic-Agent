@@ -6,6 +6,7 @@ import {
   WORKER_HINT_IDLE_SERVER,
   WORKER_HINT_QUEUED,
   WORKER_HINT_QUOTA,
+  WORKER_HINT_CONTENDED,
   WORKER_HINT_SATURATED,
   WORKER_HINT_UNREACHABLE,
   WORKER_HINT_UNSERVED,
@@ -942,6 +943,19 @@ describe("WorkerRunCollector — why a worker stopped", () => {
     );
     expect(result.hint).toBe(WORKER_HINT_SATURATED);
     expect(result.notes?.[0]).toMatch(/time limit/);
+  });
+
+  it("reports a contended local server as slow, not as one that stopped answering (#29)", () => {
+    const c = new WorkerRunCollector();
+    c.observe(
+      waiting(
+        "llama-server is slow or contended: /slots showed a slot processing with no token decoded across 3 or more polls, and no first token came within 120000ms — the GPU may be shared with another program",
+      ),
+    );
+    const result = c.finish({ ...base, reason: "max_steps", stopCause: "time_ceiling" });
+    expect(result.error).toMatch(/^the local model was slow or contended \(GPU may be shared\): /);
+    expect(result.error).not.toContain("stopped answering");
+    expect(result.hint).toBe(WORKER_HINT_CONTENDED);
   });
 
   it("says a worker stopped by the spend ceiling hit its spend limit, not its step limit", () => {

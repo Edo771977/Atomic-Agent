@@ -22,11 +22,13 @@ import {
   readLogTail,
   resolveLogFilePath,
   getConfiguredBackendVariant,
+  describeForeignGpuUse,
   getDaemonStatus,
   getEmbeddingDaemonStatus,
   getEmbeddingModelDef,
   getLocalModelDef,
   isBackendDownloaded,
+  probeNvidiaGpuUsage,
   isDownloadJobLive,
   isEmbeddingModelDownloaded,
   isKnownEmbeddingModelId,
@@ -734,6 +736,18 @@ export async function runLocalModelsStart(
     process.stderr.write(
       `note: could not list compute devices (${unlisted}) — starting without a device pick; the context is not fitted to GPU memory\n`,
     );
+  }
+
+  // A GPU shared with other work: the context fit below uses the VRAM
+  // free right now, so say who holds the rest (measured by nvidia-smi;
+  // silent without it). The embedding server already up is ours.
+  if (device !== "cpu" && process.platform !== "darwin") {
+    const usage = await probeNvidiaGpuUsage();
+    const shared =
+      usage === null
+        ? null
+        : describeForeignGpuUse(usage, embRunningPid === null ? [] : [embRunningPid]);
+    if (shared !== null) process.stderr.write(`${shared}\n`);
   }
 
   // Which direction fusion is pointing decides what `parallel: "auto"`

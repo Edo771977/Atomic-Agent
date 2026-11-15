@@ -13,7 +13,12 @@
  * second, and `recommendRank` last.
  */
 
-import { estimateLaunchKvBytes } from "../server/context-size.js";
+import {
+  DEFAULT_UBATCH_SIZE,
+  estimateComputeReserveMiB,
+  estimateLaunchKvBytes,
+  resolveGpuKvRoomMiB,
+} from "../server/context-size.js";
 import { GPU_AUTO_MAX_SLOTS } from "../server/context-growth.js";
 import {
   MAX_AUTO_SLOTS,
@@ -147,12 +152,50 @@ function fitOf(def: LocalModelDef): FusionWorkerFit | null {
   }
 }
 
+/** Bytes per MiB, for the GPU budget (decimal GB) to MiB conversion. */
+const BYTES_PER_MIB = 1024 * 1024;
+
+/**
+ * GPU memory a worker launch can spend on KV cache, in decimal GB: the
+ * daemon's own fit (`resolveGpuKvRoomMiB`: the safety fraction and the
+ * compute reserve set aside beside the weights) applied to the card's
+ * budget. The vocabulary is not known from the catalog, so the reserve
+ * assumes the largest, as the daemon does without a header.
+ */
+export function workerGpuKvRoomGb(
+  def: Pick<LocalModelDef, "fileSizeGb">,
+  gpuBudgetGb: number,
+): number {
+  const roomMiB = resolveGpuKvRoomMiB({
+    vramMiB: (gpuBudgetGb * 1e9) / BYTES_PER_MIB,
+    modelSizeGb: def.fileSizeGb,
+    mmprojSizeGb: 0,
+    computeReserveMiB: workerComputeReserveMiB(),
+  });
+  return (roomMiB * BYTES_PER_MIB) / 1e9;
+}
+
+function workerComputeReserveMiB(): number {
+  return estimateComputeReserveMiB({
+    ubatchSize: DEFAULT_UBATCH_SIZE,
+    vocabSize: null,
+    hasVision: false,
+    slots: 1,
+  });
+}
+
+/** What the GPU fit leaves for weights + KV, in decimal GB (`workerGpuKvRoomGb` plus the weights). */
+function workerGpuUsableGb(gpuBudgetGb: number): number {
+  return workerGpuKvRoomGb({ fileSizeGb: 0 }, gpuBudgetGb);
+}
+
 /**
  * Worker slots the memory holds for `def`, at least one: RAM past the
  * model's `recommendedRamGb` (which covers the first slot), and, when
  * the GPU budget is known, what fits beside the weights there — the KV
  * cache lives on the GPU, so a big RAM does not hold slots a small card
- * cannot.
+ * cannot. The GPU side is the daemon's fit (`workerGpuKvRoomGb`), not the
+ * whole card.
  */
 export function workerSlotsByMemory(
   def: Pick<LocalModelDef, "fileSizeGb" | "recommendedRamGb">,
@@ -163,7 +206,7 @@ export function workerSlotsByMemory(
   const byRam = 1 + Math.max(0, Math.floor((memoryGb - def.recommendedRamGb) / perSlotGb));
   const byGpu =
     typeof gpuBudgetGb === "number" && gpuBudgetGb > 0
-      ? Math.floor(Math.max(0, gpuBudgetGb - def.fileSizeGb) / perSlotGb)
+      ? Math.floor(Math.max(0, workerGpuKvRoomGb(def, gpuBudgetGb)) / perSlotGb)
       : Number.POSITIVE_INFINITY;
   return Math.max(1, Math.min(byRam, byGpu));
 }
@@ -222,7 +265,7 @@ export function recommendWorkerModel(
   const gpuNote =
     gpu === null
       ? ""
-      : ` and ${round1(best.def.fileSizeGb + best.slots * best.perSlotGb)} GB of the ${round1(gpu)} GB GPU budget`;
+      : ` and ${round1(best.def.fileSizeGb + best.slots * best.perSlotGb)} GB of the ${round1(workerGpuUsableGb(gpu))} GB usable of the ${round1(gpu)} GB GPU (safety margin and compute reserve kept aside)`;
   const s = (n: number): string => `${n} worker slot${n === 1 ? "" : "s"}`;
   const why: string[] = [
     best.fit === null

@@ -267,7 +267,13 @@ export {
   MAC_UNIFIED_GPU_FRACTION,
   type ResolveGpuBudgetInput,
 } from "./backend/gpu-memory-budget.js";
-export { probeNvidiaVramMiB, parseNvidiaVramMiB } from "./backend/nvidia-smi-vram.js";
+export {
+  describeForeignGpuUse,
+  parseNvidiaVramMiB,
+  probeNvidiaGpuUsage,
+  probeNvidiaVramMiB,
+  type NvidiaGpuUsage,
+} from "./backend/nvidia-smi-vram.js";
 export {
   startDaemon,
   stopDaemon,

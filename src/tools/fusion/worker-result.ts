@@ -474,7 +474,11 @@ export class WorkerRunCollector {
   private failureMessage(): string | undefined {
     if (this.lastLoopError !== undefined) return this.lastLoopError;
     if (this.lastWaitReason !== undefined) {
-      return `the provider stopped answering: ${this.lastWaitReason}`;
+      // A server that answers and works too slowly (`slow or contended`,
+      // `LlamaServerError.contended`) did not stop answering.
+      return SERVER_CONTENDED.test(this.lastWaitReason)
+        ? `the local model was slow or contended (GPU may be shared): ${this.lastWaitReason}`
+        : `the provider stopped answering: ${this.lastWaitReason}`;
     }
     return undefined;
   }
@@ -750,6 +754,8 @@ export const WORKER_HINT_CONTEXT =
   "the local server ran out of context: use fewer workers at once or shorter briefs";
 export const WORKER_HINT_SATURATED =
   "the local server was saturated: fewer parallel workers";
+export const WORKER_HINT_CONTENDED =
+  "the local server was working but slow or contended: close other programs using the GPU, or run fewer parallel workers";
 export const WORKER_HINT_QUOTA =
   "provider credit/quota exhausted — retrying will not help";
 /**
@@ -769,6 +775,7 @@ const CONTEXT_EXCEEDED =
   /context size has been exceeded|ran out of context|exceeds? the (?:available )?context|context (?:size|length|window) (?:exceeded|was exceeded)/i;
 const SERVER_SATURATED =
   /no first token|first[- ]token timeout|sent no data for \d+\s*ms|idle timeout/i;
+const SERVER_CONTENDED = /\bslow or contended\b/i;
 const SERVER_UNREACHABLE =
   /stopped answering GET \/slots|it is unreachable|accepted the connection and answered nothing/i;
 const CREDIT_OR_QUOTA =
@@ -789,6 +796,7 @@ export function workerFailureHint(message: string): string | undefined {
   // better-evidenced diagnosis, and "use fewer workers" is the wrong
   // advice for a daemon that is not answering anybody.
   if (SERVER_UNREACHABLE.test(message)) return WORKER_HINT_UNREACHABLE;
+  if (SERVER_CONTENDED.test(message)) return WORKER_HINT_CONTENDED;
   if (SERVER_SATURATED.test(message)) return WORKER_HINT_SATURATED;
   if (CONTEXT_EXCEEDED.test(message)) return WORKER_HINT_CONTEXT;
   if (CREDIT_OR_QUOTA.test(message)) return WORKER_HINT_QUOTA;

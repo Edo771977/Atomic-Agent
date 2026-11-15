@@ -13,6 +13,7 @@ import {
 import type { CompletionResult } from "./llama-server-client.js";
 import { resetConfigCache } from "../config/config-cache.js";
 import { scrubError } from "../error-reporting/error-scrubber.js";
+import { classifyProviderWaitCause } from "./reliability/provider-wait-cause.js";
 
 type Handler = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -1719,6 +1720,47 @@ describe("LlamaServerClient.completeStream deadlines", () => {
       expect(chunk.done).toBe(false);
       expect((chunk.value as { delta: string }).delta).toBe("hi");
       opened().close();
+    });
+
+    it("names a first-token timeout behind a slot that processes and decodes nothing as slow/contended (#29)", async () => {
+      // A GPU shared with another program: the server answers /slots,
+      // the slot is processing, and not one token is decoded across the
+      // whole first-token budget. That is not a server that is not
+      // answering; it is one that is working slowly.
+      vi.useFakeTimers();
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: slotsJson([busy(0), idle(1)]),
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err).toBeInstanceOf(LlamaServerError);
+      expect(err.timedOut).toBe(true);
+      expect(err.contended).toBe(true);
+      expect(err.message).toContain("slow or contended");
+      expect(err.message).toContain("GPU may be shared");
+      expect(classifyProviderWaitCause(err)).toEqual({ kind: "contended" });
+    });
+
+    it("does not call a first-token timeout contended while another slot keeps decoding", async () => {
+      vi.useFakeTimers();
+      let tick = 0;
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: async () => {
+          tick += 1;
+          return new Response(JSON.stringify([idle(0), busy(1, tick)]), { status: 200 });
+        },
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err.timedOut).toBe(true);
+      expect(err.contended).toBe(false);
+      expect(err.message).toContain("queued behind other requests");
     });
 
     it("reads another slot's work as this request being queued, and a changed idle table as movement", async () => {
