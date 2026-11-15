@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { makeProviderPolicy, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
 
 export type { ProviderPolicy, ProviderPolicyStamp } from "../config/project-constraint-match.js";
@@ -30,7 +30,22 @@ export interface ProviderPolicyFrame {
   readonly role?: string;
 }
 
-const frameStore = new AsyncLocalStorage<ProviderPolicyFrame>();
+/**
+ * The policy of one frame, shared by every role frame nested in it, so
+ * a read taint set at tool dispatch (`tightenCurrentProviderPolicy`)
+ * holds for the rest of the turn: the frame was opened once, by
+ * `executeTurn`, before the read.
+ */
+export interface ProviderPolicyCell {
+  policy: ProviderPolicy | undefined;
+}
+
+interface StoredFrame {
+  readonly cell: ProviderPolicyCell;
+  readonly role?: string;
+}
+
+const frameStore = new AsyncLocalStorage<StoredFrame>();
 
 /** Run `fn` with `policy` as the provider policy of every call it makes. */
 export function runWithProviderPolicy<T>(
@@ -38,8 +53,9 @@ export function runWithProviderPolicy<T>(
   fn: () => T,
   options: { role?: string } = {},
 ): T {
+  const cell: ProviderPolicyCell = { policy };
   return frameStore.run(
-    options.role === undefined ? { policy } : { policy, role: options.role },
+    options.role === undefined ? { cell } : { cell, role: options.role },
     fn,
   );
 }
@@ -52,22 +68,104 @@ export function runWithProviderPolicy<T>(
 export function runWithProviderRole<T>(role: string, fn: () => T): T {
   const frame = frameStore.getStore();
   if (frame === undefined) return fn();
-  return frameStore.run({ ...frame, role }, fn);
+  return frameStore.run({ cell: frame.cell, role }, fn);
 }
 
 /** The frame of the call running now, or `undefined` when nothing scoped it. */
 export function currentProviderPolicyFrame(): ProviderPolicyFrame | undefined {
-  return frameStore.getStore();
+  const frame = frameStore.getStore();
+  if (frame === undefined) return undefined;
+  return frame.role === undefined ? { policy: frame.cell.policy } : { policy: frame.cell.policy, role: frame.role };
 }
 
 /** The policy of the call running now (`undefined`: unconstrained, or no frame). */
 export function currentProviderPolicy(): ProviderPolicy | undefined {
-  return frameStore.getStore()?.policy;
+  return frameStore.getStore()?.cell.policy;
+}
+
+/** The live policy cell of the frame running now, for a runtime that must tighten it later. */
+export function currentProviderPolicyCell(): ProviderPolicyCell | undefined {
+  return frameStore.getStore()?.cell;
+}
+
+/**
+ * The policy satisfying both `a` and `b`: the providers both allow.
+ * Keys join with " + " (a memory row written under it is seen by
+ * neither folder alone, unless the allowed list is a subset of the
+ * row's); `readFrom` is the union. Same key: `a` unchanged.
+ */
+export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy): ProviderPolicy {
+  if (a.key === b.key || policyCovers(a, b)) {
+    return b.readFrom === undefined || b.readFrom.every((dir) => a.readFrom?.includes(dir))
+      ? a
+      : makeProviderPolicy({ ...a, readFrom: [...new Set([...(a.readFrom ?? []), ...b.readFrom])] });
+  }
+  return makeProviderPolicy({
+    key: `${a.key} + ${b.key}`,
+    allowedProviders: a.allowedProviders.filter((id) => b.allowedProviders.includes(id)),
+    matchedDir: a.matchedDir,
+    readFrom: [...new Set([...(a.readFrom ?? []), ...(b.readFrom ?? [])])],
+  });
+}
+
+/** Whether `a` already carries constraint `b` (its key, or one of its " + " parts). */
+export function policyCovers(a: ProviderPolicy, b: ProviderPolicy): boolean {
+  if (a.key === b.key) return true;
+  const parts = a.key.split(" + ");
+  return b.key.split(" + ").every((part) => parts.includes(part));
+}
+
+/**
+ * Narrow `cell` (default: the frame running now) to also satisfy
+ * `policy`, for the rest of its life. Returns `false` when there is no
+ * frame to narrow. Read taint (issue #33 group C) calls it at dispatch.
+ */
+export function tightenCurrentProviderPolicy(
+  policy: ProviderPolicy,
+  cell: ProviderPolicyCell | undefined = currentProviderPolicyCell(),
+): boolean {
+  if (cell === undefined) return false;
+  cell.policy = cell.policy === undefined ? policy : intersectProviderPolicies(cell.policy, policy);
+  return true;
 }
 
 /** Whether the current frame allows `providerId`; no frame or no policy allows everything. */
 export function currentPolicyAllows(providerId: string): boolean {
   return currentProviderPolicy()?.allows(providerId) ?? true;
+}
+
+/**
+ * What a frontend shows for a session's provider policy (issue #33 group
+ * C): the TUI chip next to the offline switch, `/status`, the sidecar's
+ * `get_provider_restriction` and `GET /api/sessions/{id}/provider-restriction`.
+ */
+export interface ProviderRestriction {
+  /** `restricted to: local-llama` */
+  label: string;
+  allowedProviders: string[];
+  /** The constraint entry (or entries, joined with " + "). */
+  folder: string;
+  /** The constrained folders the session read files from (read taint); empty for its own folder. */
+  readFrom: string[];
+}
+
+/** The restriction a policy puts on a session, or `null` for an unconstrained one. */
+export function describeProviderRestriction(policy: ProviderPolicy | undefined): ProviderRestriction | null {
+  if (policy === undefined) return null;
+  return {
+    label: `restricted to: ${describeAllowed(policy)}`,
+    allowedProviders: [...policy.allowedProviders],
+    folder: policy.key,
+    readFrom: [...(policy.readFrom ?? [])],
+  };
+}
+
+/** One `/status` line for the restriction. */
+export function formatProviderRestrictionLine(restriction: ProviderRestriction): string {
+  const why = restriction.readFrom.length > 0
+    ? `read files from ${restriction.readFrom.join(", ")}`
+    : `folder ${restriction.folder}`;
+  return `Providers: ${restriction.label} (${why})`;
 }
 
 export const PROVIDER_NOT_ALLOWED_CODE = "ATOMIC_AGENT_PROVIDER_NOT_ALLOWED";
@@ -124,7 +222,9 @@ function providerNotAllowedMessage(
     return `provider constraints are configured (projects.constraints) but ${role} carries no folder policy; ` +
       `nothing was sent${providerId === undefined ? "" : ` to "${providerId}"`}`;
   }
-  const head = `folder ${policy.key} is restricted to: ${describeAllowed(policy)}`;
+  const head = policy.readFrom !== undefined && policy.readFrom.length > 0
+    ? `this session read files from ${policy.readFrom.join(", ")}, which ${policy.readFrom.length > 1 ? "are" : "is"} restricted to: ${describeAllowed(policy)}`
+    : `folder ${policy.key} is restricted to: ${describeAllowed(policy)}`;
   return reason === "none-allowed"
     ? `${head}; no allowed provider can serve ${role}`
     : `${head}; provider "${providerId ?? "(unknown)"}" may not serve ${role}, nothing was sent`;
@@ -171,7 +271,7 @@ export function assertProviderAllowed(
     if (!options.constraintsActive()) return;
     throw new ProviderNotAllowedError({ reason: "no-policy", providerId, ...(role === undefined ? {} : { role }) });
   }
-  const { policy } = frame;
+  const { policy } = frame.cell;
   if (policy === undefined || policy.allows(providerId)) return;
   throw new ProviderNotAllowedError({ reason: "not-allowed", providerId, policy, ...(role === undefined ? {} : { role }) });
 }

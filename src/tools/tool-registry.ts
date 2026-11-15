@@ -139,6 +139,14 @@ export interface ToolRegistryOptions {
    * (`approval/untrusted-taint.ts`, ATO-618). Absent ⇒ nobody is told.
    */
   onUntrustedOutput?: (sessionId: string, source: string) => void;
+  /**
+   * Told before a tool runs, with the arguments it will run with. The
+   * runtime sets the read taint of per-folder provider constraints here
+   * (`runtime/session-read-taint.ts`, issue #33): a read inside a
+   * constrained folder narrows the session's provider policy before the
+   * content exists. A throw refuses the call. Absent ⇒ nobody is told.
+   */
+  onDispatch?: (name: string, args: Record<string, unknown>, ctx: ToolContext) => void;
 }
 
 export class ToolRegistry {
@@ -148,11 +156,13 @@ export class ToolRegistry {
     | undefined;
   private readonly knownSecrets: () => readonly KnownSecret[];
   private readonly onUntrustedOutput: ToolRegistryOptions["onUntrustedOutput"];
+  private readonly onDispatch: ToolRegistryOptions["onDispatch"];
 
   constructor(options: ToolRegistryOptions = {}) {
     this.outputSpill = options.outputSpill;
     this.knownSecrets = options.knownSecrets ?? (() => knownSecretsFromEnv());
     this.onUntrustedOutput = options.onUntrustedOutput;
+    this.onDispatch = options.onDispatch;
   }
 
   register(definition: ToolDefinition): void {
@@ -203,7 +213,9 @@ export class ToolRegistry {
       // number as "200000", an array as "[\"a.png\"]"). Unwrap those
       // before dispatch; anything that cannot be coerced is passed
       // through untouched so the tool reports its own error.
-      result = await tool.run(coerceToolArgs(name, aliased?.args ?? args), ctx);
+      const runArgs = coerceToolArgs(name, aliased?.args ?? args);
+      this.onDispatch?.(name, runArgs, ctx);
+      result = await tool.run(runArgs, ctx);
     } catch (err) {
       // Same error object (its class matters to callers), one more line.
       // A message that cannot be set (a getter-only DOMException) is left

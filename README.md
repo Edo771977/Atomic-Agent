@@ -741,6 +741,10 @@ Local-first bounds where control lives, not where packets go. Network egress hap
 - the TUI checks GitHub Releases for a newer version at startup (set `ATOMIC_AGENT_UPDATE_CHECK_ON_STARTUP=false` to skip), or `atomic-agent update` fetches the installer;
 - analytics or crash reporting is enabled, as described above.
 
+#### Confidential folders
+
+`projects.constraints` in `<stateDir>/config.json` names folders whose content may only reach the providers you list, for example `"projects": { "constraints": { "/work/client": { "allowedProviders": ["local-llama"] } } }`. It is enforced in code before each request is sent, never by prompt wording, and covers every model call (main model, Fusion workers and judge, fallbacks, compaction, titles, memory reflection, vision), memory embeddings (allowed only on this machine) and Core-proxied media (only with `openrouter` listed). If no allowed provider can serve a call it is refused with the reason. Memory written in such a folder stays with it, and a chat elsewhere that reads files inside the folder is restricted the same way from then on, across `/resume`; the TUI shows `restricted to: …`. It does not cover other egress: web fetch and search, HTTP tools, the browser, remote MCP servers, Composio, GitHub, channels, mail and shell commands can still reach the network (a separate egress list is planned). Details: [provider policy](src/llm/docs/provider-policy.md).
+
 > [!NOTE]
 > Skills and shell commands inherit the agent process environment, including `.env` secrets, so anything you run can itself reach the network.
 

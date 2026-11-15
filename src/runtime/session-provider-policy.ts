@@ -6,10 +6,12 @@ import {
   resolveProjectConstraint,
   toProviderPolicyStamp,
   currentProviderPolicyFrame,
+  intersectProviderPolicies,
   type ProviderPolicy,
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
+import { readTaintOf } from "./session-read-taint.js";
 
 /** The policy that lets no provider serve: what an unscoped caller gets while constraints exist. */
 export function refuseAllPolicy(key: string, matchedDir = ""): ProviderPolicy {
@@ -35,6 +37,8 @@ export interface SessionProviderPolicyDeps {
  *   be a temp copy outside every constrained folder. A worker without a
  *   stamp while any constraint exists is refused everything.
  * - A side call's partition id (`reflection:<id>`) reads as its session.
+ * - A session that read files inside a constrained folder also carries
+ *   that folder's constraint (its stored read taint), intersected.
  * - An id that names no stored session while constraints exist: refused
  *   everything (fail closed).
  */
@@ -43,6 +47,14 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const forWorkingDir = (workingDir: string): ProviderPolicy | undefined =>
     resolveProjectConstraint(deps.readConfig(), workingDir);
   const forSession = (session: { id: string; workingDir: string; metadata?: Record<string, unknown> }): ProviderPolicy | undefined => {
+    // Read taint (session-read-taint.ts): what the session read inside a
+    // constrained folder holds on top of its own folder's policy.
+    const own = ownPolicy(session);
+    const taint = readTaintOf(session.metadata);
+    if (taint === undefined) return own;
+    return own === undefined ? taint : intersectProviderPolicies(own, taint);
+  };
+  const ownPolicy = (session: { id: string; workingDir: string; metadata?: Record<string, unknown> }): ProviderPolicy | undefined => {
     const worker = readFusionWorkerMeta(session.metadata);
     if (worker !== null) {
       const stamp = worker.providerPolicy;

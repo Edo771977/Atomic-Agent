@@ -11,6 +11,8 @@ In the composer, Local mode has the backend and model controls: Atomic Chat Core
 
 `/goal <criteria>` keeps a chat working until an acceptance list is met: write the items one per line or split by `;`, and add shell checks that must pass with `/goal check add <cmd>` (or a `check: <cmd>` item). After each round the checks run, then the model judges every item; open items start the next round, up to 10 rounds by default. `/goal status` shows where it stands, `/goal pause`, `/goal resume` and `/goal clear` control it. The goal is saved with the chat and survives a restart.
 
+In a folder restricted by `projects.constraints`, or after the chat read files inside one, the composer shows `restricted to: <providers>` after the route and `/status` adds a `Providers:` line saying why. Calls to any other provider are refused for that chat.
+
 The keyboard and mouse share the same UI transitions. Terminal size/capabilities affect layout and modified keys. The runtime restores terminal modes when the interface exits.
 
 For engineering work read [TUI ownership/input](../../src/tui/README.md) and [interface contracts](../../src/tui/docs/interface.md). The previous onboarding QA campaign is [historical](../archive/2026-10-06/TESTING.md), not a current development checklist.

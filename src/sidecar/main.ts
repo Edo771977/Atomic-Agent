@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import { resolve } from "node:path";
 
 import { approvalRequestPayload, resolveApprovalResponse } from "./approval-payload.js";
@@ -449,6 +450,21 @@ export async function bootstrapSidecar(): Promise<{
       if (active)
         return active.runtime.sessionStore.load(request.payload.sessionId);
       return null;
+    },
+  );
+
+  // Issue #33: the provider restriction on a session (folder constraint
+  // or read taint), `null` when none applies or the session is unknown.
+  router.register<GetSessionPayload, ProviderRestriction | null>(
+    "get_provider_restriction",
+    (request) => {
+      if (!active) throw new Error("no active runtime — call start_session first");
+      const id = request.payload.sessionId;
+      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
+      const session = active.session.id === id
+        ? (active.runtime.sessionStore.load(id) ?? active.session)
+        : active.runtime.sessionStore.load(id);
+      return session === null ? null : (active.runtime.providerRestrictionFor?.(session) ?? null);
     },
   );
 

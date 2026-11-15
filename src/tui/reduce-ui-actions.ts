@@ -27,6 +27,10 @@ export function reduceUiAction(
   action: TuiAction,
 ): TuiState | null {
   switch (action.type) {
+    case "provider_restriction_changed":
+      // A late answer for a session no longer on screen is dropped.
+      if (action.sessionId !== state.session.sessionId) return state;
+      return { ...state, session: { ...state.session, providerRestriction: action.restriction } };
     case "ui_mode_toggled":
       return { ...state, uiMode: state.uiMode === "chat" ? "debug" : "chat" };
     case "ui_mode_set":
@@ -511,6 +515,8 @@ export function reduceUiAction(
           ...state.session,
           sessionId: action.sessionId,
           workingDir: action.workingDir,
+          // The orchestrator re-reads it for the new session right after.
+          providerRestriction: null,
         },
         // `running` means a turn is already in flight on the target
         // session (backgrounded by an earlier switch-away, or driven by

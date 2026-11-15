@@ -85,6 +85,29 @@ export function createGetSessionHandler(): HttpHandler {
   };
 }
 
+/**
+ * `GET /api/sessions/{id}/provider-restriction` (issue #33): `{ restriction }`,
+ * the provider restriction on the chat (its folder's `projects.constraints`
+ * entry, or what it read inside one) as `{ label, allowedProviders, folder,
+ * readFrom }`, or `null` when none applies. 404 if the session is not
+ * persisted.
+ */
+export function createGetSessionProviderRestrictionHandler(): HttpHandler {
+  return async (_req, res, ctx) => {
+    const id = ctx.params.id;
+    if (!id) {
+      sendError(res, 400, openaiError("session id is required"));
+      return;
+    }
+    const state = ctx.runtime.sessionStore.load(id);
+    if (!state) {
+      sendError(res, 404, openaiError(`session not found: ${id}`));
+      return;
+    }
+    sendJson(res, 200, { restriction: ctx.runtime.providerRestrictionFor?.(state) ?? null });
+  };
+}
+
 /** The state with `done_line` on every tool call row, for the history view. */
 export function withToolCallDoneLines(state: SessionState): SessionState {
   return {

@@ -203,10 +203,10 @@ export class LessonStore {
       `INSERT INTO lessons (
          activation, principle, tags, status,
          success_count, failure_count, parent_ids,
-         working_dir, created_at, updated_at, deprecated_at)
+         working_dir, created_at, updated_at, deprecated_at, constraint_scope)
        VALUES (@activation, @principle, @tags, 'active',
                0, 0, @parent_ids,
-               @working_dir, @now, @now, NULL)`,
+               @working_dir, @now, @now, NULL, memory_scope_write())`,
     );
     this.getByIdStmt = this.db.prepare(
       `SELECT id, activation, principle, tags, status,
@@ -214,12 +214,13 @@ export class LessonStore {
               working_dir, created_at, updated_at, deprecated_at,
               vote_score
          FROM lessons
-        WHERE id = ?`,
+        WHERE id = ? AND memory_scope_visible(constraint_scope)`,
     );
     this.listActiveStmt = this.db.prepare(
       `SELECT id, activation, tags, working_dir, updated_at
          FROM lessons
         WHERE status = 'active'
+          AND memory_scope_visible(constraint_scope)
         ORDER BY updated_at DESC, id DESC
         LIMIT ?`,
     );
@@ -232,6 +233,7 @@ export class LessonStore {
          FROM lessons_fts
          JOIN lessons l ON l.id = lessons_fts.rowid
         WHERE lessons_fts MATCH ?
+          AND memory_scope_visible(l.constraint_scope)
           AND l.status = 'active'
         ORDER BY score ASC
         LIMIT ?`,
@@ -245,6 +247,7 @@ export class LessonStore {
          FROM lessons_fts
          JOIN lessons l ON l.id = lessons_fts.rowid
         WHERE lessons_fts MATCH ?
+          AND memory_scope_visible(l.constraint_scope)
         ORDER BY score ASC
         LIMIT ?`,
     );

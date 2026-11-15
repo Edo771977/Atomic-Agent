@@ -52,6 +52,8 @@ export interface TurnStatusState {
   lastResult?: { text: string; ok: boolean } | null;
   /** The tool waiting on the person's approval, when one is. */
   blockedOn?: string | null;
+  /** The session's provider restriction, already worded (issue #33). */
+  restrictionLine?: string | null;
 }
 
 export interface StatusSnapshot {
@@ -60,6 +62,7 @@ export interface StatusSnapshot {
   currentLine?: string;
   lastResultLine?: string;
   blockedLine?: string;
+  restrictionLine?: string;
   elapsedMs: number;
   steps: number;
 }
@@ -81,6 +84,7 @@ export function buildStatusSnapshot(
     elapsedMs,
     steps: Math.max(0, Math.floor(state.steps)),
   };
+  if (state.restrictionLine) snap.restrictionLine = state.restrictionLine;
   const plan = state.plan;
   if (plan && plan.total > 0) {
     const done = Math.min(Math.max(0, plan.done), plan.total);
@@ -124,10 +128,11 @@ export function formatStatusSnapshot(
       channel === "telegram"
         ? "No turn is running in this chat."
         : "No turn is running.";
-    if (snap.steps === 0 && snap.elapsedMs === 0) return head;
+    const restriction = snap.restrictionLine ? [snap.restrictionLine] : [];
+    if (snap.steps === 0 && snap.elapsedMs === 0) return [head, ...restriction].join("\n");
     const tail = [`Last turn: ${steps} · ${time}`];
     if (snap.lastResultLine) tail.push(snap.lastResultLine);
-    return [head, ...tail].join("\n");
+    return [head, ...tail, ...restriction].join("\n");
   }
   const first = [snap.planLine, snap.currentLine].filter(
     (part): part is string => typeof part === "string",
@@ -135,6 +140,7 @@ export function formatStatusSnapshot(
   const lines = [first.join(" · ")];
   if (snap.lastResultLine) lines.push(snap.lastResultLine);
   lines.push([snap.blockedLine ?? "Blocked: no", time, steps].join(" · "));
+  if (snap.restrictionLine) lines.push(snap.restrictionLine);
   return lines.filter((line) => line.length > 0).join("\n");
 }
 

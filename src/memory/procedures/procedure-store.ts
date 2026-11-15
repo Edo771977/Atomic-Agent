@@ -192,11 +192,11 @@ export class ProcedureStore {
          activation, steps, tags, status,
          success_count, failure_count, use_count, vote_score,
          parent_lesson_ids, parent_memory_ids, source,
-         working_dir, created_at, updated_at, deprecated_at)
+         working_dir, created_at, updated_at, deprecated_at, constraint_scope)
        VALUES (@activation, @steps, @tags, 'active',
                0, 0, 0, 0.0,
                @parent_lesson_ids, @parent_memory_ids, @source,
-               @working_dir, @now, @now, NULL)`,
+               @working_dir, @now, @now, NULL, memory_scope_write())`,
     );
     this.getByIdStmt = this.db.prepare(
       `SELECT id, activation, steps, tags, status,
@@ -204,12 +204,13 @@ export class ProcedureStore {
               parent_lesson_ids, parent_memory_ids, source,
               working_dir, created_at, updated_at, deprecated_at
          FROM procedures
-        WHERE id = ?`,
+        WHERE id = ? AND memory_scope_visible(constraint_scope)`,
     );
     this.listActiveStmt = this.db.prepare(
       `SELECT id, activation, tags, working_dir, updated_at, vote_score
          FROM procedures
         WHERE status = 'active'
+          AND memory_scope_visible(constraint_scope)
         ORDER BY vote_score DESC, updated_at DESC, id DESC
         LIMIT ?`,
     );
@@ -222,6 +223,7 @@ export class ProcedureStore {
          FROM procedures_fts
          JOIN procedures p ON p.id = procedures_fts.rowid
         WHERE procedures_fts MATCH ?
+          AND memory_scope_visible(p.constraint_scope)
           AND p.status = 'active'
         ORDER BY score ASC
         LIMIT ?`,
@@ -235,6 +237,7 @@ export class ProcedureStore {
          FROM procedures_fts
          JOIN procedures p ON p.id = procedures_fts.rowid
         WHERE procedures_fts MATCH ?
+          AND memory_scope_visible(p.constraint_scope)
         ORDER BY score ASC
         LIMIT ?`,
     );

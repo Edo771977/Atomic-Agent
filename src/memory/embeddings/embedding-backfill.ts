@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import type { EmbeddingWriter } from "./embedding-writer.js";
+import { runInMemoryRowScope } from "../memory-constraint-scope.js";
 
 /**
  * Re-embed the notes that have no vector for the active embedding
@@ -58,6 +59,13 @@ export interface EmbeddingBackfillResult {
   skipped: number;
   /** Notes still without a vector for the model. */
   remaining: number;
+  /**
+   * Issue #33. Notes of a constrained folder left without a vector:
+   * embedding them under their folder's policy was refused (an
+   * endpoint off this machine), or failed. Present only when non-zero;
+   * the run goes on with the rest.
+   */
+  notAllowed?: number;
   stoppedReason?: EmbeddingBackfillStopReason;
 }
 
@@ -95,13 +103,14 @@ export async function backfillEmbeddings(
   const signal = opts.signal;
   let embedded = 0;
   let skipped = 0;
+  let notAllowed = 0;
   let total = 0;
   let stoppedReason: EmbeddingBackfillStopReason | undefined;
 
   try {
     total = countPendingEmbeddings(db, model);
     const page = db.prepare(
-      `SELECT m.id AS id, m.content AS content FROM memories m
+      `SELECT m.id AS id, m.content AS content, m.constraint_scope AS scope FROM memories m
         WHERE m.id < @before AND trim(m.content) <> '' AND ${MISSING}
         ORDER BY m.id DESC LIMIT @limit`,
     );
@@ -114,7 +123,7 @@ export async function backfillEmbeddings(
         stoppedReason = "aborted";
         break;
       }
-      const rows = page.all({ model, before, limit: batchSize }) as Array<{ id: number; content: string }>;
+      const rows = page.all({ model, before, limit: batchSize }) as Array<{ id: number; content: string; scope: string | null }>;
       if (rows.length === 0) break;
       before = rows[rows.length - 1]!.id;
       for (let i = 0; i < rows.length; i += concurrency) {
@@ -123,12 +132,17 @@ export async function backfillEmbeddings(
           break outer;
         }
         const group = rows.slice(i, i + concurrency);
+        // Per-folder provider constraints (issue #33): each note is
+        // embedded under the policy of the folder that wrote it, so the
+        // embedding guard sends an unconstrained note anywhere and a
+        // constrained one only to an endpoint on this machine.
         const outcomes = await Promise.all(
-          group.map((row) => writer.write(row.id, row.content, signal)),
+          group.map((row) => runInMemoryRowScope(row.scope, () => writer.write(row.id, row.content, signal))),
         );
         let stop: EmbeddingBackfillStopReason | undefined;
         for (const [index, outcome] of outcomes.entries()) {
           if (outcome === "stored") embedded += 1;
+          else if (group[index]!.scope !== null && !signal?.aborted) notAllowed += 1;
           // Eviction or a user delete can remove a row between the read
           // and the upsert; its foreign key then fails. Not a reason to stop.
           else if (outcome === "failed" && !exists.get(group[index]!.id)) skipped += 1;
@@ -155,7 +169,14 @@ export async function backfillEmbeddings(
   } catch {
     remaining = Math.max(0, total - embedded);
   }
-  return { model, embedded, skipped, remaining, ...(stoppedReason ? { stoppedReason } : {}) };
+  return {
+    model,
+    embedded,
+    skipped,
+    remaining,
+    ...(notAllowed > 0 ? { notAllowed } : {}),
+    ...(stoppedReason ? { stoppedReason } : {}),
+  };
 }
 
 function positiveInt(value: number | undefined, fallback: number): number {
