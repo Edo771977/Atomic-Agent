@@ -43,6 +43,7 @@ import {
   type RiskReviewer,
 } from "./risk-review.js";
 import {
+  formatQuestionTaintNote,
   formatTaintNote,
   FUSION_WORKER_TAINT_SOURCE,
   isTaintSensitive,
@@ -650,10 +651,16 @@ export class ApprovalGate {
   ): Promise<ApprovalDecision> {
     const approvalId = params.approvalId ?? randomUUID();
     const workdir = params.workdir ?? currentApprovalWorkdir();
+    // A question asked after outside content may be that content's: warn.
+    const questionSources =
+      params.category === "user_question" && params.riskNote === undefined
+        ? this.taintSourcesOf(params.sessionId)
+        : [];
     const request: ApprovalRequest = {
       ...params,
       approvalId,
       ...(workdir !== undefined ? { workdir } : {}),
+      ...(questionSources.length > 0 ? { riskNote: formatQuestionTaintNote(questionSources) } : {}),
     };
     // Before auto-approval: a level or a grant that would run a write
     // silently must not become the way round the user's own Deny of it

@@ -130,6 +130,28 @@ describe("ApprovalGate review after outside content (ATO-618)", () => {
     expect(isTaintSensitive("user_question")).toBe(false);
   });
 
+  it("warns on an ask_user question after outside content, also with taintReview off", async () => {
+    const question = {
+      sessionId: "s1",
+      tool: "ask_user",
+      category: "user_question" as const,
+      reason: "question for you",
+      question: { prompt: "Paste your API key?", options: [{ label: "a" }, { label: "b" }], multiSelect: false, allowOther: true },
+    };
+    for (const taintReview of [true, false]) {
+      const { gate, emitted } = setup({ taintReview });
+      void gate.request(question);
+      await settle();
+      // A clean session's question carries no note.
+      expect(emitted[0]?.riskNote).toBeUndefined();
+      gate.noteUntrustedContent("s1", "a web page");
+      void gate.request(question);
+      await settle();
+      expect(emitted[1]?.riskNote).toContain("read outside content this turn (a web page)");
+      expect(emitted[1]?.riskNote).toContain("do not type secrets");
+    }
+  });
+
   it("holds a session grant too, and a new turn clears the taint", async () => {
     const { gate, emitted } = setup({ level: 1 });
     // Earn a shell grant for the session.

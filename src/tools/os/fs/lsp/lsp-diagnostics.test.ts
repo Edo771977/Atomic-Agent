@@ -67,11 +67,23 @@ function change(over: Partial<LspChangeInput> = {}): LspChangeInput {
     change: "edit",
     before: "const a = 1;\n// ERR:old problem\n",
     after: "const a = 1;\n// ERR:old problem\n// ERR:new problem\n",
+    scopeRoots: ["/work"],
     ...over,
   };
 }
 
 describe("createLspDiagnostics (ATO-503)", () => {
+  it("starts no server in a git root outside the session's working dir and read roots", async () => {
+    const { lsp, starts } = setup();
+    // The session works in a subfolder; the repository root is above it.
+    expect(await lsp.diagnoseChange(change({ scopeRoots: [`${REPO}/src`] }))).toBeNull();
+    expect(await lsp.diagnoseChange(change({ scopeRoots: ["/elsewhere"] }))).toBeNull();
+    expect(starts).toEqual([]);
+    // A read root the user named that holds the repository is enough.
+    expect(await lsp.diagnoseChange(change({ scopeRoots: ["/elsewhere", REPO] }))).toContain("new problem");
+    expect(starts).toHaveLength(1);
+  });
+
   it("does nothing at all when the flag is off", async () => {
     const { lsp, starts } = setup({ enabled: false });
     expect(await lsp.diagnoseChange(change())).toBeNull();

@@ -20,13 +20,22 @@ import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
  * still read a constrained folder through a plain relative path from a
  * `cwd` outside it (`cd`, a script), or a computed path; that is not
  * detected.
+ *
+ * `options.lspWrites` says whether the after-edit language servers were
+ * built at boot (`tools.lsp.enabled`); only then can an `os.fs.write`
+ * result quote the project, so only then does a write taint.
  */
 export function readTaintTargets(
   tool: string,
   args: Record<string, unknown>,
   workingDir: string,
+  options: { lspWrites?: boolean } = {},
 ): string[] {
   const raw: string[] = [];
+  if (tool === "os.fs.write") {
+    const path = str(args.path);
+    if (options.lspWrites === true && path !== undefined && serverForPath(path) !== null) raw.push(path);
+  }
   const targetsOf = READ_TOOL_TARGETS.get(tool) ?? TAINT_ONLY_TARGETS.get(tool);
   if (targetsOf !== undefined) raw.push(...targetsOf(args));
   const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
@@ -68,18 +77,11 @@ const repoArg = (args: Record<string, unknown>): string[] => {
  * its checkpoint, an extraction copies an archive's entries out, and
  * the git mutations print the repository's files and history (a push
  * or fetch then sends them: tainting first lets the egress guard see
- * the repository's constraint). A write of a file a language server
- * diagnoses (ATO-503, `tools.lsp.enabled`) can come back with errors
- * that quote the file's project, so it taints like an edit; other
- * writes return no content. The taint is decided at dispatch, before
- * the config is read, so it applies with the diagnostics off too.
+ * the repository's constraint). `os.fs.write` is handled in
+ * `readTaintTargets`: it taints only when language servers exist.
  */
 const TAINT_ONLY_TARGETS: ReadonlyMap<string, (args: Record<string, unknown>) => string[]> = new Map([
   ["os.fs.archive.extract", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
-  ["os.fs.write", (args: Record<string, unknown>) => {
-    const path = str(args.path);
-    return path !== undefined && serverForPath(path) !== null ? [path] : [];
-  }],
   ["os.fs.edit", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
   ["os.fs.restore", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
   [

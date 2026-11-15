@@ -129,4 +129,18 @@ describe("after-edit language-server diagnostics in fs tools (ATO-503)", () => {
     );
     expect(result.details.parseWarning).toBeUndefined();
   });
+  it("write, edit and patch hand over the session's working dir and read roots as the server scope", async () => {
+    await writeFile(join(dir, "a.ts"), "const n = 1;\n", "utf8");
+    const lsp = fakeLsp(null);
+    const ctx = { ...makeCtx(dir), readRoots: ["/named/by/user"] };
+    const opts = { approvals: approveAll(), approvalRequired: true, lspDiagnostics: lsp.lspDiagnostics };
+    await buildOsFsWriteTool(opts).run({ path: "b.ts", content: "const b = 1;\n" }, ctx);
+    await buildOsFsEditTool(opts).run({ path: "a.ts", oldString: "= 1;", newString: "= 2;" }, ctx);
+    await buildOsFsPatchTool(opts).run(
+      { patch: createPatch("a.ts", "const n = 2;\n", "const n = 3;\n"), apply: true },
+      ctx,
+    );
+    expect(lsp.calls).toHaveLength(3);
+    for (const call of lsp.calls) expect(call.scopeRoots).toEqual([dir, "/named/by/user"]);
+  });
 });

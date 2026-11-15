@@ -13,7 +13,10 @@ import type { SessionLlmStamp } from "../session/session-llm.js";
  * persist the config and reload the provider.
  */
 export type ModelRestorePlan =
-  /** Nothing to do: no stamp, or the stamp is already the active model. */
+  /**
+   * Nothing to do: no stamp, a per-turn stamp, or the stamp is already
+   * the active model.
+   */
   | { kind: "none" }
   /** The stamped provider is gone from the config; say so, change nothing. */
   | { kind: "missing"; providerId: string; chatModel: string | null }
@@ -30,6 +33,9 @@ export function planModelRestore(
   resolved: ResolvedLlmConfig,
 ): ModelRestorePlan {
   if (!stamp) return { kind: "none" };
+  // A per-turn pin records what one turn ran on, not a choice to make
+  // global: selecting it would persist it as the provider's default.
+  if (stamp.perTurn === true) return { kind: "none" };
   const entry = resolved.providers.find((p) => p.id === stamp.providerId);
   if (!entry) {
     return {

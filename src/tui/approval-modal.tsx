@@ -107,6 +107,7 @@ export function ApprovalModal({
     return (
       <QuestionPrompt
         question={request.question}
+        {...(request.riskNote === undefined ? {} : { warning: request.riskNote })}
         skipButton={
           <ApprovalButton request={request} approved={false} tone="danger">
             {`skip · ctrl+${APPROVAL_CHORDS.deny}`}

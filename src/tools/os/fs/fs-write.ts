@@ -1,3 +1,4 @@
+import { sessionReadRoots } from "../../read-scope/index.js";
 import { OS_FS_WRITE_CONTRACT, parseWriteArgs } from "./fs-write-contract.js";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -292,7 +293,7 @@ async function parseWarningAfterWrite(
   workingDir: string,
   prior: PriorFile | null,
   lsp: Pick<LspDiagnostics, "diagnoseChange"> | undefined,
-  ctx: Pick<ToolContext, "sessionId" | "signal">,
+  ctx: Pick<ToolContext, "sessionId" | "signal" | "workingDir" | "readRoots">,
 ): Promise<string | null> {
   try {
     let written = content;
@@ -317,6 +318,7 @@ async function parseWarningAfterWrite(
         after: written,
         sessionId: ctx.sessionId,
         signal: ctx.signal,
+        scopeRoots: sessionReadRoots(ctx),
         ...(before === undefined ? {} : { before }),
       })) ?? null;
     return joinWarnings(parse, fromLsp);
