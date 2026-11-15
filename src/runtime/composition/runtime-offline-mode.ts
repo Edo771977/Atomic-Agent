@@ -27,6 +27,13 @@ export interface OfflineModeDeps {
     discord: RemoteChannel | null;
     swarm: { startEnabled(): Promise<void>; stopAll(): Promise<void> } | null;
   };
+  /**
+   * The browser backend: a Chrome the agent launched before the switch
+   * has no dead proxy, so its open pages keep the network. It is stopped
+   * when offline mode turns on; the next browser call relaunches it
+   * offline. A Chrome it attached to is not touched.
+   */
+  browser?: () => { stopLaunchedBrowser?(): Promise<boolean> } | null;
   /** Whether the config asks for each channel, read after the write. */
   channelEnabled?: () => { telegram: boolean; discord: boolean };
   warn?: (message: string, error: unknown) => void;
@@ -43,7 +50,8 @@ export interface OfflineModeDeps {
  * HTTP pool and every tool read the flag per request. The Telegram bot
  * (its own HTTP client) and the Discord gateway (a socket opened before
  * the switch) are stopped when it turns on, and started again when it
- * turns off if their config asks for them. With `ATOMIC_AGENT_OFFLINE=1`
+ * turns off if their config asks for them. A Chrome the agent launched
+ * is stopped too (it relaunches offline on the next browser call). With `ATOMIC_AGENT_OFFLINE=1`
  * the process stays offline whatever is set here; `isEnabled` says so.
  */
 export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeControl {
@@ -74,6 +82,7 @@ export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeCont
         await settle("telegram stop", telegram?.stop());
         await settle("discord stop", discord?.stop());
         await settle("swarm stop", swarm?.stopAll());
+        await settle("browser stop", deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
         try {
           persist(true);
         } catch (err) {

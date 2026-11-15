@@ -39,6 +39,20 @@ describe("runtime.offlineMode (ATO-1084)", () => {
     expect(swarm.startEnabled).toHaveBeenCalled();
   });
 
+  it("stops a Chrome the agent launched, so its open pages lose the network", async () => {
+    const browser = { stopLaunchedBrowser: vi.fn(async () => true) };
+    const control = createOfflineModeControl({
+      persist: () => {},
+      channels: () => ({ telegram: null, discord: null, swarm: null }),
+      browser: () => browser,
+    });
+    await control.setEnabled(true);
+    expect(browser.stopLaunchedBrowser).toHaveBeenCalledTimes(1);
+    await control.setEnabled(false);
+    // Going online again launches nothing: the next browser call does.
+    expect(browser.stopLaunchedBrowser).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps going when a channel fails to stop", async () => {
     const warn = vi.fn();
     const telegram = { start: vi.fn(async () => {}), stop: vi.fn(async () => { throw new Error("busy"); }) };

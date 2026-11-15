@@ -31,7 +31,7 @@ Owner: src/tools/browser/
 
 ## Offline mode
 
-While offline mode is on (ATO-1084), navigate, tabs new and search refuse a URL that is not on this machine (`offline_mode`), a page that lands elsewhere is cleared, and a Chrome the agent starts gets a dead proxy for everything but loopback. An attached Chrome only gets the URL gate. See [offline mode](../../llm/docs/offline-network.md).
+While offline mode is on (ATO-1084), navigate, tabs new and search refuse a URL that is not on this machine (`offline_mode`), a page that lands elsewhere is cleared, and a Chrome the agent starts gets a dead proxy for everything but loopback; a live switch-on stops one it launched earlier (`stopLaunchedBrowser`), and the next call relaunches it offline. An attached Chrome only gets the URL gate. See [offline mode](../../llm/docs/offline-network.md).
 
 ## Page text is outside data
 

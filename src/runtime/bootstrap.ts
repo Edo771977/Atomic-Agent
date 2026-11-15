@@ -964,6 +964,7 @@ export async function createAgentRuntime(
         discord: discordChannelForShutdown,
         swarm: swarmForShutdown,
       }),
+      browser: () => browserBackend,
       warn: (message, err) =>
         logger.warn(message, {
           error: err instanceof Error ? err.message : String(err),

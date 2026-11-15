@@ -129,6 +129,14 @@ export class PlaywrightBackend implements BrowserBackend {
     return this.ready;
   }
 
+  async stopLaunchedBrowser(): Promise<boolean> {
+    // Wait out a launch in flight: its process is ours once it lands.
+    if (this.ready) await this.ready.catch(() => undefined);
+    if (this.spawnedProc === null) return false;
+    await this.shutdown();
+    return true;
+  }
+
   async shutdown(): Promise<void> {
     if (this.context) {
       const browser = this.context.browser();

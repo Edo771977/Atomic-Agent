@@ -156,6 +156,13 @@ export interface BrowserBackend {
   ensureReady(): Promise<void>;
   /** Tear down (close the persistent context / disconnect CDP). */
   shutdown(): Promise<void>;
+  /**
+   * Stop the browser only when this backend launched it, so the next
+   * call starts it again with the current launch flags (offline mode's
+   * dead proxy, ATO-1084). A browser it attached to (`cdpUrl`, the
+   * user's own Chrome) is left alone. Resolves whether one was stopped.
+   */
+  stopLaunchedBrowser?(): Promise<boolean>;
 
   snapshot(options?: { depth?: number; full?: boolean }): Promise<AriaSnapshot>;
   /**
