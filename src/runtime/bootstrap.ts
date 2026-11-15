@@ -937,6 +937,7 @@ export async function createAgentRuntime(
     approvalLevel: () => approvals.getLevel(),
     // A task in a constrained folder notifies its chat only with "channels" allowed (issue #33).
     notifyRefusal: (task) => channelNotifyRefusal(sessionProviderPolicy, task.sessionId),
+    providerPolicy: sessionProviderPolicy,
   });
 
   registerRuntimeFusionAndReadScope({

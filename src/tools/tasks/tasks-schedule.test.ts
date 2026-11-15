@@ -109,6 +109,23 @@ describe("tasks.schedule", () => {
     );
   });
 
+  it("hands the new session's factory the caller (its folder and id), so the task keeps the caller's constraint (issue #33)", async () => {
+    const runner = makeTaskRunner();
+    const createSession = makeSessionFactory();
+    const tool = buildTasksScheduleTool({
+      taskRunner: runner as never,
+      createSession,
+      defaultMaxAttempts: 3,
+    });
+    await tool.run(
+      { userMessage: "send the acme figures", newSession: true },
+      makeCtx({ sessionId: "caller", workingDir: "/clienti/acme" }),
+    );
+    expect(createSession.mock.calls[0]![0]).toMatchObject({
+      parent: { sessionId: "caller", workingDir: "/clienti/acme" },
+    });
+  });
+
   it("translates inSeconds into an `at` schedule", async () => {
     const runner = makeTaskRunner();
     const tool = buildTasksScheduleTool({

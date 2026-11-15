@@ -11,7 +11,7 @@ import {
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
-import { readTaintOf } from "./session-read-taint.js";
+import { READ_TAINT_METADATA_KEY, readTaintOf } from "./session-read-taint.js";
 
 /** The policy that lets no provider serve: what an unscoped caller gets while constraints exist. */
 export function refuseAllPolicy(key: string, matchedDir = ""): ProviderPolicy {
@@ -161,4 +161,24 @@ export function channelNotifyRefusal(
   const effective = policy.effectivePolicyForSession(sessionId);
   if (effective === undefined || effective.allowsEgress("channels")) return null;
   return `folder ${effective.key} is restricted; "channels" is not in its allowedEgress`;
+}
+
+/**
+ * What a session created by another session's tool (`tasks.schedule
+ * { newSession: true }`, `tasks.cron`) starts from (issue #33): the
+ * caller's folder, never the runtime's, and the caller's effective
+ * policy (folder plus read taint, read through
+ * `effectivePolicyForSession`) stored as the new session's read taint,
+ * so the task obeys the caller's constraint wherever it runs. A caller
+ * that resolves to nothing while constraints exist gives a refuse-all
+ * taint (fail closed). With no constraint configured nothing is added.
+ */
+export function childSessionSeed(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  parent: { sessionId: string; workingDir: string },
+): { workingDir: string; metadata: Record<string, unknown> } {
+  if (!policy.constraintsActive()) return { workingDir: parent.workingDir, metadata: {} };
+  const effective = policy.effectivePolicyForSession(parent.sessionId);
+  if (effective === undefined) return { workingDir: parent.workingDir, metadata: {} };
+  return { workingDir: parent.workingDir, metadata: { [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(effective) } };
 }

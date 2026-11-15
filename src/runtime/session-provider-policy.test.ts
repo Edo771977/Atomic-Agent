@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
-import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy } from "./session-provider-policy.js";
 
 describe("session provider policy (issue #33)", () => {
   let root: string | undefined;
@@ -116,6 +116,51 @@ describe("session provider policy (issue #33)", () => {
       } finally {
         rmSync(temp, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("childSessionSeed (a session a session creates: tasks.schedule newSession, tasks.cron)", () => {
+    it("puts a constrained caller's task in the caller's folder, not the runtime's (serve from ~, client working_dir)", () => {
+      const { project, policy } = setup();
+      const home = mkdtempSync(join(tmpdir(), "pc-home-"));
+      try {
+        const factories = createRuntimeSessionFactories(home, { save: () => {} }, () => null);
+        const callerPolicy = policy.forSessionId("s-1");
+        const seed = runWithProviderPolicy(callerPolicy, () =>
+          childSessionSeed(policy, { sessionId: "s-1", workingDir: join(project, "src") }), { sessionId: "s-1" });
+        const fresh = factories.createSession({ ...seed, metadata: { ...seed.metadata, ephemeralTask: true } });
+        expect(fresh.workingDir).toBe(join(project, "src"));
+        expect(policy.forSession(fresh)?.allows("openai")).toBe(false);
+        expect(policy.forSession(fresh)?.allows("local-llama")).toBe(true);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    it("carries a caller's read taint into the new session (caller folder unconstrained)", () => {
+      const { project, policy } = setup();
+      const home = mkdtempSync(join(tmpdir(), "pc-home-"));
+      try {
+        const factories = createRuntimeSessionFactories(home, { save: () => {} }, () => null);
+        const tainted = makeProviderPolicy({ key: project, allowedProviders: ["local-llama"], matchedDir: project, readFrom: [project] });
+        const seed = runWithProviderPolicy(tainted, () =>
+          childSessionSeed(policy, { sessionId: "s-home", workingDir: home }), { sessionId: "s-home" });
+        const fresh = factories.createSession(seed);
+        expect(fresh.workingDir).toBe(home);
+        expect(policy.forSession(fresh)?.allows("openai")).toBe(false);
+        expect(policy.forSession(fresh)?.readFrom).toEqual([project]);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    it("fails closed for a caller it cannot resolve, and adds nothing when no constraint exists", () => {
+      const { config, policy } = setup();
+      const seed = childSessionSeed(policy, { sessionId: "s-gone", workingDir: tmpdir() });
+      const fresh = createRuntimeSessionFactories(tmpdir(), { save: () => {} }, () => null).createSession(seed);
+      expect(policy.forSession(fresh)?.allowedProviders).toEqual([]);
+      config.projects.constraints = {} as never;
+      expect(childSessionSeed(policy, { sessionId: "s-gone", workingDir: "/w" }).metadata).toEqual({});
     });
   });
 
