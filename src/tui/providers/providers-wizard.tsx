@@ -5,6 +5,7 @@ import {
   refreshAimlapiChatCatalogFromApi,
 } from "../../llm/provider/aimlapi/fetch-aimlapi-chat-catalog.js";
 import { fetchOpenAiCompatModels } from "../../llm/provider/openai/fetch-openai-compat-models.js";
+import { fetchAnthropicModels } from "../../llm/provider/anthropic/anthropic-models.js";
 import { fetchGeminiModels } from "../../llm/provider/gemini/fetch-gemini-models.js";
 import {
   getCachedOpenRouterChatPicks,
@@ -203,7 +204,9 @@ function CompatChatModelStep(props: {
     const preset = w.presetId ? findProviderPreset(w.presetId) : undefined;
     const fetchModels = isGemini
       ? fetchGeminiModels(apiKey)
-      : fetchOpenAiCompatModels(baseUrl, apiKey, preset);
+      : preset?.nativeKind === "anthropic"
+        ? fetchAnthropicModels(apiKey, { baseUrl })
+        : fetchOpenAiCompatModels(baseUrl, apiKey, preset);
     fetchModels.then(
       () => {
         if (alive) setStatus({ loading: false, error: null });

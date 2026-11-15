@@ -344,14 +344,13 @@ describe("planFusionSetup: an API key in the environment with no provider entry 
   it("adds the preset's entry, keyed by its own variable, with the model picked", () => {
     const plan = planFusionSetup(facts(envKey()), { orchestrator: "anthropic", orchestratorModel: "claude-b" });
     if (!plan.ok) throw new Error(`expected ok: ${plan.problems.join("; ")}`);
-    expect(plan.orchestrator).toMatchObject({ providerId: "anthropic", priced: true, model: "claude-b" });
+    expect(plan.orchestrator).toMatchObject({ providerId: "anthropic", kind: "anthropic", priced: true, model: "claude-b" });
+    // The same native entry the TUI wizard saves for this preset.
     expect(plan.write.addProvider).toEqual({
       id: "anthropic",
-      kind: "openai-compatible",
+      kind: "anthropic",
       baseUrl: ANTHROPIC.baseUrl,
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
-      ...(ANTHROPIC.apiKeyHeader ? { apiKeyHeader: ANTHROPIC.apiKeyHeader } : {}),
-      ...(ANTHROPIC.headers ? { headers: { ...ANTHROPIC.headers } } : {}),
       defaultChatModel: "claude-b",
     });
     expect(plan.changes.some((c) => c.key === "llm.providers[+anthropic]")).toBe(true);

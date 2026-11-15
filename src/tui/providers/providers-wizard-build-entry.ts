@@ -2,6 +2,7 @@ import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import { normalizeOpenAiBaseUrl } from "../../llm/provider/openai/normalize-openai-base-url.js";
 import {
   findProviderPreset,
+  presetEntryFields,
   suggestPresetEntryId,
 } from "./provider-presets.js";
 import {
@@ -133,34 +134,26 @@ export function buildProviderEntryFromWizard(input: {
       : input.customEmbeddingModel?.trim();
   }
 
+  const baseUrl =
+    input.kind === "openai-compatible"
+      ? normalizeOpenAiBaseUrl(input.baseUrl ?? "") ||
+        OPENAI_COMPAT_DEFAULT_BASE_URL
+      : undefined;
   const entry: UserLlmProviderEntry = {
     id,
     kind: input.kind,
     defaultChatModel: chatModel,
     ...(defaultEmbeddingModel ? { defaultEmbeddingModel } : {}),
-    ...(input.kind === "openai-compatible"
-      ? {
-          baseUrl:
-            normalizeOpenAiBaseUrl(input.baseUrl ?? "") ||
-            OPENAI_COMPAT_DEFAULT_BASE_URL,
-        }
-      : {}),
-    // The preset's env var and header contract both ride on the entry.
-    // The env var so two services never resolve one shared key (see
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    // The preset's kind, env var and header contract ride on the entry
+    // (`presetEntryFields`, shared with `setup fusion`). The env var so
+    // two services never resolve one shared key (see
     // `resolveLlmProviderApiKey`); the headers because the entry — not
     // the build-time preset table — is what every later request is built
-    // from. Copying them here is what makes the override survive a
-    // restart: `parseLlmProviderEntry` reads both back out of
-    // `config.json`, and `registerBuiltInProviderKinds` hands them to the
-    // provider. `headers` is cloned so the frozen preset literal cannot
-    // be mutated through the saved entry.
-    ...(input.kind === "openai-compatible" && preset
-      ? {
-          apiKeyEnvVar: preset.envVar,
-          ...(preset.apiKeyHeader ? { apiKeyHeader: preset.apiKeyHeader } : {}),
-          ...(preset.headers ? { headers: { ...preset.headers } } : {}),
-        }
-      : {}),
+    // from, and `parseLlmProviderEntry` reads them back out of
+    // `config.json`. A preset with a native kind (Anthropic) saves that
+    // kind, whose client sends its own headers.
+    ...(baseUrl !== undefined && preset ? presetEntryFields(preset, baseUrl) : {}),
   };
 
   return {

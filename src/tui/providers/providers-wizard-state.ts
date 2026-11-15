@@ -1,6 +1,6 @@
 import type { SubscriptionCliName } from "../../config/llm-config.js";
 import type { ModelPricingFilter } from "../../llm/provider/model-pricing-filter.js";
-import { presetForEntryId } from "./provider-presets.js";
+import { presetForEntryId, presetForNativeKind } from "./provider-presets.js";
 
 export type ProvidersWizardKind =
   | "claude-cli"
@@ -111,6 +111,12 @@ export function createProvidersWizardState(
      * resetting it to the kind's default.
      */
     chatModel?: string;
+    /**
+     * The stored entry's config kind, when it differs from the wizard
+     * kind: a native `anthropic` entry reopens on the Anthropic preset
+     * (`configureWizardKindForRow` maps it to `openai-compatible`).
+     */
+    entryKind?: string;
   },
 ): ProvidersWizardState {
   const configure = mode === "configure";
@@ -130,10 +136,13 @@ export function createProvidersWizardState(
   // preset identity: the key screen then names the service's own env
   // var, and saving keeps the entry id instead of minting an
   // `openai-compatible` duplicate. Suffixed ids (`groq-2`) count too.
+  const nativePreset =
+    configure && opts?.entryKind ? presetForNativeKind(opts.entryKind) : undefined;
   const presetId =
-    configure && kind === "openai-compatible" && opts?.providerId
+    nativePreset?.id ??
+    (configure && kind === "openai-compatible" && opts?.providerId
       ? (presetForEntryId(opts.providerId)?.id ?? null)
-      : null;
+      : null);
   return {
     mode,
     phase,
@@ -144,7 +153,8 @@ export function createProvidersWizardState(
     search: null,
     pricingFilter: "all",
     apiKeyBuffer: "",
-    baseUrlLine: opts?.baseUrl ?? "",
+    // A native entry may leave `baseUrl` out (its kind's default host).
+    baseUrlLine: opts?.baseUrl ?? nativePreset?.baseUrl ?? "",
     chatModelLine: cliBacked ? (opts?.chatModel ?? "") : "",
     embeddingModelLine: "",
     selectedChatModelId: null,

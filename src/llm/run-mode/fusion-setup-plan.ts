@@ -6,7 +6,7 @@ import {
 } from "../../config/llm-run-mode-config.js";
 import { SUBSCRIPTION_CLI_KIND } from "../../config/provider-auth-mode.js";
 import { modelTierKey, modelTierOf, type ModelTier } from "../provider/presets/model-tiers.js";
-import { findProviderPreset, type ProviderPreset } from "../provider/presets/provider-presets.js";
+import { findProviderPreset, presetEntryFields, type ProviderPreset } from "../provider/presets/provider-presets.js";
 import type { ProviderKeyStatus } from "../provider/provider-key.js";
 import type { SubscriptionCliState } from "../provider/subscription-cli/subscription-cli-status.js";
 
@@ -284,18 +284,9 @@ function envKeyOffers(facts: FusionSetupFacts, options: FusionSetupOptions): Env
   });
 }
 
-/** The entry the TUI's preset wizard saves for this preset: its URL, key variable and headers. */
+/** The entry the TUI's preset wizard saves for this preset (`presetEntryFields`). */
 function presetEntry(offer: EnvKeyOffer, model: string): UserLlmProviderEntry {
-  const { preset } = offer;
-  return {
-    id: offer.id,
-    kind: "openai-compatible",
-    baseUrl: preset.baseUrl,
-    apiKeyEnvVar: preset.envVar,
-    ...(preset.apiKeyHeader ? { apiKeyHeader: preset.apiKeyHeader } : {}),
-    ...(preset.headers ? { headers: { ...preset.headers } } : {}),
-    defaultChatModel: model,
-  };
+  return { id: offer.id, ...presetEntryFields(offer.preset), defaultChatModel: model };
 }
 
 function needsModelProblem(offer: EnvKeyOffer): string {
@@ -384,7 +375,7 @@ function orchestratorCandidates(facts: FusionSetupFacts, offers: readonly EnvKey
     if (offer.model === null) continue;
     push({
       leg: leg(
-        { id: offer.id, kind: "openai-compatible" },
+        { id: offer.id, kind: presetEntryFields(offer.preset).kind },
         `${offer.fact.envVar} is set (new ${offer.preset.label} provider entry)`,
         offer.model,
       ),

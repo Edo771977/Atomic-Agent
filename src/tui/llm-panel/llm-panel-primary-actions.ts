@@ -234,6 +234,7 @@ function openProviderConfigFor(
     wizard: createProvidersWizardState("configure", {
       providerId: provider.id,
       kind,
+      entryKind: provider.kind,
       ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
       ...(provider.chatModel ? { chatModel: provider.chatModel } : {}),
     }),
