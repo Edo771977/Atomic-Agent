@@ -9,6 +9,7 @@ import type { LlmFailureCategory } from "./failure-category.js";
 import { LlmFailure } from "./llm-failures.js";
 import { isNetworkError } from "./network-error.js";
 import { isDailySpendLimitError } from "./spend-limit-error.js";
+import { isProviderNotAllowed } from "../provider-policy.js";
 
 /**
  * llama-server 4xx statuses that describe the *endpoint*, not the request
@@ -80,6 +81,9 @@ export function classifyFailure(err: unknown): LlmFailureCategory {
   // The day's spend ceiling refused a paid link (ATO-649): this link
   // cannot serve the turn, another may. Not our tool's bug.
   if (isDailySpendLimitError(err)) return "transport";
+  // A folder's provider constraint refused the link (issue #33): the
+  // same standing — this link may not serve, an allowed one may.
+  if (isProviderNotAllowed(err)) return "transport";
   if (isAbortError(err)) return "cancelled";
   // Checked after the abort branch on purpose: an aborted request can
   // surface as ECONNRESET, and a user pressing Esc is not a fallover.

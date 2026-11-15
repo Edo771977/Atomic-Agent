@@ -3,6 +3,7 @@ import type { LlamaServerClient } from "../../llama-server-client.js";
 import type { ModelProfile } from "../../model-profile.js";
 import type { LlmProvider } from "../llm-provider.js";
 import { entryHasNoChatModel } from "./chat-model-guard.js";
+import { guardProvider, hasProjectConstraints } from "../../provider-policy.js";
 import { registerBuiltInProviderKinds } from "./register-built-in-providers.js";
 import {
   getProviderFactory,
@@ -47,11 +48,19 @@ async function buildOrSkip(
   }
 }
 
+/**
+ * Whether any `projects.constraints` entry exists, read per call so a
+ * config edit lands. A registry built without one reads the config it
+ * was built from.
+ */
+export type ConstraintsActive = () => boolean;
+
 export class ProviderRegistry {
   private readonly providers: Map<string, LlmProvider>;
   private readonly entries: Map<string, LlmProviderConfigEntry>;
   private activeTextId: string;
   private readonly activeTextListeners = new Set<(id: string) => void>();
+  private readonly constraintsActive: ConstraintsActive;
 
   private constructor(
     activeTextId: string,
@@ -59,10 +68,22 @@ export class ProviderRegistry {
     // Defaulted so a registry built without its entries (a test double)
     // keeps swapping exactly as before: an unknown entry is not refused.
     entries: Map<string, LlmProviderConfigEntry> = new Map(),
+    constraintsActive: ConstraintsActive = () => false,
   ) {
     this.activeTextId = activeTextId;
     this.providers = providers;
     this.entries = entries;
+    this.constraintsActive = constraintsActive;
+  }
+
+  /**
+   * Every provider the registry holds is wrapped by `guardProvider`:
+   * `complete` / `completeStream` / `describeImage` refuse, before
+   * anything is sent, a provider the current folder policy does not
+   * allow, and any call with no policy frame while constraints exist.
+   */
+  private guard(provider: LlmProvider): LlmProvider {
+    return guardProvider(provider, { constraintsActive: this.constraintsActive });
   }
 
   static async fromConfig(
@@ -70,9 +91,12 @@ export class ProviderRegistry {
     ctx: Omit<ProviderFactoryContext, "entry"> & {
       llamaClient: LlamaServerClient;
       getProfile: () => ModelProfile;
+      /** Live "is any folder constrained"; default reads `config`. */
+      constraintsActive?: ConstraintsActive;
     },
   ): Promise<ProviderRegistry> {
     registerBuiltInProviderKinds();
+    const constraintsActive = ctx.constraintsActive ?? (() => hasProjectConstraints(config));
     const resolved = resolveLlmConfig(config);
     const built = new Map<string, LlmProvider>();
     const entries = new Map<string, LlmProviderConfigEntry>();
@@ -91,7 +115,7 @@ export class ProviderRegistry {
         ctx.logger,
       );
       if (provider) {
-        built.set(entry.id, provider);
+        built.set(entry.id, guardProvider(provider, { constraintsActive }));
         entries.set(entry.id, structuredClone(entry));
       }
     }
@@ -100,7 +124,7 @@ export class ProviderRegistry {
         `llm.activeTextProvider "${resolved.activeTextProvider}" is not configured`,
       );
     }
-    return new ProviderRegistry(resolved.activeTextProvider, built, entries);
+    return new ProviderRegistry(resolved.activeTextProvider, built, entries, constraintsActive);
   }
 
   /** Id of the provider serving chat right now (may differ from config until it is re-read). */
@@ -210,7 +234,7 @@ export class ProviderRegistry {
       await prev.close().catch(() => undefined);
     }
     const provider = await factory({ ...ctx, config, entry });
-    this.providers.set(id, provider);
+    this.providers.set(id, this.guard(provider));
     this.entries.set(id, structuredClone(entry));
   }
 
@@ -237,7 +261,7 @@ export class ProviderRegistry {
         ctx.logger,
       );
       if (!provider) continue;
-      this.providers.set(entry.id, provider);
+      this.providers.set(entry.id, this.guard(provider));
       this.entries.set(entry.id, structuredClone(entry));
       added.push(entry.id);
     }
