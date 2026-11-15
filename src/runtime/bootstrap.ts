@@ -840,7 +840,7 @@ export async function createAgentRuntime(
   const { createSession, createEphemeralSession: createWorkerSession } = createRuntimeSessionFactories(workingDir, sessionStore, ensureRecorder);
   // A fusion worker's calls count on the session that spawned it, so the
   // composer's `$` readout includes what the workers spent (ATO-1388).
-  const createEphemeralSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
+  const createUsageForwardingWorkerSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
@@ -870,6 +870,9 @@ export async function createAgentRuntime(
     incognitoSessions.noteTurn(session);
     return executeLockedTurn(session, ...rest);
   };
+  // ATO-586: a worker of an incognito chat is incognito too.
+  const createEphemeralSession: typeof createWorkerSession = (meta, ...rest) =>
+    incognitoSessions.forWorker(meta.parentSessionId, createUsageForwardingWorkerSession(meta, ...rest));
 
   const taskRunner = createRuntimeTaskRunner({
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,

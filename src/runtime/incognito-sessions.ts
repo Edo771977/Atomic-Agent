@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
+import { isFusionWorkerSessionId } from "../session/fusion-worker-session.js";
 import { isIncognitoSession, type IncognitoMark } from "../session/incognito.js";
 import type { SessionStore } from "../session/session-store.js";
 import type { TaskStore } from "../tasks/task-store.js";
@@ -78,7 +79,7 @@ export type IncognitoDiscardOutcome =
 
 export interface IncognitoSessionsDependencies {
   /** `delete` is the runtime's wrapped one: recorder, shell jobs, spill. */
-  sessionStore: Pick<SessionStore, "isIncognito" | "delete">;
+  sessionStore: Pick<SessionStore, "isIncognito" | "delete"> & Partial<Pick<SessionStore, "newIncognitoMark">>;
   tracesDir: string | null | undefined;
   /** Whether a turn is running on the session (`TurnController.isBusy`). */
   isBusy: (sessionId: string) => boolean;
@@ -112,6 +113,8 @@ export interface IncognitoSessionsDependencies {
  */
 export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
   const pending = new Set<string>();
+  /** Incognito chats a turn ran on here and not closed yet (a first turn has no row). */
+  const open = new Map<string, IncognitoMark>();
 
   const eraseSlots = (sessionId: string): void => {
     try {
@@ -130,6 +133,7 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
       if (!deps.sessionStore.isIncognito(sessionId)) return false;
       deps.taskStore?.removeForSession(sessionId);
       deps.sessionStore.delete(sessionId);
+      open.delete(sessionId);
       removeIncognitoTrace(deps.tracesDir, sessionId);
       deps.fusionRuns?.removeForSession(sessionId);
       eraseSlots(sessionId);
@@ -162,8 +166,10 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
   };
 
   /** Before an incognito turn runs: keep this launch's slots off the disk. */
-  const noteTurn = (session: { readonly incognito?: IncognitoMark | undefined }): void => {
+  const noteTurn = (session: { readonly id: string; readonly incognito?: IncognitoMark | undefined }): void => {
     if (!isIncognitoSession(session)) return;
+    // A worker is never closed through `discard`; only chats are tracked.
+    if (!isFusionWorkerSessionId(session.id)) open.set(session.id, session.incognito!);
     try {
       deps.promptCache?.markPrivate();
     } catch {
@@ -171,5 +177,30 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
     }
   };
 
-  return { discard, settle, noteTurn };
+  /**
+   * A fusion worker spawned by an incognito chat is incognito too: it
+   * reads and writes no memory and spills no output. The worker is never
+   * stored, so the mark only steers its turn. A store that cannot answer
+   * counts as incognito, the safer mistake.
+   */
+  const forWorker = <S extends { readonly incognito?: IncognitoMark | undefined }>(
+    parentSessionId: string,
+    worker: S,
+  ): S => {
+    if (isIncognitoSession(worker)) return worker;
+    let mark = open.get(parentSessionId);
+    if (mark === undefined) {
+      let stored: boolean;
+      try {
+        stored = deps.sessionStore.isIncognito(parentSessionId);
+      } catch {
+        stored = true;
+      }
+      if (!stored) return worker;
+      mark = deps.sessionStore.newIncognitoMark?.() ?? { since: Date.now(), owner: "" };
+    }
+    return { ...worker, incognito: mark };
+  };
+
+  return { discard, settle, noteTurn, forWorker };
 }

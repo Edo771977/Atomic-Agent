@@ -187,4 +187,20 @@ describe("incognito sessions in the runtime", () => {
     expect(sweepOrphanIncognitoSessions(open(30), tracesDir, logger, { removeForSession: (id) => { removed.push(id); return 1; } })).toEqual(["s-dead"]);
     expect(removed).toEqual(["s-dead"]);
   });
+  it("a fusion worker of an incognito chat is incognito too, even before the chat's first save", () => {
+    const store = open(1);
+    const sessions = createIncognitoSessions({ sessionStore: store, tracesDir, isBusy: () => false, logger });
+    const worker = (parent: string) =>
+      sessions.forWorker(parent, createEmptySessionState({ id: `s-w-${parent}`, workingDir: "/w" }));
+    // Never saved: known from the turn it is running.
+    sessions.noteTurn(createEmptySessionState({ id: "s-fresh", workingDir: "/w", incognito: store.newIncognitoMark() }));
+    expect(worker("s-fresh").incognito).toBeDefined();
+    save(store, "s-saved", true);
+    expect(worker("s-saved").incognito).toBeDefined();
+    save(store, "s-plain", false);
+    expect(worker("s-plain").incognito).toBeUndefined();
+    // Closed: its later workers (none should exist) are not marked from memory.
+    expect(sessions.discard("s-saved")).toBe("deleted");
+    expect(worker("s-saved").incognito).toBeUndefined();
+  });
 });
