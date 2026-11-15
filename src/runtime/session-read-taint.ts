@@ -38,6 +38,12 @@ export interface SessionReadTaintDeps {
   readConfig: () => Pick<AtomicAgentConfig, "projects">;
   /** Persist a session that is not running a turn now (load, patch, save). */
   patchStoredSession?: (sessionId: string, patch: (metadata: Record<string, unknown>) => Record<string, unknown>) => void;
+  /**
+   * Whether the after-edit language servers were built at boot
+   * (`tools.lsp.enabled` as `registerOsTools` read it). Only then can a
+   * write's result quote its project, so only then does a write taint.
+   */
+  lspWrites?: boolean;
 }
 
 /**
@@ -128,7 +134,7 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
      */
     noteDispatch(tool: string, args: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }): ProviderPolicy | undefined {
       if (!hasProjectConstraints(deps.readConfig())) return undefined;
-      const targets = readTaintTargets(tool, args, ctx.workingDir);
+      const targets = readTaintTargets(tool, args, ctx.workingDir, { lspWrites: deps.lspWrites === true });
       if (targets.length === 0) return undefined;
       const taint = taintFor(targets, currentProviderPolicy());
       if (taint === undefined) return undefined;

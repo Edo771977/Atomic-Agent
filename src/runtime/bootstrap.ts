@@ -385,6 +385,9 @@ export async function createAgentRuntime(
   // narrows the session's provider policy at dispatch.
   const sessionReadTaint = createSessionReadTaint({
     readConfig: () => getConfig(),
+    // The same boot config and test `registerOsTools` builds the
+    // language servers from: a write taints only when they exist.
+    lspWrites: config.tools.lsp?.enabled === true,
     patchStoredSession: (id, patch) => {
       const stored = sessionStore.load(id);
       if (stored === null) return;
