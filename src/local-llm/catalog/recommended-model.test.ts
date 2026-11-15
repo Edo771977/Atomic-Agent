@@ -9,6 +9,11 @@ import {
 } from "./models-catalog.js";
 import { GPU_AUTO_MAX_SLOTS } from "../server/context-growth.js";
 import {
+  DEFAULT_UBATCH_SIZE,
+  VRAM_SAFETY_FRACTION,
+  estimateComputeReserveMiB,
+} from "../server/context-size.js";
+import {
   MAX_AUTO_SLOTS,
   resolveWorkerSlots,
   workerSlotFootprint,
@@ -16,6 +21,7 @@ import {
 import {
   recommendWorkerModel,
   recommendedModelFor,
+  workerGpuKvRoomGb,
   workerSlotKvGb,
   workerSlotsByMemory,
 } from "./recommended-model.js";
@@ -275,18 +281,40 @@ describe("recommendedModelFor (role worker)", () => {
 
   it("counts slots against the GPU budget too, not RAM alone", () => {
     // 64 GB RAM holds eight worker slots of a 22 GB model; a 32 GB card
-    // holds the weights and about four slots' KV cache beside them.
+    // holds the weights and, once the daemon's safety margin and compute
+    // reserve are kept aside, about two slots' KV cache beside them.
     const big = def("big-1", 36, { recommendRank: 1, fileSizeGb: 22.4 });
     const perSlot = workerSlotKvGb(big);
     expect(workerSlotsByMemory(big, 64, null)).toBe(1 + Math.floor((64 - 36) / perSlot));
     const onCard = workerSlotsByMemory(big, 64, 32);
-    expect(onCard).toBe(Math.floor((32 - 22.4) / perSlot));
+    expect(onCard).toBe(Math.floor(workerGpuKvRoomGb(big, 32) / perSlot));
+    expect(onCard).toBeLessThan(Math.floor((32 - 22.4) / perSlot));
     expect(onCard).toBeLessThan(workerSlotsByMemory(big, 64, null));
     const pinned = recommendWorkerModel(64, { catalog: [big], parallel: 8, gpuBudgetGb: 32 });
     expect(pinned).toMatchObject({ slots: onCard, slotsWanted: 8 });
     expect(pinned!.why[1]).toMatch(/fits \d of 8 worker slots in 64 GB RAM \/ 32 GB GPU/);
     // Never fewer than one: the model was found to fit the card already.
     expect(workerSlotsByMemory(big, 64, 20)).toBe(1);
+  });
+
+  it("fits slots in the GPU budget the daemon's own fit leaves, not the whole card (#29)", () => {
+    // An 8.5 GB card with the 9B worker: the daemon spends at most
+    // VRAM_SAFETY_FRACTION of the card and keeps the compute reserve
+    // aside, so the recommender must not count slots into that room.
+    const nine = LOCAL_MODELS_CATALOG.find((d) => d.id === "qwen-3.5-9b")!;
+    const budgetGb = 8.5;
+    const reserveGb =
+      (estimateComputeReserveMiB({ ubatchSize: DEFAULT_UBATCH_SIZE, vocabSize: null, hasVision: false, slots: 1 }) *
+        1024 *
+        1024) /
+      1e9;
+    const usableGb = budgetGb * VRAM_SAFETY_FRACTION - reserveGb;
+    const slots = workerSlotsByMemory(nine, 32, budgetGb);
+    const perSlot = workerSlotKvGb(nine);
+    expect(nine.fileSizeGb + slots * perSlot).toBeLessThanOrEqual(usableGb);
+    const pick = recommendWorkerModel(32, { catalog: [nine], gpuBudgetGb: budgetGb, dedicatedGpu: true });
+    expect(pick!.slots).toBe(slots);
+    expect(pick!.why[1]).toContain(`usable of the ${budgetGb} GB GPU`);
   });
 
   it("sizes auto as the managed daemon does: memory fit, its slot ceilings, one on the CPU", () => {

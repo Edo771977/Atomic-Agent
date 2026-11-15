@@ -13,7 +13,7 @@ const MIB_PER_GB = 1_000_000_000 / (1024 * 1024);
  * estimate errs on the safe side (better a smaller context than an OOM
  * at model load).
  */
-const VRAM_SAFETY_FRACTION = 0.92;
+export const VRAM_SAFETY_FRACTION = 0.92;
 
 /**
  * VRAM reserved for llama.cpp compute buffers (activations, the graph
@@ -546,9 +546,12 @@ export function resolveKvBudgetMiB(input: {
   systemMemoryMiB?: number | null;
   computeReserveMiB?: number;
 }): number {
-  const usableMiB = input.freeVramMiB * VRAM_SAFETY_FRACTION;
-  const weightsMiB = (input.modelSizeGb + input.mmprojSizeGb) * MIB_PER_GB;
-  const fitMiB = usableMiB - weightsMiB - resolveReserveMiB(input.computeReserveMiB);
+  const fitMiB = resolveGpuKvRoomMiB({
+    vramMiB: input.freeVramMiB,
+    modelSizeGb: input.modelSizeGb,
+    mmprojSizeGb: input.mmprojSizeGb,
+    ...(input.computeReserveMiB === undefined ? {} : { computeReserveMiB: input.computeReserveMiB }),
+  });
   const systemMemoryMiB = input.systemMemoryMiB;
   if (typeof systemMemoryMiB !== "number" || !(systemMemoryMiB > 0)) {
     return fitMiB;
@@ -564,6 +567,26 @@ export function resolveKvBudgetMiB(input: {
         : { computeReserveMiB: input.computeReserveMiB }),
     }),
   );
+}
+
+/**
+ * MiB of GPU memory left for KV cache once weights, projector and the
+ * compute reserve are placed: `vramMiB × VRAM_SAFETY_FRACTION` less
+ * those. The one rule both the daemon's launch fit (`resolveKvBudgetMiB`,
+ * with the device's free VRAM) and the worker recommender
+ * (`workerSlotsByMemory`, with the card's budget) apply, so the slots a
+ * recommendation promises are slots the launch can give. Negative when
+ * the weights alone do not fit. Pure.
+ */
+export function resolveGpuKvRoomMiB(input: {
+  vramMiB: number;
+  modelSizeGb: number;
+  mmprojSizeGb: number;
+  computeReserveMiB?: number;
+}): number {
+  const usableMiB = input.vramMiB * VRAM_SAFETY_FRACTION;
+  const weightsMiB = (input.modelSizeGb + input.mmprojSizeGb) * MIB_PER_GB;
+  return usableMiB - weightsMiB - resolveReserveMiB(input.computeReserveMiB);
 }
 
 /**

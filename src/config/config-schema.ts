@@ -412,9 +412,11 @@ export interface AtomicAgentConfig {
    * `UserConfigFile.analytics`. Only `{ provider, model }` and a random
    * anonymous install id ever leave the machine — never message content,
    * paths, tool args, or the machine's IP (see `src/analytics/`).
+   * `errorReports` mirrors `UserConfigFile.analytics.errorReports`.
    */
   analytics: {
     enabled: boolean;
+    errorReports: boolean;
   };
   /**
    * Telegram remote-control channel. Mirrors `UserConfigFile.telegram`.
@@ -770,9 +772,17 @@ export interface UserConfigFile {
    * `{ provider, model }` plus a random anonymous install id are sent;
    * message content, file paths, tool arguments, and the machine's IP
    * are never transmitted (see `src/analytics/`).
+   *
+   * `errorReports` (additive, unversioned; issue #29) opts in to
+   * anonymous crash/error reports (Sentry). Default `false`, so a file
+   * without it sends none; reports go out only when it is `true` AND
+   * `enabled` is `true`, and the environment kill switches
+   * (`DO_NOT_TRACK`, `ATOMIC_AGENT_ANALYTICS=off`, offline mode) still
+   * win. No report is sent while an incognito chat is open.
    */
   analytics: {
     enabled: boolean;
+    errorReports: boolean;
   };
   /**
    * Telegram remote-control channel. Added in config v9. Older files
@@ -1372,6 +1382,7 @@ export const USER_CONFIG_DEFAULTS: UserConfigFile = {
   tui: createTuiDefaults(),
   analytics: {
     enabled: true,
+    errorReports: false,
   },
   telegram: createTelegramDefaults(),
   discord: createDiscordDefaults(),
@@ -1744,6 +1755,10 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
       enabled: parseBool(
         analytics.enabled ?? USER_CONFIG_DEFAULTS.analytics.enabled,
         "analytics.enabled",
+      ),
+      errorReports: parseBool(
+        analytics.errorReports ?? USER_CONFIG_DEFAULTS.analytics.errorReports,
+        "analytics.errorReports",
       ),
     },
     telegram: parseTelegramConfig(telegram, () => USER_CONFIG_DEFAULTS.telegram),

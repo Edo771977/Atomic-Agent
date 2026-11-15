@@ -93,7 +93,7 @@ describe("sidecar send_message — step ceiling", () => {
     process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
       ...USER_CONFIG_DEFAULTS,
-      analytics: { enabled: false },
+      analytics: { enabled: false, errorReports: false },
     });
     resetConfigCache();
     turnOptions.length = 0;

@@ -137,6 +137,19 @@ describe("incognito sessions in the runtime", () => {
     expect(marks).toHaveLength(1);
   });
 
+  it("says an incognito chat is open from its first turn until it is closed: error reports hold (#29)", () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    const sessions = createIncognitoSessions({ sessionStore: store, tracesDir, isBusy: () => false, logger });
+    expect(sessions.anyOpen()).toBe(false);
+    sessions.noteTurn(createEmptySessionState({ id: "s-plain", workingDir: "/w" }));
+    expect(sessions.anyOpen()).toBe(false);
+    sessions.noteTurn({ ...store.load("s-secret")!, id: "s-secret" });
+    expect(sessions.anyOpen()).toBe(true);
+    expect(sessions.discard("s-secret")).toBe("deleted");
+    expect(sessions.anyOpen()).toBe(false);
+  });
+
   it("closing an incognito chat erases the slots that held its prompt", async () => {
     const store = open(1);
     save(store, "s-secret", true);
