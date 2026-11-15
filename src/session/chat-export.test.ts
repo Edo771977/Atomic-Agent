@@ -122,4 +122,33 @@ describe("chat export (ATO-1054)", () => {
     expect(html).toContain("<title>T &lt;x&gt;</title>");
     expect(html).toContain("default-src 'none'");
   });
+
+  it("masks credentials in tool-step lines, messages and the title", () => {
+    const token = "sk-live-0123456789abcdefABCDEF";
+    const md = renderChatMarkdown(
+      chat([
+        { kind: "user", text: `call the API with Bearer ${token}`, at: 1 },
+        { kind: "assistant_tool_call", tool: "os.shell.run", args: {}, at: 2 },
+        { kind: "tool_result", tool: "os.shell.run", status: "ok", summary: "ok", at: 3 },
+        { kind: "assistant_reply", text: "Done, using MY_SERVICE_TOKEN=s3cr3tValue9876543", at: 4 },
+      ]),
+      {
+        now: NOW,
+        knownSecrets: [],
+        describeToolCall: () => `Ran curl -H "Authorization: Bearer ${token}" https://api.example.com`,
+      },
+    );
+    expect(md).not.toContain(token);
+    expect(md).not.toContain("s3cr3tValue9876543");
+    expect(md).toContain('Ran curl -H "Authorization: Bearer [redacted:');
+  });
+
+  it("masks the agent's own known secret values", () => {
+    const md = renderChatMarkdown(
+      chat([{ kind: "user", text: "my key is plainshapelesskey42", at: 1 }]),
+      { now: NOW, knownSecrets: [{ label: "OPENROUTER_API_KEY", value: "plainshapelesskey42" }] },
+    );
+    expect(md).not.toContain("plainshapelesskey42");
+    expect(md).toContain("[redacted:OPENROUTER_API_KEY]");
+  });
 });

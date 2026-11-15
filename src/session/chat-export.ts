@@ -1,5 +1,11 @@
 import { Marked, type Tokens } from "marked";
 
+import {
+  knownSecretsFromEnv,
+  maskSecrets,
+  type KnownSecret,
+} from "../error-reporting/secret-detector.js";
+
 import type { ConversationTurn } from "./conversation-turn.js";
 import type { SessionState } from "./session-state.js";
 import { readSessionTitle } from "./session-title.js";
@@ -14,6 +20,11 @@ import { readSessionTitle } from "./session-title.js";
  * prompt-only state (loaded skills, facts, snapshots) stay out: they are
  * the agent's working memory, not the conversation, and raw tool output
  * can be megabytes of file content the person never read.
+ *
+ * An export is a file meant to leave the agent, so every line of it (the
+ * title, messages, tool-step lines such as a `curl -H "Authorization:
+ * Bearer …"` command) goes through the shared credential detector
+ * (`maskSecrets`, error-reporting) before it is written.
  */
 
 export type ChatExportFormat = "markdown" | "html" | "docx";
@@ -49,15 +60,26 @@ export interface ChatExportOptions {
   describeToolCall?: DescribeExportedToolCall;
   /** Export time for the header. Default `Date.now()`. */
   now?: number;
+  /**
+   * Exact values to mask besides the detector's shapes. Default: the
+   * secret-named variables of `process.env` (which carries the agent's `.env`).
+   */
+  knownSecrets?: readonly KnownSecret[];
+}
+
+/** `text` with every credential the shared detector finds replaced by a marker. */
+export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
+  return maskSecrets(text, options.knownSecrets ?? knownSecretsFromEnv());
 }
 
 /** The chat's name: its title, else its first prompt cut short, else its id. */
-export function chatExportTitle(state: SessionState): string {
+export function chatExportTitle(state: SessionState, options: ChatExportOptions = {}): string {
   const title = readSessionTitle(state.metadata);
-  if (title) return title;
+  if (title) return maskChatExportText(title, options);
   const first = state.turns.find((t) => t.kind === "user" && t.text.trim().length > 0);
   if (first && first.kind === "user") {
-    const line = first.text.trim().split(/\r?\n/, 1)[0] ?? "";
+    // Mask before cutting short, so a cut cannot leave half a key unmatched.
+    const line = maskChatExportText(first.text.trim().split(/\r?\n/, 1)[0] ?? "", options);
     return line.length > 60 ? `${line.slice(0, 57).trimEnd()}...` : line;
   }
   return `Chat ${state.id}`;
@@ -67,8 +89,12 @@ export function chatExportTitle(state: SessionState): string {
  * A file name for the export: the title with anything a file system or
  * a shell would trip on replaced, never empty, never over 80 characters.
  */
-export function chatExportFilename(state: SessionState, format: ChatExportFormat): string {
-  const base = chatExportTitle(state)
+export function chatExportFilename(
+  state: SessionState,
+  format: ChatExportFormat,
+  options: ChatExportOptions = {},
+): string {
+  const base = chatExportTitle(state, options)
     .normalize("NFKC")
     // Path separators, reserved Windows characters, control characters.
     .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, " ")
@@ -118,7 +144,7 @@ function callFailed(turns: readonly ConversationTurn[], index: number, call: Too
 export function renderChatMarkdown(state: SessionState, options: ChatExportOptions = {}): string {
   const includeTools = options.includeTools !== false;
   const out: string[] = [];
-  out.push(`# ${chatExportTitle(state).replace(/\r?\n/g, " ")}`, "");
+  out.push(`# ${chatExportTitle(state, options).replace(/\r?\n/g, " ")}`, "");
   const meta = [`Exported from Atomic Agent on ${stamp(options.now ?? Date.now())}`];
   const started = stamp(state.createdAt);
   if (started) meta.push(`chat started ${started}`);
@@ -175,7 +201,7 @@ export function renderChatMarkdown(state: SessionState, options: ChatExportOptio
     }
   });
   flushTools();
-  return `${out.join("\n").trimEnd()}\n`;
+  return `${maskChatExportText(out.join("\n"), options).trimEnd()}\n`;
 }
 
 function escapeHtml(text: string): string {

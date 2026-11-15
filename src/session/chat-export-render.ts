@@ -7,6 +7,7 @@ import {
   type ChatExportFormat,
   type ChatExportOptions,
 } from "./chat-export.js";
+import { knownSecretsFromEnv } from "../error-reporting/secret-detector.js";
 import { renderMarkdownDocx } from "./chat-export-docx.js";
 import type { SessionState } from "./session-state.js";
 
@@ -26,13 +27,15 @@ export async function exportChat(
   options: ChatExportOptions = {},
 ): Promise<ChatExportFile> {
   const now = options.now ?? Date.now();
-  const markdown = renderChatMarkdown(state, { ...options, now });
-  const title = chatExportTitle(state);
+  // Read the known secrets once for the title, the body and the file name.
+  const masked: ChatExportOptions = { ...options, now, knownSecrets: options.knownSecrets ?? knownSecretsFromEnv() };
+  const markdown = renderChatMarkdown(state, masked);
+  const title = chatExportTitle(state, masked);
   const body =
     format === "markdown"
       ? markdown
       : format === "html"
         ? renderChatHtml(markdown, title)
         : await renderMarkdownDocx(markdown, title, now);
-  return { format, filename: chatExportFilename(state, format), mimeType: CHAT_EXPORT_MIME[format], body };
+  return { format, filename: chatExportFilename(state, format, masked), mimeType: CHAT_EXPORT_MIME[format], body };
 }

@@ -73,4 +73,29 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect((await get("ex-4", "?format=pdf")).status).toBe(400);
     expect((await get("nope")).status).toBe(404);
   });
+
+  it("does not put a credential from a command step in the export", async () => {
+    const token = "abcd1234efgh5678wxyz";
+    harness.runtime.sessionStore.save({
+      ...createEmptySessionState({ id: "exp-secret", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "check the API", at: 1 },
+        {
+          kind: "assistant_tool_call",
+          tool: "os.shell.run",
+          args: { command: `curl -H "Authorization: Bearer ${token}" x` },
+          at: 2,
+        },
+        { kind: "tool_result", tool: "os.shell.run", status: "ok", summary: "x", at: 3 },
+        { kind: "assistant_reply", text: "done", at: 4 },
+      ],
+    });
+    const res = await get("exp-secret");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ExportBody;
+    expect(body.content).toContain("curl");
+    expect(body.content).not.toContain(token);
+  });
 });
+
