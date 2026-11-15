@@ -1280,9 +1280,10 @@ export function buildFusionDelegateTool(
 
       // The judge's acceptance lists (ATO-944), built before any work so
       // every brief carries its own, read-only. Off: no list, no suffix.
-      // With a team's reviewers (issue #37) the judge of a task is the
-      // reviewer `pickReviewer` gives for the member that ran it, on that
-      // reviewer's own model; none fits: `judgeProvider`, as before.
+      // With a team's reviewers (issue #37) and the judge on, the judge of
+      // a task is the reviewer `pickReviewer` gives for the member that ran
+      // it, on that reviewer's own model; none fits: `judgeProvider`, as
+      // before. Reviewers only choose who judges: the judge off stays off.
       const judgeTarget = mode.judge ?? null;
       const taskMember = (taskId: string): TeamMember => {
         const leg = taskLegs.get(taskId);
@@ -1293,7 +1294,10 @@ export function buildFusionDelegateTool(
       const judgeTargets = new Map<string, JudgeTarget | null>();
       const judgeTargetFor = (taskId: string): JudgeTarget | null => {
         if (!judgeTargets.has(taskId)) {
-          const reviewer = team?.hasReviewers === true ? team.reviewerFor(taskMember(taskId)) : null;
+          const reviewer =
+            judgeTarget !== null && team?.hasReviewers === true
+              ? team.reviewerFor(taskMember(taskId))
+              : null;
           judgeTargets.set(
             taskId,
             reviewer === null
@@ -1307,9 +1311,7 @@ export function buildFusionDelegateTool(
         }
         return judgeTargets.get(taskId)!;
       };
-      const judging =
-        deps.escalationComplete !== undefined &&
-        (judgeTarget !== null || (team?.hasReviewers === true && parsed.tasks.some((t) => judgeTargetFor(t.id) !== null)));
+      const judging = deps.escalationComplete !== undefined && judgeTarget !== null;
       const acceptance = new Map(
         judging
           ? parsed.tasks

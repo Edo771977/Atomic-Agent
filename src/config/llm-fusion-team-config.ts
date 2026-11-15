@@ -23,8 +23,9 @@ export type UserFusionTeamConfig = {
    */
   workers?: string[];
   /**
-   * Models that may judge a finished task, as `"<providerId>:<model>"`.
-   * Unset or no reachable choice: the judge is `judgeProvider`, as before.
+   * Models that may judge a finished task, as `"<providerId>:<model>"`,
+   * when the judge is on (`judge: "on"`); they choose who judges, never
+   * whether. Unset or no reachable choice: the judge is `judgeProvider`.
    */
   reviewers?: string[];
   /**

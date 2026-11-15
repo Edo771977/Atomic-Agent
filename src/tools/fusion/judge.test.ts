@@ -560,14 +560,13 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
   });
 
-  it("falls back to judgeProvider when no reviewer fits, and judges with reviewers even without one", async () => {
+  it("falls back to judgeProvider when no reviewer fits, and never turns a judge that is off on", async () => {
     const none = await run(team({ reviewers: ["local:other"] }));
     expect(none.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
-    // No judgeProvider: a reviewer still judges.
+    // The judge is off: reviewers only choose WHO judges, so nobody does.
     const reviewerOnly = await run(team(), TASK, { judge: null });
-    expect(reviewerOnly.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
-    expect(reviewerOnly.briefs[0]).toContain("ACCEPTANCE CHECKLIST (read-only)");
-    // Neither: no judge, no checklist.
+    expect(reviewerOnly.calls).toEqual([]);
+    expect(reviewerOnly.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
     const off = await run(team({ reviewers: ["local:other"] }), TASK, { judge: null });
     expect(off.calls).toEqual([]);
     expect(off.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
