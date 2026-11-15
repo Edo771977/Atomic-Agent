@@ -37,4 +37,16 @@ describe("rail session list — archived chats", () => {
     orchestrator.refreshRecentSessions();
     expect(rail().map((e) => e.sessionId)).toEqual(["s-a"]);
   });
+
+  it("older chats stay reachable when the newest whole page is archived", () => {
+    // Newest first, like the store: 41 archived chats over 4 kept ones.
+    const stored = Array.from({ length: 45 }, (_, n) => {
+      const id = `s-${String(44 - n).padStart(2, "0")}`;
+      const s = n < 41 ? archived(id, `put away ${n}`) : spokenTo(id, `kept ${n}`);
+      return { ...s, updatedAt: 10_000 - n };
+    });
+    const { orchestrator, rail } = harness(stored);
+    orchestrator.refreshRecentSessions();
+    expect(rail().map((e) => e.sessionId)).toEqual(["s-03", "s-02", "s-01", "s-00"]);
+  });
 });

@@ -73,4 +73,22 @@ describe("session archive flag", () => {
     store.setSessionArchived("s-1", true, 5_000);
     expect(store.listSummaryPage({ limit: 25 })[0]?.archived).toBe(true);
   });
+
+  it("a summary page can leave archived chats out in SQL, so older ones are reachable", () => {
+    const store = new SessionStore({ dbFile: ":memory:" });
+    for (let n = 0; n < 45; n += 1) {
+      const id = `s-${String(n).padStart(2, "0")}`;
+      const base = { ...recordTurn(createEmptySessionState({ id, workingDir: "/w" }), userTurn(`chat ${n}`)), updatedAt: 1_000 + n };
+      // The newest 41 are put away.
+      store.save(n >= 4 ? withSessionArchived(base, true, 2_000) : base);
+    }
+    // Without the opt-in every row is listed (the HTTP list shows the flag).
+    expect(store.listSummaryPage({ limit: 40 })).toHaveLength(40);
+    const page = store.listSummaryPage({ limit: 40, excludeArchived: true });
+    expect(page.map((r) => r.id)).toEqual(["s-03", "s-02", "s-01", "s-00"]);
+    // The open chat stays even when archived.
+    const kept = store.listSummaryPage({ limit: 40, excludeArchived: true, keepId: "s-30" });
+    expect(kept.map((r) => r.id)).toEqual(["s-30", "s-03", "s-02", "s-01", "s-00"]);
+    store.close();
+  });
 });
