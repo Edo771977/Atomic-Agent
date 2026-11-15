@@ -10,10 +10,28 @@ export type CompactionMode = "auto" | "model" | "extractive";
 export const COMPACTION_MODES: readonly CompactionMode[] = ["auto", "model", "extractive"];
 
 export interface CompactionConfig {
+  /**
+   * Summarize older history into a checkpoint automatically when the prompt
+   * nears the trigger ratio. `false` leaves compaction to `/compact`.
+   */
   auto: boolean;
+  /**
+   * How a checkpoint summary is made: `model` asks the active model,
+   * `extractive` builds it from the records without inference, `auto` chooses
+   * per attempt.
+   */
   mode: CompactionMode;
+  /**
+   * Share of the history budget at which auto compaction starts, between
+   * `targetRatio` and 1.
+   */
   triggerRatio: number;
+  /**
+   * Share of the history budget the kept history should fit in after a
+   * compaction, above 0 and below `triggerRatio`.
+   */
   targetRatio: number;
+  /** Longest checkpoint summary, in tokens. */
   summaryMaxTokens: number;
   /**
    * Output tokens a summary call may spend on reasoning on top of
@@ -25,6 +43,10 @@ export interface CompactionConfig {
   reasoningReserveTokens: number;
   /** Timeout of one summary call; the total budget scales with chunk count. */
   timeoutMs: number;
+  /**
+   * Ceiling on one whole compaction, in ms: the deadline is the smaller of
+   * this and `timeoutMs` times the planned calls.
+   */
   maxTotalTimeoutMs: number;
   /**
    * Under `auto`, extend a rolling summary between turns so compaction can

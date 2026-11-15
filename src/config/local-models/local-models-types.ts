@@ -14,8 +14,17 @@ export type LocalTemplateSetting = "auto" | "on" | "off";
 export interface UserManagedLocalLlmConfig {
   /** Managed process owner. Default `"atomic-core"`; files before v77 migrate to it (llama.cpp stays selectable). */
   engine?: "llama-server" | "atomic-core";
+  /**
+   * Catalogue id of the model the managed server loads. `null`: none chosen
+   * yet.
+   */
   modelId: string | null;
+  /** Port the managed local model server listens on (localhost only). */
   port: number;
+  /**
+   * Folder for managed model files and server state instead of
+   * `<stateDir>/models`. `null`: the default.
+   */
   dataDirOverride: string | null;
   /**
    * When true, managed-mode start (TUI auto-start / `s`, CLI
@@ -178,6 +187,10 @@ export interface UserManagedLocalLlmConfig {
  * var, when set, wins over this file value (operator override).
  */
 export interface LocalModelDownloadConfig {
+  /**
+   * Parallel HTTP range requests one model or backend file is split across, 1
+   * to 64. `1` downloads in one stream.
+   */
   connections: number;
   /**
    * Origin that serves Hugging Face for this install (config v53), e.g.
@@ -208,9 +221,14 @@ export interface LocalModelDownloadConfig {
  * no hybrid recall — observably identical to phase 1A.
  */
 export interface UserManagedEmbeddingLlmConfig {
+  /**
+   * Run a second managed server for embeddings, next to the chat model.
+   * Default `false`: no embedding server and keyword-only memory recall.
+   */
   enabled: boolean;
   /** `EmbeddingModelId` from the catalog, or `null` when not chosen. */
   modelId: string | null;
+  /** Port of the managed embedding server (localhost only). */
   port: number;
   /** Base URL of the embedding-only llama-server. */
   url: string;
@@ -314,6 +332,7 @@ export interface LocalModelsValueSources {
 }
 
 export interface UserLocalModelsConfig {
+  /** Base URL of the local model server used in `external` mode. */
   url: string;
   mode: LocalLlmMode;
   /**

@@ -227,6 +227,10 @@ export interface UserAgentConfig {
   providerWait: ProviderWaitConfig;
   /** Ceilings that actually end a task. See the runtime type above. */
   task: AgentTaskConfig;
+  /**
+   * Budget of one tool call in ms; a call still running after it is stopped
+   * and reported as timed out.
+   */
   toolTimeoutMs: number;
   /**
    * Where a session's reads may go (config v67). `working-dir` (the
@@ -242,6 +246,11 @@ export interface UserAgentConfig {
    */
   approvalLevel: ApprovalLevel;
   compaction: CompactionConfig;
+  /**
+   * Ceiling on the transcript's share of the prompt, in tokens. `0` (the
+   * default) means auto: whatever the model's window leaves after the
+   * scaffold, memory sections and reply reservation.
+   */
   conversationMaxTokens: number;
   /**
    * How many macro-turns of history the prompt carries — one "pair"

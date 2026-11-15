@@ -43,6 +43,10 @@ export interface UserBrowserConfig {
   allowedDomains: string[];
   connect: BrowserConnectMode;
   cdpUrl: string | null;
+  /**
+   * The user's Chrome data directory for the `user-chrome` connect mode, when
+   * it is not in a standard location. `null`: the standard locations.
+   */
   userDataDir: string | null;
 }
 

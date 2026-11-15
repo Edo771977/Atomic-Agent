@@ -23,10 +23,27 @@ import type { TaskSchedule } from "../tasks/task-types.js";
  * to the global API-key check.
  */
 export interface WebhookConfig {
+  /**
+   * The message a hit becomes; `{{body.<json.path>}}` placeholders take
+   * values from the JSON request body.
+   */
   userMessageTemplate: string;
+  /**
+   * When set, a hit must carry it in the `x-webhook-secret` header, on top of
+   * the API key.
+   */
   secret?: string;
+  /**
+   * Optional schedule (cron, interval or at) that also runs the webhook's
+   * task on a timer.
+   */
   schedule?: TaskSchedule;
+  /**
+   * Session per hit: `ephemeral` (a fresh one), `persistent` (one reused for
+   * every hit) or `named` (the `sessionId` given).
+   */
   sessionMode?: "ephemeral" | "persistent" | "named";
+  /** The session hits go to when `sessionMode` is `named`. */
   sessionId?: string;
 }
 

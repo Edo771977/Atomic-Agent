@@ -54,6 +54,7 @@ export interface WebFetchConfig {
 }
 
 export interface WebSearchConfig {
+  /** Register the web search tool. */
   enabled: boolean;
   /**
    * Primary provider. The default `exa` uses its API endpoint when its
@@ -63,7 +64,9 @@ export interface WebSearchConfig {
    * key (ATO-327). Existing configs need no rewrite for that.
    */
   provider: WebSearchProviderName;
+  /** Most results one search returns. */
   maxResults: number;
+  /** Timeout of one search request, in ms. */
   timeoutMs: number;
   /**
    * Per-runtime result cache TTL in minutes. `0` disables caching. The cache
@@ -98,14 +101,22 @@ export interface WebSearchConfig {
    */
   fallback: WebSearchProviderName[];
   searxng: {
+    /**
+     * Base URL of the SearXNG instance the `searxng` provider queries.
+     * `null`: the provider is skipped.
+     */
     instanceUrl: string | null;
   };
   exa: {
+    /** Exa's keyless endpoint, used when no API key is set. */
     endpoint: string;
+    /** Exa's API endpoint, used when the key in `apiKeyEnv` is set. */
     apiEndpoint: string;
+    /** Name of the environment variable holding the Exa API key. */
     apiKeyEnv: string;
   };
   brave: {
+    /** Name of the environment variable holding the Brave Search API key. */
     apiKeyEnv: string;
   };
 }

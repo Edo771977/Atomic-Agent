@@ -55,12 +55,27 @@ async function buildOrSkip(
  */
 export type ConstraintsActive = () => boolean;
 
+/**
+ * Most per-turn model copies kept per provider (ATO-1148); the least
+ * recently used one is closed and rebuilt on its next use.
+ */
+export const MAX_MODEL_VARIANTS_PER_PROVIDER = 16;
+
 export class ProviderRegistry {
   private readonly providers: Map<string, LlmProvider>;
   private readonly entries: Map<string, LlmProviderConfigEntry>;
   private activeTextId: string;
   private readonly activeTextListeners = new Set<(id: string) => void>();
   private readonly constraintsActive: ConstraintsActive;
+  /**
+   * Copies of a configured provider built for another chat model, keyed
+   * by provider id and model (ATO-1148: a project's own cloud model,
+   * asked for per turn). Never active, never listed, never written to
+   * the config; dropped with their provider.
+   */
+  private readonly variants = new Map<string, Map<string, Promise<LlmProvider>>>();
+  /** What `fromConfig` / the reload paths built providers with; variants reuse it. */
+  private buildCtx: Omit<ProviderFactoryContext, "entry"> | undefined;
 
   private constructor(
     activeTextId: string,
@@ -124,7 +139,9 @@ export class ProviderRegistry {
         `llm.activeTextProvider "${resolved.activeTextProvider}" is not configured`,
       );
     }
-    return new ProviderRegistry(resolved.activeTextProvider, built, entries, constraintsActive);
+    const registry = new ProviderRegistry(resolved.activeTextProvider, built, entries, constraintsActive);
+    registry.buildCtx = { ...ctx, config };
+    return registry;
   }
 
   /** Id of the provider serving chat right now (may differ from config until it is re-read). */
@@ -151,6 +168,65 @@ export class ProviderRegistry {
     const entry = this.entries.get(id);
     return entry === undefined ? undefined : { id: entry.id, kind: entry.kind, url: entry.url,
       baseUrl: entry.baseUrl, defaultChatModel: entry.defaultChatModel };
+  }
+
+  /**
+   * The provider `id` built for `model` instead of the chat model its
+   * entry names (ATO-1148). The base provider is returned as-is when it
+   * already serves that model. Built once per (id, model) from the same
+   * entry and kept until the provider is replaced or removed, at most
+   * {@link MAX_MODEL_VARIANTS_PER_PROVIDER} per provider; the active
+   * provider, the entries and the config are not touched, so a turn on
+   * a project's model never moves another chat's model.
+   *
+   * `undefined` when `id` is not configured or the registry has nothing
+   * to build with (a test double). A failed build is not cached.
+   */
+  async modelVariant(id: string, model: string): Promise<LlmProvider | undefined> {
+    const base = this.providers.get(id);
+    const entry = this.entries.get(id);
+    if (!base || !entry) return undefined;
+    if ((entry.defaultChatModel ?? entry.model) === model) return base;
+    const ctx = this.buildCtx;
+    const factory = getProviderFactory(entry.kind);
+    if (!ctx || !factory) return undefined;
+    const byModel = this.variants.get(id) ?? new Map<string, Promise<LlmProvider>>();
+    this.variants.set(id, byModel);
+    const known = byModel.get(model);
+    if (known) {
+      // Map order is the recency order: a hit moves to the back.
+      byModel.delete(model);
+      byModel.set(model, known);
+      return known;
+    }
+    while (byModel.size >= MAX_MODEL_VARIANTS_PER_PROVIDER) {
+      const [oldest, evicted] = byModel.entries().next().value as [string, Promise<LlmProvider>];
+      byModel.delete(oldest);
+      // A turn still holding the copy keeps its object; HTTP providers
+      // have nothing to tear down, so closing it is safe.
+      void evicted.then((v) => v.close()).catch(() => undefined);
+    }
+    // Guarded like every provider the registry holds: a copy must not be
+    // a way round a folder's provider constraint (issue #33).
+    const built = Promise.resolve(
+      factory({ ...ctx, entry: { ...entry, defaultChatModel: model } }),
+    ).then((provider) => this.guard(provider));
+    byModel.set(model, built);
+    built.catch(() => {
+      if (byModel.get(model) === built) byModel.delete(model);
+    });
+    return built;
+  }
+
+  private async dropVariants(id: string): Promise<void> {
+    const byModel = this.variants.get(id);
+    if (!byModel) return;
+    this.variants.delete(id);
+    await Promise.all(
+      [...byModel.values()].map((p) =>
+        p.then((v) => v.close()).catch(() => undefined),
+      ),
+    );
   }
 
   listIds(): readonly string[] {
@@ -233,6 +309,9 @@ export class ProviderRegistry {
     if (prev) {
       await prev.close().catch(() => undefined);
     }
+    // A variant was built from the old entry (key, base URL, headers).
+    await this.dropVariants(id);
+    this.buildCtx = { ...ctx, config };
     const provider = await factory({ ...ctx, config, entry });
     this.providers.set(id, this.guard(provider));
     this.entries.set(id, structuredClone(entry));
@@ -244,6 +323,7 @@ export class ProviderRegistry {
   ): Promise<readonly string[]> {
     registerBuiltInProviderKinds();
     const resolved = resolveLlmConfig(config);
+    this.buildCtx = { ...ctx, config };
     const added: string[] = [];
     for (const configured of resolved.providers) {
       const entry = structuredClone(configured);
@@ -281,6 +361,7 @@ export class ProviderRegistry {
     const prev = this.providers.get(id);
     this.providers.delete(id);
     this.entries.delete(id);
+    await this.dropVariants(id);
     if (prev) {
       await prev.close().catch(() => undefined);
     }
