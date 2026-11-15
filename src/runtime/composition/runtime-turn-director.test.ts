@@ -180,7 +180,7 @@ describe("a session's fusion director in the turn (issue #37)", () => {
 
   it("says once that a Codex director's own tasks go to the workers", async () => {
     const notices: Array<{ reason?: string; text?: string }> = [];
-    fixture.config.llm!.providers.push({ id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" } as never);
+    fixture.config.llm = { ...fixture.config.llm!, providers: [...fixture.config.llm!.providers, { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" } as never] };
     fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a", "codex:model-c"] };
     await fixture.providers.providerRegistry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
     const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event as never); } });
