@@ -169,6 +169,12 @@ export function createRuntimeObservability(
     // every capture site reads the reporter through this getter.
     getErrorReporter: () => (errorReportsHeld() ? null : errorReporter),
     /**
+     * The reporter whatever the gate says, for flush/shutdown only: the
+     * gate holds new captures, and reports queued before it must still
+     * be flushed and the client closed when the runtime stops.
+     */
+    getShutdownErrorReporter: () => errorReporter,
+    /**
      * Hold error reports while `gate` answers true. Bootstrap sets it
      * once the incognito registry exists (`IncognitoSessions.anyOpen`).
      */

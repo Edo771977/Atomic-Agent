@@ -825,7 +825,9 @@ export async function createAgentRuntime(
     get consolidatorJob() { return consolidatorJob; },
     get taskStore() { return taskStore; },
     get analytics() { return observability.getAnalytics(); },
-    get errorReporter() { return observability.getErrorReporter(); },
+    // Ungated: shutdown flushes and closes the client even while an
+    // incognito chat holds new reports.
+    get errorReporter() { return observability.getShutdownErrorReporter(); },
   });
   const { shutdown } = lifecycle;
   const refreshSkills = skillCatalogState.createRefreshSkills(options);
