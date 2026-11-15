@@ -11,6 +11,7 @@ import { ProcedureStore } from "./procedures/procedure-store.js";
 import {
   constraintScopeOf,
   listConstraintScopes,
+  policyForConstraintScope,
   runInMemoryRowScope,
   scopeVisibleTo,
 } from "./memory-constraint-scope.js";
@@ -47,6 +48,38 @@ describe("memory constraint scope", () => {
     expect(scopeVisibleTo(row, other)).toBe(false);
     expect(scopeVisibleTo(row, stricter)).toBe(true);
     expect(scopeVisibleTo("not json", secret)).toBe(false);
+  });
+
+  it("visibility also requires the reader's egress to be a subset of the row's (M1)", () => {
+    const noEgress = makeProviderPolicy({ key: "/work/a", allowedProviders: ["local-llama"], matchedDir: "/work/a" });
+    const leaky = makeProviderPolicy({ key: "/work/b", allowedProviders: ["local-llama"], allowedEgress: ["web", "channels"], matchedDir: "/work/b" });
+    const webOnly = makeProviderPolicy({ key: "/work/c", allowedProviders: ["local-llama"], allowedEgress: ["web"], matchedDir: "/work/c" });
+    expect(scopeVisibleTo(constraintScopeOf(noEgress), leaky)).toBe(false);
+    expect(scopeVisibleTo(constraintScopeOf(leaky), webOnly)).toBe(true);
+    expect(scopeVisibleTo(constraintScopeOf(leaky), noEgress)).toBe(true);
+    expect(scopeVisibleTo(constraintScopeOf(webOnly), leaky)).toBe(false);
+    // A descriptor written before allowedEgress existed reads as none (strictest).
+    const legacy = JSON.stringify({ key: "/work/a", allowedProviders: ["local-llama"] });
+    expect(scopeVisibleTo(legacy, leaky)).toBe(false);
+    expect(scopeVisibleTo(legacy, noEgress)).toBe(true);
+    expect(policyForConstraintScope(constraintScopeOf(leaky)).allowedEgress).toEqual(["channels", "web"]);
+    expect(policyForConstraintScope(legacy).allowedEgress).toEqual([]);
+
+    const stored = under(noEgress, () => notes.store({ content: "folder a secret walrus" }));
+    expect(under(leaky, () => notes.get(stored.id))).toBeNull();
+    expect(under(leaky, () => notes.recall("walrus", { k: 5 }))).toEqual([]);
+    expect(under(noEgress, () => notes.get(stored.id))?.content).toBe("folder a secret walrus");
+  });
+
+  it("migrates a legacy descriptor in place to carry an empty allowedEgress", () => {
+    under(secret, () => notes.store({ content: "legacy scoped note" }));
+    const db = notes.getDatabaseHandleForEmbeddings() as unknown as { prepare(sql: string): { run(...p: unknown[]): unknown; all(): unknown[] } };
+    const legacy = JSON.stringify({ key: secret.key, allowedProviders: ["local-llama"] });
+    db.prepare("UPDATE memories SET constraint_scope = ?").run(legacy);
+    notes.close();
+    notes = new MemoryStore({ dbFile, maxEntries: 1000 });
+    expect(listConstraintScopes(notes.getDatabaseHandleForEmbeddings())).toEqual([constraintScopeOf(secret)]);
+    expect(constraintScopeOf(secret)).toContain('"allowedEgress":[]');
   });
 
   it("a note stored in a constrained folder is recalled only in a session it is visible to", () => {

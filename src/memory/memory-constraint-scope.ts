@@ -12,14 +12,17 @@ import {
  *
  * Every row written while a constraint governs the call (notes, lessons,
  * procedures, profile facts) carries that constraint in its own
- * `constraint_scope` column: a JSON descriptor `{"key", "allowedProviders"}`
- * frozen at write time. It is not a tag, so the notes tool, reflection
+ * `constraint_scope` column: a JSON descriptor
+ * `{"key", "allowedProviders", "allowedEgress"}` frozen at write time (a
+ * descriptor written before `allowedEgress` existed reads as none, the
+ * strictest, and is rewritten in place on open). It is not a tag, so the notes tool, reflection
  * EVOLVE and the reconciler can neither add nor strip it. Untagged rows
  * (`NULL`) are what every session sees.
  *
  * A tagged row is visible to a call whose policy has the same key, or a
- * policy whose allowed list is a subset of the row's (a stricter one:
- * the row's content could only reach providers its own folder already
+ * policy whose allowed providers AND allowed egress classes are both
+ * subsets of the row's (a stricter one: the row's content could only
+ * reach providers and leave through tools its own folder already
  * allowed). An unconstrained call, or one with no frame at all (a CLI,
  * an unscoped job), sees untagged rows only.
  *
@@ -34,13 +37,20 @@ import {
 interface ScopeDescriptor {
   key: string;
   allowedProviders: string[];
+  /** Absent in a descriptor from before egress scoping: none. */
+  allowedEgress: string[];
 }
 
 /** The `constraint_scope` value of rows written under `policy`. */
-export function constraintScopeOf(policy: Pick<ProviderPolicy, "key" | "allowedProviders">): string {
+export function constraintScopeOf(
+  policy: Pick<ProviderPolicy, "key" | "allowedProviders"> & { allowedEgress?: readonly string[] },
+): string {
   const allowedProviders = [...new Set(policy.allowedProviders)].sort();
-  return JSON.stringify({ key: policy.key, allowedProviders });
+  const allowedEgress = [...new Set(policy.allowedEgress ?? [])].sort();
+  return JSON.stringify({ key: policy.key, allowedProviders, allowedEgress });
 }
+
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 
 const parsed = new Map<string, ScopeDescriptor | null>();
 
@@ -52,13 +62,13 @@ export function parseConstraintScope(scope: string): ScopeDescriptor | undefined
   try {
     const raw: unknown = JSON.parse(scope);
     if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-      const { key, allowedProviders } = raw as Record<string, unknown>;
+      const { key, allowedProviders, allowedEgress } = raw as Record<string, unknown>;
       if (
         typeof key === "string" &&
-        Array.isArray(allowedProviders) &&
-        allowedProviders.every((id): id is string => typeof id === "string")
+        isStringArray(allowedProviders) &&
+        (allowedEgress === undefined || isStringArray(allowedEgress))
       ) {
-        value = { key, allowedProviders };
+        value = { key, allowedProviders, allowedEgress: allowedEgress ?? [] };
       }
     }
   } catch {
@@ -71,13 +81,14 @@ export function parseConstraintScope(scope: string): ScopeDescriptor | undefined
 
 /**
  * The policy a background pass over rows of `scope` runs under: the
- * row's own key and allowed list. A malformed scope allows nothing.
+ * row's own key, allowed list and egress classes. A malformed scope
+ * allows nothing.
  */
 export function policyForConstraintScope(scope: string): ProviderPolicy {
   const d = parseConstraintScope(scope);
   return d === undefined
     ? makeProviderPolicy({ key: "(unreadable memory scope)", allowedProviders: [], matchedDir: "" })
-    : makeProviderPolicy({ key: d.key, allowedProviders: d.allowedProviders, matchedDir: d.key });
+    : makeProviderPolicy({ key: d.key, allowedProviders: d.allowedProviders, allowedEgress: d.allowedEgress, matchedDir: d.key });
 }
 
 /** Whether a row of `rowScope` may be read by a call under `policy`. */
@@ -87,7 +98,8 @@ export function scopeVisibleTo(rowScope: string | null, policy: ProviderPolicy |
   const row = parseConstraintScope(rowScope);
   if (row === undefined) return false;
   if (row.key === policy.key) return true;
-  return policy.allowedProviders.every((id) => row.allowedProviders.includes(id));
+  return policy.allowedProviders.every((id) => row.allowedProviders.includes(id))
+    && policy.allowedEgress.every((cls) => row.allowedEgress.includes(cls));
 }
 
 const rowScopeStore = new AsyncLocalStorage<{ scope: string | null }>();
@@ -124,7 +136,7 @@ export const CONSTRAINT_SCOPE_TABLES = ["memories", "lessons", "procedures", "pr
 
 interface ScopeDb {
   exec(sql: string): unknown;
-  prepare(sql: string): { get(...params: unknown[]): unknown };
+  prepare(sql: string): { get(...params: unknown[]): unknown; all?(...params: unknown[]): unknown[]; run?(...params: unknown[]): unknown };
   function?: (name: string, options: { deterministic?: boolean }, fn: (...args: never[]) => unknown) => unknown;
 }
 
@@ -146,6 +158,7 @@ export function ensureConstraintScopeSchema(db: ScopeDb): void {
       if (!(err instanceof Error) || !/duplicate column/i.test(err.message)) throw err;
     }
   }
+  migrateLegacyDescriptors(db);
   if (typeof db.function !== "function") return;
   db.function("memory_scope_visible", { deterministic: false }, (scope: string | null) =>
     currentScopeVisible(typeof scope === "string" ? scope : null) ? 1 : 0,
@@ -154,6 +167,28 @@ export function ensureConstraintScopeSchema(db: ScopeDb): void {
   db.function("memory_scope_same", { deterministic: false }, (scope: string | null) =>
     (typeof scope === "string" ? scope : null) === currentWriteScope() ? 1 : 0,
   );
+}
+
+/**
+ * Rewrite descriptors written before `allowedEgress` existed into the
+ * current form with an empty list (the strictest reading, which
+ * `parseConstraintScope` already gives them), so scope equality (dedup,
+ * per-scope passes) treats them as the scope a write now produces.
+ * Idempotent: a current descriptor is left as it is.
+ */
+function migrateLegacyDescriptors(db: ScopeDb): void {
+  for (const table of CONSTRAINT_SCOPE_TABLES) {
+    const stmt = db.prepare(
+      `SELECT DISTINCT constraint_scope AS scope FROM ${table} WHERE constraint_scope IS NOT NULL AND constraint_scope NOT LIKE '%"allowedEgress"%'`,
+    );
+    if (typeof stmt.all !== "function") return;
+    for (const { scope } of stmt.all() as { scope: string }[]) {
+      const d = parseConstraintScope(scope);
+      if (d === undefined) continue;
+      const update = db.prepare(`UPDATE ${table} SET constraint_scope = ? WHERE constraint_scope = ?`);
+      update.run?.(constraintScopeOf(d), scope);
+    }
+  }
 }
 
 /** Every distinct scope with live rows on `table`, for per-scope background passes. */
