@@ -19,6 +19,7 @@ import {
   type CoreMediaModel,
 } from "../../local-llm/core/core-image.js";
 import type { ToolDefinition } from "../tool-registry.js";
+import { offlineRefusalFor } from "../../llm/offline-network.js";
 import { coreDownloadProgress, type MediaProgressUpdate } from "./core-download-progress.js";
 
 export const IMAGE_GENERATE_TOOL = "image.generate";
@@ -248,6 +249,9 @@ export function buildImageGenerateTool(options: ImageGenerateToolOptions): ToolD
       catch (err) { return errorResult((err as Error).message); }
 
       if (args.local) return errorResult(NO_LOCAL_YET);
+      // Core is loopback but sends the job to OpenRouter: refuse before asking.
+      const offline = offlineRefusalFor("openrouter.ai", IMAGE_GENERATE_TOOL);
+      if (offline) return errorResult(offline.message);
       const key = options.openRouterKey();
       if (key === undefined) return errorResult(NO_KEY);
       const apiKey: string = key;

@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { DownloadFileOptions } from "../downloads/download-file.js";
+import { offlineRefusalFor } from "../../llm/offline-network.js";
 import { acquireCoreLease, connectCore, CoreRequestError, ensureCore, type CoreControlClient } from "./core-client.js";
 import { shutdownIdleCoreClient } from "./core-idle.js";
 import { installCore, isCoreInstalled } from "./core-install.js";
@@ -144,9 +145,15 @@ function toImageError(err: unknown, cloud: boolean): unknown {
  * Register OpenRouter with Core's cloud media (images and video). The key is passed only
  * here, never through Core's environment (`core-env.ts`). Core replaces
  * `base_url`, `models` and `custom_headers` whole on every PUT; the agent
- * uses its own Core only for media, so nothing else is lost.
+ * uses its own Core only for media, so nothing else is lost. Refused with
+ * `OfflineNetworkError` while offline mode is on.
  */
 export async function registerOpenRouterMedia(client: CoreControlClient, apiKey: string, signal?: AbortSignal): Promise<void> {
+  // Core is on loopback, so the dispatcher lets this call through, but
+  // Core then proxies the media jobs (prompt, first frame, the key) to
+  // OpenRouter. Offline mode refuses here, before the key reaches Core.
+  const offline = offlineRefusalFor("openrouter.ai", "cloud media");
+  if (offline) throw offline;
   try {
     await client.call("/cloud/providers/openrouter", {
       api_key: apiKey,

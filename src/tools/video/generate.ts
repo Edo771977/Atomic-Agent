@@ -17,6 +17,7 @@ import {
 } from "../../local-llm/core/core-video.js";
 import { loadImageFile } from "../vision/load-image.js";
 import type { ToolDefinition } from "../tool-registry.js";
+import { offlineRefusalFor } from "../../llm/offline-network.js";
 import { coreDownloadProgress } from "../image/core-download-progress.js";
 import { parseVideoArgs, type VideoArgs } from "./args.js";
 import { fitVideoToModel, nominalSize } from "./fit-model.js";
@@ -133,6 +134,9 @@ export function buildVideoGenerateTool(options: VideoGenerateToolOptions): ToolD
       try { args = parseVideoArgs(rawArgs); }
       catch (err) { return errorResult((err as Error).message); }
       if (args.local) return errorResult(NO_LOCAL);
+      // Core is loopback but sends the prompt and first frame to OpenRouter: refuse before asking.
+      const offline = offlineRefusalFor("openrouter.ai", VIDEO_GENERATE_TOOL);
+      if (offline) return errorResult(offline.message);
       const key = options.openRouterKey();
       if (key === undefined) return errorResult(NO_KEY);
       const apiKey: string = key;
