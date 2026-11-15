@@ -5,7 +5,7 @@ import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { RuntimeLocalProfile, RuntimeConnectedLocalProfile } from "./runtime-local-profile.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
-import { ProviderRegistry, resolveLlmConfig, type LlmProvider } from "../../llm/provider/index.js";
+import { ProviderRegistry, resolveLlmConfig, type LlmProvider, type LlmProviderConfigEntry } from "../../llm/provider/index.js";
 import { hasProjectConstraints } from "../../llm/provider-policy.js";
 import { resolveActiveToolTransport } from "../../llm/provider/registry/resolve-tool-transport.js";
 import { modelWantsStrictTools } from "../../llm/provider/model-strict-tools.js";
@@ -334,6 +334,20 @@ export function catalogWindowOf(model: ResolvedModel | undefined): number | null
   return !model || model.source === "default" || model.contextWindow <= 0 ? null : model.contextWindow;
 }
 
+/**
+ * The model a request is admitted and settled at: the provider's own chat
+ * model, which for a per-turn model copy (ATO-1148) is the turn's model,
+ * never the entry's default. An override model with no verified price
+ * therefore runs metered under a turn cap or daily limit and the scope
+ * says so, the same rule as a snapshot-priced preset.
+ */
+export function budgetPricingModelId(
+  provider: Pick<LlmProvider, "chatModelId">,
+  entry: Pick<LlmProviderConfigEntry, "defaultChatModel" | "model"> | undefined,
+): string | null {
+  return provider.chatModelId ?? entry?.defaultChatModel ?? entry?.model ?? null;
+}
+
 export function connectRuntimeFallback(
   options: RuntimeInferenceOptions,
   deps: {
@@ -592,7 +606,7 @@ export function connectRuntimeFallback(
         if (!turnLimited && dailyBudget === undefined) return undefined;
         const entry = resolveLlmConfig(getConfig()).providers.find(p => p.id === providerId);
         return observeScope(providerId, request, createRequestBudgetScope(deps.turnBudget, request, provider, entry,
-          resolveModelPricing(provider.chatModelId ?? entry?.defaultChatModel ?? entry?.model ?? null, providerId),
+          resolveModelPricing(budgetPricingModelId(provider, entry), providerId),
           dailyBudget));
       },
     } satisfies Pick<FallbackSeamDeps, "requestBudget">),
