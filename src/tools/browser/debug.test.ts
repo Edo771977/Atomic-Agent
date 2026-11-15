@@ -6,6 +6,7 @@ import type { BrowserDomainPolicy } from "./browser-domain-policy.js";
 import { buildBrowserDebugTool, DEBUG_DEFAULT_LIMIT } from "./debug.js";
 import { PageDebugLog } from "./page-debug-log.js";
 import { watchPageDebugEvents } from "./watch-page-debug.js";
+import { BROWSER_PAGE_SOURCE } from "../untrusted-tool-output.js";
 
 /** `browser.debug` (ATO-701): console and network lists of the agent's pages. */
 
@@ -17,6 +18,10 @@ class DebugBackend extends GateBackend {
 }
 
 describe("browser.debug", () => {
+  it("frames its output as untrusted page content, so it taints the turn", () => {
+    expect(buildBrowserDebugTool(new DebugBackend()).untrustedOutput).toBe(BROWSER_PAGE_SOURCE);
+  });
+
   it("lists console messages and page errors, newest last", async () => {
     const backend = new DebugBackend();
     backend.log.addConsole({ level: "log", text: "app started", pageUrl: "https://app.example/" });
