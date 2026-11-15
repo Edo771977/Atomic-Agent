@@ -76,6 +76,21 @@ export type FailureCategory =
   | "not-started"
   | "error";
 
+/**
+ * The per-task review's last verdict as counts (issue #38): the decision,
+ * the extra worker passes it caused, the reviewer's `outcomeLabel` (null:
+ * no model reviewed, e.g. a red fact decided) and the issues per severity.
+ * Never an issue's text, item or file.
+ */
+export interface ReviewOutcome {
+  decision: ReviewDecision;
+  passes: number;
+  reviewer: string | null;
+  blockers: number;
+  majors: number;
+  minors: number;
+}
+
 export interface TaskOutcomeRecord {
   v: number;
   type: "task";
@@ -113,8 +128,10 @@ export interface TaskOutcomeRecord {
   failure: FailureCategory | null;
   /** This turn's attempt at the task (1 = first), replans and re-delegations alike. */
   attempt: number;
-  /** The judge re-ran the task once with its findings. */
+  /** The judge re-ran the task with its findings: a judge retry, or a review pass (`review.passes > 0`). */
   judgeRetried: boolean;
+  /** Absent when no per-task review ran, and on older records (`readReviewOutcome`). */
+  review?: ReviewOutcome;
   selfCheckNotice: boolean;
   escalations: number;
   judge: JudgeOutcome;
@@ -263,6 +280,49 @@ export interface TaskOutcomeContext {
   merge: MergeOutcome | null;
   /** Contract checks attributed to the task; absent: unknown (no `taskChecks` written). */
   taskChecks?: number;
+  /** The per-task review (`reviewOutcome`); absent: review off, no `review` written. */
+  review?: ReviewOutcome;
+}
+
+const REVIEW_DECISIONS: ReadonlySet<string> = new Set<ReviewDecision>(["accept", "needs-changes", "unverified"]);
+
+/** A review verdict and its pass count as the record's counts; the reviewer label made safe to write. */
+export function reviewOutcome(
+  verdict: {
+    decision: ReviewDecision;
+    reviewer: string | null;
+    issues: ReadonlyArray<{ severity: "blocker" | "major" | "minor" }>;
+  },
+  passes: number,
+): ReviewOutcome {
+  const count = (severity: string): number => verdict.issues.filter((i) => i.severity === severity).length;
+  return {
+    decision: verdict.decision,
+    passes: Number.isFinite(passes) ? Math.max(0, Math.floor(passes)) : 0,
+    reviewer: verdict.reviewer === null ? null : outcomeLabel(verdict.reviewer),
+    blockers: count("blocker"),
+    majors: count("major"),
+    minors: count("minor"),
+  };
+}
+
+/** A record's review, or undefined when it has none (review off, an older record) or one this reader cannot trust. */
+export function readReviewOutcome(row: TaskOutcomeRecord): ReviewOutcome | undefined {
+  const review: unknown = (row as { review?: unknown }).review;
+  if (typeof review !== "object" || review === null) return undefined;
+  const r = review as Record<string, unknown>;
+  const count = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+  if (typeof r.decision !== "string" || !REVIEW_DECISIONS.has(r.decision) || !count(r.passes) ||
+    !(r.reviewer === null || typeof r.reviewer === "string") ||
+    !count(r.blockers) || !count(r.majors) || !count(r.minors)) return undefined;
+  return {
+    decision: r.decision as ReviewDecision,
+    passes: r.passes,
+    reviewer: r.reviewer,
+    blockers: r.blockers,
+    majors: r.majors,
+    minors: r.minors,
+  };
 }
 
 /** USD kept to a millionth of a dollar: sums of floats stay readable in the file. */
@@ -295,6 +355,9 @@ export function taskOutcomeRecord(
   sessionId: string,
   now: Date,
 ): TaskOutcomeRecord {
+  // A review pass re-ran the task with findings, as a judge retry did:
+  // `judgeRetried` keeps such a row out of direct check evidence.
+  const retried = row.judge?.retried === true || (context.review?.passes ?? 0) > 0;
   return {
     v: OUTCOME_RECORD_VERSION,
     type: "task",
@@ -308,7 +371,7 @@ export function taskOutcomeRecord(
     ...(context.routingIdentity !== undefined && /^[a-f0-9]{64}$/.test(context.routingIdentity) ? { routingIdentity: context.routingIdentity } : {}),
     // Checks ran in the workspace this worker edited: a weakened test still
     // passes. The row cannot tell; see README "Measured routing".
-    ...((row.checks?.total ?? 0) > 0 && (row.escalations ?? 0) === 0 && row.judge?.retried !== true &&
+    ...((row.checks?.total ?? 0) > 0 && (row.escalations ?? 0) === 0 && !retried &&
       context.merge !== "held" && context.merge !== "conflict"
       ? (row.checks!.failed > 0 && row.status === "failed"
         ? { acceptance: "checks-failed" as const, acceptanceScope: "task-checks" as const }
@@ -322,7 +385,8 @@ export function taskOutcomeRecord(
     status: row.status,
     failure: failureCategory(row),
     attempt: Math.max(1, context.attempt),
-    judgeRetried: row.judge?.retried === true,
+    judgeRetried: retried,
+    ...(context.review === undefined ? {} : { review: context.review }),
     selfCheckNotice: row.selfCheckNotice === true,
     escalations: row.escalations ?? 0,
     judge: judgeOutcome(row),
