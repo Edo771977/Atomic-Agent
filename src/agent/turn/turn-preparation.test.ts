@@ -99,12 +99,20 @@ describe("turn preparation ownership", () => {
     const prepared = await prepareAgentTurn(session(), input, deps);
     expect(prepared.pinnedSlice).toBe(slice);
     expect(resolveLlmSlice).toHaveBeenCalledTimes(1);
-    expect(resolveLlmSlice).toHaveBeenCalledWith("pinned");
+    // ATO-1148: the pinned slice is asked for the turn's model; none here.
+    expect(resolveLlmSlice).toHaveBeenCalledWith("pinned", undefined);
     expect(prepared.visibleToolDescriptors()).toBe(deps.toolDescriptors);
     deps.toolDescriptors = [first, second];
     input.toolFilter = (name: string) => name === "second";
     expect(prepared.visibleToolDescriptors()).toEqual([second]);
     expect(resolveLlmSlice).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the pinned slice for the turn's own model (ATO-1148)", async () => {
+    const slice: ResolvedTurnLlmSlice = { toolTransport: "native_tools", toolCallAdapter: null, supportsSlotAffinity: false, supportsParallelTools: true, strictTools: true };
+    const resolveLlmSlice = vi.fn(() => slice);
+    await prepareAgentTurn(session(), { ...options(), providerId: "cloud", model: "project-model" }, { toolDescriptors: [], resolveLlmSlice });
+    expect(resolveLlmSlice).toHaveBeenCalledWith("cloud", "project-model");
   });
 
   it("creates per-turn evidence/notices and grants while ephemeral workers retain their role", async () => {
