@@ -7,6 +7,7 @@
  * runtime, the TUI and the Integrations hub treat both alike.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import type { ApprovalRouter } from "../../approval/approval-router.js";
 import type { ChannelStatus } from "../../runtime/channel-status.js";
@@ -252,9 +253,10 @@ export class DiscordChannel {
       }
     }
     if (!this.bridge) return;
+    // A restricted session's prompt goes without its details (issue #33).
     const unsubscribe = this.deps.approvalRouter.setForSession(
       sessionId,
-      this.bridge.handlerFor(channelId),
+      gateApprovalHandler(this.deps.runtime, sessionId, this.bridge.handlerFor(channelId)),
     );
     this.approvalBindings.set(sessionId, { channelId, unsubscribe });
   }

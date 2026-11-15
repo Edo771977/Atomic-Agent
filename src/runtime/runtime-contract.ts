@@ -393,6 +393,17 @@ export interface AgentRuntime {
     session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ) => ProviderRestriction | null;
   /**
+   * Why a chat adapter may not send this session's content to its chat
+   * right now (issue #33): a constrained folder, or a read taint, whose
+   * `allowedEgress` lacks "channels"; `null` when it may. Asked before
+   * each outbound send (reply, progress labels, notices, files, approval
+   * details), so a taint set mid-turn holds. Optional so hand-built
+   * runtimes keep compiling (absent: allowed).
+   */
+  readonly channelSendRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => string | null;
+  /**
    * Discord remote-control channel, or `null` when the build never
    * constructed one. Same contract as `telegramChannel`.
    */

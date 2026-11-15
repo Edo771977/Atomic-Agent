@@ -102,6 +102,27 @@ describe("session provider policy (issue #33)", () => {
       expect(policy.effectivePolicyForSession("s-gone")?.allowsEgress("web")).toBe(false);
     });
 
+    it("outside the turn's frame, sees a taint the running turn holds but has not saved yet, and a stored one a stale copy lacks", () => {
+      root = mkdtempSync(join(tmpdir(), "pc-session-"));
+      const project = join(root, "client");
+      const home = join(root, "home");
+      const config = { projects: { roots: [], constraints: { [project]: { allowedProviders: ["local-llama"] } } } };
+      const stamp = { key: project, allowedProviders: ["local-llama"], allowedEgress: [], matchedDir: project, readFrom: [project] };
+      const stored = new Map<string, { workingDir: string; metadata?: Record<string, unknown> }>([["s-home", { workingDir: home }]]);
+      const live = new Map<string, { workingDir: string; metadata?: Record<string, unknown> }>();
+      const policy = createSessionProviderPolicy({
+        readConfig: () => config,
+        loadSession: (id) => stored.get(id) ?? null,
+        liveSession: (id) => live.get(id),
+      });
+      expect(policy.effectivePolicyForSession("s-home")).toBeUndefined();
+      live.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
+      expect(policy.effectivePolicyForSession("s-home")?.allowsEgress("channels")).toBe(false);
+      live.clear();
+      stored.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
+      expect(policy.effectivePolicyForSession({ id: "s-home", workingDir: home })?.key).toBe(project);
+    });
+
     it("carries a fusion worker's stamped egress classes", () => {
       const { project, policy } = setup();
       const temp = mkdtempSync(join(tmpdir(), "pc-worker-egress-"));

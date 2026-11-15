@@ -344,6 +344,9 @@ export async function createAgentRuntime(
     loadSession: (id) => {
       try { return sessionStore.load(id); } catch { return null; }
     },
+    // A taint the running turn holds but has not saved yet (declared below;
+    // only read once the runtime runs).
+    liveSession: (id) => sessionReadTaint.liveSession<SessionState>(id),
   });
   // The commands `os.shell.run` detached at the default timeout (F47).
   // One registry for the runtime, so the turn-end (`executeTurn`),
@@ -1043,6 +1046,7 @@ export async function createAgentRuntime(
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
+    channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,
@@ -1158,6 +1162,7 @@ export async function createAgentRuntime(
     resolveTelegram: () => telegramChannelForShutdown,
     resolveDiscord: () => discordChannelForShutdown,
     logger,
+    isRestricted: (id) => channelNotifyRefusal(sessionProviderPolicy, id) !== null,
   });
 
   // Deferred from the Scheduler construction site above: the first

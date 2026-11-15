@@ -28,13 +28,19 @@ export function installApprovalPendingNotifier(args: {
   logger: Pick<StructuredLogger, "debug" | "warn">;
   /** Default `isOfflineNetwork`. */
   offline?: () => boolean;
+  /**
+   * The session's content may not reach a chat (a constrained folder or
+   * read taint without "channels", issue #33): the reminder then goes
+   * generic, without the folder's name, like an incognito one.
+   */
+  isRestricted?: (sessionId: string) => boolean;
 }): { dispose(): void } {
   const notifier = new ApprovalPendingNotifier({
     settings: args.readSettings,
     offline: args.offline ?? isOfflineNetwork,
     isPrivate: (sessionId) => {
       try {
-        return args.anyIncognitoOpen() || args.isIncognito(sessionId);
+        return args.anyIncognitoOpen() || args.isIncognito(sessionId) || args.isRestricted?.(sessionId) === true;
       } catch {
         return true;
       }

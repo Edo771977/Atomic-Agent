@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import type { ChannelStatus } from "../../runtime/channel-status.js";
 import { getUserConfigPath } from "../../config/index.js";
 import type { TurnStatusTracker } from "../../agent/status-snapshot.js";
@@ -1267,11 +1268,12 @@ export class TelegramChannel {
     }
     const bridge = this.approvalBridge;
     if (!bridge) return;
+    // A restricted session's prompt goes without its details (issue #33).
     const unsubscribe = this.deps.runtime.setApprovalHandlerForSession(
       sessionId,
-      (request) => {
+      gateApprovalHandler(this.deps.runtime, sessionId, (request) => {
         void bridge.dispatch(request, target.chatId, target.threadId);
-      },
+      }),
     );
     this.approvalSubscriptions.set(sessionId, { target, unsubscribe });
   }

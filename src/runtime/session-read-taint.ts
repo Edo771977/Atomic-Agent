@@ -117,6 +117,11 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       }
     },
 
+    /** The object the running turn holds for `sessionId`, if one runs (its metadata carries an unsaved taint). */
+    liveSession<T extends TaintableSession = TaintableSession>(sessionId: string): T | undefined {
+      return live.get(sessionId)?.session as T | undefined;
+    },
+
     /**
      * Called by the tool registry before a tool runs (`onDispatch`).
      * Returns the taint applied, for tests and status.
