@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { describeSessionPinsFix, SessionPinsReadError, SessionStore, createEmptySessionState, createFusionWorkerSession, pruneSessions, readSessionPins, type FusionWorkerMeta, type SessionState } from "../../session/index.js";
@@ -7,6 +7,7 @@ import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
+import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 
 export function prepareRuntimeSessionStore(
@@ -54,7 +55,8 @@ export function prepareRuntimeSessionStore(
   }
   // An incognito chat (ATO-586) whose process died before closing it is
   // deleted now, trace and all. Ones a live window still holds stay.
-  sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger);
+  sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
+    new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }));
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a

@@ -4,12 +4,13 @@ import { resolve, sep } from "node:path";
 import { isIncognitoSession, type IncognitoMark } from "../session/incognito.js";
 import type { SessionStore } from "../session/session-store.js";
 import type { TaskStore } from "../tasks/task-store.js";
+import type { FusionRunStore } from "../tools/fusion/run-checkpoint.js";
 import { traceFilePath } from "../tracing/trace/trace-sink.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
 
 /**
  * Closing incognito chats (ATO-586, `src/session/incognito.ts`): the row,
- * its archived turns and its trace file go when the chat is closed — the
+ * its archived turns, its trace file and its fusion run checkpoints go when the chat is closed — the
  * TUI leaving it, `run --incognito` ending, a client deleting it — and at
  * the next start for a chat whose process died first. Closing also drops
  * the tasks bound to it, so none runs later in an ordinary chat.
@@ -44,10 +45,14 @@ export function sweepOrphanIncognitoSessions(
   sessionStore: Pick<SessionStore, "sweepOrphanIncognito">,
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
+  fusionRuns?: Pick<FusionRunStore, "removeForSession">,
 ): string[] {
   try {
     const ids = sessionStore.sweepOrphanIncognito();
-    for (const id of ids) removeIncognitoTrace(tracesDir, id);
+    for (const id of ids) {
+      removeIncognitoTrace(tracesDir, id);
+      fusionRuns?.removeForSession(id);
+    }
     if (ids.length > 0) {
       logger.info("deleted incognito chats left by a stopped agent", {
         count: ids.length,
@@ -82,6 +87,8 @@ export interface IncognitoSessionsDependencies {
    * none runs later in an ordinary chat. Absent in callers with no queue.
    */
   taskStore?: Pick<TaskStore, "removeForSession">;
+  /** Fan-out checkpoints (ATO-617): a closed chat's stopped runs go with it. */
+  fusionRuns?: Pick<FusionRunStore, "removeForSession">;
   /**
    * The managed chat server's prompt cache on disk (ATO-456). An
    * incognito turn marks the launch private so the next stop saves no
@@ -124,6 +131,7 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
       deps.taskStore?.removeForSession(sessionId);
       deps.sessionStore.delete(sessionId);
       removeIncognitoTrace(deps.tracesDir, sessionId);
+      deps.fusionRuns?.removeForSession(sessionId);
       eraseSlots(sessionId);
       return true;
     } catch (err) {

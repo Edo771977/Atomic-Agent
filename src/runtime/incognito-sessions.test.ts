@@ -165,4 +165,26 @@ describe("incognito sessions in the runtime", () => {
     expect(sessions.discard("s-secret")).toBe("deleted");
     await new Promise((r) => setTimeout(r, 0));
   });
+  it("closing an incognito chat deletes its fusion run checkpoints; an ordinary chat keeps them", () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    save(store, "s-plain", false);
+    const removed: string[] = [];
+    const sessions = createIncognitoSessions({
+      sessionStore: store, tracesDir, isBusy: () => false, logger,
+      fusionRuns: { removeForSession: (id) => { removed.push(id); return 1; } },
+    });
+    sessions.discard("s-plain");
+    expect(sessions.discard("s-secret")).toBe("deleted");
+    expect(removed).toEqual(["s-secret"]);
+  });
+
+  it("the boot sweep deletes a dead incognito chat's fusion run checkpoints", () => {
+    alive.add(10);
+    save(open(10), "s-dead", true);
+    alive.delete(10);
+    const removed: string[] = [];
+    expect(sweepOrphanIncognitoSessions(open(30), tracesDir, logger, { removeForSession: (id) => { removed.push(id); return 1; } })).toEqual(["s-dead"]);
+    expect(removed).toEqual(["s-dead"]);
+  });
 });

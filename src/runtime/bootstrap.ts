@@ -853,7 +853,7 @@ export async function createAgentRuntime(
   // ATO-586: an incognito chat closed mid-turn is deleted once the turn
   // has left the queue (`isBusy` is still true inside `executeTurn`).
   const incognitoSessions = createIncognitoSessions({
-    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore,
+    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore, fusionRuns,
     // ATO-586: keep the chat's prompt out of the managed server's disk cache.
     promptCache: {
       markPrivate: () => { markPromptCachePrivate(config.paths.localModelsDataDir); },
