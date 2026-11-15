@@ -49,6 +49,11 @@ export function formatFusionWorkerLine(event: FusionWorkerEvent): string {
     case "escalated":
       // The model named is the escalation model, not the worker's own.
       return `» ${who}: ${event.summary ?? "escalated"}`;
+    case "queued":
+      // Kept off the feed by the reducer, like `usage`.
+      return `» ${who}: ${event.edge === "end" ? "served" : "queued"}`;
+    case "awaiting-approval":
+      return `» ${who}: ${event.edge === "end" ? "approval answered" : "waiting for approval"}`;
     case "cancelled":
       return `» ${who}: cancelled`;
     case "failed":

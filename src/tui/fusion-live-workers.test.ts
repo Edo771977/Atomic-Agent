@@ -4,6 +4,7 @@ import {
   etaCorrection,
   fanoutExpectation,
   formatFusionLiveWorker,
+  fusionPendingApprovalLine,
   isFusionWorkerStuck,
   reduceFusionLiveWorkers,
   type FusionLiveWorker,
@@ -431,5 +432,48 @@ describe("a leg that needs interrupting", () => {
       19 * 60_000,
     );
     expect(row.indexOf("stuck")).toBeLessThan(row.indexOf("ctx"));
+  });
+});
+
+describe("time a leg spends queued or waiting for approval (#30)", () => {
+  const at = (s: readonly FusionLiveWorker[], over: Record<string, unknown>, now: number) =>
+    reduceFusionLiveWorkers(s, ev({ etaSeconds: 120, ...over }), now);
+
+  it("is not stuck while it waits for approval past STUCK_ETA_MULTIPLE × its estimate, and elapsed excludes the wait", () => {
+    let s = at([], { phase: "started" }, 0);
+    s = at(s, { phase: "tool", tool: "verify.run" }, 60_000);
+    s = at(s, { phase: "awaiting-approval", edge: "start" }, 60_000);
+    // Fifty minutes later, far past 2 × 2m, the operator has not answered.
+    const later = 50 * 60_000;
+    expect(isFusionWorkerStuck(s[0]!, later)).toBe(false);
+    const row = formatFusionLiveWorker(s[0]!, later);
+    expect(row).toContain("waiting for approval");
+    expect(row).toContain("1m00s");
+    expect(row).not.toContain("stuck");
+    // Answered: the clock resumes from where it paused.
+    s = at(s, { phase: "awaiting-approval", edge: "end" }, later);
+    expect(formatFusionLiveWorker(s[0]!, later + 30_000)).toContain("1m30s");
+    expect(isFusionWorkerStuck(s[0]!, later + 30_000)).toBe(false);
+  });
+
+  it("shows a leg queued for a server slot as queued, its clock paused until served", () => {
+    let s = at([], { phase: "started" }, 0);
+    s = at(s, { phase: "queued", edge: "start" }, 0);
+    expect(formatFusionLiveWorker(s[0]!, 40 * 60_000)).toContain("queued");
+    expect(isFusionWorkerStuck(s[0]!, 40 * 60_000)).toBe(false);
+    s = at(s, { phase: "queued", edge: "end" }, 40 * 60_000);
+    s = at(s, { phase: "finished" }, 41 * 60_000);
+    expect(formatFusionLiveWorker(s[0]!, 41 * 60_000)).toContain("1m00s");
+    // The finished leg's correction is measured on its work time.
+    expect(etaCorrection(s)).toBeCloseTo(0.5);
+  });
+
+  it("names a pending approval of the orchestrator while workers are listed", () => {
+    const s = at([], { phase: "finished" }, 0);
+    expect(fusionPendingApprovalLine(s, { tool: "fusion.delegate", category: "shell" })).toBe(
+      "waiting for your approval: fusion.delegate (shell)",
+    );
+    expect(fusionPendingApprovalLine(s, null)).toBeNull();
+    expect(fusionPendingApprovalLine([], { tool: "fusion.delegate", category: "shell" })).toBeNull();
   });
 });

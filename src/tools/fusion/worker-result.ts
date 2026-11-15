@@ -205,6 +205,18 @@ export interface WorkerTaskResult {
    * the daemon rather than at the fan-out's width.
    */
   queueWaitMs?: number | null;
+  /**
+   * Of `durationMs`, the time before the server's first token (issue
+   * #30): `queueWaitMs`, or the whole duration for a worker never
+   * served. Not work; the outcome log leaves it out of its duration.
+   */
+  queuedMs?: number;
+  /**
+   * Of `durationMs`, the time this worker's self-check spent in the held
+   * runner's authorization (`contract-check-hold.ts`), an operator prompt
+   * included (issue #30). Not work either.
+   */
+  heldMs?: number;
   /** Call-wide scheduler wait before dispatch; excluded from durationMs and provider queueWaitMs. */
   schedulerQueueWaitMs?: number;
   tools: WorkerToolStats;

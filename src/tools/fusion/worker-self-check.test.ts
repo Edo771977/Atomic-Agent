@@ -627,3 +627,53 @@ describe("a worker's self-check before its reply closes the task", () => {
     expect(out.checksNotRun).toMatch(/^not finished within/);
   });
 });
+
+describe("time a worker spends not working (#30)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "fusion-held-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports the queue wait and the self-check's approval hold as intervals, and records both on the row", async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const runChecks = vi.fn<ContractCheckRunner>(async (specs, ctx) => {
+      // The held runner's authorization: an operator prompt.
+      ctx.onHold?.start();
+      await pause(40);
+      ctx.onHold?.end();
+      return { ok: true, results: specs.map(() => ({ ok: true, summary: "ok" })) };
+    });
+    const { deps } = harness(dir, async (call, i) => {
+      if (i === 0) {
+        call.options.eventHook?.({ type: "turn_started" } as never);
+        await pause(30);
+        step(call, "os.fs.write", { path: "score.js", content: "x" });
+      }
+      say(call, "done");
+      return {};
+    }, runChecks);
+    const events: Array<{ phase: string; edge?: string }> = [];
+    deps.emitEvent = (_id, event) => {
+      if (event.type === "fusion_worker") events.push({ phase: event.phase, ...(event.edge === undefined ? {} : { edge: event.edge }) });
+    };
+    const [row] = await runWorkerTasks(deps, {
+      ...BASE,
+      tasks: [{ id: "t", title: "T", instructions: "x" }],
+      contract: { checks: [CHECKED.checks![0]!] },
+      signal: new AbortController().signal,
+    });
+    expect(runChecks).toHaveBeenCalledTimes(1);
+    expect(events.filter((e) => e.phase === "queued" || e.phase === "awaiting-approval")).toEqual([
+      { phase: "queued", edge: "start" },
+      { phase: "queued", edge: "end" },
+      { phase: "awaiting-approval", edge: "start" },
+      { phase: "awaiting-approval", edge: "end" },
+    ]);
+    expect(row!.queuedMs).toBeGreaterThanOrEqual(20);
+    expect(row!.heldMs).toBeGreaterThanOrEqual(30);
+    expect(row!.durationMs).toBeGreaterThanOrEqual(row!.queuedMs! + row!.heldMs!);
+  });
+});

@@ -862,6 +862,18 @@ interface TaskPermitControl {
   reacquire(signal: AbortSignal): Promise<boolean>;
 }
 
+/** The held runner, telling `onHold` how long it authorized (issue #30). */
+function withHoldTiming(
+  runner: ContractCheckRunner,
+  onHold: { start(): void; end(): void },
+): ContractCheckRunner {
+  return Object.assign(
+    (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) =>
+      runner(specs, { ...ctx, onHold }),
+    runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {},
+  );
+}
+
 async function runOneTask(
   deps: WorkerRunnerDeps,
   options: RunWorkerTasksOptions,
@@ -984,6 +996,40 @@ async function runOneTask(
   // routed by the ambient frame would be tagged with a throwaway session
   // that has no recorder, no hook and no UI, and would reach nobody.
   let announced = false;
+  // Intervals that are not the worker's work (issue #30): queued for
+  // the server's first token, held on the operator's approval of its
+  // checks. The live row pauses its clock over them; the row records
+  // them (`queueWaitMs`, `heldMs`) so the outcome log's duration is work.
+  const announceInterval = (
+    phase: "queued" | "awaiting-approval",
+    edge: "start" | "end",
+  ): void => {
+    deps.emitEvent(options.parentSessionId, {
+      type: "fusion_worker",
+      taskId: task.id,
+      title: task.title,
+      phase,
+      edge,
+      role: "worker",
+      model: options.workerModel,
+    });
+  };
+  let queueAnnounced = false;
+  let heldMs = 0;
+  let heldSince: number | null = null;
+  const onHold = {
+    start: (): void => {
+      if (heldSince !== null) return;
+      heldSince = Date.now();
+      announceInterval("awaiting-approval", "start");
+    },
+    end: (): void => {
+      if (heldSince === null) return;
+      heldMs += Math.max(0, Date.now() - heldSince);
+      heldSince = null;
+      announceInterval("awaiting-approval", "end");
+    },
+  };
   const announceStart = (): void => {
     if (announced) return;
     announced = true;
@@ -996,6 +1042,12 @@ async function runOneTask(
       model: options.workerModel,
       ...(task.etaSeconds === undefined ? {} : { etaSeconds: task.etaSeconds }),
     });
+    // Until the first token the worker is waiting on the server, not
+    // working: up to the first-token budget on a full local server.
+    if (servedAt === null && !settled) {
+      queueAnnounced = true;
+      announceInterval("queued", "start");
+    }
   };
 
   // Which tool this worker just picked up, named with the model running
@@ -1286,6 +1338,7 @@ async function runOneTask(
   const markServed = (): void => {
     if (servedAt !== null) return;
     servedAt = Date.now();
+    if (queueAnnounced) announceInterval("queued", "end");
     clearTimeout(queueTimer);
     wallTimer = setTimeout(abortForTime, timeoutMs);
     wallTimer.unref?.();
@@ -1629,7 +1682,9 @@ async function runOneTask(
       ...(options.contract === undefined ? {} : { contract: options.contract }),
       workingDir,
       startedAt,
-      ...(deps.runChecks === undefined ? {} : { runChecks: deps.runChecks }),
+      ...(deps.runChecks === undefined
+        ? {}
+        : { runChecks: withHoldTiming(deps.runChecks, onHold) }),
       signal: AbortSignal.any([
         options.signal,
         timeLimit,
@@ -2115,10 +2170,17 @@ async function runOneTask(
 
   // How long the server took to say anything. The one number that tells
   // a queued worker from one nothing ever answered — see `queueWaitMs`.
-  result = {
-    ...result,
-    queueWaitMs: servedAt === null ? null : servedAt - startedAt,
-  };
+  {
+    // Issue #30: a worker never served spent its whole time queued; the
+    // time its checks waited on the operator is not work either.
+    const queuedMs = Math.min(result.durationMs, servedAt === null ? result.durationMs : servedAt - startedAt);
+    result = {
+      ...result,
+      queueWaitMs: servedAt === null ? null : servedAt - startedAt,
+      queuedMs: Math.max(0, queuedMs),
+      ...(heldMs > 0 ? { heldMs: Math.min(heldMs, Math.max(0, result.durationMs - queuedMs)) } : {}),
+    };
+  }
 
   // Out of time, not out of steps. Only this function knows whose clock
   // fired — `classifyWorkerStatus` sees a `cancelled` turn with a

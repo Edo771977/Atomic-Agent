@@ -45,6 +45,26 @@ export interface FusionLiveWorker {
    */
   readonly tokens?: number | null;
   readonly spentUsd?: number | null;
+  /**
+   * Time this leg spent queued for a server slot or waiting for the
+   * operator's approval (issue #30), from `phase: "queued"` /
+   * `"awaiting-approval"` with `edge`. Not work: the elapsed time, the
+   * estimate's correction and the stuck flag leave it out. `waiting` and
+   * `pausedSince` describe an open interval; `pausedMs` the closed ones.
+   */
+  readonly waiting?: "queued" | "approval" | null;
+  readonly pausedSince?: number | null;
+  readonly pausedMs?: number;
+}
+
+/**
+ * How long this leg has actually worked, in ms: wall time since first
+ * sight less the time it spent queued or waiting for approval.
+ */
+export function workElapsedMs(worker: FusionLiveWorker, now: number = Date.now()): number {
+  const end = worker.finishedAt ?? now;
+  const open = worker.pausedSince == null ? 0 : Math.max(0, end - worker.pausedSince);
+  return Math.max(0, end - worker.startedAt - (worker.pausedMs ?? 0) - open);
 }
 
 /**
@@ -75,6 +95,26 @@ export function reduceFusionLiveWorkers(
     event.phase === "failed" ||
     event.phase === "cancelled";
   const previous = at < 0 ? undefined : current[at];
+  // A queue or approval interval opens and closes without a feed line;
+  // the end of the leg closes one still open.
+  const waitKind =
+    event.phase === "queued" ? "queued" as const : event.phase === "awaiting-approval" ? "approval" as const : null;
+  let pausedSince = previous?.pausedSince ?? null;
+  let pausedMs = previous?.pausedMs ?? 0;
+  let waiting = previous?.waiting ?? null;
+  const closePause = (): void => {
+    if (pausedSince !== null) pausedMs += Math.max(0, now - pausedSince);
+    pausedSince = null;
+    waiting = null;
+  };
+  if (waitKind !== null && event.edge === "start") {
+    if (pausedSince === null) pausedSince = now;
+    waiting = waitKind;
+  } else if (waitKind !== null && event.edge === "end") {
+    if (waiting === waitKind || waiting === null) closePause();
+  } else if (done) {
+    closePause();
+  }
   const next: FusionLiveWorker = {
     taskId: event.taskId,
     title: event.title,
@@ -92,6 +132,9 @@ export function reduceFusionLiveWorkers(
     contextTokens: event.contextTokens ?? previous?.contextTokens ?? null,
     tokens: event.tokens ?? previous?.tokens ?? null,
     spentUsd: event.spentUsd ?? previous?.spentUsd ?? null,
+    waiting,
+    pausedSince,
+    pausedMs,
   };
   if (at < 0) return [...current, next];
   const copy = [...current];
@@ -149,7 +192,7 @@ export function medianFinishedMs(
   const times: number[] = [];
   for (const w of workers) {
     if (!w.done || w.finishedAt === null) continue;
-    const ms = w.finishedAt - w.startedAt;
+    const ms = workElapsedMs(w);
     if (ms > 0) times.push(ms);
   }
   if (times.length === 0) return null;
@@ -166,7 +209,7 @@ export function etaCorrection(
   const ratios: number[] = [];
   for (const w of workers) {
     if (!w.done || w.etaSeconds === null || w.finishedAt === null) continue;
-    const actual = (w.finishedAt - w.startedAt) / 1000;
+    const actual = workElapsedMs(w) / 1000;
     if (actual <= 0) continue;
     ratios.push(actual / w.etaSeconds);
   }
@@ -211,7 +254,7 @@ export function fanoutExpectation(
     correction: etaCorrection(workers),
     medianMs: medianFinishedMs(workers),
     finishedCount: workers.filter(
-      (w) => w.done && w.finishedAt !== null && w.finishedAt > w.startedAt,
+      (w) => w.done && w.finishedAt !== null && workElapsedMs(w) > 0,
     ).length,
   };
 }
@@ -346,9 +389,11 @@ export function isFusionWorkerStuck(
   expectation: FanoutExpectation | number | null = null,
 ): boolean {
   if (worker.done) return false;
+  // Queued for a slot or waiting on the operator: nothing to interrupt.
+  if (worker.pausedSince != null) return false;
   const expectedMs = stuckExpectationMs(worker, asExpectation(expectation));
   if (expectedMs === null) return false;
-  const elapsedMs = (worker.finishedAt ?? now) - worker.startedAt;
+  const elapsedMs = workElapsedMs(worker, now);
   return (
     elapsedMs >= expectedMs * STUCK_ETA_MULTIPLE && elapsedMs >= MIN_STUCK_MS
   );
@@ -360,8 +405,14 @@ export function formatFusionLiveWorker(
   expectation: FanoutExpectation | number | null = null,
 ): string {
   const model = worker.model ?? "local";
-  const what = worker.done ? "done" : (worker.tool ?? "working");
-  const elapsedMs = (worker.finishedAt ?? now) - worker.startedAt;
+  const what = worker.done
+    ? "done"
+    : worker.waiting === "queued"
+      ? "queued"
+      : worker.waiting === "approval"
+        ? "waiting for approval"
+        : (worker.tool ?? "working");
+  const elapsedMs = workElapsedMs(worker, now);
   const elapsed = formatElapsed(elapsedMs);
   const measured = asExpectation(expectation);
   // Before the context count, which is the most truncatable thing on
@@ -431,4 +482,20 @@ export function fusionWorkerActionsHint(
   return running.length === 0
     ? null
     : `/worker stop <id> · /worker escalate <id> · /worker steer <id> <note> — running: ${running.join(", ")}`;
+}
+
+/**
+ * The line the fan-out block shows while the operator has an approval
+ * open and workers are listed (issue #30): a merge gate, a candidate
+ * finish or a check's `verify.run` prompt holds the fan-out, and rows
+ * that only stop moving read as stuck. `null` with nothing pending or no
+ * workers listed.
+ */
+export function fusionPendingApprovalLine(
+  workers: readonly FusionLiveWorker[],
+  pending: { tool: string; category?: string } | null,
+): string | null {
+  if (pending === null || workers.length === 0) return null;
+  const kind = pending.category === undefined ? pending.tool : `${pending.tool} (${pending.category})`;
+  return `waiting for your approval: ${kind}`;
 }

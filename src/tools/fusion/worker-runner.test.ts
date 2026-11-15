@@ -96,6 +96,11 @@ const BASE = {
   workerTimeoutMs: 60_000,
 };
 
+/** The feed's lines: without the queue / approval intervals (#30), which are not lines. */
+function withoutIntervals<T extends { event: { type: string; phase?: string } }>(events: readonly T[]): T[] {
+  return events.filter((e) => !(e.event.type === "fusion_worker" && (e.event.phase === "queued" || e.event.phase === "awaiting-approval")));
+}
+
 describe("runWorkerTasks", () => {
   it("binds request budgets to the parent only while the worker is running", async () => {
     const active = new Map<string, string>();
@@ -362,7 +367,11 @@ describe("runWorkerTasks", () => {
     // and a UI at all — the worker session has none of the three.
     const { deps, events } = harness(async ({ options }) => {
       options.eventHook?.({ type: "turn_started", turnIndex: 0 });
-      expect(events.map((e) => e.event.type)).toEqual(["fusion_worker"]);
+      // `started`, then the queue interval until the first token (#30).
+      expect(events.map((e) => e.event.type === "fusion_worker" ? [e.event.phase, e.event.edge ?? null] : null)).toEqual([
+        ["started", null],
+        ["queued", "start"],
+      ]);
       options.eventHook?.({
         type: "llm_event",
         event: { type: "assistant_reply", text: "the answer  is\nhere" },
@@ -375,14 +384,15 @@ describe("runWorkerTasks", () => {
       maxWorkers: 1,
       signal: new AbortController().signal,
     });
-    expect(events.map((e) => e.sessionId)).toEqual(["s-parent", "s-parent"]);
-    expect(events[0]!.event).toMatchObject({
+    const lines = withoutIntervals(events);
+    expect(lines.map((e) => e.sessionId)).toEqual(["s-parent", "s-parent"]);
+    expect(lines[0]!.event).toMatchObject({
       type: "fusion_worker",
       taskId: "t0",
       title: "Task 0",
       phase: "started",
     });
-    expect(events[1]!.event).toMatchObject({
+    expect(lines[1]!.event).toMatchObject({
       type: "fusion_worker",
       phase: "finished",
       stepCount: 4,
@@ -416,9 +426,9 @@ describe("runWorkerTasks", () => {
       maxWorkers: 1,
       signal: new AbortController().signal,
     });
-    expect(events.map((e) => e.sessionId)).toEqual(Array(4).fill("s-parent"));
+    expect(withoutIntervals(events).map((e) => e.sessionId)).toEqual(Array(4).fill("s-parent"));
     expect(
-      events.map((e) =>
+      withoutIntervals(events).map((e) =>
         e.event.type === "fusion_worker"
           ? [e.event.phase, e.event.role, e.event.model, e.event.tool ?? null]
           : null,
@@ -473,9 +483,9 @@ describe("runWorkerTasks", () => {
     // `tok` figure), so each one is reported; the context size rides
     // along unchanged until a completion measures a new one, and a
     // completion that counted nothing never sets it to zero.
-    expect(events.map((e) => e.sessionId)).toEqual(Array(6).fill("s-parent"));
+    expect(withoutIntervals(events).map((e) => e.sessionId)).toEqual(Array(6).fill("s-parent"));
     expect(
-      events.map((e) =>
+      withoutIntervals(events).map((e) =>
         e.event.type === "fusion_worker"
           ? [e.event.phase, e.event.contextTokens ?? null, e.event.tokens ?? null]
           : null,

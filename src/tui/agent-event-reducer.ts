@@ -1016,7 +1016,9 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       // A token count moves the live row and nothing else: one feed
       // line per completion per worker would bury the lines that say
       // what happened.
-      if (event.phase === "usage") {
+      // So do the queue and approval intervals (issue #30): they pause
+      // the row's clock and say why, and are not events in the feed.
+      if (event.phase === "usage" || event.phase === "queued" || event.phase === "awaiting-approval") {
         return {
           ...state,
           fusionLiveWorkers: reduceFusionLiveWorkers(

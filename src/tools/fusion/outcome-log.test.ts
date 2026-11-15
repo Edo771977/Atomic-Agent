@@ -94,6 +94,7 @@ describe("fusion outcome records", () => {
       syntaxDemoted: true,
       steps: 3,
       durationMs: 1234,
+      wallMs: 1234,
       tokensIn: 100,
       tokensOut: 20,
       cachedTokens: 40,
@@ -144,6 +145,18 @@ describe("fusion outcome records", () => {
       new Date(0),
     );
     expect(both).toMatchObject({ tokensIn: 10, tokensOut: 2, cachedTokens: 4 });
+  });
+
+  it("records work time as durationMs and the wall time apart, leaving out queue and approval waits (#30)", () => {
+    const record = taskOutcomeRecord(
+      row({ durationMs: 53 * 60_000, queuedMs: 30 * 60_000, heldMs: 2 * 60_000 }),
+      CONTEXT,
+      "s",
+      new Date(0),
+    );
+    expect(record).toMatchObject({ durationMs: 21 * 60_000, wallMs: 53 * 60_000 });
+    // Nothing recorded: work is the wall time.
+    expect(taskOutcomeRecord(row(), CONTEXT, "s", new Date(0))).toMatchObject({ durationMs: 1234, wallMs: 1234 });
   });
 
   it("writes a model set to a local file path as its file's base name only", () => {

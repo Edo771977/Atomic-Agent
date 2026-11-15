@@ -119,7 +119,14 @@ export interface TaskOutcomeRecord {
   judge: JudgeOutcome;
   syntaxDemoted: boolean;
   steps: number;
+  /**
+   * Work time, ms: wall time less the wait for the server's first token
+   * and for the operator's approval of the worker's checks (issue #30).
+   * Older records without `wallMs` wrote the wall time here.
+   */
   durationMs: number;
+  /** Wall time, ms, start to finish; absent on older records. */
+  wallMs?: number;
   tokensIn: number;
   tokensOut: number;
   /** Of `tokensIn`, served from a prompt cache; null when not reported. */
@@ -306,7 +313,11 @@ export function taskOutcomeRecord(
     judge: judgeOutcome(row),
     syntaxDemoted: (row.syntax?.failedFiles.length ?? 0) > 0,
     steps: row.stepCount,
-    durationMs: Math.max(0, Math.round(row.durationMs)),
+    // Work time (issue #30): the wall time less the wait for the first
+    // token and for the operator's approval of the worker's checks. The
+    // report's median and measured routing read it; `wallMs` keeps the rest.
+    durationMs: Math.max(0, Math.round(row.durationMs - (row.queuedMs ?? 0) - (row.heldMs ?? 0))),
+    wallMs: Math.max(0, Math.round(row.durationMs)),
     // A local worker without reported usage: its timing tokens (#30),
     // whose "in" includes each step's cached prompt part. Still unpriced.
     tokensIn: row.usage?.promptTokens ?? row.localTokens?.promptTokens ?? 0,
