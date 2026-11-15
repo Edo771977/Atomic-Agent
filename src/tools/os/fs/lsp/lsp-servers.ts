@@ -61,9 +61,16 @@ export function serverForPath(path: string): LspServerSpec | null {
   return LSP_SERVERS.find((spec) => spec.extensions.has(ext)) ?? null;
 }
 
+const WINDOWS_SPAWNABLE_EXTS: ReadonlySet<string> = new Set([
+  ".com",
+  ".exe",
+  ".bat",
+  ".cmd",
+]);
+
 /**
  * Absolute path of `name` on PATH, or null. On Windows the PATHEXT
- * variants (`.cmd` shims from npm) are tried too.
+ * variants (`.cmd` shims from npm) are tried instead of the bare name.
  */
 export function findOnPath(
   name: string,
@@ -72,9 +79,14 @@ export function findOnPath(
 ): string | null {
   const pathVar = env.PATH ?? env.Path ?? "";
   const sep = platform === "win32" ? ";" : delimiter;
+  // On Windows only a PATHEXT variant counts: npm puts an extensionless
+  // sh script beside its `.cmd` shim, and CreateProcess cannot run it.
+  // `.ps1` and other script hosts are skipped for the same reason.
   const exts =
     platform === "win32"
-      ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean)]
+      ? (env.PATHEXT ?? ".EXE;.CMD;.BAT")
+          .split(";")
+          .filter((ext) => WINDOWS_SPAWNABLE_EXTS.has(ext.toLowerCase()))
       : [""];
   for (const dir of pathVar.split(sep)) {
     if (dir.length === 0) continue;

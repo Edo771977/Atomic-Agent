@@ -56,6 +56,16 @@ describe("findOnPath / findGitRoot (ATO-503)", () => {
     );
   });
 
+  it("picks npm's .cmd shim over the extensionless sh script beside it on Windows", async () => {
+    await writeFile(join(dir, "typescript-language-server"), "#!/bin/sh\n");
+    await writeFile(join(dir, "typescript-language-server.cmd"), "@echo off\r\n");
+    await writeFile(join(dir, "typescript-language-server.ps1"), "#!/usr/bin/env pwsh\n");
+    const env = { PATH: dir, PATHEXT: ".COM;.EXE;.BAT;.CMD;.PS1" };
+    expect(findOnPath("typescript-language-server", env, "win32")).toBe(
+      join(dir, "typescript-language-server.cmd"),
+    );
+  });
+
   it("finds the nearest work tree, a worktree's .git file included", async () => {
     const repo = join(dir, "repo");
     await mkdir(join(repo, ".git"), { recursive: true });

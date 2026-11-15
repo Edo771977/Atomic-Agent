@@ -26,6 +26,10 @@ import {
   type KillableChild,
   type KillProcessTreeOptions,
 } from "../../../../sandbox/kill-process-tree.js";
+import {
+  buildSubshellInvocation,
+  quoteCmdArg,
+} from "../../../../sandbox/shell-invocation.js";
 import type { LspDiagnostic } from "./lsp-delta.js";
 import {
   createJsonRpcConnection,
@@ -297,7 +301,7 @@ export async function startLspClient(
 
 /**
  * Stop a server that is still running. On Windows an npm `.cmd` shim
- * runs under `cmd.exe` (`shell: true`), and `child.kill()` would end
+ * runs under `cmd.exe /d /s /c`, and `child.kill()` would end
  * only that wrapper and leave the node server running, so the whole
  * tree is stopped (`killProcessTree`: `taskkill /T`, escalated to `/F`
  * on a refusal). `options` is for tests.
@@ -314,16 +318,23 @@ export function stopLspServerProcess(
 }
 
 function spawnServer(options: StartLspClientOptions): ChildProcess {
-  // npm installs a `.cmd` shim on Windows, which only a shell can run.
-  const shell =
+  // npm installs a `.cmd` shim on Windows, which only cmd.exe can run:
+  // the same `cmd.exe /d /s /c "<line>"` route (system ComSpec, cmd
+  // quoting) skill scripts use. The child is cmd.exe, so stopping the
+  // server must take its tree (`stopLspServerProcess`).
+  const viaCmd =
     process.platform === "win32" && /\.(cmd|bat)$/i.test(options.binary);
-  const command = shell ? `"${options.binary}"` : options.binary;
-  return spawn(command, [...options.args], {
+  const invocation = viaCmd
+    ? buildSubshellInvocation(
+        [options.binary, ...options.args].map(quoteCmdArg).join(" "),
+      )
+    : { command: options.binary, args: [...options.args], windowsVerbatimArguments: false };
+  return spawn(invocation.command, invocation.args, {
     cwd: options.rootDir,
     // The agent's provider keys and tokens stay out of the server.
     env: buildCommandEnv(process.env),
     stdio: ["pipe", "pipe", "ignore"],
     windowsHide: true,
-    shell,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
 }
