@@ -11,7 +11,7 @@ import { buildOsFsWriteTool } from "./fs/fs-write.js";
 import { buildOsShellTool, needsShellInterpretation } from "./shell/shell.js";
 import { buildOsFsTrashTool } from "./fs/fs-trash.js";
 import { runCommand } from "../../sandbox/command-runner.js";
-import { registerOsTools } from "./index.js";
+import { registerOsTools, type RegisterOsToolsOptions } from "./index.js";
 
 function makeCtx(workingDir: string): ToolContext {
   return {
@@ -539,6 +539,7 @@ describe("os.fs.trash", () => {
 describe("registerOsTools", () => {
   it("hands back the language servers it may start, for shutdown (ATO-503)", () => {
     const gate = new ApprovalGate({ emit: () => undefined });
+    // The same partial config as the surface test below.
     const base = {
       config: {
         tools: {
@@ -572,7 +573,7 @@ describe("registerOsTools", () => {
         },
         projects: { roots: [], constraints: {} },
       },
-    };
+    } as unknown as Pick<RegisterOsToolsOptions, "config">;
     const off = registerOsTools(new ToolRegistry(), { ...base, approvals: gate, approvalRequired: false, listRecentSessionDirs: () => [] });
     expect(off.languageServers).toBeUndefined();
     const on = registerOsTools(new ToolRegistry(), {
