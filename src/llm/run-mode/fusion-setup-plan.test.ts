@@ -417,3 +417,14 @@ describe("planFusionSetup: an API key in the environment with no provider entry 
     expect(plan.write.addProvider).toBeUndefined();
   });
 });
+
+describe("planFusionSetup and the team (issue #37)", () => {
+  it("never writes the team: a stored one stays as it is", () => {
+    const team = { directors: ["openrouter:model-a"], workers: ["local-llama:model-b"] };
+    const plan = planFusionSetup(facts({ providers: [LOCAL, OPENROUTER("present")], runMode: { fusion: { team } } }));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(Object.keys(plan.write.fusion)).not.toContain("team");
+    expect(plan.changes.map((c) => c.key)).not.toContain("llm.runMode.fusion.team");
+  });
+});

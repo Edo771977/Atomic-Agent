@@ -24,6 +24,7 @@ import {
   type FusionDelegateDeps,
 } from "./fusion-delegate.js";
 import type { EscalationComplete } from "./escalation.js";
+import type { FusionTeamContext } from "./team-routing.js";
 import type { DelegateTask } from "./delegate-args.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -196,7 +197,7 @@ function deps(
   return d;
 }
 
-const TASK = [{ id: "t", title: "T", instructions: "write a.txt with the score", files: ["a.txt"] }];
+const TASK: DelegateTask[] = [{ id: "t", title: "T", instructions: "write a.txt with the score", files: ["a.txt"] }];
 
 describe("a node closes only on a green list (ATO-944)", () => {
   it("puts the list in the brief, re-runs a red task once with the findings, and fails it honestly if still red", async () => {
@@ -510,5 +511,69 @@ describe("judge evidence", () => {
     const heads = await gatherEvidence(task, undefined, "", dir, undefined, known);
     expect(heads).not.toContain(secret.slice(0, 8));
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("the judge from the fusion team's reviewers (issue #37)", () => {
+  const families: Record<string, "anthropic" | "openai" | "local"> = { "api-a": "anthropic", "cli-b": "openai", local: "local" };
+  const team = (over: Partial<FusionTeamContext["team"]> = {}): FusionTeamContext => ({
+    team: { directors: ["api-a:model-a"], workers: ["local:small", "cli-b:model-b"], reviewers: ["cli-b:model-r", "api-a:model-o"], ...over },
+    fusion: { workerProvider: "local" },
+    familyOf: (m) => families[m.providerId] ?? "other",
+    reachable: () => true,
+    pinsModel: (id) => id !== "local",
+  });
+  const green = { content: JSON.stringify({ items: [{ id: "a2", pass: true, why: "ok" }] }) };
+  const run = async (context: FusionTeamContext | undefined, task = TASK, over: Partial<ResolvedRunMode> = {}) => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-team-"));
+    const calls: Array<{ providerId: string; model: string | undefined }> = [];
+    const priced: string[] = [];
+    const d = deps(dir, async (call) => {
+      calls.push({ providerId: call.providerId, model: call.model });
+      return green;
+    }, {
+      resolveRunMode: () => mode(over),
+      resolveFusionTeam: () => context,
+      resolveWorkerPricing: (providerId, model) => {
+        priced.push(`${providerId}:${model}`);
+        return undefined;
+      },
+    });
+    const result = await buildFusionDelegateTool(d).run(
+      { tasks: task },
+      { workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal },
+    );
+    rmSync(dir, { recursive: true, force: true });
+    return { calls, priced, result, briefs: d.briefs };
+  };
+
+  it("asks the first reachable reviewer of another family than the worker, on its own model", async () => {
+    const local = await run(team());
+    expect(local.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
+    expect(local.priced).toContain("cli-b:model-r");
+    const onCli = await run(team(), [{ ...TASK[0]!, model: "cli-b:model-b" }]);
+    expect(onCli.calls).toEqual([{ providerId: "api-a", model: "model-o" }]);
+  });
+
+  it("with crossFamilyReview off asks the first reachable reviewer", async () => {
+    const onCli = await run(team({ crossFamilyReview: false }), [{ ...TASK[0]!, model: "cli-b:model-b" }]);
+    expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
+  });
+
+  it("falls back to judgeProvider when no reviewer fits, and never turns a judge that is off on", async () => {
+    const none = await run(team({ reviewers: ["local:other"] }));
+    expect(none.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
+    // The judge is off: reviewers only choose WHO judges, so nobody does.
+    const reviewerOnly = await run(team(), TASK, { judge: null });
+    expect(reviewerOnly.calls).toEqual([]);
+    expect(reviewerOnly.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
+    const off = await run(team({ reviewers: ["local:other"] }), TASK, { judge: null });
+    expect(off.calls).toEqual([]);
+    expect(off.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
+  });
+
+  it("without a team judges on judgeProvider as before", async () => {
+    const before = await run(undefined);
+    expect(before.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
   });
 });

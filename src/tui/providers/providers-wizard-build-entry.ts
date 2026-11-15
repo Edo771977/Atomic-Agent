@@ -126,9 +126,9 @@ export function buildProviderEntryFromWizard(input: {
     // Several wizard rows, one config kind: the CLI name is the only
     // thing that differs, and it rides in the entry rather than in the
     // kind so a new vendor CLI never needs a new provider kind.
-    // Codex resolves the model server-side under a ChatGPT login and
-    // rejects explicit ids, so its descriptor default is empty and the
-    // field is omitted rather than written as "".
+    // Codex resolves its default model server-side when none is named,
+    // so its descriptor default is empty and the field is omitted rather
+    // than written as "".
     registerBuiltInCliAdapters();
     const model =
       input.customChatModel?.trim() ||

@@ -10,7 +10,7 @@ import type { LlamaServerClient } from "../../llm/llama-server-client.js";
 import { renewTransportPool } from "../../llm/transport-deadlines.js";
 import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
-import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
+import type { ResolvedRunMode, TeamMember } from "../../llm/run-mode/index.js";
 import { visionCapableAlternatives } from "../../llm/provider/model-vision.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { createRequestBudgetScope, type RequestBudgetScope } from "../request-budget.js";
@@ -50,7 +50,7 @@ import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../
 import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index.js";
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
-import { buildFusionDelegateTool, readSlotOccupancy, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -728,7 +728,11 @@ export function registerRuntimeFusionAndReadScope(input: {
   prepareLocalLink: FusionDelegateDeps["warmWorkerBackend"];
   emitAgentLoopEventFor: FusionDelegateDeps["emitEvent"];
   resolveCurrentRunMode: FusionDelegateDeps["resolveRunMode"];
-  providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot">>;
+  /** The calling session's preferred worker (issue #37); see `FusionDelegateDeps.currentWorker`. */
+  currentWorker?: FusionDelegateDeps["currentWorker"];
+  /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
+  teamMemberReachable?: (member: TeamMember) => boolean;
+  providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot" | "modelVariant">>;
   llama: Pick<
     LlamaServerClient,
     "measuredTokensPerSecond" | "fetchSlots" | "probeHealth"
@@ -776,7 +780,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit } = input;
+    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, teamMemberReachable } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -909,10 +913,17 @@ export function registerRuntimeFusionAndReadScope(input: {
       // Escalation (ATO-942): one completion pinned to the configured
       // escalation provider — never the fallback chain, so it cannot
       // land on a model the operator did not pick for it.
-      escalationComplete: async ({ providerId, prompt, maxOutputTokens, signal, sessionId }) => {
-        const provider = providerRegistry.getProvider(providerId);
-        if (provider === undefined) {
+      escalationComplete: async ({ providerId, model, prompt, maxOutputTokens, signal, sessionId }) => {
+        const base = providerRegistry.getProvider(providerId);
+        if (base === undefined) {
           throw new Error(`escalation provider ${providerId} is not configured`);
+        }
+        // A fusion team reviewer's own model (issue #37): the provider's
+        // copy built for it, which keeps the provider id the folder's
+        // constraint below is checked against.
+        const provider = model === undefined ? base : await providerRegistry.modelVariant?.(providerId, model);
+        if (provider === undefined) {
+          throw new Error(`cannot ask llm provider "${providerId}" for model "${model}"`);
         }
         // The folder's provider constraint (issue #33), on the provider
         // actually returned, before the spend ceiling and anything sent.
@@ -994,6 +1005,12 @@ export function registerRuntimeFusionAndReadScope(input: {
       approvalRequired: dangerous.approvalRequired,
       slotManager,
       resolveRunMode: resolveCurrentRunMode,
+      // The session's director and preferred worker (issue #37), read
+      // from the ambient turn per call.
+      ...(teamMemberReachable === undefined
+        ? {}
+        : { resolveFusionTeam: () => teamContextFromConfig(getConfig(), teamMemberReachable) }),
+      ...(currentWorker === undefined ? {} : { currentWorker }),
       workerSupportsSlotAffinity: (providerId) =>
         providerRegistry.getProvider(providerId)?.capabilities
           .supportsSlotAffinity ?? false,

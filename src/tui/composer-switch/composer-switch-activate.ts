@@ -134,6 +134,12 @@ export function activateComposerSwitchRow(
     openLocalModelsPane(dispatch);
     return;
   }
+  if (row.intent.kind === "fusionTeamMember") {
+    // Issue #37: stamped on the open chat by the chat orchestrator;
+    // nothing here writes config.
+    callbacks.onComposerTeamMemberChosen?.(row.intent.role, row.intent.member);
+    return;
+  }
   activateBackend(row.intent.backend, state, dispatch, callbacks);
 }
 

@@ -493,6 +493,8 @@ export interface WorkerRunnerDeps {
     options: {
       origin?: TurnOrigin;
       providerId?: string;
+      /** With `providerId`: the model the turn asks it for (`RunTurnOptions.model`). */
+      model?: string;
       maxSteps?: number;
       taskMaxDurationMs?: number;
       toolFilter?: (name: string) => boolean;
@@ -612,6 +614,11 @@ export interface RunWorkerTasksOptions {
   acquireTaskPermit?: (signal: AbortSignal) => Promise<TaskPermit | undefined>;
   /** The local leg every worker turn is pinned to. */
   providerId: string;
+  /**
+   * The model every worker turn asks `providerId` for (a per-turn model,
+   * a fusion team member's, issue #37). Absent, the provider's own.
+   */
+  model?: string;
   /**
    * Display label for the model the workers run on, already resolved by
    * the caller (`runMode.workerModel ?? providerId`). Resolved there
@@ -1760,6 +1767,7 @@ async function runOneTask(
     ): Parameters<WorkerRunnerDeps["runTurn"]>[2] => ({
       origin: "fusion",
       providerId: options.providerId,
+      ...(options.model === undefined ? {} : { model: options.model }),
       maxSteps,
       taskMaxDurationMs,
       toolFilter: workerToolFilterFor(task.agentProfile?.tools),
@@ -2046,6 +2054,7 @@ async function runOneTask(
         {
           origin: "fusion",
           providerId: target.providerId,
+          ...(target.pinModel === undefined ? {} : { model: target.pinModel }),
           maxSteps: stepBudget.value,
           taskMaxDurationMs: timeoutMs,
           toolFilter: workerToolFilterFor(task.agentProfile?.tools),

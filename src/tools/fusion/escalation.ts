@@ -37,6 +37,11 @@ export function describeTrigger(trigger: EscalationTrigger): string {
 /** One escalation completion, on a pinned provider, no fallback. */
 export type EscalationComplete = (input: {
   providerId: string;
+  /**
+   * The model to ask `providerId` for instead of its entry's (a fusion
+   * team reviewer's, issue #37). Absent, the entry's own model.
+   */
+  model?: string;
   prompt: string;
   maxOutputTokens: number;
   signal: AbortSignal;
@@ -133,6 +138,7 @@ export async function requestAdvice(input: {
   try {
     const answer = await input.complete({
       providerId: target.providerId,
+      ...(target.pinModel === undefined ? {} : { model: target.pinModel }),
       prompt: input.prompt,
       maxOutputTokens: ADVISOR_MAX_OUTPUT_TOKENS,
       signal: input.signal,

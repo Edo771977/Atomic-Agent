@@ -145,6 +145,7 @@ export const deferredFiles = [
   'src/tools/fusion/task-permits.test.ts',
   'src/tools/fusion/task-profiles.test.ts',
   'src/tools/fusion/task-tree.test.ts',
+  'src/tools/fusion/team-routing.test.ts',
   'src/tools/fusion/turn-budget.test.ts',
   'src/tools/fusion/turn-receipt.subscription-cli.test.ts',
   'src/tools/fusion/turn-receipt.test.ts',

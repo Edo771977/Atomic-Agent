@@ -80,6 +80,21 @@ describe("fusion run checkpoints (ATO-617)", () => {
     expect(saved.state).toBe("running");
   });
 
+  it("keeps the run's director, and a resume records the one it resumes under (issue #37)", () => {
+    const store = new FusionRunStore({ dir });
+    const run = store.start({ sessionId: "s-1", workingDir: "/repo", args: { tasks: [] }, tasks: TASKS, waveCount: 1, director: "cloud:model-a" });
+    run.finish("interrupted");
+    const saved = store.load(run.runId)!;
+    expect(saved.director).toBe("cloud:model-a");
+    expect(saved.version).toBe(1);
+    const resumed = store.start({ runId: run.runId, sessionId: "s-1", workingDir: "/repo", args: { tasks: [] }, tasks: TASKS, waveCount: 1, resumedFrom: saved, director: "cli:model-d" });
+    expect(store.load(resumed.runId)?.director).toBe("cli:model-d");
+    const kept = store.start({ runId: run.runId, sessionId: "s-1", workingDir: "/repo", args: { tasks: [] }, tasks: TASKS, waveCount: 1, resumedFrom: store.load(run.runId)! });
+    expect(store.load(kept.runId)?.director).toBe("cli:model-d");
+    const none = start(store);
+    expect(store.load(none.runId)).not.toHaveProperty("director");
+  });
+
   it("removeForSession deletes every run of one session, ended or cut off, and no other (ATO-586)", () => {
     const store = new FusionRunStore({ dir });
     const stopped = start(store);

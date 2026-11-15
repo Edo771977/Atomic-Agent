@@ -161,3 +161,29 @@ describe("measured routing evidence and admission", () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe("measured routing with a fusion team (issue #37)", () => {
+  const roles: FusionRoleModels = { byRole: { build: { providerId: "builder", model: "builder", local: false } }, mixLocalModels: false, localLegProviderIds: [] };
+  const route = (orchestrator: { providerId: string; model: string; member?: string; pinModel?: string }, records: OutcomeRecord[]) => {
+    const tasks = [{ id: "a", title: "Build", instructions: "build" }];
+    return measuredTaskLegs(tasks, resolveTaskLegs(tasks, worker, roles, orchestrator), worker, roles, orchestrator,
+      { records, minSamples: 3, days: 30, now, remainingOrchestrator: 2, attempted: () => false, cliToolsStayOn: () => false,
+        identityFor: identity, team: true });
+  };
+
+  it("never picks a build-role model the team does not list", () => {
+    const result = route(strong, [...samples("worker", false), ...samples("builder", true)]);
+    expect(result.legs.get("a")?.providerId).toBe("worker");
+    expect(result.decisions[0]?.excluded).toContainEqual({ provider: "builder", reason: "not-a-team-worker" });
+  });
+
+  it("keeps a director on the worker's provider as a candidate of its own, without history it cannot attribute", () => {
+    const director = { providerId: "worker", model: "big", member: "worker:big", pinModel: "big" };
+    const result = route(director, [...samples("worker", false), ...samples("worker", true, { model: "big" })]);
+    const candidate = result.decisions[0]?.candidates.find((c) => c.model === "big");
+    expect(candidate).toBeDefined();
+    // A pinned model's request identity is not the entry's: its history stays unverified.
+    expect(candidate?.verifiedSamples).toBe(0);
+    expect(result.legs.get("a")?.model).toBe("small");
+  });
+});

@@ -4,6 +4,7 @@ import { getConfig } from "../../../config/index.js";
 import { MAX_MODEL_VARIANTS_PER_PROVIDER, ProviderRegistry, registerProviderKind } from "./provider-registry.js";
 import { ProviderNotAllowedError } from "../../provider-policy.js";
 import type { LlmProviderConfigEntry } from "./provider-types.js";
+import { registerBuiltInProviderKinds } from "./register-built-in-providers.js";
 
 /**
  * ATO-1148: a turn on a project's own cloud model runs on a copy of the
@@ -124,5 +125,37 @@ describe("ProviderRegistry.modelVariant (ATO-1148)", () => {
     const before = built.length;
     await registry.modelVariant("cloud-b", "m-1");
     expect(built.length).toBe(before + 1);
+  });
+});
+
+describe("ProviderRegistry.modelVariant on a subscription CLI (issue #37)", () => {
+  // A team member such as a Codex director names its model; the copy is
+  // built by the built-in subscription-cli factory and passes it to the CLI.
+  it.each([
+    ["codex", undefined],
+    ["claude", "model-default"],
+  ] as const)("builds a %s copy for another model, leaving the entry's provider on its own", async (cli, defaultChatModel) => {
+    registerBuiltInProviderKinds();
+    const config = {
+      ...getConfig(),
+      llm: {
+        activeTextProvider: "sub",
+        activeEmbeddingProvider: "local-llama-embed",
+        toolTransport: "auto" as const,
+        providers: [
+          { id: "sub", kind: "subscription-cli", subscriptionCli: { cli }, ...(defaultChatModel ? { defaultChatModel } : {}) },
+        ],
+      },
+    } as AtomicAgentConfig;
+    const { ctx } = fixture();
+    const registry = await ProviderRegistry.fromConfig(config, { ...ctx, config });
+
+    const variant = await registry.modelVariant("sub", "model-team");
+
+    expect(variant).toBeDefined();
+    expect(variant).not.toBe(registry.getProvider("sub"));
+    expect(variant!.id).toBe("sub");
+    expect((variant as unknown as { chatModelId?: string }).chatModelId).toBe("model-team");
+    expect((registry.getProvider("sub") as unknown as { chatModelId?: string }).chatModelId).toBe(defaultChatModel);
   });
 });

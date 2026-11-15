@@ -5,8 +5,8 @@ import type { CompletionResult } from "../completion-types.js";
 export interface CliArgsInput {
   /**
    * Empty when the operator set no model and the CLI resolves one
-   * itself — Codex under a ChatGPT login rejects every explicit id, so
-   * the flag has to be omitted rather than guessed at.
+   * itself (Codex picks the account's default), so the flag is omitted
+   * rather than guessed at.
    */
   model: string;
   systemPrompt: string;

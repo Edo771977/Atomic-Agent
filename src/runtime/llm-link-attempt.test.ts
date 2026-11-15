@@ -270,3 +270,27 @@ describe("llm-link-attempt — a per-turn model (ATO-1148)", () => {
     expect(asked).toEqual([undefined, undefined]);
   });
 });
+
+describe("llm-link-attempt — a session director's model (issue #37)", () => {
+  it("asks a chain-picked link for the director's model, and only that link", async () => {
+    const { provider } = recording("native_tools");
+    const asked: Array<[string, string | undefined]> = [];
+    const deps = {
+      resolveSlice: (id: string, model?: string) => { asked.push([id, model]); return { provider, transport: "native_tools" as const }; },
+      turnModel: (sessionId: string | undefined, providerId: string) =>
+        sessionId === "s1" && providerId === "director-link" ? "model-d" : undefined,
+    };
+    await completeOnLink(deps, params, "director-link");
+    await completeOnLink(deps, params, "other-link");
+    const { primed } = await openStreamOnLink(deps, params, "director-link");
+    for (;;) if ((await primed.rest.next()).done) break;
+    // A pinned request's own model still wins on its link.
+    await completeOnLink(deps, { ...params, providerId: "director-link", model: "pinned" }, "director-link");
+    expect(asked).toEqual([
+      ["director-link", "model-d"],
+      ["other-link", undefined],
+      ["director-link", "model-d"],
+      ["director-link", "pinned"],
+    ]);
+  });
+});

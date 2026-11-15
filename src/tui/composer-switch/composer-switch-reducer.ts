@@ -62,6 +62,8 @@ export function reduceComposerSwitchAction(
         },
       };
     }
+    case "composer_team_shown":
+      return { ...state, composerTeam: action.team };
     case "composer_switch_filter_set": {
       if (!state.composerSwitch) return state;
       return {

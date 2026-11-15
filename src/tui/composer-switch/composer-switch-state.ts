@@ -9,7 +9,16 @@
  * without closing, which is what makes the row behave like one control
  * strip rather than three unrelated popups.
  */
-export type ComposerSwitchKind = "backend" | "provider" | "model" | "workerProvider" | "workers";
+export type ComposerSwitchKind =
+  | "backend"
+  | "provider"
+  | "model"
+  | "workerProvider"
+  | "workers"
+  // Issue #37: the fusion team's pickers. Not on the ←/→ walk: the
+  // chat orchestrator opens them (first submit, `/director`, `/worker`).
+  | "director"
+  | "teamWorker";
 
 /** Left-to-right order of the controls, and of the ←/→ walk. */
 export const COMPOSER_SWITCH_KINDS: readonly ComposerSwitchKind[] = [
@@ -77,7 +86,22 @@ export const COMPOSER_SWITCH_TITLES: Record<ComposerSwitchKind, string> = {
   model: "Model",
   workerProvider: "Worker inference engine",
   workers: "Worker model",
+  director: "Fusion director",
+  teamWorker: "Preferred worker",
 };
+
+/**
+ * What the team pickers list (issue #37): the team's directors and
+ * workers this chat can use (`"<providerId>:<model>"`), and the open
+ * chat's choice. Set by the chat orchestrator right before it opens a
+ * picker, so the rows never describe another chat.
+ */
+export interface ComposerTeamState {
+  readonly directors: readonly string[];
+  readonly workers: readonly string[];
+  readonly director: string | null;
+  readonly worker: string | null;
+}
 
 /** Step `delta` controls along the row, clamped at both ends. */
 export function neighbourSwitchKind(

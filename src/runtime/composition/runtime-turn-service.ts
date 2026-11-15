@@ -1,7 +1,7 @@
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
 import type { AgentLoop } from "../../agent/agent-loop.js";
-import type { RunTurnResult } from "../../agent/agent-contract.js";
+import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
@@ -10,7 +10,10 @@ import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
-import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionState } from "../../session/index.js";
+import { withSessionFusionDirector, withSessionFusionWorker } from "../../session/session-fusion-team.js";
+import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
+import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
 import { pickOriginalRequest } from "../../tools/fusion/index.js";
@@ -33,7 +36,7 @@ import { captureModelModePolicy, resolveModelMode, type ModelModePolicy } from "
 import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
-import { currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
+import { assertProviderAllowed, currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
 import type { SessionReadTaint } from "../session-read-taint.js";
 import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
@@ -115,9 +118,23 @@ export interface RuntimeTurnDependencies {
      * are tagged before the turn can recall them.
      */
     constraintScopeBackfill?: { ensure(): unknown };
+    /**
+     * Whether a fusion team member can answer now (issue #37): its
+     * provider is registered and a subscription CLI is not known to be
+     * missing or signed out (`liveTeamReachability`, a background-checked
+     * cache, never a probe in the turn). Absent: registered is enough.
+     */
+    teamMemberReachable?: (member: TeamMember) => boolean;
     /** True when today's spend ceiling refuses a paid link now (ATO-649); the router passes over it. */
     dailyLimitRefuses?: (providerId: string) => boolean;
     budgetNotices?: RequestBudgetNotices;
+    /**
+     * The team choice of each running turn (issue #37): set here for the
+     * turn so ambient readers (the live run mode `fusion.delegate` reads
+     * its director from) see the session's director. Absent in narrow
+     * test rigs: the director still leads the turn, nothing ambient sees it.
+     */
+    sessionTeam?: SessionTeamChoices;
   };
   traces: Pick<RuntimeTraces, "ensureRecorder" | "pinSession" | "readContextUsage" | "clearContextUsage" | "releaseSession">;
   telemetry: {
@@ -130,6 +147,12 @@ export interface RuntimeTurnDependencies {
   state: RuntimeTurnState;
   lifecycle: { isShutdown(): boolean };
   logger: StructuredLogger;
+  /**
+   * Session-scoped events the turn service itself raises (the fusion
+   * director notice, issue #37), routed like the loop's own. Absent in
+   * narrow test rigs: nothing is said.
+   */
+  emitEvent?: (sessionId: string, event: AgentLoopEvent) => void;
 }
 
 export function createRuntimeTurnService(
@@ -391,6 +414,96 @@ export function createRuntimeTurnService(
     }
   };
 
+  /**
+   * The session's fusion team choice for this turn (issue #37). A
+   * `director` / `worker` a caller names is checked against the team and
+   * stamped on the session first; then the stamped director, while the
+   * team lists it, leads in the fusion mode. A director whose provider
+   * the folder refuses is refused there with the provider refusal every
+   * surface already shows. Another mode or no team: no choice, and the
+   * turn runs as before.
+   */
+  const pickTurnTeam = (
+    session: SessionState,
+    namedDirector: string | undefined,
+    namedWorker: string | undefined,
+  ): { session: SessionState; choice: SessionTeamChoice | undefined } => {
+    const runMode = resolveLlmConfig(getConfig()).runMode;
+    const fusion = runMode?.fusion;
+    if ((namedDirector !== undefined || namedWorker !== undefined) && fusion?.team === undefined) {
+      throw new Error("no fusion team is configured (llm.runMode.fusion.team): a director or worker cannot be chosen");
+    }
+    if (fusion?.team === undefined) return { session, choice: undefined };
+    let metadata = session.metadata;
+    if (namedDirector !== undefined) {
+      const member = teamMemberByRef(fusion, "directors", namedDirector);
+      if (member === null) {
+        throw new Error(`"${namedDirector}" is not a director of the fusion team (llm.runMode.fusion.team.directors)`);
+      }
+      metadata = withSessionFusionDirector(metadata, member);
+    }
+    if (namedWorker !== undefined) {
+      const member = teamMemberByRef(fusion, "workers", namedWorker);
+      if (member === null) {
+        throw new Error(`"${namedWorker}" is not a worker of the fusion team (llm.runMode.fusion.team.workers)`);
+      }
+      // A worker the caller names that the folder refuses is refused out
+      // loud, as a director is, instead of being stamped and then quietly
+      // passed over (`resolveSessionWorker`).
+      assertProviderAllowed(member.providerId, { constraintsActive: () => false, role: "the fusion worker" });
+      metadata = withSessionFusionWorker(metadata, member);
+    }
+    const policy = currentProviderPolicy();
+    const reachable = deps.inference.teamMemberReachable ??
+      ((m: { providerId: string }): boolean => providerRegistry.getProvider(m.providerId) !== undefined);
+    const picked = sessionDirectorChoice(metadata, fusion, policy, reachable);
+    // Outside the fusion mode a stamp is kept for later, but nothing is
+    // picked, said or enforced: the director leads fusion only, so a
+    // director the folder refuses does not block a cloud or local turn.
+    const choice = runMode?.mode !== "fusion" ? null : picked;
+    if (choice === null) {
+      return { session: metadata === session.metadata ? session : { ...session, metadata }, choice: undefined };
+    }
+    assertProviderAllowed(choice.member.providerId, { constraintsActive: () => false, role: "the fusion director" });
+    if (choice.reason !== "stamped") {
+      // Picked here, not by the person: stamped so the session keeps it
+      // (a later turn does not re-pick), and said once. A frontend with
+      // a picker (the TUI) asks before the first turn instead.
+      metadata = withSessionFusionDirector(metadata, choice.member);
+      const text = directorPickedNoticeText(choice.member, choice.reason, sessionDirectorOptions(fusion, policy, reachable).length);
+      deps.emitEvent?.(session.id, {
+        type: "fusion_director_notice", sessionId: session.id, member: choice.member.ref, reason: choice.reason, text,
+      });
+      logger.info("fusion director picked for the session", { sessionId: session.id, director: choice.member.ref, reason: choice.reason });
+    }
+    return {
+      session: metadata === session.metadata ? session : { ...session, metadata },
+      choice: { director: choice.member, worker: resolveSessionWorker(metadata, fusion, policy) },
+    };
+  };
+
+  /**
+   * The route a director's turn actually ran on (issue #37): when the
+   * director's link fell over and another link answered, that link is the
+   * route's main leg (so the next turn's `### route` note tells the model)
+   * and the person is told once, instead of the session recording the
+   * director as if it had answered.
+   */
+  const directorFallover = (
+    sessionId: string,
+    director: TeamMember,
+    route: SessionRoute,
+    resolved: ReturnType<typeof resolveLlmConfig>,
+  ): SessionRoute => {
+    const servedBy = fallbackChain.standingOverrideFor(sessionId);
+    if (servedBy === null || servedBy === director.providerId) return route;
+    const entry = resolved.providers.find((p) => p.id === servedBy);
+    const text = `fusion director ${director.ref} did not answer: this turn ran on ${servedBy}`;
+    deps.emitEvent?.(sessionId, { type: "fusion_director_notice", sessionId, member: director.ref, reason: "fell-over", text });
+    logger.warn("fusion director's link fell over", { sessionId, director: director.ref, servedBy });
+    return { ...route, main: { providerId: servedBy, model: entry?.defaultChatModel ?? entry?.model ?? null } };
+  };
+
   const executeTurnInPolicy = async (
     session: SessionState,
     userMessage: string,
@@ -423,14 +536,31 @@ export function createRuntimeTurnService(
        * (`ask_user`, ATO-489). Absent: decided from origin and channel.
        */
       questions?: boolean;
+      /**
+       * A fusion team director (`"<providerId>:<model>"`, issue #37) to
+       * stamp on the session before the turn: the sidecar's and HTTP's
+       * `director` field, `run --director`. Must be one the team lists.
+       */
+      director?: string;
+      /** The session's preferred fusion worker, stamped the same way; one of the team's workers. */
+      worker?: string;
     } = {},
   ): Promise<RunTurnResult> => {
+    // The session's fusion director (issue #37), before anything reads
+    // the run mode: a named member is stamped first, a stamped one the
+    // folder refuses is refused here, out loud.
+    let teamChoice: SessionTeamChoice | undefined;
+    if (readFusionWorkerMeta(session.metadata) === null) {
+      const picked = pickTurnTeam(session, runOptions.director, runOptions.worker);
+      session = picked.session;
+      teamChoice = picked.choice;
+    }
     // A folder's provider constraint can leave only one Fusion leg (issue
     // #33): the turn then runs as a single model without `fusion.delegate`
     // (pinned to the worker leg when only that one is allowed). A worker
     // turn is the fan-out's own and is never degraded here.
     if (readFusionWorkerMeta(session.metadata) === null) {
-      const degradation = fusionPolicyDegradation(resolveCurrentRunMode(), currentProviderPolicy());
+      const degradation = fusionPolicyDegradation(resolveCurrentRunMode(teamChoice), currentProviderPolicy());
       if (degradation.kind !== "none") {
         logger.info("fusion limited by the folder's provider constraint", {
           sessionId: session.id,
@@ -460,6 +590,8 @@ export function createRuntimeTurnService(
     if (worker) {
       return turnContext.run({ sessionId: session.id }, async () => {
         const unbindBudgetNotices = deps.inference.budgetNotices?.bind(session.id, worker.parentSessionId);
+        // A task tree's worker delegates under its parent's director.
+        const releaseTeam = deps.inference.sessionTeam?.borrow(session.id, worker.parentSessionId);
         try {
           // The worker's request is its brief: the operator's words sit
           // in its ORIGINAL REQUEST block, which is what the input guard
@@ -483,6 +615,7 @@ export function createRuntimeTurnService(
           });
         } finally {
           unbindBudgetNotices?.();
+          releaseTeam?.();
           turnRequests.delete(session.id);
           turnPreviousReplies?.delete(session.id);
           // The prompt_captured hook still records the worker's window
@@ -502,20 +635,26 @@ export function createRuntimeTurnService(
     // the local run mode, Fusion or a turn that is already pinned. Set
     // every turn (null when nothing routed), so a turn that threw before
     // its `finally` cannot leave its head on the next one.
+    const turnRunMode = resolveCurrentRunMode(teamChoice);
+    // The director leads only while it makes fusion effective.
+    const director = runOptions.providerId === undefined ? turnRunMode.director : undefined;
     const routedProviderId = routeTurnProvider({
       config: getConfig(),
       userMessage,
       workingDir: session.workingDir,
       pinnedProviderId: runOptions.providerId,
-      runMode: resolveCurrentRunMode(),
+      runMode: turnRunMode,
       isRegistered: (id) => providerRegistry.getProvider(id) !== undefined,
       isAllowed: currentPolicyAllows,
       logger,
       sessionId: session.id,
       ...(dailyLimitRefuses === undefined ? {} : { dailyLimitRefuses }),
     });
+    // A session's director heads its chain for the turn: every step
+    // starts on it and a failure still falls over (not a pin).
+    const turnPrimary = routedProviderId ?? director?.providerId;
     if (runOptions.providerId === undefined) {
-      fallbackChain.setTurnPrimary(session.id, routedProviderId ?? null);
+      fallbackChain.setTurnPrimary(session.id, turnPrimary ?? null);
     }
     // Resolved before the turn runs, from the live config: the model the
     // operator chose for this turn is what the session should remember,
@@ -528,9 +667,13 @@ export function createRuntimeTurnService(
     // A turn on a project's own cloud model (ATO-1148) ran on that
     // provider and model, not the active one: that is what it records.
     const turnModel = runOptions.providerId !== undefined ? runOptions.model : undefined;
+    // A director's turn is per turn too: resuming the session must never
+    // write the director into the global config.
     const llmStamp: SessionLlmStamp = turnModel !== undefined
       ? { providerId: runOptions.providerId!, chatModel: turnModel, perTurn: true }
-      : {
+      : director !== undefined
+        ? { providerId: director.providerId, chatModel: director.model, perTurn: true }
+        : {
           providerId: llmResolved.activeTextProvider,
           chatModel: llmEntry?.defaultChatModel ?? llmEntry?.model ?? null,
         };
@@ -541,7 +684,7 @@ export function createRuntimeTurnService(
     // and repeats the old model's refusals (session-route.ts).
     const configuredRoute = resolveTurnRoute({
       resolved: llmResolved,
-      runMode: resolveCurrentRunMode(),
+      runMode: turnRunMode,
       managedModelId: getConfig().localModels.managed.modelId ?? null,
       ...(runOptions.providerId !== undefined
         ? { pinnedProviderId: runOptions.providerId }
@@ -554,6 +697,14 @@ export function createRuntimeTurnService(
       ? configuredRoute
       : { ...configuredRoute, main: { ...configuredRoute.main, model: turnModel } };
     const previousRoute = readSessionRoute(session.metadata);
+    // A Codex director cannot take its own `model: "orchestrator"` tasks
+    // (its shell stays on): said once, on the first turn it leads.
+    if (director !== undefined && previousRoute?.director !== director.ref && isCodexCliProvider(llmResolved, director.providerId)) {
+      deps.emitEvent?.(session.id, {
+        type: "fusion_director_notice", sessionId: session.id, member: director.ref,
+        reason: "codex-direct-tasks", text: codexDirectorNoticeText(),
+      });
+    }
     const routeNote =
       previousRoute === null
         ? null
@@ -591,6 +742,9 @@ export function createRuntimeTurnService(
       const progress = turnProgressFor(userMessage, runOptions, Date.now());
       markTurnRunning(session.id, progress.initial);
       const closeBudgetNotices = deps.inference.budgetNotices?.begin(session.id);
+      const releaseTeam = director !== undefined && teamChoice !== undefined
+        ? deps.inference.sessionTeam?.set(session.id, teamChoice)
+        : undefined;
       try {
         turnModelModes.set(session.id, modelModePolicy);
         // Recorded for `fusion.delegate`, which quotes it to the workers.
@@ -657,6 +811,7 @@ export function createRuntimeTurnService(
         // session later restores its provider/model (session-llm.ts).
         const usage = traces.readContextUsage(session.id);
         const spend = sessionUsage?.get(session.id);
+        const servedRoute = director === undefined ? turnRoute : directorFallover(session.id, director, turnRoute, llmResolved);
         const finished: SessionState = {
           ...result.session,
           ...(usage === undefined ? {} : { contextUsage: usage }),
@@ -664,7 +819,7 @@ export function createRuntimeTurnService(
           metadata: {
             ...result.session.metadata,
             [SESSION_LLM_METADATA_KEY]: llmStamp,
-            [SESSION_ROUTE_METADATA_KEY]: turnRoute,
+            [SESSION_ROUTE_METADATA_KEY]: servedRoute,
           },
         };
         // The turn's end replaces its `running` mark (`beginTurn`).
@@ -700,6 +855,7 @@ export function createRuntimeTurnService(
         throw err;
       } finally {
         closeBudgetNotices?.();
+        releaseTeam?.();
         inFlight.end();
         turnModelModes.delete(session.id);
         // The turn is over, however it ended: the shell jobs it started
@@ -712,7 +868,7 @@ export function createRuntimeTurnService(
         turnPreviousReplies?.delete(session.id);
         turnsWithoutQuestions?.delete(session.id);
         traces.releaseSession(session.id);
-        if (routedProviderId !== undefined) {
+        if (turnPrimary !== undefined && runOptions.providerId === undefined) {
           fallbackChain.setTurnPrimary(session.id, null);
         }
       }
@@ -801,6 +957,10 @@ export function createRuntimeTurnService(
       answerChannel?: AnswerChannel;
       /** See `executeTurn`'s `questions`. */
       questions?: boolean;
+      /** See `executeTurn`'s `director`. */
+      director?: string;
+      /** See `executeTurn`'s `worker`. */
+      worker?: string;
     } = {},
   ): Promise<RunTurnResult> => {
     if (runOptions.goal !== undefined) {

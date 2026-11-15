@@ -1,4 +1,5 @@
 import type { ProviderRestriction } from "../llm/provider-policy.js";
+import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import type { TurnCheckpointOptions } from "./turn-checkpoints.js";
 import type { InterruptedTurns } from "./interrupted-turns.js";
 import type { CompactionResult, SessionCompaction } from "../session/session-compaction.js";
@@ -384,6 +385,13 @@ export interface AgentRuntime {
    * always sets it. See `createOfflineModeControl`.
    */
   readonly offlineMode?: OfflineModeControl;
+  /**
+   * Whether a fusion team member can answer now (issue #37): registered,
+   * and a subscription CLI not known to be missing or signed out (a
+   * background-checked cache). Optional so hand-built runtimes keep
+   * compiling; absent, a registered provider counts as reachable.
+   */
+  readonly teamMemberReachable?: (member: TeamMember) => boolean;
   /**
    * The provider restriction on a session (issue #33): its folder's
    * constraint and any read taint (its stored metadata), or `null` when

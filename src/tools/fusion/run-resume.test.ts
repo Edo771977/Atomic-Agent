@@ -399,6 +399,43 @@ describe("resuming a fusion run (ATO-617)", () => {
       expect(store.listResumable()).toEqual([]);
     });
 
+    it("records the director a run started under (issue #37)", async () => {
+      const director = { providerId: "cloud", model: "model-a", ref: "cloud:model-a" };
+      const controller = new AbortController();
+      const d = deps({ runCheckpoints: store, resolveRunMode: () => mode({ director }) }, (taskId) => {
+        if (taskId === "t1") controller.abort();
+      });
+      await buildFusionDelegateTool(d).run(ORDERED, ctx({ signal: controller.signal }));
+      expect(store.listResumable("s-parent")[0]?.director).toBe("cloud:model-a");
+    });
+
+    it("warns, without blocking, when a run resumes under a different director (issue #37)", async () => {
+      const run = store.start({
+        sessionId: "s-parent", workingDir: "/repo", args: { tasks: TASKS }, tasks: TASKS, waveCount: 1, director: "cloud:model-a",
+      });
+      run.recordTask(row("t1"));
+      run.finish("interrupted");
+      const d = deps({
+        runCheckpoints: store,
+        resolveRunMode: () => mode({ director: { providerId: "cli", model: "model-d", ref: "cli:model-d" } }),
+      });
+      const result = await buildFusionDelegateTool(d).run({ resume: run.runId }, ctx());
+      expect(d.ran.sort()).toEqual(["t2", "t3"]);
+      expect(result.summary).toContain("This run started under director cloud:model-a and resumes under cli:model-d");
+      expect((result.details as { resume: { director?: { from: string; to: string | null } } }).resume.director)
+        .toEqual({ from: "cloud:model-a", to: "cli:model-d" });
+    });
+
+    it("says nothing about the director when it is the same or was never recorded", async () => {
+      const same = cutOff(["t1"]);
+      const d = deps({
+        runCheckpoints: store,
+        resolveRunMode: () => mode({ director: { providerId: "cloud", model: "model-a", ref: "cloud:model-a" } }),
+      });
+      const result = await buildFusionDelegateTool(d).run({ resume: same.runId }, ctx());
+      expect(result.summary).not.toContain("resumes under");
+    });
+
     it("does not re-run a task with side effects without confirmation", async () => {
       const checkpoint = cutOff(["t1"], ["t2"]);
       const d = deps({ runCheckpoints: store });

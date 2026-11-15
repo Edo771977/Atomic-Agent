@@ -37,6 +37,12 @@ export interface SessionRoute {
   main: RouteLeg;
   /** Fusion's worker leg; `null` outside fusion. */
   worker: RouteLeg | null;
+  /**
+   * The session's fusion director (`"<providerId>:<model>"`, issue #37),
+   * present only on a fusion route a director led. Absent on routes
+   * stored before the team existed, which reads as no director.
+   */
+  director?: string;
 }
 
 export interface ResolveTurnRouteInput {
@@ -62,11 +68,15 @@ export interface ResolveTurnRouteInput {
  */
 export function resolveTurnRoute(input: ResolveTurnRouteInput): SessionRoute {
   const { resolved, runMode } = input;
+  const mode = runMode.effective;
+  // A session's director is its turn primary (issue #37), whatever the
+  // active provider says.
+  const director = mode === "fusion" ? runMode.director : undefined;
   const mainId =
     input.pinnedProviderId ??
     input.fallbackOverrideId ??
+    director?.providerId ??
     resolved.activeTextProvider;
-  const mode = runMode.effective;
   const main: RouteLeg = {
     providerId: mainId,
     model:
@@ -78,7 +88,7 @@ export function resolveTurnRoute(input: ResolveTurnRouteInput): SessionRoute {
     mode === "fusion" && runMode.workerProviderId !== null
       ? { providerId: runMode.workerProviderId, model: runMode.workerModel }
       : null;
-  return { mode, main, worker };
+  return { mode, main, worker, ...(director === undefined ? {} : { director: director.ref }) };
 }
 
 function modelOf(
@@ -106,7 +116,8 @@ export function sameSessionRoute(a: SessionRoute, b: SessionRoute): boolean {
   return (
     a.mode === b.mode &&
     sameRouteLeg(a.main, b.main) &&
-    sameRouteLeg(a.worker, b.worker)
+    sameRouteLeg(a.worker, b.worker) &&
+    (a.director ?? null) === (b.director ?? null)
   );
 }
 
@@ -127,7 +138,8 @@ export function readSessionRoute(
   const worker = raw.worker === null || raw.worker === undefined
     ? null
     : readLeg(raw.worker);
-  return { mode, main, worker };
+  const director = typeof raw.director === "string" && raw.director.length > 0 ? raw.director : undefined;
+  return { mode, main, worker, ...(director === undefined ? {} : { director }) };
 }
 
 function readLeg(raw: unknown): RouteLeg | null {

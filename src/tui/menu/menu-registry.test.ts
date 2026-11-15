@@ -287,7 +287,11 @@ const V0_2_2_SLASH_COMMANDS = [
   {
     name: "worker",
     description:
-      "act on one running fusion worker: `/worker stop <id>` · `/worker steer <id> <note>` (it reads the note at its next step) · `/worker escalate <id>` (ask the escalation model for a hint; shows its cost)",
+      "bare `/worker` picks this chat's preferred fusion worker · act on a running one: `/worker stop <id>` · `/worker steer <id> <note>` (it reads the note at its next step) · `/worker escalate <id>` (ask the escalation model for a hint; shows its cost)",
+  },
+  {
+    name: "director",
+    description: "pick which fusion team director leads this chat (llm.runMode.fusion.team)",
   },
   {
     name: "fusion",

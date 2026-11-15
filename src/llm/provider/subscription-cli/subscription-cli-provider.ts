@@ -105,8 +105,8 @@ export class SubscriptionCliProvider implements LlmProvider {
     this.name = descriptor.displayName;
     this.binary = resolveCliBinary(descriptor.defaultBinary, options.binPath);
     this.cwd = options.cwd;
-    // May be empty: Codex under a ChatGPT login rejects explicit model
-    // ids and resolves one itself, so the flag is then omitted.
+    // May be empty: Codex then resolves the account's default model
+    // itself and the flag is omitted.
     this.model = options.model ?? descriptor.defaultChatModel;
     this.extraArgs = options.extraArgs ?? [];
     this.streamingEnabled =

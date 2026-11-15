@@ -4,8 +4,10 @@ import type { FusionRoleModels } from "../../llm/run-mode/index.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   allowedModels,
+  legKey,
   ORCHESTRATOR_TASK_MODEL,
   resolveTaskLegs,
+  type TeamTaskRouting,
   unknownModels,
 } from "./role-models.js";
 
@@ -164,5 +166,106 @@ describe("model: \"orchestrator\"", () => {
     );
     expect(legs.get("h")).toMatchObject({ providerId: "big-llama", isWorkerLeg: false });
     expect(legs.get("h")?.note).toBeUndefined();
+  });
+});
+
+describe("routing by fusion team member (issue #37)", () => {
+  const member = (ref: string) => {
+    const at = ref.indexOf(":");
+    return { providerId: ref.slice(0, at), model: ref.slice(at + 1), ref };
+  };
+  const cloudWorker = { providerId: "cli-b", model: "model-b" };
+  const team: TeamTaskRouting = {
+    workers: [member("cli-b:model-b"), member("cli-b:model-c"), member("api-d:model-d")],
+    defaultWorker: member("cli-b:model-c"),
+    pinsModel: (providerId) => providerId !== "local-llama",
+  };
+
+  it("offers the team's workers, keyed by member, not by provider", () => {
+    expect(allowedModels(cloudWorker, roles, team)).toEqual([
+      { providerId: "cli-b", model: "model-b" },
+      { providerId: "cli-b", model: "model-c" },
+      { providerId: "api-d", model: "model-d" },
+    ]);
+  });
+
+  it("refuses a model or provider outside the team's workers, naming the members", () => {
+    expect(
+      unknownModels([task("a", { model: "model-c" }), task("b", { model: "api-d:model-d" })], cloudWorker, roles, undefined, team),
+    ).toBeUndefined();
+    // A role model that is not a team worker is not on the list.
+    const refusal = unknownModels([task("a", { model: "qwen-coder" }), task("b", { model: "or-sonnet" })], cloudWorker, roles, undefined, team);
+    expect(refusal).toContain('task "a" names model "qwen-coder"');
+    expect(refusal).toContain('task "b" names model "or-sonnet"');
+    expect(refusal).toContain("llm.runMode.fusion.team.workers");
+    expect(refusal).toContain("`cli-b:model-b`, `cli-b:model-c`, `api-d:model-d`");
+  });
+
+  it("runs a named member on its own model, and a task naming none on the default worker", () => {
+    const legs = resolveTaskLegs(
+      [task("n", { model: "api-d:model-d" }), task("m", { model: "model-b" }), task("d")],
+      cloudWorker,
+      undefined,
+      undefined,
+      team,
+    );
+    expect(legs.get("n")).toEqual({
+      providerId: "api-d", model: "model-d", isWorkerLeg: false, member: "api-d:model-d", pinModel: "model-d",
+    });
+    // The worker leg's own member is the worker leg, pinned to its model.
+    expect(legs.get("m")).toEqual({ providerId: "cli-b", model: "model-b", isWorkerLeg: true, pinModel: "model-b" });
+    // Same provider, another model: its own leg, not collapsed into the worker leg.
+    expect(legs.get("d")).toEqual({
+      providerId: "cli-b", model: "model-c", isWorkerLeg: false, member: "cli-b:model-c", pinModel: "model-c",
+    });
+    expect(legKey(legs.get("d")!)).not.toBe(legKey(legs.get("m")!));
+  });
+
+  it("does not pin a model on a local member, whose server serves one model", () => {
+    const local: TeamTaskRouting = { ...team, workers: [member("local-llama:qwen-14b")], defaultWorker: member("local-llama:qwen-14b") };
+    expect(resolveTaskLegs([task("d")], worker, undefined, undefined, local).get("d")).toEqual({
+      providerId: "local-llama", model: "qwen-14b", isWorkerLeg: true,
+    });
+  });
+
+  it("keeps the worker leg for a task naming none when the team has no default worker", () => {
+    const none: TeamTaskRouting = { ...team, defaultWorker: null };
+    expect(resolveTaskLegs([task("d")], cloudWorker, undefined, undefined, none).get("d")).toEqual({
+      providerId: "cli-b", model: "model-b", isWorkerLeg: true,
+    });
+  });
+
+  it("routes a role only to a team worker, and says why otherwise", () => {
+    const teamRoles: FusionRoleModels = {
+      byRole: {
+        build: { providerId: "api-d", model: "model-d", local: false },
+        review: { providerId: "or-sonnet", model: "sonnet", local: false },
+      },
+      mixLocalModels: false,
+      localLegProviderIds: [],
+    };
+    const legs = resolveTaskLegs([task("b", { role: "build" }), task("r", { role: "review" })], cloudWorker, teamRoles, undefined, team);
+    expect(legs.get("b")).toMatchObject({ providerId: "api-d", model: "model-d", role: "build", member: "api-d:model-d" });
+    expect(legs.get("r")).toMatchObject({ providerId: "cli-b", model: "model-c", member: "cli-b:model-c" });
+    expect(legs.get("r")?.note).toContain("not one of the team's workers");
+  });
+
+  it("keeps a director and a worker on one provider apart: the orchestrator target compares members", () => {
+    const director = { providerId: "cli-b", model: "model-a", member: "cli-b:model-a", pinModel: "model-a" };
+    expect(unknownModels([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, team)).toBeUndefined();
+    expect(resolveTaskLegs([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, team).get("h")).toEqual({
+      providerId: "cli-b", model: "model-a", isWorkerLeg: false, orchestrator: true, member: "cli-b:model-a", pinModel: "model-a",
+    });
+    // The same member as the worker leg: no separate target.
+    const same = { providerId: "cli-b", model: "model-b" };
+    expect(unknownModels([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, same, team)).toContain('names model "orchestrator"');
+  });
+
+  it("keeps them apart with a team of directors only (no workers list)", () => {
+    const director = { providerId: "cli-b", model: "model-a", member: "cli-b:model-a", pinModel: "model-a" };
+    expect(unknownModels([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, undefined)).toBeUndefined();
+    expect(resolveTaskLegs([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, undefined).get("h")).toEqual({
+      providerId: "cli-b", model: "model-a", isWorkerLeg: false, orchestrator: true, member: "cli-b:model-a", pinModel: "model-a",
+    });
   });
 });

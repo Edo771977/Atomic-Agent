@@ -1,5 +1,8 @@
 import { emitConfigNoticeOnce, isSetAsideString } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
+import { parseFusionTeam, teamWithoutProviders, type UserFusionTeamConfig } from "./llm-fusion-team-config.js";
+
+export type { UserFusionTeamConfig } from "./llm-fusion-team-config.js";
 
 /**
  * Operator-facing run mode. Names *how* a chat runs, not a single model:
@@ -278,6 +281,14 @@ export type UserLlmFusionConfig = {
    * `fusion.delegate` themselves.
    */
   taskTree?: UserFusionTaskTreeConfig;
+  /**
+   * The team (issue #37): the models that may direct a session, work its
+   * tasks and review them, each `"<providerId>:<model>"`. Unset: fusion
+   * runs on `orchestratorProvider` and `workerProvider`, as before. Set:
+   * those keys name the default director and (when a member) the default
+   * worker.
+   */
+  team?: UserFusionTeamConfig;
 };
 
 /** Roles a fusion task can be given (ATO-943). */
@@ -759,6 +770,9 @@ function parseFusion(
   if (obj.taskTree !== undefined) {
     out.taskTree = parseTaskTree(obj.taskTree, `${field}.taskTree`);
   }
+  if (obj.team !== undefined) {
+    out.team = parseFusionTeam(obj.team, new Set(providers.map((p) => p.id)), `${field}.team`);
+  }
   return out;
 }
 
@@ -879,6 +893,7 @@ export function scrubRunModeProviderPins(
     roles,
     escalationProvider,
     judgeProvider,
+    team,
     ...rest
   } = runMode.fusion;
   const keepOrchestrator = orchestratorProvider !== removedId;
@@ -896,12 +911,16 @@ export function scrubRunModeProviderPins(
     Object.keys(keptRoles ?? {}).length !== Object.keys(roles).length;
   const keepEscalation = escalationProvider !== removedId;
   const keepJudge = judgeProvider !== removedId;
+  // A team member on the removed provider goes too (issue #37); a team
+  // left without a director goes whole, since the parser requires one.
+  const keptTeam = team === undefined ? undefined : teamWithoutProviders(team, (id) => id === removedId);
   if (
     keepOrchestrator &&
     keepWorker &&
     !rolesChanged &&
     keepEscalation &&
-    keepJudge
+    keepJudge &&
+    keptTeam === team
   ) {
     return runMode;
   }
@@ -922,6 +941,7 @@ export function scrubRunModeProviderPins(
         : {}),
       ...(workerProvider && keepWorker ? { workerProvider } : {}),
       ...(workerModel !== undefined && keepWorker ? { workerModel } : {}),
+      ...(keptTeam !== undefined ? { team: keptTeam } : {}),
     },
   };
 }

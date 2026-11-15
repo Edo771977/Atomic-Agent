@@ -199,6 +199,7 @@ export function buildFusionGuidance(
 ): string {
   const machine = formatFusionMachineLine(facts);
   const roles = formatFusionRolesLine(facts);
+  const team = formatFusionTeamLine(facts);
   const base =
     facts.workerLeg === "local"
       ? fusionGuidanceLines(
@@ -208,9 +209,20 @@ export function buildFusionGuidance(
           LOCAL_WORKER_SEES,
         )
       : FUSION_GUIDANCE;
-  return [base, machine, roles]
+  return [base, machine, roles, team]
     .filter((line): line is string => line !== null)
     .join("\n");
+}
+
+/**
+ * The fusion team's workers (issue #37), one line, or `null` without
+ * them — the block then reads exactly as before.
+ */
+export function formatFusionTeamLine(facts: FusionMachineFacts): string | null {
+  const workers = facts.teamWorkers ?? [];
+  if (workers.length === 0) return null;
+  const list = workers.map((w) => `\`${w}\``).join(", ");
+  return `Team workers: ${list}. Name one in a task's \`model\` (as listed, or just its model) to run the task on it; a task that names none runs on the default worker; no other model is accepted.`;
 }
 
 /**

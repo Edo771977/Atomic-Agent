@@ -371,6 +371,7 @@ export function runSlashCommand(
     callbacks.onFusionWorkersChangeRequested?.(result.runModeWorkers);
   }
   if (result.compactionVerb) callbacks.onCompactionRequested?.(result.compactionVerb);
+  if (result.teamPicker) callbacks.onTeamPickerRequested?.(result.teamPicker);
   if (result.goalCommand) callbacks.onGoalCommand?.(result.goalCommand);
   if (result.enhancePromptText !== undefined) {
     callbacks.onPromptEnhanceRequested?.(result.enhancePromptText);

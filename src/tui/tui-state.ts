@@ -10,7 +10,7 @@ import { EMPTY_CONTEXT_USAGE } from "./context-usage-from-prompt.js";
 import type { ContextUsageState } from "../session/context-usage.js";
 import type { PlanSnapshot } from "../agent/plan/plan-snapshot.js";
 import type { SessionUsageState } from "../session/usage-meter.js";
-import type { ComposerSwitchState } from "./composer-switch/composer-switch-state.js";
+import type { ComposerSwitchState, ComposerTeamState } from "./composer-switch/composer-switch-state.js";
 import type { ContextMenuState } from "./context-menu/context-menu-state.js";
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 import type { WhileBusySubmitMode } from "../config/index.js";
@@ -608,6 +608,8 @@ export interface TuiState {
    * `null` when the row is just a label, which is most of the time.
    */
   composerSwitch: ComposerSwitchState | null;
+  /** The fusion team pickers' rows (issue #37); null until a picker was shown. */
+  composerTeam: ComposerTeamState | null;
   /**
    * The right-click cut/copy/paste menu: the clicked cell and what it
    * targets, or `null`. Deliberately NOT part of `modalOwnsInput` — the
@@ -987,6 +989,7 @@ export function createInitialTuiState(
     contextPanelOpen: false,
     contextPanelPairsDraft: null,
     composerSwitch: null,
+    composerTeam: null,
     contextMenu: null,
     menuPath: null,
     menuQuery: "",

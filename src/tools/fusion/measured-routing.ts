@@ -136,13 +136,18 @@ function improves(candidate: RoutingEvidence, current: RoutingEvidence): boolean
 
 /** Only default tasks are adaptable. Explicit model and configured role pins
  * precede this policy; its choices still pass the delegate's normal admission.
+ * With a fusion team (`team`, issue #37) a build-role model is no candidate
+ * (a task's worker must be a team worker), the orchestrator target is
+ * told apart from the worker leg by member, and a leg pinned to a model
+ * of its own has no attributable request identity, so its history is
+ * never verified evidence.
  */
 export function measuredTaskLegs(
   tasks: readonly DelegateTask[], baseline: Map<string, TaskLeg>, worker: WorkerLegRef,
   roles: FusionRoleModels | undefined, orchestrator: WorkerLegRef | undefined,
   options: { records: readonly OutcomeRecord[]; minSamples: number; days: number; now?: number;
     remainingOrchestrator: number; attempted: (id: string) => boolean; cliToolsStayOn: (provider: string) => boolean;
-    identityFor?: (provider: string) => string | undefined },
+    identityFor?: (provider: string) => string | undefined; team?: boolean },
 ): { legs: Map<string, TaskLeg>; decisions: RoutingDecision[] } {
   const legs = new Map(baseline);
   const decisions: RoutingDecision[] = [];
@@ -166,12 +171,16 @@ export function measuredTaskLegs(
     if (options.attempted(task.id)) { decision.reason = "retry-family"; continue; }
     const candidates: Candidate[] = [{ leg: original, local: heldLocal.has(worker.providerId) }];
     const build = roles?.byRole.build;
-    if (build !== undefined && build.providerId !== worker.providerId) {
+    if (build !== undefined && build.providerId !== worker.providerId && options.team === true) {
+      excluded.push({ provider: build.providerId, reason: "not-a-team-worker" });
+    } else if (build !== undefined && build.providerId !== worker.providerId) {
       candidates.push({ leg: { providerId: build.providerId, model: build.model ?? build.providerId, isWorkerLeg: false,
         ...(build.providerId === orchestrator?.providerId ? { orchestrator: true as const } : { role: "build" as const }) }, local: build.local });
     }
-    if (orchestrator !== undefined && orchestrator.providerId !== worker.providerId &&
-      !candidates.some((c) => c.leg.providerId === orchestrator.providerId)) {
+    const sameAsWorker = orchestrator !== undefined && orchestrator.providerId === worker.providerId &&
+      (options.team !== true || orchestrator.model === worker.model);
+    if (orchestrator !== undefined && !sameAsWorker &&
+      !candidates.some((c) => c.leg.providerId === orchestrator.providerId && (options.team !== true || c.leg.model === orchestrator.model))) {
       candidates.push({ leg: { ...orchestrator, isWorkerLeg: false, orchestrator: true }, local: heldLocal.has(orchestrator.providerId) });
     }
     // A build target is only evidence for a default/build task; do not treat
@@ -185,7 +194,8 @@ export function measuredTaskLegs(
       if (why !== undefined) { excluded.push({ provider: leg.providerId, reason: why }); return false; }
       return true;
     });
-    const stats = eligible.map((candidate) => ({ candidate, stats: evidence(options.records, candidate.leg, task, since, now, options.identityFor?.(candidate.leg.providerId)) }));
+    const stats = eligible.map((candidate) => ({ candidate, stats: evidence(options.records, candidate.leg, task, since, now, candidate.leg.pinModel !== undefined && candidate.leg.pinModel !== worker.model
+      ? undefined : options.identityFor?.(candidate.leg.providerId)) }));
     decision.candidates = stats.map((s) => s.stats);
     const base = stats.find((s) => s.candidate.leg.isWorkerLeg);
     if (base === undefined || base.stats.blocked) { decision.reason = "blocking-history"; continue; }

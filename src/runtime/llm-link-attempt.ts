@@ -49,6 +49,13 @@ export interface LinkAttemptDeps {
   requestBudget?: (providerId: string, request: CompletionRequest, provider: LlmProvider) => RequestBudgetScope | undefined;
   /** Absent: no folder is ever constrained at this seam (test rigs). */
   providerPolicy?: SeamProviderPolicy;
+  /**
+   * The model a chain-picked attempt asks `providerId` for on behalf of
+   * `sessionId`: the session's fusion director's model when that link is
+   * the director's (issue #37), so the turn primary runs the member, not
+   * the entry's default model. Undefined: the entry's own model.
+   */
+  turnModel?: (sessionId: string | undefined, providerId: string) => string | undefined;
 }
 
 /**
@@ -174,7 +181,7 @@ export async function completeOnLink(
 ): Promise<{ result: CompletionResult; transport: ToolCallTransport }> {
   checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
-  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(params, providerId));
+  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(deps, params, providerId));
   checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
@@ -226,7 +233,7 @@ export async function openStreamOnLink(
 }> {
   checkLink(deps, providerId);
   await deps.prepareLink?.(providerId);
-  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(params, providerId));
+  const { provider, transport, contextWindow } = await deps.resolveSlice(providerId, linkModel(deps, params, providerId));
   checkLink(deps, provider.id);
   params = prepareParams(params, providerId, transport, contextWindow);
   const base = {
@@ -284,11 +291,15 @@ export async function openStreamOnLink(
 }
 
 /**
- * The per-turn model, for the pinned link only: a pinned request never
- * reaches another link, and a chain-picked one carries no model.
+ * The per-turn model: a pinned request's own, for its link only (it never
+ * reaches another); for a chain-picked attempt, the session director's
+ * model when the link is the director's (`turnModel`).
  */
-function linkModel(params: LlmStreamParams, providerId: string): string | undefined {
-  return params.model !== undefined && params.providerId === providerId ? params.model : undefined;
+function linkModel(deps: LinkAttemptDeps, params: LlmStreamParams, providerId: string): string | undefined {
+  if (params.providerId !== undefined) {
+    return params.model !== undefined && params.providerId === providerId ? params.model : undefined;
+  }
+  return deps.turnModel?.(params.sessionId, providerId);
 }
 
 function prepareParams(params: LlmStreamParams, providerId: string, transport: ToolCallTransport, contextWindow?: number | null): LlmStreamParams {

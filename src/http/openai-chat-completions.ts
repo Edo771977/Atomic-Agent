@@ -137,6 +137,15 @@ interface ChatCompletionRequest {
    */
   provider_id?: string;
   provider_model?: string;
+  /**
+   * Issue #37: the session's fusion director (`"<providerId>:<model>"`),
+   * stamped on the session before this turn; must be one of
+   * `llm.runMode.fusion.team.directors` (else the turn fails). Absent:
+   * the session keeps its own, or the runtime picks one and says so.
+   */
+  director?: string;
+  /** Issue #37: the session's preferred fusion worker, stamped the same way. */
+  worker?: string;
 }
 
 interface ParsedRequest {
@@ -161,6 +170,8 @@ interface ParsedRequest {
   reasoningOverride?: ReasoningEffort;
   /** `X-Atomic-Questions` on an extensions request (ATO-489). */
   questions: boolean;
+  /** Issue #37: `director` / `worker`, checked as member refs; the turn checks them against the team. */
+  team: { director?: string; worker?: string };
 }
 
 /**
@@ -272,6 +283,8 @@ async function handleNonStream(
         : {}),
       // ATO-489: `ask_user` only for a client that draws its card.
       ...(env.request.questions ? { questions: true } : {}),
+      // Issue #37: the session's director / preferred worker, if named.
+      ...env.request.team,
     });
   } catch (err) {
     // Reaches this branch only for unclassified / programming
@@ -452,6 +465,8 @@ async function handleStream(
         : {}),
       // ATO-489: `ask_user` only for a client that draws its card.
       ...(env.request.questions ? { questions: true } : {}),
+      // Issue #37: the session's director / preferred worker, if named.
+      ...env.request.team,
     });
   } catch (err) {
     // Same contract as the non-stream branch above: classified
@@ -903,6 +918,15 @@ export function buildStreamEventHook(
       if (env.request.extensionsEnabled && event.sessionId === env.session.id) {
         sse.writeEvent("budget_notice", { object: "atomic.budget_notice", session_id: event.sessionId,
           provider_id: event.providerId, reason: event.reason, notice: event.text });
+      }
+      return;
+    }
+    /* Issue #37: the fusion director line (picked for the session, or a
+       Codex director's limit). Extensions-only, like the budget notice. */
+    if (event.type === "fusion_director_notice") {
+      if (env.request.extensionsEnabled && event.sessionId === env.session.id) {
+        sse.writeEvent("fusion_director_notice", { object: "atomic.fusion_director_notice", session_id: event.sessionId,
+          member: event.member, reason: event.reason, notice: event.text });
       }
       return;
     }
@@ -1394,6 +1418,11 @@ async function parseRequestBody(
     sendError(res, 400, openaiError(turnModel, "invalid_request_error", "provider_model"));
     return null;
   }
+  const team = parseTeamChoice(body);
+  if ("error" in team) {
+    sendError(res, 400, openaiError(team.error, "invalid_request_error", team.param));
+    return null;
+  }
   return {
     model:
       typeof body.model === "string" && body.model.length > 0
@@ -1418,7 +1447,30 @@ async function parseRequestBody(
     questions:
       isExtensionsHeaderTruthy(getHeader(req, EXTENSIONS_HEADER)) &&
       isExtensionsHeaderTruthy(getHeader(req, QUESTIONS_HEADER)),
+    team,
   };
+}
+
+/**
+ * Issue #37: the request's `director` / `worker`, trimmed, or why one
+ * cannot be a team member at all. Whether the team lists it is the
+ * turn's check (`executeTurn`), against the config the turn runs on.
+ */
+export function parseTeamChoice(
+  body: { director?: unknown; worker?: unknown },
+): { director?: string; worker?: string } | { error: string; param: "director" | "worker" } {
+  const out: { director?: string; worker?: string } = {};
+  for (const param of ["director", "worker"] as const) {
+    const raw = body[param];
+    if (raw === undefined || raw === null) continue;
+    const value = typeof raw === "string" ? raw.trim() : "";
+    const colon = value.indexOf(":");
+    if (colon <= 0 || colon === value.length - 1 || /[\r\n\x00]/.test(value)) {
+      return { error: `${param} must be "<providerId>:<model>"`, param };
+    }
+    out[param] = value;
+  }
+  return out;
 }
 
 /**

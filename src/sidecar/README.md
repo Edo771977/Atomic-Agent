@@ -22,3 +22,5 @@ Approvals ([approval-payload.ts](approval-payload.ts)): `approval_request` carri
 `get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom}`) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
 
 `budget_notice` carries `{sessionId, providerId, reason, text}` when a request uses soft/meter budget enforcement or its output ceiling is reduced to fit. The notice belongs to that session and owning turn; retries do not repeat the same provider/reason warning.
+
+`send_message` takes optional `director` / `worker` (`"<providerId>:<model>"`, issue #37), stamped on the session inside the already-locked turn; `fusion_director_notice` carries `{sessionId, member, reason, text}` when the runtime picked the session's director (`only`, `default`) or the director is a Codex CLI (`codex-direct-tasks`).

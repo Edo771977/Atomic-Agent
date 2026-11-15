@@ -33,6 +33,8 @@ export interface SlashDispatchResult {
   /** Text to inject into the chat log as a system confirmation. */
   readonly systemMessage?: string;
   readonly compactionVerb?: "run" | "show";
+  /** `/director`, bare `/worker` (issue #37): open that fusion team picker for the open chat. */
+  readonly teamPicker?: "director" | "worker";
   /** `/goal …` (ATO-451): the orchestrator acts on the open chat's goal. */
   readonly goalCommand?: GoalCommand;
   /**
@@ -309,7 +311,12 @@ export function dispatchSlashCommand(buffer: string, skills: readonly SlashComma
       return pureActions([], { triggerStatusSnapshot: true });
     case "steer":
       return dispatchSteerSub(parsed.args);
+    case "director":
+      return pureActions([], { teamPicker: "director" });
     case "worker": {
+      // Bare: this chat's preferred worker (issue #37); with a verb, a
+      // running worker.
+      if (parsed.args.trim() === "") return pureActions([], { teamPicker: "worker" });
       const action = parseWorkerCommand(parsed.args);
       if (action === null) {
         return pureActions([], {

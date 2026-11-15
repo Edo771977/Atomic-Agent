@@ -1125,6 +1125,12 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       return event.sessionId === state.session.sessionId
         ? appendChatMessage(state, { role: "system", variant: "warn", text: event.text })
         : state;
+    case "fusion_director_notice":
+      // Issue #37: which member leads this chat, when the runtime picked
+      // it, and a Codex director's limit. Once each, from the runtime.
+      return event.sessionId === state.session.sessionId
+        ? appendChatMessage(state, { role: "system", text: event.text })
+        : state;
     case "profile_clipped": {
       // Issue #407: the clip used to show only as a `[truncated]` inside
       // a prompt nobody reads. The loop fires this once per session, and

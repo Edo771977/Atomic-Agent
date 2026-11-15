@@ -343,6 +343,23 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     } finally { await retained?.shutdown(); }
   });
 
+  it("hands the fusion tool the calling session's preferred worker and team reachability (issue #37)", () => {
+    const config = getConfig(); const toolRegistry = new ToolRegistry();
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    const worker = { providerId: "local", model: "model-w", ref: "local:model-w" };
+    registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+      resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+      prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+      currentWorker: () => worker, teamMemberReachable: () => false,
+      providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+    const wired = builder.mock.calls.at(-1)?.[0];
+    // The director is the run mode's (`mode.director`), not a separate read.
+    expect(wired).not.toHaveProperty("currentDirector");
+    expect(wired?.resolveFusionTeam).toBeTypeOf("function");
+    expect(wired?.currentWorker?.()).toBe(worker);
+  });
+
   it("registers fusion after existing tools, then decorates reads with live security callbacks", async () => {
     const config = getConfig(); const toolRegistry = new ToolRegistry();
     toolRegistry.register({ name: "os.fs.read", description: "fixture", readonly: true, run: async () => externalOperation() });
@@ -445,6 +462,43 @@ describe("fusion escalation and judge calls under a folder's provider constraint
       });
       expect(providers.cloud.complete).not.toHaveBeenCalled();
       expect(providers.local.complete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a fusion judge call on a team reviewer's own model (issue #37)", () => {
+  it("asks the provider's copy for that model, still under the folder's provider constraint", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "catalog-variant-"));
+    try {
+      const config = getConfig(); const toolRegistry = new ToolRegistry();
+      const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+      const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+      const usage = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
+      const base = { id: "cloud", complete: vi.fn(async () => ({ content: "base", usage, modelId: "big" })) };
+      const variant = { id: "cloud", complete: vi.fn(async () => ({ content: "variant", usage, modelId: "model-r" })) };
+      const modelVariant = vi.fn(async (_id: string, _model: string) => variant as never);
+      registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+        resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+        prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+        providerRegistry: { getProvider: () => base as never, modelVariant }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const },
+        slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+      const wired = builder.mock.calls.at(-1)?.[0];
+      if (!wired?.escalationComplete) throw new Error("escalation seam missing");
+      const signal = new AbortController().signal;
+      const answer = await wired.escalationComplete({ providerId: "cloud", model: "model-r", prompt: "p", maxOutputTokens: 10, signal });
+      expect(answer.content).toBe("variant");
+      expect(modelVariant).toHaveBeenCalledWith("cloud", "model-r");
+      expect(base.complete).not.toHaveBeenCalled();
+      const policy = makeProviderPolicy({ key: directory, allowedProviders: ["local"], matchedDir: directory });
+      await runWithProviderPolicy(policy, async () => {
+        await expect(runWithProviderRole("the fusion judge", () =>
+          wired.escalationComplete!({ providerId: "cloud", model: "model-r", prompt: "p", maxOutputTokens: 10, signal })))
+          .rejects.toThrow('provider "cloud" may not serve the fusion judge');
+      });
+      expect(variant.complete).toHaveBeenCalledTimes(1);
     } finally {
       vi.restoreAllMocks();
       await rm(directory, { recursive: true, force: true });

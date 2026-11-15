@@ -86,6 +86,9 @@ export async function bootstrapSidecar(): Promise<{
         case "budget_notice":
           if (event.sessionId === sessionId) protocol.emitEvent("budget_notice", event);
           break;
+        case "fusion_director_notice":
+          if (event.sessionId === sessionId) protocol.emitEvent("fusion_director_notice", event);
+          break;
         case "compaction_started":
         case "compaction_progress":
         case "compaction_completed":
@@ -360,7 +363,7 @@ export async function bootstrapSidecar(): Promise<{
             `active session changed during queued send_message for ${sessionId}`,
           );
         }
-        const { maxSteps } = request.payload;
+        const { maxSteps, director, worker } = request.payload;
         const latest = runtime.sessionStore.load(sessionId) ?? active.session;
         return runtime.executeTurn(latest, request.payload.text, {
           // Only a client-supplied `maxSteps` becomes a ceiling. Filling
@@ -369,6 +372,10 @@ export async function bootstrapSidecar(): Promise<{
           // `typeof` rather than `=== undefined`: a JSON client may send
           // `null`, which the old `??` also treated as "not given".
           ...(typeof maxSteps === "number" ? { maxSteps } : {}),
+          // Issue #37: stamped on the session inside this already-locked
+          // turn; `executeTurn` checks it against the team.
+          ...(typeof director === "string" ? { director } : {}),
+          ...(typeof worker === "string" ? { worker } : {}),
           signal,
           // The desktop app: picks the reply's `### answer-style`.
           origin: "sidecar",

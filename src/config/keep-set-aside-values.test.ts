@@ -269,6 +269,54 @@ describe("a provider a newer build added (ATO-1241)", () => {
     });
   });
 
+  describe("team members (issue #37)", () => {
+    function teamTree(): Tree {
+      const tree = baseTree();
+      tree.llm.providers.push({ id: "future", kind: "quantum-cloud-1241", baseUrl: "https://future.example.com" });
+      tree.llm.runMode = {
+        mode: "fusion",
+        fusion: {
+          team: {
+            directors: ["future:model-a", "cloud:model-b"],
+            workers: ["future:model-c"],
+            reviewers: ["cloud:model-d", "future:model-e"],
+          },
+        },
+      };
+      return tree;
+    }
+    beforeEach(() => writeTree(teamTree()));
+
+    it("read without the members on that provider instead of refusing the file", () => {
+      expect(readUserConfigFileSync(path)!.llm!.runMode!.fusion!.team).toEqual({
+        directors: ["cloud:model-b"],
+        reviewers: ["cloud:model-d"],
+      });
+    });
+
+    it("a team whose every director is on that provider reads as no team", () => {
+      const tree = teamTree();
+      tree.llm.runMode.fusion.team.directors = ["future:model-a"];
+      writeTree(tree);
+      expect(readUserConfigFileSync(path)!.llm!.runMode!.fusion!.team).toBeUndefined();
+    });
+
+    it("come back on a whole-file write of an unrelated change", () => {
+      writeUnrelated(readUserConfigFileSync(path)!);
+      expect(disk().llm).toEqual(teamTree().llm);
+    });
+
+    it("a team chosen here replaces the newer one", () => {
+      const parsed = readUserConfigFileSync(path)!;
+      const llm = parsed.llm!;
+      writeUserConfigFileSync(path, {
+        ...parsed,
+        llm: { ...llm, runMode: { ...llm.runMode!, fusion: { team: { directors: ["cloud:model-z"] } } } },
+      });
+      expect(disk().llm.runMode.fusion.team).toEqual({ directors: ["cloud:model-z"] });
+    });
+  });
+
   it("a kind of the wrong type is still a broken file, and a provider typed in stays strict", () => {
     const tree = baseTree();
     tree.llm.providers.push({ id: "bad", kind: 7 });

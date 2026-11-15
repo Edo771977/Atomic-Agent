@@ -85,6 +85,14 @@ export interface FusionMachineFacts {
    */
   roleModels?: readonly { role: FusionRole; model: string }[];
   /**
+   * The fusion team's workers (`llm.runMode.fusion.team.workers`, issue
+   * #37), as `"<providerId>:<model>"` in config order: the only models a
+   * task may name. Config only, so stable for the prefix; a member that
+   * cannot answer is refused by the tool, not dropped here. Absent
+   * without a team's workers.
+   */
+  teamWorkers?: readonly string[];
+  /**
    * How many new lines one local worker's answer can hold
    * (`workerMaxNewLines`), the size the `### fusion` block tells the
    * orchestrator to cut local tasks to. Local leg only; absent for a
@@ -371,6 +379,9 @@ export function resolveFusionMachineFacts(
     workerModel,
     tokensPerSecond,
     ...(roleModels.length === 0 ? {} : { roleModels }),
+    ...(fusion?.team?.workers === undefined || fusion.team.workers.length === 0
+      ? {}
+      : { teamWorkers: [...fusion.team.workers] }),
     ...(newLines === null ? {} : { workerMaxNewLines: newLines }),
   };
 }
