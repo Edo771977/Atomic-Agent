@@ -619,6 +619,27 @@ describe("handleProvidersWizardKey", () => {
     expect(wizard.baseUrlLine).toBe("https://my-team.openai.azure.com/openai");
   });
 
+  it("takes a per-account URL typed without a scheme (ATO-1066 + ATO-468)", () => {
+    let wizard = createProvidersWizardState("add");
+    const azureIdx = presetRowIndex("azure-openai");
+    for (let i = 0; i < azureIdx; i += 1) {
+      wizard = next(wizard, "", emptyKey({ downArrow: true }));
+    }
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    wizard = { ...wizard, baseUrlLine: "my-team.openai.azure.com/openai" };
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    expect(wizard.error).toBeNull();
+    expect(wizard.phase).toBe("api_key");
+    expect(wizard.baseUrlLine).toBe("https://my-team.openai.azure.com/openai");
+
+    // Something that is no URL at all is refused with the preset's own
+    // URL as the example, not a fixed scheme.
+    wizard = { ...wizard, phase: "base_url", error: null, baseUrlLine: "not a url" };
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    expect(wizard.phase).toBe("base_url");
+    expect(wizard.error).toMatch(/your-resource\.openai\.azure\.com/);
+  });
+
   it("lets Bedrock's default Region through, editable on the URL screen", () => {
     // us-east-1 is a real Region, so the prefilled URL is valid as is.
     let wizard = createProvidersWizardState("add");

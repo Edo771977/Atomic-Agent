@@ -313,11 +313,15 @@ export function apiKeyPhaseError(wizard: ProvidersWizardState): string | null {
  */
 export function baseUrlPhaseError(wizard: ProvidersWizardState): string | null {
   if (wizard.phase !== "base_url" || !wizard.presetId) return null;
-  const endpoint = findProviderPreset(wizard.presetId)?.perAccountEndpoint;
-  if (!endpoint) return null;
-  const line = wizard.baseUrlLine.trim();
-  if (!/^https?:\/\/\S+$/i.test(line)) {
-    return "Enter the full URL, starting with https://";
+  const preset = findProviderPreset(wizard.presetId);
+  const endpoint = preset?.perAccountEndpoint;
+  if (!preset || !endpoint) return null;
+  // ATO-1066: the step adds a missing scheme on the way out (`http://`
+  // for this machine or the home network, else `https://`), so judge the
+  // line as it will be saved, not as typed.
+  const line = withAssumedScheme(wizard.baseUrlLine);
+  if (!/^https?:\/\/\S+$/i.test(line) || !URL.canParse(line)) {
+    return `Enter the full URL, e.g. ${preset.baseUrl}`;
   }
   if (
     endpoint.placeholder &&
