@@ -49,6 +49,8 @@ export interface RuntimeLifecycleResources {
   readonly swarmForShutdown: Pick<SwarmRegistry, "stopAll"> | null;
   /** Unwatch of the plugin MCP live stop (ATO-1407); cleared before the manager shuts down. */
   readonly pluginMcpWatch?: (() => void) | null;
+  /** The approval-pending reminder (`notifications.approvalPending`); its timers go first. */
+  readonly approvalPendingNotifier?: { dispose(): void } | null;
   readonly consolidatorJob: Pick<ConsolidatorJob, "stop"> | null;
   readonly taskStore: Pick<TaskStore, "close">;
   readonly analytics: Pick<AnalyticsClient, "shutdown"> | null;
@@ -131,6 +133,8 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     // And for the embedding backfill: abort its in-flight embed now, and
     // wait for it (below) before the notes store it writes into closes.
     const backfillStopped = resources.embeddingBackfill?.stop().catch(() => {});
+    // No "still waiting" ping from a process that is going away.
+    resources.approvalPendingNotifier?.dispose();
     if (resources.telegramChannelForShutdown) {
       try {
         await resources.telegramChannelForShutdown.stop();
