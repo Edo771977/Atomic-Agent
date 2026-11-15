@@ -18,6 +18,7 @@ import {
   type PartitionState,
 } from "./partition-state.js";
 import { shouldAdvance } from "./should-advance.js";
+import { isOfflineRefusal } from "../offline-network.js";
 
 /** Emitted once per state transition; wired to an `AgentLoopEvent` by bootstrap. */
 export interface ProviderSwitchNotice {
@@ -182,7 +183,8 @@ export class ProviderFallbackChain {
     const { timing } = this.resolve();
     const p = this.partition(partitionKey);
     const chain = this.chainFor(p);
-    if (!isSpendLimitRefusal(err)) {
+    // Neither our spend ceiling nor offline mode is the link failing.
+    if (!isSpendLimitRefusal(err) && !isOfflineRefusal(err)) {
       registerBreakerFailure(this.breaker(p, fromId), this.now(), decision.immediate, timing);
     }
 

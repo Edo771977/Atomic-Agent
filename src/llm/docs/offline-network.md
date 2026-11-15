@@ -21,6 +21,10 @@ Offline mode makes the agent refuse every outbound connection whose host is not 
 - Subscription CLI providers (Claude Code, Codex) are separate programs that talk to their vendor's cloud; they are refused before they start.
 - The Telegram bot uses grammy's own HTTP client (node-fetch), so the bot factory refuses to start it. A live switch-on stops Telegram, Discord and swarm bots; switching off starts the ones their config enables.
 
+## Provider fallback while offline
+
+A cloud link that offline mode refuses throws an error whose cause chain carries `OfflineNetworkError` (code `ATOMIC_AGENT_OFFLINE`); `isOfflineRefusal` reads it. That refusal is this machine's policy, not the provider failing, so: the OpenAI-compatible client does not retry it; `shouldAdvance` advances to the next link without the immediate signal and `advanceFrom` records no breaker failure (the link is not quarantined once the switch is off, and the next turn probes the primary again); `isOutageFailure` and the agent loop's outage wait treat it as a "no", so a turn never parks waiting for it; the request budget releases the hold, as for a connection that never opened.
+
 ## What is not enforced
 
 Without an OS sandbox nothing in this process can stop another program from opening a socket. These stay able to reach the network while offline mode is on:

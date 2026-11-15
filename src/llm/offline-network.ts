@@ -146,6 +146,26 @@ export class OfflineNetworkError extends Error {
   }
 }
 
+/**
+ * Is `err` (or one of its causes) an offline-mode refusal? A cloud link
+ * wraps it twice (fetch's `TypeError`, then the provider's own error);
+ * a subscription CLI throws it bare. The refusal is this machine's own
+ * policy, not evidence about the remote side: nothing was sent, waiting
+ * does not lift it, and the link is healthy once the switch is off.
+ */
+export function isOfflineRefusal(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof current !== "object" || current === null) return false;
+    if (current instanceof OfflineNetworkError) return true;
+    if ((current as { code?: unknown }).code === OFFLINE_ERROR_CODE) return true;
+    const next = (current as { cause?: unknown }).cause;
+    if (next === current) return false;
+    current = next;
+  }
+  return false;
+}
+
 export function offlineBlockedMessage(host: string, what?: string): string {
   const subject = what ? `${what}: ` : "";
   return (
