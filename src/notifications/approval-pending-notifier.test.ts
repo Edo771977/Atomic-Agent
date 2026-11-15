@@ -244,4 +244,14 @@ describe("formatApprovalPendingNotice", () => {
       ),
     ).toMatch(/^atomic-agent is waiting for your approval for 7 min: .+ \(os\.fs\.write\)\. Answer it in the app\.$/);
   });
+
+  it("says an ask_user question waits for an answer, not an approval", () => {
+    const text = formatApprovalPendingNotice(
+      { tool: "ask_user", category: "user_question", workdir: "/tmp/shop" },
+      { minutes: 3, private: false },
+    );
+    expect(text).toBe("atomic-agent is waiting for your answer for 3 min: question for you (ask_user) in shop. Answer it in the app.");
+    expect(formatApprovalPendingNotice({ tool: "ask_user", category: "user_question" }, { minutes: 3, private: true }))
+      .toBe("atomic-agent is waiting for your answer for 3 min. Answer it in the app.");
+  });
 });
