@@ -178,14 +178,73 @@ describe("AnthropicProvider request", () => {
     expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
   });
 
-  it("sends a sampling parameter the entry configured explicitly", async () => {
+  it("sends an explicit sampling parameter only on an API version older than 2026-10-21", async () => {
     const sent: Sent[] = [];
     await provider(sent, [json(MESSAGE)], {
       defaultChatModel: "claude-sonnet-4-5",
+      headers: { "anthropic-version": "2026-06-01" },
       extraBody: { temperature: 0.3, metadata: { user_id: "u" } },
     }).complete({ prompt: "hi" });
     expect(sent[0]!.body.temperature).toBe(0.3);
     expect(sent[0]!.body.metadata).toEqual({ user_id: "u" });
+  });
+
+  it("drops explicit sampling parameters on the pinned 2026-10-21 version, warning once", async () => {
+    const sent: Sent[] = [];
+    const warn = vi.fn();
+    const p = provider(sent, [json(MESSAGE)], {
+      extraBody: { temperature: 0.3, top_p: 0.9 },
+      modelParams: { top_k: 5 },
+      logger: { warn },
+    });
+    await p.complete({ prompt: "hi" });
+    await p.complete({ prompt: "hi" });
+    for (const body of sent.map((s) => s.body)) {
+      for (const key of ["temperature", "top_p", "top_k"]) expect(body).not.toHaveProperty(key);
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/temperature/);
+  });
+
+  it("translates or drops compat-era OpenAI-only extraBody keys instead of forwarding them", async () => {
+    const sent: Sent[] = [];
+    const warn = vi.fn();
+    const p = provider(sent, [json(MESSAGE)], {
+      extraBody: {
+        max_completion_tokens: 2000,
+        reasoning_effort: "high",
+        presence_penalty: 0.1,
+        frequency_penalty: 0.2,
+        n: 1,
+        seed: 7,
+        logit_bias: { "1": 2 },
+        stream_options: { include_usage: true },
+        parallel_tool_calls: false,
+        user: "someone",
+        some_future_openai_knob: true,
+        metadata: { user_id: "u" },
+        service_tier: "auto",
+        inference_geo: "us",
+      },
+      logger: { warn },
+    });
+    await p.complete(turnRequest());
+    await p.complete(turnRequest());
+    const body = sent[0]!.body;
+    expect(body.max_tokens).toBe(2000);
+    expect(body.output_config).toMatchObject({ effort: "high" });
+    for (const key of [
+      "max_completion_tokens", "reasoning_effort", "presence_penalty", "frequency_penalty", "n",
+      "seed", "logit_bias", "stream_options", "parallel_tool_calls", "user", "some_future_openai_knob",
+    ]) {
+      expect(body).not.toHaveProperty(key);
+    }
+    expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+    expect(body.metadata).toEqual({ user_id: "u" });
+    expect(body.service_tier).toBe("auto");
+    expect(body.inference_geo).toBe("us");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/presence_penalty/);
   });
 
   it("always sends max_tokens: the request cap, the entry ceiling, else the default", async () => {
