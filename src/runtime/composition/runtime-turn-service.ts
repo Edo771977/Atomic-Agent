@@ -11,7 +11,7 @@ import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import { withSessionFusionDirector, withSessionFusionWorker } from "../../session/session-fusion-team.js";
-import { directorPickedNoticeText, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionState } from "../../session/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
@@ -660,6 +660,14 @@ export function createRuntimeTurnService(
       ? configuredRoute
       : { ...configuredRoute, main: { ...configuredRoute.main, model: turnModel } };
     const previousRoute = readSessionRoute(session.metadata);
+    // A Codex director cannot take its own `model: "orchestrator"` tasks
+    // (its shell stays on): said once, on the first turn it leads.
+    if (director !== undefined && previousRoute?.director !== director.ref && isCodexCliProvider(llmResolved, director.providerId)) {
+      deps.emitEvent?.(session.id, {
+        type: "fusion_director_notice", sessionId: session.id, member: director.ref,
+        reason: "codex-direct-tasks", text: codexDirectorNoticeText(),
+      });
+    }
     const routeNote =
       previousRoute === null
         ? null

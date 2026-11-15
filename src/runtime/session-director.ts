@@ -1,5 +1,7 @@
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
+import type { ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
 import {
   defaultDirector,
   filterByPolicy,
@@ -108,6 +110,21 @@ export function directorPickedNoticeText(member: TeamMember, reason: "only" | "d
   return reason === "only"
     ? `fusion director: ${member.ref} (the only director available)`
     : `fusion director: ${member.ref} (the team's default of ${directors} directors)`;
+}
+
+/**
+ * Whether `providerId` is the Codex CLI. A Codex director keeps its own
+ * shell on (read-only), so `fusion.delegate` refuses `model:
+ * "orchestrator"` tasks on it (`cliToolsStayOn`) and they go to workers.
+ */
+export function isCodexCliProvider(resolved: ResolvedLlmConfig, providerId: string): boolean {
+  const entry = resolved.providers.find((p) => p.id === providerId);
+  return entry?.kind === SUBSCRIPTION_CLI_KIND && entry.subscriptionCli?.cli === "codex";
+}
+
+/** The Codex director's line, said once when a session starts on it. */
+export function codexDirectorNoticeText(): string {
+  return 'codex director: tasks for the director itself (model: "orchestrator") go to the workers';
 }
 
 /** A team member named by a caller (`--director`, a sidecar/HTTP field) that the team lists in `role`. */

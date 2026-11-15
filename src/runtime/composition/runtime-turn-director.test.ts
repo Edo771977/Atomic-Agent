@@ -178,6 +178,24 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(readSessionFusionDirector(output.session.metadata)).toBeNull();
   });
 
+  it("says once that a Codex director's own tasks go to the workers", async () => {
+    const notices: Array<{ reason?: string; text?: string }> = [];
+    fixture.config.llm!.providers.push({ id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" } as never);
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a", "codex:model-c"] };
+    await fixture.providers.providerRegistry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
+    const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event as never); } });
+    const first = await service.executeTurn(session("s"), "request", { director: "codex:model-c" });
+    const second = await service.executeTurn(first.session, "again");
+    expect(notices).toEqual([{
+      type: "fusion_director_notice", sessionId: "s", member: "codex:model-c", reason: "codex-direct-tasks",
+      text: "codex director: tasks for the director itself (model: \"orchestrator\") go to the workers",
+    }]);
+    // A switch away and back says it again: the route changed.
+    const away = await service.executeTurn(second.session, "x", { director: "cloud-a:model-a" });
+    await service.executeTurn(away.session, "y", { director: "codex:model-c" });
+    expect(notices.filter((n) => n.reason === "codex-direct-tasks")).toHaveLength(2);
+  });
+
   it("without a team runs as before: no director, the configured primary", async () => {
     fixture.config.llm!.runMode!.fusion!.team = undefined as never;
     const output = await fixture.service.executeTurn(session("s"), "request");
