@@ -176,8 +176,12 @@ jobs:
           check-latest: true
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      # npm 12 (what a fresh Windows install gets) blocks dependency install
+      # scripts that package.json `allowScripts` does not decide; strict mode
+      # turns an undecided one into a failed install, so a new native
+      # dependency fails here rather than on a contributor's machine.
+      - name: Install dependencies (npm 12, strict install-script policy)
+        run: npx --yes npm@12.2.2 ci --strict-allow-scripts
 
       - name: Check production types
         run: npm run lint

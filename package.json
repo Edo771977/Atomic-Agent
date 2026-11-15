@@ -15,6 +15,12 @@
     "grammars/**",
     "assets/ai-models/**"
   ],
+  "allowScripts": {
+    "@sentry/cli": false,
+    "better-sqlite3": true,
+    "esbuild": true,
+    "fsevents": false
+  },
   "engines": {
     "node": ">=25.7.0"
   },
