@@ -28,6 +28,10 @@ import {
 } from "./discord-channel-types.js";
 import { DiscordGateway } from "./discord-gateway.js";
 import type { WebSocketLike } from "./discord-gateway-transport.js";
+
+/** Outcome of `DiscordChannel.sendOwnerNotice`; a value, never a throw. */
+export type DiscordOwnerNoticeDelivery =
+  "sent" | "channel_not_up" | "not_paired" | "delivery_failed";
 import {
   handleDiscordMessage,
   type DiscordMessageEvent,
@@ -59,6 +63,8 @@ export class DiscordChannel {
   private error: string | null = null;
   private gateway: DiscordGateway | null = null;
   private bridge: DiscordApprovalBridge | null = null;
+  /** The REST client of the running connection; `null` while stopped. */
+  private api: DiscordApi | null = null;
   private botUserId: string | null = null;
   private botUsername: string | null = null;
   private ownerIds: readonly string[];
@@ -156,6 +162,7 @@ export class DiscordChannel {
       return;
     }
 
+    this.api = api;
     this.bridge = new DiscordApprovalBridge({
       api,
       approvals: this.deps.approvals,
@@ -272,8 +279,30 @@ export class DiscordChannel {
     this.bridge?.clear();
     await this.gateway?.stop();
     this.gateway = null;
+    this.api = null;
     this.releaseLock();
     this.setState("disabled");
+  }
+
+  /**
+   * One plain notice from the agent to the owner who set the bot up (the
+   * first allowlist entry, as the download ping uses), by DM. Only while
+   * the connection is up; never queues and never throws.
+   */
+  async sendOwnerNotice(text: string): Promise<DiscordOwnerNoticeDelivery> {
+    const api = this.api;
+    if (this.currentState !== "up" || api === null) return "channel_not_up";
+    const ownerId = this.ownerIds[0];
+    if (ownerId === undefined) return "not_paired";
+    try {
+      await api.sendMessage(await api.createDmChannel(ownerId), text);
+      return "sent";
+    } catch (err) {
+      this.deps.logger.warn("discord: owner notice not delivered", {
+        error: scrubDiscordError(err),
+      });
+      return "delivery_failed";
+    }
   }
 
   /**
