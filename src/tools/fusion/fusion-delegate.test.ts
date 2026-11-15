@@ -29,6 +29,8 @@ import { FusionTurnBudget } from "./turn-budget.js";
 import { FusionRunStore } from "./run-checkpoint.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import type { DelegateTask } from "./delegate-args.js";
+import type { TeamFamily, TeamMember } from "../../llm/run-mode/fusion-team.js";
+import type { FusionTeamContext } from "./team-routing.js";
 
 const REPO = resolve("/repo");
 
@@ -2065,6 +2067,134 @@ describe("fusion.delegate models by role (ATO-943)", () => {
       expect(row).not.toHaveProperty("model");
       expect((row.notes ?? []).join("\n")).not.toMatch(/ran on|role /);
     }
+  });
+});
+
+describe("fusion.delegate — fusion team routing (issue #37)", () => {
+  const member = (ref: string): TeamMember => {
+    const at = ref.indexOf(":");
+    return { providerId: ref.slice(0, at), model: ref.slice(at + 1), ref };
+  };
+  const families: Record<string, TeamFamily> = { "cli-b": "openai", "api-d": "anthropic" };
+  const teamContext = (over: Partial<FusionTeamContext> = {}): FusionTeamContext => ({
+    team: {
+      directors: ["cli-b:model-a", "api-d:model-o"],
+      workers: ["cli-b:model-b", "cli-b:model-c", "api-d:model-d"],
+    },
+    fusion: { orchestratorProvider: "cli-b", orchestratorModel: "model-a", workerProvider: "cli-b", workerModel: "model-b" },
+    familyOf: (m) => families[m.providerId] ?? "other",
+    reachable: () => true,
+    pinsModel: () => true,
+    ...over,
+  });
+  const teamMode = (over: Partial<ResolvedRunMode> = {}) =>
+    fusionMode({
+      orchestratorProviderId: "cli-b",
+      orchestratorModel: "model-a",
+      workerProviderId: "cli-b",
+      workerModel: "model-b",
+      primaryProviderId: "cli-b",
+      ...over,
+    });
+  type Pin = { providerId: string | undefined; model: string | undefined };
+  const recording = (pins: Map<string, Pin>): FusionDelegateDeps["runTurn"] => async (session, _msg, options) => {
+    const meta = session.metadata?.fusionWorker as { taskId: string };
+    pins.set(meta.taskId, { providerId: options.providerId, model: options.model });
+    return turnResult();
+  };
+
+  it("runs each task on the member it names, and one naming none on the session's worker", async () => {
+    const pins = new Map<string, Pin>();
+    const result = await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode(),
+        workerSupportsSlotAffinity: () => false,
+        resolveFusionTeam: () => teamContext(),
+        currentWorker: () => member("api-d:model-d"),
+        runTurn: recording(pins),
+      }),
+    ).run(
+      {
+        tasks: [
+          { id: "c", instructions: "one", model: "model-c" },
+          { id: "w", instructions: "two", model: "cli-b:model-b" },
+          { id: "d", instructions: "three" },
+        ],
+      },
+      ctx(),
+    );
+    expect(result.status).toBe("ok");
+    expect(pins.get("c")?.providerId).toBe("cli-b");
+    expect(pins.get("w")?.providerId).toBe("cli-b");
+    expect(pins.get("d")?.providerId).toBe("api-d");
+    const rows = result.details.tasks as WorkerTaskResult[];
+    expect(rows.find((r) => r.id === "c")).toMatchObject({ model: "model-c" });
+    expect(rows.find((r) => r.id === "d")).toMatchObject({ model: "model-d" });
+  });
+
+  it("falls back to the default worker when the session has none", async () => {
+    const pins = new Map<string, Pin>();
+    await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode(),
+        workerSupportsSlotAffinity: () => false,
+        resolveFusionTeam: () => teamContext({ fusion: { workerProvider: "api-d" } }),
+        runTurn: recording(pins),
+      }),
+    ).run({ tasks: [{ id: "d", instructions: "three" }] }, ctx());
+    expect(pins.get("d")?.providerId).toBe("api-d");
+  });
+
+  it("refuses a model or provider outside the team's workers before any worker starts", async () => {
+    const runTurn = vi.fn(async () => turnResult());
+    const result = await buildFusionDelegateTool(
+      deps({ resolveRunMode: () => teamMode(), resolveFusionTeam: () => teamContext(), runTurn }),
+    ).run({ tasks: [{ id: "x", instructions: "go", model: "model-z" }, { id: "y", instructions: "go", model: "local-llama" }] }, ctx());
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain('task "x" names model "model-z"');
+    expect(result.summary).toContain('task "y" names model "local-llama"');
+    expect(result.summary).toContain("llm.runMode.fusion.team.workers");
+    expect(result.summary).toContain("`cli-b:model-c`");
+    expect(runTurn).not.toHaveBeenCalled();
+  });
+
+  it("keys the CLI-tools limit on the director member, not the configured orchestrator", async () => {
+    const runTurn = vi.fn(async () => turnResult());
+    const cliToolsStayOn = (providerId: string) => providerId === "cli-b";
+    // The session's director is an API model: `model: "orchestrator"` runs on it.
+    const onApi = await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode(),
+        workerSupportsSlotAffinity: () => false,
+        resolveFusionTeam: () => teamContext(),
+        currentDirector: () => member("api-d:model-o"),
+        cliToolsStayOn,
+        runTurn,
+      }),
+    ).run({ tasks: [{ id: "h", instructions: "hard", model: "orchestrator" }] }, ctx());
+    expect(onApi.status).toBe("ok");
+    expect((onApi.details.tasks as WorkerTaskResult[])[0]).toMatchObject({ model: "model-o" });
+    // A Codex-like director: refused as before.
+    const onCli = await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode({ orchestratorProviderId: "api-d" }),
+        resolveFusionTeam: () => teamContext(),
+        currentDirector: () => member("cli-b:model-a"),
+        cliToolsStayOn,
+        runTurn,
+      }),
+    ).run({ tasks: [{ id: "h", instructions: "hard", model: "orchestrator" }] }, ctx());
+    expect(onCli.status).toBe("error");
+    expect(onCli.details.reason).toBe("orchestrator-target-cli-tools");
+  });
+
+  it("without a team routes as before", async () => {
+    const pins = new Map<string, Pin>();
+    const result = await buildFusionDelegateTool(
+      deps({ resolveFusionTeam: () => undefined, runTurn: recording(pins) }),
+    ).run({ tasks: [{ id: "a", instructions: "one" }] }, ctx());
+    expect(result.status).toBe("ok");
+    expect(pins.get("a")).toEqual({ providerId: "local-llama", model: undefined });
   });
 });
 
