@@ -206,6 +206,12 @@ describe("ToolRegistry output spill seam", () => {
     expect(result.details[FULL_OUTPUT_PATH_DETAIL]).toBeDefined();
   });
 
+  it("writes no file in an incognito chat (ATO-586)", async () => {
+    const result = await registry().invoke("os.shell.run", {}, { ...ctx("local"), incognito: true });
+    expect(result.details[FULL_OUTPUT_PATH_DETAIL]).toBeUndefined();
+    expect(existsSync(join(base, "s-1"))).toBe(false);
+  });
+
   it("keeps promoting the full output in cloud mode, with no file", async () => {
     const result = await registry().invoke("os.shell.run", {}, ctx("cloud"));
     expect(result.details[FULL_OUTPUT_PATH_DETAIL]).toBeUndefined();
