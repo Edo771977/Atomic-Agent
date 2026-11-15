@@ -48,8 +48,19 @@ describe("runtime.offlineMode (ATO-1084)", () => {
     });
     await control.setEnabled(true);
     expect(browser.stopLaunchedBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the Chrome it launched offline when going online, so the dead proxy does not outlive offline mode", async () => {
+    const browser = { stopLaunchedBrowser: vi.fn(async () => true) };
+    const control = createOfflineModeControl({
+      persist: () => {},
+      channels: () => ({ telegram: null, discord: null, swarm: null }),
+      browser: () => browser,
+    });
+    await control.setEnabled(true);
+    browser.stopLaunchedBrowser.mockClear();
     await control.setEnabled(false);
-    // Going online again launches nothing: the next browser call does.
+    // Going online stops it; the next browser call launches without --proxy-server.
     expect(browser.stopLaunchedBrowser).toHaveBeenCalledTimes(1);
   });
 

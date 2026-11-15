@@ -31,7 +31,9 @@ export interface OfflineModeDeps {
    * The browser backend: a Chrome the agent launched before the switch
    * has no dead proxy, so its open pages keep the network. It is stopped
    * when offline mode turns on; the next browser call relaunches it
-   * offline. A Chrome it attached to is not touched.
+   * offline. It is stopped again when offline mode turns off, since one
+   * launched offline keeps the dead proxy. A Chrome it attached to is not
+   * touched.
    */
   browser?: () => { stopLaunchedBrowser?(): Promise<boolean> } | null;
   /**
@@ -56,7 +58,7 @@ export interface OfflineModeDeps {
  * (its own HTTP client) and the Discord gateway (a socket opened before
  * the switch) are stopped when it turns on, and started again when it
  * turns off if their config asks for them. A Chrome the agent launched
- * and running model download workers are stopped too (it relaunches offline on the next browser call). With `ATOMIC_AGENT_OFFLINE=1`
+ * and running model download workers are stopped too (it relaunches offline on the next browser call); turning it off stops that Chrome again so the next call relaunches it without the dead proxy. With `ATOMIC_AGENT_OFFLINE=1`
  * the process stays offline whatever is set here; `isEnabled` says so.
  */
 export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeControl {
@@ -101,6 +103,9 @@ export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeCont
       persist(false);
       setOfflineNetwork(false);
       if (isOfflineNetwork()) return;
+      // A Chrome launched while offline keeps --proxy-server=127.0.0.1:9
+      // for its lifetime; the next browser call relaunches it online.
+      await settle("browser stop", deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
       const wanted = channelEnabled();
       if (wanted.telegram) await settle("telegram start", telegram?.start());
       if (wanted.discord) await settle("discord start", discord?.start());
