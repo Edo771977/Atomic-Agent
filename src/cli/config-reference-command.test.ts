@@ -47,4 +47,27 @@ describe("maskedValue (config list --json / --describe)", () => {
     expect(formatSettingValue("telegram.botToken", "123:abc")).toBe("***");
     expect(formatSettingValue("agent.tokenBudget", 3000)).toBe("3000");
   });
+
+  it("masks a value after a secret flag in an args array, and secrets inside URLs", () => {
+    const out = maskedValue("mcp.servers", [
+      {
+        name: "x",
+        command: "npx",
+        args: ["-y", "server", "--api-key", "sk-live-123", "--token=tok-456", "--port", "8080"],
+        url: "https://x.invalid/mcp?api_key=SEKRIT&mode=fast",
+      },
+    ]);
+    const text = JSON.stringify(out);
+    expect(text).not.toMatch(/sk-live-123|tok-456|SEKRIT/);
+    expect(out).toMatchObject([
+      { args: ["-y", "server", "--api-key", "***", "--token=***", "--port", "8080"] },
+    ]);
+    expect(text).toContain("mode=fast");
+
+    const providers = maskedValue("llm.providers", [{ name: "p", baseUrl: "http://user:pw@host.invalid:8080/v1" }]);
+    expect(JSON.stringify(providers)).not.toMatch(/user:pw|pw@/);
+    expect(JSON.stringify(providers)).toContain("host.invalid:8080/v1");
+    // A URL with nothing secret prints exactly as written.
+    expect(maskedValue("llm.baseUrl", "http://localhost:8080")).toBe("http://localhost:8080");
+  });
 });

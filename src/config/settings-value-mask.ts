@@ -1,3 +1,5 @@
+import { isSecretEnvName } from "../sandbox/command-env.js";
+import { redactDebugUrl } from "../tools/browser/page-debug-log.js";
 import { formatConfigValue, isSecretConfigKey } from "./config-paths.js";
 
 /**
@@ -23,6 +25,9 @@ function lastSegment(key: string): string {
  * (`token`, `apiKey`, `secret`, `password`, ...) is masked wherever it
  * sits, and every value under an `env` or `headers` map is masked, since
  * `GITHUB_TOKEN` or `Authorization` there does not look secret by name.
+ * In an array, the token after a secret flag (`--api-key sk-...`,
+ * `--token=...`) is masked, and a URL string loses its user info and
+ * secret query values.
  * The desktop's All settings list renders these values as they come.
  */
 export function maskSettingValue(key: string, value: unknown): unknown {
@@ -42,8 +47,49 @@ function maskModeFor(name: string, parent: MaskMode): MaskMode {
   return "none";
 }
 
+/** `--api-key`, `-token`, `--client_secret`: a flag whose next argv token is a secret. */
+function secretFlagName(token: string): boolean {
+  const match = /^--?([A-Za-z][\w-]*)$/.exec(token);
+  return match !== null && isSecretEnvName(match[1]!.replace(/-/g, "_"));
+}
+
+/**
+ * An argv array (`mcp.servers[].args`): the token after a secret flag,
+ * and the value of `--flag=value`, are masked.
+ */
+function maskArgv(items: readonly unknown[], mode: MaskMode): unknown[] {
+  return items.map((item, i) => {
+    const previous = items[i - 1];
+    if (typeof item === "string" && item.length > 0) {
+      if (typeof previous === "string" && secretFlagName(previous)) return MASK;
+      const eq = item.indexOf("=");
+      if (eq > 0 && secretFlagName(item.slice(0, eq)) && eq < item.length - 1) {
+        return `${item.slice(0, eq + 1)}${MASK}`;
+      }
+    }
+    return maskNode(item, mode);
+  });
+}
+
+/**
+ * A string that is a URL loses its user info and secret query values
+ * (`redactDebugUrl`, the browser debug log's rule); any other string,
+ * or a URL with nothing to hide, is printed as written.
+ */
+function maskUrlString(raw: string): string {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const redacted = redactDebugUrl(raw);
+  return redacted === parsed.toString() ? raw : redacted;
+}
+
 function maskNode(value: unknown, mode: MaskMode): unknown {
-  if (Array.isArray(value)) return value.map((item) => maskNode(item, mode));
+  if (Array.isArray(value)) return maskArgv(value, mode);
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [child, inner] of Object.entries(value as Record<string, unknown>)) {
@@ -51,7 +97,7 @@ function maskNode(value: unknown, mode: MaskMode): unknown {
     }
     return out;
   }
-  if (mode === "none") return value;
+  if (mode === "none") return typeof value === "string" ? maskUrlString(value) : value;
   if (typeof value === "string") return value.length > 0 ? MASK : value;
   if (mode === "strings" || value === null || value === undefined || typeof value === "boolean") return value;
   return MASK;
