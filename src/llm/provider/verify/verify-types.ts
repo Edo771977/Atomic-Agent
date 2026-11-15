@@ -41,6 +41,13 @@ export interface ProviderVerifyTarget {
   /** Ordered candidates; at most the first two are tried. */
   readonly probeModels: readonly string[];
   readonly extraHeaders?: Record<string, string>;
+  /**
+   * The native Anthropic API instead of chat completions: the key is
+   * checked with `GET {baseUrl}/v1/models` (`x-api-key`, the current
+   * `anthropic-version`), which proves the key but not the balance;
+   * `probeModels` is not used.
+   */
+  readonly wire?: "anthropic-messages";
 }
 
 export interface ProviderVerifyResult {
