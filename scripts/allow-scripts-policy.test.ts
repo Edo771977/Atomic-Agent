@@ -3,8 +3,14 @@
  * `allowScripts` decides them. Every lockfile package that npm marks with
  * `hasInstallScript` must have a name-only decision (`true` or `false`), so a
  * new native dependency fails here instead of on a contributor's `npm ci`.
+ *
+ * A package that ships a `binding.gyp` counts too, whatever its lockfile
+ * says: npm 12 reports its implicit `node-gyp rebuild` as blocked even when
+ * the package sets `"gypfile": false` (seen on Windows with better-sqlite3
+ * 13.x, which loads its prebuilt N-API binary and must never be compiled,
+ * issue #29). Such a package is denied with `false` to silence the warning.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -32,7 +38,7 @@ const pkg = readJson("package.json") as { allowScripts?: Record<string, unknown>
 const withScripts = [
   ...new Set(
     Object.entries(lock.packages)
-      .filter(([path, entry]) => path !== "" && entry.hasInstallScript === true)
+      .filter(([path, entry]) => path !== "" && (entry.hasInstallScript === true || existsSync(join(root, path, "binding.gyp"))))
       .map(([path, entry]) => packageNameOf(path, entry)),
   ),
 ].sort();
@@ -53,6 +59,10 @@ describe("package.json allowScripts policy", () => {
   it("has no stale entry for a package without an install script", () => {
     const stale = Object.keys(pkg.allowScripts ?? {}).filter((name) => !withScripts.includes(name));
     expect(stale).toEqual([]);
+  });
+
+  it("denies better-sqlite3's implicit node-gyp build, so its prebuilt binary is used", () => {
+    expect(pkg.allowScripts?.["better-sqlite3"]).toBe(false);
   });
 
   it("maps nested lockfile paths to package names", () => {

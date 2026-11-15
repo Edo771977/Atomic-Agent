@@ -1,5 +1,6 @@
-import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 
 import { ConfigValidationError, parseUserConfigFile } from "../config/index.js";
 import { readRawConfigTree } from "../config/config-paths.js";
@@ -43,8 +44,11 @@ export interface DoctorContext {
   /** Whether a process id is running; injectable for tests. */
   pidAlive: (pid: number) => boolean;
   now: () => Date;
-  /** Opens and closes a database; injectable for tests. Defaults to an in-memory better-sqlite3 one. */
-  openSqlite?: () => void;
+  /**
+   * Opens and closes a database; injectable for tests. Defaults to an
+   * in-memory better-sqlite3 one. May return a detail for the ok line.
+   */
+  openSqlite?: () => string | void;
 }
 
 type Tree = Record<string, unknown>;
@@ -172,13 +176,58 @@ function checkSessionPins(ctx: DoctorContext): DoctorFinding[] {
  * command that opens a store; the loader's message carries the fix.
  */
 function checkSqlite(ctx: DoctorContext): DoctorFinding[] {
-  const open = ctx.openSqlite ?? (() => new Database(":memory:").close());
+  const open = ctx.openSqlite ?? openDefaultSqlite;
   try {
-    open();
-    return [{ check: "sqlite", status: "ok", message: "better-sqlite3 opens a database" }];
+    const detail = open();
+    const suffix = detail ? ` (${detail})` : "";
+    return [{ check: "sqlite", status: "ok", message: `better-sqlite3 opens a database${suffix}` }];
   } catch (err) {
     return [{ check: "sqlite", status: "fail", message: err instanceof Error ? err.message : String(err) }];
   }
+}
+
+/**
+ * Which native binding better-sqlite3 loads, in its own order: a locally
+ * compiled `build/Release/better_sqlite3.node` first, else the prebuilt
+ * N-API binary in `prebuilds/<platform>-<arch>.node` (issue #29: on 13.x the
+ * compiled file is normally absent and that is fine).
+ */
+export function describeBetterSqliteBinding(
+  packageDir: string,
+  platform: NodeJS.Platform,
+  arch: string,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (exists(join(packageDir, "build", "Release", "better_sqlite3.node"))) {
+    return "compiled binding build/Release/better_sqlite3.node";
+  }
+  const targets = platform === "linux" ? [`linux-${arch}`, `linuxmusl-${arch}`] : [`${platform}-${arch}`];
+  const found = targets.find((target) => exists(join(packageDir, "prebuilds", `${target}.node`)));
+  return found ? `prebuilt binding prebuilds/${found}.node` : "no binding file found";
+}
+
+/** Opens an in-memory database and names the versions and the binding used. */
+function openDefaultSqlite(): string {
+  const db = new Database(":memory:");
+  let sqliteVersion: string | undefined;
+  try {
+    const row = db.prepare("select sqlite_version() as v").get() as { v?: string } | undefined;
+    sqliteVersion = row?.v;
+  } finally {
+    db.close();
+  }
+  const parts: string[] = [];
+  try {
+    const manifest = createRequire(import.meta.url).resolve("better-sqlite3/package.json");
+    const version = (JSON.parse(readFileSync(manifest, "utf8")) as { version?: string }).version;
+    if (version) parts.push(`better-sqlite3 ${version}`);
+    if (sqliteVersion) parts.push(`SQLite ${sqliteVersion}`);
+    parts.push(describeBetterSqliteBinding(dirname(manifest), process.platform, process.arch));
+  } catch {
+    // The single-executable build carries the binding next to the exe, not a package dir.
+    if (sqliteVersion) parts.push(`SQLite ${sqliteVersion}`);
+  }
+  return parts.join(", ");
 }
 
 export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[]> = [

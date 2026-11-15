@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { USER_CONFIG_DEFAULTS } from "../config/index.js";
 import { doctorCommand } from "./doctor-command.js";
+import { describeBetterSqliteBinding } from "./doctor-checks.js";
 
 let dir: string;
 let out: string;
@@ -149,5 +150,26 @@ describe("atag doctor sqlite check (issue #29)", () => {
     save(USER_CONFIG_DEFAULTS);
     expect(await run([])).toBe(0);
     expect(out).toMatch(/ok +sqlite: better-sqlite3 opens a database/);
+  });
+
+  it("names the better-sqlite3 version, SQLite version and the binding it loaded", async () => {
+    save(USER_CONFIG_DEFAULTS);
+    expect(await run([])).toBe(0);
+    expect(out).toMatch(/ok +sqlite: better-sqlite3 opens a database \(better-sqlite3 \d+\.\d+\.\d+, SQLite \d+\.\d+\.\d+, (prebuilt|compiled) binding [^)]+\)/);
+  });
+});
+
+describe("describeBetterSqliteBinding (issue #29)", () => {
+  const pkg = "/pkg";
+  it("prefers a locally compiled binding, as better-sqlite3 itself does", () => {
+    const exists = (p: string) => p === join(pkg, "build", "Release", "better_sqlite3.node") || p === join(pkg, "prebuilds", "win32-x64.node");
+    expect(describeBetterSqliteBinding(pkg, "win32", "x64", exists)).toBe("compiled binding build/Release/better_sqlite3.node");
+  });
+  it("otherwise names the prebuilt N-API binary for this platform", () => {
+    const exists = (p: string) => p === join(pkg, "prebuilds", "win32-x64.node");
+    expect(describeBetterSqliteBinding(pkg, "win32", "x64", exists)).toBe("prebuilt binding prebuilds/win32-x64.node");
+  });
+  it("says so when neither exists", () => {
+    expect(describeBetterSqliteBinding(pkg, "linux", "x64", () => false)).toBe("no binding file found");
   });
 });
