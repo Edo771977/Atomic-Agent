@@ -51,4 +51,10 @@ describe("parseTurnModel", () => {
     expect(parseTurnModel({ provider_id: "gone", provider_model: "m" })).toMatch(/not configured/);
     expect(parseTurnModel({ provider_id: "openrouter", provider_model: "  " })).toMatch(/must be a model id/);
   });
+
+  it("refuses a model not known for the provider (400 before any copy is built)", () => {
+    withProviders();
+    expect(parseTurnModel({ provider_id: "openrouter", provider_model: "nobody/never-heard-of" }))
+      .toMatch(/"nobody\/never-heard-of" is not known for llm provider "openrouter"/);
+  });
 });

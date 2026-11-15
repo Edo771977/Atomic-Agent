@@ -217,7 +217,8 @@ describe("runtime turn ownership recipes", () => {
       toolTransport: "auto",
       providers: [
         local,
-        { id: "cloud", kind: "openai-compatible", baseUrl: "https://api.example.invalid/v1", apiKey: "k", defaultChatModel: "default-model" },
+        { id: "cloud", kind: "openai-compatible", baseUrl: "https://api.example.invalid/v1", apiKey: "k", defaultChatModel: "default-model",
+          userModels: [{ id: "project-model" }] },
       ],
     } as never;
     const registry = fixture.providers.providerRegistry;
