@@ -15,6 +15,7 @@ The provider registry keeps defensive construction-entry snapshots and exposes c
 - [llama-server-client.ts](llama-server-client.ts)
 - [dry-sampler.ts](dry-sampler.ts): the opt-in DRY anti-repeat fields for `/completion` (`localModels.drySampler`)
 - [slot-manager.ts](slot-manager.ts)
+- [transport-deadlines.ts](transport-deadlines.ts) and [offline-network.ts](offline-network.ts): the process-wide HTTP pool and the offline-mode kill switch composed into it ([offline mode](docs/offline-network.md), ATO-1084)
 
 ## Ownership and dependencies
 

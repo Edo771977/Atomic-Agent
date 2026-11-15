@@ -17,13 +17,27 @@
  * Saves under {@link PROMPT_CACHE_MIN_TOKENS} are dropped; the folder is
  * held to {@link PROMPT_CACHE_MAX_BYTES}, oldest first. Best effort: a
  * failed save or restore costs the speed-up, never the start or stop.
+ *
+ * Incognito chats (ATO-586) must leave no prompt on disk. llama-server
+ * picks the slot of a pending request itself and fusion workers or side
+ * calls can carry the chat's text into other slots, so the agent marks
+ * the whole launch private ({@link markPromptCachePrivate}) when an
+ * incognito turn starts, and the next stop saves no slot at all. The mark
+ * names the agent process that wrote it: while that process lives (it may
+ * still have the chat open) neither a stop nor a relaunch clears it, so a
+ * restart mid-turn (out-of-memory retry, partial-offload restart, lazy
+ * start) cannot leave the turn's later steps unmarked. Once the owner has
+ * exited, the next launch or stop clears it. The save loop looks for the
+ * mark again before every slot. Closing the chat also erases the slots it
+ * used ({@link erasePromptCacheSlots}).
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { resolvePromptCacheDir } from "../backend-paths.js";
+import { isPidAlive } from "./process-release.js";
 
 /** Shorter prompts are cheap to read again; their files are not kept. */
 export const PROMPT_CACHE_MIN_TOKENS = 256;
@@ -38,6 +52,8 @@ export const PROMPT_CACHE_SLOT_TIMEOUT_MS = 20_000;
 export const PROMPT_CACHE_SAVE_BUDGET_MS = 45_000;
 
 const STATE_SUFFIX = ".bin";
+/** Present while the running launch served an incognito chat (ATO-586). */
+const PRIVATE_MARK = "private-launch.json";
 const FINGERPRINT_SUFFIX = ".json";
 
 /** The launch flags a saved cache depends on, besides the model and engine. */
@@ -112,6 +128,10 @@ export function promptCacheLaunchArgs(dataDir: string): string[] {
     return [];
   }
   ownerOnly(dir, 0o700);
+  // A fresh server holds no incognito prompt, but the agent that marked
+  // the last launch may still be mid-turn in that chat: only a mark whose
+  // owner has exited is stale.
+  if (privateMark(dir) === "stale") removeQuietly(join(dir, PRIVATE_MARK));
   try {
     for (const name of readdirSync(dir)) ownerOnly(join(dir, name), 0o600);
   } catch {
@@ -139,6 +159,41 @@ export function promptCacheAtLaunch(dataDir: string, enabled: boolean | null): s
   if (enabled === true) return promptCacheLaunchArgs(dataDir);
   if (enabled === false) purgePromptCache(dataDir);
   return [];
+}
+
+/**
+ * Mark the running launch private: the next stop saves no slot (ATO-586).
+ * A no-op while the disk cache is off (no folder). Never throws; a mark
+ * that cannot be written is reported as `false`.
+ */
+export function markPromptCachePrivate(dataDir: string, now: () => number = Date.now, owner: number = process.pid): boolean {
+  const dir = resolvePromptCacheDir(dataDir);
+  try {
+    if (!statSync(dir).isDirectory()) return false;
+    writeFileSync(join(dir, PRIVATE_MARK), JSON.stringify({ since: now(), pid: owner }), { mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The private mark: absent; `live` while the agent process that wrote it
+ * runs; `stale` once it has exited (or the mark names no process).
+ */
+function privateMark(dir: string): "none" | "live" | "stale" {
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, PRIVATE_MARK), "utf8");
+  } catch {
+    return existsSync(join(dir, PRIVATE_MARK)) ? "live" : "none";
+  }
+  try {
+    const pid = (JSON.parse(raw) as { pid?: unknown }).pid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 && isPidAlive(pid) ? "live" : "stale";
+  } catch {
+    return "stale";
+  }
 }
 
 interface SavedFingerprint {
@@ -225,8 +280,8 @@ async function postSlotAction(opts: {
   port: number;
   apiKey: string | null;
   slotId: number;
-  action: "save" | "restore";
-  filename: string;
+  action: "save" | "restore" | "erase";
+  filename?: string;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
 }): Promise<Record<string, unknown> | null> {
@@ -238,7 +293,7 @@ async function postSlotAction(opts: {
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ filename: opts.filename }),
+        body: JSON.stringify(opts.filename !== undefined ? { filename: opts.filename } : {}),
         signal: AbortSignal.timeout(opts.timeoutMs ?? PROMPT_CACHE_SLOT_TIMEOUT_MS),
       },
     );
@@ -287,14 +342,32 @@ export async function savePromptCaches(opts: {
   budgetMs?: number;
 }): Promise<number> {
   const dir = resolvePromptCacheDir(opts.dataDir);
+  // ATO-586: this launch served an incognito chat; nothing of it is kept.
+  // The mark stays while its owner lives: a relaunch may serve the rest
+  // of the same turn.
+  const mark = privateMark(dir);
+  if (mark !== "none") {
+    if (mark === "stale") removeQuietly(join(dir, PRIVATE_MARK));
+    return 0;
+  }
   const now = opts.now ?? Date.now;
   const deadline = now() + (opts.budgetMs ?? PROMPT_CACHE_SAVE_BUDGET_MS);
   const stamp = now();
   let kept = 0;
+  const savedNow: string[] = [];
+  // An incognito turn that starts while the stop saves marks the launch
+  // too: stop, and drop what this pass already wrote.
+  const markedSince = (): boolean => {
+    if (privateMark(dir) === "none") return false;
+    for (const name of savedNow) removeSave(dir, name);
+    return true;
+  };
   for (const slotId of await idleSlotIds(opts.port, opts.apiKey, opts.fetchImpl)) {
+    if (markedSince()) return 0;
     const left = deadline - now();
     if (left <= 0) break;
     const filename = `slot-${stamp}-${slotId}${STATE_SUFFIX}`;
+    savedNow.push(filename);
     const res = await postSlotAction({
       port: opts.port,
       apiKey: opts.apiKey,
@@ -320,8 +393,35 @@ export async function savePromptCaches(opts: {
       removeSave(dir, filename);
     }
   }
+  if (markedSince()) return 0;
   evictPromptCache(opts.dataDir);
   return kept;
+}
+
+/**
+ * Erase the KV cache of `slotIds` on the server on `port` (llama-server
+ * `POST /slots/{id}?action=erase`), each distinct non-negative id once.
+ * Best effort; returns how many the server confirmed.
+ */
+export async function erasePromptCacheSlots(opts: {
+  port: number;
+  apiKey: string | null;
+  slotIds: readonly number[];
+  fetchImpl?: FetchLike;
+}): Promise<number> {
+  let erased = 0;
+  for (const slotId of new Set(opts.slotIds)) {
+    if (!Number.isInteger(slotId) || slotId < 0) continue;
+    const res = await postSlotAction({
+      port: opts.port,
+      apiKey: opts.apiKey,
+      slotId,
+      action: "erase",
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    });
+    if (res) erased += 1;
+  }
+  return erased;
 }
 
 /**

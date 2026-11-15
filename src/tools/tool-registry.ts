@@ -58,6 +58,12 @@ export interface ToolContext {
    */
   userGroundingTexts?: readonly string[];
   /**
+   * True when the call runs in an incognito chat (ATO-586): memory write
+   * tools refuse (`tools/memory/incognito-guard.ts`) and no full output
+   * is spilled to a file. Absent otherwise.
+   */
+  incognito?: boolean;
+  /**
    * The provider id this step's completions are pinned to
    * (`StepDependencies.providerId` — a fusion worker runs on the local
    * leg). Absent ⇒ the step runs on the active text provider. Read by
@@ -223,9 +229,10 @@ export class ToolRegistry {
     if (untrusted !== undefined) result = markUntrustedResult(result, untrusted);
     const outside = untrusted ?? tool.externalSource;
     if (outside !== undefined) this.onUntrustedOutput?.(ctx.sessionId, outside);
+    // ATO-586: an incognito chat leaves no full-output file in the temp folder.
     return ctx.modelMode === "cloud"
       ? fullToolResult(result)
-      : this.outputSpill
+      : this.outputSpill && ctx.incognito !== true
         ? await this.outputSpill.spill(name, ctx.sessionId, result)
         : result;
   }

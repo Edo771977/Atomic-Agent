@@ -21,7 +21,9 @@ import {
   sessionSummaryCursorAfter,
   type SessionSummaryCursor,
 } from "../session/session-summary-page.js";
+import { readSessionArchived } from "../session/session-archived.js";
 import { readSessionTitle } from "../session/session-title.js";
+import { isIncognitoSession } from "../session/incognito.js";
 import {
   planLastTurnRollback,
   type LastTurnRollbackOptions,
@@ -213,6 +215,14 @@ function skillCatalogOmittedFeedLine(dropped: number): string {
   return `  … ${formatSkillCatalogOmittedNote(dropped)}`;
 }
 
+/** Shown when `/incognito` opens a chat (ATO-586). */
+export const INCOGNITO_OPENED_NOTICE =
+  "incognito chat: nothing from it is saved to memory, it is not listed, and it is deleted when you leave it or quit";
+
+/** Shown when the operator leaves an incognito chat. */
+export const INCOGNITO_CLOSED_NOTICE =
+  "the incognito chat was closed and deleted; nothing from it was saved to memory";
+
 /**
  * Owns the single live chat session. Each call to `sendMessage` queues a
  * macro-turn through `runtime.runTurn`; only one turn is in flight at any
@@ -317,6 +327,7 @@ export class ChatOrchestrator {
     this.tasks = new TasksOrchestrator(runtime, bus, {
       getCurrentSessionId: () => this.session?.id ?? null,
       switchSession: (id) => this.switchSession(id),
+      isCurrentSessionIncognito: () => isIncognitoSession(this.session),
     });
     this.skills = new SkillsOrchestrator(runtime, bus, { currentSession: () => this.session });
     this.projectTrust = new ProjectTrustOrchestrator({
@@ -436,6 +447,8 @@ export class ChatOrchestrator {
       (sessionId) => {
         const state = this.runtime.sessionStore.load(sessionId);
         if (!state) return null;
+        // ATO-1150: an archived chat stays off the rail, pinned or not.
+        if (readSessionArchived(state.metadata) && state.id !== this.session?.id) return null;
         // The rail's rows come from a SQL projection now (#367); a
         // pinned thread fetched by id is projected the same way here.
         return toPickerEntry(summariseSessionState(state));
@@ -807,6 +820,12 @@ export class ChatOrchestrator {
 
   /** Stored threads that have a first prompt, plus the pending ones. */
   private railSessions(): SessionPickerEntry[] {
+    /* ATO-1150: chats archived (from the desktop's sidebar, or
+       `POST /api/sessions/{id}/archived`) are left out of the rail and the
+       session picker, which list the same set. `railPage` asks the store
+       to leave them out in SQL, so a page of archived rows cannot hide
+       the older chats; the open chat stays, so archiving it elsewhere
+       does not pull the row out from under it. */
     const stored = this.railPage().map((row) => toPickerEntry(row));
     // The manual order applies whether or not there are stand-ins.
     if (this.pendingRows.size === 0) return this.sessionRail.arrange(stored);
@@ -851,8 +870,11 @@ export class ChatOrchestrator {
     const rows: SessionSummary[] = [];
     let after: SessionSummaryCursor | undefined;
     for (let page = 0; page < this.railPages; page += 1) {
+      const openId = this.session?.id;
       const batch = this.runtime.sessionStore.listSummaryPage({
         limit: RAIL_PAGE_SIZE,
+        excludeArchived: true,
+        ...(openId ? { keepId: openId } : {}),
         ...(after ? { after } : {}),
       });
       rows.push(...batch);
@@ -1215,6 +1237,14 @@ export class ChatOrchestrator {
     const notices: TranscriptNotice[] = [];
     const previous = this.session;
     if (!previous) return notices;
+    // ATO-586: leaving an incognito chat closes it. Its turn is stopped
+    // (it would only keep writing a chat about to be deleted), and the
+    // runtime deletes the row and trace once that turn has ended.
+    if (isIncognitoSession(previous)) {
+      this.currentController?.abort();
+      this.runtime.discardIncognitoSession?.(previous.id);
+      notices.push({ text: INCOGNITO_CLOSED_NOTICE });
+    }
     // Denied for ANY pending approval on the thread being left, not
     // only when the parked turn is ours: a scheduler/HTTP/Telegram-
     // origin turn parks on the same gate, and the switch drops its
@@ -1342,7 +1372,12 @@ export class ChatOrchestrator {
     }
   }
 
-  newSession(): void {
+  /**
+   * Start a fresh session. `incognito` (ATO-586, `/incognito`) opens an
+   * incognito chat: nothing from it is saved to memory, the rail never
+   * lists it, and it is deleted when the operator leaves it or quits.
+   */
+  newSession(options: { incognito?: boolean } = {}): void {
     if (this.quitting) return;
     this.cancelPromptEnhance();
     // A running turn keeps running in its old thread — see
@@ -1353,7 +1388,10 @@ export class ChatOrchestrator {
     // Deferred like `ensureSession`'s, and for the same reason: a `+ new`
     // the operator never types into leaves no row behind. The one left
     // here is dropped as soon as the next `+ new` or switch replaces it.
-    this.session = this.runtime.createSession({ persist: false });
+    this.session = this.runtime.createSession({
+      persist: false,
+      ...(options.incognito === true ? { incognito: true } : {}),
+    });
     this.skills.refresh();
     this.clearQueue();
     clearTtyScreen(process.stdout);
@@ -1370,6 +1408,9 @@ export class ChatOrchestrator {
     });
     this.showGoal(null);
     for (const notice of notices) this.notify(notice);
+    if (options.incognito === true) {
+      this.bus.emit({ type: "system_message", text: INCOGNITO_OPENED_NOTICE });
+    }
   }
 
   private holdComposerSubmission(text: string): boolean {
@@ -2098,6 +2139,11 @@ export class ChatOrchestrator {
   }
 
   async shutdown(): Promise<void> {
+    // ATO-586: an open incognito chat is closed with the app; a delete
+    // that misses (its turn still unwinding) is swept at the next start.
+    if (this.session && isIncognitoSession(this.session)) {
+      this.runtime.discardIncognitoSession?.(this.session.id);
+    }
     this.abortCurrentTurn();
     this.detachedTurns.abortAll();
     this.tasks.shutdown();
@@ -2169,6 +2215,7 @@ function summariseSessionState(state: SessionState): SessionSummary {
       typeof state.metadata?.importedFrom === "string"
         ? state.metadata.importedFrom
         : null,
+    archived: readSessionArchived(state.metadata),
   };
 }
 

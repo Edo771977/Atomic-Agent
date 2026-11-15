@@ -14,6 +14,7 @@ import { pluginCommand } from "./plugin-command.js";
 import { configCommand } from "./config-command.js";
 import { serveCommand } from "./serve-command.js";
 import { traceCommand } from "./trace-command.js";
+import { exportCommand } from "./export-command.js";
 import { taskCommand } from "./task-command.js";
 import { overnightCommand } from "./overnight-command.js";
 import { fusionCommand } from "./fusion-command.js";
@@ -30,6 +31,7 @@ import { setupCommand } from "./setup-command.js";
 import { tuiCommand } from "../tui/index.js";
 import { recoverInterruptedFitTest, releaseSuspendedChatBeforeTui, warnLiveFitTestBeforeTui } from "./models-fit-test-restore.js";
 import { installTransportDeadlines } from "../llm/transport-deadlines.js";
+import { applyOfflineModeFromConfigFile } from "./offline-from-config.js";
 import { getAppVersion } from "../version.js";
 import { USER_CONFIG_DEFAULTS } from "../config/index.js";
 
@@ -133,6 +135,11 @@ const COMMANDS: CommandDescriptor[] = [
     name: "trace",
     summary: "Inspect append-only session traces (list|show|export)",
     run: traceCommand,
+  },
+  {
+    name: "export",
+    summary: "Save one chat as Markdown, HTML or Word (export <sessionId>|--last [--format md|html|docx])",
+    run: exportCommand,
   },
   {
     name: "task",
@@ -266,6 +273,10 @@ function userArgsFromArgv(): string[] {
 // config when a command actually builds a runtime. See
 // `installTransportDeadlines`.
 installTransportDeadlines();
+// Offline mode (ATO-1084) for every command, not only those that build a
+// runtime: `update` and the hub commands never do. Read-only, and a
+// missing or broken config.json leaves it off.
+applyOfflineModeFromConfigFile();
 
 async function main(): Promise<number> {
   // Windows only: UTF-8 console code page for this run, restored on exit.

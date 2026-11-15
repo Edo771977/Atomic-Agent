@@ -1,5 +1,6 @@
 import { createSessionCompactionHandler } from "./route-compaction.js";
 import { createRollbackLastTurnHandler } from "./route-rollback-last-turn.js";
+import { createResumeInterruptedTurnHandler } from "./route-resume-interrupted-turn.js";
 import type { RouteDefinition } from "./http-server.js";
 
 import { createChatCompletionsHandler } from "./openai-chat-completions.js";
@@ -33,6 +34,8 @@ import {
   createSteerSessionHandler,
 } from "./route-sessions.js";
 import { createRenameSessionHandler } from "./route-session-title.js";
+import { createSetSessionArchivedHandler } from "./route-session-archived.js";
+import { createExportSessionHandler } from "./route-session-export.js";
 import {
   createEscalateFusionWorkerHandler,
   createListFusionWorkersHandler,
@@ -57,6 +60,7 @@ import {
 } from "./route-tasks.js";
 import { createWebhookHandler } from "./route-webhooks.js";
 import { createCodingModeHandlers } from "./route-coding-mode.js";
+import { createGetOfflineModeHandler, createSetOfflineModeHandler } from "./route-offline-mode.js";
 import { createContextPreviewHandler } from "./route-context-preview.js";
 import {
   createRestartMcpServerHandler,
@@ -180,10 +184,16 @@ export function buildRouteTable(): RouteDefinition[] {
       path: "/api/sessions/{id}",
       handler: createRenameSessionHandler(),
     },
+    // ATO-1054: one chat as Markdown / HTML / DOCX (PDF is printed from the HTML by the client).
+    { method: "GET", path: "/api/sessions/{id}/export", handler: createExportSessionHandler() },
     // ATO-731: one chat's folder, changed without restarting serve.
     { method: "POST", path: "/api/sessions/{id}/working-dir", handler: createSetSessionWorkingDirHandler() },
+    // ATO-1150: archive or unarchive a chat (metadata.archived, seen by the desktop and the terminal).
+    { method: "POST", path: "/api/sessions/{id}/archived", handler: createSetSessionArchivedHandler() },
     // ATO-1298: take the last plain question and answer back, for a real retry.
     { method: "POST", path: "/api/sessions/{id}/rollback-last-turn", handler: createRollbackLastTurnHandler() },
+    // ATO-448: continue a reply a restart cut off, on the person's click.
+    { method: "POST", path: "/api/sessions/{id}/resume", handler: createResumeInterruptedTurnHandler() },
     {
       method: "POST",
       path: "/api/sessions/{id}/steer",
@@ -223,6 +233,9 @@ export function buildRouteTable(): RouteDefinition[] {
     // shows before the first message of a session.
     { method: "GET", path: "/api/coding-mode", handler: codingMode.get },
     { method: "POST", path: "/api/coding-mode", handler: codingMode.set },
+    // ATO-1084: the network kill switch and its outbound counter.
+    { method: "GET", path: "/api/offline-mode", handler: createGetOfflineModeHandler() },
+    { method: "POST", path: "/api/offline-mode", handler: createSetOfflineModeHandler() },
     { method: "POST", path: "/api/context-preview", handler: createContextPreviewHandler() },
     // ATO-873: the desktop's Reconnect button after a local server answered 404/405.
     { method: "POST", path: "/api/local-model/recheck", handler: createLocalModelRecheckHandler() },

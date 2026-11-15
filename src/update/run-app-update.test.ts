@@ -1,8 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { resetOfflineNetworkForTests, setOfflineNetwork } from "../llm/offline-network.js";
+
+const spawnMock = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: spawnMock,
+}));
 import {
   canSelfUpdate,
   buildUpdateInvocation,
   formatInstallFailure,
+  runAppUpdate,
 } from "./run-app-update.js";
 
 describe("canSelfUpdate", () => {
@@ -161,5 +169,15 @@ describe("formatInstallFailure", () => {
     expect(formatInstallFailure(null, ["boom"])).toContain(
       "exited with code unknown",
     );
+  });
+});
+
+describe("runAppUpdate offline", () => {
+  afterEach(() => { resetOfflineNetworkForTests(); spawnMock.mockClear(); });
+
+  it("refuses before running the installer while offline mode is on", async () => {
+    setOfflineNetwork(true);
+    await expect(runAppUpdate({ version: "v9.9.9" })).rejects.toThrow(/offline mode: raw\.githubusercontent\.com blocked/);
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });

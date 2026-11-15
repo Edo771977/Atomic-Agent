@@ -14,10 +14,18 @@ import {
  * whole list of what the snapshot carries.
  *
  * Left out on purpose:
- * - local servers (`atomic-chat`, `lmstudio`, `ollama`): no list price;
+ * - local servers (`atomic-chat`, `lmstudio`, `ollama`, `lemonade`,
+ *   `foundry-local`): no list price;
+ * - `azure-openai`: the model id is the operator's deployment name, which
+ *   names no models.dev model, and the price depends on the deployment;
+ * - `bedrock`: priced per Region, and the Mantle endpoint's model ids are
+ *   not checked against models.dev's Bedrock keys, so a match could
+ *   price the wrong model;
  * - `ollama-cloud`: billed by subscription plan, and a per-token price
  *   would show spend nobody is charged;
- * - `hyperbolic`, `nous`: models.dev has no entry for them.
+ * - `hyperbolic`, `nous`: models.dev has no entry for them;
+ * - `wandb`: not mapped until a models.dev entry is checked against the
+ *   model ids this host serves (CoreWeave's catalog moves often).
  */
 export const MODELS_DEV_PROVIDER_FOR_PRESET: Readonly<Record<string, string>> = {
   anthropic: "anthropic",

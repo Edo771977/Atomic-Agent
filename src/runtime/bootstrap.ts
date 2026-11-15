@@ -9,8 +9,12 @@ import { createRuntimeToolRegistry, registerRuntimeCoreTools, registerRuntimeVis
 import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
 import { createInterruptedTurns } from "./interrupted-turns.js";
 import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition/runtime-turn-service.js";
+import { createIncognitoSessions } from "./incognito-sessions.js";
+import { eraseManagedChatSlots, markPromptCachePrivate } from "../local-llm/index.js";
 import { createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
+import { createOfflineModeControl } from "./composition/runtime-offline-mode.js";
+import { stopRunningDownloadWorkers } from "../local-llm/index.js";
 import type { AgentRuntime, CreateAgentRuntimeOptions } from "./runtime-contract.js";
 export type { AgentRuntime, CreateAgentRuntimeOptions, MemoryEmbeddingReconnect, RuntimeEventHandlers } from "./runtime-contract.js";
 export { managedLocalLlmHealthFailureHint } from "./composition/runtime-local-profile.js";
@@ -838,16 +842,39 @@ export async function createAgentRuntime(
   const { createSession, createEphemeralSession: createWorkerSession } = createRuntimeSessionFactories(workingDir, sessionStore, ensureRecorder);
   // A fusion worker's calls count on the session that spawned it, so the
   // composer's `$` readout includes what the workers spent (ATO-1388).
-  const createEphemeralSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
+  const createUsageForwardingWorkerSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
-  const { executeTurn, steer, runTurn, controlGoal } = createRuntimeTurnService(config, {
+  const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
     inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
+  // ATO-586: an incognito chat closed mid-turn is deleted once the turn
+  // has left the queue (`isBusy` is still true inside `executeTurn`).
+  const incognitoSessions = createIncognitoSessions({
+    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore, fusionRuns,
+    // ATO-586: keep the chat's prompt out of the managed server's disk cache.
+    promptCache: {
+      markPrivate: () => { markPromptCachePrivate(config.paths.localModelsDataDir); },
+      eraseSlots: (slotIds) => eraseManagedChatSlots(config.paths.localModelsDataDir, slotIds),
+    },
+    slotsOf: (id) => [slotManager.pinnedSlot(id), slotManager.reservedSideCallSlotId()]
+      .filter((slot): slot is number => slot !== null && slot >= 0),
+  });
+  const runTurn: typeof runQueuedTurn = (session, ...rest) => {
+    incognitoSessions.noteTurn(session);
+    return runQueuedTurn(session, ...rest).finally(() => incognitoSessions.settle(session.id));
+  };
+  const executeTurn: typeof executeLockedTurn = (session, ...rest) => {
+    incognitoSessions.noteTurn(session);
+    return executeLockedTurn(session, ...rest);
+  };
+  // ATO-586: a worker of an incognito chat is incognito too.
+  const createEphemeralSession: typeof createWorkerSession = (meta, ...rest) =>
+    incognitoSessions.forWorker(meta.parentSessionId, createUsageForwardingWorkerSession(meta, ...rest));
 
   const taskRunner = createRuntimeTaskRunner({
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,
@@ -956,6 +983,20 @@ export async function createAgentRuntime(
     telegramChannel: null,
     discordChannel: null,
     swarm: null,
+    // ATO-1084: the channels are attached below; read at call time.
+    offlineMode: createOfflineModeControl({
+      channels: () => ({
+        telegram: telegramChannelForShutdown,
+        discord: discordChannelForShutdown,
+        swarm: swarmForShutdown,
+      }),
+      browser: () => browserBackend,
+      stopDownloads: () => stopRunningDownloadWorkers(getConfig().paths.localModelsDataDir),
+      warn: (message, err) =>
+        logger.warn(message, {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+    }),
     mcpManager,
     providerRegistry,
     capabilities,
@@ -964,6 +1005,7 @@ export async function createAgentRuntime(
     logger,
     metrics,
     createSession,
+    discardIncognitoSession: incognitoSessions.discard,
     createEphemeralSession,
     runTurn,
     controlGoal,

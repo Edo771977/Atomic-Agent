@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DownloadFileOptions } from "../downloads/download-file.js";
+import { offlineRefusalFor } from "../../llm/offline-network.js";
 import { CoreUnavailableError, toCoreUnavailable } from "./core-errors.js";
 import { CORE_VERSION, activeCoreVersion, coreRoot, coreVersionDir, readCoreBackend, writeCoreJson, type CoreBackend } from "./core-state.js";
 import { connectCore, CoreChangedError, CoreRequestError, withCoreClient, type CoreControlClient } from "./core-client.js";
@@ -59,6 +60,16 @@ export async function activateCoreVersion(dataDir: string, version = CORE_VERSIO
   });
 }
 
+/**
+ * Core downloads backends (and refreshes its catalog with `force`) from
+ * GitHub itself. The call to Core is loopback, so the dispatcher lets it
+ * through; offline mode refuses the whole install here instead.
+ */
+export function refuseEngineDownloadOffline(): void {
+  const offline = offlineRefusalFor("github.com", "engine install");
+  if (offline) throw offline;
+}
+
 /** A dropped connection or a 5xx from Core is worth another install call; a refusal is not. */
 function isRetryableCoreCall(err: unknown): boolean {
   if (err instanceof CoreRequestError) return err.status >= 500;
@@ -73,6 +84,7 @@ function isRetryableCoreCall(err: unknown): boolean {
  * never retried.
  */
 export async function installSelectedBackend(client: CoreControlClient, provider: "llamacpp" | "llamacpp-upstream", body: { version: string; backend: string; asset_name?: string }, opts: DownloadFileOptions): Promise<{ path: string }> {
+  refuseEngineDownloadOffline();
   return withCoreRetries(async () => {
     const taskId = `agent-backend-${randomUUID()}`;
     const cancel = () => { void client.call(`/downloads/${taskId}/cancel`, {}).catch(() => {}); };
@@ -95,6 +107,7 @@ export async function installSelectedBackend(client: CoreControlClient, provider
  * never waits for another engine operation.
  */
 export async function installCoreBackend(dataDir: string, opts: DownloadFileOptions = {}, version = CORE_VERSION): Promise<{ ok: true; tag: string; activated: boolean }> {
+  refuseEngineDownloadOffline();
   return withCoreOperation(dataDir, async () => {
   const idle = await activeCoreIdle(dataDir);
   if (!idle && version === activeCoreVersion(dataDir)) {

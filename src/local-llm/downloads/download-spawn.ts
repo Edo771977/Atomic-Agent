@@ -2,10 +2,13 @@ import { execSync, spawn as nodeSpawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 
 import { isSeaBuild, selfInvocation } from "../../runtime/self-invocation.js";
+import { OFFLINE_ENV } from "../../config/network-config.js";
+import { isOfflineNetwork } from "../../llm/offline-network.js";
 import { classifyPidLiveness } from "../server/daemon-lifecycle.js";
 import {
   downloadJobId,
   isDownloadJobLive,
+  listDownloadJobs,
   readDownloadJob,
   resolveDownloadLogPath,
   resolveDownloadsDir,
@@ -99,7 +102,9 @@ export function spawnDownloadWorker(
       // The state dir and every other ATOMIC_AGENT_* knob travel by
       // environment; a worker reading a different `~/.atomic-agent`
       // would download into the wrong place.
-      env: { ...(input.env ?? process.env) },
+      // Offline mode switched on live (or by the runtime) is not in
+      // config.json yet when the worker reads it: say so by environment.
+      env: { ...(input.env ?? process.env), ...(isOfflineNetwork() ? { [OFFLINE_ENV]: "1" } : {}) },
     });
     child.unref();
     if (child.pid == null) {
@@ -208,4 +213,20 @@ export async function stopDownloadWorker(
     if (Date.now() >= deadline) return { outcome: "still-running", job: now };
     await new Promise((r) => setTimeout(r, pollMs));
   }
+}
+
+/**
+ * Stop every download worker that is running for `dataDir` (offline
+ * mode switched on live, ATO-1084: the worker is a separate process the
+ * dispatcher cannot see). Each job keeps its partial file and a
+ * resumable record. Never throws.
+ */
+export async function stopRunningDownloadWorkers(dataDir: string): Promise<void> {
+  let jobs: DownloadJob[];
+  try {
+    jobs = listDownloadJobs(dataDir).filter(isDownloadJobLive);
+  } catch {
+    return;
+  }
+  await Promise.all(jobs.map((job) => stopDownloadWorker(dataDir, job).catch(() => undefined)));
 }

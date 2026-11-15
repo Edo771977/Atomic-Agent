@@ -306,6 +306,33 @@ export function apiKeyPhaseError(wizard: ProvidersWizardState): string | null {
 }
 
 /**
+ * Why the base URL step cannot be left yet, or `null` when it can. Only a
+ * per-account preset refuses anything: its prefilled URL is a template
+ * (`https://your-resource.openai.azure.com/openai`), and saving it as is
+ * would fail every request against a host nobody owns.
+ */
+export function baseUrlPhaseError(wizard: ProvidersWizardState): string | null {
+  if (wizard.phase !== "base_url" || !wizard.presetId) return null;
+  const preset = findProviderPreset(wizard.presetId);
+  const endpoint = preset?.perAccountEndpoint;
+  if (!preset || !endpoint) return null;
+  // ATO-1066: the step adds a missing scheme on the way out (`http://`
+  // for this machine or the home network, else `https://`), so judge the
+  // line as it will be saved, not as typed.
+  const line = withAssumedScheme(wizard.baseUrlLine);
+  if (!/^https?:\/\/\S+$/i.test(line) || !URL.canParse(line)) {
+    return `Enter the full URL, e.g. ${preset.baseUrl}`;
+  }
+  if (
+    endpoint.placeholder &&
+    line.toLowerCase().includes(endpoint.placeholder.toLowerCase())
+  ) {
+    return endpoint.hint;
+  }
+  return null;
+}
+
+/**
  * How each built-in kind is named in prose. The raw kind is a config
  * token, not a service name: `"openrouter" rejected this key` in the
  * middle of a screen whose own row says "OpenRouter" reads as a

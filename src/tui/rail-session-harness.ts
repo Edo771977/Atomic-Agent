@@ -48,18 +48,20 @@ export type StoredSession = ReturnType<typeof blank>;
 
 /**
  * What the store's `listSummaryPage` does in SQL: rows someone has
- * spoken to, newest first with the id as the tiebreak, from the cursor
- * on, at most `limit` of them. Keeping the stand-in honest about the
+ * spoken to (archived ones left out when asked, the kept id still in),
+ * newest first with the id as the tiebreak, from the cursor on, at most
+ * `limit` of them. Keeping the stand-in honest about the
  * filter and the bound is the point — a stub that handed back the whole
  * list would hide exactly the paging the rail now depends on.
  */
 export function summaryPageOf(
   stored: StoredSession[],
-  { limit, after }: SessionSummaryPageOptions,
+  { limit, after, excludeArchived, keepId }: SessionSummaryPageOptions,
 ): SessionSummary[] {
   return [...stored]
     .filter((state) => state.turns.some((turn) => turn.kind === "user"))
     .map(summarizeSessionState)
+    .filter((row) => !excludeArchived || !row.archived || row.id === keepId)
     .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1))
     .filter(
       (row) =>

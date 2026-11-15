@@ -16,6 +16,8 @@ export {
 } from "./turn-owner.js";
 export type { TurnOwner, TurnOwnerProbe } from "./turn-owner.js";
 export { parseTurnProgress, serializeTurnProgress } from "./turn-progress.js";
+export { isIncognitoSession, newIncognitoMark } from "./incognito.js";
+export type { IncognitoMark } from "./incognito.js";
 export type { TurnProgress, TurnResumeOptions } from "./turn-progress.js";
 export {
   INTERRUPTED_TURN_RESUME_NOTE,
@@ -158,3 +160,27 @@ export {
 } from "./session-title-user.js";
 
 export type { SessionCompaction, RollingCompactionSummary, CompactionResult, CompactionReason } from "./session-compaction.js";
+export {
+  SESSION_ARCHIVED_METADATA_KEY,
+  SESSION_ARCHIVED_SET_AT_KEY,
+  readSessionArchived,
+  readSessionArchivedSetAt,
+  withSessionArchived,
+} from "./session-archived.js";
+// ATO-1054: one chat as Markdown / HTML / DOCX.
+export {
+  CHAT_EXPORT_MIME,
+  chatExportFilename,
+  chatExportTitle,
+  parseChatExportFormat,
+  renderChatHtml,
+  renderChatMarkdown,
+} from "./chat-export.js";
+export type {
+  ChatExportFormat,
+  ChatExportOptions,
+  DescribeExportedToolCall,
+} from "./chat-export.js";
+export { markdownToDocumentXml, renderMarkdownDocx } from "./chat-export-docx.js";
+export { exportChat } from "./chat-export-render.js";
+export type { ChatExportFile } from "./chat-export-render.js";

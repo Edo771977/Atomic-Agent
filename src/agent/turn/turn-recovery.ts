@@ -18,6 +18,7 @@ import { PARSE_RECOVERY_BUDGET, composeParseFailureNotice, isRecoverableParseFai
 import { EMPTY_COMPLETION_RECOVERY_BUDGET, composeEmptyCompletionNotice, isRecoverableEmptyCompletion, repeatedEmptyCompletionError } from "./empty-completion-recovery.js";
 import { FINALIZATION_REQUEST_DEADLINE_MS, type RequestDeadline } from "../request-deadline.js";
 import { getConfig } from "../../config/index.js";
+import { isOfflineRefusal } from "../../llm/offline-network.js";
 import type { TurnLoopState } from "./turn-state.js";
 
 export type TurnRecoveryDependencies = Pick<
@@ -942,6 +943,9 @@ function isWaitableOutage(err: unknown): boolean {
   // The day's spend ceiling (ATO-649): wrapped as a status-less
   // `TransportError` too, and no amount of waiting lifts it.
   if (isDailySpendLimitError(err)) return false;
+  // Offline mode (ATO-1084): this machine refused the request; it stays
+  // refused until the person turns the switch off, so waiting is no use.
+  if (isOfflineRefusal(err)) return false;
   // Our own clock ran out. Never evidence about the provider, so it is
   // decided before the status split rather than inside it: the shape
   // arrives as `status === null`, which is otherwise the strongest

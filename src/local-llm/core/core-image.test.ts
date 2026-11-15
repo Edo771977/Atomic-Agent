@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CoreRequestError, type CoreControlClient } from "./core-client.js";
+import { OfflineNetworkError, resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
 import {
   CoreImageError,
   DEFAULT_OPENROUTER_IMAGE_MODEL,
@@ -121,6 +122,15 @@ describe("runCoreImageJob", () => {
 });
 
 describe("cloud media", () => {
+  it("does not hand Core the OpenRouter key while offline mode is on", async () => {
+    setOfflineNetwork(true);
+    try {
+      const call = vi.fn(async () => ({}));
+      await expect(registerOpenRouterMedia({ call } as unknown as CoreControlClient, "sk-or-test")).rejects.toBeInstanceOf(OfflineNetworkError);
+      expect(call).not.toHaveBeenCalled();
+    } finally { resetOfflineNetworkForTests(); }
+  });
+
   it("registers OpenRouter with the key in the body and both media dialects", async () => {
     const call = vi.fn(async () => ({}));
     await registerOpenRouterMedia({ call } as unknown as CoreControlClient, "sk-or-test");

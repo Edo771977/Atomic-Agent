@@ -33,6 +33,18 @@ import { ARCHIVED_TURNS_KEY } from "./turn-archive.js";
  * may have its opening prompt there rather than in `$.turns`; the
  * payload's marker carries that prompt, and counts as "someone has spoken
  * to it" for the `EXISTS` guard.
+ *
+ * An incognito chat (ATO-586, `incognito.ts`) is never listed, so the
+ * rail, the recents and the profile's name walk never see it. Its check
+ * comes after `json_valid`, like every other guard.
+ *
+ * An archived chat (ATO-1150, `metadata.archived`) is left out only when
+ * the caller opts in (`:excludeArchived`, the terminal's rail and picker),
+ * with `:keepId` still listed so the open chat does not vanish from under
+ * the operator. Filtering here rather than after the page keeps a page of
+ * `limit` rows a page of rows the caller shows: a newest page that was all
+ * archived would otherwise hide every older chat. The HTTP list keeps them
+ * and reports the flag.
  */
 function summaryPageSql(cursored: boolean): string {
   return `
@@ -51,14 +63,19 @@ SELECT id,
              AND json_extract(t.value, '$.kind') = 'user'
            LIMIT 1)) AS firstPrompt,
        json_extract(payload, '$.metadata.title') AS title,
-       json_extract(payload, '$.metadata.importedFrom') AS importedFrom
+       json_extract(payload, '$.metadata.importedFrom') AS importedFrom,
+       json_extract(payload, '$.metadata.archived') AS archived
   FROM sessions
  WHERE json_valid(payload) AND json_type(payload, '$.turns') = 'array'
+   AND json_type(payload, '$.incognito') IS NOT 'object'
    AND (json_type(payload, '$.${ARCHIVED_TURNS_KEY}.firstUserText') = 'text'
         OR EXISTS (SELECT 1
                      FROM json_each(payload, '$.turns') AS t
                     WHERE t.type = 'object'
-                      AND json_extract(t.value, '$.kind') = 'user'))${
+                      AND json_extract(t.value, '$.kind') = 'user'))
+   AND (:excludeArchived = 0
+        OR json_extract(payload, '$.metadata.archived') IS NOT 1
+        OR id = :keepId)${
                     cursored
                       ? `
    AND (updated_at < :afterUpdatedAt
@@ -91,6 +108,10 @@ export interface SessionSummaryPageOptions {
   limit: number;
   /** Omitted for the first page. */
   after?: SessionSummaryCursor;
+  /** Leave archived chats out (ATO-1150). Default false: every row is listed. */
+  excludeArchived?: boolean;
+  /** With `excludeArchived`, a chat listed even when archived (the open one). */
+  keepId?: string;
 }
 
 /** The row shape the projection above hands back, before coercion. */
@@ -105,6 +126,7 @@ export interface SummaryRow {
   firstPrompt: unknown;
   title: unknown;
   importedFrom: unknown;
+  archived: unknown;
 }
 
 export function toSummary(row: SummaryRow): SessionSummary {
@@ -119,6 +141,8 @@ export function toSummary(row: SummaryRow): SessionSummary {
     firstPrompt: toText(row.firstPrompt),
     title: toText(row.title),
     importedFrom: toText(row.importedFrom),
+    // ATO-1150: only a JSON `true`, which json_extract hands back as 1.
+    archived: row.archived === 1 || row.archived === true,
   };
 }
 
@@ -138,9 +162,14 @@ export function summaryPageParams(
   options: SessionSummaryPageOptions,
 ): Record<string, number | string> {
   const limit = Math.max(0, Math.trunc(options.limit));
-  if (!options.after) return { limit };
+  const filter = {
+    excludeArchived: options.excludeArchived === true ? 1 : 0,
+    keepId: options.keepId ?? "",
+  };
+  if (!options.after) return { limit, ...filter };
   return {
     limit,
+    ...filter,
     afterUpdatedAt: options.after.updatedAt,
     afterId: options.after.id,
   };

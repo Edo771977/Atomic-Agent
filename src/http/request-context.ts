@@ -31,6 +31,13 @@ export interface HandlerContext {
    * `GET /api/sessions/{id}/steer`.
    */
   undeliveredSteers: UndeliveredSteerStore;
+  /**
+   * ATO-586: incognito chats `POST /v1/chat/completions` opened on this
+   * server. `close()` discards them, so `serve` does not keep one per
+   * conversation until the next start's sweep. Absent in callers that
+   * build a context by hand.
+   */
+  incognitoChats?: Set<string>;
 }
 
 export type HttpHandler = (

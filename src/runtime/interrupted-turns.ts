@@ -30,12 +30,33 @@ import type { SessionStore } from "../session/session-store.js";
  */
 export type ResumeOffer = { text: string } | { alreadyQueued: string };
 
+export interface ResumeOptions {
+  /** Let the queued mark lapse after this many ms (see `resume`). */
+  holdMs?: number;
+}
+
+export interface InterruptedTurnsOptions {
+  /** Clock for `holdMs`. Default `Date.now`. */
+  now?: () => number;
+}
+
+/** A queued mark: the exact text handed out, and when it lapses (never when absent). */
+interface QueuedMark {
+  text: string;
+  expiresAt?: number;
+}
+
 export interface InterruptedTurns {
   pending(sessionId: string): InterruptedChatTurn | null;
   /** `resume`'s text, or `null` when there is none or one is already queued. */
   resumeMessage(sessionId: string): string | null;
-  /** `/resume`: the cut-off turn's continuing message, marked queued. */
-  resume(sessionId: string): ResumeOffer | null;
+  /**
+   * `/resume`: the cut-off turn's continuing message, marked queued.
+   * `holdMs` makes the mark lapse after that long (an HTTP client that
+   * took the text and crashed before sending or releasing it); without
+   * it the mark holds until the turn starts or is released.
+   */
+  resume(sessionId: string, options?: ResumeOptions): ResumeOffer | null;
   /**
    * `/fusion resume`: a resumable run's message (the newest without
    * `runId`), marked queued under the same mark `/resume` uses for a
@@ -78,7 +99,13 @@ const TURN_QUEUED_LINE = "a resume of the cut-off turn is already queued; it run
 export function createInterruptedTurns(
   store: Pick<SessionStore, "load" | "readTurnProgress">,
   fusionRuns?: ResumableFusionRuns,
+  options: InterruptedTurnsOptions = {},
 ): InterruptedTurns {
+  const now = options.now ?? ((): number => Date.now());
+  const lapsed = (mark: QueuedMark): boolean =>
+    mark.expiresAt !== undefined && now() >= mark.expiresAt;
+  const expiry = (hold: ResumeOptions | undefined): { expiresAt?: number } =>
+    hold?.holdMs === undefined ? {} : { expiresAt: now() + Math.max(0, hold.holdMs) };
   const resumableRuns = (sessionId: string): readonly { runId: string; updatedAt: number }[] => {
     if (fusionRuns === undefined) return [];
     try {
@@ -89,18 +116,22 @@ export function createInterruptedTurns(
     }
   };
   /** Session id -> the cut-off turn a resume is queued for, and its exact text. */
-  const queued = new Map<string, { startedAt: number; text: string }>();
+  const queued = new Map<string, QueuedMark & { startedAt: number }>();
   /** Session id -> run id -> the run's checkpoint stamp and text when its resume was queued. */
-  const queuedRuns = new Map<string, Map<string, { updatedAt: number; text: string }>>();
+  const queuedRuns = new Map<string, Map<string, QueuedMark & { updatedAt: number }>>();
   const runQueued = (sessionId: string, run: { runId: string; updatedAt: number }): boolean => {
     const marks = queuedRuns.get(sessionId);
     const mark = marks?.get(run.runId);
     if (mark === undefined) return false;
-    if (mark.updatedAt === run.updatedAt) return true;
+    if (mark.updatedAt === run.updatedAt && !lapsed(mark)) return true;
     marks!.delete(run.runId);
     return false;
   };
-  const queueRun = (sessionId: string, run: { runId: string; updatedAt: number }): ResumeOffer | null => {
+  const queueRun = (
+    sessionId: string,
+    run: { runId: string; updatedAt: number },
+    hold?: ResumeOptions,
+  ): ResumeOffer | null => {
     if (runQueued(sessionId, run)) return { alreadyQueued: runQueuedLine(run.runId) };
     let text: string | null;
     try {
@@ -109,8 +140,8 @@ export function createInterruptedTurns(
       text = null;
     }
     if (text === null) return null;
-    const marks = queuedRuns.get(sessionId) ?? new Map<string, { updatedAt: number; text: string }>();
-    marks.set(run.runId, { updatedAt: run.updatedAt, text });
+    const marks = queuedRuns.get(sessionId) ?? new Map<string, QueuedMark & { updatedAt: number }>();
+    marks.set(run.runId, { updatedAt: run.updatedAt, text, ...expiry(hold) });
     queuedRuns.set(sessionId, marks);
     return { text };
   };
@@ -124,22 +155,22 @@ export function createInterruptedTurns(
     const queuedFor = queued.get(sessionId);
     if (queuedFor === undefined) return turn;
     // Still the same cut-off turn: its resume is queued, not yet started.
-    if (turn !== null && turn.startedAt === queuedFor.startedAt) return null;
-    // The continuing turn started (it replaced the marker) or the row
-    // changed under us: the queued mark has done its job.
+    if (turn !== null && turn.startedAt === queuedFor.startedAt && !lapsed(queuedFor)) return null;
+    // The continuing turn started (it replaced the marker), the row
+    // changed under us, or the hold ran out: the queued mark is done.
     queued.delete(sessionId);
     return turn;
   };
-  const resume = (sessionId: string): ResumeOffer | null => {
+  const resume = (sessionId: string, hold?: ResumeOptions): ResumeOffer | null => {
     const turn = pending(sessionId);
     if (turn === null) {
       return queued.has(sessionId) ? { alreadyQueued: TURN_QUEUED_LINE } : null;
     }
     const run = resumableRuns(sessionId).find((r) => r.updatedAt >= turn.startedAt);
-    const offer = run === undefined ? null : queueRun(sessionId, run);
+    const offer = run === undefined ? null : queueRun(sessionId, run, hold);
     if (offer !== null && "alreadyQueued" in offer) return offer;
     const text = offer?.text ?? interruptedTurnResumeMessage(turn);
-    queued.set(sessionId, { startedAt: turn.startedAt, text });
+    queued.set(sessionId, { startedAt: turn.startedAt, text, ...expiry(hold) });
     return { text };
   };
   return {

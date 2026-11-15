@@ -18,6 +18,7 @@ import { readLogTail } from "./log-tail.js";
 import {
   promptCacheFingerprint,
   promptCacheAtLaunch,
+  erasePromptCacheSlots,
   restorePromptCaches,
   savePromptCaches,
   statModelFile,
@@ -1623,27 +1624,47 @@ export interface StopDaemonOptions {
  * launch ran with the disk cache (ATO-456). Best effort, bounded by
  * `PROMPT_CACHE_SAVE_BUDGET_MS`; never throws.
  */
+/** The managed chat server's pid, port and key, `null` when none is recorded. Throws on an unreadable pid file. */
+function chatServerTarget(dataDir: string, port?: number): { pid: number; port: number; apiKey: string | null } | null {
+  const core = (() => {
+    try {
+      return JSON.parse(readFileSync(coreSessionPath(dataDir, "chat"), "utf-8")) as
+        { pid?: unknown; port?: unknown; api_key?: unknown };
+    } catch {
+      return null;
+    }
+  })();
+  if (core && typeof core.pid === "number" && typeof core.port === "number") {
+    return { pid: core.pid, port: core.port, apiKey: typeof core.api_key === "string" ? core.api_key : null };
+  }
+  const pid = Number(readFileSync(resolvePidFilePath(dataDir), "utf-8").trim());
+  const resolvedPort = port ?? configuredPort("chat");
+  if (Number.isInteger(pid) && pid > 0 && resolvedPort !== null) {
+    return { pid, port: resolvedPort, apiKey: resolveManagedServerApiKey(dataDir, readConfiguredApiKey()) };
+  }
+  return null;
+}
+
+/**
+ * ATO-586: erase the KV cache of `slotIds` on the managed chat server, so a
+ * closed incognito chat's prompt is not kept in a slot (and saved by a later
+ * stop). Best effort, never throws; nothing to do without a managed server.
+ */
+export async function eraseManagedChatSlots(dataDir: string, slotIds: readonly number[]): Promise<number> {
+  if (slotIds.length === 0) return 0;
+  try {
+    const target = chatServerTarget(dataDir);
+    if (!target) return 0;
+    return await erasePromptCacheSlots({ port: target.port, apiKey: target.apiKey, slotIds });
+  } catch {
+    return 0;
+  }
+}
+
 async function savePromptCachesBeforeStop(dataDir: string, opts?: StopDaemonOptions): Promise<void> {
   if (opts?.savePromptCache === false || readConfiguredPromptDiskCache() !== true) return;
   try {
-    let target: { pid: number; port: number; apiKey: string | null } | null = null;
-    const core = (() => {
-      try {
-        return JSON.parse(readFileSync(coreSessionPath(dataDir, "chat"), "utf-8")) as
-          { pid?: unknown; port?: unknown; api_key?: unknown };
-      } catch {
-        return null;
-      }
-    })();
-    if (core && typeof core.pid === "number" && typeof core.port === "number") {
-      target = { pid: core.pid, port: core.port, apiKey: typeof core.api_key === "string" ? core.api_key : null };
-    } else {
-      const pid = Number(readFileSync(resolvePidFilePath(dataDir), "utf-8").trim());
-      const port = opts?.port ?? configuredPort("chat");
-      if (Number.isInteger(pid) && pid > 0 && port !== null) {
-        target = { pid, port, apiKey: resolveManagedServerApiKey(dataDir, readConfiguredApiKey()) };
-      }
-    }
+    const target = chatServerTarget(dataDir, opts?.port);
     const fingerprint = target ? readLaunchRecord(dataDir, target.pid)?.promptCacheFingerprint : null;
     if (!target || !fingerprint) return;
     await savePromptCaches({ dataDir, port: target.port, apiKey: target.apiKey, fingerprint });

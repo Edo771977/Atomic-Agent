@@ -5,6 +5,7 @@ import { fetchOpenAiCompatModels } from "../../llm/provider/openai/fetch-openai-
 import { getProviderFactory } from "../../llm/provider/registry/provider-types.js";
 import { registerBuiltInProviderKinds } from "../../llm/provider/registry/register-built-in-providers.js";
 import {
+  cloudPresetForUrl,
   findProviderPreset,
   presetForEntryId,
   PROVIDER_PRESETS,
@@ -93,6 +94,73 @@ describe("PROVIDER_PRESETS", () => {
     for (const [id, baseUrl] of Object.entries(expected)) {
       expect(findProviderPreset(id)?.baseUrl, id).toBe(baseUrl);
     }
+  });
+
+  it("offers W&B Inference on its documented root with its own key", () => {
+    // CoreWeave Serverless Inference keeps the W&B hostname. Bearer key,
+    // no mandatory header: the team/project header is optional.
+    const preset = findProviderPreset("wandb");
+    expect(preset?.baseUrl).toBe("https://api.inference.wandb.ai");
+    expect(preset?.envVar).toBe("WANDB_API_KEY");
+    expect(preset?.local).toBeUndefined();
+    expect(preset?.listsModelsWithoutKey).toBeUndefined();
+    expect(presetForEntryId("wandb-2")?.id).toBe("wandb");
+  });
+
+  it("offers Azure OpenAI and Amazon Bedrock as per-account endpoints on Bearer", () => {
+    // ATO-468. Azure's v1 API needs no `api-version` and takes the key as
+    // Bearer; Bedrock's Mantle endpoint takes a Bedrock API key as Bearer
+    // and is the one that lists models. Both endpoints are the operator's
+    // own (resource, Region), so the wizard asks for the URL.
+    const azure = findProviderPreset("azure-openai");
+    expect(azure?.baseUrl).toBe("https://your-resource.openai.azure.com/openai");
+    expect(azure?.envVar).toBe("AZURE_OPENAI_API_KEY");
+    expect(azure?.perAccountEndpoint?.placeholder).toBe("your-resource");
+    const bedrock = findProviderPreset("bedrock");
+    expect(bedrock?.baseUrl).toBe("https://bedrock-mantle.us-east-1.api.aws");
+    expect(bedrock?.envVar).toBe("AWS_BEARER_TOKEN_BEDROCK");
+    expect(bedrock?.perAccountEndpoint?.placeholder).toBeUndefined();
+    for (const preset of [azure, bedrock]) {
+      expect(preset?.apiKeyHeader).toBeUndefined();
+      expect(preset?.local).toBeUndefined();
+      // The template's own host must match its pattern, or a saved entry
+      // that kept the default (Bedrock's us-east-1) would lose its class.
+      expect(
+        preset?.perAccountEndpoint?.hostPattern?.test(new URL(preset!.baseUrl).hostname),
+      ).toBe(true);
+    }
+  });
+
+  it("matches a saved per-account endpoint back to its cloud preset", () => {
+    expect(cloudPresetForUrl("https://my-team.openai.azure.com/openai")?.id).toBe("azure-openai");
+    expect(cloudPresetForUrl("https://my-team.services.ai.azure.com/openai")?.id).toBe("azure-openai");
+    expect(cloudPresetForUrl("https://bedrock-mantle.ap-south-1.api.aws")?.id).toBe("bedrock");
+    expect(cloudPresetForUrl("https://api.groq.com/openai/v1")?.id).toBe("groq");
+    // Plain http, lookalikes, local servers and junk match nothing.
+    expect(cloudPresetForUrl("http://my-team.openai.azure.com/openai")).toBeUndefined();
+    expect(cloudPresetForUrl("https://openai.azure.com.evil.example")).toBeUndefined();
+    expect(cloudPresetForUrl("http://localhost:11434")).toBeUndefined();
+    expect(cloudPresetForUrl("not a url")).toBeUndefined();
+  });
+
+  it("offers Lemonade and Foundry Local as keyless local servers", () => {
+    // ATO-626. Lemonade (AMD) moved its default port (13305 now, 8000 on
+    // older releases) and Foundry Local picks its port at start, so both
+    // ask for the URL and have no cloud host pattern to match.
+    const lemonade = findProviderPreset("lemonade");
+    expect(lemonade?.local).toBe(true);
+    expect(lemonade?.baseUrl).toBe("http://localhost:13305");
+    expect(lemonade?.envVar).toBe("LEMONADE_API_KEY");
+    expect(lemonade?.perAccountEndpoint?.hint).toMatch(/8000/);
+    expect(lemonade?.perAccountEndpoint?.hostPattern).toBeUndefined();
+    const foundry = findProviderPreset("foundry-local");
+    expect(foundry?.local).toBe(true);
+    expect(foundry?.baseUrl).toBe("http://localhost:5273");
+    expect(foundry?.perAccountEndpoint?.hint).toMatch(/foundry server status/);
+    expect(foundry?.perAccountEndpoint?.hostPattern).toBeUndefined();
+    // Local presets never classify a URL as a cloud service.
+    expect(cloudPresetForUrl("http://localhost:13305")).toBeUndefined();
+    expect(cloudPresetForUrl("http://localhost:5273")).toBeUndefined();
   });
 
   it("marks LM Studio as local", () => {

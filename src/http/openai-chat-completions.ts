@@ -21,6 +21,7 @@ import { falloverSentence, readFailedAttempts } from "../llm/fallback/index.js";
 import { describeFailedLinks } from "../llm/fallback/failed-links.js";
 import {
   createEmptySessionState,
+  isIncognitoSession,
   type SessionState,
 } from "../session/index.js";
 import { getConfig } from "../config/index.js";
@@ -97,6 +98,14 @@ interface ChatCompletionRequest {
    * any other value change nothing (`reasoningOverrideFromRequest`).
    */
   reasoning_effort?: unknown;
+  /**
+   * ATO-586: open a NEW session as an incognito chat (nothing written to
+   * memory, never listed, deleted by `DELETE /api/sessions/{id}`, when
+   * the server closes, or at the next start). On an existing ordinary
+   * chat it is refused (400); an existing incognito chat stays incognito
+   * whatever the field says.
+   */
+  incognito?: boolean;
 }
 
 interface ParsedRequest {
@@ -110,6 +119,8 @@ interface ParsedRequest {
   sessionIdOverride: string | null;
   /** ATO-731: `working_dir`, checked; null for the server's own folder. */
   workingDir: string | null;
+  /** ATO-586: `incognito: true` on the request. */
+  incognito: boolean;
   extensionsEnabled: boolean;
   /** `X-Atomic-Screen-Overlay` on an extensions request (ATO-1018). */
   screenOverlay: boolean;
@@ -126,6 +137,21 @@ export function createChatCompletionsHandler(): HttpHandler {
     const parsed = await parseRequestBody(req, res);
     if (!parsed) return;
     const session = resolveSession(parsed, ctx);
+    if (session === null) {
+      // ATO-586: the chat by that id remembers; turning it incognito now
+      // would not undo what it already wrote, and running the turn there
+      // would silently remember this one too.
+      sendError(
+        res,
+        400,
+        openaiError(
+          "incognito: true needs a new chat; this session_id is an ordinary chat that remembers",
+          "invalid_request_error",
+          "incognito",
+        ),
+      );
+      return;
+    }
     const completionId = makeCompletionId();
     const created = Math.floor(Date.now() / 1000);
     if (parsed.stream) {
@@ -1277,6 +1303,7 @@ async function parseRequestBody(
     firstUserMessage: firstUser?.content ?? lastUser.content,
     sessionIdOverride,
     workingDir,
+    incognito: body.incognito === true,
     extensionsEnabled: isExtensionsHeaderTruthy(
       getHeader(req, EXTENSIONS_HEADER),
     ),
@@ -1313,18 +1340,31 @@ function isExtensionsHeaderTruthy(value: string | null): boolean {
 function resolveSession(
   parsed: ParsedRequest,
   ctx: HandlerContext,
-): SessionState {
+): SessionState | null {
+  // An incognito chat never takes the derived id: the same opening prompt
+  // would resume an ordinary chat that started with it, and that one
+  // remembers. It gets its own id, and continues by `session_id`.
   const desiredId =
     parsed.sessionIdOverride ??
-    deriveChatSessionId(parsed.systemPrompt, parsed.firstUserMessage);
+    (parsed.incognito
+      ? `api-${randomUUID()}`
+      : deriveChatSessionId(parsed.systemPrompt, parsed.firstUserMessage));
   const existing = ctx.runtime.sessionStore.load(desiredId);
-  if (existing) return existing;
+  if (existing) {
+    // `null`: incognito asked for on an ordinary chat (refused upstream).
+    if (parsed.incognito && !isIncognitoSession(existing)) return null;
+    return existing;
+  }
   const state = createEmptySessionState({
     id: desiredId,
     workingDir: parsed.workingDir ?? ctx.runtime.capabilities.workingDir,
     metadata: { source: "openai-chat", model: parsed.model },
+    ...(parsed.incognito
+      ? { incognito: ctx.runtime.sessionStore.newIncognitoMark() }
+      : {}),
   });
   ctx.runtime.sessionStore.save(state);
+  if (parsed.incognito) ctx.incognitoChats?.add(state.id);
   return state;
 }
 

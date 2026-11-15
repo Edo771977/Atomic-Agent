@@ -139,4 +139,34 @@ describe("createFallbackChainResolver", () => {
       expect(resolve().chain).toEqual(["claude-cli", "local-llama"]);
     });
   });
+
+  describe("while offline (ATO-1084)", () => {
+    const field: ResolvedLlmConfig = {
+      activeTextProvider: "openrouter",
+      activeEmbeddingProvider: "local-llama",
+      toolTransport: "auto",
+      providers: [
+        { id: "openrouter", kind: "openrouter", apiKey: "sk-or" },
+        { id: "groq", kind: "openai-compatible", baseUrl: "https://api.groq.com/openai", apiKey: "gsk" },
+        { id: "claude-cli", kind: "subscription-cli" },
+        { id: "ollama", kind: "openai-compatible", baseUrl: "http://localhost:11434" },
+        { id: "local-llama", kind: "llama-server" },
+      ],
+      fallback: { chain: ["openrouter", "groq", "claude-cli", "ollama", "local-llama"] },
+    };
+
+    it("skips fallback links that leave this machine, and brings them back online", () => {
+      let offline = true;
+      const resolve = createFallbackChainResolver({
+        readLlmConfig: () => field,
+        builtProviderIds: () => null,
+        offline: () => offline,
+        logger: { warn: vi.fn() },
+      });
+      // The primary stays: its refusal is the message the person needs.
+      expect(resolve().chain).toEqual(["openrouter", "ollama", "local-llama"]);
+      offline = false;
+      expect(resolve().chain).toEqual(["openrouter", "groq", "claude-cli", "ollama", "local-llama"]);
+    });
+  });
 });
