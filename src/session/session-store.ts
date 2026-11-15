@@ -394,6 +394,15 @@ export class SessionStore {
    * mark, never one another process put there since.
    */
   private readonly ownTurns = new Map<string, string>();
+  /**
+   * ATO-586: incognito chats this store has written and not yet deleted.
+   * While any is open the connection runs with `secure_delete` on, so the
+   * pages each save frees are zeroed rather than left holding the chat's
+   * text; off otherwise, since zeroing costs every save of an ordinary
+   * chat about half again its write time.
+   */
+  private readonly openIncognito = new Set<string>();
+  private secureDelete = false;
 
   constructor(options: SessionStoreOptions = {}) {
     const config = getConfig();
@@ -813,6 +822,10 @@ export class SessionStore {
    * only `save` is held to `statusForSave`.
    */
   private write(state: SessionState, endsTurn: boolean): void {
+    if (isIncognitoSession(state)) {
+      this.openIncognito.add(state.id);
+      this.setSecureDelete(true);
+    }
     const archive = this.turnArchive();
     // One transaction: the archive rows the write adds and the payload
     // that counts them land together or not at all.
@@ -1108,10 +1121,33 @@ export class SessionStore {
   }
 
   delete(id: string): void {
+    const incognito = this.openIncognito.has(id) || storedSessionIsIncognito(this.db, id);
+    if (incognito) this.setSecureDelete(true);
     this.db.transaction(() => {
       this.deleteStmt.run(id);
       this.archiveStatements?.clear.run(id);
     })();
+    if (!incognito) return;
+    this.openIncognito.delete(id);
+    // ATO-586: the zeroed pages reach the database file and the WAL that
+    // still holds the chat's earlier pages is emptied. A reader holding
+    // an older snapshot can keep frames until the next checkpoint.
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* best effort: the automatic checkpoint gets there later */
+    }
+    if (this.openIncognito.size === 0) this.setSecureDelete(false);
+  }
+
+  private setSecureDelete(on: boolean): void {
+    if (this.secureDelete === on) return;
+    try {
+      this.db.pragma(`secure_delete = ${on ? "ON" : "OFF"}`);
+      this.secureDelete = on;
+    } catch {
+      /* a closed or busy handle: the next write tries again */
+    }
   }
 
   /**

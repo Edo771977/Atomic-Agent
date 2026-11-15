@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -116,5 +116,32 @@ describe("incognito sessions in the store", () => {
     const state = { ...spoken("s-broken", store, true), incognito: { since: 1, owner: "not json" } };
     store.save(state);
     expect(open(2).sweepOrphanIncognito()).toEqual(["s-broken"]);
+  });
+  it("deleting an incognito chat leaves none of its text in the database file or its WAL", () => {
+    const store = open(1);
+    const SECRET = "zebra-quartz-7731";
+    // Several saves of a growing transcript: each frees the previous copy's pages.
+    let state = spoken("s-secret", store, true);
+    for (let i = 0; i < 6; i++) {
+      state = recordTurn(state, userTurn(`${SECRET} ${i} ${"padding ".repeat(1_500)}`));
+      store.save(state);
+    }
+    store.save(spoken("s-plain", store, false));
+    store.delete("s-secret");
+    const bytes = (path: string) => (existsSync(path) ? readFileSync(path).toString("latin1") : "");
+    expect(bytes(file)).not.toContain(SECRET);
+    expect(bytes(`${file}-wal`)).not.toContain(SECRET);
+    expect(store.load("s-plain")).not.toBeNull();
+  });
+
+  it("an ordinary chat's saves and deletes run without secure_delete", () => {
+    const store = open(1);
+    const handle = store.getDatabaseHandleForRetention();
+    store.save(spoken("s-plain", store, false));
+    expect(handle.pragma("secure_delete", { simple: true })).toBe(0);
+    store.save(spoken("s-secret", store, true));
+    expect(handle.pragma("secure_delete", { simple: true })).toBe(1);
+    store.delete("s-secret");
+    expect(handle.pragma("secure_delete", { simple: true })).toBe(0);
   });
 });
