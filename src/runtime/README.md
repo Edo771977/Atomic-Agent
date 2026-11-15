@@ -16,6 +16,7 @@ This area owns runtime assembly and ownership. Read [AGENTS.md](AGENTS.md) befor
 - [llm-fallback-seam.ts](llm-fallback-seam.ts)
 - [session-provider-policy.ts](session-provider-policy.ts) and [fusion-policy-degradation.ts](fusion-policy-degradation.ts): the provider-policy frame of each turn, fusion worker stamps and what a folder constraint leaves of Fusion ([provider policy](../llm/docs/provider-policy.md)).
 - [session-workspace.ts](session-workspace.ts): per-session cloud preparation; [workspace contract](docs/cloud-workspace.md).
+- [session-director.ts](session-director.ts): a fusion session's director and preferred worker (issue #37); see "Fusion director" below.
 
 ## Ownership and dependencies
 
@@ -26,6 +27,10 @@ For a composer context preview, `previewPrompt` delegates to composition/runtime
 The turn service captures [model behavior settings](../llm/docs/model-mode.md) once per turn, shares that snapshot with Fusion workers and reflection, and passes it to each provider attempt. Preview describes the next turn's saved settings without writing. Cloud model-visible messages are persisted before inference under the turn owner. Each cloud/fallback transition rebuilds against the attempted policy and window; the serving policy also controls tool-output retention. Local-only requests retain their existing preparation.
 
 For tool integration read composition/runtime-tool-catalog.ts; for provider hot swap read composition/runtime-inference.ts and runtime-local-profile.ts. For sidecar locking read composition/runtime-turn-service.ts and turn-controller.ts. For memory sub-call cancellation read composition/runtime-memory-services.ts. For a channel/store shutdown race read composition/runtime-lifecycle.ts and docs/lifecycle.md. [Component routes and tests](composition/README.md) link each task to its owner.
+
+## Fusion director
+
+With `llm.runMode.fusion.team`, each session has its own director, stored in its metadata (`session/session-fusion-team.ts`), never in the global config. `executeTurn` reads it (`sessionDirectorChoice`; a caller's `director` / `worker` option is checked against the team and stamped first), refuses one the folder's policy refuses with the provider refusal, resolves the run mode with it (`resolveCurrentRunMode(choice)`: fusion holds whatever the active provider is), heads the session's fallback chain with it (`setTurnPrimary`, not a pin) and asks its link for its model (`turnModel` at the link seam). The turn's `llm` stamp is per turn. `SessionTeamChoices` holds the choice for the turn's length so ambient readers (the live run mode in bootstrap, the tool catalog gate, `FusionDelegateDeps.currentDirector` / `currentWorker`) see it; a fusion worker borrows its parent's. No team: nothing changes.
 
 ## Task-specific reading
 

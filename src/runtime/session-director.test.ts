@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
+import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { parseTeamMember } from "../llm/run-mode/fusion-team.js";
+import { withSessionFusionDirector, withSessionFusionWorker } from "../session/session-fusion-team.js";
+import {
+  createSessionTeamChoices,
+  resolveSessionDirector,
+  resolveSessionWorker,
+  sessionDirectorChoice,
+  sessionDirectorOptions,
+} from "./session-director.js";
+
+const fusion: UserLlmFusionConfig = {
+  orchestratorProvider: "api",
+  workerProvider: "cli",
+  team: {
+    directors: ["api:model-a", "cli:model-d"],
+    workers: ["cli:model-w", "local:model-l"],
+  },
+};
+const all = (): boolean => true;
+const policy = (allowed: string[]): Pick<ProviderPolicy, "allows"> => ({ allows: (id) => allowed.includes(id) });
+const m = (ref: string) => parseTeamMember(ref)!;
+
+describe("resolveSessionDirector", () => {
+  it("is null without a team (today's behaviour)", () => {
+    expect(resolveSessionDirector({}, { orchestratorProvider: "api" }, undefined, all)).toBeNull();
+    expect(resolveSessionDirector({}, undefined, undefined, all)).toBeNull();
+  });
+
+  it("returns the stamped director while the team lists it", () => {
+    const metadata = withSessionFusionDirector({}, m("cli:model-d"), 1);
+    expect(resolveSessionDirector(metadata, fusion, undefined, all)).toEqual(m("cli:model-d"));
+    expect(sessionDirectorChoice(metadata, fusion, undefined, all)?.reason).toBe("stamped");
+  });
+
+  it("returns a stamped director the folder refuses, so the turn refuses it out loud", () => {
+    const metadata = withSessionFusionDirector({}, m("cli:model-d"), 1);
+    expect(resolveSessionDirector(metadata, fusion, policy(["api"]), all)).toEqual(m("cli:model-d"));
+  });
+
+  it("forgets a stamped director the team no longer lists", () => {
+    const metadata = withSessionFusionDirector({}, m("cli:model-gone"), 1);
+    expect(sessionDirectorChoice(metadata, fusion, undefined, all)).toEqual({ member: m("api:model-a"), reason: "default" });
+  });
+
+  it("auto-picks the only reachable and allowed director", () => {
+    expect(sessionDirectorChoice({}, fusion, undefined, (x) => x.providerId === "cli"))
+      .toEqual({ member: m("cli:model-d"), reason: "only" });
+    expect(sessionDirectorChoice({}, fusion, policy(["cli"]), all))
+      .toEqual({ member: m("cli:model-d"), reason: "only" });
+  });
+
+  it("picks the default director among several", () => {
+    expect(sessionDirectorChoice({}, fusion, undefined, all)).toEqual({ member: m("api:model-a"), reason: "default" });
+    expect(sessionDirectorOptions(fusion, undefined, all).map((x) => x.ref)).toEqual(["api:model-a", "cli:model-d"]);
+  });
+
+  it("is null when no director is reachable", () => {
+    expect(resolveSessionDirector({}, fusion, undefined, () => false)).toBeNull();
+  });
+});
+
+describe("resolveSessionWorker", () => {
+  it("returns the stamped worker the team lists and the folder allows", () => {
+    const metadata = withSessionFusionWorker({}, m("local:model-l"), 1);
+    expect(resolveSessionWorker(metadata, fusion, undefined)).toEqual(m("local:model-l"));
+    expect(resolveSessionWorker(metadata, fusion, policy(["cli"]))).toBeNull();
+    expect(resolveSessionWorker(withSessionFusionWorker({}, m("x:y"), 1), fusion, undefined)).toBeNull();
+    expect(resolveSessionWorker({}, fusion, undefined)).toBeNull();
+  });
+});
+
+describe("createSessionTeamChoices", () => {
+  it("holds a turn's choice per session and lets a worker session borrow its parent's", () => {
+    const choices = createSessionTeamChoices();
+    const release = choices.set("s1", { director: m("api:model-a"), worker: null });
+    const releaseWorker = choices.borrow("w1", "s1");
+    expect(choices.get("s1")?.director?.ref).toBe("api:model-a");
+    expect(choices.get("w1")?.director?.ref).toBe("api:model-a");
+    expect(choices.get(undefined)).toBeUndefined();
+    releaseWorker();
+    expect(choices.get("w1")).toBeUndefined();
+    release();
+    expect(choices.get("s1")).toBeUndefined();
+  });
+
+  it("a stale release does not drop a newer turn's choice", () => {
+    const choices = createSessionTeamChoices();
+    const first = choices.set("s1", { director: m("api:model-a"), worker: null });
+    choices.set("s1", { director: m("cli:model-d"), worker: null });
+    first();
+    expect(choices.get("s1")?.director?.ref).toBe("cli:model-d");
+  });
+});

@@ -1,4 +1,5 @@
 import type { ApprovalGate } from "../../approval/approval-gate.js";
+import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
   ApprovalDeniedError,
   requireApproval,
@@ -179,6 +180,19 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   slotManager: Pick<SlotManager, "poolSize">;
   /** Live read — the operator can leave fusion mid-turn. */
   resolveRunMode: () => ResolvedRunMode;
+  /**
+   * The director of the session whose turn is calling (issue #37,
+   * `runtime/session-director.ts`): the team member leading this fusion
+   * session, or null without a team or a director in effect. Read per
+   * call. Absent (tests, embedders): no director is known.
+   */
+  currentDirector?: () => TeamMember | null;
+  /**
+   * The calling session's preferred worker (`metadata.fusionWorker`, set
+   * by `--worker` or the composer), or null. A task that names no worker
+   * runs on it before the team's default worker. Read per call.
+   */
+  currentWorker?: () => TeamMember | null;
   /** Does the worker leg keep KV-cache affinity per slot? */
   workerSupportsSlotAffinity: (providerId: string) => boolean;
   /** The fallback seam's `prepareLink`: warm the local backend once. */

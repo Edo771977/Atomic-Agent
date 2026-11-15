@@ -728,6 +728,10 @@ export function registerRuntimeFusionAndReadScope(input: {
   prepareLocalLink: FusionDelegateDeps["warmWorkerBackend"];
   emitAgentLoopEventFor: FusionDelegateDeps["emitEvent"];
   resolveCurrentRunMode: FusionDelegateDeps["resolveRunMode"];
+  /** The calling session's fusion director (issue #37); see `FusionDelegateDeps.currentDirector`. */
+  currentDirector?: FusionDelegateDeps["currentDirector"];
+  /** The calling session's preferred worker (issue #37); see `FusionDelegateDeps.currentWorker`. */
+  currentWorker?: FusionDelegateDeps["currentWorker"];
   providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot">>;
   llama: Pick<
     LlamaServerClient,
@@ -776,7 +780,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit } = input;
+    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentDirector, currentWorker } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -994,6 +998,10 @@ export function registerRuntimeFusionAndReadScope(input: {
       approvalRequired: dangerous.approvalRequired,
       slotManager,
       resolveRunMode: resolveCurrentRunMode,
+      // The session's director and preferred worker (issue #37), read
+      // from the ambient turn per call.
+      ...(currentDirector === undefined ? {} : { currentDirector }),
+      ...(currentWorker === undefined ? {} : { currentWorker }),
       workerSupportsSlotAffinity: (providerId) =>
         providerRegistry.getProvider(providerId)?.capabilities
           .supportsSlotAffinity ?? false,

@@ -36,6 +36,7 @@ import { resolveVisionProvider, visionRouteAvailable } from "../vision-route.js"
 import { providerIdIsLlamaServer } from "../../llm/provider/registry/active-text-provider.js";
 import { createLocalLinkPreparer } from "../../llm/local-backend-gate.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
+import type { SessionTeamChoice } from "../session-director.js";
 import {
   createFallbackCompleter,
   createFallbackStreamer,
@@ -103,11 +104,17 @@ export async function connectRuntimeProviders(
    * rule is that `llm.activeTextProvider` is authoritative, so an
    * operator who switches provider by hand drops out of fusion on the
    * next read and `fusion.delegate` must see that immediately.
+   *
+   * `choice` is one session's fusion team choice (issue #37): its
+   * director leads fusion for that session whatever the active provider
+   * is. Callers that only know the ambient session read it through the
+   * runtime's `SessionTeamChoices`; without it the global rule holds.
    */
-  const resolveCurrentRunMode = (): ResolvedRunMode => {
+  const resolveCurrentRunMode = (choice?: SessionTeamChoice): ResolvedRunMode => {
     const fresh = getConfig();
     return resolveRunMode(resolveLlmConfig(fresh), {
       managedModelId: fresh.localModels.managed.modelId,
+      ...(choice === undefined ? {} : { director: choice.director, worker: choice.worker }),
     });
   };
 
@@ -369,6 +376,8 @@ export function connectRuntimeFallback(
     providerPolicy?: FallbackSeamDeps["providerPolicy"];
     /** Builds a pinned provider's per-turn model copy (ATO-1148). */
     providerRegistry?: Pick<ProviderRegistry, "modelVariant">;
+    /** A session director's model on its link (issue #37); `LinkAttemptDeps.turnModel`. */
+    turnModel?: FallbackSeamDeps["turnModel"];
   },
 ) {
   const {
@@ -613,6 +622,7 @@ export function connectRuntimeFallback(
     recordUnaryUsage,
     recordStreamUsage,
     ...(deps.providerPolicy === undefined ? {} : { providerPolicy: deps.providerPolicy }),
+    ...(deps.turnModel === undefined ? {} : { turnModel: deps.turnModel }),
   };
 
   const overrideScope = (params: LlmStreamParams) => {

@@ -1,4 +1,6 @@
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
+import { createSessionTeamChoices } from "./session-director.js";
+import type { ResolvedRunMode } from "../llm/run-mode/index.js";
 import { resolveServerTemplatePolicy } from "../llm/server-template-policy.js";
 import { createContextCompaction, logCompactionOutcome } from "./context-compaction.js";
 import { enhancePrompt, promptEnhancePartition } from "./prompt-enhancer.js";
@@ -461,6 +463,13 @@ export async function createAgentRuntime(
 
   const providers = await connectRuntimeProviders(config, logger, localProfile, connectedLocal);
   const { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveActiveModelName, resolveRouteVision } = providers;
+  // Issue #37: the fusion team choice of each running turn, so every
+  // reader that only knows the ambient session sees its director. The
+  // turn service sets and releases it; this is the one live run mode the
+  // rest of the runtime reads.
+  const sessionTeam = createSessionTeamChoices();
+  const resolveSessionRunMode = (): ResolvedRunMode =>
+    resolveCurrentRunMode(sessionTeam.get(turnContext.getStore()?.sessionId));
   builtProviderIds = () => providerRegistry.listIds();
 
   const bootstrapLlmSlice = resolveActiveLlmSlice();
@@ -481,7 +490,7 @@ export async function createAgentRuntime(
   const fusionOutcomes = createRuntimeFusionOutcomes({
     stateDir: config.paths.stateDir,
     logger,
-    resolveRunMode: () => resolveCurrentRunMode(),
+    resolveRunMode: resolveSessionRunMode,
     outcomeLogEnabled: () => resolveLlmConfig(getConfig()).runMode?.fusion?.outcomeLog !== false,
   });
   const turnUsageMeter = new TurnUsageMeter({ onRecord: fusionOutcomes.onUsageRecord });
@@ -518,7 +527,7 @@ export async function createAgentRuntime(
     },
   });
 
-  const modelContext = createRuntimeModelContext(config, providers);
+  const modelContext = createRuntimeModelContext(config, { ...providers, resolveCurrentRunMode: resolveSessionRunMode });
   const { resolveModelPricing, observeContextWindow, raiseContextWindowTo, resolveCatalogContextWindow, resolveCurrentVisionProvider, visionOnLiveRoute } = modelContext;
   // ATO-1276: an Ollama route learns its real window (`/api/show`) now,
   // before the first turn sizes a prompt. Silent and non-blocking.
@@ -529,7 +538,7 @@ export async function createAgentRuntime(
 
   const mcpCatalog = await connectRuntimeMcpCatalog({
     config, options, toolRegistry, logger, dangerous, llama, initialGrammar,
-    visionOnLiveRoute, resolveCurrentRunMode,
+    visionOnLiveRoute, resolveCurrentRunMode: resolveSessionRunMode,
     ...mcpGrammarHookFor(profileManager),
     // `agent.tools.search: "auto"` reads the live route's window (ATO-558):
     // a local link's served window once `/props` has answered, else the catalogue's.
@@ -556,6 +565,11 @@ export async function createAgentRuntime(
     turnBudget: fusionTurnBudget, budgetNotices,
     providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
     providerRegistry,
+    // A session director's model on its link (issue #37).
+    turnModel: (sessionId, providerId) => {
+      const director = sessionTeam.get(sessionId)?.director;
+      return director?.providerId === providerId ? director.model : undefined;
+    },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
@@ -686,7 +700,7 @@ export async function createAgentRuntime(
     // Not when the folder's provider constraint leaves only one leg
     // (issue #33): the turn then runs as a single model.
     isFusionMode: () => {
-      const runMode = resolveCurrentRunMode();
+      const runMode = resolveSessionRunMode();
       return runMode.effective === "fusion" && fusionPolicyDegradation(runMode, currentProviderPolicy()).kind === "none";
     },
     // A fusion turn starts: its fan-out grant is dropped and its $ /
@@ -700,7 +714,7 @@ export async function createAgentRuntime(
       fusionTurnBudget.begin(
         sessionId,
         turnUsageMeter.peekCostUsd(sessionId) ?? 0,
-        { usd: resolveCurrentRunMode().turnBudgetUsd, timeMs: resolveCurrentRunMode().turnTimeBudgetMs },
+        { usd: resolveSessionRunMode().turnBudgetUsd, timeMs: resolveSessionRunMode().turnTimeBudgetMs },
       );
       fusionOutcomes.beginTurn(sessionId);
     },
@@ -943,7 +957,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies, turnsWithoutQuestions },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill, sessionTeam },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
@@ -984,7 +998,9 @@ export async function createAgentRuntime(
 
   registerRuntimeFusionAndReadScope({
     config, toolRegistry, runTurn, createEphemeralSession, resolveOriginalRequest: (id) => turnRequests.get(id),
-    declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode,
+    declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
+    currentDirector: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.director ?? null,
+    currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,
     turnBudget: fusionTurnBudget,
     sessionUsage,

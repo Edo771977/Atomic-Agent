@@ -23,6 +23,7 @@ import type {
   LlmProviderConfigEntry,
   ResolvedLlmConfig,
 } from "../provider/registry/provider-types.js";
+import type { TeamMember } from "./fusion-team.js";
 
 export type RunModeDegradationReason =
   "no-cloud-provider" | "no-second-provider";
@@ -137,6 +138,12 @@ export type ResolvedRunMode = {
    */
   primaryProviderId: string;
   degraded: RunModeDegradation | null;
+  /**
+   * The session's director (issue #37), present only while it is what
+   * makes fusion effective: the stored mode is `fusion` and its provider
+   * is configured. The orchestrator leg is then that member.
+   */
+  director?: TeamMember;
 };
 
 export type FusionEscalationTarget = {
@@ -173,7 +180,26 @@ export type FusionRoleModels = {
 export type ResolveRunModeOptions = {
   /** `localModels.managed.modelId`, the model the worker daemon serves. */
   managedModelId?: string | null;
+  /**
+   * The session's director (`runtime/session-director.ts`, issue #37).
+   * With the stored mode `fusion`, it is the orchestrator leg and fusion
+   * holds whatever `llm.activeTextProvider` says: the turn's primary is
+   * set to it per session, never by rewriting the global config.
+   */
+  director?: TeamMember | null;
+  /** The session's preferred worker, shown as the worker leg; ignored when it is the director. */
+  worker?: TeamMember | null;
 };
+
+/** Two legs are the same member only when both the provider and the model match. */
+function sameMember(
+  aId: string | undefined,
+  aModel: string | null,
+  bId: string | undefined,
+  bModel: string | null,
+): boolean {
+  return aId !== undefined && aId === bId && aModel === bModel;
+}
 
 function isLocalKind(entry: LlmProviderConfigEntry | undefined): boolean {
   return entry?.kind === LOCAL_PROVIDER_KIND;
@@ -219,7 +245,16 @@ export function resolveRunMode(
   const derived: RunModeName =
     active === undefined || isLocalKind(active) ? "local" : "cloud";
 
+  // A session's director stands in for `orchestratorProvider` /
+  // `orchestratorModel` and for the active-provider rule below, but only
+  // while fusion is the stored mode: the director picks who leads a
+  // fusion session, it does not turn fusion on.
+  const directorEntry =
+    stored === "fusion" && opts.director != null ? byId(opts.director.providerId) : undefined;
+  const director = directorEntry === undefined ? undefined : opts.director!;
+  const orchestratorModelPin = director?.model ?? fusion?.orchestratorModel;
   const orchestrator =
+    directorEntry ??
     byId(fusion?.orchestratorProvider) ??
     (active !== undefined && !isLocalKind(active) ? active : undefined) ??
     resolved.providers.find((p) => !isLocalKind(p));
@@ -230,7 +265,15 @@ export function resolveRunMode(
   // use case calls for. The one thing a leg may not be is the other
   // leg: a fan-out to the model that is already doing the orchestrating
   // buys nothing and doubles the bill.
+  const preferredWorker =
+    director !== undefined &&
+    opts.worker != null &&
+    byId(opts.worker.providerId) !== undefined &&
+    opts.worker.ref !== director.ref
+      ? opts.worker
+      : undefined;
   const worker =
+    byId(preferredWorker?.providerId) ??
     byId(fusion?.workerProvider) ??
     resolved.providers.find(
       (p) => isLocalKind(p) && p.id !== orchestrator?.id,
@@ -249,7 +292,7 @@ export function resolveRunMode(
       // Two legs, two providers. Which kinds they are is the operator's
       // business; that there are two of them is not negotiable.
       degraded = { reason: "no-second-provider", requested: stored };
-    } else if (resolved.activeTextProvider === orchestratorProviderId) {
+    } else if (director !== undefined || resolved.activeTextProvider === orchestratorProviderId) {
       effective = "fusion";
     }
     // else: the operator switched the active provider by hand — report
@@ -267,6 +310,7 @@ export function resolveRunMode(
   // the legs': the worker leg's own label when the role IS the worker
   // leg, else the entry's chat model (cloud) or `model` (local).
   const workerModelLabel =
+    preferredWorker?.model ??
     fusion?.workerModel ??
     (worker !== undefined && isLocalKind(worker)
       ? (opts.managedModelId ?? worker.model ?? null)
@@ -281,7 +325,7 @@ export function resolveRunMode(
         entry.id === worker?.id
           ? workerModelLabel
           : entry.id === orchestrator?.id
-            ? (fusion?.orchestratorModel ??
+            ? (orchestratorModelPin ??
               entry.defaultChatModel ??
               entry.model ??
               null)
@@ -319,7 +363,7 @@ export function resolveRunMode(
           providerId: judgeEntry.id,
           model:
             (judgeEntry.id === orchestrator?.id
-              ? fusion?.orchestratorModel
+              ? orchestratorModelPin
               : undefined) ??
             judgeEntry.defaultChatModel ??
             judgeEntry.model ??
@@ -331,18 +375,29 @@ export function resolveRunMode(
   // orchestrator leg is the default: it is the model already paid for.
   const escalationEntry =
     byId(fusion?.escalationProvider) ?? orchestrator ?? undefined;
+  const escalationModel =
+    escalationEntry === undefined
+      ? null
+      : ((escalationEntry.id === orchestrator?.id
+          ? orchestratorModelPin
+          : undefined) ??
+        escalationEntry.defaultChatModel ??
+        escalationEntry.model ??
+        null);
+  // With a director, legs are members: a director and a worker on one
+  // provider (two models of one CLI) are different legs, so escalating
+  // from that worker to the director gains something.
+  const escalationIsWorker =
+    escalationEntry !== undefined &&
+    (director === undefined
+      ? escalationEntry.id === workerProviderId
+      : sameMember(escalationEntry.id, escalationModel, workerProviderId ?? undefined, workerModelLabel));
   const escalation: FusionEscalationTarget | null =
-    escalationEntry === undefined || escalationEntry.id === workerProviderId
+    escalationEntry === undefined || escalationIsWorker
       ? null
       : {
           providerId: escalationEntry.id,
-          model:
-            (escalationEntry.id === orchestrator?.id
-              ? fusion?.orchestratorModel
-              : undefined) ??
-            escalationEntry.defaultChatModel ??
-            escalationEntry.model ??
-            null,
+          model: escalationModel,
           auto: fusion?.escalation === "advisor",
           replace: fusion?.escalationReplace === true,
           maxUsd: fusion?.escalationMaxUsd ?? DEFAULT_FUSION_ESCALATION_MAX_USD,
@@ -353,7 +408,7 @@ export function resolveRunMode(
     effective,
     orchestratorProviderId,
     orchestratorModel:
-      fusion?.orchestratorModel ??
+      orchestratorModelPin ??
       orchestrator?.defaultChatModel ??
       orchestrator?.model ??
       null,
@@ -407,6 +462,7 @@ export function resolveRunMode(
       DEFAULT_FUSION_MAX_ORCHESTRATOR_TASKS_PER_TURN,
     primaryProviderId,
     degraded,
+    ...(director !== undefined && effective === "fusion" ? { director } : {}),
   };
 }
 

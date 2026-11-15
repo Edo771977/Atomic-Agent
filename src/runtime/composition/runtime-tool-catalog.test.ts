@@ -343,6 +343,22 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     } finally { await retained?.shutdown(); }
   });
 
+  it("hands the fusion tool the calling session's director and preferred worker (issue #37)", () => {
+    const config = getConfig(); const toolRegistry = new ToolRegistry();
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    const director = { providerId: "cloud", model: "model-d", ref: "cloud:model-d" };
+    const worker = { providerId: "local", model: "model-w", ref: "local:model-w" };
+    registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+      resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+      prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+      currentDirector: () => director, currentWorker: () => worker,
+      providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+    const wired = builder.mock.calls.at(-1)?.[0];
+    expect(wired?.currentDirector?.()).toBe(director);
+    expect(wired?.currentWorker?.()).toBe(worker);
+  });
+
   it("registers fusion after existing tools, then decorates reads with live security callbacks", async () => {
     const config = getConfig(); const toolRegistry = new ToolRegistry();
     toolRegistry.register({ name: "os.fs.read", description: "fixture", readonly: true, run: async () => externalOperation() });
