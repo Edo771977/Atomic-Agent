@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { describeMalformedApiKey, isSecretVariableName, STRICT_CLOUD_KEY_VARS } from "./api-key-shape.js";
+
 /**
  * A `.env` read failure that survived the retry loop (or was not
  * retryable). Deliberately tiny: the errno code plus the attempt count.
@@ -28,6 +30,13 @@ export interface DotenvLoadResult {
   loaded: string[];
   /** Names of variables present in the file but already set in `process.env`. */
   skipped: string[];
+  /**
+   * Names of secret variables (`*_API_KEY`, `*_TOKEN`, `*_SECRET`) whose
+   * shell value was malformed (a placeholder such as `...`, whitespace
+   * inside, a cloud key far too short) and was replaced by the file's
+   * well-formed value. Never values.
+   */
+  replacedPlaceholders: string[];
   /**
    * Non-ENOENT read failure after retries. `null` when the file loaded
    * fine or does not exist. Frontends must surface this to the user:
@@ -268,9 +277,24 @@ export function formatDotenvReadWarning(
 }
 
 /**
+ * Why the shell's value for a secret variable is unusable while the
+ * file's value for it is fine, or `null` (the shell value stands). The
+ * length rule applies only to the cloud vendors' own variables, whose
+ * real keys are long.
+ */
+function malformedShellSecret(key: string, shellValue: string, fileValue: string): string | null {
+  if (!isSecretVariableName(key) || fileValue.trim().length === 0) return null;
+  const strictLength = STRICT_CLOUD_KEY_VARS.has(key);
+  if (describeMalformedApiKey(fileValue, { strictLength }) !== null) return null;
+  return describeMalformedApiKey(shellValue, { strictLength });
+}
+
+/**
  * Read `<stateDir>/.env` and merge its variables into `process.env`. Existing
  * `process.env` entries always win — shell-exported values take priority
- * over the file. A missing file is a silent no-op (the common case for
+ * over the file, except a secret variable whose shell value is a
+ * placeholder while the file holds a well-formed one (`replacedPlaceholders`,
+ * warned on stderr by name and length only). A missing file is a silent no-op (the common case for
  * users who do not need any secrets). A file that exists but cannot be
  * read is retried briefly and then reported both on stderr and in
  * `result.error` so frontends can warn loudly instead of silently
@@ -299,6 +323,7 @@ export function loadDotenvFromStateDir(
     exists: false,
     loaded: [],
     skipped: [],
+    replacedPlaceholders: [],
     error: null,
   };
 
@@ -341,6 +366,19 @@ export function loadDotenvFromStateDir(
     const [key, value] = parsed;
     const existing = process.env[key];
     if (existing !== undefined && existing.length > 0) {
+      const bad = malformedShellSecret(key, existing, value);
+      if (bad !== null) {
+        // The one exception to "the shell wins": a placeholder left in
+        // this shell (`$env:ANTHROPIC_API_KEY="..."` pasted from a doc)
+        // would otherwise hide the valid key saved here and surface as
+        // "the provider rejected the key".
+        process.env[key] = value;
+        result.replacedPlaceholders.push(key);
+        process.stderr.write(
+          `atomic-agent: ${key} in the environment ${bad} (${existing.trim().length} characters); using the value from .env\n`,
+        );
+        continue;
+      }
       result.skipped.push(key);
       continue;
     }

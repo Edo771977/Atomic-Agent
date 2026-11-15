@@ -26,6 +26,8 @@ import type {
 import type { SessionState } from "../session/index.js";
 import { installLocalSkill, scanApprovalFromIds, uninstallSkill } from "../skills/index.js";
 import { getAppVersion } from "../version.js";
+import { currentLocalModelConfigured } from "../runtime/constraint-refusal.js";
+import { sessionFailedPayload } from "./session-failed-payload.js";
 import { turnBudgetStopLine } from "../llm/reliability/turn-budget-error.js";
 
 interface ActiveSession {
@@ -216,11 +218,12 @@ export async function bootstrapSidecar(): Promise<{
           }
           break;
         case "loop_failed":
-          protocol.emitEvent("session_failed", {
-            sessionId,
-            error: event.error.message,
-            category: event.category,
-          });
+          protocol.emitEvent(
+            "session_failed",
+            sessionFailedPayload(sessionId, event.error, event.category, {
+              localModelConfigured: currentLocalModelConfigured(),
+            }),
+          );
           break;
       }
     };

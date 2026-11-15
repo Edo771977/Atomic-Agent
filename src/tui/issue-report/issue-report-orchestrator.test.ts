@@ -209,6 +209,43 @@ describe("IssueReportOrchestrator", () => {
     expect(issue.body).not.toContain("do the thing");
   });
 
+  it("a restricted session's failures and log lines stay out even at the errors level (owner's Windows run)", async () => {
+    const { orchestrator, bus, api } = make({ githubRefusal: () => 'folder /clienti/acme is restricted; "github" is not in its allowedEgress' });
+    orchestrator.open();
+    await orchestrator.pick("errors", state);
+    const preview = (bus.last("issue_report_previewed") as unknown as { preview: { zipPath: string } }).preview;
+    await orchestrator.send();
+    const issue = api.calls.find((c) => c.op === "issue")!;
+    for (const text of [issue.body, issue.title ?? ""]) {
+      expect(text).not.toContain("boom");
+      expect(text).not.toContain("died");
+    }
+    expect(issue.body).toContain("stay on this machine");
+    const zip = await JSZip.loadAsync(readFileSync(preview.zipPath));
+    const files = await Promise.all(Object.values(zip.files).filter((f) => !f.dir).map((f) => f.async("string")));
+    expect(files.join("\n")).not.toContain("boom");
+    expect(files.join("\n")).not.toContain("died");
+  });
+
+  it("log lines of another restricted session are left out of an unrestricted session's report", async () => {
+    state = {
+      ...state,
+      logs: [
+        ...state.logs,
+        { level: "error", message: "acme-log-line", timestamp: 2, context: { sessionId: "sess-acme" } },
+      ],
+    };
+    const { orchestrator, api } = make({
+      githubRefusal: (s) => ((typeof s === "string" ? s : s.id) === "sess-acme" ? "folder /clienti/acme is restricted" : null),
+    });
+    orchestrator.open();
+    await orchestrator.pick("errors", state);
+    await orchestrator.send();
+    const issue = api.calls.find((c) => c.op === "issue")!;
+    expect(issue.body).toContain("died");
+    expect(issue.body).not.toContain("acme-log-line");
+  });
+
   it("refuses to send a fuller report when the session became restricted after the pick (issue #33)", async () => {
     let refused: string | null = null;
     const { orchestrator, bus, api } = make({ githubRefusal: () => refused });

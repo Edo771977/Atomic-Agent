@@ -1,6 +1,24 @@
 import { isOtherComputerOnNetworkUrl } from "../llm/provider/openai/network-server-address.js";
 import { isLoopbackUrl } from "../llm/provider/url-host.js";
+import { describeMalformedApiKey } from "./api-key-shape.js";
 import type { UserLlmProviderEntry } from "./llm-config.js";
+
+/** Where a provider key came from. Never carries the value. */
+export type LlmApiKeySource =
+  | { readonly kind: "config" }
+  | { readonly kind: "env"; readonly name: string };
+
+/**
+ * The key a provider entry would use and its source, or, when the only
+ * candidate was malformed (`describeMalformedApiKey`: a placeholder such
+ * as `...`, whitespace inside), the source
+ * that was ignored, its length and why. A malformed value is never sent:
+ * the entry then has no key ("missing"), not a rejected one.
+ */
+export interface LlmApiKeyResolution {
+  readonly key?: { readonly value: string; readonly source: LlmApiKeySource };
+  readonly ignored?: { readonly source: LlmApiKeySource; readonly length: number; readonly reason: string };
+}
 
 /**
  * Resolve API keys for provider registry entries. File-stored `apiKey`
@@ -9,35 +27,44 @@ import type { UserLlmProviderEntry } from "./llm-config.js";
 export function resolveLlmProviderApiKey(
   entry: UserLlmProviderEntry,
 ): string | undefined {
-  if (entry.apiKey && entry.apiKey.length > 0) {
-    return entry.apiKey;
-  }
+  return resolveLlmProviderApiKeyWithSource(entry).key?.value;
+}
+
+/** `resolveLlmProviderApiKey` with the key's source (doctor names it). */
+export function resolveLlmProviderApiKeyWithSource(
+  entry: UserLlmProviderEntry,
+): LlmApiKeyResolution {
+  let ignored: LlmApiKeyResolution["ignored"];
+  const take = (value: string | undefined, source: LlmApiKeySource): LlmApiKeyResolution | null => {
+    if (value === undefined || value.length === 0) return null;
+    // No length rule here: short keys are legitimate for local servers
+    // and test doubles. The `.env` loader applies it only where a
+    // well-formed `.env` value is there to fall back on.
+    const reason = describeMalformedApiKey(value);
+    if (reason !== null) {
+      ignored ??= { source, length: value.trim().length, reason };
+      return null;
+    }
+    return { key: { value, source } };
+  };
+  const done = (): LlmApiKeyResolution => (ignored ? { ignored } : {});
+  const fromEnv = (name: string): LlmApiKeyResolution =>
+    take(process.env[name], { kind: "env", name }) ?? done();
+
+  // A malformed stored `apiKey` falls through to the variables below.
+  const stored = take(entry.apiKey, { kind: "config" });
+  if (stored) return stored;
   // Entries created from a known-service preset carry their own env var
   // (`GROQ_API_KEY`, `NOUS_API_KEY`, ...). It is authoritative, without
   // a fallback to the shared per-kind variables: falling through would
   // recreate the wrong-key-for-this-endpoint pairing presets exist to
   // prevent (#69), and keyless local servers (LM Studio) rely on the
   // `undefined` here to send requests without an Authorization header.
-  if (entry.apiKeyEnvVar && entry.apiKeyEnvVar.length > 0) {
-    const key = process.env[entry.apiKeyEnvVar];
-    return key && key.length > 0 ? key : undefined;
-  }
-  if (entry.kind === "openrouter") {
-    const key = process.env.OPENROUTER_API_KEY;
-    return key && key.length > 0 ? key : undefined;
-  }
-  if (entry.kind === "aimlapi") {
-    const key = process.env.AIMLAPI_API_KEY;
-    return key && key.length > 0 ? key : undefined;
-  }
-  if (entry.kind === "gemini") {
-    const key = process.env.GEMINI_API_KEY;
-    return key && key.length > 0 ? key : undefined;
-  }
-  if (entry.kind === "anthropic") {
-    const key = process.env.ANTHROPIC_API_KEY;
-    return key && key.length > 0 ? key : undefined;
-  }
+  if (entry.apiKeyEnvVar && entry.apiKeyEnvVar.length > 0) return fromEnv(entry.apiKeyEnvVar);
+  if (entry.kind === "openrouter") return fromEnv("OPENROUTER_API_KEY");
+  if (entry.kind === "aimlapi") return fromEnv("AIMLAPI_API_KEY");
+  if (entry.kind === "gemini") return fromEnv("GEMINI_API_KEY");
+  if (entry.kind === "anthropic") return fromEnv("ANTHROPIC_API_KEY");
   if (
     entry.kind === "openai-compatible" ||
     entry.kind === "qwen-openai-compatible"
@@ -47,10 +74,12 @@ export function resolveLlmProviderApiKey(
     // another computer on the network (ATO-1066). An explicit
     // `apiKeyEnvVar` above, even one naming OPENAI_API_KEY, is the
     // operator's own choice and is honoured.
-    if (!maySendSharedOpenAiKey(entry.baseUrl)) return undefined;
-    return sharedOpenAiKey()?.value;
+    if (!maySendSharedOpenAiKey(entry.baseUrl)) return done();
+    const shared = sharedOpenAiKey();
+    if (shared === undefined) return done();
+    return take(shared.value, { kind: "env", name: shared.name }) ?? done();
   }
-  return undefined;
+  return done();
 }
 
 /**

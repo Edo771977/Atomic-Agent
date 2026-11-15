@@ -304,3 +304,20 @@ describe("ApprovalModal", () => {
     expect(frame).toContain("preview: git push origin main");
   });
 });
+
+describe("ApprovalModal under auto coding mode", () => {
+  it("explains that auto does not cover a verification command", () => {
+    const frame = render(
+      <ApprovalModal
+        request={request({ tool: "verify.run", category: "shell" })}
+        pathDraft={null}
+        onPathOpen={() => {}}
+        onPathChange={() => {}}
+        onPathSubmit={() => {}}
+        onPathCancel={() => {}}
+        codingMode="auto"
+      />,
+    ).lastFrame() ?? "";
+    expect(frame.replace(/\s+/g, " ")).toContain("auto mode doesn't cover verification commands");
+  });
+});

@@ -31,6 +31,8 @@ import {
   approvalPreviewPages,
   approvalPreviewTruncated,
 } from "./approval-preview-pages.js";
+import type { CodingMode } from "./coding-mode/coding-mode.js";
+import { codingModeApprovalNote } from "./coding-mode/coding-mode-approval-note.js";
 import { MultiLineEditor } from "./components/multi-line-editor.js";
 import { readableOn } from "./theme/readable-foreground.js";
 import { theme } from "./theme/theme.js";
@@ -54,6 +56,8 @@ interface ApprovalModalProps {
   previewPage?: number | null;
   /** Clicking the full-command button; `ctrl+z` does the same. */
   onPreviewPage?: () => void;
+  /** The composer's coding mode: `auto` explains what it does not cover. */
+  codingMode?: CodingMode;
 }
 
 /**
@@ -93,7 +97,9 @@ export function ApprovalModal({
   onPathCancel,
   previewPage = null,
   onPreviewPage = () => {},
+  codingMode = "default",
 }: ApprovalModalProps): ReactElement {
+  const modeNote = codingModeApprovalNote(codingMode, request);
   const categoryLabel = formatApprovalCategory(request.category);
   // `[s]` for any grantable category (everything but trust_config);
   // `[a]` only when the shell tool supplied a command shape to grant.
@@ -250,6 +256,9 @@ export function ApprovalModal({
             </Text>
           </Box>
         </Box>
+      )}
+      {editing || modeNote === null ? null : (
+        <Text color="yellow">{modeNote}</Text>
       )}
       {editing ? null : (
         <Text color="gray">{footerHint(grantCategory, request.category)}</Text>

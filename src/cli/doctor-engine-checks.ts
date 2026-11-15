@@ -1,10 +1,20 @@
+import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { totalmem } from "node:os";
+import { join } from "node:path";
 
 import type { AtomicAgentConfig } from "../config/index.js";
-import { resolveLlmProviderApiKey } from "../config/resolve-llm-api-key.js";
+import { STRICT_CLOUD_KEY_VARS, MIN_CLOUD_KEY_LENGTH } from "../config/api-key-shape.js";
+import { resolveStateDir } from "../config/load-config.js";
+import { decodeDotenvBytes, dotenvTextValue } from "../config/load-dotenv.js";
+import {
+  resolveLlmProviderApiKey,
+  resolveLlmProviderApiKeyWithSource,
+  type LlmApiKeySource,
+} from "../config/resolve-llm-api-key.js";
 import type { UserLlmProviderEntry } from "../config/llm-config.js";
 import { DEFAULT_AIMLAPI_BASE } from "../llm/provider/aimlapi/aimlapi-provider.js";
+import { DEFAULT_ANTHROPIC_BASE } from "../llm/provider/anthropic/anthropic-route.js";
 import { DEFAULT_GEMINI_BASE, GEMINI_API_PATH_PREFIX } from "../llm/provider/gemini/gemini-provider.js";
 import { normalizeOpenAiBaseUrl } from "../llm/provider/openai/normalize-openai-base-url.js";
 import { openAiChatPathPrefix } from "../llm/provider/openai/openai-chat-path.js";
@@ -47,6 +57,8 @@ export interface EngineProbes {
   portFree: (port: number) => Promise<boolean>;
   reachable: (url: string) => Promise<boolean>;
   verifyKey: (target: ProviderVerifyTarget) => Promise<ProviderVerifyResult>;
+  /** `<stateDir>/.env` and its text (`null` when absent or unreadable), to name a key's source. */
+  readDotenv: () => { path: string; text: string | null };
 }
 
 export const REAL_ENGINE_PROBES: EngineProbes = {
@@ -70,6 +82,14 @@ export const REAL_ENGINE_PROBES: EngineProbes = {
     }
   },
   verifyKey: (target) => verifyProviderKey(target),
+  readDotenv: () => {
+    const path = join(resolveStateDir(), ".env");
+    try {
+      return { path, text: decodeDotenvBytes(readFileSync(path)) };
+    } catch {
+      return { path, text: null };
+    }
+  },
 };
 
 function activeProvider(cfg: AtomicAgentConfig): UserLlmProviderEntry | null {
@@ -101,6 +121,20 @@ export function verifyTargetForEntry(entry: UserLlmProviderEntry): ProviderVerif
   }
   else if (entry.kind === "aimlapi") [kind, baseUrl, apiPathPrefix] = ["aimlapi", DEFAULT_AIMLAPI_BASE, "/v1"];
   else if (entry.kind === "gemini") [kind, baseUrl, apiPathPrefix] = ["gemini", DEFAULT_GEMINI_BASE, GEMINI_API_PATH_PREFIX];
+  else if (entry.kind === "anthropic") {
+    // The native Messages API: `GET /v1/models` with `x-api-key` proves the key.
+    const anthropicBase = entry.baseUrl ?? DEFAULT_ANTHROPIC_BASE;
+    if (isLoopback(anthropicBase)) return null;
+    return {
+      label: entry.id,
+      baseUrl: anthropicBase,
+      apiPathPrefix: "/v1",
+      apiKey,
+      probeModels: [],
+      wire: "anthropic-messages",
+      ...(entry.headers ? { extraHeaders: { ...entry.headers } } : {}),
+    };
+  }
   else if (entry.kind === "openai-compatible" && entry.baseUrl) {
     baseUrl = normalizeOpenAiBaseUrl(entry.baseUrl);
     [kind, apiPathPrefix] = ["openai-compatible", openAiChatPathPrefix(baseUrl)];
@@ -157,19 +191,74 @@ async function checkLocalEngine(cfg: AtomicAgentConfig, probes: EngineProbes): P
   return out;
 }
 
+/**
+ * Where the key came from, in words, plus a warning when this shell's
+ * value for the variable differs from `<stateDir>/.env`'s (the shell
+ * wins, so a stale or placeholder value there hides the saved key).
+ * Only names and lengths: never a value or a prefix of one.
+ */
+function describeKeySource(
+  source: LlmApiKeySource,
+  length: number,
+  value: string | null,
+  dotenv: { path: string; text: string | null },
+): { where: string; warning: DoctorFinding | null } {
+  if (source.kind === "config") return { where: `apiKey in config.json (${length} characters)`, warning: null };
+  const fileValue = dotenv.text === null ? undefined : dotenvTextValue(dotenv.text, source.name);
+  if (fileValue !== undefined && fileValue.length > 0 && value !== null && fileValue === value) {
+    return { where: `${source.name} from ${dotenv.path} (${length} characters)`, warning: null };
+  }
+  const where = `${source.name} from this shell's environment (${length} characters)`;
+  if (fileValue === undefined || fileValue.length === 0) return { where, warning: null };
+  return {
+    where,
+    warning: {
+      check: "key-source",
+      status: "warn",
+      message:
+        `${source.name} is set in this shell and overrides the one in ${dotenv.path}; they differ ` +
+        `(shell: ${length} characters, .env: ${fileValue.trim().length}). ` +
+        `Close this window or clear it (PowerShell: Remove-Item Env:${source.name}; sh: unset ${source.name}) to use the saved key`,
+    },
+  };
+}
+
 async function checkCloudKey(entry: UserLlmProviderEntry, probes: EngineProbes): Promise<DoctorFinding[]> {
   const target = verifyTargetForEntry(entry);
-  const testable = ["openrouter", "aimlapi", "gemini"].includes(entry.kind) || (entry.kind === "openai-compatible" && !!entry.baseUrl && !isLoopback(entry.baseUrl));
+  const testable = ["openrouter", "aimlapi", "gemini", "anthropic"].includes(entry.kind) || (entry.kind === "openai-compatible" && !!entry.baseUrl && !isLoopback(entry.baseUrl));
   if (!target && !testable) return [{ check: "key", status: "ok", message: `${entry.id} (${entry.kind}): doctor does not test this kind of provider` }];
-  if (!target) return [{ check: "key", status: "warn", message: `${entry.id}: no API key found in config.json or the environment` }];
+  const resolution = resolveLlmProviderApiKeyWithSource(entry);
+  const dotenv = probes.readDotenv();
+  if (!target) {
+    const ignored = resolution.ignored;
+    if (ignored) {
+      const where = ignored.source.kind === "config" ? "apiKey in config.json" : `${ignored.source.name} in this shell's environment`;
+      return [{
+        check: "key",
+        status: "warn",
+        message: `${entry.id}: no usable API key; ${where} ${ignored.reason} (${ignored.length} characters), so it was not sent. Put the real key in ${dotenv.path} and clear the shell variable`,
+      }];
+    }
+    return [{ check: "key", status: "warn", message: `${entry.id}: no API key found in config.json, ${dotenv.path} or the environment` }];
+  }
+  const key = resolution.key;
+  const source = key
+    ? describeKeySource(key.source, key.value.trim().length, key.source.kind === "env" ? (process.env[key.source.name] ?? null) : null, dotenv)
+    : null;
+  const from = source ? ` (the key: ${source.where})` : "";
+  const extra = source?.warning ? [source.warning] : [];
+  const short =
+    key && key.source.kind === "env" && STRICT_CLOUD_KEY_VARS.has(key.source.name) && key.value.trim().length < MIN_CLOUD_KEY_LENGTH
+      ? `; ${key.source.name} is shorter than a real key`
+      : "";
   const r = await probes.verifyKey(target);
   const who = `${entry.id}`;
   switch (r.status) {
-    case "ok": return [{ check: "key", status: "ok", message: `${who} accepted the key${r.probedModel ? ` (tested with ${r.probedModel})` : ""}` }];
-    case "rate_limited": return [{ check: "key", status: "ok", message: `${who} is rate-limiting the key right now; the key itself works` }];
-    case "invalid_key": return [{ check: "key", status: "fail", message: `${who} rejected the key${r.httpStatus ? ` (HTTP ${r.httpStatus})` : ""}; paste a new one in the provider settings` }];
-    case "no_balance": return [{ check: "key", status: "fail", message: `${who} accepted the key but the account has no balance; top it up` }];
-    default: return [{ check: "key", status: "warn", message: `${who}: the key could not be tested (${r.status}${r.detail ? `: ${r.detail}` : ""})` }];
+    case "ok": return [{ check: "key", status: "ok", message: `${who} accepted the key${r.probedModel ? ` (tested with ${r.probedModel})` : ""}${from}` }, ...extra];
+    case "rate_limited": return [{ check: "key", status: "ok", message: `${who} is rate-limiting the key right now; the key itself works${from}` }, ...extra];
+    case "invalid_key": return [{ check: "key", status: "fail", message: `${who} rejected the key${r.httpStatus ? ` (HTTP ${r.httpStatus})` : ""}${from}${short}; paste a new one in the provider settings` }, ...extra];
+    case "no_balance": return [{ check: "key", status: "fail", message: `${who} accepted the key but the account has no balance; top it up${from}` }, ...extra];
+    default: return [{ check: "key", status: "warn", message: `${who}: the key could not be tested (${r.status}${r.detail ? `: ${r.detail}` : ""})${from}` }, ...extra];
   }
 }
 

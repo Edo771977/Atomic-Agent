@@ -128,3 +128,35 @@ describe("smokeMain", () => {
     expect(await smokeMain(["--help"], {}, { stdout: () => undefined, stderr: () => undefined })).toBe(0);
   });
 });
+
+describe("smokeMain reads the key the way the runtime does (env, then <stateDir>/.env)", () => {
+  const REAL = "sk-ant-api03-real-looking-key-0123456789";
+  const quiet = (sink: string[]) => ({ stdout: (t: string) => sink.push(t), stderr: (t: string) => sink.push(t) });
+
+  it("uses the key saved in .env when the shell has none", async () => {
+    const out: string[] = [];
+    // An unpriced model stops the run right after the key check, before any request.
+    const code = await smokeMain(["--model", "not-a-listed-model"], {}, quiet(out), { readStateDotenv: () => `ANTHROPIC_API_KEY=${REAL}\n` });
+    expect(code).not.toBe(SMOKE_EXIT_SKIPPED_NO_KEY);
+    expect(out.join("")).not.toContain(REAL);
+  });
+
+  it("does not send a placeholder left in the shell; it falls back to .env, else skips naming the placeholder", async () => {
+    const out: string[] = [];
+    const fallback = await smokeMain(["--model", "not-a-listed-model"], { ANTHROPIC_API_KEY: "..." }, quiet(out), { readStateDotenv: () => `ANTHROPIC_API_KEY=${REAL}\n` });
+    expect(fallback).not.toBe(SMOKE_EXIT_SKIPPED_NO_KEY);
+    expect(out.join("")).toContain("ANTHROPIC_API_KEY in the environment looks like a placeholder (3 characters); using the value from .env");
+    const none: string[] = [];
+    const skipped = await smokeMain([], { ANTHROPIC_API_KEY: "..." }, quiet(none), { readStateDotenv: () => null });
+    expect(skipped).toBe(SMOKE_EXIT_SKIPPED_NO_KEY);
+    expect(none.join("")).toContain("looks like a placeholder (3 characters)");
+  });
+
+  it("its how-to never suggests pasting a placeholder into the shell", async () => {
+    const out: string[] = [];
+    await smokeMain([], {}, quiet(out), { readStateDotenv: () => null });
+    expect(out.join("")).not.toMatch(/="[^"]*\.\.\.[^"]*"/);
+    expect(out.join("")).toContain(".env");
+  });
+});
+

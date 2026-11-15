@@ -10,6 +10,7 @@ import { Database } from "../native/index.js";
 import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
+import { checkConsoleCodePage } from "./doctor-console-code-page.js";
 
 /**
  * ATO-577 — `atag doctor`: a registry of checks, each of which can find one
@@ -51,6 +52,8 @@ export interface DoctorContext {
    * in-memory better-sqlite3 one. May return a detail for the ok line.
    */
   openSqlite?: () => string | void;
+  /** Windows console code page (`chcp`); injectable for tests. Undefined: none to read. */
+  consoleCodePage?: () => string | undefined;
 }
 
 type Tree = Record<string, unknown>;
@@ -326,6 +329,7 @@ export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[
   checkCoreLocks,
   checkSessionPins,
   checkSqlite,
+  checkConsoleCodePage,
 ];
 
 export function runDoctorChecks(ctx: DoctorContext): DoctorFinding[] {

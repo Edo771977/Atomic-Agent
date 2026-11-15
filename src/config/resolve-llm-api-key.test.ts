@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
-import { resolveLlmProviderApiKey } from "./resolve-llm-api-key.js";
+import { resolveLlmProviderApiKey, resolveLlmProviderApiKeyWithSource } from "./resolve-llm-api-key.js";
 
 describe("resolveLlmProviderApiKey", () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -145,5 +145,32 @@ describe("resolveLlmProviderApiKey: the shared OpenAI key goes only over https o
     withSharedKey();
     expect(resolveLlmProviderApiKey({ ...compat("http://8.8.8.8"), apiKeyEnvVar: "OPENAI_API_KEY" })).toBe("sk-shared");
     expect(resolveLlmProviderApiKey({ ...compat("http://8.8.8.8"), apiKey: "own" })).toBe("own");
+  });
+});
+
+describe("placeholder keys are not sent (owner's Windows run)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("treats ANTHROPIC_API_KEY=... as missing, not as a key to send", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "...");
+    expect(resolveLlmProviderApiKey({ id: "anthropic", kind: "anthropic" })).toBeUndefined();
+    expect(resolveLlmProviderApiKeyWithSource({ id: "anthropic", kind: "anthropic" })).toEqual({
+      ignored: { source: { kind: "env", name: "ANTHROPIC_API_KEY" }, length: 3, reason: expect.stringMatching(/placeholder/) },
+    });
+  });
+
+  it("a placeholder config apiKey falls through to the environment", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-api03-real-looking-key-0123456789");
+    expect(resolveLlmProviderApiKeyWithSource({ id: "anthropic", kind: "anthropic", apiKey: "<key>" }).key).toEqual({
+      value: "sk-ant-api03-real-looking-key-0123456789",
+      source: { kind: "env", name: "ANTHROPIC_API_KEY" },
+    });
+  });
+
+  it("names the source of the key it used", () => {
+    vi.stubEnv("GROQ_API_KEY", "gsk-real-looking-key-0123456789");
+    expect(resolveLlmProviderApiKeyWithSource({ id: "groq", kind: "openai-compatible", apiKeyEnvVar: "GROQ_API_KEY", baseUrl: "https://api.groq.com/openai" }).key?.source)
+      .toEqual({ kind: "env", name: "GROQ_API_KEY" });
+    expect(resolveLlmProviderApiKeyWithSource({ id: "x", kind: "openrouter", apiKey: "stored-key" }).key?.source).toEqual({ kind: "config" });
   });
 });

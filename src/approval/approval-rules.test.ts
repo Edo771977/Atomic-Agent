@@ -317,3 +317,12 @@ describe("Allow always", () => {
     );
   });
 });
+
+describe("a local page probe and shell rules", () => {
+  const probe = { sessionId: "s1", tool: "verify.run", category: "verify_page_local" as const };
+  it("a deny or ask on the shell category covers it; an allow on shell does not", () => {
+    expect(matchRules([rule({ decision: "deny", category: "shell" })], probe)?.decision).toBe("deny");
+    expect(matchRules([rule({ decision: "ask", category: "shell" })], probe)?.decision).toBe("ask");
+    expect(matchRules([rule({ decision: "allow", category: "shell" })], probe)).toBeNull();
+  });
+});

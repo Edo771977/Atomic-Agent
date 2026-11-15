@@ -156,6 +156,7 @@ export type {
 } from "./run-checkpoint.js";
 export {
   describeResumableRun,
+  resumableRunDetails,
   planResume,
   renderResumeRequest,
 } from "./run-resume.js";

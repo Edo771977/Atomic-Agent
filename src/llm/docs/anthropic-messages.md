@@ -170,15 +170,21 @@ Unit tests use fake responses only. To check the real API with your own
 key, run the live smoke test ([script](../../../scripts/smoke-anthropic.ts),
 not part of `npm test` or CI):
 
+Save the key once in `<stateDir>/.env` (default `~/.atomic-agent/.env`,
+one line `ANTHROPIC_API_KEY=` followed by the key), or in the TUI
+(Esc, Manage, LLM, Cloud), then run:
+
 ```sh
-ANTHROPIC_API_KEY="sk-ant-..." npm run smoke:anthropic
+npm run smoke:anthropic
 ```
 
-On Windows PowerShell:
-
-```powershell
-$env:ANTHROPIC_API_KEY="..."; npm run smoke:anthropic
-```
+The script reads the key as the runtime does: the environment's
+`ANTHROPIC_API_KEY`, else the one in `.env`. Do not type a placeholder
+into the shell (`$env:ANTHROPIC_API_KEY=...`): it stays in that window and
+overrides the saved key for every later command there. A malformed value
+(`...`, `<key>`, whitespace inside, far too short) is not sent; the `.env`
+value is used instead with a one-line notice, and `atag doctor` names
+which source the key came from.
 
 It goes through `AnthropicProvider` on `claude-haiku-5-5` (`-- --model
 claude-fable-5-2` to pick another listed model) and prints PASS/FAIL for:
