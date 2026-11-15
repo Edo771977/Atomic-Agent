@@ -152,6 +152,8 @@ If something isn't working:
 2. Open an issue on [GitHub](https://github.com/AtomicBot-ai/atomic-agent/issues).
 3. Or ask for help in our [Discord](https://discord.gg/DCqtG8WZX8).
 
+On Windows, traces and logs are UTF-8 without a BOM. Windows PowerShell 5.1's `Get-Content` reads such files in the ANSI code page, so accented text looks garbled (`Ã¨` for `è`) although the file is fine; read them with `Get-Content -Encoding UTF8 <file>` (PowerShell 7 reads UTF-8 by default).
+
 ## Talk to Us
 
 Building something with Atomic Agent, stuck on setup, or just want to share what you are working on? Grab a slot and talk to the team directly: **[cal.com/atomicagent/demo](https://cal.com/atomicagent/demo)**. No agenda required. Questions, feedback, feature requests, or a plain hello all count. We read every issue and every Discord message too, but sometimes a 15-minute call beats a week of comments.
@@ -859,7 +861,7 @@ Drives a vendor CLI you are already signed into, so a flat-rate subscription can
 
 **Prerequisite:** the CLI installed and signed in: `claude` then `/login`, or `npm i -g @openai/codex` then `codex login`. Atomic only spawns the binary; it never reads, copies, or replays its OAuth tokens or keychain entries.
 
-In the TUI: **Providers → `n` →** pick the subscription row, then type a model. For Claude that is `sonnet`, `opus`, `haiku`, `fable`, or a pinned id like `claude-sonnet-5`; **for Codex leave it blank**: under a ChatGPT login Codex rejects explicit model ids (`not supported when using Codex with a ChatGPT account`) and resolves one itself. There is no API-key screen, because there is no key. Equivalent `config.json`:
+In the TUI: **Esc → Manage › LLM › Cloud → `n` →** pick the subscription row, then type a model. For Claude that is `sonnet`, `opus`, `haiku`, `fable`, or a pinned id like `claude-sonnet-5`; **for Codex leave it blank**: under a ChatGPT login Codex rejects explicit model ids (`not supported when using Codex with a ChatGPT account`) and resolves one itself. There is no API-key screen, because there is no key. Equivalent `config.json`:
 
 ```json
 {
@@ -943,6 +945,18 @@ npm run lint
 npm test
 npm run build
 ```
+
+### From source
+
+Prerequisites: Node 25.7 or newer, and a toolchain that can build `better-sqlite3`'s native binding when no prebuilt one matches your Node: Python 3 and a C++ compiler (Xcode Command Line Tools on macOS, `build-essential` on Linux). On Windows install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload (`Microsoft.VisualStudio.Workload.VCTools`) and Python 3.
+
+If a command fails with `better-sqlite3's native binding is missing` (the raw form is `Could not locate the bindings file` or a `NODE_MODULE_VERSION` mismatch), the package's install script did not run for this Node: npm may have skipped or blocked it, or Node was upgraded since `npm install`. Rebuild it and watch the output:
+
+```bash
+npm rebuild better-sqlite3 --foreground-scripts
+```
+
+If your npm is configured to block dependency install scripts (`ignore-scripts`, or an allow-list policy), allow `better-sqlite3`'s script first, then rerun the rebuild. `atomic-agent doctor` checks this by opening an in-memory database. The installed build ships the binding; there the fix is to reinstall atomic-agent.
 
 Core docs:
 

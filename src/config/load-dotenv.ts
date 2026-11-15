@@ -64,6 +64,37 @@ const READ_BACKOFF_MS: readonly number[] = [50, 150];
  */
 const KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
+/**
+ * Decode `.env` bytes by their byte-order mark. Windows PowerShell 5.1's
+ * `>` and `Out-File` write UTF-16LE with a BOM (FF FE), and some editors
+ * write UTF-16BE (FE FF) or UTF-8 with a BOM (EF BB BF); read as plain
+ * UTF-8 those files parse to nothing, so their keys were silently
+ * ignored. Without a BOM the bytes are UTF-8.
+ */
+export function decodeDotenvBytes(bytes: Buffer): string {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return bytes.subarray(2).toString("utf16le");
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    const swapped = Buffer.from(bytes.subarray(2));
+    swapBytes(swapped);
+    return swapped.toString("utf16le");
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return bytes.subarray(3).toString("utf8");
+  }
+  return bytes.toString("utf8");
+}
+
+/** Swap each byte pair in place; a trailing odd byte (a truncated file) stays. */
+function swapBytes(buf: Buffer): void {
+  for (let i = 0; i + 1 < buf.length; i += 2) {
+    const a = buf[i]!;
+    buf[i] = buf[i + 1]!;
+    buf[i + 1] = a;
+  }
+}
+
 /** Blocking sleep for the synchronous config bootstrap path. */
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -229,7 +260,7 @@ export function loadDotenvFromStateDir(
   deps: Partial<DotenvIoDeps> = {},
 ): DotenvLoadResult {
   const io: DotenvIoDeps = {
-    readFile: deps.readFile ?? ((p) => readFileSync(p, "utf8")),
+    readFile: deps.readFile ?? ((p) => decodeDotenvBytes(readFileSync(p))),
     sleep: deps.sleep ?? sleepSync,
   };
   const path = join(stateDir, ".env");
@@ -253,7 +284,18 @@ export function loadDotenvFromStateDir(
 
   result.exists = true;
 
-  const lines = read.raw.split(/\r?\n/);
+  const text = read.raw.replace(/^\uFEFF/, "");
+  if (text.includes("\u0000")) {
+    // UTF-16 without a BOM, or not text at all: every line would fail to
+    // parse. Say what to do once instead of a warning per line (and never
+    // echo the content).
+    process.stderr.write(
+      `atomic-agent: ${path} looks UTF-16/binary; save as UTF-8. Its keys were NOT loaded this run.\n`,
+    );
+    return result;
+  }
+
+  const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     const parsed = parseDotenvLine(lines[i] ?? "", i + 1, (reason) => {
       process.stderr.write(

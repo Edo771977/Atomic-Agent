@@ -128,4 +128,26 @@ describe("atag doctor --json", () => {
     await run([], () => false);
     expect(out).not.toContain("not installed");
   });
+
+});
+
+describe("atag doctor sqlite check (issue #29)", () => {
+  it("reports a better-sqlite3 that cannot open a database, with the loader's fix", async () => {
+    save(USER_CONFIG_DEFAULTS);
+    const code = await doctorCommand([], {
+      stateDir: dir, write, engine: null,
+      context: {
+        findOnPath: () => true,
+        openSqlite: () => { throw new Error("better-sqlite3's native binding is missing; npm rebuild better-sqlite3 --foreground-scripts"); },
+      },
+    });
+    expect(code).toBe(1);
+    expect(out).toMatch(/FAIL {2}sqlite: .*npm rebuild better-sqlite3/);
+  });
+
+  it("an in-memory database that opens is ok", async () => {
+    save(USER_CONFIG_DEFAULTS);
+    expect(await run([])).toBe(0);
+    expect(out).toMatch(/ok +sqlite: better-sqlite3 opens a database/);
+  });
 });

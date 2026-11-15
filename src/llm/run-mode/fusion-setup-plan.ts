@@ -6,6 +6,7 @@ import {
 } from "../../config/llm-run-mode-config.js";
 import { SUBSCRIPTION_CLI_KIND } from "../../config/provider-auth-mode.js";
 import { modelTierKey, modelTierOf, type ModelTier } from "../provider/presets/model-tiers.js";
+import { findProviderPreset, type ProviderPreset } from "../provider/presets/provider-presets.js";
 import type { ProviderKeyStatus } from "../provider/provider-key.js";
 import type { SubscriptionCliState } from "../provider/subscription-cli/subscription-cli-status.js";
 
@@ -30,6 +31,20 @@ export interface FusionSetupProviderFact {
   readonly subscriptionCli: string | null;
   /** The entry's `defaultChatModel`: what serves its turns. */
   readonly defaultChatModel?: string | null;
+}
+
+/**
+ * A cloud preset whose key variable is set (in the environment or
+ * `<stateDir>/.env`) while no provider entry reads it. Presence only:
+ * the value is never part of the facts.
+ */
+export interface FusionSetupEnvKeyFact {
+  /** `ProviderPreset.id` (`anthropic`). */
+  readonly presetId: string;
+  /** The preset's `envVar` (`ANTHROPIC_API_KEY`). */
+  readonly envVar: string;
+  /** Chat model ids its `/v1/models` listed, or null when not asked or refused. */
+  readonly models: readonly string[] | null;
 }
 
 export interface FusionSetupCliFact {
@@ -64,6 +79,8 @@ export interface FusionSetupFacts {
    * never filled over.
    */
   readonly setAside?: Readonly<Record<string, string>>;
+  /** Cloud presets with a key set but no entry; offered after every configured candidate. */
+  readonly envKeyPresets?: readonly FusionSetupEnvKeyFact[];
 }
 
 /** Defaults this preset writes; documented in src/cli/README.md. */
@@ -91,7 +108,7 @@ export interface FusionSetupChange {
 }
 
 export interface FusionSetupWrite {
-  /** A provider entry to add (a signed-in Claude Code with no entry yet). */
+  /** A provider entry to add (a signed-in Claude Code, or a preset whose key is set, with no entry yet). */
   readonly addProvider?: UserLlmProviderEntry;
   readonly activeTextProvider: string;
   /** Merged over the stored `llm.runMode.fusion`. */
@@ -125,9 +142,20 @@ export type FusionSetupPlan =
       readonly worker: FusionSetupLeg | null;
       /** Each a sentence that says what to do. */
       readonly problems: readonly string[];
+      /**
+       * The orchestrator would be a preset found by its key alone, and
+       * setup has no model for it: a terminal may ask for one from
+       * `models` and plan again with `orchestratorModel`.
+       */
+      readonly needsModel?: {
+        readonly providerId: string;
+        readonly envVar: string;
+        readonly models: readonly string[];
+      };
     };
 
 const CLOUD_KEY_HINT = "or add it in the TUI: Manage › LLM › Cloud";
+const ADD_CLOUD_PROVIDER = "Esc → Manage › LLM › Cloud → n";
 
 function isLocal(p: FusionSetupProviderFact): boolean {
   return p.kind === LOCAL_PROVIDER_KIND;
@@ -209,6 +237,64 @@ interface OrchestratorCandidate {
   readonly addProvider?: UserLlmProviderEntry;
 }
 
+/** A preset found by its key alone, with the entry setup would add for it. */
+interface EnvKeyOffer {
+  readonly fact: FusionSetupEnvKeyFact;
+  readonly preset: ProviderPreset;
+  readonly id: string;
+  /** The preset's default chat model, else the one the person passed; null when neither. */
+  readonly model: string | null;
+}
+
+/**
+ * The preset's own default chat model, when its definition carries one.
+ * Read structurally: the preset table owns that field, and a preset
+ * without it gets no guessed model here.
+ */
+function presetDefaultChatModel(preset: ProviderPreset): string | null {
+  const m = (preset as { readonly defaultChatModel?: unknown }).defaultChatModel;
+  return typeof m === "string" && m.trim() !== "" ? m : null;
+}
+
+function envKeyOffers(facts: FusionSetupFacts, options: FusionSetupOptions): EnvKeyOffer[] {
+  const taken = facts.providers.map((p) => p.id);
+  const out: EnvKeyOffer[] = [];
+  for (const fact of facts.envKeyPresets ?? []) {
+    const preset = findProviderPreset(fact.presetId);
+    if (!preset || preset.local || preset.perAccountEndpoint) continue;
+    // An entry already reading this variable is the configured provider.
+    if (facts.providers.some((p) => p.envVar === fact.envVar)) continue;
+    const id = freeId(preset.id, [...taken, ...out.map((o) => o.id)]);
+    const picked = options.orchestrator === undefined || options.orchestrator === id ? options.orchestratorModel : undefined;
+    out.push({ fact, preset, id, model: presetDefaultChatModel(preset) ?? picked ?? null });
+  }
+  return out;
+}
+
+/** The entry the TUI's preset wizard saves for this preset: its URL, key variable and headers. */
+function presetEntry(offer: EnvKeyOffer, model: string): UserLlmProviderEntry {
+  const { preset } = offer;
+  return {
+    id: offer.id,
+    kind: "openai-compatible",
+    baseUrl: preset.baseUrl,
+    apiKeyEnvVar: preset.envVar,
+    ...(preset.apiKeyHeader ? { apiKeyHeader: preset.apiKeyHeader } : {}),
+    ...(preset.headers ? { headers: { ...preset.headers } } : {}),
+    defaultChatModel: model,
+  };
+}
+
+function needsModelProblem(offer: EnvKeyOffer): string {
+  const served = offer.fact.models && offer.fact.models.length > 0
+    ? ` It serves: ${offer.fact.models.join(", ")}.`
+    : "";
+  return (
+    `${offer.fact.envVar} is set but there is no ${offer.id} provider entry, and setup has no model to use for it. ` +
+    `Re-run with --orchestrator ${offer.id} --orchestrator-model <id>, or add it in the TUI: ${ADD_CLOUD_PROVIDER}, which lists its models.${served}`
+  );
+}
+
 /**
  * Every orchestrator that can answer now, best first:
  *  1. the stored fusion orchestrator, unless it is definitely not ready;
@@ -219,7 +305,7 @@ interface OrchestratorCandidate {
  * embedding model), so a configured, signed-in subscription comes before
  * a keyed provider the person did not make active.
  */
-function orchestratorCandidates(facts: FusionSetupFacts): {
+function orchestratorCandidates(facts: FusionSetupFacts, offers: readonly EnvKeyOffer[]): {
   candidates: OrchestratorCandidate[];
   warnings: string[];
 } {
@@ -279,12 +365,25 @@ function orchestratorCandidates(facts: FusionSetupFacts): {
     .map((p, i) => ({ l: entryLeg(p, "a configured cloud provider with a key"), i }))
     .sort((a, b) => tierRank(a.l) - tierRank(b.l) || a.i - b.i);
   for (const { l } of keyed) push({ leg: l });
+  // 5. a preset whose key is set but has no entry: after every configured
+  //    one, and only with a model to write (never a guessed one).
+  for (const offer of offers) {
+    if (offer.model === null) continue;
+    push({
+      leg: leg(
+        { id: offer.id, kind: "openai-compatible" },
+        `${offer.fact.envVar} is set (new ${offer.preset.label} provider entry)`,
+        offer.model,
+      ),
+      addProvider: presetEntry(offer, offer.model),
+    });
+  }
   return { candidates: out, warnings };
 }
 
 function pickOrchestrator(
   facts: FusionSetupFacts,
-  pick: string | undefined,
+  options: FusionSetupOptions,
 ):
   | {
       leg: FusionSetupLeg;
@@ -292,9 +391,24 @@ function pickOrchestrator(
       candidates: FusionSetupLeg[];
       warnings: string[];
     }
-  | { problems: string[] } {
-  const { candidates, warnings } = orchestratorCandidates(facts);
+  | { problems: string[]; needsModel?: { providerId: string; envVar: string; models: readonly string[] } } {
+  const pick = options.orchestrator;
+  const offers = envKeyOffers(facts, options);
+  const { candidates, warnings } = orchestratorCandidates(facts, offers);
+  const modelless = offers.filter((o) => o.model === null);
+  const needsModel = (o: EnvKeyOffer) => ({ providerId: o.id, envVar: o.fact.envVar, models: o.fact.models ?? [] });
+  const pickedModelless = pick === undefined ? undefined : modelless.find((o) => o.id === pick);
+  if (pickedModelless) {
+    return { problems: [needsModelProblem(pickedModelless)], needsModel: needsModel(pickedModelless) };
+  }
   if (candidates.length === 0) {
+    const first = modelless[0];
+    if (first && pick === undefined) {
+      return {
+        problems: [...warnings, ...modelless.map((o) => needsModelProblem(o))],
+        needsModel: needsModel(first),
+      };
+    }
     return { problems: [...warnings, ...noOrchestratorProblems(facts)] };
   }
   const chosen =
@@ -302,9 +416,24 @@ function pickOrchestrator(
   if (!chosen) {
     return {
       problems: [
-        `${pick} cannot orchestrate now; ready: ${candidates.map((c) => c.leg.providerId).join(", ")}.`,
+        `\`${pick}\` is not a configured provider that can answer now; add it in the TUI: ${ADD_CLOUD_PROVIDER} ` +
+          `(or put its key in ${facts.stateDir}/.env and rerun). Ready: ${candidates.map((c) => c.leg.providerId).join(", ")}.`,
       ],
     };
+  }
+  if (options.orchestratorModel !== undefined && !offers.some((o) => o.id === chosen.leg.providerId)) {
+    warnings.push(
+      `--orchestrator-model applies only to a provider setup adds from an API key; ${chosen.leg.providerId} keeps its model (change it in the TUI: Manage › LLM).`,
+    );
+  }
+  const apiKeyOffer = offers.find((o) => o.preset.id === "anthropic");
+  const chosenCli =
+    chosen.addProvider?.subscriptionCli?.cli ??
+    facts.providers.find((p) => p.id === chosen.leg.providerId)?.subscriptionCli;
+  if (apiKeyOffer && chosen.leg.kind === SUBSCRIPTION_CLI_KIND && chosenCli === "claude") {
+    warnings.push(
+      `using your Claude subscription; an ${apiKeyOffer.fact.envVar} was found — pass --orchestrator ${apiKeyOffer.id} to use the API instead.`,
+    );
   }
   if (chosen.leg.tier === "cheap") {
     warnings.push(
@@ -418,6 +547,11 @@ export interface FusionSetupOptions {
   readonly budgetUsd?: number;
   /** The orchestrator the person picked (a candidate's provider id); default: the planner's first. */
   readonly orchestrator?: string;
+  /**
+   * The model for a provider entry setup adds from an API key alone
+   * (`--orchestrator-model`), when its preset names no default.
+   */
+  readonly orchestratorModel?: string;
 }
 
 /** Propose the two legs and the preset's settings, or say what is missing. */
@@ -425,7 +559,7 @@ export function planFusionSetup(
   facts: FusionSetupFacts,
   options: FusionSetupOptions = {},
 ): FusionSetupPlan {
-  const o = pickOrchestrator(facts, options.orchestrator);
+  const o = pickOrchestrator(facts, options);
   const w = pickWorker(facts);
   if ("problems" in o || "problems" in w) {
     return {
@@ -433,6 +567,7 @@ export function planFusionSetup(
       orchestrator: "leg" in o ? o.leg : null,
       worker: "leg" in w ? w.leg : null,
       problems: [...("problems" in o ? o.problems : []), ...("problems" in w ? w.problems : [])],
+      ...("problems" in o && o.needsModel ? { needsModel: o.needsModel } : {}),
     };
   }
   const orchestrator = o.leg;

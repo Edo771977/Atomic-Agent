@@ -65,6 +65,18 @@ describe("createMouseStdin", () => {
     expect(events[0]).toMatchObject({ kind: "wheel", wheel: "up", y: 8 });
   });
 
+  it("keeps a multibyte character split across two reads intact", async () => {
+    // "è" is C3 A8 in UTF-8; a read can end between the two bytes.
+    const source = makeSource();
+    const { stdin } = createMouseStdin(
+      source as unknown as NodeJS.ReadStream,
+      () => {},
+    );
+    source.write(Buffer.from([0x63, 0x61, 0x66, 0xc3]));
+    source.write(Buffer.from([0xa8, 0x21]));
+    expect(await collect(stdin)).toBe("caf\u00e8!");
+  });
+
   it("forwards ordinary keystrokes untouched", async () => {
     const source = makeSource();
     const { stdin } = createMouseStdin(

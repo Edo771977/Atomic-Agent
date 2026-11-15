@@ -1190,8 +1190,13 @@ export async function runLocalModelsDevices(): Promise<number> {
   const cfg = getConfig();
   const dataDir = cfg.paths.localModelsDataDir;
   if (!isBackendDownloaded(dataDir, getConfig().localModels.managed.engine)) {
+    // `models update` refuses external mode, so sending an external-mode
+    // user there alone was a loop (issue #29): say the mode and the way out.
     process.stderr.write(
-      "backend not downloaded; run 'atomic-agent models update' first\n",
+      cfg.localModels.mode === "managed"
+        ? "backend not downloaded; run 'atomic-agent models update' first\n"
+        : `models devices lists the managed engine's GPUs; you're using an external server (${cfg.localModels.url}). ` +
+            "Pick a managed model first: atomic-agent models use <id>, then atomic-agent models update.\n",
     );
     return 1;
   }

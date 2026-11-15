@@ -11,7 +11,7 @@ const SECRET_HEADER = /authorization|api[-_]?key|token|secret|password|cookie|au
  * file: provider keys and secret headers, explicitly configured key-env
  * references (including ordinary names), the local server's key,
  * webhook secrets, and MCP servers' secret env values and headers. Read
- * per call, so a key added through `/providers` mid-session is covered.
+ * per call, so a key added mid-session (TUI: Esc → Manage › LLM › Cloud) is covered.
  */
 export function runtimeKnownSecrets(
   config: Partial<Pick<AtomicAgentConfig, "llm" | "localModels" | "webhooks" | "mcp" | "web" | "composio">>,

@@ -13,6 +13,8 @@ import {
   readLlmBlockOrDefault,
 } from "../config/llm-provider-commands.js";
 import { providerKeyStatus } from "../llm/provider/provider-key.js";
+import { fetchOpenAiCompatModels } from "../llm/provider/openai/fetch-openai-compat-models.js";
+import { PROVIDER_PRESETS, type ProviderPreset } from "../llm/provider/presets/provider-presets.js";
 import {
   checkSubscriptionCli,
   configuredSubscriptionBinPath,
@@ -21,6 +23,7 @@ import {
   type SubscriptionCliStatusReport,
 } from "../llm/provider/subscription-cli/index.js";
 import type {
+  FusionSetupEnvKeyFact,
   FusionSetupFacts,
   FusionSetupProviderFact,
 } from "../llm/run-mode/fusion-setup-plan.js";
@@ -51,6 +54,14 @@ export interface FusionDetectDeps {
   readonly probeExternal?: (url: string) => Promise<boolean>;
   /** Load `<stateDir>/.env` into the environment (default: yes). */
   readonly loadDotenv?: (stateDir: string) => void;
+  /** Where preset key variables are looked up, after `.env` is loaded (default: `process.env`). */
+  readonly env?: () => NodeJS.ProcessEnv;
+  /**
+   * Chat model ids a preset's `/v1/models` lists with this key, or null
+   * when it cannot be asked. Only called for a preset with a key set, no
+   * entry, and no default model of its own.
+   */
+  readonly listPresetModels?: (preset: ProviderPreset, apiKey: string) => Promise<readonly string[] | null>;
 }
 
 function defaultDownloadedIds(dataDir: string): string[] {
@@ -78,6 +89,45 @@ async function defaultProbeExternal(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function defaultListPresetModels(preset: ProviderPreset, apiKey: string): Promise<readonly string[] | null> {
+  try {
+    return await fetchOpenAiCompatModels(preset.baseUrl, apiKey, preset);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cloud presets whose key variable is set while no entry reads it (the
+ * key in `.env` the setup would otherwise ignore). The facts carry the
+ * variable's name, never its value; the value is used only to ask the
+ * preset's own endpoint which models it serves, when the preset names
+ * no default model.
+ */
+async function detectEnvKeyPresets(
+  providers: readonly FusionSetupProviderFact[],
+  deps: FusionDetectDeps,
+): Promise<FusionSetupEnvKeyFact[]> {
+  const env = (deps.env ?? (() => process.env))();
+  const read = new Set(providers.map((p) => p.envVar).filter((v): v is string => v !== null));
+  const ids = new Set(providers.map((p) => p.id));
+  const found = PROVIDER_PRESETS.filter((preset) => {
+    if (preset.local || preset.perAccountEndpoint) return false;
+    if (read.has(preset.envVar) || ids.has(preset.id)) return false;
+    return (env[preset.envVar] ?? "").trim() !== "";
+  });
+  const list = deps.listPresetModels ?? defaultListPresetModels;
+  return Promise.all(
+    found.map(async (preset) => {
+      const own = (preset as { readonly defaultChatModel?: unknown }).defaultChatModel;
+      const models = typeof own === "string" && own !== ""
+        ? null
+        : await list(preset, (env[preset.envVar] ?? "").trim());
+      return { presetId: preset.id, envVar: preset.envVar, models: models ? [...models] : null };
+    }),
+  );
 }
 
 function defaultCheckCli(cli: SubscriptionCliName, binPath: string | undefined) {
@@ -123,6 +173,8 @@ export async function detectFusionSetup(
     subscriptionCli: p.subscriptionCli?.cli ?? null,
     defaultChatModel: p.defaultChatModel ?? null,
   }));
+
+  const envKeyPresets = await detectEnvKeyPresets(providers, deps);
 
   const wanted = new Set<SubscriptionCliName>(["claude"]);
   for (const p of providers) {
@@ -180,5 +232,6 @@ export async function detectFusionSetup(
       recommendedModelId,
     },
     setAside,
+    ...(envKeyPresets.length > 0 ? { envKeyPresets } : {}),
   };
 }

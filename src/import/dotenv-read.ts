@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import {
+  decodeDotenvBytes,
   dotenvTextValue,
   stripDotenvQuotes,
 } from "../config/load-dotenv.js";
@@ -18,5 +19,5 @@ export { stripDotenvQuotes };
  */
 export function readDotenvValue(path: string, key: string): string | undefined {
   if (!existsSync(path)) return undefined;
-  return dotenvTextValue(readFileSync(path, "utf8"), key);
+  return dotenvTextValue(decodeDotenvBytes(readFileSync(path)), key);
 }
