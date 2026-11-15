@@ -7,10 +7,12 @@ A folder listed in `projects.constraints` may only send a session's content to t
 
 ## API (for callers and later work)
 
-- `resolveProjectConstraint(config, workingDir)` → `ProviderPolicy | undefined`: `{ key, allowedProviders, matchedDir, allows(providerId) }`, or `undefined` when no entry covers the folder. `hasProjectConstraints(config)` says whether any entry exists. `toProviderPolicyStamp` / `providerPolicyFromStamp` carry a policy through session metadata.
+- `resolveProjectConstraint(config, workingDir)` → `ProviderPolicy | undefined`: `{ key, allowedProviders, allowedEgress, matchedDir, allows(providerId), allowsEgress(class) }`, or `undefined` when no entry covers the folder. `hasProjectConstraints(config)` says whether any entry exists. `toProviderPolicyStamp` / `providerPolicyFromStamp` carry a policy through session metadata.
 - `runWithProviderPolicy(policy, fn, { role })` runs `fn` in an AsyncLocalStorage frame; `currentProviderPolicy()` / `currentProviderPolicyFrame()` read it, `currentPolicyAllows(id)` answers for the frame (no frame or no policy: allowed), `runWithProviderRole(role, fn)` keeps the policy and names the caller for a refusal.
 - `ProviderNotAllowedError` (code `ATOMIC_AGENT_PROVIDER_NOT_ALLOWED`), found anywhere in a cause chain by `isProviderNotAllowed` / `findProviderNotAllowed`. `assertProviderAllowed(id, { constraintsActive })` throws it; `providerPolicyRefusalFor(id, role)` returns it for callers that answer with a tool error; `noAllowedProviderError(policy, role)` is the terminal refusal.
 - `guardProvider(provider, { constraintsActive })` wraps an `LlmProvider` so `complete`, `completeStream` and `describeImage` check first. Everything else passes through.
+
+- `effectivePolicyForSession(sessionId)` ([session policy](../../runtime/session-provider-policy.ts)) is the one read the egress guard makes: the running turn's frame, else the session's folder (fail closed). A rule that narrows a session mid-turn (a read taint) extends it there.
 
 A frame with `policy: undefined` is an unconstrained folder. No frame at all while any constraint exists is a caller nobody scoped, and every guarded call refuses it (fail closed).
 
@@ -30,10 +32,28 @@ A frame with `policy: undefined` is an unconstrained folder. No frame at all whi
 - Memory embeddings are judged by place, not id: an endpoint on this machine (loopback URL, or Atomic Core's embedding module) is always allowed; any other is refused in a constrained folder as `EmbeddingUnavailableError`, so recall falls back to full-text search and nothing is sent ([guard](../../memory/embeddings/embedding-policy-guard.ts)).
 - Core-proxied media (`image.generate`, `video.generate`, and Core's OpenRouter key registration as a backstop) is refused unless the folder allows `openrouter`, where Core sends the job.
 
+## Egress (`allowedEgress`)
+
+A constrained folder's tools may not send its content off the machine unless the entry's `allowedEgress` names their class; the default is none. The [tool registry](../../tools/tool-registry.ts) runs the guard ([inventory](../../tools/tool-egress.ts), [runtime wiring](../../runtime/composition/runtime-egress-guard.ts)) before the call: the batch scheduler asks `refusalBeforeDispatch` ahead of PreToolUse hooks and the approval ledger, and `invoke` checks again, so a refused call never prompts and never sends. The refusal (code `ATOMIC_AGENT_EGRESS_NOT_ALLOWED`) reads `folder <key> is restricted: <tool> would send content off this machine; add "<class>" to projects.constraints["<key>"].allowedEgress to allow it`.
+
+| Class | Tools |
+| --- | --- |
+| `web` | `os.web.search`, `os.web.fetch` (a loopback URL stays allowed) |
+| `http` | `os.http.request` (a loopback URL stays allowed) |
+| `browser` | every `browser.*` tool (the page acted on may be remote whatever the arguments say) |
+| `github` | `github.*` |
+| `git` | `os.git.fetch`, `pull`, `push`, `clone` |
+| `mail` | `os.email.*` (Atomic Mail) |
+| `channels` | `tasks.schedule` / `tasks.cron` with `notify` |
+| `composio` | tools of the Composio MCP server |
+| `mcp:<server>` | tools of a remote (http, SSE) MCP server, and `mcp.resource.*` / `mcp.prompt.*` naming it; a tool whose server is unknown counts as remote |
+
+A stdio MCP server is a local process and stays allowed, but it can reach the network itself, which nothing here sees. Fusion workers obey the stamped policy, egress included; an older stamp without the list allows none. `image.generate` / `video.generate` are checked as provider `openrouter` above, not as egress.
+
 ## Not covered
 
-`allowedProviders` covers model, embedding and media endpoints only. Other egress (web fetch and search, `os.http.request`, the browser, remote MCP servers, Composio, GitHub, channels, mail, shell commands) is not constrained by it; an `allowedEgress` list is a follow-up. MCP sampling talks to the local llama-server client directly, outside the registry, and is not checked. Memory scoping (tagging rows written under a constraint), read taint from files inside a constrained folder and the TUI chip are separate work. Background jobs with neither a frame nor a session id (the memory consolidator's timer) are refused while constraints exist.
+`allowedProviders` covers model, embedding and media endpoints; `allowedEgress` covers the tool classes above. Not covered, and shown as such by `atomic-agent doctor`: shell commands (`os.shell.run`, `verify.run`, skill scripts), which can run `curl` or `git push` themselves, and the network use of stdio MCP servers. A turn a person starts from a Telegram or Discord chat still replies there: the channel is the surface they chose, not a tool call. MCP sampling talks to the local llama-server client directly, outside the registry, and is not checked. Memory scoping (tagging rows written under a constraint), read taint from files inside a constrained folder and the TUI chip are separate work. Background jobs with neither a frame nor a session id (the memory consolidator's timer) are refused while constraints exist.
 
 ## Tests
 
-[Policy and guard](../provider-policy.test.ts), [chain](../fallback/provider-policy-fallback.test.ts), [seam](../../runtime/llm-fallback-seam.test.ts), [session policy](../../runtime/session-provider-policy.test.ts), [turn frames and Fusion](../../runtime/composition/runtime-turn-service.test.ts), [escalation and judge](../../runtime/composition/runtime-tool-catalog.test.ts), [embeddings](../../memory/embeddings/embedding-policy-guard.test.ts).
+[Policy and guard](../provider-policy.test.ts), [chain](../fallback/provider-policy-fallback.test.ts), [seam](../../runtime/llm-fallback-seam.test.ts), [session policy](../../runtime/session-provider-policy.test.ts), [turn frames and Fusion](../../runtime/composition/runtime-turn-service.test.ts), [escalation and judge](../../runtime/composition/runtime-tool-catalog.test.ts), [embeddings](../../memory/embeddings/embedding-policy-guard.test.ts), [egress inventory and guard](../../tools/tool-egress.test.ts), [egress before hooks and approval](../../agent/dispatch/batch-scheduler-egress.test.ts), [MCP classes](../../runtime/composition/runtime-egress-guard.test.ts).
