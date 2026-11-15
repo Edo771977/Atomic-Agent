@@ -335,7 +335,11 @@ export async function createAgentRuntime(
   // matched live against `projects.constraints`; see session-provider-policy.ts.
   const sessionProviderPolicy = createSessionProviderPolicy({
     readConfig: () => getConfig(),
-    loadSession: (id) => sessionStore.load(id),
+    // A store that cannot answer (closed at shutdown) reads as no
+    // session, which fails closed.
+    loadSession: (id) => {
+      try { return sessionStore.load(id); } catch { return null; }
+    },
   });
   // The commands `os.shell.run` detached at the default timeout (F47).
   // One registry for the runtime, so the turn-end (`executeTurn`),

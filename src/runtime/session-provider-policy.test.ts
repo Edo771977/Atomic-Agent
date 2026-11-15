@@ -31,6 +31,13 @@ describe("session provider policy (issue #33)", () => {
     expect(policy.forSessionId("s-1")?.allows("openai")).toBe(false);
   });
 
+  it("reads a side call's partition id (`reflection:<id>`) as its session's id", () => {
+    const { project, policy } = setup();
+    expect(policy.forSessionId("reflection:s-1")?.key).toBe(project);
+    expect(policy.forSessionId("compaction:s-1")?.key).toBe(project);
+    expect(policy.forSessionId("reflection:s-gone")?.allowedProviders).toEqual([]);
+  });
+
   it("fails closed for an id that names no stored session", () => {
     const { policy } = setup();
     expect(policy.forSessionId("s-gone")?.allowedProviders).toEqual([]);

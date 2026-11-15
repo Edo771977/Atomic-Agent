@@ -34,6 +34,7 @@ export interface SessionProviderPolicyDeps {
  *   (`FusionWorkerMeta.providerPolicy`), never its own folder, which may
  *   be a temp copy outside every constrained folder. A worker without a
  *   stamp while any constraint exists is refused everything.
+ * - A side call's partition id (`reflection:<id>`) reads as its session.
  * - An id that names no stored session while constraints exist: refused
  *   everything (fail closed).
  */
@@ -55,9 +56,17 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   };
   const forSessionId = (sessionId: string): ProviderPolicy | undefined => {
     if (!constraintsActive()) return undefined;
-    const session = deps.loadSession(sessionId);
+    // Side calls partition the chain as `<kind>:<session id>`
+    // (`reflection:`, `compaction:`, `rewriter:`, ...): the session is
+    // the part after the prefix.
+    let id = sessionId;
+    let session = deps.loadSession(id);
+    for (let hops = 0; session === null && hops < 4 && id.indexOf(":") > 0; hops += 1) {
+      id = id.slice(id.indexOf(":") + 1);
+      session = deps.loadSession(id);
+    }
     if (session === null) return refuseAllPolicy(`(unknown session ${sessionId})`);
-    return forSession({ id: sessionId, ...session });
+    return forSession({ id, ...session });
   };
   return { constraintsActive, forWorkingDir, forSession, forSessionId };
 }
