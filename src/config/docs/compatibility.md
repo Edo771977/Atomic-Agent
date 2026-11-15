@@ -39,6 +39,10 @@ The desktop app and the terminal share one state dir and one `config.json`, and 
 
 `network.offline` (boolean, ATO-1084) is additive and unversioned: a file without the `network` block reads `false`, which changes nothing. `ATOMIC_AGENT_OFFLINE=1` can only turn it on; `loadConfig` folds it into `config.network.offline`. A non-boolean is a validation error. [Network config tests](../network-config.test.ts) cover it.
 
+## Approval pending notification
+
+`notifications.approvalPending` (`enabled`, `afterMinutes`, `channel`) is additive and unversioned: a file without it reads `enabled: false`, which sends nothing. `afterMinutes` is a whole number from 1 to 1440 and `channel` one of `telegram`, `discord` or `auto`; anything else is a validation error. [Integration config tests](../integration-config.test.ts) cover it.
+
 ## Atomic Core backend variant
 
 `localModels.managed.coreBackendVariant` (`auto` or `cpu`) is additive and unversioned: a file without it reads `auto`, Core's recommended build, as before. It is the Atomic Core engine's own key on purpose. `localModels.managed.backendVariant` belongs to the llama-server engine, whose start rescue wrote `cpu` there on any health timeout, including on machines whose GPU build works; files moved to `atomic-core` by version 77 still carry it, and reading it for Core would move them to the slower CPU build. Only Core's own rescue writes `coreBackendVariant: "cpu"`, after the CPU build served a model the GPU build crashed on. [Local model config tests](../local-models/local-models-config.test.ts) and [Core backend variant tests](../../local-llm/core/core-backend-variant.test.ts) cover it.

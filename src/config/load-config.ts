@@ -741,6 +741,7 @@ export function loadConfig(): AtomicAgentConfig {
       downloads: {
         channel: user.notifications.downloads.channel,
       },
+      approvalPending: { ...user.notifications.approvalPending },
     },
     atomicMail: {
       address: user.atomicMail.address,

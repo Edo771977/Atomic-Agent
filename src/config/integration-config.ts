@@ -1,6 +1,6 @@
 import { ConfigValidationError } from "./config-validation-error.js";
 
-import { parseBool, parseNonEmptyString } from "./config-primitives.js";
+import { parseBool, parseBoundedPositiveInt, parseNonEmptyString } from "./config-primitives.js";
 
 import { parseNullableString } from "./config-values.js";
 
@@ -71,6 +71,26 @@ export interface NotificationsConfig {
      */
     channel: DownloadNotifyChannelSetting | null;
   };
+  /**
+   * Opt-in ping when an approval prompt has waited `afterMinutes` with no
+   * answer: one plain message per prompt to the paired owner, through a
+   * channel running in this process. Additive and unversioned.
+   */
+  approvalPending: ApprovalPendingNotifyConfig;
+}
+
+/** Which running channel carries the approval-pending ping. */
+export type ApprovalPendingNotifyChannel = "telegram" | "discord" | "auto";
+
+/** Upper bound of `notifications.approvalPending.afterMinutes` (one day). */
+export const APPROVAL_PENDING_MAX_MINUTES = 1440;
+
+export interface ApprovalPendingNotifyConfig {
+  enabled: boolean;
+  /** Whole minutes a prompt waits before the ping, 1 to 1440. */
+  afterMinutes: number;
+  /** `auto`: Telegram when it is up and paired, else Discord. */
+  channel: ApprovalPendingNotifyChannel;
 }
 
 /**
@@ -149,6 +169,12 @@ export function createNotificationsDefaults(): NotificationsConfig {
     downloads: {
       channel: null,
     },
+    // Additive, unversioned: off until the operator opts in.
+    approvalPending: {
+      enabled: false,
+      afterMinutes: 5,
+      channel: "auto",
+    },
   };
 }
 
@@ -187,6 +213,7 @@ export function createComposioDefaults(): ComposioConfig {
 export function parseNotificationsConfig(
   rawDownloads: Record<string, unknown>,
   readDefaults: () => NotificationsConfig,
+  rawApprovalPending: Record<string, unknown> = {},
 ): NotificationsConfig {
   return {
       downloads: {
@@ -196,7 +223,35 @@ export function parseNotificationsConfig(
           "notifications.downloads.channel",
         ),
       },
+      approvalPending: parseApprovalPendingNotifyConfig(
+        rawApprovalPending,
+        () => readDefaults().approvalPending,
+      ),
     };
+}
+
+export function parseApprovalPendingNotifyConfig(
+  raw: Record<string, unknown>,
+  readDefaults: () => ApprovalPendingNotifyConfig,
+): ApprovalPendingNotifyConfig {
+  const field = "notifications.approvalPending";
+  const channel = raw.channel ?? readDefaults().channel;
+  if (channel !== "telegram" && channel !== "discord" && channel !== "auto") {
+    throw new ConfigValidationError(
+      `${field}.channel`,
+      `expected "telegram", "discord" or "auto", got ${JSON.stringify(channel)}`,
+    );
+  }
+  return {
+    enabled: parseBool(raw.enabled ?? readDefaults().enabled, `${field}.enabled`),
+    afterMinutes: parseBoundedPositiveInt(
+      raw.afterMinutes ?? readDefaults().afterMinutes,
+      `${field}.afterMinutes`,
+      1,
+      APPROVAL_PENDING_MAX_MINUTES,
+    ),
+    channel,
+  };
 }
 
 export function parseAtomicMailConfig(
