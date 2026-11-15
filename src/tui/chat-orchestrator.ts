@@ -822,12 +822,11 @@ export class ChatOrchestrator {
   private railSessions(): SessionPickerEntry[] {
     /* ATO-1150: chats archived (from the desktop's sidebar, or
        `POST /api/sessions/{id}/archived`) are left out of the rail and the
-       session picker, which list the same set. The open chat stays, so
-       archiving it elsewhere does not pull the row out from under it. */
-    const openId = this.session?.id;
-    const stored = this.railPage()
-      .filter((row) => !row.archived || row.id === openId)
-      .map((row) => toPickerEntry(row));
+       session picker, which list the same set. `railPage` asks the store
+       to leave them out in SQL, so a page of archived rows cannot hide
+       the older chats; the open chat stays, so archiving it elsewhere
+       does not pull the row out from under it. */
+    const stored = this.railPage().map((row) => toPickerEntry(row));
     // The manual order applies whether or not there are stand-ins.
     if (this.pendingRows.size === 0) return this.sessionRail.arrange(stored);
     const storedIds = new Set(stored.map((entry) => entry.sessionId));
@@ -871,8 +870,11 @@ export class ChatOrchestrator {
     const rows: SessionSummary[] = [];
     let after: SessionSummaryCursor | undefined;
     for (let page = 0; page < this.railPages; page += 1) {
+      const openId = this.session?.id;
       const batch = this.runtime.sessionStore.listSummaryPage({
         limit: RAIL_PAGE_SIZE,
+        excludeArchived: true,
+        ...(openId ? { keepId: openId } : {}),
         ...(after ? { after } : {}),
       });
       rows.push(...batch);

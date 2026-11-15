@@ -1,4 +1,6 @@
-import { exportChat, parseChatExportFormat } from "../session/index.js";
+import { exportChat, isIncognitoSession, parseChatExportFormat } from "../session/index.js";
+import { getConfig } from "../config/index.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
 import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
@@ -16,7 +18,8 @@ import { sendError, sendJson, type HttpHandler } from "./request-context.js";
  *
  * `format` defaults to Markdown and also takes `md` / `word`; anything
  * else is `400`. `tools=0` leaves out the one-line-per-tool-step list.
- * `404` when the session is not persisted.
+ * `404` when the session is not persisted; `409 incognito_session` for an
+ * incognito chat (ATO-586), which leaves nothing behind.
  */
 export function createExportSessionHandler(): HttpHandler {
   return async (req, res, ctx) => {
@@ -36,8 +39,17 @@ export function createExportSessionHandler(): HttpHandler {
       sendError(res, 404, openaiError(`session not found: ${id}`));
       return;
     }
+    if (isIncognitoSession(state)) {
+      // An incognito chat (ATO-586) is meant to leave nothing behind; a
+      // document of it would outlive the chat.
+      sendError(res, 409, openaiError("an incognito chat cannot be exported", "invalid_request_error", null, "incognito_session"));
+      return;
+    }
     const file = await exportChat(state, format, {
       includeTools: url.searchParams.get("tools") !== "0",
+      // The config's stored keys too, not only the .env ones (ATO-1077
+      // set); read per request, so a key added mid-session is covered.
+      knownSecrets: runtimeKnownSecrets(getConfig()),
       describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
     });
     const binary = typeof file.body !== "string";

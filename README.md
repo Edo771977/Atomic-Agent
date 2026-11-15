@@ -287,7 +287,7 @@ Atomic Agent drives a full desktop tool surface. Dangerous actions are routed th
 | **Vision** | Optional `vision.describe` for multimodal models with `mmproj`, kept outside the text transcript. |
 | **MCP** | Connect external MCP servers; their tools, resources, and prompts join the same registry. |
 | **Fusion** | One model plans and hands the independent bulk of a job (wide reads, drafts, tests) to a pool of workers via `fusion.delegate`, then checks and merges their results. Usually a cloud orchestrator with local workers; either side can be any configured provider. You can stop, steer or escalate one running worker without stopping the rest, resume a run cut off by a crash with `/fusion resume`, and cap one Fusion turn's spend and time. Models by role, a task tree, a git worktree per worker, a judge, automatic replanning and escalation to a stronger model are options, all off by default. |
-| **Providers** | Local `llama-server` by default; OpenAI-compatible, [OpenRouter](https://openrouter.ai), AI/ML API, and Gemini providers when configured, plus one-click presets for Anthropic, Groq, DeepSeek, Mistral, xAI, Together, Ollama, LM Studio, Atomic Chat and more, with live model catalogs and mid-session switching. Your existing **Claude Code and OpenAI Codex subscriptions** work too, driven through their own signed-in CLIs with no API key. Reasoning-only completions from reasoning models are recovered instead of failing the turn. Model pickers for OpenRouter, AI/ML API, Gemini and the Claude CLI start with Cheap, Balanced and Best. When a cloud provider fails you see the reason instead of a silent move to a local model; on a 429 or 503 the agent tries up to 3 times in total, a `Retry-After` longer than 5 seconds is waited out or handed to the fallback, and with a fallback chain set it says which provider it switched to. `atomic-agent models recommend` names the best local models this machine can run. |
+| **Providers** | Local `llama-server` by default; OpenAI-compatible, [OpenRouter](https://openrouter.ai), AI/ML API, and Gemini providers when configured, plus one-click presets for Anthropic, Groq, DeepSeek, Mistral, xAI, Together, Azure OpenAI, Amazon Bedrock, W&B Inference (CoreWeave), Ollama, LM Studio, Atomic Chat, Lemonade, Foundry Local and more, with live model catalogs and mid-session switching. Your existing **Claude Code and OpenAI Codex subscriptions** work too, driven through their own signed-in CLIs with no API key. Reasoning-only completions from reasoning models are recovered instead of failing the turn. Model pickers for OpenRouter, AI/ML API, Gemini and the Claude CLI start with Cheap, Balanced and Best. When a cloud provider fails you see the reason instead of a silent move to a local model; on a 429 or 503 the agent tries up to 3 times in total, a `Retry-After` longer than 5 seconds is waited out or handed to the fallback, and with a fallback chain set it says which provider it switched to. `atomic-agent models recommend` names the best local models this machine can run. |
 | **Telegram & Discord** | Remote control from your phone: a session per chat, approval buttons, files both ways, and opt-in scheduled-task reports on Telegram. Run several bots at once from the Swarm tab (`/swarm`), each with its own token and owner. |
 | **[Composio](https://composio.dev)** | Connect 1500+ SaaS toolkits (Gmail, Slack, Notion, Linear, and more) with OAuth handled for you. Set up from the Integrations tab; tools arrive as `mcp.composio.*` and every write to a real account stays approval-gated. |
 
@@ -322,7 +322,10 @@ atomic-agent skill list
 atomic-agent task list
 atomic-agent trace list --limit 10
 atomic-agent overnight "migrate the tests to vitest" --budget 5 --hours 8 --dir /path/to/work --detach
+atomic-agent export --last --format docx --out chat.docx
 ```
+
+`export <sessionId>` (or `--last`) saves one chat as Markdown, HTML or Word: your messages, the replies, one line per tool step (`--no-tools` drops them) and the files a reply delivered, with every key the agent knows of masked. Markdown and HTML go to stdout unless `--out` is given; an existing file is kept unless `--force`. An incognito chat is never exported.
 
 `overnight` runs one long task unattended: it stops at the `--budget` dollar cap (estimated; local models count as $0) or after `--hours` (default 8), whichever comes first, and ends with a summary of what got done. An action that needs approval is denied, since nobody is there to answer; pass `--no-approval` to allow everything. `--detach` keeps it going in the background; check it with `atomic-agent task show <id>`.
 
@@ -497,6 +500,8 @@ The preset is a fixed `http://localhost:11434` endpoint; it does not probe for a
 | Ollama (local) | `http://localhost:11434` |
 | LM Studio (local) | `http://localhost:1234` |
 | Atomic Chat (local) | `http://127.0.0.1:1337` |
+| Lemonade (local) | `http://localhost:13305` (asked for: older servers use 8000) |
+| Foundry Local | `http://localhost:5273` (asked for: it picks a new port unless started with `--port`) |
 
 For Atomic Chat, the endpoint is the desktop app's Local API Server (Settings › Local API Server). The app only raises it while a model is loaded, so start a model first or the model list will not load. It needs no key unless you set one in those settings; if you did, put the same value in `ATOMIC_CHAT_API_KEY` in the state dir's `.env`. An External llama.cpp URL on `:1337` is recognized and offered this preset, the same way `:11434` is offered Ollama.
 

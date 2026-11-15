@@ -37,6 +37,14 @@ import { ARCHIVED_TURNS_KEY } from "./turn-archive.js";
  * An incognito chat (ATO-586, `incognito.ts`) is never listed, so the
  * rail, the recents and the profile's name walk never see it. Its check
  * comes after `json_valid`, like every other guard.
+ *
+ * An archived chat (ATO-1150, `metadata.archived`) is left out only when
+ * the caller opts in (`:excludeArchived`, the terminal's rail and picker),
+ * with `:keepId` still listed so the open chat does not vanish from under
+ * the operator. Filtering here rather than after the page keeps a page of
+ * `limit` rows a page of rows the caller shows: a newest page that was all
+ * archived would otherwise hide every older chat. The HTTP list keeps them
+ * and reports the flag.
  */
 function summaryPageSql(cursored: boolean): string {
   return `
@@ -64,7 +72,10 @@ SELECT id,
         OR EXISTS (SELECT 1
                      FROM json_each(payload, '$.turns') AS t
                     WHERE t.type = 'object'
-                      AND json_extract(t.value, '$.kind') = 'user'))${
+                      AND json_extract(t.value, '$.kind') = 'user'))
+   AND (:excludeArchived = 0
+        OR json_extract(payload, '$.metadata.archived') IS NOT 1
+        OR id = :keepId)${
                     cursored
                       ? `
    AND (updated_at < :afterUpdatedAt
@@ -97,6 +108,10 @@ export interface SessionSummaryPageOptions {
   limit: number;
   /** Omitted for the first page. */
   after?: SessionSummaryCursor;
+  /** Leave archived chats out (ATO-1150). Default false: every row is listed. */
+  excludeArchived?: boolean;
+  /** With `excludeArchived`, a chat listed even when archived (the open one). */
+  keepId?: string;
 }
 
 /** The row shape the projection above hands back, before coercion. */
@@ -147,9 +162,14 @@ export function summaryPageParams(
   options: SessionSummaryPageOptions,
 ): Record<string, number | string> {
   const limit = Math.max(0, Math.trunc(options.limit));
-  if (!options.after) return { limit };
+  const filter = {
+    excludeArchived: options.excludeArchived === true ? 1 : 0,
+    keepId: options.keepId ?? "",
+  };
+  if (!options.after) return { limit, ...filter };
   return {
     limit,
+    ...filter,
     afterUpdatedAt: options.after.updatedAt,
     afterId: options.after.id,
   };

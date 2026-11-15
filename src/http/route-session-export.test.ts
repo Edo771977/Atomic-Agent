@@ -1,6 +1,10 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resetConfigCache, USER_CONFIG_VERSION } from "../config/index.js";
 import { createEmptySessionState, type SessionState } from "../session/index.js";
 
 import { startTestHarness, type Harness } from "./test-harness.js";
@@ -96,6 +100,45 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     const body = (await res.json()) as ExportBody;
     expect(body.content).toContain("curl");
     expect(body.content).not.toContain(token);
+  });
+
+  it("masks a provider key stored in config.json (ATO-1077 set), not only the .env ones", async () => {
+    const key = "9f3c2a7e81d4b06f5ac39e72d18b4f60";
+    writeFileSync(
+      join(harness.stateDir, "config.json"),
+      JSON.stringify({
+        version: USER_CONFIG_VERSION,
+        llm: {
+          activeTextProvider: "local-llama",
+          providers: [
+            { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:8080" },
+            { id: "cloud", kind: "aimlapi", apiKey: key, defaultChatModel: "m" },
+          ],
+        },
+      }),
+    );
+    resetConfigCache();
+    harness.runtime.sessionStore.save({
+      ...createEmptySessionState({ id: "exp-cfg-key", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "check", at: 1 },
+        { kind: "assistant_tool_call", tool: "os.shell.run", args: { command: `printf %s ${key}` }, at: 2 },
+        { kind: "tool_result", tool: "os.shell.run", status: "ok", summary: "x", at: 3 },
+        { kind: "assistant_reply", text: "done", at: 4 },
+      ],
+    });
+    const body = (await (await get("exp-cfg-key")).json()) as ExportBody;
+    expect(body.content).toContain("printf");
+    expect(body.content).not.toContain(key);
+  });
+
+  it("refuses an incognito chat with 409", async () => {
+    const state = seed("exp-incog");
+    harness.runtime.sessionStore.save({ ...state, incognito: harness.runtime.sessionStore.newIncognitoMark() });
+    const res = await get("exp-incog");
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toMatch(/incognito/);
   });
 });
 

@@ -139,4 +139,14 @@ describe("POST /api/sessions/{id}/resume (ATO-448)", () => {
     seedInterrupted("rs-6");
     expect((await post("rs-6", { release: "yes" })).status).toBe(400);
   });
+
+  it("offers the turn again once a handed-out text was neither sent nor released for 10 minutes", async () => {
+    seedInterrupted("rs-ttl");
+    expect((await post("rs-ttl")).status).toBe(200);
+    expect(await errorCode(await post("rs-ttl"))).toBe("resume_queued");
+    // The client crashed holding the text: past the hold the mark lapses.
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + 10 * 60_000 + 1_000);
+    expect((await post("rs-ttl")).status).toBe(200);
+  });
 });

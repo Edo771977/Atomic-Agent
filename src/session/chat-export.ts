@@ -80,14 +80,22 @@ export function chatExportTitle(state: SessionState, options: ChatExportOptions 
   if (first && first.kind === "user") {
     // Mask before cutting short, so a cut cannot leave half a key unmatched.
     const line = maskChatExportText(first.text.trim().split(/\r?\n/, 1)[0] ?? "", options);
-    return line.length > 60 ? `${line.slice(0, 57).trimEnd()}...` : line;
+    // Cut by code points, so an emoji is never split into half a pair.
+    const chars = Array.from(line);
+    return chars.length > 60 ? `${chars.slice(0, 57).join("").trimEnd()}...` : line;
   }
   return `Chat ${state.id}`;
 }
 
+/** Names Windows keeps for devices, with or without an extension. */
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
 /**
  * A file name for the export: the title with anything a file system or
- * a shell would trip on replaced, never empty, never over 80 characters.
+ * a shell would trip on replaced, never empty, never over 80 characters
+ * (code points, so no half of a surrogate pair), never a Windows device
+ * name (`CON`, `nul.txt`, `COM1`: prefixed with `chat-`), and never
+ * ending in a dot, which Windows drops.
  */
 export function chatExportFilename(
   state: SessionState,
@@ -100,10 +108,10 @@ export function chatExportFilename(
     .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^\.+/, "")
-    .slice(0, 80)
-    .trim();
-  return `${base || `chat-${state.id}`}.${EXTENSION[format]}`;
+    .replace(/^\.+/, "");
+  const cut = Array.from(base).slice(0, 80).join("").replace(/[\s.]+$/, "");
+  const name = WINDOWS_DEVICE_NAME.test(cut) ? `chat-${cut}` : cut;
+  return `${name || `chat-${state.id}`}.${EXTENSION[format]}`;
 }
 
 /** `2026-11-12 14:03 UTC`: the same text on every machine. */
