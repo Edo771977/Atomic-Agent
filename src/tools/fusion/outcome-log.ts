@@ -92,6 +92,18 @@ export interface TaskOutcomeRecord {
   /** Objective declared checks only; neither judge/self-report nor full integration acceptance. */
   acceptance?: "checks-passed" | "checks-failed";
   acceptanceScope?: "task-checks";
+  /**
+   * How many contract checks were attributed to this task (issue #30).
+   * 0 is "no checks declared", the report's `no-checks`; absent on
+   * older records, which stay `unverified`.
+   */
+  taskChecks?: number;
+  /**
+   * Telemetry only, never acceptance: the worker's own last `verify.run`
+   * was one of this task's declared checks, with the identical spec, and
+   * passed after its last change in its workspace. Absent on older records.
+   */
+  selfCheckPassed?: boolean;
   /** Final candidate disposition and own-check telemetry, never direct quality evidence. */
   candidate?: CandidateOutcomeEvidence;
   /** SHA256 of known configured request identity, stable through execution; not served-model attestation. */
@@ -227,6 +239,8 @@ export interface TaskOutcomeContext {
   attempt: number;
   pricing: WorkerPricing | undefined;
   merge: MergeOutcome | null;
+  /** Contract checks attributed to the task; absent: unknown (no `taskChecks` written). */
+  taskChecks?: number;
 }
 
 /** USD kept to a millionth of a dollar: sums of floats stay readable in the file. */
@@ -279,6 +293,10 @@ export function taskOutcomeRecord(
         : row.checks!.failed === 0 && row.status === "ok"
           ? { acceptance: "checks-passed" as const, acceptanceScope: "task-checks" as const } : {})
       : {}),
+    ...(context.taskChecks === undefined
+      ? {}
+      : { taskChecks: Math.max(context.taskChecks, row.checks?.total ?? 0) }),
+    selfCheckPassed: row.selfCheckPassed === true,
     status: row.status,
     failure: failureCategory(row),
     attempt: Math.max(1, context.attempt),

@@ -292,6 +292,13 @@ export interface WorkerTaskResult {
    * (`worker-self-check.ts`). For the outcome log; nothing renders it.
    */
   selfCheckNotice?: true;
+  /**
+   * Telemetry only, never acceptance (issue #30): the worker's own last
+   * `verify.run` had the identical spec of one of its task's declared
+   * checks and passed after its last change (`WorkerCheckRuns`). Not set
+   * on a row a cloud re-run replaced.
+   */
+  selfCheckPassed?: true;
   /** Escalations that reached the worker (advisor hints, a re-run), for the outcome log. */
   escalations?: number;
   /**

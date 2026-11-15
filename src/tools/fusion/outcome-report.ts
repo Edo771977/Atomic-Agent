@@ -13,7 +13,7 @@ import {
   formatTokenCount,
   formatUsdShort,
 } from "./turn-receipt.js";
-import { taskCheckEvidence } from "./outcome-evidence.js";
+import { taskCheckColumn } from "./outcome-evidence.js";
 import { candidateOutcomeEvidence, candidateWorkerRuns, hasCandidateOutcome } from "./candidate-outcomes.js";
 import type { CandidateRejectionReason } from "./candidate-acceptance.js";
 
@@ -49,6 +49,10 @@ export interface ModelStats {
   checksFailed: number;
   /** Missing, legacy, or contradictory task-check evidence; never inferred from status ok. */
   checksUnverified: number;
+  /** Rows whose record says no task-attributed check was declared (issue #30). */
+  checksNone: number;
+  /** Telemetry only: the worker's own last run of a declared check passed after its last change. */
+  selfChecked: number;
   /** Aggregated task runs under their configured leg, not physical provider requests or quality samples. */
   candidate: CandidateTaskRunStats;
   topFailures: Array<{ category: FailureCategory; count: number }>;
@@ -208,7 +212,7 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
   const fixed = noticed.filter((r) => r.status === "ok");
   const priced = rows.filter((r) => r.costUsd !== null);
   const escalated = rows.filter((r) => r.escalations > 0).length;
-  const checks = rows.map(taskCheckEvidence);
+  const checks = rows.map(taskCheckColumn);
   return {
     provider: first.provider,
     model: first.model,
@@ -222,6 +226,8 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
     checksPassed: checks.filter((value) => value === "passed").length,
     checksFailed: checks.filter((value) => value === "failed").length,
     checksUnverified: checks.filter((value) => value === "unverified").length,
+    checksNone: checks.filter((value) => value === "no-checks").length,
+    selfChecked: rows.filter((r) => r.selfCheckPassed === true).length,
     candidate: candidateStats(rows),
     topFailures: [...failures.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -396,7 +402,7 @@ function table(header: string[], rows: string[][]): string[] {
 
 function modelRows(stats: ModelStats[]): string[] {
   return table(
-    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
+    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
     stats.map((s) => [
       s.model === s.provider ? s.model : `${s.model} (${s.provider})`,
       s.leg,
@@ -404,7 +410,8 @@ function modelRows(stats: ModelStats[]): string[] {
       pct(s.firstPassGreenRate),
       pct(s.greenRate),
       String(s.greenAfterRetry),
-      `${s.checksPassed}/${s.checksFailed}/${s.checksUnverified}`,
+      `${s.checksPassed}/${s.checksFailed}/${s.checksUnverified}/${s.checksNone}`,
+      String(s.selfChecked),
       pct(s.escalationRate),
       s.selfCheckFixRate === null ? "-" : `${s.selfCheckFixed}/${s.selfCheckNotices}`,
       formatDurationShort(s.medianDurationMs),
@@ -470,7 +477,7 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
     }`,
     "Reported green: status ok; reported 1st-pass: status ok on the first attempt with no judge retry or self-check notice. after retry: reported green after a replan or judge retry.",
     "Tokens on a local leg whose server reports no usage are its timing counts: \"in\" includes the cached part of each step's prompt.",
-    "Checks pass/fail/unverified: consistent task-checks acceptance records; missing or contradictory evidence is unverified. Replan attempts can have check evidence. The worker can modify the declared checks and their inputs; passing them does not establish semantic correctness or full integration acceptance.",
+    "Checks pass/fail/unverified/no-checks: consistent task-checks acceptance records; missing or contradictory evidence (a judge that could not decide, a held or conflicted merge, a candidate run, an escalation or judge retry, a declared check that never ran, an older record) is unverified; no-checks: no check was attributed to the task. Self-checked (telemetry, never acceptance): the worker's own last verify.run was a declared check of its task and passed after its last change. Replan attempts can have check evidence. The worker can modify the declared checks and their inputs; passing them does not establish semantic correctness or full integration acceptance.",
     "Candidate task runs count aggregated task rows by final disposition, not candidate calls or individual worker invocations. Known worker runs count explicit task invocations, including judge retries; missing or invalid counts stay unknown. Invocation counts remain independent of disposition and check validity. Rows are grouped under the configured leg even when retries or escalations used other providers; cost, usage and duration remain row-reported metrics, not complete billing or physical provider performance. Final own checks count only task-attributed final reruns; call-level integration green gives no individual model credit. Candidate rows are telemetry only: promoted-only rates are conditioned on success and never train measured routing quality. Missing or malformed candidate metadata stays unverified.",
   );
   return `${lines.join("\n")}\n`;

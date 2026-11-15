@@ -79,6 +79,7 @@ import {
   concurrentPaths,
   describeSelfCheck,
   hasFindings,
+  ownChecks,
   renderSelfCheckNotice,
   runSelfCheck,
 } from "./worker-self-check.js";
@@ -1337,6 +1338,7 @@ async function runOneTask(
   // The worker's own `verify.run` passes, so the self-check does not
   // run a check a third time that the worker already saw pass.
   const checkRuns = new WorkerCheckRuns(READ_ONLY_TOOLS);
+  let replacedByRerun = false;
   const maybeHandBack = (): void => {
     if (declaredFiles === 0 || wroteSomething || handBack.signal.aborted)
       return;
@@ -1939,6 +1941,7 @@ async function runOneTask(
     }
   }
   if (replaceAllowed && target !== undefined && pricing !== undefined) {
+    replacedByRerun = true;
     const replaceSession = deps.createEphemeralSession(
       { parentSessionId: options.parentSessionId, taskId: task.id },
       workingDir,
@@ -2138,6 +2141,11 @@ async function runOneTask(
     result = { ...result, notes: [...(result.notes ?? []), ...selfCheckNotes] };
   }
   if (selfCheckNoticed) result = { ...result, selfCheckNotice: true };
+  // Telemetry only (issue #30): the worker's own last check run, on the
+  // final state of its own workspace. A cloud re-run's files are not it.
+  if (!replacedByRerun && checkRuns.lastRunPassedOneOf(ownChecks(options.contract, task.id))) {
+    result = { ...result, selfCheckPassed: true };
+  }
   if (escalationsUsed > 0) result = { ...result, escalations: escalationsUsed };
 
   // A budget the orchestrator asked for and did not get is something it

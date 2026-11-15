@@ -1758,6 +1758,9 @@ export function buildFusionDelegateTool(
                   ...(executionIdentities.get(r.id) !== undefined && executionIdentities.get(r.id) === deps.resolveRoutingIdentity?.(providerId)
                     ? { routingIdentity: executionIdentities.get(r.id) } : {}),
                   attempt: turnBudget.attempts(ctx.sessionId, r.id),
+                  // Issue #30: 0 is the report's "no-checks", apart from
+                  // a declared check whose evidence is missing.
+                  taskChecks: (parsed.contract?.checks ?? []).filter((check) => check.task === r.id).length,
                   pricing,
                   merge:
                     mode.isolation === "worktree" ? (mergeOutcomes.get(r.id) ?? null) : null,

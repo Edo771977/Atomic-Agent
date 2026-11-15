@@ -83,6 +83,7 @@ describe("fusion outcome records", () => {
       model: "small",
       leg: "local",
       role: null,
+      selfCheckPassed: false,
       status: "failed",
       failure: "tool-protocol",
       attempt: 1,

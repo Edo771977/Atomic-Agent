@@ -14,6 +14,7 @@ import type { ContractCheckRunner } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
 import { runWorkerTasks, type WorkerRunnerDeps } from "./worker-runner.js";
+import type { WorkerTaskResult } from "./worker-result.js";
 import {
   SELF_CHECK_GRACE_STEPS,
   concurrentPaths,
@@ -406,7 +407,7 @@ describe("a worker's self-check before its reply closes the task", () => {
     const ONLY_OWN: DelegateContract = { checks: [CHECKED.checks![0]!] };
     const run = async (
       worker: (call: Call) => void,
-    ): Promise<{ runChecks: ReturnType<typeof vi.fn<ContractCheckRunner>>; calls: Call[] }> => {
+    ): Promise<{ runChecks: ReturnType<typeof vi.fn<ContractCheckRunner>>; calls: Call[]; row: WorkerTaskResult }> => {
       const runChecks = vi.fn<ContractCheckRunner>(async (specs) => ({
         ok: false,
         results: specs.map(() => FAILING),
@@ -416,14 +417,34 @@ describe("a worker's self-check before its reply closes the task", () => {
         say(call, "done");
         return {};
       }, runChecks);
-      await runWorkerTasks(deps, {
+      const [row] = await runWorkerTasks(deps, {
         ...BASE,
         tasks: [{ id: "t", title: "T", instructions: "x" }],
         contract: ONLY_OWN,
         signal: new AbortController().signal,
       });
-      return { runChecks, calls };
+      return { runChecks, calls, row: row! };
     };
+
+    it("marks the row self-checked (telemetry) only when its last verify.run was a declared check that passed after its last change (#30)", async () => {
+      const passed = await run((call) => {
+        step(call, "os.fs.write", { path: "score.js", content: "x" });
+        step(call, "verify.run", OWN_SPEC);
+      });
+      expect(passed.row.selfCheckPassed).toBe(true);
+      const writeAfter = await run((call) => {
+        step(call, "verify.run", OWN_SPEC);
+        step(call, "os.fs.edit", { path: "score.js" });
+      });
+      expect(writeAfter.row.selfCheckPassed).toBeUndefined();
+      const otherLast = await run((call) => {
+        step(call, "verify.run", OWN_SPEC);
+        step(call, "verify.run", { ...OWN_SPEC, args: ["other.test.js"] });
+      });
+      expect(otherLast.row.selfCheckPassed).toBeUndefined();
+      const failed = await run((call) => step(call, "verify.run", OWN_SPEC, "error"));
+      expect(failed.row.selfCheckPassed).toBeUndefined();
+    });
 
     it("is not run again when its identical spec passed after the worker's last write", async () => {
       const { runChecks, calls } = await run((call) => {
