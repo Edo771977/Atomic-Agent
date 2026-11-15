@@ -140,6 +140,7 @@ export function createRuntimeTurnService(
     toolFilter?: (name: string) => boolean;
     toolRole?: ToolRole;
     reasoningEffort?: ReasoningEffort;
+    reasoningOverride?: ReasoningEffort;
     maxOutputTokens?: number;
     reasoningBudgetTokens?: number;
     interactive?: boolean;
@@ -150,6 +151,9 @@ export function createRuntimeTurnService(
     ...(runOptions.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: runOptions.reasoningEffort }),
+    ...(runOptions.reasoningOverride === undefined
+      ? {}
+      : { reasoningOverride: runOptions.reasoningOverride }),
     ...(runOptions.maxOutputTokens === undefined
       ? {}
       : { maxOutputTokens: runOptions.maxOutputTokens }),
@@ -361,6 +365,7 @@ export function createRuntimeTurnService(
       toolFilter?: (name: string) => boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
+      reasoningOverride?: ReasoningEffort;
       maxOutputTokens?: number;
       reasoningBudgetTokens?: number;
       interactive?: boolean;
@@ -665,6 +670,7 @@ export function createRuntimeTurnService(
       toolFilter?: (name: string) => boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
+      reasoningOverride?: ReasoningEffort;
       maxOutputTokens?: number;
       reasoningBudgetTokens?: number;
       interactive?: boolean;

@@ -4,10 +4,12 @@ import { USER_CONFIG_DEFAULTS } from "../config/config-schema.js";
 import {
   DEFAULT_LOCAL_WORKER_REASONING_BUDGET_TOKENS,
   DEFAULT_REASONING_BUDGET_TOKENS,
+  LOCAL_CHAT_REASONING_BUDGET_TOKENS,
   LOCAL_WORKER_REASONING_BUDGET_TOKENS,
   REASONING_CHARS_PER_TOKEN,
   effectiveReasoningBudgetTokens,
   estimateReasoningTokens,
+  localChatReasoningBudgetTokens,
   localWorkerReasoningBudgetTokens,
   reasoningBudgetChars,
 } from "./reasoning-budget.js";
@@ -85,5 +87,51 @@ describe("a local fusion worker's reasoning bound (workerReasoning on a grammar 
     for (const configured of [0, 256, 8000]) {
       expect(localWorkerReasoningBudgetTokens("unbounded", configured)).toBe(0);
     }
+  });
+});
+
+describe("LOCAL_CHAT_REASONING_BUDGET_TOKENS (ATO-490)", () => {
+  it("maps the chat levels onto budgets: Low below Medium, High unbounded", () => {
+    expect(LOCAL_CHAT_REASONING_BUDGET_TOKENS.low).toBeLessThan(LOCAL_CHAT_REASONING_BUDGET_TOKENS.medium);
+    expect(LOCAL_CHAT_REASONING_BUDGET_TOKENS.high).toBe(0);
+  });
+});
+
+describe("localChatReasoningBudgetTokens (ATO-490)", () => {
+  it("with no configured bound (the default), the level's own budget", () => {
+    for (const level of ["low", "medium", "high"] as const) {
+      expect(localChatReasoningBudgetTokens(level, 0)).toBe(LOCAL_CHAT_REASONING_BUDGET_TOKENS[level]);
+    }
+  });
+
+  it("never exceeds a configured bound: the reply reserve was sized for it at boot and per prompt", () => {
+    // `localModels.reasoningBudgetTokens: 1500` reserves room for 1,500
+    // think tokens on top of the reply; Medium (4,000) and High (no
+    // bound) would think past it and cut the tool call.
+    for (const bound of [200, 1_000, 1_500, 8_000, 50_000]) {
+      for (const level of ["low", "medium", "high"] as const) {
+        expect(localChatReasoningBudgetTokens(level, bound)).toBeLessThanOrEqual(bound);
+        expect(localChatReasoningBudgetTokens(level, bound)).toBeGreaterThan(0);
+      }
+      expect(localChatReasoningBudgetTokens("high", bound)).toBe(bound);
+    }
+    // A roomy bound keeps the levels' own budgets below it.
+    expect(localChatReasoningBudgetTokens("low", 8_000)).toBe(1_000);
+    expect(localChatReasoningBudgetTokens("medium", 8_000)).toBe(4_000);
+  });
+
+  it("scales Low and Medium to a small configured bound, so the levels on offer still differ", () => {
+    // At 1,000 or 1,500 the levels' own budgets (1,000 / 4,000) all
+    // capped to the same number, while GET /api/capabilities offered
+    // four levels.
+    for (const bound of [1_000, 1_500]) {
+      const low = localChatReasoningBudgetTokens("low", bound);
+      const medium = localChatReasoningBudgetTokens("medium", bound);
+      const high = localChatReasoningBudgetTokens("high", bound);
+      expect(low).toBeLessThan(medium);
+      expect(medium).toBeLessThan(high);
+    }
+    expect(localChatReasoningBudgetTokens("low", 1_500)).toBe(375);
+    expect(localChatReasoningBudgetTokens("medium", 1_500)).toBe(750);
   });
 });

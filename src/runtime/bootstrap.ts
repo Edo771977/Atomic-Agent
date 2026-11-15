@@ -73,7 +73,7 @@ import { hasPricedCloudLink } from "./resolve-model-pricing.js";
 import { ProviderFallbackChain } from "../llm/fallback/index.js";
 import { createFallbackChainResolver } from "./fallback-chain-resolver.js";
 import { isLocalLinkWithoutModel } from "./local-link-availability.js";
-import { readLocalEngineState } from "./local-engine-state.js";
+import { explainLocalEngineState, readLocalEngineState } from "./local-engine-state.js";
 import { createLocalOutOfMemoryPort, type LocalModelRestarter } from "./local-out-of-memory.js";
 import { createRuntimePromptPreview, buildRuntimePromptInput } from "./composition/runtime-prompt-preview.js";
 import { captureModelModePolicy, resolveModelMode } from "../llm/model-mode.js";
@@ -534,6 +534,20 @@ export async function createAgentRuntime(
     route: compactionRoute,
     sideCallSlotId: compactionSideSlot,
     costOf: compactionCost,
+    // ATO-676: used only when `agent.compaction.memoryFlush` is on.
+    memoryNotes: {
+      enabled: () => getConfig().memory.notes.enabled,
+      store: (note) => notesStore.store(note),
+      outsideContentSources: (sessionId) => approvals.outsideContentSources(sessionId),
+      // Decided by the tool, not by the result's first line: a tool that
+      // frames its own text (the inbox) or is gone now counts as outside.
+      isOutsideTool: (tool) => {
+        if (!toolRegistry.has(tool)) return true;
+        const definition = toolRegistry.get(tool);
+        return definition.untrustedOutput !== undefined || definition.externalSource !== undefined;
+      },
+      log: (level, message, fields) => logger[level](message, fields),
+    },
     background: createBackgroundCompaction({
       config: () => getConfig().agent.compaction,
       sessionStore, complete: llmComplete, promptInput: compactionPromptInput,
@@ -634,6 +648,12 @@ export async function createAgentRuntime(
     localEngineState: (providerId: string | undefined) => {
       const config = getConfig();
       return readLocalEngineState(providerId, config, resolveLlmConfig(config).activeTextProvider);
+    },
+    // The same reading with why, so the turn's error report says what the
+    // wait decided on (ATO-1432).
+    explainLocalEngineState: (providerId: string | undefined) => {
+      const config = getConfig();
+      return explainLocalEngineState(providerId, config, resolveLlmConfig(config).activeTextProvider);
     },
     // A managed local model that ran out of memory is restarted with a
     // smaller window instead of waited on (ATO-334). Read live, like the

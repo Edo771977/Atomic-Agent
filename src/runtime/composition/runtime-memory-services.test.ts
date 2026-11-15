@@ -85,6 +85,19 @@ describe("runtime memory services composition", () => {
     expect(rows).toEqual(["trace:first-session:reflection", "health:first-session:reflection:none", "trace:second-session:reflection", "health:second-session:reflection:none"]);
   });
 
+  it("reports note reconciliation outcomes to memory health under their own kind", async () => {
+    config.memory.notes.reconcile = true; config.memory.reflection.timeoutMs = 50;
+    stores.notesStore.store({ content: "The deploy checklist lives in the ops wiki", tags: [] });
+    const rows: string[] = [];
+    const health: MemoryHealthAnnouncer = { observe: (sessionId, kind, outcome) => rows.push(`${sessionId}:${kind}:${outcome}`) };
+    services = createRuntimeMemoryServices({ ...dependencies(async (params) => {
+      if (params.sessionId?.startsWith("reflection:")) return completion("NOTE The deploy checklist moved to the ops handbook\n");
+      return new Promise<CompletionResult>((_, reject) => params.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    }), memoryHealth: health });
+    await services.reflectionRunner?.reflect({ sessionId: "keeper", userMessage: "Remember: the deploy checklist moved to the ops handbook", assistantReply: "Noted" });
+    expect(rows).toContain("keeper:note_reconcile:timeout");
+  });
+
   it("forwards separate signals and session cancellation leaves a sibling reflection alive", async () => {
     const calls: LlmStreamParams[] = [];
     const pending = new Map<string, (result: CompletionResult) => void>();

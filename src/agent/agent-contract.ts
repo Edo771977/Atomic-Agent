@@ -37,6 +37,47 @@ import type { ReviewStallSignal } from "./review-stall.js";
 export type LocalEngineState = "alive" | "dead" | "unknown" | "atomic_chat_app";
 
 /**
+ * A `LocalEngineState` with the fixed word for why it reads so (ATO-1432):
+ * the liveness branch (`lock_held`, `pid_dead`, `pid_unreadable`, ...) or
+ * why the engine was not looked at (`not_local_link`, `not_active_provider`,
+ * `not_managed`). Fixed words only: it travels in error reports.
+ */
+export interface LocalEngineVerdict {
+  state: LocalEngineState;
+  reason?: string;
+  /**
+   * Whether a model process exists, read from the pid file alone, when the
+   * engine reads `unknown` because its operation lock is held (ATO-1434).
+   * `none` under a held lock for `LOCAL_ENGINE_NO_PROCESS_CEILING_MS` ends
+   * the turn. Absent: not asked.
+   */
+  modelProcess?: "none" | "running" | "unknown";
+  /**
+   * Who holds the engine lock, asked beside `modelProcess`: `live` when a
+   * live process (this one or another) owns it, `pending` when the owner
+   * has not written its pid yet, `reused` when the recorded pid names a
+   * process that started after the lock was written (the owner is gone and
+   * its pid went to another program). Atomic Core writes the model's pid
+   * only once a load returns, so a live owner with no model process may be
+   * a slow load: it waits up to `LOCAL_ENGINE_LIVE_OWNER_CEILING_MS`
+   * counted from the lock (`lockAgeMs`), not the 90 s no-process ceiling.
+   * Absent, `pending` or `reused`: the no-process ceiling applies.
+   */
+  lockOwner?: "live" | "pending" | "reused";
+  /** How long ago the engine lock was taken, ms, beside `lockOwner` when readable. */
+  lockAgeMs?: number;
+}
+
+/**
+ * The verdicts the outage wait decided "wait or not" on in one outage: the
+ * first and the latest (ATO-1432). Reported with `loop_failed`'s `outage`.
+ */
+export interface EngineWaitVerdicts {
+  first: LocalEngineVerdict;
+  last: LocalEngineVerdict;
+}
+
+/**
  * The answers to "the local model ran out of memory" (ATO-334): restart
  * it with half the context window, stop so the person can pick a smaller
  * model, or stop.
@@ -201,6 +242,12 @@ export interface AgentLoopDependencies {
    * say. Absent (embedders, tests) means `unknown` for every link.
    */
   localEngineState?: (providerId: string | undefined) => LocalEngineState;
+  /**
+   * `localEngineState` with the reason as a fixed word (ATO-1432). Asked
+   * in its place by the outage wait when given, so the turn can report
+   * what it decided on. Absent: the plain state, with no reason.
+   */
+  explainLocalEngineState?: (providerId: string | undefined) => LocalEngineVerdict;
   /**
    * The managed local model ran out of memory (ATO-334). A server error
    * from it is then not an outage to wait out: the turn restarts the
@@ -577,6 +624,15 @@ export interface RunTurnOptions {
    * `workerReasoning`; absent, the provider's default.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * The reasoning level a person picked for this chat (ATO-490, the
+   * desktop composer's switch). Beats `reasoningEffort` and the model's
+   * `params` on a cloud model that reasons, and sets the think budget of
+   * a local grammar-served one (`LOCAL_CHAT_REASONING_BUDGET_TOKENS`,
+   * as the turn's `reasoningBudgetTokens` when that is unset). Absent ("Auto"),
+   * every completion is built as before.
+   */
+  reasoningOverride?: ReasoningEffort;
   /**
    * Output ceiling for every completion of this turn, below the
    * provider's own. A fusion worker's `workerMaxOutputTokens`; the
@@ -1057,7 +1113,9 @@ export type AgentLoopEvent =
    * LLM-failure taxonomy (see `src/llm/reliability/`); downstream
    * consumers never need to classify the error themselves.
    * `outage` is the provider-outage wait the turn had spent when it
-   * failed (zero when it never parked); error reporting tags it.
+   * failed (zero when it never parked); error reporting tags it. Its
+   * `engineVerdicts` are the local engine readings the wait decided on,
+   * first and last (ATO-1432), when it read any.
    * `failure` is the shared failure-catalog entry (ATO-384): a stable
    * `cause` id, a plain `phrase` to show, and the `action` button that
    * helps. Set by the agent loop on every failure; optional only so an
@@ -1067,7 +1125,7 @@ export type AgentLoopEvent =
       type: "loop_failed";
       error: Error;
       category: LlmFailureCategory;
-      outage?: { waitedMs: number; attempts: number };
+      outage?: { waitedMs: number; attempts: number; engineVerdicts?: EngineWaitVerdicts };
       failure?: FailureVerdict;
     }
   /**

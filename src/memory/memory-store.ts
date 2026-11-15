@@ -127,6 +127,12 @@ export interface MemoryRecallOptions {
   scope?: "project" | "all";
   workingDir?: string | null;
   tags?: string[];
+  /**
+   * ATO-672. Leave out notes the reconciler marked stale
+   * (`isSupersededNote`) before `k` is applied, so they neither take a
+   * slot nor get a `recall_count` bump.
+   */
+  excludeSuperseded?: boolean;
 }
 
 export interface MemoryListOptions {
@@ -148,6 +154,21 @@ export interface MemoryListOptions {
    * rows with the young ones filtered out afterwards.
    */
   updatedBefore?: number;
+  /**
+   * ATO-672. Leave out rows carrying any of these tags (e.g. the
+   * `superseded` tag note reconciliation sets). Applied in SQL before
+   * `LIMIT`, like `excludeArchived`.
+   */
+  excludeTags?: readonly string[];
+  /**
+   * ATO-672. Leave out notes the reconciler marked stale
+   * (`isSupersededNote`). Applied in SQL before `LIMIT`.
+   */
+  excludeSuperseded?: boolean;
+  /** ATO-672. Only rows written by this session. Applied in SQL before `LIMIT`. */
+  sessionId?: string;
+  /** ATO-672. Only rows created at or after this time (epoch ms). Applied in SQL before `LIMIT`. */
+  createdSince?: number;
 }
 
 /**
@@ -201,6 +222,50 @@ export const MEMORY_CONTENT_MAX_LENGTH = 4_000;
 /** Hard ceiling on a single tag string. */
 export const MEMORY_TAG_MAX_LENGTH = 40;
 /** Hard ceiling on the number of tags per entry. */
+/**
+ * ATO-672. The tag note reconciliation puts on a note a newer one
+ * replaces; with `memory.notes.reconcile` on, recall and the index hide it.
+ */
+export const SUPERSEDED_NOTE_TAG = "superseded";
+
+/**
+ * ATO-672. `superseded` and `superseded-by-<id>` hide a note from recall,
+ * so they are reserved: `store()` (the notes tool, reflection, imports,
+ * dedup merges) and `evolveTags()` (reflection EVOLVE) drop them, and only
+ * `markSuperseded()`, the reconciler's method, sets them. Case-insensitive,
+ * so a look-alike spelling cannot slip through either.
+ */
+export function isReservedSupersedeTag(tag: string): boolean {
+  const t = tag.trim().toLowerCase();
+  return t === SUPERSEDED_NOTE_TAG || t.startsWith("superseded-by-");
+}
+
+const SUPERSEDED_BY_TAG = /^superseded-by-\d+$/;
+
+/**
+ * ATO-672. True when the reconciler marked `entry` stale: it carries
+ * both `superseded` and `superseded-by-<id>`, the pair only
+ * `markSuperseded()` writes. A lone `superseded` tag (a user's own,
+ * stored before the tags were reserved) does not count. With
+ * `memory.notes.reconcile` on, recall and the index hide such a note.
+ */
+export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
+  return entry.tags.includes(SUPERSEDED_NOTE_TAG) && entry.tags.some((tag) => SUPERSEDED_BY_TAG.test(tag));
+}
+
+/** SQL twin of {@link isSupersededNote} over a `tags` JSON column. */
+function supersededSql(tagsColumn: string): string {
+  return `(${tagsColumn} IS NOT NULL AND json_valid(${tagsColumn})
+    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}')
+    AND EXISTS (SELECT 1 FROM json_each(${tagsColumn})
+                 WHERE json_each.value GLOB 'superseded-by-[0-9]*'
+                   AND substr(json_each.value, 15) NOT GLOB '*[^0-9]*'))`;
+}
+
+function withoutReservedTags(tags: string[]): string[] {
+  return tags.some(isReservedSupersedeTag) ? tags.filter((tag) => !isReservedSupersedeTag(tag)) : tags;
+}
+
 export const MEMORY_MAX_TAGS = 16;
 /** Hard ceiling on a recall query string. */
 export const MEMORY_QUERY_MAX_LENGTH = 500;
@@ -387,12 +452,16 @@ export class MemoryStore {
     );
     // FTS5 candidate fetch for dedup. Returns the top 5 BM25 hits so
     // Jaccard similarity can be computed in JS over a small candidate
-    // set without paying the cost of a full scan.
+    // set without paying the cost of a full scan. Archived and
+    // superseded rows are never candidates: a write merged into a
+    // hidden row would stay hidden (a re-learned fact, a user's note).
     this.dedupCandidateStmt = this.db.prepare(
       `SELECT m.id, m.content, m.tags, bm25(memories_fts) AS score
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
+          AND m.consolidated_into IS NULL
+          AND NOT ${supersededSql("m.tags")}
         ORDER BY score ASC
         LIMIT 5`,
     );
@@ -421,7 +490,7 @@ export class MemoryStore {
    */
   store(input: MemoryStoreInput, now: number = this.now()): MemoryEntry {
     const content = validateContent(input.content);
-    const tags = validateTags(input.tags);
+    const tags = withoutReservedTags(validateTags(input.tags));
     const source = validateSource(input.source ?? "agent");
     const sessionId = validateOptionalString(input.sessionId, "sessionId");
     const workingDir = validateOptionalString(input.workingDir, "workingDir");
@@ -647,6 +716,7 @@ export class MemoryStore {
       where.push(`m.working_dir = ?`);
       params.push(dir);
     }
+    if (opts.excludeSuperseded) where.push(`NOT ${supersededSql("m.tags")}`);
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,
@@ -666,6 +736,69 @@ export class MemoryStore {
     const sliced = filtered.slice(0, k);
     if (sliced.length > 0) this.touchOnRecall(sliced);
     return sliced;
+  }
+
+  /**
+   * ATO-672. Notes that share words with `content`, best BM25 first,
+   * WITHOUT the recall side effects (`recall_count` / `last_recalled_at`
+   * stay as they are): a background comparison is not a use of the
+   * note. Archived rows are left out. A query FTS5 cannot parse yields
+   * no rows instead of throwing.
+   *
+   * `opts.workingDir` (when given) keeps only rows of that exact working
+   * directory, `null` meaning global notes only, so one project's note is
+   * never compared with another's. `opts.excludeSource` leaves out rows
+   * of that source (the reconciler never touches a `user` note).
+   */
+  findSimilar(
+    content: string,
+    k: number,
+    opts: { workingDir?: string | null; excludeSource?: MemorySource } = {},
+  ): MemoryEntry[] {
+    // Topic words only: a prefix-OR over every token ("the", "user")
+    // matched nearly every note, and each hit costs the reconciler a
+    // model call. A candidate must share at least two of these words
+    // (one, for a one-word note) with `content`.
+    const words = [...tokeniseForSimilarity(content.slice(0, MEMORY_QUERY_MAX_LENGTH))]
+      .filter((t) => !SIMILARITY_STOPWORDS.has(t));
+    if (words.length === 0) return [];
+    const ftsQuery = buildFtsQuery(words.join(" "));
+    if (ftsQuery.length === 0) return [];
+    const wordSet = new Set(words);
+    const minShared = Math.min(FIND_SIMILAR_MIN_SHARED_WORDS, wordSet.size);
+    const shares = (row: MemoryRow): boolean => {
+      let shared = 0;
+      for (const t of tokeniseForSimilarity(row.content)) if (wordSet.has(t)) shared += 1;
+      return shared >= minShared;
+    };
+    const limit = clampPositiveInt(k, 1, MEMORY_RECALL_MAX_K, "k");
+    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL"];
+    const params: unknown[] = [ftsQuery];
+    if (opts.workingDir !== undefined) {
+      where.push("m.working_dir IS ?");
+      params.push(opts.workingDir);
+    }
+    if (opts.excludeSource !== undefined) {
+      where.push("m.source <> ?");
+      params.push(opts.excludeSource);
+    }
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT m.id, m.content, m.created_at, m.updated_at,
+                  m.source, m.session_id, m.working_dir, m.tags,
+                  m.recall_count, m.last_recalled_at
+             FROM memories_fts
+             JOIN memories m ON m.id = memories_fts.rowid
+            WHERE ${where.join(" AND ")}
+            ORDER BY bm25(memories_fts) ASC
+            LIMIT ?`,
+        )
+        .all(...params, limit * 4) as MemoryRow[];
+      return rows.filter(shares).slice(0, limit).map(rowToEntry);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -750,6 +883,23 @@ export class MemoryStore {
     }
     if (opts.excludeArchived) {
       where.push(`consolidated_into IS NULL`);
+    }
+    for (const tag of opts.excludeTags ?? []) {
+      where.push(
+        `(tags IS NULL OR NOT EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE json_each.value = ?))`,
+      );
+      params.push(tag);
+    }
+    if (opts.excludeSuperseded) {
+      where.push(`NOT ${supersededSql("tags")}`);
+    }
+    if (opts.sessionId !== undefined) {
+      where.push(`session_id = ?`);
+      params.push(opts.sessionId);
+    }
+    if (opts.createdSince !== undefined && Number.isFinite(opts.createdSince)) {
+      where.push(`created_at >= ?`);
+      params.push(opts.createdSince);
     }
     if (opts.updatedBefore !== undefined) {
       if (!Number.isFinite(opts.updatedBefore)) {
@@ -944,22 +1094,74 @@ export class MemoryStore {
    *  - Validation errors (empty `addTags`, invalid tag tokens) throw
    *    `MemoryValidationError` — same surface as `store()`.
    *
+   *  - `evictable` (optional): when the row is already at
+   *    `MEMORY_MAX_TAGS`, existing tags this predicate accepts are
+   *    dropped (newest first) to make room for the new ones. Without
+   *    it, new tags past the cap are silently dropped (old behaviour).
+   *
    * The `now` parameter is exposed for tests; production callers pass
    * the runner's injected clock.
    */
   evolveTags(
     id: number,
     addTags: readonly string[],
-    opts: { leaseMs: number; now?: number } = { leaseMs: 0 },
+    opts: { leaseMs: number; now?: number; evictable?: (tag: string) => boolean } = { leaseMs: 0 },
+  ): EvolveTagsResult {
+    return this.applyTagEvolution(id, addTags, opts, false);
+  }
+
+  /**
+   * ATO-672. The only writer of the reserved supersede tags: marks `id`
+   * `superseded` and `superseded-by-<byId>` with `evolveTags` semantics
+   * (metadata only, lease honoured). At the tag cap an ordinary tag is
+   * dropped to make room, never a supersede tag.
+   */
+  markSuperseded(
+    id: number,
+    byId: number,
+    opts: { leaseMs: number; now?: number },
+  ): EvolveTagsResult {
+    const by = validateId(byId);
+    return this.applyTagEvolution(id, [SUPERSEDED_NOTE_TAG, `superseded-by-${by}`],
+      { ...opts, evictable: (tag) => !isReservedSupersedeTag(tag) }, true);
+  }
+
+  /**
+   * ATO-672. Undo `markSuperseded`: drops `superseded` and every
+   * `superseded-by-<id>` tag from `id`, so the note is visible to recall
+   * and the index again. A user action (`atomic-agent memory
+   * unsupersede`), so the consolidator lease does not apply. True when a
+   * tag was removed; false for an unknown id or an unmarked note.
+   */
+  clearSuperseded(id: number): boolean {
+    const normalizedId = validateId(id);
+    const row = this.db.prepare(`SELECT tags FROM memories WHERE id = ?`).get(normalizedId) as
+      { tags: string | null } | undefined;
+    if (!row) return false;
+    const existing = parseTags(row.tags);
+    const kept = withoutReservedTags(existing);
+    if (kept.length === existing.length) return false;
+    this.db
+      .prepare(`UPDATE memories SET tags = ?, updated_at = ? WHERE id = ?`)
+      .run(kept.length > 0 ? JSON.stringify(kept) : null, this.now(), normalizedId);
+    return true;
+  }
+
+  private applyTagEvolution(
+    id: number,
+    addTags: readonly string[],
+    opts: { leaseMs: number; now?: number; evictable?: (tag: string) => boolean },
+    allowReserved: boolean,
   ): EvolveTagsResult {
     const normalizedId = validateId(id);
-    const cleanTags = normalizeTagsInput(addTags);
-    if (cleanTags.length === 0) {
+    const validTags = normalizeTagsInput(addTags);
+    if (validTags.length === 0) {
       throw new MemoryValidationError(
         "tags",
         "evolveTags requires at least one valid tag",
       );
     }
+    const cleanTags = allowReserved ? validTags : withoutReservedTags(validTags);
     const now = opts.now ?? this.now();
     const row = this.db
       .prepare(`SELECT tags, consolidating_at FROM memories WHERE id = ?`)
@@ -973,7 +1175,10 @@ export class MemoryStore {
       }
     }
     const existing = parseTags(row.tags);
-    const merged = applyEvolveTags(existing, cleanTags);
+    // A reserved tag is never evicted to make room, whoever asks.
+    const evictable = opts.evictable;
+    const merged = applyEvolveTags(existing, cleanTags,
+      evictable ? (tag) => !isReservedSupersedeTag(tag) && evictable(tag) : undefined);
     if (merged.addedTags.length === 0) {
       return {
         outcome: "skipped_no_change",
@@ -1103,11 +1308,13 @@ export class MemoryStore {
       workingDir = dir;
     }
 
+    const excludeSuperseded = opts.excludeSuperseded === true;
     const bm25Hits = this.recallRaw(
       ftsQuery,
       workingDir ?? null,
       requiredTags,
       k * 4,
+      excludeSuperseded,
     );
     if (!this.embeddingWriter || !this.embeddingStore) {
       // No hybrid wiring — return BM25 top-K and bump recall_count
@@ -1125,7 +1332,10 @@ export class MemoryStore {
       ...(this.metrics ? { metrics: this.metrics } : {}),
       // Notes found by meaning alone come back as full entries, the same
       // shape (and the same recall_count bump below) as keyword hits.
-      hydrate: (ids) => this.getMany(ids),
+      hydrate: (ids) => {
+        const entries = this.getMany(ids);
+        return excludeSuperseded ? entries.filter((e) => !isSupersededNote(e)) : entries;
+      },
       ...(this.embeddingMinCosine !== undefined ? { minCosine: this.embeddingMinCosine } : {}),
     };
     const blended = await recallHybrid(deps, {
@@ -1164,6 +1374,7 @@ export class MemoryStore {
     workingDir: string | null,
     requiredTags: readonly string[],
     limit: number,
+    excludeSuperseded: boolean,
   ): HybridRecallInputEntry[] {
     const where: string[] = [`memories_fts MATCH ?`];
     const params: unknown[] = [ftsQuery];
@@ -1171,6 +1382,7 @@ export class MemoryStore {
       where.push(`m.working_dir = ?`);
       params.push(workingDir);
     }
+    if (excludeSuperseded) where.push(`NOT ${supersededSql("m.tags")}`);
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,
@@ -1313,12 +1525,28 @@ function normalizeTagsInput(raw: readonly string[]): string[] {
 function applyEvolveTags(
   existing: readonly string[],
   addTags: readonly string[],
+  evictable?: (tag: string) => boolean,
 ): { tags: string[]; addedTags: string[] } {
   const merged: string[] = [...existing];
   const addedTags: string[] = [];
   for (const tag of addTags) {
-    if (merged.length >= MEMORY_MAX_TAGS) break;
     if (merged.includes(tag)) continue;
+    if (merged.length >= MEMORY_MAX_TAGS) {
+      // Make room only by dropping an older tag the caller allows,
+      // never one of the tags this call is adding.
+      let victim = -1;
+      if (evictable) {
+        for (let i = merged.length - 1; i >= 0; i -= 1) {
+          const candidate = merged[i]!;
+          if (!addTags.includes(candidate) && evictable(candidate)) {
+            victim = i;
+            break;
+          }
+        }
+      }
+      if (victim < 0) break;
+      merged.splice(victim, 1);
+    }
     merged.push(tag);
     addedTags.push(tag);
   }
@@ -1425,6 +1653,23 @@ function tokeniseForSimilarity(text: string): Set<string> {
   }
   return set;
 }
+
+/** Shared topic words `findSimilar` requires (fewer only for a shorter note). */
+const FIND_SIMILAR_MIN_SHARED_WORDS = 2;
+
+/**
+ * Function words (over two letters) that say nothing about a note's
+ * topic; `findSimilar` ignores them. Deliberately small and English.
+ * One string, not an array of literals: a literal such as "has" would
+ * change TypeScript's union ordering in unrelated diagnostics.
+ */
+const SIMILARITY_STOPWORDS: ReadonlySet<string> = new Set(
+  ("the and for with that this from are was were has have had not but you "
+   + "your its into now then than also all any some our out his her she him "
+   + "they them their there when what which who will would can could should about been being "
+   + "does did just only very more most other such each over after before while where why "
+   + "how every").split(" "),
+);
 
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;

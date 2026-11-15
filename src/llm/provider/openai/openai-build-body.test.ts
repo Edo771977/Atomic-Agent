@@ -938,3 +938,90 @@ describe("buildOpenAiChatBody — history names of tools that escape alike", () 
     expect(historyNames(body)).toEqual(["mcp__srv__foo__bar", "mcp__srv__foo__bar"]);
   });
 });
+
+describe("buildOpenAiChatBody reasoningOverride (ATO-490)", () => {
+  const build = (
+    request: { prompt: string; reasoningEffort?: "low" | "medium" | "high"; reasoningOverride?: "low" | "medium" | "high" },
+    model: string,
+    providerKind: string,
+    extraBody?: Record<string, unknown>,
+    modelParams?: Record<string, unknown>,
+  ) =>
+    buildOpenAiChatBody(request, model, false, extraBody, undefined, undefined, undefined, {
+      providerKind,
+      ...(modelParams ? { modelParams } : {}),
+    });
+
+  it("sends the chat's level in the kind's own field, over the turn's effort", () => {
+    expect(build({ prompt: "hi", reasoningOverride: "high" }, "openai/o3", "openrouter").reasoning).toEqual({ effort: "high" });
+    expect(build({ prompt: "hi", reasoningOverride: "low" }, "gpt-5.4", "openai-compatible").reasoning_effort).toBe("low");
+    expect(
+      build({ prompt: "hi", reasoningEffort: "high", reasoningOverride: "low" }, "gpt-5.4", "openai-compatible").reasoning_effort,
+    ).toBe("low");
+  });
+
+  it("beats the model's params and the provider's extraBody", () => {
+    const body = build(
+      { prompt: "hi", reasoningOverride: "low" },
+      "gpt-5.4",
+      "openai-compatible",
+      { reasoning_effort: "high" },
+      { reasoning_effort: "medium", top_p: 0.9 },
+    );
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.top_p).toBe(0.9);
+    const or = build(
+      { prompt: "hi", reasoningOverride: "medium" },
+      "anthropic/claude-fable-5.2",
+      "openrouter",
+      undefined,
+      { reasoning: { max_tokens: 20_000 } },
+    );
+    expect(or.reasoning).toEqual({ effort: "medium" });
+  });
+
+  it("merges the level into the operator's OpenRouter reasoning object instead of replacing it", () => {
+    const or = (reasoning: Record<string, unknown>, where: "params" | "extra" = "params") =>
+      build(
+        { prompt: "hi", reasoningOverride: "high" },
+        "anthropic/claude-fable-5.2",
+        "openrouter",
+        where === "extra" ? { reasoning } : undefined,
+        where === "params" ? { reasoning } : undefined,
+      ).reasoning;
+    // Reasoning kept out of the reply stays out.
+    expect(or({ exclude: true })).toEqual({ exclude: true, effort: "high" });
+    expect(or({ exclude: true }, "extra")).toEqual({ exclude: true, effort: "high" });
+    // Reasoning switched off stays off: the level does not turn it on.
+    expect(or({ enabled: false })).toEqual({ enabled: false });
+    expect(or({ enabled: false, exclude: true }, "extra")).toEqual({ enabled: false, exclude: true });
+    // A token budget is the other way to say "how much": the level replaces it.
+    expect(or({ max_tokens: 8_000, exclude: true })).toEqual({ exclude: true, effort: "high" });
+  });
+
+  it("is dropped for a model that does not reason, leaving the body as without it", () => {
+    for (const [model, kind] of [["gpt-4o", "openai-compatible"], ["meta-llama/llama-3.3-70b", "openrouter"]] as const) {
+      const withLevel = build({ prompt: "hi", reasoningOverride: "high" }, model, kind, undefined, { reasoning_effort: "medium" });
+      const without = build({ prompt: "hi" }, model, kind, undefined, { reasoning_effort: "medium" });
+      expect(withLevel).toEqual(without);
+    }
+  });
+
+  it("does not turn thinking back on for a request that asked for none (disableThinking)", () => {
+    const build2 = (reasoningOverride?: "high", modelParams?: Record<string, unknown>) =>
+      buildOpenAiChatBody(
+        { prompt: "hi", disableThinking: true, ...(reasoningOverride ? { reasoningOverride } : {}) },
+        "anthropic/claude-fable-5.2", false, undefined, undefined, undefined, undefined,
+        { providerKind: "openrouter", ...(modelParams ? { modelParams } : {}) },
+      );
+    expect(build2("high")).toEqual(build2());
+    expect(build2("high").reasoning).toBeUndefined();
+    // The config's own params keep their say, as without a level.
+    expect(build2("high", { reasoning: { max_tokens: 1_000 } })).toEqual(build2(undefined, { reasoning: { max_tokens: 1_000 } }));
+  });
+
+  it("changes nothing when absent: the config's params still win as before", () => {
+    const body = build({ prompt: "hi", reasoningEffort: "low" }, "gpt-5.4", "openai-compatible", undefined, { reasoning_effort: "high" });
+    expect(body.reasoning_effort).toBe("high");
+  });
+});

@@ -337,6 +337,9 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
     ...(ctx.reasoningEffort !== undefined
       ? { reasoningEffort: ctx.reasoningEffort }
       : {}),
+    ...(ctx.reasoningOverride !== undefined
+      ? { reasoningOverride: ctx.reasoningOverride }
+      : {}),
   };
   if (deps.modelModePolicy) {
     llmParams.prepareForLink = (link) => {
@@ -547,8 +550,9 @@ export function appliedReasoningBound(
  * under `thinking: off` (the prompt ends with the template's disabled
  * marker, so the completion starts on the call); unbounded on the forced
  * final step — a `reply` / `finish` is never cut mid-thought; the
- * turn's own bound (`ctx.reasoningBudgetTokens`, a local fusion worker's)
- * when it has one; the base grammar's configured bound
+ * turn's own bound (`ctx.reasoningBudgetTokens`: a local fusion worker's,
+ * or the chat's reasoning level, ATO-490, mapped in `AgentLoop`) when it
+ * has one; the base grammar's configured bound
  * (`localModels.reasoningBudgetTokens`) otherwise. Then the tool names
  * (`stepGrammarToolNames`). Last, with `localModels.strictToolArgs` on
  * (ATO-633, default off), each admitted tool's args are held to its JSON

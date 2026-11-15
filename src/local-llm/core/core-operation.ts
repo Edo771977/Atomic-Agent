@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { uptime } from "node:os";
 import { join } from "node:path";
@@ -165,6 +166,144 @@ export function readCoreOperationLock(dataDir: string, probes: CoreOperationLock
 /** Whether a lock reading means an engine operation may be under way. */
 export function lockMeansOperationInProgress(state: CoreOperationLockState): boolean {
   return state === "held" || state === "held_self" || state === "writing" || state === "unreadable";
+}
+
+/**
+ * How old a held engine operation lock may get before a turn stops reading
+ * it as a start or load under way (ATO-1433). Longer than any honest Core
+ * or llama.cpp install, model start or stop.
+ */
+export const CORE_OPERATION_STALE_MS = 15 * 60_000;
+
+/**
+ * The engine operation lock as a turn's outage wait reads it: the
+ * `readCoreOperationLock` reading, with `stale_too_old` for a lock that
+ * reads held (or mid-write) but was taken longer ago than
+ * `CORE_OPERATION_STALE_MS`.
+ */
+export type CoreOperationTurnLockState = CoreOperationLockState | "stale_too_old";
+
+/**
+ * `readCoreOperationLock` for a turn deciding whether to keep waiting for
+ * the managed engine (ATO-1433). On Windows a pid freed by a crashed owner
+ * can go to another program, and an owner stuck forever looks just as
+ * alive; either way every turn would wait the full outage budget. So a
+ * held lock older than `CORE_OPERATION_STALE_MS` reads `stale_too_old`.
+ *
+ * The lock's age is its file's mtime: the owner writes its pid once,
+ * right after the exclusive create, and never touches the file again. The
+ * content stays a bare pid, so an older agent sharing the data folder
+ * still reads it.
+ *
+ * Read only: never acquires, waits on, reclaims or removes the lock.
+ * `withCoreOperation` keeps its own rule and is not affected.
+ */
+export function readCoreOperationLockForTurn(
+  dataDir: string,
+  probes: CoreOperationLockProbes = {},
+): CoreOperationTurnLockState {
+  const lock = readCoreOperationLock(dataDir, probes);
+  if (lock !== "held" && lock !== "held_self" && lock !== "writing") return lock;
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(join(coreRoot(dataDir), "operation.lock")).mtimeMs;
+  } catch (err) {
+    // Released between the two reads.
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? "free" : lock;
+  }
+  const now = (probes.now ?? Date.now)();
+  return now - mtimeMs > CORE_OPERATION_STALE_MS ? "stale_too_old" : lock;
+}
+
+/**
+ * When `pid` started, wall clock ms, or `null` where it cannot be read:
+ * Linux `/proc/<pid>/stat` (start time in clock ticks since boot, at the
+ * kernel's fixed 100 per second user ABI), macOS `ps -o lstart=` (whole
+ * seconds). Windows has none without a slow WMI query. Any error reads
+ * `null`. Read only.
+ */
+export function processStartedAtMs(pid: number, platform: NodeJS.Platform = process.platform): number | null {
+  try {
+    if (platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      // Fields after the parenthesised command name; starttime is field 22.
+      const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+      return Number.isFinite(ticks) ? machineBootTimeMs() + ticks * 10 : null;
+    }
+    if (platform === "darwin") {
+      const out = execFileSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 }).trim();
+      const ms = out === "" ? Number.NaN : Date.parse(out);
+      return Number.isFinite(ms) ? ms : null;
+    }
+  } catch {
+    /* gone, or not readable */
+  }
+  return null;
+}
+
+/**
+ * Slack on the "owner started after its lock" comparison: the start time
+ * is rounded to a tick or a second and the boot time is derived from the
+ * uptime, so an owner that wrote its lock at once is never read as reused.
+ */
+const OWNER_START_SLACK_MS = 5_000;
+
+/** The lock's age and whether its recorded owner could have written it. */
+export interface CoreOperationLockOwner {
+  /** Since the lock file was written (the operation began), ms. */
+  ageMs: number;
+  /**
+   * The recorded pid names a process that started after the lock was
+   * written: the owner is gone and its pid was reused (Windows reuses pids
+   * quickly). `false` where the start time cannot be read.
+   */
+  startedAfterLock: boolean;
+}
+
+export interface CoreOperationLockOwnerProbes {
+  now?: () => number;
+  processStartedAtMs?: (pid: number) => number | null;
+}
+
+/**
+ * The engine operation lock's age and its owner's start time against it,
+ * for a turn's outage wait (ATO-1434): a live owner gets its own ceiling
+ * counted from the lock, and a reused pid is not a live owner. `null`
+ * when there is no lock or it cannot be read. Read only.
+ */
+export function readCoreOperationLockOwner(dataDir: string, probes: CoreOperationLockOwnerProbes = {}): CoreOperationLockOwner | null {
+  const path = join(coreRoot(dataDir), "operation.lock");
+  let raw: string;
+  let mtimeMs: number;
+  try {
+    raw = readFileSync(path, "utf8").trim();
+    mtimeMs = statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+  const ageMs = Math.max(0, (probes.now ?? Date.now)() - mtimeMs);
+  const pid = Number(raw);
+  if (!Number.isInteger(pid) || pid < 1 || pid === process.pid) return { ageMs, startedAfterLock: false };
+  const started = (probes.processStartedAtMs ?? processStartedAtMs)(pid);
+  return { ageMs, startedAfterLock: started !== null && started > mtimeMs + OWNER_START_SLACK_MS };
+}
+
+/**
+ * Whether a turn's lock reading means a start or load may be under way:
+ * a live owner's lock younger than `CORE_OPERATION_STALE_MS`, or one being
+ * written. Unlike `lockMeansOperationInProgress`, an unreadable lock does
+ * not count: it would keep every turn waiting without telling anyone why.
+ */
+export function turnLockMeansOperationInProgress(state: CoreOperationTurnLockState): boolean {
+  return state === "held" || state === "held_self" || state === "writing";
+}
+
+/**
+ * The engine operation lock looks like a real operation under way, for a
+ * turn (ATO-1433): see `readCoreOperationLockForTurn`. Read only.
+ */
+export function coreOperationLooksActive(dataDir: string, now: number = Date.now()): boolean {
+  return turnLockMeansOperationInProgress(readCoreOperationLockForTurn(dataDir, { now: () => now }));
 }
 
 /**

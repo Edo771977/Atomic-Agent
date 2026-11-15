@@ -274,6 +274,20 @@ describe("ConsolidatorJob (phase 5, scenario 5.A)", () => {
     expect(created).toBeDefined();
   });
 
+  it("never distills a superseded note into a lesson", async () => {
+    const a = h.memoryStore.store({ content: "note A pnpm", source: "agent" });
+    const b = h.memoryStore.store({ content: "note B pnpm", source: "agent" });
+    const c = h.memoryStore.store({ content: "note C pnpm", source: "agent" });
+    h.linkStore.add({ fromId: a.id, toId: b.id, kind: "RELATES_TO" });
+    h.linkStore.add({ fromId: b.id, toId: c.id, kind: "RELATES_TO" });
+    h.memoryStore.markSuperseded(b.id, 999, { leaseMs: 0 });
+
+    const result = await h.job.runOnce();
+    expect(result.lessonsCreated).toBe(0);
+    expect(h.llmCalls).toBe(0);
+    expect(h.memoryStore.getConsolidatedInto(b.id)).toBeNull();
+  });
+
   it("treats abstain output as 'none' and does not write a lesson", async () => {
     h.setNextLessonOutput(
       `LESSON activation="(no consensus)"; principle="(no durable advice)"\n`,

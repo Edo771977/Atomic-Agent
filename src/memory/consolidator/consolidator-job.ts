@@ -720,8 +720,12 @@ export class ConsolidatorJob {
     // the cap read the newest 200 rows and then dropped the young ones,
     // so on a busy store the window held few or no eligible episodes
     // (#903).
+    // Superseded notes are stale by the reconciler's verdict: never
+    // distill them into a lesson (only the reconciler writes the tags,
+    // so this is a no-op while memory.notes.reconcile is off).
     return this.deps.memoryStore.list({
       excludeArchived: true,
+      excludeSuperseded: true,
       updatedBefore: threshold,
       limit: 200,
     });

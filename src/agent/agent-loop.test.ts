@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LOCAL_CHAT_REASONING_BUDGET_TOKENS } from "../llm/reasoning-budget.js";
 import { AgentLoop } from "./agent-loop.js";
 import type { AgentLoopEvent } from "./agent-loop.js";
 import { buildDefaultToolRegistry } from "../tools/index.js";
@@ -351,6 +352,62 @@ describe("AgentLoop end-to-end with mock LLM", () => {
     expect(seen[0]!.grammar).toMatch(/^think-body ::= think-char\{0,256\}$/m);
     expect(seen[1]!.grammar).toBe(grammar);
     expect(seen[0]!.prompt).toBe(seen[1]!.prompt);
+  });
+
+  it("maps a chat reasoning level onto the turn's bound: reported, prompt and stable prefix unchanged, a caller's bound wins (ATO-490)", async () => {
+    const grammar = [
+      "root ::= think-prelude tool-call-array",
+      'think-prelude ::= think-body "</think>" prelude-trail-ws',
+      "think-body ::= think-fragment*",
+      'think-fragment ::= [^<]+ | "<" [^/]',
+      "prelude-trail-ws ::= ( [ \\t\\n\\r] ){0,8}",
+      'tool-call-array ::= "ok"',
+      "",
+    ].join("\n");
+    const seen: Array<{ grammar: string; prompt: string; reasoningOverride?: string }> = [];
+    const stablePrefixes: string[] = [];
+    const bounds: Array<number | null> = [];
+    const loop = new AgentLoop({
+      registry: buildDefaultToolRegistry(),
+      slotManager: new SlotManager(2),
+      grammar,
+      llmComplete: async (params) => {
+        seen.push({ grammar: params.grammar, prompt: params.prompt,
+          ...(params.reasoningOverride !== undefined ? { reasoningOverride: params.reasoningOverride } : {}) });
+        return makeCompletion(JSON.stringify({ tool: "reply", args: { text: "done" } }));
+      },
+      onEvent: (event) => {
+        if (event.type !== "llm_event") return;
+        if (event.event.type === "prompt_built") stablePrefixes.push(event.event.prompt.stablePrefix);
+        if (event.event.type === "llm_completed") bounds.push(event.event.reasoningBoundTokens ?? null);
+      },
+      toolDescriptors: TOOLS,
+      capabilities: CAPS,
+      skillCatalog: SKILLS,
+    });
+    const run = (extra: { reasoningOverride?: "low" | "medium" | "high"; reasoningBudgetTokens?: number }) =>
+      loop.runTurn(createEmptySessionState({ id: "s-level", workingDir }), {
+        userMessage: "go",
+        maxSteps: 2,
+        ...extra,
+        signal: new AbortController().signal,
+      });
+    await run({});
+    await run({ reasoningOverride: "medium" });
+    await run({ reasoningOverride: "medium", reasoningBudgetTokens: 64 });
+    // No level: the base grammar, nothing reported.
+    expect(seen[0]!.grammar).toBe(grammar);
+    expect(bounds[0]).toBeNull();
+    // Medium (4,000 budget tokens = 16,000 chars) is applied and reported.
+    expect(seen[1]!.grammar).toMatch(/^think-body ::= think-char\{0,1998\} \| think-char\{1999\} think-body-2$/m);
+    expect(bounds[1]).toBe(LOCAL_CHAT_REASONING_BUDGET_TOKENS.medium);
+    expect(seen[1]!.reasoningOverride).toBe("medium");
+    // A caller's own bound (a fusion worker's) wins over the level.
+    expect(seen[2]!.grammar).toMatch(/^think-body ::= think-char\{0,256\}$/m);
+    expect(bounds[2]).toBe(64);
+    // The prompt, stable prefix included, is the same bytes with and without a level.
+    expect(seen[1]!.prompt).toBe(seen[0]!.prompt);
+    expect(stablePrefixes[1]).toBe(stablePrefixes[0]);
   });
 
   it("keeps working past the leg length while the task is progressing", async () => {

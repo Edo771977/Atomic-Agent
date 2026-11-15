@@ -27,7 +27,9 @@ import { GRAMMAR_EXIT_TOOL } from "./tool-call-branches.js";
  *  - `reply` and the dedicated branches (`os.shell.run`, the `os.fs.*`
  *    file tools, ...: `DEDICATED_BRANCHES` in `tool-call-branches.ts`).
  *    They are hand-written for their tools, aliases (`fs-move-alias`)
- *    and the reply-text guard included, and stay as they are.
+ *    and the reply-text guard included, and stay as they are. That
+ *    covers `finish` too: its `finish-call` branch holds `summary` (then
+ *    an optional `text`) to the guarded `reply-text` rule.
  *  - A tool with no schema, one whose schema does not convert, one over
  *    the size cap, or one whose rule would be the plain `object` anyway:
  *    it stays in `tool-name` on the any-object path. One tool falling

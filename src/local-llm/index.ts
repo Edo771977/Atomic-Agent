@@ -315,10 +315,14 @@ export {
 export {
   explainManagedEngineLiveness,
   readManagedEngineLiveness,
+  readManagedModelProcess,
   type ManagedEngineLiveness,
   type ManagedEngineLivenessReason,
   type ManagedEngineLivenessReport,
+  type ManagedModelProcess,
 } from "./server/engine-liveness.js";
+export { readCoreOperationLockOwner, type CoreOperationLockOwner } from "./core/core-operation.js";
+export { CORE_MODEL_LOAD_TIMEOUT_MS } from "./core/core-sessions.js";
 export {
   classifyPrefixReuse,
   countSlidingWindowLayers,
@@ -356,6 +360,11 @@ export {
   type DedicatedGpuAutoContext,
 } from "./server/context-growth.js";
 export { readLogTail, type LogTailResult } from "./server/log-tail.js";
+export {
+  classifyEngineExitReason,
+  readEngineExitReason,
+  type EngineExitReason,
+} from "./server/engine-exit-reason.js";
 export {
   classifyLocalFault,
   describeServerFault,
