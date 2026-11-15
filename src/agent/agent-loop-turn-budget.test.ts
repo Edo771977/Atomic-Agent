@@ -130,6 +130,20 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     expect(events.find((e) => e.type === "turn_finished")).toMatchObject({ reason: "budget" });
   });
 
+  it("reports a daily-limit refusal of the final report as the daily limit, not the turn cap", async () => {
+    const { agent, calls, events } = loop((call) => {
+      if (call === 1) throw exhausted();
+      throw new DailySpendLimitError({ spentUsd: 5, limitUsd: 5, providerId: "cloud" });
+    });
+    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap-day", workingDir: "/work" }), options());
+    expect(calls).toHaveLength(2);
+    expect(result.reason).toBe("failed");
+    expect(result.stopCause).toBeUndefined();
+    expect(events.find((e) => e.type === "turn_finished")).not.toMatchObject({ reason: "budget" });
+    const failed = events.find((e) => e.type === "loop_failed");
+    expect(failed && "error" in failed ? String(failed.error.message) : "").toMatch(/daily/i);
+  });
+
   it("takes no final call when the daily limit is what refused", async () => {
     const { agent, calls } = loop(() => { throw new DailySpendLimitError({ spentUsd: 5, limitUsd: 5, providerId: "cloud" }); });
     const result = await agent.runTurn(createEmptySessionState({ id: "s-day", workingDir: "/work" }), options());
