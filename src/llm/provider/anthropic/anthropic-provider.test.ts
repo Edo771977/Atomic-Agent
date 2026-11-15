@@ -5,6 +5,7 @@ import { OfflineNetworkError, isOfflineRefusal } from "../../offline-network.js"
 import { OpenAiHttpError, isModerationRefusal } from "../openai/openai-http.js";
 import { shouldAdvance } from "../../fallback/should-advance.js";
 import { AnthropicProvider } from "./anthropic-provider.js";
+import { ImageRejectedAsTooLargeError } from "../model-vision-rejections.js";
 
 type Sent = { url: string; headers: Record<string, string>; body: Record<string, unknown> };
 
@@ -565,5 +566,36 @@ describe("AnthropicProvider.describeImage", () => {
     for (const key of ["temperature", "max_completion_tokens", "stream"]) {
       expect(sent[0]!.body).not.toHaveProperty(key);
     }
+  });
+
+  it("names an oversized image instead of marking the model blind", async () => {
+    const sent: Sent[] = [];
+    const p = provider(sent, [
+      json(
+        {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message:
+              "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: 6291456 bytes > 5242880 bytes",
+          },
+        },
+        400,
+      ),
+    ]);
+    expect(p.capabilities.visionSource).toBe("assumed");
+    const err = await p
+      .describeImage({
+        prompt: "x",
+        images: [{ id: 1, bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }],
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ImageRejectedAsTooLargeError);
+    expect((err as Error).message).toMatch(/image is too large/i);
+    expect((err as Error).message).toMatch(/vision\.maxImageBytes/);
+    expect((err as Error).message).toContain("5 MB maximum");
+    // One oversized image is not evidence the model cannot see.
+    expect(p.capabilities).toMatchObject({ vision: true, visionSource: "assumed" });
+    expect(sent).toHaveLength(1);
   });
 });

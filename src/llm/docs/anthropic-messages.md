@@ -130,7 +130,12 @@ API too:
   `createAnthropicSseTranslator`. It starts at the `auto` rung (a forced
   rung would go out as `auto` too), so the verdict is that rung's;
 - `describeImage`: the shared describe body translated the same way, so
-  each image is a base64 `image` block, posted to `/v1/messages`.
+  each image is a base64 `image` block, posted to `/v1/messages`. A
+  refusal of an image's size (a 400 naming the per-image maximum, or a
+  413) is `ImageRejectedAsTooLargeError`, which names
+  `vision.maxImageBytes` and never marks the model blind. The limit is
+  not checked before sending: the API's per-image maximum is not
+  recorded here, and `vision.maxImageBytes` (8 MiB) may sit above it.
 
 ## Effort and thinking
 
