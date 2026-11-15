@@ -280,6 +280,8 @@ export function createRequestBudgetScope(
   const timer = timeLeft === undefined ? undefined : setTimeout(() => deadline.abort(new DOMException("the turn time cap stopped this request", "AbortError")), timeLeft);
   timer?.unref?.();
   let done = false;
+  // Whether this final report already used its one retry past the cap.
+  let reportReopened = false;
   // Multiplier of the most recent physical send; settlement prices usage with it.
   let tierMultiplier = 1;
   // The latest priced send's input bound and per-output-token rate (USD),
@@ -307,7 +309,18 @@ export function createRequestBudgetScope(
       if (signal.aborted) throw signal.reason;
       if (!priceRequired) return;
       // A retry after an ambiguous dispatch can have been billed too.
-      if (turnPriced) { held?.settle(); held = undefined; }
+      // For the final report it is still the same report: it may be
+      // admitted past the cap once more (one retry), the earlier hold
+      // counting in full.
+      if (turnPriced) {
+        const uncertain = held !== undefined;
+        held?.settle();
+        held = undefined;
+        if (uncertain && finalReport && !reportReopened) {
+          reportReopened = true;
+          budget!.reopenFinalReport(sessionId!);
+        }
+      }
       if (dayPriced) { dayHeld?.settle(); dayHeld = undefined; }
       if (request.signal?.aborted) throw request.signal.reason;
       const wireCaps = [body.max_tokens, body.max_completion_tokens].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);

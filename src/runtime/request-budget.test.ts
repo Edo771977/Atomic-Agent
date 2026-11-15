@@ -690,6 +690,18 @@ describe("one final report past an exhausted turn cap (issue #29)", () => {
     expect(() => createRequestBudgetScope(budget, report, provider, entry, model)!.beforeSend({ model: "m", messages: [] })).toThrow(TurnBudgetExhaustedError);
   });
 
+  it("lets the provider retry a final report once after an uncertain dispatch (500, 408, reset)", () => {
+    const budget = overCap();
+    const s = createRequestBudgetScope(budget, report, provider, entry, model)!;
+    s.beforeSend({ model: "m", messages: [] });
+    s.onResponse(500);
+    // The first send may have been billed: its hold settles in full, and
+    // the retry still gets its own admission past the cap.
+    expect(() => s.beforeSend({ model: "m", messages: [] })).not.toThrow();
+    s.onResponse(408);
+    expect(() => s.beforeSend({ model: "m", messages: [] })).toThrow(TurnBudgetExhaustedError);
+  });
+
   it("never admits a worker's, a side call's or an unmarked request past the cap", () => {
     const budget = overCap();
     budget.bindSession("w", "p");

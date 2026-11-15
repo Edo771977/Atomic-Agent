@@ -252,6 +252,19 @@ export class FusionTurnBudget {
     }
   }
 
+  /**
+   * Give the owning turn's final report back after a send of it was
+   * settled without knowing whether it was delivered (a 500, 408 or reset
+   * the provider retries): the retry is the same report, not a second
+   * one. The request scope calls it at most once per report request; the
+   * settled hold still counts in full.
+   */
+  reopenFinalReport(sessionId: string): void {
+    if (this.owners.has(sessionId)) return;
+    const state = this.turns.get(sessionId);
+    if (state !== undefined) state.finalReportUsed = false;
+  }
+
   private hold(state: TurnState, upperUsd: number, onRelease?: () => void): { settle(actualUsd?: number): void; release(): void } {
     state.heldUsd += upperUsd;
     let settled = false;
