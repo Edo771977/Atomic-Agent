@@ -10,6 +10,7 @@ import {
   isAtomicChatNotRunning,
   isLocalEngineDown,
   isLocalOutOfMemory,
+  turnBudgetStopLine,
 } from "../llm/reliability/index.js";
 import {
   contextUsageFromPrompt,
@@ -638,6 +639,21 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
     case "llm_event":
       return reduceStepEvent(state, event.event);
     case "loop_completed": {
+      // Issue #29: the fusion turn's USD cap stopped the turn. Not a
+      // failure: the final report (when it arrived) is already the reply,
+      // and the stop line says why the work ended there.
+      if (event.reason === "budget") {
+        const line = event.budget !== undefined
+          ? turnBudgetStopLine(event.budget.spentUsd, event.budget.capUsd)
+          : "turn stopped: budget exhausted";
+        return finishRun(
+          appendChatMessage(
+            appendFeed(state, { kind: "loop_completed", stepIndex: null, line: `» ${line}`, color: "yellow" }),
+            { role: "system", variant: "warn", text: line },
+          ),
+          { outcome: "completed", reason: event.reason, lastRunStatus: line },
+        );
+      }
       const outcome: RunOutcome =
         event.reason === "cancelled"
           ? "cancelled"

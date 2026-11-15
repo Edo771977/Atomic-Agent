@@ -130,6 +130,13 @@ describe("formatCliApprovalPrompt", () => {
   });
 });
 
+describe("formatAgentEvent turn budget stop (issue #29)", () => {
+  it("says a turn its fusion cap stopped ended on its budget", () => {
+    const line = formatAgentEvent({ type: "turn_finished", turnIndex: 2, reason: "budget", stepCount: 3, durationMs: 40, budget: { spentUsd: 1.13, capUsd: 1 } });
+    expect(line).toBe("» turn stopped: budget exhausted ($1.13 of $1.00) (turn 2, 3 steps, 40ms)");
+  });
+});
+
 describe("formatAgentEvent llama hint", () => {
   it("turns a bare transport failure into something actionable on the local route", () => {
     const line = formatAgentEvent(transportError("fetch failed"), {

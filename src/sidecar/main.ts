@@ -25,6 +25,7 @@ import type {
 import type { SessionState } from "../session/index.js";
 import { installLocalSkill, scanApprovalFromIds, uninstallSkill } from "../skills/index.js";
 import { getAppVersion } from "../version.js";
+import { turnBudgetStopLine } from "../llm/reliability/turn-budget-error.js";
 
 interface ActiveSession {
   session: SessionState;
@@ -200,6 +201,9 @@ export async function bootstrapSidecar(): Promise<{
             reason: event.reason,
             stepCount: event.stepCount,
             durationMs: event.durationMs,
+            ...(event.budget !== undefined
+              ? { budget: { ...event.budget, text: turnBudgetStopLine(event.budget.spentUsd, event.budget.capUsd) } }
+              : {}),
           });
           break;
         case "loop_completed":

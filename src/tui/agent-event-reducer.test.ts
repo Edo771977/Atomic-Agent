@@ -592,6 +592,21 @@ describe("reduceTuiState", () => {
     expect(next.runHistory[0]?.message).toBe("check email");
   });
 
+  it("shows a turn its fusion cap stopped as stopped by budget, not failed (issue #29)", () => {
+    const initial = createInitialTuiState(fakeSession());
+    const next = apply(initial, [
+      { type: "message_submitted" },
+      {
+        type: "agent_event",
+        event: { type: "loop_completed", reason: "budget", budget: { spentUsd: 1.13, capUsd: 1 } },
+      },
+    ]);
+    expect(next.status).toBe("idle");
+    expect(next.runHistory[0]?.outcome).toBe("completed");
+    expect(next.lastRunStatus).toBe("turn stopped: budget exhausted ($1.13 of $1.00)");
+    expect(next.messages.at(-1)).toMatchObject({ role: "system", variant: "warn", text: "turn stopped: budget exhausted ($1.13 of $1.00)" });
+  });
+
   it("should return to idle and archive run as cancelled on abort", () => {
     const initial = createInitialTuiState(fakeSession());
     const next = apply(initial, [

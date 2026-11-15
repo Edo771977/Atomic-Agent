@@ -50,6 +50,7 @@ import { createTurnPhaseTracker } from "./stream-turn-phase.js";
 import { claimTurnProgress } from "../agent/step/turn-progress-opt-in.js";
 import { claimScreenOverlay } from "../tools/os/screen/screen-overlay-hosts.js";
 import { buildSlowFirstTokenHint } from "./slow-first-token-hint.js";
+import { turnBudgetStopLine } from "../llm/reliability/turn-budget-error.js";
 import type { UndeliveredSteer } from "./undelivered-steers.js";
 import {
   buildFinalAssistantPayload,
@@ -933,6 +934,22 @@ export function buildStreamEventHook(
     const maintenance = maintenanceFrame(event, env.session.id);
     if (maintenance) {
       if (env.request.extensionsEnabled) sse.writeEvent(maintenance.name, maintenance.payload);
+      return;
+    }
+    /* Issue #29: the fusion turn's USD cap stopped the turn. The final
+       report (or the stop sentence) is the reply content; with extensions
+       a host also gets the stop line to show. */
+    if (event.type === "loop_completed") {
+      if (env.request.extensionsEnabled && event.reason === "budget" && event.budget !== undefined) {
+        sse.writeEvent("turn_stopped", {
+          object: "atomic.turn_stopped",
+          session_id: env.session.id,
+          reason: "budget",
+          spent_usd: event.budget.spentUsd,
+          cap_usd: event.budget.capUsd,
+          notice: turnBudgetStopLine(event.budget.spentUsd, event.budget.capUsd),
+        });
+      }
       return;
     }
     if (event.type === "loop_failed") {

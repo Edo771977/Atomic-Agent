@@ -170,7 +170,9 @@ export function buildFinalAssistantPayload(
       : lastReply.text;
   let finishReason: FinalMessagePayload["finish_reason"] = "stop";
   if (result.reason === "cancelled") finishReason = "cancelled";
-  else if (result.reason === "max_steps") finishReason = "length";
+  // A ceiling stopped the turn: the step limit, or the fusion turn's USD
+  // cap (issue #29), whose final report is the content when one arrived.
+  else if (result.reason === "max_steps" || result.reason === "budget") finishReason = "length";
   return {
     message: { role: "assistant", content },
     finish_reason: finishReason,
