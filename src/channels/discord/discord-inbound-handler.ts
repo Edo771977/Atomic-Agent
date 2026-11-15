@@ -16,6 +16,7 @@ import { describeFailedAttempts } from "../../llm/fallback/index.js";
 import type { LlmFailureCategory } from "../../llm/reliability/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { CHANNEL_RESTRICTED_NOTICE, isChannelRestricted } from "../../runtime/session-provider-policy.js";
+import { channelSendWithheld } from "../channel-egress.js";
 import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import {
@@ -547,6 +548,9 @@ async function dispatchToRuntime(
 
   const controller = new AbortController();
   ctx.inflight.set(ref.channelId, controller);
+  // Asked before the sends below (issue #33): a read inside a constrained
+  // folder can taint the session mid-turn, after the runtime let it in.
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
 
   let reply: string | null = null;
   let replyAttachments: ReadonlyArray<string> = [];
@@ -587,6 +591,11 @@ async function dispatchToRuntime(
     releaseIfMovedOn(ref, session.id, ctx);
   }
 
+  if (withheld()) {
+    // The fixed notice alone: no reply, file, notice or failure text.
+    await send(ctx, ref.channelId, CHANNEL_RESTRICTED_NOTICE);
+    return;
+  }
   for (const notice of budgetNotices) await send(ctx, ref.channelId, notice);
   if (controller.signal.aborted) {
     await send(ctx, ref.channelId, "Turn cancelled.");

@@ -303,6 +303,20 @@ describe("handleDiscordMessage", () => {
     expect(ctx.sent).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 
+  it("re-checks the folder before each send: a reply after a mid-turn taint becomes the fixed notice (issue #33)", async () => {
+    const ctx = makeCtx();
+    (ctx.runtime.runTurn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (_s: unknown, _t: string, opts: { eventHook?: (e: unknown) => void }) => {
+        opts.eventHook?.({ type: "budget_notice", sessionId: "s1", providerId: "cloud", reason: "meter", text: "Budget uses reported cost only." });
+        opts.eventHook?.({ type: "llm_event", event: { type: "assistant_reply", text: "acme revenue is 1.2M" } });
+        return {};
+      },
+    );
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleDiscordMessage(msg(), ctx);
+    expect(ctx.sent).toEqual([CHANNEL_RESTRICTED_NOTICE]);
+  });
+
   it("reports a failed turn instead of going silent", async () => {
     const ctx = makeCtx();
     (

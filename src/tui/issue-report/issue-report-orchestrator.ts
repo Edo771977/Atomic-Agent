@@ -69,9 +69,18 @@ export interface IssueReportDeps {
   now?: () => Date;
   /** The session on screen, so its trace is first in the zip. */
   currentSessionId?: () => string | null;
+  /**
+   * Why a session's content may not go to GitHub (issue #33: its folder
+   * or read taint lacks "github" in `allowedEgress`), or `null`. A
+   * refused on-screen session sends errors only; a refused session's
+   * trace is left out at every level. A throwing check refuses.
+   */
+  githubRefusal?: (session: string | { id: string; workingDir: string }) => string | null;
 }
 
 interface PreparedReport {
+  /** The session on screen when it was picked, checked again at send (issue #33). */
+  target: { id: string; workingDir: string } | null;
   report: IssueReport;
   packed: PackedIssue;
   zipPath: string;
@@ -108,12 +117,25 @@ export class IssueReportOrchestrator {
   }
 
   /** Build the report at `level` from the state on screen and write the zip. */
-  async pick(level: IssueReportLevel, state: TuiState): Promise<void> {
+  async pick(requested: IssueReportLevel, state: TuiState): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     const generation = this.generation;
     this.bus.emit({ type: "issue_report_building" });
     try {
+      // Issue #33: a restricted session's conversation does not go to
+      // GitHub; the report falls back to errors only, and says so.
+      const currentId = this.deps.currentSessionId?.() ?? state.session.sessionId;
+      const target = currentId ? { id: currentId, workingDir: state.session.workingDir } : null;
+      const refusal = target === null ? null : this.githubRefusal(target);
+      const level: IssueReportLevel = refusal !== null && requested !== "errors" ? "errors" : requested;
+      if (level !== requested) {
+        this.bus.emit({
+          type: "system_message",
+          variant: "warn",
+          text: `issue report: errors only — this session's ${refusal}, so its conversation, logs and traces stay on this machine`,
+        });
+      }
       const snapshot = buildDebugBundleSnapshot(state);
       const route = selectLlmActiveRouteSummary(state);
       const now = (this.deps.now ?? (() => new Date()))();
@@ -157,7 +179,7 @@ export class IssueReportOrchestrator {
         ...zip.traceSections,
       ]);
       if (generation !== this.generation) return;
-      this.prepared = { report, packed, zipPath: zip.path };
+      this.prepared = { target, report, packed, zipPath: zip.path };
       this.bus.emit({
         type: "issue_report_previewed",
         preview: {
@@ -187,6 +209,16 @@ export class IssueReportOrchestrator {
       this.bus.emit({
         type: "issue_report_failed",
         error: "nothing to send — pick a level first",
+      });
+      return;
+    }
+    // A read since the pick can have restricted the session (issue #33).
+    const refusal = prepared.target === null ? null : this.githubRefusal(prepared.target);
+    if (refusal !== null && prepared.report.level !== "errors") {
+      this.prepared = null;
+      this.bus.emit({
+        type: "issue_report_failed",
+        error: `not sent: this session's ${refusal}; pick the report again`,
       });
       return;
     }
@@ -257,7 +289,20 @@ export class IssueReportOrchestrator {
     } catch {
       // A session-store hiccup costs older traces, not the report.
     }
-    return ids.slice(0, TRACE_LIMIT);
+    // A session that may not reach GitHub keeps its trace (issue #33).
+    return ids
+      .filter((id) => this.githubRefusal(id === current ? { id, workingDir: state.session.workingDir } : id) === null)
+      .slice(0, TRACE_LIMIT);
+  }
+
+  private githubRefusal(session: string | { id: string; workingDir: string }): string | null {
+    const check = this.deps.githubRefusal;
+    if (check === undefined) return null;
+    try {
+      return check(session);
+    } catch (err) {
+      return `restriction check failed (${describe(err)})`;
+    }
   }
 }
 

@@ -38,6 +38,12 @@ export interface HandlerContext {
    * build a context by hand.
    */
   incognitoChats?: Set<string>;
+  /**
+   * The server listens on a network address (not loopback): a session
+   * whose folder lacks "serve" in `allowedEgress` is refused (issue #33,
+   * `serve-egress.ts`). Absent: loopback.
+   */
+  networkServe?: boolean;
 }
 
 export type HttpHandler = (

@@ -191,22 +191,26 @@ describe("createMcpSamplingHandler under per-folder provider constraints (issue 
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("a remote llama-server is checked as local-llama against the frame, and refused with none while constraints exist", async () => {
+  it("a remote llama-server is refused while constraints exist, whatever frame the transport was opened in", async () => {
     const { makeProviderPolicy, runWithProviderPolicy } = await import("../llm/provider-policy.js");
     const spy = vi.fn(async (_req: CompletionRequest) => defaultResult());
+    let active = true;
     const handler = createMcpSamplingHandler({
       llamaServerClient: llamaAt("http://10.0.0.5:9931", spy),
       server: "s",
-      constraintsActive: () => true,
+      constraintsActive: () => active,
     });
     const signal = new AbortController().signal;
     await expect(handler(params, signal)).rejects.toThrow(/MCP sampling carries no folder policy/);
-    const cloudOnly = makeProviderPolicy({ key: "/w", allowedProviders: ["openai"], matchedDir: "/w" });
-    await expect(runWithProviderPolicy(cloudOnly, () => handler(params, signal))).rejects.toThrow(/may not serve MCP sampling/);
-    expect(spy).not.toHaveBeenCalled();
+    // A sampling request is tied to no session: a frame it inherits from
+    // where the MCP transport was created (an unconstrained turn that
+    // connected the server, or a constrained one) is not its policy.
+    await expect(runWithProviderPolicy(undefined, () => handler(params, signal))).rejects.toThrow(/MCP sampling carries no folder policy/);
     const local = makeProviderPolicy({ key: "/w", allowedProviders: ["local-llama"], matchedDir: "/w" });
-    await runWithProviderPolicy(local, () => handler(params, signal));
-    await runWithProviderPolicy(undefined, () => handler(params, signal));
-    expect(spy).toHaveBeenCalledTimes(2);
+    await expect(runWithProviderPolicy(local, () => handler(params, signal))).rejects.toThrow(/MCP sampling carries no folder policy/);
+    expect(spy).not.toHaveBeenCalled();
+    active = false;
+    await handler(params, signal);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

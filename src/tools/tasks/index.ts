@@ -1,6 +1,7 @@
 import type { ToolDefinition, ToolRegistry } from "../tool-registry.js";
 import type { TaskRunner, TaskStore } from "../../tasks/index.js";
 import type { SessionState } from "../../session/index.js";
+import type { TaskSessionInput } from "./tasks-schedule.js";
 
 import { buildTasksScheduleTool } from "./tasks-schedule.js";
 import { buildTasksCronTool } from "./tasks-cron.js";
@@ -9,7 +10,7 @@ import { buildTasksCancelTool } from "./tasks-cancel.js";
 import { buildTasksShowTool } from "./tasks-show.js";
 import { INCOGNITO_TASK_REFUSAL, refuseInIncognito } from "../memory/incognito-guard.js";
 
-export { buildTasksScheduleTool } from "./tasks-schedule.js";
+export { buildTasksScheduleTool, type TaskSessionInput } from "./tasks-schedule.js";
 export { buildTasksCronTool } from "./tasks-cron.js";
 export { buildTasksListTool } from "./tasks-list.js";
 export { buildTasksCancelTool } from "./tasks-cancel.js";
@@ -18,8 +19,11 @@ export { buildTasksShowTool } from "./tasks-show.js";
 export interface RegisterTaskToolsOptions {
   taskStore: TaskStore;
   taskRunner: TaskRunner;
-  /** Factory used by `tasks.schedule` when `newSession: true` is requested. */
-  createSession(input?: { metadata?: Record<string, unknown> }): SessionState;
+  /**
+   * Factory used by `tasks.schedule` when `newSession: true` is requested
+   * and by `tasks.cron`; `parent` is the calling session (issue #33).
+   */
+  createSession(input?: TaskSessionInput): SessionState;
   /** Master kill switch — maps to `config.tasks.agentToolsEnabled`. */
   agentToolsEnabled: boolean;
   /**
@@ -59,7 +63,7 @@ export function registerTaskTools(
       defaultMaxAttempts: options.defaultMaxAttempts,
     })),
   );
-  registry.register(guarded(buildTasksCronTool({ taskRunner: options.taskRunner })));
+  registry.register(guarded(buildTasksCronTool({ taskRunner: options.taskRunner, createSession: options.createSession })));
   registry.register(
     buildTasksListTool({
       taskStore: options.taskStore,

@@ -41,6 +41,21 @@ function makeTaskRunner() {
 }
 
 describe("tasks.cron", () => {
+  it("provisions its own session from the caller's folder and policy when a factory is given (issue #33)", async () => {
+    const runner = makeTaskRunner();
+    const createSession = vi.fn((input?: { metadata?: Record<string, unknown>; parent?: { sessionId: string; workingDir: string } }) =>
+      ({ id: "fresh-recurring", workingDir: input?.parent?.workingDir ?? "/runtime", metadata: input?.metadata ?? {} }) as never);
+    const tool = buildTasksCronTool({ taskRunner: runner as never, createSession });
+    const result = await tool.run({ userMessage: "acme digest", expression: "0 9 * * *" }, { ...makeCtx(), workingDir: "/clienti/acme" });
+    expect(result.status).toBe("ok");
+    expect(createSession.mock.calls[0]![0]).toMatchObject({
+      parent: { sessionId: "caller", workingDir: "/clienti/acme" },
+      metadata: { recurringTask: true, scheduleKind: "cron", scheduledBy: "caller" },
+    });
+    // A fresh thread, not the caller's.
+    expect(runner.create.mock.calls[0]![0].sessionId).toBe("fresh-recurring");
+  });
+
   it("creates a recurring cron task (caller session is NOT inherited)", async () => {
     const runner = makeTaskRunner();
     const tool = buildTasksCronTool({ taskRunner: runner as never });

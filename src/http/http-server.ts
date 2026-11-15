@@ -13,6 +13,7 @@ import { openaiError } from "./openai-errors.js";
 import { UndeliveredSteerStore } from "./undelivered-steers.js";
 import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
+import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 
 /** ATO-1126: one per process; loopback callers are never counted. */
 const authThrottle = new AuthThrottle();
@@ -139,6 +140,9 @@ export function createHttpServer(
     options.undeliveredSteers ?? new UndeliveredSteerStore();
   const compiled = options.routes.map(compileRoute);
   const incognitoChats = new Set<string>();
+  // Issue #33: on a network address, sessions of constrained folders
+  // without "serve" are refused (serve-egress.ts).
+  const networkServe = isNetworkListenHost(options.host);
 
   const server = createServer(async (req, res) => {
     try {
@@ -149,6 +153,7 @@ export function createHttpServer(
         completionRegistry,
         undeliveredSteers,
         incognitoChats,
+        networkServe,
       });
     } catch (err) {
       handleRouteError(res, err);
@@ -240,6 +245,13 @@ async function dispatch(
     return;
   }
   const ctx: HandlerContext = { ...baseCtx, params: matched.params };
+  // A session's own routes (transcript, export, steer, compaction, ...)
+  // carry its content (issue #33).
+  const sessionId = url.pathname.startsWith("/api/sessions/") ? matched.params.id : undefined;
+  if (sessionId !== undefined && serveWithheld(ctx, sessionId)()) {
+    sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+    return;
+  }
   await matched.route.handler(req, res, ctx);
 }
 

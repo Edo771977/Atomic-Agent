@@ -157,7 +157,7 @@ export function createRuntimeSessionFactories(
   ensureRecorder: ReturnType<typeof createRuntimeTraces>["ensureRecorder"],
 ) {
   const createSession = (
-    input: { metadata?: Record<string, unknown>; persist?: boolean; incognito?: boolean } = {},
+    input: { metadata?: Record<string, unknown>; persist?: boolean; incognito?: boolean; workingDir?: string } = {},
   ): SessionState => {
     // ATO-586: owned by this process, so the next start can tell a chat
     // a crash left behind from one another window still holds.
@@ -167,7 +167,9 @@ export function createRuntimeSessionFactories(
     const incognito = input.incognito === true ? sessionStore.newIncognitoMark!() : undefined;
     const state = createEmptySessionState({
       id: `s-${randomUUID()}`,
-      workingDir,
+      // A session another session creates (a task's) keeps its caller's
+      // folder (issue #33, `childSessionSeed`); otherwise the runtime's.
+      workingDir: input.workingDir ?? workingDir,
       ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(incognito ? { incognito } : {}),
     });

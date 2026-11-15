@@ -33,7 +33,7 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal } from "./session-provider-policy.js";
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
@@ -360,6 +360,9 @@ export async function createAgentRuntime(
     loadSession: (id) => {
       try { return sessionStore.load(id); } catch { return null; }
     },
+    // A taint the running turn holds but has not saved yet (declared below;
+    // only read once the runtime runs).
+    liveSession: (id) => sessionReadTaint.liveSession<SessionState>(id),
   });
   // The commands `os.shell.run` detached at the default timeout (F47).
   // One registry for the runtime, so the turn-end (`executeTurn`),
@@ -540,7 +543,7 @@ export async function createAgentRuntime(
     fallbackChain, resolveActiveLlmSlice, localBackend: connectedLocal.localBackend, profileManager,
     costAccumulator, turnUsageMeter, sessionUsage, dailySpend, resolveModelPricing, resolveCatalogContextWindow,
     turnBudget: fusionTurnBudget, budgetNotices,
-    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: sessionProviderPolicy.forSessionId },
+    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
@@ -956,6 +959,7 @@ export async function createAgentRuntime(
     approvalLevel: () => approvals.getLevel(),
     // A task in a constrained folder notifies its chat only with "channels" allowed (issue #33).
     notifyRefusal: (task) => channelNotifyRefusal(sessionProviderPolicy, task.sessionId),
+    providerPolicy: sessionProviderPolicy,
   });
 
   registerRuntimeFusionAndReadScope({
@@ -1062,6 +1066,9 @@ export async function createAgentRuntime(
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
+    channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
+    serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
+    egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,
@@ -1177,6 +1184,7 @@ export async function createAgentRuntime(
     resolveTelegram: () => telegramChannelForShutdown,
     resolveDiscord: () => discordChannelForShutdown,
     logger,
+    isRestricted: (id) => channelNotifyRefusal(sessionProviderPolicy, id) !== null,
   });
 
   // Deferred from the Scheduler construction site above: the first

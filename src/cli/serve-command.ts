@@ -19,6 +19,7 @@ import {
   createHttpServer,
 } from "../http/index.js";
 import type { HttpServerHandle } from "../http/index.js";
+import { isNetworkListenHost } from "../http/serve-egress.js";
 
 /**
  * Entry point for `atomic-agent serve`. Boots the shared agent runtime
@@ -106,6 +107,10 @@ export async function serveCommand(args: string[]): Promise<number> {
     );
     const authWarning = serveAuthWarning(parsed);
     if (authWarning) process.stderr.write(authWarning);
+    // Issue #33: on a network address, constrained folders without
+    // "serve" in allowedEgress are refused over HTTP (serve-egress.ts).
+    const constraintNote = serveConstraintNote(handle.host, getConfig().projects.constraints);
+    if (constraintNote) process.stderr.write(constraintNote);
     // ATO-1126: on every interface, say where another device reaches it (the desktop's remote agent, a phone).
     for (const url of lanUrls(parsed.host, handle.port)) {
       process.stderr.write(`[atomic-agent] serve reachable at ${url}\n`);
@@ -208,4 +213,21 @@ function waitForShutdownSignal(): Promise<NodeJS.Signals> {
     process.once("SIGINT", onSignal);
     process.once("SIGTERM", onSignal);
   });
+}
+
+/**
+ * The startup line `serve` prints when it listens on a network address
+ * while folders are constrained (issue #33): those without "serve" in
+ * `allowedEgress` are refused over this server. `null` otherwise.
+ */
+export function serveConstraintNote(
+  host: string,
+  constraints: Record<string, { allowedEgress?: string[] }>,
+): string | null {
+  if (!isNetworkListenHost(host)) return null;
+  const refused = Object.entries(constraints)
+    .filter(([, entry]) => !(entry.allowedEgress ?? []).includes("serve"))
+    .map(([folder]) => folder);
+  if (refused.length === 0) return null;
+  return `[atomic-agent] serve: this address reaches other machines; sessions in ${refused.join(", ")} (and sessions that read files there) are refused over HTTP. Add "serve" to that folder's projects.constraints allowedEgress to allow it.\n`;
 }

@@ -427,6 +427,35 @@ describe("handleInboundText", () => {
     expect(texts.some((t) => t.includes("/work/secret") || t.startsWith("Turn failed"))).toBe(false);
   });
 
+  it("re-checks the folder before each send: a turn tainted mid-way posts only the fixed notice (issue #33)", async () => {
+    let tainted = false;
+    const notice = { type: "budget_notice", sessionId: "s-1", providerId: "cloud", reason: "meter", text: "Budget uses reported cost only." } as const;
+    const { runtime } = makeFakeRuntime({
+      scripts: [{
+        events: [
+          { type: "llm_event", event: { type: "tool_call_parsed", call: { tool: "os.fs.read", args: { path: "/clienti/acme/bilancio.csv" } } } } as never,
+          notice,
+          { type: "llm_event", event: { type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "/tmp/out.txt", content: "revenue 1.2M" } } } } as never,
+          { type: "llm_event", event: { type: "assistant_reply", text: "acme revenue is 1.2M", attachments: ["/clienti/acme/bilancio.csv"] } },
+        ],
+      }],
+    });
+    // The read above taints the session: from then on "channels" is refused.
+    (runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = vi.fn(() => {
+      const refused = tainted ? "folder /clienti/acme is restricted" : null;
+      tainted = true;
+      return refused;
+    });
+    const api = makeFakeApi();
+    const ctx = makeContext(runtime, api, pointer, OWNER, join(dir, "inbox"));
+    await handleInboundText(makeUpdate("summarise it"), ctx);
+    await new Promise((r) => setTimeout(r, 10));
+    const outbound = [...api.sent.map((m) => m.text), ...api.edits.map((e) => e.text)];
+    expect(outbound.some((t) => t.includes("1.2M") || t.includes("Budget"))).toBe(false);
+    expect(api.sent.filter((m) => m.text === CHANNEL_RESTRICTED_NOTICE)).toHaveLength(1);
+    expect(api.sent.at(-1)?.text).toBe(CHANNEL_RESTRICTED_NOTICE);
+  });
+
   it("formats loop_failed events as a single error message", async () => {
     const { runtime } = makeFakeRuntime({
       scripts: [

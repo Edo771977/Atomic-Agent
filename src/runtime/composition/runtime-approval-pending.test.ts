@@ -12,6 +12,7 @@ function wire(over: {
   isIncognito?: (id: string) => boolean;
   anyIncognitoOpen?: () => boolean;
   isChannelOwned?: (id: string) => boolean;
+  isRestricted?: (id: string) => boolean;
   offline?: () => boolean;
 } = {}) {
   const gate = new ApprovalGate({ emit: () => undefined });
@@ -28,6 +29,7 @@ function wire(over: {
     resolveDiscord: () => null,
     logger,
     ...(over.offline ? { offline: over.offline } : {}),
+    ...(over.isRestricted ? { isRestricted: over.isRestricted } : {}),
   });
   const connect = () => {
     telegram = { sendOwnerNotice: async (text) => { texts.push(text); return "sent"; } };
@@ -63,6 +65,14 @@ describe("installApprovalPendingNotifier", () => {
     expect(texts).toEqual([
       "atomic-agent is waiting for your approval for 2 min: shell command (verify.run) in app. Answer it in the app.",
     ]);
+  });
+
+  it("goes generic for a session whose folder may not reach a chat (issue #33): no folder name", async () => {
+    const { texts, connect, ask } = wire({ isRestricted: (id) => id === "s" });
+    connect();
+    void ask("a1");
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    expect(texts).toEqual(["atomic-agent is waiting for your approval for 2 min. Answer it in the app."]);
   });
 
   it("goes generic while an incognito chat is open, and when the lookup fails", async () => {

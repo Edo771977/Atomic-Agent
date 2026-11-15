@@ -833,6 +833,28 @@ describe("per-folder provider policy at the seam (issue #33)", () => {
     expect(served).toEqual(["local"]);
   });
 
+  it("a call naming another session than the frame's does not borrow that frame (an unconstrained turn draining a constrained session's work)", async () => {
+    const { deps, served } = fixture();
+    const asked: string[] = [];
+    deps.providerPolicy = { constraintsActive: () => true, policyForSession: (id) => { asked.push(id); return nobody; } };
+    const run = runWithProviderPolicy(undefined, () => createFallbackCompleter(deps)({ ...baseParams, sessionId: "s-constrained" }), { sessionId: "s-free" });
+    await expect(run).rejects.toBeInstanceOf(ProviderNotAllowedError);
+    expect(asked).toEqual(["s-constrained"]);
+    expect(served).toEqual([]);
+  });
+
+  it("keeps the frame for its own session and its side-call partitions (`compaction:<id>`)", async () => {
+    const { deps, served } = fixture();
+    const asked: string[] = [];
+    deps.providerPolicy = { constraintsActive: () => true, policyForSession: (id) => { asked.push(id); return nobody; } };
+    await runWithProviderPolicy(onlyLocal, async () => {
+      await createFallbackCompleter(deps)({ ...baseParams, sessionId: "s-own" });
+      await createFallbackCompleter(deps)({ ...baseParams, sessionId: "compaction:s-own" });
+    }, { sessionId: "s-own" });
+    expect(asked).toEqual([]);
+    expect(served).toEqual(["local", "local"]);
+  });
+
   it("a call with neither a frame nor a sessionId is refused while constraints exist", async () => {
     const { deps, served } = fixture();
     const { sessionId: _drop, ...noSession } = baseParams;

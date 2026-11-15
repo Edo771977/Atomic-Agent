@@ -11,7 +11,7 @@ import {
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
-import { readTaintOf } from "./session-read-taint.js";
+import { READ_TAINT_METADATA_KEY, readTaintOf } from "./session-read-taint.js";
 
 /** The policy that lets no provider serve: what an unscoped caller gets while constraints exist. */
 export function refuseAllPolicy(key: string, matchedDir = ""): ProviderPolicy {
@@ -23,6 +23,13 @@ export interface SessionProviderPolicyDeps {
   readConfig: () => Pick<AtomicAgentConfig, "projects">;
   /** A stored session's folder and metadata, or null when there is none. */
   loadSession: (sessionId: string) => { workingDir: string; metadata?: Record<string, unknown> } | null;
+  /**
+   * The object a running turn holds for a session (read taint's live
+   * registry), whose metadata carries a taint set mid-turn before the
+   * turn saves it. Read by a check made outside the turn's frame (a chat
+   * adapter's send, issue #33).
+   */
+  liveSession?: (sessionId: string) => { workingDir: string; metadata?: Record<string, unknown> } | undefined;
 }
 
 /**
@@ -42,6 +49,12 @@ export interface SessionProviderPolicyDeps {
  * - An id that names no stored session while constraints exist: refused
  *   everything (fail closed).
  */
+function narrow(a: ProviderPolicy | undefined, b: ProviderPolicy | undefined): ProviderPolicy | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return intersectProviderPolicies(a, b);
+}
+
 export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const constraintsActive = (): boolean => hasProjectConstraints(deps.readConfig());
   const forWorkingDir = (workingDir: string): ProviderPolicy | undefined =>
@@ -97,7 +110,21 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     const id = typeof target === "string" ? target : target.id;
     const frame = currentProviderPolicyFrame();
     if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === id)) return frame.policy;
-    return typeof target === "string" ? forSessionId(target) : forSession(target);
+    // Every view of the session narrows: the caller's object (possibly a
+    // stale copy), the stored row, and the running turn's object, whose
+    // taint may not be saved yet. A taint only ever narrows, so the
+    // intersection is the freshest answer.
+    let policy: ProviderPolicy | undefined;
+    if (typeof target === "string") {
+      policy = forSessionId(target);
+    } else {
+      policy = forSession(target);
+      const stored = constraintsActive() ? deps.loadSession(id) : null;
+      if (stored !== null) policy = narrow(policy, forSession({ id, ...stored }));
+    }
+    const live = constraintsActive() ? deps.liveSession?.(id) : undefined;
+    if (live !== undefined) policy = narrow(policy, forSession({ id, ...live }));
+    return policy;
   };
   return { constraintsActive, forWorkingDir, forSession, forSessionId, effectivePolicyForSession };
 }
@@ -147,18 +174,57 @@ export function workerPolicyStampFromFrame(): ProviderPolicyStamp | null | undef
 }
 
 /**
- * Why a task's notification may not go to its chat right now, or `null`
- * (issue #33): its session's policy, read at send time through
+ * Why a task's notification, or a chat adapter's send (reply, progress,
+ * notices, files, an approval prompt's details), may not go to its chat
+ * right now, or `null` (issue #33): its session's policy, read at send
+ * time through
  * `effectivePolicyForSession`, must list "channels". A task with no
  * session while constraints exist is refused (fail closed).
  */
 export function channelNotifyRefusal(
   policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
-  sessionId: string | null,
+  session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> } | null,
+): string | null {
+  if (session === null) {
+    return policy.constraintsActive() ? "provider constraints are configured and the task has no session" : null;
+  }
+  return egressRefusal(policy, session, "channels");
+}
+
+/**
+ * Why `session`'s content may not leave this machine through `cls`
+ * right now, or `null` (issue #33), read through
+ * `effectivePolicyForSession`: `"channels"` for a chat, `"serve"` for an
+ * HTTP server listening on a network address, `"github"` for an issue
+ * report.
+ */
+export function egressRefusal(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  cls: string,
 ): string | null {
   if (!policy.constraintsActive()) return null;
-  if (sessionId === null) return "provider constraints are configured and the task has no session";
-  const effective = policy.effectivePolicyForSession(sessionId);
-  if (effective === undefined || effective.allowsEgress("channels")) return null;
-  return `folder ${effective.key} is restricted; "channels" is not in its allowedEgress`;
+  const effective = policy.effectivePolicyForSession(session);
+  if (effective === undefined || effective.allowsEgress(cls)) return null;
+  return `folder ${effective.key} is restricted; "${cls}" is not in its allowedEgress`;
+}
+
+/**
+ * What a session created by another session's tool (`tasks.schedule
+ * { newSession: true }`, `tasks.cron`) starts from (issue #33): the
+ * caller's folder, never the runtime's, and the caller's effective
+ * policy (folder plus read taint, read through
+ * `effectivePolicyForSession`) stored as the new session's read taint,
+ * so the task obeys the caller's constraint wherever it runs. A caller
+ * that resolves to nothing while constraints exist gives a refuse-all
+ * taint (fail closed). With no constraint configured nothing is added.
+ */
+export function childSessionSeed(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  parent: { sessionId: string; workingDir: string },
+): { workingDir: string; metadata: Record<string, unknown> } {
+  if (!policy.constraintsActive()) return { workingDir: parent.workingDir, metadata: {} };
+  const effective = policy.effectivePolicyForSession(parent.sessionId);
+  if (effective === undefined) return { workingDir: parent.workingDir, metadata: {} };
+  return { workingDir: parent.workingDir, metadata: { [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(effective) } };
 }

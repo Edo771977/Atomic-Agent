@@ -25,10 +25,13 @@ export type { ResolvedLinkSlice, SeamProviderPolicy } from "./llm-link-attempt.j
 
 /**
  * Run one seam call under a provider-policy frame (issue #33). A caller
- * already inside one (a turn, a scoped side call) keeps it. A background
- * caller that only names its session gets that session's policy,
- * re-derived from the session's folder. Anything else runs with no
- * frame, which every guarded provider refuses while constraints exist.
+ * already inside one (a turn, a scoped side call) keeps it, unless the
+ * frame was set for another session than the call names: then the call
+ * does not borrow it (a task drained inside some turn, an unconstrained
+ * frame around a constrained session's call). A background caller that
+ * only names its session gets that session's policy, re-derived from the
+ * session's folder. Anything else runs with no frame, which every
+ * guarded provider refuses while constraints exist.
  */
 function withSessionPolicy<T>(
   deps: FallbackSeamDeps,
@@ -36,15 +39,21 @@ function withSessionPolicy<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const policy = deps.providerPolicy;
-  if (
-    policy === undefined ||
-    currentProviderPolicyFrame() !== undefined ||
-    sessionId === undefined ||
-    !policy.constraintsActive()
-  ) {
-    return run();
-  }
+  if (policy === undefined || sessionId === undefined || !policy.constraintsActive()) return run();
+  const frame = currentProviderPolicyFrame();
+  if (frame !== undefined && frameCovers(frame.sessionId, sessionId)) return run();
   return runWithProviderPolicy(policy.policyForSession(sessionId), run);
+}
+
+/**
+ * Whether a frame set for `frameSession` governs a call naming
+ * `sessionId`: a frame that names no session governs every call, and a
+ * side call's partition (`compaction:<id>`, `reflection:<id>`) is its
+ * session's.
+ */
+function frameCovers(frameSession: string | undefined, sessionId: string): boolean {
+  if (frameSession === undefined || frameSession === sessionId) return true;
+  return sessionId.endsWith(`:${frameSession}`);
 }
 
 /**

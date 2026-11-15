@@ -12,6 +12,9 @@ import { StructuredLogger, type LogRecord } from "../../tracing/structured-logge
 import { AgentMetrics } from "../../tracing/agent-metrics.js";
 import { MetricsCollector } from "../../tracing/metrics-collector.js";
 import { createRuntimeScheduler, createRuntimeTaskRunner, createRuntimeTaskStores } from "./runtime-task-services.js";
+import { createRuntimeSessionFactories } from "./runtime-session-services.js";
+import { createSessionProviderPolicy } from "../session-provider-policy.js";
+import { runWithProviderPolicy } from "../../llm/provider-policy.js";
 
 let dir: string;
 let config: AtomicAgentConfig;
@@ -181,5 +184,41 @@ describe("runtime task service phases", () => {
       scheduler?.start(); await vi.advanceTimersByTimeAsync(100);
       expect(due).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("a task scheduled from a constrained session (issue #33)", () => {
+  it("serve from ~ with a client working_dir: tasks.schedule { newSession } and tasks.cron keep the client's constraint", async () => {
+    stores ??= createRuntimeTaskStores({ config, logger });
+    const acme = join(dir, "clienti", "acme");
+    const projects = { roots: [], constraints: { [acme]: { allowedProviders: ["local-llama"] } } };
+    const sessions = new Map<string, SessionState>();
+    const caller = createEmptySessionState({ id: "s-caller", workingDir: acme });
+    sessions.set(caller.id, caller);
+    const sessionStore = {
+      load: (id: string) => sessions.get(id) ?? null,
+      save: (state: SessionState) => { sessions.set(state.id, state); },
+      readTurnProgress: () => null, clearTurnProgress: () => {},
+    };
+    // The runtime's own folder is the home directory, outside every constraint.
+    const { createSession } = createRuntimeSessionFactories(dir, sessionStore, () => null);
+    const providerPolicy = createSessionProviderPolicy({ readConfig: () => ({ projects }), loadSession: (id) => sessions.get(id) ?? null });
+    const toolRegistry = new ToolRegistry();
+    createRuntimeTaskRunner({
+      config, ...stores, runTurn: async (session) => ({ session, reason: "reply", stepCount: 1 }), sessionStore,
+      createSession, toolRegistry, resolveTelegram: () => null, logger, metrics, providerPolicy,
+    });
+    const ctx = { workingDir: acme, sessionId: caller.id, stepIndex: 0, signal: new AbortController().signal };
+    const inCallerTurn = <T>(fn: () => T): T => runWithProviderPolicy(providerPolicy.forSessionId(caller.id), fn, { sessionId: caller.id });
+    const scheduled = await inCallerTurn(() => toolRegistry.get("tasks.schedule").run({ userMessage: "acme revenue is 1.2M; summarise", newSession: true, inSeconds: 60 }, ctx));
+    const cron = await inCallerTurn(() => toolRegistry.get("tasks.cron").run({ userMessage: "acme digest", expression: "0 9 * * *" }, ctx));
+    for (const result of [scheduled, cron]) {
+      const sessionId = (result.details as { sessionId: string }).sessionId;
+      expect(sessionId).not.toBe(caller.id);
+      const fresh = sessions.get(sessionId)!;
+      expect(fresh.workingDir).toBe(acme);
+      expect(providerPolicy.effectivePolicyForSession(sessionId)?.allows("openai")).toBe(false);
+      expect(providerPolicy.effectivePolicyForSession(sessionId)?.allows("local-llama")).toBe(true);
+    }
   });
 });

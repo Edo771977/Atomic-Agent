@@ -138,6 +138,13 @@ export interface HarnessOptions {
   webhooks?: Record<string, WebhookConfig>;
   /** MCP servers persisted into `<stateDir>/config.json` before boot. */
   mcpServers?: McpServerConfig[];
+  /** Listen host (default 127.0.0.1); requests still go to 127.0.0.1. */
+  host?: string;
+  /**
+   * `projects.constraints` persisted before boot; the key `"<cwd>"`
+   * names the harness's working folder.
+   */
+  constraints?: Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
 }
 
 export interface Harness {
@@ -166,13 +173,17 @@ export async function startTestHarness(
   mkdirSync(join(workingDir, ".atomic-agent", "skills"), { recursive: true });
   process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
   process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
-  if (options.webhooks || options.localModelsUrl || options.mcpServers) {
+  const constraints = options.constraints === undefined
+    ? undefined
+    : Object.fromEntries(Object.entries(options.constraints).map(([key, value]) => [key === "<cwd>" ? workingDir : key, value]));
+  if (options.webhooks || options.localModelsUrl || options.mcpServers || constraints) {
     writeFileSync(
       join(stateDir, "config.json"),
       JSON.stringify(
         {
           ...USER_CONFIG_DEFAULTS,
           ...(options.webhooks ? { webhooks: options.webhooks } : {}),
+          ...(constraints ? { projects: { ...USER_CONFIG_DEFAULTS.projects, constraints } } : {}),
           ...(options.mcpServers
             ? {
                 mcp: {
@@ -244,7 +255,7 @@ export async function startTestHarness(
 
   const handle = await createHttpServer({
     runtime,
-    host: "127.0.0.1",
+    host: options.host ?? "127.0.0.1",
     port: 0,
     apiKey: options.apiKey ?? null,
     routes: buildRouteTable(),
@@ -255,7 +266,7 @@ export async function startTestHarness(
   return {
     runtime,
     handle,
-    baseUrl: `http://${handle.host}:${handle.port}`,
+    baseUrl: `http://127.0.0.1:${handle.port}`,
     stateDir,
     workingDir,
     approvalBus,

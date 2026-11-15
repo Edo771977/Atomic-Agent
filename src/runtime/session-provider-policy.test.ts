@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
-import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy } from "./session-provider-policy.js";
 
 describe("session provider policy (issue #33)", () => {
   let root: string | undefined;
@@ -102,6 +102,27 @@ describe("session provider policy (issue #33)", () => {
       expect(policy.effectivePolicyForSession("s-gone")?.allowsEgress("web")).toBe(false);
     });
 
+    it("outside the turn's frame, sees a taint the running turn holds but has not saved yet, and a stored one a stale copy lacks", () => {
+      root = mkdtempSync(join(tmpdir(), "pc-session-"));
+      const project = join(root, "client");
+      const home = join(root, "home");
+      const config = { projects: { roots: [], constraints: { [project]: { allowedProviders: ["local-llama"] } } } };
+      const stamp = { key: project, allowedProviders: ["local-llama"], allowedEgress: [], matchedDir: project, readFrom: [project] };
+      const stored = new Map<string, { workingDir: string; metadata?: Record<string, unknown> }>([["s-home", { workingDir: home }]]);
+      const live = new Map<string, { workingDir: string; metadata?: Record<string, unknown> }>();
+      const policy = createSessionProviderPolicy({
+        readConfig: () => config,
+        loadSession: (id) => stored.get(id) ?? null,
+        liveSession: (id) => live.get(id),
+      });
+      expect(policy.effectivePolicyForSession("s-home")).toBeUndefined();
+      live.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
+      expect(policy.effectivePolicyForSession("s-home")?.allowsEgress("channels")).toBe(false);
+      live.clear();
+      stored.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
+      expect(policy.effectivePolicyForSession({ id: "s-home", workingDir: home })?.key).toBe(project);
+    });
+
     it("carries a fusion worker's stamped egress classes", () => {
       const { project, policy } = setup();
       const temp = mkdtempSync(join(tmpdir(), "pc-worker-egress-"));
@@ -116,6 +137,51 @@ describe("session provider policy (issue #33)", () => {
       } finally {
         rmSync(temp, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("childSessionSeed (a session a session creates: tasks.schedule newSession, tasks.cron)", () => {
+    it("puts a constrained caller's task in the caller's folder, not the runtime's (serve from ~, client working_dir)", () => {
+      const { project, policy } = setup();
+      const home = mkdtempSync(join(tmpdir(), "pc-home-"));
+      try {
+        const factories = createRuntimeSessionFactories(home, { save: () => {} }, () => null);
+        const callerPolicy = policy.forSessionId("s-1");
+        const seed = runWithProviderPolicy(callerPolicy, () =>
+          childSessionSeed(policy, { sessionId: "s-1", workingDir: join(project, "src") }), { sessionId: "s-1" });
+        const fresh = factories.createSession({ ...seed, metadata: { ...seed.metadata, ephemeralTask: true } });
+        expect(fresh.workingDir).toBe(join(project, "src"));
+        expect(policy.forSession(fresh)?.allows("openai")).toBe(false);
+        expect(policy.forSession(fresh)?.allows("local-llama")).toBe(true);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    it("carries a caller's read taint into the new session (caller folder unconstrained)", () => {
+      const { project, policy } = setup();
+      const home = mkdtempSync(join(tmpdir(), "pc-home-"));
+      try {
+        const factories = createRuntimeSessionFactories(home, { save: () => {} }, () => null);
+        const tainted = makeProviderPolicy({ key: project, allowedProviders: ["local-llama"], matchedDir: project, readFrom: [project] });
+        const seed = runWithProviderPolicy(tainted, () =>
+          childSessionSeed(policy, { sessionId: "s-home", workingDir: home }), { sessionId: "s-home" });
+        const fresh = factories.createSession(seed);
+        expect(fresh.workingDir).toBe(home);
+        expect(policy.forSession(fresh)?.allows("openai")).toBe(false);
+        expect(policy.forSession(fresh)?.readFrom).toEqual([project]);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    it("fails closed for a caller it cannot resolve, and adds nothing when no constraint exists", () => {
+      const { config, policy } = setup();
+      const seed = childSessionSeed(policy, { sessionId: "s-gone", workingDir: tmpdir() });
+      const fresh = createRuntimeSessionFactories(tmpdir(), { save: () => {} }, () => null).createSession(seed);
+      expect(policy.forSession(fresh)?.allowedProviders).toEqual([]);
+      config.projects.constraints = {} as never;
+      expect(childSessionSeed(policy, { sessionId: "s-gone", workingDir: "/w" }).metadata).toEqual({});
     });
   });
 
