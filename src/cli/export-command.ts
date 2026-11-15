@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { getConfig } from "../config/index.js";
 import {
   exportChat,
+  isIncognitoSession,
   parseChatExportFormat,
   SessionStore,
   type SessionState,
@@ -22,7 +23,8 @@ const HELP =
     "Markdown and HTML go to stdout unless --out is given. Word (docx) is",
     "written to --out, or to a file named after the chat in the current",
     "folder. An existing file is never overwritten unless --force is given.",
-    "--last exports the most recent chat. --no-tools leaves out the",
+    "--last exports the most recent chat. An incognito chat is never",
+    "exported. --no-tools leaves out the",
     "one line per tool step. For a PDF, open the HTML in a browser and print",
     "it, or use Export in the desktop app. Session ids: `/session` in the TUI.",
     "",
@@ -53,6 +55,11 @@ export async function exportCommand(args: string[]): Promise<number> {
   }
   if (!state) {
     process.stderr.write(parsed.last ? "no chats to export yet\n" : `session not found: ${parsed.sessionId}\n`);
+    return 1;
+  }
+  if (isIncognitoSession(state)) {
+    // ATO-586: an incognito chat leaves nothing behind; a file of it would.
+    process.stderr.write(`${state.id} is an incognito chat; it cannot be exported\n`);
     return 1;
   }
 

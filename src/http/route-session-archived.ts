@@ -14,7 +14,8 @@ import {
  * The flag is `metadata.archived` on the stored session (`session-archived.ts`),
  * in the shared state dir, so the desktop's sidebar and the terminal's rail
  * both read it. `archived` must be a boolean (`400` otherwise); `404` for a
- * session that is not stored. Allowed while a turn runs: the flag is
+ * session that is not stored; `409 incognito_session` for an incognito chat
+ * (ATO-586), which keeps nothing durable. Allowed while a turn runs: the flag is
  * stamped, so the turn's own end cannot write the old value back.
  * `updatedAt` is not touched, so the chat keeps its place in the lists.
  * The answer is the stored flag, the same field `GET /api/sessions` lists.
@@ -43,6 +44,11 @@ export function createSetSessionArchivedHandler(): HttpHandler {
     }
     if (typeof body.archived !== "boolean") {
       sendError(res, 400, openaiError("archived must be true or false"));
+      return;
+    }
+    if (ctx.runtime.sessionStore.isIncognito(id)) {
+      // An incognito chat (ATO-586) keeps nothing durable to file away.
+      sendError(res, 409, openaiError("an incognito chat cannot be archived", "invalid_request_error", null, "incognito_session"));
       return;
     }
     const saved = ctx.runtime.sessionStore.setSessionArchived(id, body.archived);

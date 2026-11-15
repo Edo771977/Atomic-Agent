@@ -132,5 +132,13 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).toContain("printf");
     expect(body.content).not.toContain(key);
   });
+
+  it("refuses an incognito chat with 409", async () => {
+    const state = seed("exp-incog");
+    harness.runtime.sessionStore.save({ ...state, incognito: harness.runtime.sessionStore.newIncognitoMark() });
+    const res = await get("exp-incog");
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toMatch(/incognito/);
+  });
 });
 

@@ -74,4 +74,14 @@ describe("POST /api/sessions/{id}/archived", () => {
     const allowed = await setArchived(harness, session.id, { archived: true }, { authorization: "Bearer secret" });
     expect(allowed.status).toBe(200);
   });
+
+  it("refuses an incognito chat with 409: nothing about it is kept", async () => {
+    harness = await startTestHarness();
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save({ ...session, incognito: harness.runtime.sessionStore.newIncognitoMark() });
+    const response = await setArchived(harness, session.id, { archived: true });
+    expect(response.status).toBe(409);
+    expect(JSON.stringify(await response.json())).toMatch(/incognito/);
+    expect(harness.runtime.sessionStore.load(session.id)?.metadata?.archived).toBeUndefined();
+  });
 });
