@@ -201,3 +201,137 @@ export function listConstraintScopes(
     .all() as { scope: string }[];
   return rows.map((r) => r.scope);
 }
+
+/** The tables whose rows name the folder they were written in. */
+const FOLDER_TABLES = ["memories", "lessons", "procedures"] as const;
+
+export interface ConstraintScopeBackfillResult {
+  /** Rows tagged by this run, per table. */
+  tagged: Record<(typeof FOLDER_TABLES)[number], number>;
+  /** Live profile facts with no scope: they name no folder, so nothing can tag them. */
+  untaggedProfileFacts: number;
+}
+
+interface BackfillDb {
+  prepare(sql: string): { all(...params: unknown[]): unknown[]; run(...params: unknown[]): { changes: number | bigint }; get(...params: unknown[]): unknown };
+  transaction?(fn: () => void): () => unknown;
+}
+
+const BACKFILL_META_KEY = "constraint_scope_backfill";
+
+/**
+ * Tag the rows written before their folder's constraint existed (or by
+ * an older binary): every untagged note, lesson and procedure whose
+ * `working_dir` falls under a constraint (`resolvePolicy`, the config
+ * matcher) gets that constraint's scope, as if it had been written
+ * under it. Without this they stayed visible to every session, and the
+ * consolidator's untagged pass distilled them with no constraint.
+ * Idempotent: a tagged row is never changed, so removing or widening a
+ * constraint does not untag anything. Profile facts name no folder and
+ * stay untagged; they are only counted (doctor warns).
+ */
+export function backfillConstraintScopes(
+  db: BackfillDb,
+  resolvePolicy: (workingDir: string) => ProviderPolicy | undefined,
+): ConstraintScopeBackfillResult {
+  const tagged = { memories: 0, lessons: 0, procedures: 0 };
+  const run = (): void => {
+    for (const table of FOLDER_TABLES) {
+      const dirs = db
+        .prepare(`SELECT DISTINCT working_dir AS dir FROM ${table} WHERE constraint_scope IS NULL AND working_dir IS NOT NULL AND working_dir != ''`)
+        .all() as { dir: string }[];
+      const update = db.prepare(`UPDATE ${table} SET constraint_scope = ? WHERE constraint_scope IS NULL AND working_dir = ?`);
+      for (const { dir } of dirs) {
+        const policy = resolvePolicy(dir);
+        if (policy === undefined) continue;
+        tagged[table] += Number(update.run(constraintScopeOf(policy), dir).changes);
+      }
+    }
+  };
+  if (typeof db.transaction === "function") db.transaction(run)();
+  else run();
+  const profile = db
+    .prepare(`SELECT COUNT(*) AS n FROM profile_facts WHERE constraint_scope IS NULL AND superseded_by IS NULL`)
+    .get() as { n: number };
+  const result = { tagged, untaggedProfileFacts: Number(profile.n) };
+  recordBackfill(db, result);
+  return result;
+}
+
+export interface ConstraintScopeBackfillRecord {
+  /** Rows tagged by every back-fill so far. */
+  retroTagged: number;
+  untaggedProfileFacts: number;
+  at: number;
+}
+
+function recordBackfill(db: BackfillDb, result: ConstraintScopeBackfillResult): void {
+  const previous = readConstraintScopeBackfillRecord(db);
+  const now = result.tagged.memories + result.tagged.lessons + result.tagged.procedures;
+  const record: ConstraintScopeBackfillRecord = {
+    retroTagged: (previous?.retroTagged ?? 0) + now,
+    untaggedProfileFacts: result.untaggedProfileFacts,
+    at: Date.now(),
+  };
+  db.prepare(`INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(BACKFILL_META_KEY, JSON.stringify(record));
+}
+
+/** What the back-fills recorded (`atomic-agent doctor`), or `undefined` before the first. */
+export function readConstraintScopeBackfillRecord(db: Pick<BackfillDb, "prepare">): ConstraintScopeBackfillRecord | undefined {
+  try {
+    const row = db.prepare(`SELECT value FROM schema_meta WHERE key = ?`).get(BACKFILL_META_KEY) as { value: string } | undefined;
+    if (row === undefined) return undefined;
+    const raw = JSON.parse(row.value) as Partial<ConstraintScopeBackfillRecord>;
+    return typeof raw.retroTagged === "number" && typeof raw.untaggedProfileFacts === "number"
+      ? { retroTagged: raw.retroTagged, untaggedProfileFacts: raw.untaggedProfileFacts, at: typeof raw.at === "number" ? raw.at : 0 }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The back-fill as the runtime runs it: at startup, and again whenever
+ * the `projects.constraints` block differs from the one it last ran
+ * with (a constraint added while the runtime is up), checked before
+ * each turn and each consolidator tick. `ensure()` returns the run's
+ * result, or `null` when nothing changed since the last run.
+ */
+export function createConstraintScopeBackfill(deps: {
+  db: BackfillDb;
+  readConstraints: () => unknown;
+  resolvePolicy: (workingDir: string) => ProviderPolicy | undefined;
+}) {
+  let lastFingerprint: string | undefined;
+  return {
+    ensure(): ConstraintScopeBackfillResult | null {
+      const fingerprint = JSON.stringify(deps.readConstraints() ?? {});
+      if (fingerprint === lastFingerprint) return null;
+      const result = backfillConstraintScopes(deps.db, deps.resolvePolicy);
+      lastFingerprint = fingerprint;
+      return result;
+    },
+  };
+}
+
+/**
+ * Read-only: the untagged rows a back-fill would tag now, and the live
+ * untagged profile facts (`atomic-agent doctor`).
+ */
+export function pendingConstraintScopes(
+  db: Pick<BackfillDb, "prepare">,
+  resolvePolicy: (workingDir: string) => ProviderPolicy | undefined,
+): { pendingRows: number; untaggedProfileFacts: number } {
+  let pendingRows = 0;
+  for (const table of FOLDER_TABLES) {
+    const dirs = db
+      .prepare(`SELECT working_dir AS dir, COUNT(*) AS n FROM ${table} WHERE constraint_scope IS NULL AND working_dir IS NOT NULL AND working_dir != '' GROUP BY working_dir`)
+      .all() as { dir: string; n: number }[];
+    for (const { dir, n } of dirs) if (resolvePolicy(dir) !== undefined) pendingRows += Number(n);
+  }
+  const profile = db
+    .prepare(`SELECT COUNT(*) AS n FROM profile_facts WHERE constraint_scope IS NULL AND superseded_by IS NULL`)
+    .get() as { n: number };
+  return { pendingRows, untaggedProfileFacts: Number(profile.n) };
+}

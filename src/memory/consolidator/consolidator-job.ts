@@ -149,6 +149,13 @@ export interface ConsolidatorJobOptions {
 
 export interface ConsolidatorJobDeps {
   memoryStore: MemoryStore;
+  /**
+   * Run before each tick lists the row scopes: the constraint-scope
+   * back-fill (memory-constraint-scope.ts), so a note written before its
+   * folder's constraint existed is tagged before the untagged pass could
+   * distill it with no constraint. A throw skips the tick.
+   */
+  beforeTick?: () => void;
   linkStore: LinkStore;
   lessonStore: LessonStore;
   /**
@@ -337,6 +344,7 @@ export class ConsolidatorJob {
   private async runTick(signal: AbortSignal): Promise<ConsolidatorTickResult> {
     let total = zeroSummary();
     let skipped = 0;
+    this.deps.beforeTick?.();
     for (const scope of [null, ...this.deps.memoryStore.listConstraintScopes()]) {
       if (signal.aborted) break;
       const pass = await runInMemoryRowScope(scope, () => this.runScopeTick(signal));

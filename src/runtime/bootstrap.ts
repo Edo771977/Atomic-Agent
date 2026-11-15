@@ -37,7 +37,8 @@ import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-pro
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
-import { describeProviderRestriction } from "../llm/provider-policy.js";
+import { describeProviderRestriction, resolveProjectConstraint } from "../llm/provider-policy.js";
+import { createConstraintScopeBackfill } from "../memory/memory-constraint-scope.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
 import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
@@ -319,6 +320,21 @@ export async function createAgentRuntime(
     },
   });
   const { profileStore, notesStore, embeddingClient, linkStore, lessonStore, procedureStore, voteStore } = memoryStores;
+  // Rows written before their folder's constraint existed are tagged now,
+  // and again when projects.constraints changes (before a turn or a
+  // consolidator tick), so they stop being visible everywhere (issue #33).
+  const constraintScopeBackfill = createConstraintScopeBackfill({
+    db: notesStore.getDatabaseHandleForEmbeddings(),
+    readConstraints: () => getConfig().projects.constraints,
+    resolvePolicy: (dir) => resolveProjectConstraint(getConfig(), dir),
+  });
+  try {
+    const result = constraintScopeBackfill.ensure();
+    const tagged = result === null ? 0 : result.tagged.memories + result.tagged.lessons + result.tagged.procedures;
+    if (tagged > 0) logger.info("memory rows tagged with their folder's constraint", { ...result!.tagged });
+  } catch (err) {
+    logger.info("memory constraint back-fill failed", { error: err instanceof Error ? err.message : String(err) });
+  }
   // A later embedding model pick reattaches memory through this switch
   // instead of waiting for a restart (ATO-351). It owns the backfill
   // from here on, so shutdown stops it through the switch.
@@ -904,7 +920,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
@@ -970,6 +986,7 @@ export async function createAgentRuntime(
   const consolidatorJob = createRuntimeMemoryConsolidator({
     config, notesStore, linkStore, lessonStore, procedureStore, voteStore,
     slotManager, llmComplete, logger, metrics, traceBus,
+    beforeTick: () => { constraintScopeBackfill.ensure(); },
   });
   consolidatorJob?.start();
 

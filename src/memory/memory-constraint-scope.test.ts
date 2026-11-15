@@ -9,7 +9,10 @@ import { ProfileStore, ProfileValidationError } from "./profile-store.js";
 import { LessonStore } from "./lessons/lesson-store.js";
 import { ProcedureStore } from "./procedures/procedure-store.js";
 import {
+  backfillConstraintScopes,
   constraintScopeOf,
+  createConstraintScopeBackfill,
+  readConstraintScopeBackfillRecord,
   listConstraintScopes,
   policyForConstraintScope,
   runInMemoryRowScope,
@@ -168,5 +171,58 @@ describe("memory constraint scope", () => {
     } finally {
       profile.close();
     }
+  });
+
+  describe("back-fill of rows written before a constraint existed (M2)", () => {
+    const resolveFor = (dir: string): ProviderPolicy | undefined =>
+      dir === "/work/secret" || dir.startsWith("/work/secret/") ? secret : undefined;
+
+    it("tags untagged notes, lessons and procedures under a constrained folder, idempotently", () => {
+      const lessons = new LessonStore({ dbFile, maxEntries: 100 });
+      const procedures = new ProcedureStore({ dbFile, maxEntries: 100 });
+      const profile = new ProfileStore({ dbFile });
+      try {
+        const old = notes.store({ content: "old walrus secret", workingDir: "/work/secret/app" });
+        const open = notes.store({ content: "open walrus note", workingDir: "/work/open" });
+        const lesson = lessons.create({ activation: "when walrus", principle: "use walrus", parentIds: [1, 2], workingDir: "/work/secret" });
+        const proc = procedures.create({ activation: "when walrus", steps: [{ description: "a", toolHint: null }, { description: "b", toolHint: null }], parentLessonIds: [lesson.id], parentMemoryIds: [1], workingDir: "/work/secret" });
+        profile.set("editor", "vim");
+        // Visible everywhere before the back-fill.
+        expect(notes.get(old.id)?.content).toBe("old walrus secret");
+
+        const db = notes.getDatabaseHandleForEmbeddings();
+        const first = backfillConstraintScopes(db, resolveFor);
+        expect(first.tagged).toEqual({ memories: 1, lessons: 1, procedures: 1 });
+        expect(first.untaggedProfileFacts).toBe(1);
+        expect(backfillConstraintScopes(db, resolveFor).tagged).toEqual({ memories: 0, lessons: 0, procedures: 0 });
+
+        expect(notes.get(old.id)).toBeNull();
+        expect(under(secret, () => notes.get(old.id))?.content).toBe("old walrus secret");
+        expect(notes.get(open.id)?.content).toBe("open walrus note");
+        expect(lessons.getById(lesson.id)).toBeNull();
+        expect(procedures.getById(proc.id)).toBeNull();
+        // The consolidator's untagged pass no longer sees it.
+        expect(runInMemoryRowScope(null, () => notes.recall("walrus", { k: 5 }).map((e) => e.content))).toEqual(["open walrus note"]);
+      } finally {
+        lessons.close();
+        procedures.close();
+        profile.close();
+      }
+    });
+
+    it("runs again only when the constraints change, and records what it did for doctor", () => {
+      notes.store({ content: "later walrus", workingDir: "/work/later" });
+      let constraints: Record<string, unknown> = {};
+      let resolve: (dir: string) => ProviderPolicy | undefined = () => undefined;
+      const db = notes.getDatabaseHandleForEmbeddings();
+      const backfill = createConstraintScopeBackfill({ db, readConstraints: () => constraints, resolvePolicy: (dir) => resolve(dir) });
+      expect(backfill.ensure()?.tagged.memories).toBe(0);
+      expect(backfill.ensure()).toBeNull();
+      constraints = { "/work/later": { allowedProviders: ["local-llama"] } };
+      resolve = (dir) => (dir === "/work/later" ? secret : undefined);
+      expect(backfill.ensure()?.tagged.memories).toBe(1);
+      expect(readConstraintScopeBackfillRecord(db)).toMatchObject({ retroTagged: 1 });
+      expect(notes.recall("walrus", { k: 5 })).toEqual([]);
+    });
   });
 });

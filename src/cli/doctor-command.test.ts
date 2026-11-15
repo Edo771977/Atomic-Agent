@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { USER_CONFIG_DEFAULTS } from "../config/index.js";
 import { doctorCommand } from "./doctor-command.js";
+import { MemoryStore } from "../memory/memory-store.js";
+import { ProfileStore } from "../memory/profile-store.js";
+import { backfillConstraintScopes } from "../memory/memory-constraint-scope.js";
+import { makeProviderPolicy } from "../config/project-constraint-match.js";
 import { describeBetterSqliteBinding } from "./doctor-checks.js";
 
 let dir: string;
@@ -43,6 +47,29 @@ describe("atag doctor (ATO-577)", () => {
     expect(await run([])).toBe(0);
     expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers");
     expect(out).toContain("project-constraints: /work/other restricted to: no provider; egress allowed: none;");
+  });
+
+  it("reports memory rows retro-tagged with a folder's constraint and untagged profile facts (issue #33)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"] } } };
+    save(tree);
+    const dbFile = join(dir, "memory.sqlite");
+    const notes = new MemoryStore({ dbFile, maxEntries: 100 });
+    const profile = new ProfileStore({ dbFile });
+    try {
+      notes.store({ content: "tagged earlier", workingDir: "/work/client" });
+      const policy = makeProviderPolicy({ key: "/work/client", allowedProviders: ["local-llama"], matchedDir: "/work/client" });
+      backfillConstraintScopes(notes.getDatabaseHandleForEmbeddings(), (d) => (d.startsWith("/work/client") ? policy : undefined));
+      notes.store({ content: "written since", workingDir: "/work/client/app" });
+      notes.store({ content: "open", workingDir: "/work/open" });
+      profile.set("editor", "vim");
+    } finally {
+      notes.close();
+      profile.close();
+    }
+    expect(await run([])).toBe(0);
+    expect(out).toContain("ok    memory-constraint-scope: 1 memory row retro-tagged with its folder's constraint; 1 untagged row under a constraint now (tagged at the next start)");
+    expect(out).toMatch(/warn {2}memory-constraint-scope: 1 profile fact is untagged/);
   });
 
   it("warns about an unknown key and an unconfigured provider in projects.constraints (issue #33)", async () => {

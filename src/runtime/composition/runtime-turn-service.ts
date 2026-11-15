@@ -100,6 +100,13 @@ export interface RuntimeTurnDependencies {
     sessionProviderPolicy?: SessionProviderPolicy;
     /** Read taint of per-folder constraints (issue #33 group C); absent in narrow test rigs. */
     sessionReadTaint?: SessionReadTaint;
+    /**
+     * The constraint-scope back-fill of durable memory (issue #33 §5):
+     * re-run before a turn when `projects.constraints` changed since its
+     * last run, so rows of a folder constrained while the runtime is up
+     * are tagged before the turn can recall them.
+     */
+    constraintScopeBackfill?: { ensure(): unknown };
     /** True when today's spend ceiling refuses a paid link now (ATO-649); the router passes over it. */
     dailyLimitRefuses?: (providerId: string) => boolean;
     budgetNotices?: RequestBudgetNotices;
@@ -697,6 +704,11 @@ export function createRuntimeTurnService(
   const sessionPolicy = deps.inference.sessionProviderPolicy;
   const inSessionPolicy = <T>(session: SessionState, run: () => Promise<T>): Promise<T> => {
     if (sessionPolicy === undefined) return run();
+    try {
+      deps.inference.constraintScopeBackfill?.ensure();
+    } catch {
+      // A store that cannot answer must not stop the turn; startup ran it.
+    }
     const worker = readFusionWorkerMeta(session.metadata) !== null;
     const readTaint = deps.inference.sessionReadTaint;
     const body = readTaint === undefined ? run : () => readTaint.inTurn(session, run);
