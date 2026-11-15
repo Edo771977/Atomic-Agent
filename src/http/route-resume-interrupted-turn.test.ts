@@ -51,13 +51,13 @@ describe("POST /api/sessions/{id}/resume (ATO-448)", () => {
 
     const again = await post("rs-1");
     expect(again.status).toBe(409);
-    expect(await errorCode(again)).toBe("nothing_to_resume");
+    expect(await errorCode(again)).toBe("resume_queued");
   });
 
   it("offers it again after the client releases a message it could not send", async () => {
     seedInterrupted("rs-2");
     const first = (await (await post("rs-2")).json()) as { text: string };
-    const released = await post("rs-2", { release: true });
+    const released = await post("rs-2", { release: true, text: first.text });
     expect(released.status).toBe(200);
     expect(await released.json()).toEqual({ id: "rs-2", released: true });
     const again = await post("rs-2");
@@ -98,6 +98,41 @@ describe("POST /api/sessions/{id}/resume (ATO-448)", () => {
     const res = await post("rs-missing");
     expect(res.status).toBe(404);
     expect(await errorCode(res)).toBe("session_not_found");
+  });
+
+  it("rejects a release without the handed-out text", async () => {
+    seedInterrupted("rs-7");
+    expect((await post("rs-7")).status).toBe(200);
+    const res = await post("rs-7", { release: true });
+    expect(res.status).toBe(400);
+    // Nothing was freed: the turn is still queued.
+    const again = await post("rs-7");
+    expect(again.status).toBe(409);
+    expect(await errorCode(again)).toBe("resume_queued");
+  });
+
+  it("does not free a resume another client queued with a different text", async () => {
+    seedInterrupted("rs-8");
+    // The TUI's /resume queued it (same in-memory mark).
+    const tui = harness.runtime.interruptedTurns?.resume("rs-8");
+    expect(tui && "text" in tui).toBe(true);
+    const res = await post("rs-8", { release: true, text: "some other message" });
+    expect(res.status).toBe(200);
+    const again = await post("rs-8");
+    expect(again.status).toBe(409);
+    expect(await errorCode(again)).toBe("resume_queued");
+  });
+
+  it("checks for a running turn before releasing", async () => {
+    seedInterrupted("rs-9");
+    const first = (await (await post("rs-9")).json()) as { text: string };
+    vi.spyOn(harness.runtime.turnController, "isBusy").mockImplementation((id: string) => id === "rs-9");
+    const res = await post("rs-9", { release: true, text: first.text });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("turn_in_progress");
+    vi.restoreAllMocks();
+    const again = await post("rs-9");
+    expect(await errorCode(again)).toBe("resume_queued");
   });
 
   it("rejects a release that is not a boolean", async () => {
