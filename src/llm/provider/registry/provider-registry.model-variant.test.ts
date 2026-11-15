@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AtomicAgentConfig } from "../../../config/index.js";
 import { getConfig } from "../../../config/index.js";
 import { ProviderRegistry, registerProviderKind } from "./provider-registry.js";
+import { ProviderNotAllowedError } from "../../provider-policy.js";
 import type { LlmProviderConfigEntry } from "./provider-types.js";
 
 /**
@@ -20,6 +21,7 @@ function fixture() {
       id: entry.id,
       name: entry.id,
       model: entry.defaultChatModel,
+      complete: async () => ({ text: "sent" }),
       close: async () => { record.closed = true; },
     } as never;
   });
@@ -91,5 +93,16 @@ describe("ProviderRegistry.modelVariant (ATO-1148)", () => {
 
     expect(copy?.closed).toBe(true);
     await expect(registry.modelVariant("cloud-b", "model-x")).resolves.toBeUndefined();
+  });
+
+  it("guards the copy with the folder policy like every provider the registry holds", async () => {
+    const { config, ctx } = fixture();
+    // Constraints on and no policy frame: every guarded provider refuses.
+    const registry = await ProviderRegistry.fromConfig(config, { ...ctx, constraintsActive: () => true });
+    await expect(registry.getProvider("cloud-b")!.complete({ prompt: "x" } as never)).rejects.toBeInstanceOf(ProviderNotAllowedError);
+
+    const variant = await registry.modelVariant("cloud-b", "model-b-large");
+
+    await expect(variant!.complete({ prompt: "x" } as never)).rejects.toBeInstanceOf(ProviderNotAllowedError);
   });
 });

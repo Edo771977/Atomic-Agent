@@ -187,9 +187,11 @@ export class ProviderRegistry {
     this.variants.set(id, byModel);
     const known = byModel.get(model);
     if (known) return known;
+    // Guarded like every provider the registry holds: a copy must not be
+    // a way round a folder's provider constraint (issue #33).
     const built = Promise.resolve(
       factory({ ...ctx, entry: { ...entry, defaultChatModel: model } }),
-    );
+    ).then((provider) => this.guard(provider));
     byModel.set(model, built);
     built.catch(() => {
       if (byModel.get(model) === built) byModel.delete(model);
