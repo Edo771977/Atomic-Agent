@@ -1,0 +1,32 @@
+import { describe, expect, it } from "vitest";
+import { readTaintTargets } from "./read-taint-targets.js";
+
+const wd = "/work/open";
+
+describe("readTaintTargets", () => {
+  it("reads verify.run commands like the shell: cwd and absolute paths", () => {
+    expect(readTaintTargets("verify.run", { kind: "test", cmd: "cat", args: ["/work/secret/plan.md"] }, wd))
+      .toContain("/work/secret/plan.md");
+    expect(readTaintTargets("verify.run", { kind: "test", cmd: "npm", args: ["test"], cwd: "../secret" }, wd))
+      .toContain("/work/secret");
+    expect(readTaintTargets("verify.run", { kind: "server", start: { cmd: "node", args: ["/work/secret/s.js"] } }, wd))
+      .toContain("/work/secret/s.js");
+  });
+
+  it("resolves a climbing relative shell path against the cwd", () => {
+    expect(readTaintTargets("os.shell.run", { cmd: "cat ../secret/plan.md" }, wd)).toContain("/work/secret/plan.md");
+  });
+
+  it("covers content-returning tools the read scope does not list", () => {
+    expect(readTaintTargets("os.fs.archive.extract", { path: "/work/secret/a.zip", destDir: "/tmp/x" }, wd))
+      .toContain("/work/secret/a.zip");
+    expect(readTaintTargets("os.fs.edit", { path: "/work/secret/a.ts", oldString: "a", newString: "b" }, wd))
+      .toContain("/work/secret/a.ts");
+    expect(readTaintTargets("os.fs.patch", { patchPath: "/work/secret/p.diff", rootDir: "/work/secret" }, wd))
+      .toEqual(expect.arrayContaining(["/work/secret/p.diff", "/work/secret"]));
+    expect(readTaintTargets("os.fs.restore", { path: "/work/secret/a.ts" }, wd)).toContain("/work/secret/a.ts");
+    for (const tool of ["os.git.add", "os.git.commit", "os.git.checkout", "os.git.remote", "os.git.push", "os.git.pull", "os.git.fetch"]) {
+      expect(readTaintTargets(tool, { repo: "/work/secret" }, wd)).toContain("/work/secret");
+    }
+  });
+});

@@ -1,6 +1,8 @@
 import type { EgressClass } from "../config/project-constraints-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
 import { hostOfUrl, isLoopbackHost } from "../llm/offline-network.js";
+import { shellNetworkUse, type ShellNetworkUse } from "./os/shell-command-guard/network-clients.js";
+import { SHELL_TOOL, VERIFY_TOOL, verifyRunShellCalls } from "./read-scope/read-scope-targets.js";
 
 export type { EgressClass } from "../config/project-constraints-config.js";
 
@@ -29,10 +31,16 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  *   server is a local process and is not classed: it may still reach the
  *   network itself, which nothing here can see.
  *
- * Not covered, and not claimed: `os.shell.run`, `verify.run` and
- * `skill.run_script` run programs (`curl`, `git push`) that open their
- * own sockets. Model, embedding and media endpoints are the provider
- * policy's (`allowedProviders`), not this one's.
+ * Shell commands (`os.shell.run`, every command of `verify.run`) are
+ * checked best effort (`shellNetworkUse`): a known network client
+ * (`curl`, `wget`, `Invoke-WebRequest`, `npm publish` → `http`; `git
+ * push/fetch/pull/clone` → `git`; `gh` → `github`; `ssh`, `scp`,
+ * `rsync host:`, `nc`, `telnet`, `ftp` → no class allows them) is
+ * refused unless its class is listed. The shell is not a sandbox: a
+ * script, an interpreter one-liner or a renamed binary still opens its
+ * own sockets, and `skill.run_script` is not inspected. Model,
+ * embedding and media endpoints are the provider policy's
+ * (`allowedProviders`), not this one's.
  */
 
 export const EGRESS_NOT_ALLOWED_CODE = "ATOMIC_AGENT_EGRESS_NOT_ALLOWED";
@@ -108,6 +116,40 @@ export class EgressNotAllowedError extends Error {
   }
 }
 
+/** A shell command refused because it runs a network client in a constrained folder (best effort). */
+export class ShellNetworkNotAllowedError extends Error {
+  readonly code = EGRESS_NOT_ALLOWED_CODE;
+  readonly tool: string;
+  readonly program: string;
+  readonly egressClass: EgressClass | null;
+  readonly policyKey: string;
+
+  constructor(tool: string, use: ShellNetworkUse, policy: ProviderPolicy) {
+    const how = use.cls === null
+      ? "no allowedEgress class allows it"
+      : `add ${JSON.stringify(use.cls)} to projects.constraints[${JSON.stringify(policy.key)}].allowedEgress to allow it`;
+    super(
+      `folder ${policy.key} is restricted: ${tool} runs ${use.program}, a network client that could send content off this machine; ${how}. ` +
+      "This is a best-effort check of the command line; the shell is not a sandbox",
+    );
+    this.name = "ShellNetworkNotAllowedError";
+    this.tool = tool;
+    this.program = use.program;
+    this.egressClass = use.cls;
+    this.policyKey = policy.key;
+  }
+}
+
+/** The first network client a shell or `verify.run` call would run, or `null`. */
+export function shellNetworkUseOf(tool: string, args: Record<string, unknown>): ShellNetworkUse | null {
+  const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
+  for (const call of calls) {
+    const use = shellNetworkUse(call);
+    if (use !== null) return use;
+  }
+  return null;
+}
+
 export interface EgressGuardDeps extends EgressClassifierDeps {
   /**
    * The policy that governs `sessionId` right now (the runtime's
@@ -122,7 +164,17 @@ export interface EgressGuardDeps extends EgressClassifierDeps {
  * when the call may go ahead.
  */
 export function createEgressGuard(deps: EgressGuardDeps) {
-  return (tool: string, args: Record<string, unknown>, ctx: { sessionId: string }): EgressNotAllowedError | null => {
+  return (
+    tool: string,
+    args: Record<string, unknown>,
+    ctx: { sessionId: string },
+  ): EgressNotAllowedError | ShellNetworkNotAllowedError | null => {
+    const shell = shellNetworkUseOf(tool, args);
+    if (shell !== null) {
+      const policy = deps.policyForSession(ctx.sessionId);
+      if (policy === undefined || (shell.cls !== null && policy.allowsEgress(shell.cls))) return null;
+      return new ShellNetworkNotAllowedError(tool, shell, policy);
+    }
     const target = egressTargetOf(tool, args, deps);
     if (target === null) return null;
     const policy = deps.policyForSession(ctx.sessionId);

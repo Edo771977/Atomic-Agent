@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { makeProviderPolicy } from "../../llm/provider-policy.js";
-import { createRuntimeEgressGuard, mcpEgressClass } from "./runtime-egress-guard.js";
+import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
+import { createRuntimeDispatchGuard, createRuntimeEgressGuard, mcpEgressClass } from "./runtime-egress-guard.js";
 
 const servers: Record<string, { kind: "stdio" | "streamable_http" | "sse"; tools: string[] }> = {
   files: { kind: "stdio", tools: ["mcp.files.read"] },
@@ -31,5 +31,22 @@ describe("runtime egress guard (issue #33)", () => {
     expect(guard("mcp.docs.search", {}, { sessionId: "s" })?.message).toContain('add "mcp:docs"');
     expect(guard("mcp.composio.COMPOSIO_SEARCH_TOOLS", {}, { sessionId: "s" })?.message).toContain('add "composio"');
     expect(guard("mcp.files.read", {}, { sessionId: "s" })).toBeNull();
+  });
+
+  it("adds the write-out rule, exempting only a fusion worker's own temp copy", () => {
+    const policy = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama"], matchedDir: "/work/secret" });
+    const guard = createRuntimeDispatchGuard({
+      effectivePolicyForSession: () => policy,
+      mcp: () => manager,
+      readConfig: () => ({ projects: { constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } } }),
+    });
+    const copy = "/tmp/atag-fusion-abc123-x/task-1";
+    expect(guard("os.fs.write", { path: "/work/open/a" }, { sessionId: "s", workingDir: "/work/secret" })?.message).toContain("would write its content");
+    expect(guard("os.fs.write", { path: "a" }, { sessionId: "s", workingDir: "/work/secret" })).toBeNull();
+    expect(guard("os.fs.write", { path: "a" }, { sessionId: "w", workingDir: copy })).not.toBeNull();
+    const inWorker = runWithProviderPolicy(policy, () => guard("os.fs.write", { path: "a" }, { sessionId: "w", workingDir: copy }), { role: "a fusion worker", sessionId: "w" });
+    expect(inWorker).toBeNull();
+    const otherSession = runWithProviderPolicy(policy, () => guard("os.fs.write", { path: "a" }, { sessionId: "s2", workingDir: copy }), { role: "a fusion worker", sessionId: "w" });
+    expect(otherSession).not.toBeNull();
   });
 });

@@ -7,6 +7,8 @@ import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
 import { Database } from "../native/index.js";
+import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 
 /**
@@ -118,7 +120,7 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
     status: "ok",
     message: `${folder} restricted to: ${entry.allowedProviders.length === 0 ? "no provider" : entry.allowedProviders.join(", ")}; ` +
       `egress allowed: ${(entry.allowedEgress ?? []).length === 0 ? "none" : entry.allowedEgress!.join(", ")}; ` +
-      "not covered: shell commands (os.shell.run, verify.run, skill scripts) and the network use of stdio MCP servers",
+      "best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers",
   }));
   return [
     ...coverage,
@@ -128,6 +130,54 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
       message: line.replace(/^\[atomic-agent\] /, ""),
     })),
   ];
+}
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Durable memory under `projects.constraints` (issue #33): how many rows
+ * the back-fill tagged with their folder's constraint, how many untagged
+ * rows a constraint covers now (tagged at the next start), and the live
+ * profile facts with no scope, which name no folder and stay visible to
+ * every session. Read-only; nothing when there is no constraint or no
+ * memory file this build has opened.
+ */
+function checkMemoryConstraintScope(ctx: DoctorContext): DoctorFinding[] {
+  if (!existsSync(ctx.configPath)) return [];
+  const dbFile = join(ctx.stateDir, "memory.sqlite");
+  if (!existsSync(dbFile)) return [];
+  let config: ReturnType<typeof parseUserConfigFile>;
+  try {
+    config = parseUserConfigFile(readRawConfigTree(ctx.configPath));
+  } catch {
+    return [];
+  }
+  if (Object.keys(config.projects.constraints).length === 0) return [];
+  let db: InstanceType<typeof Database> | undefined;
+  try {
+    db = new Database(dbFile, { readonly: true, fileMustExist: true });
+    const record = readConstraintScopeBackfillRecord(db);
+    const now = pendingConstraintScopes(db, (dir) => resolveProjectConstraint(config, dir));
+    const findings: DoctorFinding[] = [{
+      check: "memory-constraint-scope",
+      status: "ok",
+      message: `${plural(record?.retroTagged ?? 0, "memory row", "memory rows")} retro-tagged with its folder's constraint; ` +
+        `${plural(now.pendingRows, "untagged row", "untagged rows")} under a constraint now (tagged at the next start)`,
+    }];
+    if (now.untaggedProfileFacts > 0) {
+      findings.push({
+        check: "memory-constraint-scope",
+        status: "warn",
+        message: `${plural(now.untaggedProfileFacts, "profile fact is", "profile facts are")} untagged: a profile fact names no folder, so one written before its folder's constraint existed is visible to every session; ask the agent to list them (memory.profile) and remove any that came from a constrained folder`,
+      });
+    }
+    return findings;
+  } catch {
+    // An older file without the scope column, or one in use: nothing to say.
+    return [];
+  } finally {
+    db?.close();
+  }
 }
 
 /** config.json holds API keys: readable by its owner only. */
@@ -270,6 +320,7 @@ function openDefaultSqlite(): string {
 export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[]> = [
   checkConfig,
   checkProjectConstraints,
+  checkMemoryConstraintScope,
   checkConfigMode,
   checkMcpCommands,
   checkCoreLocks,

@@ -418,8 +418,10 @@ export function createRuntimeMemoryServices(args: MemoryServiceDependencies & {
 /** Construct only; bootstrap starts the returned job at the original explicit phase. */
 export function createRuntimeMemoryConsolidator(args: Omit<MemoryServiceDependencies, "embeddingClient" | "profileStore"> & {
   traceBus: TraceBus | null;
+  /** The constraint-scope back-fill, run before each tick. */
+  beforeTick?: () => void;
 }): ConsolidatorJob | null {
-  const { config, slotManager, llmComplete, logger, metrics, traceBus, notesStore, linkStore, lessonStore, procedureStore, voteStore } = args;
+  const { config, slotManager, llmComplete, logger, metrics, traceBus, notesStore, linkStore, lessonStore, procedureStore, voteStore, beforeTick } = args;
 
   // `scheduler?.start()` is deliberately deferred until after the
   // Telegram channel object is constructed (near the end of bootstrap)
@@ -535,6 +537,7 @@ export function createRuntimeMemoryConsolidator(args: Omit<MemoryServiceDependen
       },
       {
         memoryStore: notesStore,
+        ...(beforeTick ? { beforeTick } : {}),
         linkStore,
         lessonStore,
         distillRunner,

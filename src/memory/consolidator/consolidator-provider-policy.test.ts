@@ -7,6 +7,7 @@ import { assertProviderAllowed, makeProviderPolicy, runWithProviderPolicy } from
 import { MemoryStore } from "../memory-store.js";
 import { LinkStore } from "../links/link-store.js";
 import { LessonStore } from "../lessons/lesson-store.js";
+import { backfillConstraintScopes } from "../memory-constraint-scope.js";
 import { ConsolidatorJob } from "./consolidator-job.js";
 import { DistillRunner } from "./distill-runner.js";
 
@@ -108,5 +109,27 @@ describe("consolidator under per-folder provider constraints", () => {
     expect(result.lessonsCreated).toBe(1);
     expect(runWithProviderPolicy(undefined, () => lessonStore.listIndex())).toEqual([]);
     expect(runWithProviderPolicy(cloud, () => lessonStore.listIndex()).length).toBe(1);
+  });
+
+  it("tags notes written before their folder's constraint before the untagged pass (beforeTick)", async () => {
+    // Untagged notes, written in a folder constrained only later.
+    const ids = [0, 1, 2].map((i) => memoryStore.store({ content: `deploy note old ${i}`, tags: ["old"], workingDir: "/work/secret" }, 1_000 + i).id);
+    linkStore.add({ fromId: ids[0]!, toId: ids[1]!, kind: "RELATES_TO" });
+    linkStore.add({ fromId: ids[1]!, toId: ids[2]!, kind: "RELATES_TO" });
+    const local = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama"], matchedDir: "/work/secret" });
+    const withBackfill = new ConsolidatorJob(
+      { enabled: true, intervalMs: 60_000, cooldownMs: 0, minClusterSize: 3, maxClustersPerTick: 5, requireSharedTag: true, consolidationLeaseMs: 60_000 },
+      {
+        memoryStore, linkStore, lessonStore,
+        distillRunner: (job as unknown as { deps: { distillRunner: DistillRunner } }).deps.distillRunner,
+        beforeTick: () => { backfillConstraintScopes(memoryStore.getDatabaseHandleForEmbeddings(), (d) => (d === "/work/secret" ? local : undefined)); },
+      },
+    );
+
+    const result = await withBackfill.runOnce();
+
+    expect(calls).toEqual([]);
+    expect(result.clustersSkippedByPolicy).toBe(1);
+    for (const id of ids) expect(memoryStore.getConsolidatedInto(id)).toBeNull();
   });
 });

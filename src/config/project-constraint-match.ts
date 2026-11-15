@@ -116,9 +116,14 @@ export interface ConstraintMatchOptions {
  * The comparable form of a folder. Windows: `\\?\` and `\\?\UNC\` long
  * path prefixes stripped, `/` read as `\`, resolved, no trailing
  * separator except on a root (`c:\`), lower case (NTFS folders are case
- * insensitive). POSIX: resolved, no trailing slash, case kept.
+ * insensitive). macOS: resolved, no trailing slash, lower case (APFS and
+ * HFS+ are case-insensitive by default and `realpath` does not restore
+ * the stored case of a path that was typed differently; on a
+ * case-sensitive volume this only makes a constraint cover more, which
+ * fails closed). Other POSIX: resolved, no trailing slash, case kept.
  */
 export function normalizeConstraintPath(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin") return posix.resolve(path).toLowerCase();
   if (platform !== "win32") return posix.resolve(path);
   let s = path.replace(/\//g, "\\");
   if (/^\\\\\?\\unc\\/i.test(s)) s = `\\\\${s.slice(8)}`;
@@ -182,7 +187,7 @@ function formsOf(path: string, options: Required<ConstraintMatchOptions>): strin
  * folder that does not exist), and any pairing that matches counts, so
  * a symlink or junction on either side cannot step around a constraint.
  * When several entries cover the folder, the most specific (longest)
- * wins. See `normalizeConstraintPath` for the Windows rules.
+ * wins. See `normalizeConstraintPath` for the Windows and macOS rules.
  */
 export function resolveProjectConstraint(
   config: ConstraintSource,

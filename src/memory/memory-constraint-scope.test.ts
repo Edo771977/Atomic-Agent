@@ -9,8 +9,12 @@ import { ProfileStore, ProfileValidationError } from "./profile-store.js";
 import { LessonStore } from "./lessons/lesson-store.js";
 import { ProcedureStore } from "./procedures/procedure-store.js";
 import {
+  backfillConstraintScopes,
   constraintScopeOf,
+  createConstraintScopeBackfill,
+  readConstraintScopeBackfillRecord,
   listConstraintScopes,
+  policyForConstraintScope,
   runInMemoryRowScope,
   scopeVisibleTo,
 } from "./memory-constraint-scope.js";
@@ -47,6 +51,38 @@ describe("memory constraint scope", () => {
     expect(scopeVisibleTo(row, other)).toBe(false);
     expect(scopeVisibleTo(row, stricter)).toBe(true);
     expect(scopeVisibleTo("not json", secret)).toBe(false);
+  });
+
+  it("visibility also requires the reader's egress to be a subset of the row's (M1)", () => {
+    const noEgress = makeProviderPolicy({ key: "/work/a", allowedProviders: ["local-llama"], matchedDir: "/work/a" });
+    const leaky = makeProviderPolicy({ key: "/work/b", allowedProviders: ["local-llama"], allowedEgress: ["web", "channels"], matchedDir: "/work/b" });
+    const webOnly = makeProviderPolicy({ key: "/work/c", allowedProviders: ["local-llama"], allowedEgress: ["web"], matchedDir: "/work/c" });
+    expect(scopeVisibleTo(constraintScopeOf(noEgress), leaky)).toBe(false);
+    expect(scopeVisibleTo(constraintScopeOf(leaky), webOnly)).toBe(true);
+    expect(scopeVisibleTo(constraintScopeOf(leaky), noEgress)).toBe(true);
+    expect(scopeVisibleTo(constraintScopeOf(webOnly), leaky)).toBe(false);
+    // A descriptor written before allowedEgress existed reads as none (strictest).
+    const legacy = JSON.stringify({ key: "/work/a", allowedProviders: ["local-llama"] });
+    expect(scopeVisibleTo(legacy, leaky)).toBe(false);
+    expect(scopeVisibleTo(legacy, noEgress)).toBe(true);
+    expect(policyForConstraintScope(constraintScopeOf(leaky)).allowedEgress).toEqual(["channels", "web"]);
+    expect(policyForConstraintScope(legacy).allowedEgress).toEqual([]);
+
+    const stored = under(noEgress, () => notes.store({ content: "folder a secret walrus" }));
+    expect(under(leaky, () => notes.get(stored.id))).toBeNull();
+    expect(under(leaky, () => notes.recall("walrus", { k: 5 }))).toEqual([]);
+    expect(under(noEgress, () => notes.get(stored.id))?.content).toBe("folder a secret walrus");
+  });
+
+  it("migrates a legacy descriptor in place to carry an empty allowedEgress", () => {
+    under(secret, () => notes.store({ content: "legacy scoped note" }));
+    const db = notes.getDatabaseHandleForEmbeddings() as unknown as { prepare(sql: string): { run(...p: unknown[]): unknown; all(): unknown[] } };
+    const legacy = JSON.stringify({ key: secret.key, allowedProviders: ["local-llama"] });
+    db.prepare("UPDATE memories SET constraint_scope = ?").run(legacy);
+    notes.close();
+    notes = new MemoryStore({ dbFile, maxEntries: 1000 });
+    expect(listConstraintScopes(notes.getDatabaseHandleForEmbeddings())).toEqual([constraintScopeOf(secret)]);
+    expect(constraintScopeOf(secret)).toContain('"allowedEgress":[]');
   });
 
   it("a note stored in a constrained folder is recalled only in a session it is visible to", () => {
@@ -135,5 +171,58 @@ describe("memory constraint scope", () => {
     } finally {
       profile.close();
     }
+  });
+
+  describe("back-fill of rows written before a constraint existed (M2)", () => {
+    const resolveFor = (dir: string): ProviderPolicy | undefined =>
+      dir === "/work/secret" || dir.startsWith("/work/secret/") ? secret : undefined;
+
+    it("tags untagged notes, lessons and procedures under a constrained folder, idempotently", () => {
+      const lessons = new LessonStore({ dbFile, maxEntries: 100 });
+      const procedures = new ProcedureStore({ dbFile, maxEntries: 100 });
+      const profile = new ProfileStore({ dbFile });
+      try {
+        const old = notes.store({ content: "old walrus secret", workingDir: "/work/secret/app" });
+        const open = notes.store({ content: "open walrus note", workingDir: "/work/open" });
+        const lesson = lessons.create({ activation: "when walrus", principle: "use walrus", parentIds: [1, 2], workingDir: "/work/secret" });
+        const proc = procedures.create({ activation: "when walrus", steps: [{ description: "a", toolHint: null }, { description: "b", toolHint: null }], parentLessonIds: [lesson.id], parentMemoryIds: [1], workingDir: "/work/secret" });
+        profile.set("editor", "vim");
+        // Visible everywhere before the back-fill.
+        expect(notes.get(old.id)?.content).toBe("old walrus secret");
+
+        const db = notes.getDatabaseHandleForEmbeddings();
+        const first = backfillConstraintScopes(db, resolveFor);
+        expect(first.tagged).toEqual({ memories: 1, lessons: 1, procedures: 1 });
+        expect(first.untaggedProfileFacts).toBe(1);
+        expect(backfillConstraintScopes(db, resolveFor).tagged).toEqual({ memories: 0, lessons: 0, procedures: 0 });
+
+        expect(notes.get(old.id)).toBeNull();
+        expect(under(secret, () => notes.get(old.id))?.content).toBe("old walrus secret");
+        expect(notes.get(open.id)?.content).toBe("open walrus note");
+        expect(lessons.getById(lesson.id)).toBeNull();
+        expect(procedures.getById(proc.id)).toBeNull();
+        // The consolidator's untagged pass no longer sees it.
+        expect(runInMemoryRowScope(null, () => notes.recall("walrus", { k: 5 }).map((e) => e.content))).toEqual(["open walrus note"]);
+      } finally {
+        lessons.close();
+        procedures.close();
+        profile.close();
+      }
+    });
+
+    it("runs again only when the constraints change, and records what it did for doctor", () => {
+      notes.store({ content: "later walrus", workingDir: "/work/later" });
+      let constraints: Record<string, unknown> = {};
+      let resolve: (dir: string) => ProviderPolicy | undefined = () => undefined;
+      const db = notes.getDatabaseHandleForEmbeddings();
+      const backfill = createConstraintScopeBackfill({ db, readConstraints: () => constraints, resolvePolicy: (dir) => resolve(dir) });
+      expect(backfill.ensure()?.tagged.memories).toBe(0);
+      expect(backfill.ensure()).toBeNull();
+      constraints = { "/work/later": { allowedProviders: ["local-llama"] } };
+      resolve = (dir) => (dir === "/work/later" ? secret : undefined);
+      expect(backfill.ensure()?.tagged.memories).toBe(1);
+      expect(readConstraintScopeBackfillRecord(db)).toMatchObject({ retroTagged: 1 });
+      expect(notes.recall("walrus", { k: 5 })).toEqual([]);
+    });
   });
 });
