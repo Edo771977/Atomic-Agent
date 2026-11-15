@@ -112,7 +112,8 @@ export function registerMemoryTools(
           : {}),
       })),
     );
-    registry.register(buildProfileRemoveTool({ store: options.profileStore }));
+    // ATO-586: an incognito chat changes durable memory in no way, removals included.
+    registry.register(guarded(buildProfileRemoveTool({ store: options.profileStore })));
     registry.register(guardedRead(buildProfileListTool({ store: options.profileStore })));
     registry.register(guardedRead(buildProfileHistoryTool({ store: options.profileStore })));
   }
@@ -133,7 +134,7 @@ export function registerMemoryTools(
         ...(options.notesHideSuperseded ? { hideSuperseded: true } : {}),
       })),
     );
-    registry.register(buildNotesForgetTool({ store: options.notesStore }));
+    registry.register(guarded(buildNotesForgetTool({ store: options.notesStore })));
   }
   if (options.lessonsEnabled && options.lessonStore) {
     registry.register(guardedRead(buildLessonsRecallTool({ store: options.lessonStore })));

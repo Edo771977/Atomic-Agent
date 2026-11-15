@@ -15,7 +15,9 @@ import {
  *
  *  - no memory is written from it — no reflection (profile facts, notes,
  *    links, votes, evolves), no lesson counters, and the
- *    `memory.profile.set` / `memory.notes.store` tools refuse — so no
+ *    `memory.profile.set` / `memory.notes.store` tools refuse, as do the
+ *    removals (`memory.profile.remove`, `memory.notes.forget`): it does
+ *    not change durable memory in any way — so no
  *    embedding is made for it either (embeddings exist only for stored
  *    notes);
  *  - it is left out of every session list and search (the rail, `GET

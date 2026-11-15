@@ -137,13 +137,29 @@ describe("registerMemoryTools in an incognito chat", () => {
     expect(profileStore.list().map((fact) => fact.key)).toEqual(["drink"]);
   });
 
-  it("removing a fact is not refused: it writes nothing from the chat", async () => {
+  it("memory.profile.remove changes nothing: an incognito chat leaves durable memory as it was", async () => {
     profileStore.set("drink", "tea");
     const result = await registry.get("memory.profile.remove").run(
       { key: "drink" },
       ctx({ incognito: true }),
     );
-    expect(result.details.reason).not.toBe("incognito_session");
+    expect(result.status).toBe("error");
+    expect(result.details.reason).toBe("incognito_session");
+    expect(result.summary).toContain(INCOGNITO_MEMORY_WRITE_REFUSAL);
+    expect(profileStore.list().map((fact) => fact.key)).toEqual(["drink"]);
+  });
+
+  it("memory.notes.forget refuses in an incognito chat", async () => {
+    // notesStore is a bare stub: reaching it would throw.
+    const result = await registry.get("memory.notes.forget").run({ id: 1 }, ctx({ incognito: true }));
+    expect(result.status).toBe("error");
+    expect(result.details.reason).toBe("incognito_session");
+  });
+
+  it("memory.profile.remove still removes in an ordinary chat", async () => {
+    profileStore.set("drink", "tea");
+    const result = await registry.get("memory.profile.remove").run({ key: "drink" }, ctx());
+    expect(result.status).toBe("ok");
     expect(profileStore.list()).toEqual([]);
   });
 
