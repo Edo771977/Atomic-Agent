@@ -25,6 +25,25 @@ export const ANTHROPIC_OFFICIAL_PRICES_DATE = "2026-11-15";
 export const ANTHROPIC_OFFICIAL_PRICES_SOURCE = `anthropic-official ${ANTHROPIC_OFFICIAL_PRICES_DATE}`;
 export const ANTHROPIC_FIRST_PARTY_HOST = "api.anthropic.com";
 
+/** Past this age the usage report asks for `npm run prices:anthropic`. */
+export const ANTHROPIC_OFFICIAL_PRICES_STALE_DAYS = 90;
+
+/**
+ * A note for wherever the official price list is named, once its `date`
+ * (`YYYY-MM-DD`, UTC) is more than {@link ANTHROPIC_OFFICIAL_PRICES_STALE_DAYS}
+ * days before `now`; `undefined` while the list is fresh or the date is
+ * unreadable. Prices still apply: the note only says to check them.
+ */
+export function anthropicOfficialPricesStaleNote(
+  now: number,
+  date: string = ANTHROPIC_OFFICIAL_PRICES_DATE,
+): string | undefined {
+  const listed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00Z`) : Number.NaN;
+  if (!Number.isFinite(listed)) return undefined;
+  if (now - listed <= ANTHROPIC_OFFICIAL_PRICES_STALE_DAYS * 24 * 60 * 60 * 1000) return undefined;
+  return `(price list from ${date}; run npm run prices:anthropic to check)`;
+}
+
 const PRICES: Readonly<Record<string, Pricing>> = {
   "claude-fable-5-2": { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 },
   "claude-mythos-5-2": { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 },
