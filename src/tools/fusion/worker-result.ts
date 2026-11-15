@@ -237,6 +237,13 @@ export interface WorkerTaskResult {
   /** The judge's verdict on this task's acceptance list (ATO-944), when it ran. */
   judge?: JudgeSummary;
   /**
+   * The worker's turn failed or threw after it changed files, so the row
+   * is `needs_orchestrator` rather than `failed` (issue #29): the files
+   * exist but no report vouches for them. Under isolation its workspace
+   * is held as a patch, not merged (`runIsolatedWave`).
+   */
+  finishedWithoutReply?: true;
+  /**
    * The model the task ran on, set when models by role are configured
    * (ATO-943); absent, it ran on the worker leg as every task did.
    */
@@ -351,6 +358,7 @@ export class WorkerRunCollector {
   private readonly pricing: WorkerPricing | undefined;
   private lastLoopError: string | undefined;
   private lastWaitReason: string | undefined;
+  private creditExhausted = false;
   /** The last few tool results, one line each — what a hand-back reports. */
   private readonly recent: string[] = [];
   private readonly replaced: ReplacedInput[] = [];
@@ -387,6 +395,7 @@ export class WorkerRunCollector {
       return;
     }
     if (event.type === "credit_exhausted") {
+      this.creditExhausted = true;
       // The loop pauses the worker's turn resumable, but a worker is
       // never resumed: for the orchestrator this is a failed task with
       // the reason, not a stopped one.
@@ -504,24 +513,43 @@ export class WorkerRunCollector {
     error?: string;
     stopCause?: WorkerStopCause;
   }): WorkerTaskResult {
-    const status = classifyWorkerStatus(
+    const classified = classifyWorkerStatus(
       input.reason,
       this.approvalRefused,
       input.stopCause,
     );
     const error =
-      input.error ?? (status === "ok" ? undefined : this.failureMessage());
+      input.error ?? (classified === "ok" ? undefined : this.failureMessage());
     const hint = error === undefined ? undefined : workerFailureHint(error);
+    const changes = this.changes.list();
+    // Issue #29: a turn that failed (or threw) after writing files is not
+    // a dead task: the files are there, only the report is missing. The
+    // orchestrator reads them before accepting; the syntax and contract
+    // gates still run, and under isolation the workspace is held, never
+    // merged unseen (`finishedWithoutReply`). Credit, approval, budget and
+    // cancellation keep their own outcome.
+    const finishedWithoutReply =
+      classified === "failed" &&
+      changes.length > 0 &&
+      !this.approvalRefused &&
+      !this.creditExhausted &&
+      input.stopCause !== "credit_exhausted" &&
+      (error === undefined || !NOT_A_MISSING_REPLY.test(error));
+    const status: WorkerTaskStatus = finishedWithoutReply
+      ? "needs_orchestrator"
+      : classified;
     const notes =
       input.stopCause !== undefined &&
-      status !== "failed" &&
-      status !== "cancelled"
+      classified !== "failed" &&
+      classified !== "cancelled"
         ? [stopCauseNote(input.stopCause, input.stepCount)]
         : [];
+    if (finishedWithoutReply) {
+      notes.push(finishedWithoutReplyNote(changes.map((c) => c.path)));
+    }
     if (this.operatorOnlyRefused && status === "needs_orchestrator") {
       notes.push(WORKER_OPERATOR_ONLY_NOTE);
     }
-    const changes = this.changes.list();
     return {
       id: input.id,
       title: input.title,
@@ -549,8 +577,27 @@ export class WorkerRunCollector {
         : { replacedInputs: [...this.replaced] }),
       ...(changes.length === 0 ? {} : { changes }),
       ...(this.changes.shellRan() ? { shellRan: true as const } : {}),
+      ...(finishedWithoutReply ? { finishedWithoutReply: true as const } : {}),
     };
   }
+}
+
+/**
+ * Failures that are not "the work stopped before its report": out of
+ * credit or quota, a spend budget, a cancellation. Their row stays
+ * `failed` even when files changed (`WorkerRunCollector.finish`).
+ */
+const NOT_A_MISSING_REPLY =
+  /\b402\b|\b429\b|payment required|insufficient (?:credits?|funds|balance|quota)|out of (?:credits?|funds|credit)|quota (?:exceeded|exhausted)|exceeded (?:your|the) (?:current )?quota|\bbudget\b|spend (?:cap|limit)|daily (?:spend )?limit|\bcancel(?:l?ed)?\b|\baborted?\b/i;
+
+/** How many changed paths the note names before it counts the rest. */
+const NO_REPLY_PATHS_SHOWN = 8;
+
+/** The note on a row that failed after writing files (issue #29). */
+export function finishedWithoutReplyNote(paths: readonly string[]): string {
+  const shown = paths.slice(0, NO_REPLY_PATHS_SHOWN).join(", ");
+  const more = paths.length > NO_REPLY_PATHS_SHOWN ? ` and ${paths.length - NO_REPLY_PATHS_SHOWN} more` : "";
+  return `finished without a reply; files changed: ${shown}${more}; unverified — read/check them before accepting`;
 }
 
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {

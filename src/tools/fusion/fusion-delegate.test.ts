@@ -1860,7 +1860,9 @@ describe("fusion.delegate", () => {
       expect(result.details).not.toHaveProperty("waves");
       const { evidence, lines } = observedOutput(result);
       expect(evidence.tasks.find(task => task.id === "organize")!.dependencies).toEqual([{ provider: "unprovided", requirementIndex: 0, status: "unknown" }]);
-      expect(lines[0]).toBe("3 tasks: 2 ok, 1 failed");
+      // `analyze` wrote its file and then its (self-check) turn threw: it
+      // is handed to the orchestrator unverified, not failed (issue #29).
+      expect(lines[0]).toBe("3 tasks: 2 ok, 1 needs_orchestrator");
     });
   });
 

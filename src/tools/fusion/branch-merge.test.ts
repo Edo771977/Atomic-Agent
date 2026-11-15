@@ -300,6 +300,28 @@ describe("runIsolatedWave", () => {
     expect(wave.results[0]!.notes?.join(" ")).toMatch(/discarded with its workspace/);
   });
 
+  it("holds a row that finished without a reply as a patch instead of merging it unseen (#29)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const wave = await runIsolatedWave({
+      realDir: repo,
+      tasks: [task("quiet")],
+      writeScope: [repo],
+      inputs: [],
+      options: { tmpRoot: await tmpRoot() },
+      run: async (tasks, taskWorkspace) => {
+        const ws = taskWorkspace!(tasks[0]!.id)!;
+        await writeFile(join(ws.workingDir, "csv_total.py"), "print(1)\n");
+        return [{ ...row("quiet", "needs_orchestrator"), reply: "", finishedWithoutReply: true }];
+      },
+    });
+    await expect(readFile(join(repo, "csv_total.py"), "utf8")).rejects.toThrow();
+    const result = wave.results[0]!;
+    expect(result.status).toBe("needs_orchestrator");
+    expect(result.notes?.join(" ")).toMatch(
+      /not merged \(it finished without a reply, so its changes are unverified\): its changes to 1 file are kept as a patch at \.atomic-agent\/fusion-merge\//,
+    );
+  });
+
   it("merges a copy workspace back outside git", async () => {
     const dir = await plainDir({ "notes.md": "hello\n" });
     await runIsolatedWave({

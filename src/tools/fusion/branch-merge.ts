@@ -679,20 +679,32 @@ export async function runIsolatedWave(
         );
         continue;
       }
-      if (input.gate !== undefined) {
-        let verdict: GateVerdict;
-        try {
-          verdict = await input.gate(row, {
-            dir: ws.dir,
-            realDir: input.realDir,
-            roots,
-            changes: () => workspaceChanges(branch.set, ws),
-          });
-        } catch (err) {
+      if (input.gate !== undefined || row.finishedWithoutReply === true) {
+        let verdict: GateVerdict = { row, merge: true };
+        if (input.gate !== undefined) {
+          try {
+            verdict = await input.gate(row, {
+              dir: ws.dir,
+              realDir: input.realDir,
+              roots,
+              changes: () => workspaceChanges(branch.set, ws),
+            });
+          } catch (err) {
+            verdict = {
+              row,
+              merge: false,
+              reason: `its checks could not be run: ${err instanceof Error ? err.message : String(err)}`,
+            };
+          }
+        }
+        // Issue #29: a turn that failed after writing files has no report
+        // vouching for them. Its checks may run, but its work reaches the
+        // folder only when the orchestrator applies the patch.
+        if (verdict.merge && verdict.row.finishedWithoutReply === true) {
           verdict = {
-            row,
+            row: verdict.row,
             merge: false,
-            reason: `its checks could not be run: ${err instanceof Error ? err.message : String(err)}`,
+            reason: "it finished without a reply, so its changes are unverified",
           };
         }
         row = verdict.row;

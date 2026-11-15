@@ -945,6 +945,51 @@ describe("WorkerRunCollector — why a worker stopped", () => {
     expect(result.notes?.[0]).toMatch(/time limit/);
   });
 
+  it("hands a turn that failed without a reply but wrote files to the orchestrator, unverified (#29)", () => {
+    const c = new WorkerRunCollector({ workingDir: "/w" });
+    c.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/csv_total.py", existed: false }));
+    c.observe({ type: "loop_failed", error: new Error("model returned an empty reply"), category: "model" });
+    const result = c.finish({ ...base, reason: "failed" });
+    expect(result.status).toBe("needs_orchestrator");
+    expect(result.finishedWithoutReply).toBe(true);
+    expect(result.error).toBe("model returned an empty reply");
+    expect(result.notes?.join(" ")).toMatch(
+      /finished without a reply; files changed: csv_total\.py; unverified — read\/check them before accepting/,
+    );
+    // A thrown turn (no reason) is the same case.
+    const thrown = new WorkerRunCollector({ workingDir: "/w" });
+    thrown.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    expect(thrown.finish({ ...base, reason: null, error: "socket hang up" }).status).toBe("needs_orchestrator");
+  });
+
+  it("keeps a failed turn failed when it changed nothing, or failed on credit, approval or budget", () => {
+    const none = new WorkerRunCollector({ workingDir: "/w" });
+    expect(none.finish({ ...base, reason: "failed", error: "boom" }).status).toBe("failed");
+    const credit = new WorkerRunCollector({ workingDir: "/w" });
+    credit.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    credit.observe({ type: "credit_exhausted", provider: "p", message: "top up" } as AgentLoopEvent);
+    expect(credit.finish({ ...base, reason: "failed" }).status).toBe("failed");
+    const quota = new WorkerRunCollector({ workingDir: "/w" });
+    quota.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    expect(quota.finish({ ...base, reason: "failed", error: "HTTP 402 payment required" }).status).toBe("failed");
+    const budget = new WorkerRunCollector({ workingDir: "/w" });
+    budget.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    expect(
+      budget.finish({
+        ...base,
+        reason: "failed",
+        error: "turn budget cannot cover this request: $0.00 reserved cost would exceed the $1.00 cap",
+      }).status,
+    ).toBe("failed");
+    const refused = new WorkerRunCollector({ workingDir: "/w" });
+    refused.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    refused.observe(toolExecuted("os.shell.run", "error", FUSION_WORKER_APPROVAL_REFUSED, {}));
+    expect(refused.finish({ ...base, reason: "failed" }).status).toBe("failed");
+    const cancelled = new WorkerRunCollector({ workingDir: "/w" });
+    cancelled.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+    expect(cancelled.finish({ ...base, reason: "cancelled" }).status).toBe("cancelled");
+  });
+
   it("reports a contended local server as slow, not as one that stopped answering (#29)", () => {
     const c = new WorkerRunCollector();
     c.observe(
