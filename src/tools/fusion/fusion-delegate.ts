@@ -82,6 +82,7 @@ import type { FusionRunRecorder, FusionRunStore } from "./run-checkpoint.js";
 import {
   outcomeLogPath,
   rowCostUsd,
+  reviewOutcome,
   taskOutcomeRecord,
   type FusionOutcomeSink,
   type MergeOutcome,
@@ -1893,6 +1894,13 @@ export function buildFusionDelegateTool(
                   pricing,
                   merge:
                     mode.isolation === "worktree" ? (mergeOutcomes.get(r.id) ?? null) : null,
+                  // Only a task a review ran on (issue #38): the team's
+                  // passes, or the judge's one retry without a team.
+                  ...(r.review !== undefined
+                    ? { review: reviewOutcome(r.review, r.review.passes) }
+                    : r.judge?.review !== undefined
+                      ? { review: reviewOutcome(r.judge.review, r.judge.passes ?? (r.judge.retried ? 1 : 0)) }
+                      : {}),
                 },
                 ctx.sessionId,
                 now,

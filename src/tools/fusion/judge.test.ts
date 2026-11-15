@@ -843,6 +843,25 @@ describe("review passes with a fusion team (issue #38)", () => {
     expect(row.notes?.join(" ")).toContain("review stopped: the turn was cancelled");
   });
 
+  it("records the review in the outcome log: counts, passes and reviewer, never issue text", async () => {
+    const written: Array<Record<string, unknown>> = [];
+    const outcomeLog = { append: (records: readonly unknown[]) => { written.push(...(records as Array<Record<string, unknown>>)); } };
+    await run(team(), () => blocker, { outcomeLog });
+    const task = written.find((r) => r.type === "task")!;
+    expect(task.review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "model-r", blockers: 1, majors: 0, minors: 0 });
+    expect(task.judgeRetried).toBe(true);
+    expect(task.failure).toBe("review-exhausted");
+    expect(JSON.stringify(written)).not.toContain("no score");
+    // Without a team the judge's review is recorded too, its one retry a pass.
+    written.length = 0;
+    await run(undefined, () => blocker, { outcomeLog });
+    expect(written.find((r) => r.type === "task")!.review).toMatchObject({ decision: "needs-changes", passes: 1 });
+    // No review ran: no field.
+    written.length = 0;
+    await run(undefined, () => blocker, { outcomeLog }, { judge: null });
+    expect(written.find((r) => r.type === "task")!).not.toHaveProperty("review");
+  });
+
   it("without a team keeps the judge's one retry and its wording", async () => {
     const { briefs, row } = await run(undefined, () => blocker);
     expect(briefs).toHaveLength(2);
