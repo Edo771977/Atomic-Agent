@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { dirname, posix as pathPosix, win32 as pathWin32 } from "node:path";
 
+import { offlineRefusalFor } from "../llm/offline-network.js";
 import {
   detectInstallSource,
   packagedUpdateRefusal,
@@ -169,10 +170,15 @@ export function buildUpdateInvocation(params: {
  * place. Only valid for the installed SEA binary — see
  * {@link canSelfUpdate}. The running process is **not** restarted; the
  * caller must prompt the user to relaunch so the new binary takes effect.
+ * Refused with `OfflineNetworkError` while offline mode is on.
  */
 export async function runAppUpdate(
   opts?: RunAppUpdateOptions,
 ): Promise<RunAppUpdateResult> {
+  // The installer is `curl | sh` (or `irm | iex`), a child process the
+  // offline dispatcher never sees: refuse here, for every caller.
+  const offline = offlineRefusalFor("raw.githubusercontent.com", "update");
+  if (offline) throw offline;
   if (!canSelfUpdate()) {
     throw new AppUpdateError(
       "self-update is only supported for the installed binary; " +
