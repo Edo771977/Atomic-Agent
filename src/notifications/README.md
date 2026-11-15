@@ -1,10 +1,13 @@
-# Download notifications
+# Out-of-band notifications
 
 Status: current
 Owner: src/notifications/
 
-Sends configured completion notices from detached download workers. Use recorded job outcomes, configured destinations and scrubbed errors.
+Plain-text pings to the operator outside a chat turn. Read the root instruction route and the underlying domain instructions (channels, approval) before cross-domain changes.
 
-Entry point: [download-notifier.ts](download-notifier.ts). Read the root instruction route and the underlying domain instructions before cross-domain changes.
+## Entry points
 
-Checks: `npx vitest run src/notifications` when tests are present; `npm run lint`; `npm run docs:check`.
+- [download-notifier.ts](download-notifier.ts): sends configured completion notices from detached download workers. Uses recorded job outcomes, configured destinations and scrubbed errors; one REST call, no channel loop.
+- [approval-pending-notifier.ts](approval-pending-notifier.ts): `notifications.approvalPending` (off by default). The runtime installs it as the approval gate's pending observer, so it sees exactly the prompts a person is asked, Fusion orchestrator approvals (merge gate, contract checks, candidate finish, `verify.run`) included. A prompt still unanswered after `afterMinutes` (default 5) gets one message, through `sendOwnerNotice` of a Telegram or Discord channel already up in this process (`channel`: `auto` tries Telegram, then Discord): "atomic-agent is waiting for your approval for N min: <category> (<tool>) in <folder>. Answer it in the app." It never carries the preview, arguments, resources or reason; an incognito chat (or any while one is open) gets the line without category, tool or folder. Answering, a session-wide denial or an aborted turn cancels the timer; offline mode, no running channel or a channel with no paired owner sends nothing (a debug log). It is a reminder only: approving from the chat exists just for sessions a channel owns, through the [approval router](../approval/approval-router.ts).
+
+Checks: `npx vitest run src/notifications`; `npm run lint`; `npm run docs:check`.
