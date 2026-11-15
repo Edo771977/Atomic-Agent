@@ -1,0 +1,41 @@
+import {
+  CHAT_EXPORT_MIME,
+  chatExportFilename,
+  chatExportTitle,
+  renderChatHtml,
+  renderChatMarkdown,
+  type ChatExportFormat,
+  type ChatExportOptions,
+} from "./chat-export.js";
+import { knownSecretsFromEnv } from "../error-reporting/secret-detector.js";
+import { renderMarkdownDocx } from "./chat-export-docx.js";
+import type { SessionState } from "./session-state.js";
+
+/** One exported chat, ready to write to a file or send over the wire. */
+export interface ChatExportFile {
+  format: ChatExportFormat;
+  filename: string;
+  mimeType: string;
+  /** Text for Markdown and HTML, bytes for DOCX. */
+  body: string | Buffer;
+}
+
+/** `state` in `format`: the Markdown, or a document built from it. */
+export async function exportChat(
+  state: SessionState,
+  format: ChatExportFormat,
+  options: ChatExportOptions = {},
+): Promise<ChatExportFile> {
+  const now = options.now ?? Date.now();
+  // Read the known secrets once for the title, the body and the file name.
+  const masked: ChatExportOptions = { ...options, now, knownSecrets: options.knownSecrets ?? knownSecretsFromEnv() };
+  const markdown = renderChatMarkdown(state, masked);
+  const title = chatExportTitle(state, masked);
+  const body =
+    format === "markdown"
+      ? markdown
+      : format === "html"
+        ? renderChatHtml(markdown, title)
+        : await renderMarkdownDocx(markdown, title, now);
+  return { format, filename: chatExportFilename(state, format, masked), mimeType: CHAT_EXPORT_MIME[format], body };
+}
