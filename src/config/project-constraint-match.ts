@@ -20,6 +20,13 @@ export interface ProviderPolicy {
   readonly allowedEgress: readonly string[];
   /** The session folder the entry matched. */
   readonly matchedDir: string;
+  /**
+   * Read taint (issue #33 group C): the constrained folders this
+   * session read files from, when that is why the policy applies (an
+   * unconstrained session that read inside one). Absent for a folder's
+   * own constraint.
+   */
+  readonly readFrom?: readonly string[];
   /** Whether `providerId` (the ACTUAL provider about to be called) is allowed. */
   allows(providerId: string): boolean;
   /** Whether a tool of egress class `cls` may run. */
@@ -32,6 +39,7 @@ export interface ProviderPolicyStamp {
   allowedProviders: string[];
   allowedEgress: string[];
   matchedDir: string;
+  readFrom?: string[];
 }
 
 /** Build a policy; an absent `allowedEgress` is none (fail closed). */
@@ -40,14 +48,19 @@ export function makeProviderPolicy(stamp: {
   allowedProviders: readonly string[];
   allowedEgress?: readonly string[];
   matchedDir: string;
+  readFrom?: readonly string[] | undefined;
 }): ProviderPolicy {
   const allowed = Object.freeze([...stamp.allowedProviders]);
   const egress = Object.freeze([...(stamp.allowedEgress ?? [])]);
+  const readFrom = stamp.readFrom !== undefined && stamp.readFrom.length > 0
+    ? Object.freeze([...stamp.readFrom])
+    : undefined;
   return Object.freeze({
     key: stamp.key,
     allowedProviders: allowed,
     allowedEgress: egress,
     matchedDir: stamp.matchedDir,
+    ...(readFrom === undefined ? {} : { readFrom }),
     allows: (providerId: string) => allowed.includes(providerId),
     allowsEgress: (cls: string) => egress.includes(cls),
   });
@@ -59,19 +72,29 @@ export function toProviderPolicyStamp(policy: ProviderPolicy): ProviderPolicySta
     allowedProviders: [...policy.allowedProviders],
     allowedEgress: [...policy.allowedEgress],
     matchedDir: policy.matchedDir,
+    ...(policy.readFrom === undefined ? {} : { readFrom: [...policy.readFrom] }),
   };
 }
 
 /** Rebuild a stamped policy; anything malformed is `undefined` (the caller fails closed). */
 export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefined {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const { key, allowedProviders, allowedEgress, matchedDir } = raw as Record<string, unknown>;
+  const { key, allowedProviders, allowedEgress, matchedDir, readFrom } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)) return undefined;
   if (!allowedProviders.every((id): id is string => typeof id === "string")) return undefined;
+  if (readFrom !== undefined && !(Array.isArray(readFrom) && readFrom.every((dir): dir is string => typeof dir === "string"))) {
+    return undefined;
+  }
   // A stamp from before allowedEgress existed carries none: no egress.
-  if (allowedEgress === undefined) return makeProviderPolicy({ key, allowedProviders, matchedDir });
-  if (!Array.isArray(allowedEgress) || !allowedEgress.every((c): c is string => typeof c === "string")) return undefined;
-  return makeProviderPolicy({ key, allowedProviders, allowedEgress, matchedDir });
+  if (allowedEgress !== undefined
+    && !(Array.isArray(allowedEgress) && allowedEgress.every((c): c is string => typeof c === "string"))) return undefined;
+  return makeProviderPolicy({
+    key,
+    allowedProviders,
+    ...(allowedEgress === undefined ? {} : { allowedEgress: allowedEgress as string[] }),
+    matchedDir,
+    readFrom: readFrom as string[] | undefined,
+  });
 }
 
 type ConstraintSource = { projects: { constraints?: ProjectConstraintsConfig } };

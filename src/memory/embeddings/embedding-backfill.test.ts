@@ -8,6 +8,8 @@ import { backfillEmbeddings, countPendingEmbeddings } from "./embedding-backfill
 import { EmbeddingUnavailableError, type EmbeddingClient, type EmbedRequest } from "./embedding-client.js";
 import { EmbeddingStore } from "./embedding-store.js";
 import { EmbeddingWriter } from "./embedding-writer.js";
+import { guardEmbeddingClient } from "./embedding-policy-guard.js";
+import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 
 /** Deterministic client that records what it was asked to embed. */
 class FakeClient implements EmbeddingClient {
@@ -150,5 +152,39 @@ describe("backfillEmbeddings", () => {
     ).resolves.toMatchObject({ embedded: 0, stoppedReason: "failed" });
     // Reopen so afterEach can close it again.
     notes = new MemoryStore({ dbFile: join(tmp, "memory.sqlite"), maxEntries: 100 });
+  });
+});
+
+describe("backfillEmbeddings under per-folder provider constraints (issue #33)", () => {
+  let tmp: string;
+  let notes: MemoryStore;
+  let vectors: EmbeddingStore;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "atomic-emb-backfill-policy-"));
+    notes = new MemoryStore({ dbFile: join(tmp, "memory.sqlite"), maxEntries: 100 });
+    vectors = new EmbeddingStore({ db: notes.getDatabaseHandleForEmbeddings() });
+  });
+
+  afterEach(() => {
+    notes.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("embeds each note under its own folder's policy: unconstrained notes go, a constrained one is not sent off this machine", async () => {
+    const secret = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama"], matchedDir: "/work/secret" });
+    const publicId = runWithProviderPolicy(undefined, () => notes.store({ content: "public note" }).id);
+    const secretId = runWithProviderPolicy(secret, () => notes.store({ content: "secret note" }).id);
+    const later = runWithProviderPolicy(undefined, () => notes.store({ content: "later public note" }).id);
+    const fake = new FakeClient("remote");
+    // A remote embedding endpoint while constraints are configured.
+    const client = guardEmbeddingClient(fake, { onMachine: false, constraintsActive: () => true });
+    const result = await backfillEmbeddings({ db: notes.getDatabaseHandleForEmbeddings(), writer: new EmbeddingWriter({ client, store: vectors }) });
+    expect(fake.requests.map((r) => r.text).sort()).toEqual(["later public note", "public note"]);
+    expect(vectors.get(publicId, "remote")).not.toBeNull();
+    expect(vectors.get(later, "remote")).not.toBeNull();
+    expect(vectors.get(secretId, "remote")).toBeNull();
+    expect(result).toMatchObject({ embedded: 2, notAllowed: 1, remaining: 1 });
+    expect(result.stoppedReason).toBeUndefined();
   });
 });

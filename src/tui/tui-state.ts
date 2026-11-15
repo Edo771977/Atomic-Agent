@@ -1,3 +1,4 @@
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import type { ProjectTrustPrompt } from "./project-trust/project-trust-state.js";
 import {
   clampApprovalLevel,
@@ -332,6 +333,12 @@ export interface TuiSessionInfo {
    * it never configured is down.
    */
   localBackendConfigured: boolean;
+  /**
+   * The provider restriction on the visible session (issue #33): the
+   * `restricted to: …` chip next to the offline switch and the `/status`
+   * line. Absent or `null`: unrestricted.
+   */
+  providerRestriction?: ProviderRestriction | null;
 }
 
 /**

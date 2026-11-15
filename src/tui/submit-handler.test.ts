@@ -18,6 +18,7 @@ function fakeSession(overrides: Partial<TuiSessionInfo> = {}): TuiSessionInfo {
     maxSteps: 10,
     completionMaxTokens: 2048,
     skillCount: 0,
+    localBackendConfigured: false,
     ...overrides,
   };
 }

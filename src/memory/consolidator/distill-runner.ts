@@ -1,3 +1,4 @@
+import { isProviderNotAllowed } from "../../llm/provider-policy.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { MemoryEntry } from "../memory-store.js";
@@ -68,7 +69,12 @@ export type DistillOutcome =
   | { kind: "none" }
   | { kind: "aborted" }
   | { kind: "timeout" }
-  | { kind: "failed"; reason: string };
+  | {
+      kind: "failed";
+      reason: string;
+      /** A per-folder provider constraint refused the call before anything was sent (issue #33). */
+      notAllowed?: boolean;
+    };
 
 export interface DistillRunnerDeps {
   llmComplete: ReflectionLlmComplete;
@@ -233,7 +239,9 @@ export class DistillRunner {
         reason,
       });
       emit("failed", { reason });
-      return { kind: "failed", reason };
+      return isProviderNotAllowed(err)
+        ? { kind: "failed", reason, notAllowed: true }
+        : { kind: "failed", reason };
     } finally {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", onAbort);

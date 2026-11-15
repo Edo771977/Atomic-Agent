@@ -17,6 +17,7 @@ export type HostRequestType =
   | "get_session"
   | "compact_session"
   | "get_compaction"
+  | "get_provider_restriction"
   | "skill_install"
   | "skill_uninstall"
   | "skill_list"

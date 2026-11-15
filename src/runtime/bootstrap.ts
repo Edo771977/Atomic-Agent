@@ -36,6 +36,8 @@ import { getConfig } from "../config/index.js";
 import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
 import { createRuntimeEgressGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
+import { createSessionReadTaint } from "./session-read-taint.js";
+import { describeProviderRestriction } from "../llm/provider-policy.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
 import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
@@ -358,6 +360,17 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 
+  // Read taint (issue #33 group C): a read inside a constrained folder
+  // narrows the session's provider policy at dispatch.
+  const sessionReadTaint = createSessionReadTaint({
+    readConfig: () => getConfig(),
+    patchStoredSession: (id, patch) => {
+      const stored = sessionStore.load(id);
+      if (stored === null) return;
+      stored.metadata = patch(stored.metadata ?? {});
+      sessionStore.save(stored);
+    },
+  });
   // Per-folder egress (issue #33): tools that would send a constrained
   // folder's content off the machine are refused at dispatch. MCP servers
   // are classed by the manager, which exists once the catalog connects.
@@ -366,7 +379,12 @@ export async function createAgentRuntime(
     effectivePolicyForSession: sessionProviderPolicy.effectivePolicyForSession,
     mcp: () => egressMcp,
   });
-  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, egressGuard);
+  // The registry taints first (onDispatch), then checks egress against
+  // the narrowed policy (effectivePolicyForSession reads the tightened frame).
+  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, {
+    onDispatch: (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); },
+    dispatchGuard: egressGuard,
+  });
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)
@@ -883,7 +901,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
@@ -1023,6 +1041,7 @@ export async function createAgentRuntime(
     discordChannel: null,
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
+    providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,

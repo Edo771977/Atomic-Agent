@@ -7,6 +7,7 @@ import type { ProcedureStore } from "../procedures/procedure-store.js";
 
 import { clusterEpisodes, type MemoryCluster } from "./clustering.js";
 import { DistillRunner } from "./distill-runner.js";
+import { runInMemoryRowScope } from "../memory-constraint-scope.js";
 
 /**
  * Memory-v2 phase 5. The cold-path consolidator.
@@ -98,6 +99,12 @@ export interface ConsolidatorTickResult {
   proceduresDeprecatedByAge: number;
   proceduresDeprecatedByVote: number;
   proceduresDeprecatedByOverflow: number;
+  /**
+   * Issue #33. Clusters left as they were because their folder's
+   * provider constraint refused the distill call (nothing was sent).
+   * Present only when non-zero.
+   */
+  clustersSkippedByPolicy?: number;
 }
 
 export interface ConsolidatorJobOptions {
@@ -317,7 +324,38 @@ export class ConsolidatorJob {
     return result;
   }
 
+  /**
+   * Per-folder provider constraints (issue #33): the timer has neither
+   * a policy frame nor a session, so the tick runs one pass per row
+   * scope (memory-constraint-scope.ts). Untagged notes are consolidated
+   * with no constraint; each constrained folder's notes only among
+   * themselves, under that folder's own policy, so its distill call
+   * reaches an allowed provider or is refused before anything is sent
+   * (the cluster is then left as it was). A lesson carries the scope of
+   * its pass.
+   */
   private async runTick(signal: AbortSignal): Promise<ConsolidatorTickResult> {
+    let total = zeroSummary();
+    let skipped = 0;
+    for (const scope of [null, ...this.deps.memoryStore.listConstraintScopes()]) {
+      if (signal.aborted) break;
+      const pass = await runInMemoryRowScope(scope, () => this.runScopeTick(signal));
+      skipped += pass.clustersSkippedByPolicy ?? 0;
+      total = {
+        ...total,
+        clustersConsidered: total.clustersConsidered + pass.clustersConsidered,
+        lessonsCreated: total.lessonsCreated + pass.lessonsCreated,
+        lessonsAbstained: total.lessonsAbstained + pass.lessonsAbstained,
+        failures: total.failures + pass.failures,
+        proceduresCreated: total.proceduresCreated + pass.proceduresCreated,
+      };
+    }
+    const outcome: ConsolidatorTickResult["outcome"] =
+      total.lessonsCreated > 0 ? "ok" : total.failures > 0 ? "failed" : "none";
+    return { ...total, outcome, ...(skipped > 0 ? { clustersSkippedByPolicy: skipped } : {}) };
+  }
+
+  private async runScopeTick(signal: AbortSignal): Promise<ConsolidatorTickResult> {
     const now = this.now();
     const candidates = this.selectCandidates(now);
     if (candidates.length === 0) {
@@ -343,6 +381,7 @@ export class ConsolidatorJob {
     let lessonsAbstained = 0;
     let failures = 0;
     let proceduresCreated = 0;
+    let skippedByPolicy = 0;
 
     for (const cluster of clusters) {
       if (signal.aborted) break;
@@ -363,6 +402,11 @@ export class ConsolidatorJob {
           if (persisted.procedureCreated) proceduresCreated += 1;
         } else if (persisted.outcome === "none") {
           lessonsAbstained += 1;
+        } else if (persisted.outcome === "not-allowed") {
+          // The folder's constraint refused the provider: every other
+          // cluster of this scope would be refused the same way.
+          skippedByPolicy += 1;
+          break;
         } else {
           failures += 1;
         }
@@ -394,6 +438,7 @@ export class ConsolidatorJob {
       proceduresDeprecatedByAge: 0,
       proceduresDeprecatedByVote: 0,
       proceduresDeprecatedByOverflow: 0,
+      ...(skippedByPolicy > 0 ? { clustersSkippedByPolicy: skippedByPolicy } : {}),
     };
   }
 
@@ -784,7 +829,7 @@ export class ConsolidatorJob {
     episodesById: Map<number, MemoryEntry>;
     signal: AbortSignal;
   }): Promise<{
-    outcome: "ok" | "none" | "failed";
+    outcome: "ok" | "none" | "failed" | "not-allowed";
     procedureCreated: boolean;
   }> {
     const episodes: MemoryEntry[] = [];
@@ -863,6 +908,9 @@ export class ConsolidatorJob {
         }
       }
       return { outcome: "ok", procedureCreated };
+    }
+    if (result.kind === "failed" && result.notAllowed === true) {
+      return { outcome: "not-allowed", procedureCreated: false };
     }
     if (result.kind === "none") {
       return { outcome: "none", procedureCreated: false };

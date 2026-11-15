@@ -393,16 +393,16 @@ export class MemoryStore {
     this.insertStmt = this.db.prepare(
       `INSERT INTO memories
          (content, created_at, updated_at, source, session_id, working_dir, tags,
-          recall_count, last_recalled_at, consolidating_at)
+          recall_count, last_recalled_at, consolidating_at, constraint_scope)
        VALUES
          (@content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags,
-          0, NULL, NULL)`,
+          0, NULL, NULL, memory_scope_write())`,
     );
     this.deleteStmt = this.db.prepare(`DELETE FROM memories WHERE id = ?`);
     this.getStmt = this.db.prepare(
       `SELECT id, content, created_at, updated_at, source, session_id, working_dir, tags,
               recall_count, last_recalled_at
-         FROM memories WHERE id = ?`,
+         FROM memories WHERE id = ? AND memory_scope_visible(constraint_scope)`,
     );
     this.countStmt = this.db.prepare(`SELECT COUNT(*) AS count FROM memories`);
     this.hasContentStmt = this.db.prepare(
@@ -462,6 +462,7 @@ export class MemoryStore {
         WHERE memories_fts MATCH ?
           AND m.consolidated_into IS NULL
           AND NOT ${supersededSql("m.tags")}
+          AND memory_scope_same(m.constraint_scope)
         ORDER BY score ASC
         LIMIT 5`,
     );
@@ -708,7 +709,7 @@ export class MemoryStore {
     );
     const scope = opts.scope ?? "all";
     const requiredTags = validateTags(opts.tags);
-    const where: string[] = [`memories_fts MATCH ?`];
+    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`];
     const params: unknown[] = [ftsQuery];
     if (scope === "project") {
       const dir = validateOptionalString(opts.workingDir, "workingDir");
@@ -772,7 +773,7 @@ export class MemoryStore {
       return shared >= minShared;
     };
     const limit = clampPositiveInt(k, 1, MEMORY_RECALL_MAX_K, "k");
-    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL"];
+    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL", "memory_scope_visible(m.constraint_scope)"];
     const params: unknown[] = [ftsQuery];
     if (opts.workingDir !== undefined) {
       where.push("m.working_dir IS ?");
@@ -873,7 +874,7 @@ export class MemoryStore {
       "limit",
     );
     const scope = opts.scope ?? "all";
-    const where: string[] = [];
+    const where: string[] = [`memory_scope_visible(constraint_scope)`];
     const params: unknown[] = [];
     if (scope === "project") {
       const dir = validateOptionalString(opts.workingDir, "workingDir");
@@ -955,6 +956,22 @@ export class MemoryStore {
    */
   hasContent(content: string): boolean {
     return this.hasContentStmt.get(content.trim()) !== undefined;
+  }
+
+  /**
+   * Every provider-constraint scope with live (not archived) notes, for
+   * the per-scope passes of background jobs (issue #33). Not filtered by
+   * the caller's scope: it names scopes, never their content.
+   */
+  listConstraintScopes(): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT constraint_scope AS scope FROM memories
+          WHERE constraint_scope IS NOT NULL AND consolidated_into IS NULL
+          ORDER BY scope`,
+      )
+      .all() as { scope: string }[];
+    return rows.map((r) => r.scope);
   }
 
   /** Total number of stored entries. Useful for tests and diagnostics. */
@@ -1356,7 +1373,8 @@ export class MemoryStore {
       .prepare(
         `SELECT id, content, created_at, updated_at, source, session_id, working_dir, tags,
                 recall_count, last_recalled_at
-           FROM memories WHERE id IN (${ids.map(() => "?").join(", ")})`,
+           FROM memories WHERE id IN (${ids.map(() => "?").join(", ")})
+            AND memory_scope_visible(constraint_scope)`,
       )
       .all(...ids) as MemoryRow[];
     return rows.map(rowToEntry);
@@ -1376,7 +1394,7 @@ export class MemoryStore {
     limit: number,
     excludeSuperseded: boolean,
   ): HybridRecallInputEntry[] {
-    const where: string[] = [`memories_fts MATCH ?`];
+    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`];
     const params: unknown[] = [ftsQuery];
     if (workingDir !== null) {
       where.push(`m.working_dir = ?`);

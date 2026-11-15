@@ -1,3 +1,4 @@
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import type { PlanSnapshot } from "../agent/plan/plan-snapshot.js";
 import type { ProjectTrustPrompt } from "./project-trust/project-trust-state.js";
 import type { CodingMode } from "./coding-mode/coding-mode.js";
@@ -45,6 +46,12 @@ import type { SessionUsageState } from "../session/usage-meter.js";
  */
 export type TuiAction =
   | { type: "runtime_info"; line: string }
+  /**
+   * The provider restriction on `sessionId` (issue #33: its folder's
+   * constraint, or what it read inside one), re-read by the chat
+   * orchestrator at a switch and after every turn. `null`: none.
+   */
+  | { type: "provider_restriction_changed"; sessionId: string; restriction: ProviderRestriction | null }
   | { type: "compaction_requested"; sessionId: string }
   | { type: "compaction_request_settled"; sessionId: string; busy: boolean }
   /** Append a local system message directly into the chat transcript. */

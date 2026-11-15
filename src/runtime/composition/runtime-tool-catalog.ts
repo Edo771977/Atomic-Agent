@@ -118,13 +118,15 @@ export function createRuntimeToolRegistry(
   browserBackend: BrowserBackend,
   dangerous: DangerousToolOptions,
   outputSpill?: ToolOutputSpill,
-  dispatchGuard?: ToolRegistryOptions["dispatchGuard"],
+  hooks: Pick<ToolRegistryOptions, "onDispatch" | "dispatchGuard"> = {},
 ) {
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
-    // A constrained folder's egress (issue #33, runtime-egress-guard.ts):
-    // refused before hooks, approval and network.
-    ...(dispatchGuard ? { dispatchGuard } : {}),
+    // Read taint (onDispatch) narrows the session's policy, then the
+    // egress guard (runtime-egress-guard.ts) refuses before hooks,
+    // approval and network, against that narrowed policy (issue #33).
+    ...(hooks.onDispatch ? { onDispatch: hooks.onDispatch } : {}),
+    ...(hooks.dispatchGuard ? { dispatchGuard: hooks.dispatchGuard } : {}),
     knownSecrets: () => runtimeKnownSecrets(getConfig()),
     // Outside text read on a session holds its risky silent approvals
     // for the rest of the turn when `agent.taintReview` is on (ATO-618).
@@ -443,6 +445,7 @@ export async function connectRuntimeMcpCatalog(input: {
       ? createMcpSamplingHandler({
           llamaServerClient: llama,
           server: "*",
+          constraintsActive: () => hasProjectConstraints(getConfig()),
         })
       : undefined,
     ...(options.handlers?.onChannelStatus

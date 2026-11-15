@@ -1,3 +1,4 @@
+import type { ProviderRestriction } from "../llm/provider-policy.js";
 import type { TurnCheckpointOptions } from "./turn-checkpoints.js";
 import type { InterruptedTurns } from "./interrupted-turns.js";
 import type { CompactionResult, SessionCompaction } from "../session/session-compaction.js";
@@ -383,6 +384,14 @@ export interface AgentRuntime {
    * always sets it. See `createOfflineModeControl`.
    */
   readonly offlineMode?: OfflineModeControl;
+  /**
+   * The provider restriction on a session (issue #33): its folder's
+   * constraint and any read taint (its stored metadata), or `null` when
+   * none applies. Optional so hand-built runtimes keep compiling.
+   */
+  readonly providerRestrictionFor?: (
+    session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => ProviderRestriction | null;
   /**
    * Discord remote-control channel, or `null` when the build never
    * constructed one. Same contract as `telegramChannel`.

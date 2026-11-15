@@ -548,6 +548,8 @@ describe("applyMigrations", () => {
       "created_at",
       "updated_at",
       "deprecated_at",
+      // Added in place on every open (issue #33 memory scoping).
+      "constraint_scope",
     ]);
     expect(cols.find((c) => c.name === "activation")!.notnull).toBe(1);
     expect(cols.find((c) => c.name === "steps")!.notnull).toBe(1);

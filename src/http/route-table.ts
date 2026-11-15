@@ -29,6 +29,7 @@ import {
   createAckUndeliveredSteersHandler,
   createDeleteSessionHandler,
   createGetSessionHandler,
+  createGetSessionProviderRestrictionHandler,
   createGetUndeliveredSteersHandler,
   createListSessionsHandler,
   createSteerSessionHandler,
@@ -184,6 +185,8 @@ export function buildRouteTable(): RouteDefinition[] {
       path: "/api/sessions/{id}",
       handler: createRenameSessionHandler(),
     },
+    // Issue #33: the provider restriction on one chat (folder constraint or read taint).
+    { method: "GET", path: "/api/sessions/{id}/provider-restriction", handler: createGetSessionProviderRestrictionHandler() },
     // ATO-1054: one chat as Markdown / HTML / DOCX (PDF is printed from the HTML by the client).
     { method: "GET", path: "/api/sessions/{id}/export", handler: createExportSessionHandler() },
     // ATO-731: one chat's folder, changed without restarting serve.

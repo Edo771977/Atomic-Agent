@@ -34,6 +34,7 @@ import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
 import { currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
+import type { SessionReadTaint } from "../session-read-taint.js";
 import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
 import { answerChannelForOrigin, type AnswerChannel } from "../../prompt/answer-style.js";
 import type { RequestBudgetNotices } from "../request-budget-notices.js";
@@ -97,6 +98,8 @@ export interface RuntimeTurnDependencies {
     fallbackChain: Pick<ProviderFallbackChain, "standingOverrideFor" | "setTurnPrimary">;
     /** Per-folder provider constraints (issue #33); absent in narrow test rigs. */
     sessionProviderPolicy?: SessionProviderPolicy;
+    /** Read taint of per-folder constraints (issue #33 group C); absent in narrow test rigs. */
+    sessionReadTaint?: SessionReadTaint;
     /** True when today's spend ceiling refuses a paid link now (ATO-649); the router passes over it. */
     dailyLimitRefuses?: (providerId: string) => boolean;
     budgetNotices?: RequestBudgetNotices;
@@ -695,7 +698,9 @@ export function createRuntimeTurnService(
   const inSessionPolicy = <T>(session: SessionState, run: () => Promise<T>): Promise<T> => {
     if (sessionPolicy === undefined) return run();
     const worker = readFusionWorkerMeta(session.metadata) !== null;
-    return runWithProviderPolicy(sessionPolicy.forSession(session), run, {
+    const readTaint = deps.inference.sessionReadTaint;
+    const body = readTaint === undefined ? run : () => readTaint.inTurn(session, run);
+    return runWithProviderPolicy(sessionPolicy.forSession(session), body, {
       role: worker ? "a fusion worker" : "the main model",
       sessionId: session.id,
     });

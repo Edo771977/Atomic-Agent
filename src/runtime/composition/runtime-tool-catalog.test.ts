@@ -216,7 +216,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     const sampling = vi.spyOn(mcp, "createMcpSamplingHandler");
     const owner = await connect(input);
     expect(phases.slice(0, 3)).toEqual(["start", "started", "catalog"]);
-    expect(sampling).toHaveBeenCalledWith({ llamaServerClient: input.llama, server: "*" });
+    expect(sampling).toHaveBeenCalledWith({ llamaServerClient: input.llama, server: "*", constraintsActive: expect.any(Function) });
     const names = registration.mock.calls.map(([tool]) => tool.name);
     // `tool.search` (ATO-558) and the search-aware `tool.view` are
     // registered once the descriptor list exists.
