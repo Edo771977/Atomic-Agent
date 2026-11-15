@@ -248,7 +248,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     baseUrl: "http://localhost:13305",
     envVar: "LEMONADE_API_KEY",
     local: true,
-    note: "the server Lemonade runs on your machine (AMD GPUs and NPUs); no API key needed",
+    note: "AMD's server on your machine (GPUs, NPUs); no API key needed",
   },
   {
     id: "mistral",
