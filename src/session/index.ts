@@ -121,6 +121,16 @@ export {
 } from "./session-llm.js";
 export type { SessionLlmStamp } from "./session-llm.js";
 export {
+  SESSION_FUSION_DIRECTOR_METADATA_KEY,
+  SESSION_FUSION_WORKER_METADATA_KEY,
+  readSessionFusionDirector,
+  readSessionFusionWorker,
+  withSessionFusionDirector,
+  withSessionFusionWorker,
+  stampMember,
+} from "./session-fusion-team.js";
+export type { SessionTeamMemberStamp } from "./session-fusion-team.js";
+export {
   SESSION_ROUTE_METADATA_KEY,
   readSessionRoute,
   resolveTurnRoute,
