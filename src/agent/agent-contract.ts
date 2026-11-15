@@ -1072,6 +1072,19 @@ export type AgentLoopEvent =
       reason: "soft" | "meter" | "clamp";
       text: string;
     }
+  /**
+   * A line about the session's fusion director (issue #37), once when it
+   * is said: picked for the session (`only` reachable director, or the
+   * team's `default` of several), or a Codex director's limit
+   * (`codex-direct-tasks`). `member` is `"<providerId>:<model>"`.
+   */
+  | {
+      type: "fusion_director_notice";
+      sessionId: string;
+      member: string;
+      reason: "only" | "default" | "codex-direct-tasks";
+      text: string;
+    }
   | { type: "step_started"; stepIndex: number }
   | {
       type: "step_finished";

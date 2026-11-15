@@ -27,6 +27,7 @@ export type HostRequestType =
 
 export type SidecarEventType =
   | "budget_notice"
+  | "fusion_director_notice"
   | "compaction_started"
   | "compaction_progress"
   | "compaction_completed"
@@ -103,6 +104,16 @@ export interface SendMessagePayload {
   sessionId: string;
   text: string;
   maxSteps?: number;
+  /**
+   * A fusion team director (`"<providerId>:<model>"`, issue #37) to stamp
+   * on the session before this turn; it must be one of
+   * `llm.runMode.fusion.team.directors`, else the request fails. Omit to
+   * keep the session's director (or let the runtime pick one, said in a
+   * `fusion_director_notice` event).
+   */
+  director?: string;
+  /** The session's preferred fusion worker, stamped the same way; one of the team's workers. */
+  worker?: string;
 }
 
 /**

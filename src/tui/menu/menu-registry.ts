@@ -650,8 +650,19 @@ export const MENU: readonly MenuNode[] = [
     slash: {
       name: "worker",
       description:
-        "act on one running fusion worker: `/worker stop <id>` · `/worker steer <id> <note>` (it reads the note at its next step) · `/worker escalate <id>` (ask the escalation model for a hint; shows its cost)",
+        "bare `/worker` picks this chat's preferred fusion worker · act on a running one: `/worker stop <id>` · `/worker steer <id> <note>` (it reads the note at its next step) · `/worker escalate <id>` (ask the escalation model for a hint; shows its cost)",
       rank: 46.5,
+    },
+  },
+  {
+    kind: "action",
+    id: "run.director",
+    label: "Choose this chat's fusion director",
+    group: "run",
+    slash: {
+      name: "director",
+      description: "pick which fusion team director leads this chat (llm.runMode.fusion.team)",
+      rank: 46.75,
     },
   },
   {

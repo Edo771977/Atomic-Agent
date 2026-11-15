@@ -61,6 +61,10 @@ interface RunArgs {
   noApproval: boolean;
   /** ATO-586: an incognito chat, deleted when the run ends. */
   incognito: boolean;
+  /** Issue #37: `--director`, the session's fusion director; null lets the runtime pick (and say which). */
+  director: string | null;
+  /** Issue #37: `--worker`, the session's preferred fusion worker. */
+  worker: string | null;
 }
 
 const HELP =
@@ -78,6 +82,9 @@ const HELP =
     "  --max-steps <n>      Hard step ceiling for one task (default: agent.task.maxSteps)",
     "  --no-approval        Force approval level 5: auto-approve every dangerous tool call",
     "  --incognito          Incognito chat: nothing is saved to memory, the chat is deleted when the run ends",
+    "  --director <member>  Fusion director for this chat, one of llm.runMode.fusion.team.directors",
+    "                       (\"<providerId>:<model>\"); default: the only one available, else the team's default",
+    "  --worker <member>    Preferred fusion worker for this chat, one of the team's workers",
     "",
     "In-session:  /quit exits · /abort cancels the current turn",
     "Exit codes:  0 replied · 1 failed · 2 usage error",
@@ -90,6 +97,8 @@ export function parseRunArgs(
   let maxSteps: number | null = null;
   let noApproval = false;
   let incognito = false;
+  let director: string | null = null;
+  let worker: string | null = null;
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
     switch (flag) {
@@ -131,6 +140,16 @@ export function parseRunArgs(
       case "--incognito":
         incognito = true;
         break;
+      case "--director":
+      case "--worker": {
+        const value = args[++i];
+        if (!value) return { error: `${flag} requires a value` };
+        const colon = value.indexOf(":");
+        if (colon <= 0 || colon === value.length - 1) return { error: `${flag} expects "<providerId>:<model>"` };
+        if (flag === "--director") director = value;
+        else worker = value;
+        break;
+      }
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -140,6 +159,8 @@ export function parseRunArgs(
     maxSteps,
     noApproval,
     incognito,
+    director,
+    worker,
   };
 }
 
@@ -336,6 +357,7 @@ export function formatAgentEvent(
 ): string | null {
   switch (event.type) {
     case "budget_notice":
+    case "fusion_director_notice":
       return `» ${event.text}`;
     case "user_message":
       return null;
@@ -426,6 +448,11 @@ interface ChatLoopOptions {
    * up to the `agent.task.maxSteps` ceiling.
    */
   maxSteps?: number;
+  /**
+   * `--director` / `--worker` (issue #37): sent with the first turn, which
+   * stamps them on the session; later turns keep the stamp.
+   */
+  team?: { director?: string; worker?: string };
   controller: AbortController;
   /** Stdin lines, shared with the approval prompt. */
   lines: StdinLineQueue;
@@ -476,10 +503,14 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<SessionState> {
     };
   };
 
+  let team = opts.team;
   const driveTurn = async (message: string): Promise<void> => {
     const collector = collectReply();
+    const firstTeam = team;
+    team = undefined;
     const result = await opts.runtime.runTurn(session, message, {
       ...(opts.maxSteps === undefined ? {} : { maxSteps: opts.maxSteps }),
+      ...firstTeam,
       signal: opts.controller.signal,
       origin: "cli",
       questions: opts.questions,
@@ -674,6 +705,10 @@ export async function runAgentCommand(args: string[]): Promise<number> {
       // Only `--max-steps` becomes a ceiling. Filling in `agent.maxSteps`
       // (the leg length) made every task stop at the first leg.
       ...(parsed.maxSteps === null ? {} : { maxSteps: parsed.maxSteps }),
+      team: {
+        ...(parsed.director === null ? {} : { director: parsed.director }),
+        ...(parsed.worker === null ? {} : { worker: parsed.worker }),
+      },
       controller,
       lines: stdinLines,
       piped: process.stdin.isTTY !== true,

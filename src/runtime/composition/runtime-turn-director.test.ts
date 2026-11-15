@@ -146,6 +146,38 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
   });
 
+  it("auto-picks the only reachable director, stamps it and says so once", async () => {
+    const notices: unknown[] = [];
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"] };
+    const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event); } });
+    const first = await service.executeTurn(session("s"), "request");
+    expect(readSessionFusionDirector(first.session.metadata)?.member).toBe("cloud-a:model-a");
+    expect(fixture.setTurnPrimary).toHaveBeenCalledWith("s", "cloud-a");
+    expect(notices).toEqual([{
+      type: "fusion_director_notice", sessionId: "s", member: "cloud-a:model-a", reason: "only",
+      text: "fusion director: cloud-a:model-a (the only director available)",
+    }]);
+    await service.executeTurn(first.session, "again");
+    expect(notices).toHaveLength(1);
+  });
+
+  it("picks the team's default of several when the caller names none, and says which", async () => {
+    const notices: Array<{ reason?: string; text?: string }> = [];
+    const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event as never); } });
+    const output = await service.executeTurn(session("s"), "request");
+    expect(readSessionFusionDirector(output.session.metadata)?.member).toBe("cloud-a:model-a");
+    expect(notices).toMatchObject([{ reason: "default", text: "fusion director: cloud-a:model-a (the team's default of 2 directors)" }]);
+  });
+
+  it("picks nothing and says nothing outside the fusion mode", async () => {
+    const notices: unknown[] = [];
+    fixture.config.llm!.runMode!.mode = "cloud";
+    const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event); } });
+    const output = await service.executeTurn(session("s"), "request");
+    expect(notices).toEqual([]);
+    expect(readSessionFusionDirector(output.session.metadata)).toBeNull();
+  });
+
   it("without a team runs as before: no director, the configured primary", async () => {
     fixture.config.llm!.runMode!.fusion!.team = undefined as never;
     const output = await fixture.service.executeTurn(session("s"), "request");

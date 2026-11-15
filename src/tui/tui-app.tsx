@@ -407,6 +407,13 @@ export interface TuiAppCallbacks {
   onLocalModelsPullPauseRequested?(kind: "chat" | "embedding"): void;
   onComposerEngineRequested?(engine: "atomic-core" | "llama-server", leg?: "orchestrator" | "worker"): void;
   onComposerFusionModelRequested?(leg: "orchestrator" | "worker", model: string): void;
+  /**
+   * A fusion team picker's row (issue #37): stamp the open chat's
+   * director, or its preferred worker (`member: null` clears it).
+   */
+  onComposerTeamMemberChosen?(role: "director" | "worker", member: string | null): void;
+  /** `/director`, `/worker` (issue #37): open the team picker for the open chat. */
+  onTeamPickerRequested?(role: "director" | "worker"): void;
   onLocalModelsEngineRequested?(engine: "atomic-core" | "llama-server"): void;
   onLocalModelsSetActiveRequested?(
     modelId: import("../local-llm/index.js").LocalModelId,

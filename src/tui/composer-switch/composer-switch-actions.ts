@@ -1,4 +1,4 @@
-import type { ComposerSwitchKind } from "./composer-switch-state.js";
+import type { ComposerSwitchKind, ComposerTeamState } from "./composer-switch-state.js";
 
 export type ComposerSwitchAction =
   /** Open (or move) the switch strip onto `kind`, cursor on the active row. */
@@ -8,7 +8,9 @@ export type ComposerSwitchAction =
   /** Put the cursor on an absolute row (mouse hover-then-click). */
   | { type: "composer_switch_cursor_set"; cursor: number }
   /** Replace the typed filter (append and backspace both land here). */
-  | { type: "composer_switch_filter_set"; filter: string };
+  | { type: "composer_switch_filter_set"; filter: string }
+  /** The fusion team and the open chat's choice, for the team pickers (issue #37). */
+  | { type: "composer_team_shown"; team: ComposerTeamState };
 
 export function isComposerSwitchAction(action: {
   type: string;
@@ -18,6 +20,7 @@ export function isComposerSwitchAction(action: {
     action.type === "composer_switch_closed" ||
     action.type === "composer_switch_cursor_moved" ||
     action.type === "composer_switch_cursor_set" ||
-    action.type === "composer_switch_filter_set"
+    action.type === "composer_switch_filter_set" ||
+    action.type === "composer_team_shown"
   );
 }

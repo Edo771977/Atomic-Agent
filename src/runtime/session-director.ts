@@ -99,6 +99,17 @@ export function resolveSessionWorker(
   return stampMember(stamp);
 }
 
+/**
+ * The one line a frontend shows when the runtime picked the session's
+ * director itself (`fusion_director_notice`): which member and why, so
+ * a person who has several can see they did not choose this one.
+ */
+export function directorPickedNoticeText(member: TeamMember, reason: "only" | "default", directors: number): string {
+  return reason === "only"
+    ? `fusion director: ${member.ref} (the only director available)`
+    : `fusion director: ${member.ref} (the team's default of ${directors} directors)`;
+}
+
 /** A team member named by a caller (`--director`, a sidecar/HTTP field) that the team lists in `role`. */
 export function teamMemberByRef(
   fusion: UserLlmFusionConfig | undefined,

@@ -1,7 +1,7 @@
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
 import type { AgentLoop } from "../../agent/agent-loop.js";
-import type { RunTurnResult } from "../../agent/agent-contract.js";
+import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
@@ -11,7 +11,7 @@ import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import { withSessionFusionDirector, withSessionFusionWorker } from "../../session/session-fusion-team.js";
-import { resolveSessionWorker, sessionDirectorChoice, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { directorPickedNoticeText, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionState } from "../../session/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
@@ -139,6 +139,12 @@ export interface RuntimeTurnDependencies {
   state: RuntimeTurnState;
   lifecycle: { isShutdown(): boolean };
   logger: StructuredLogger;
+  /**
+   * Session-scoped events the turn service itself raises (the fusion
+   * director notice, issue #37), routed like the loop's own. Absent in
+   * narrow test rigs: nothing is said.
+   */
+  emitEvent?: (sessionId: string, event: AgentLoopEvent) => void;
 }
 
 export function createRuntimeTurnService(
@@ -413,7 +419,8 @@ export function createRuntimeTurnService(
     namedDirector: string | undefined,
     namedWorker: string | undefined,
   ): { session: SessionState; choice: SessionTeamChoice | undefined } => {
-    const fusion = resolveLlmConfig(getConfig()).runMode?.fusion;
+    const runMode = resolveLlmConfig(getConfig()).runMode;
+    const fusion = runMode?.fusion;
     if ((namedDirector !== undefined || namedWorker !== undefined) && fusion?.team === undefined) {
       throw new Error("no fusion team is configured (llm.runMode.fusion.team): a director or worker cannot be chosen");
     }
@@ -434,11 +441,30 @@ export function createRuntimeTurnService(
       metadata = withSessionFusionWorker(metadata, member);
     }
     const policy = currentProviderPolicy();
-    const choice = sessionDirectorChoice(metadata, fusion, policy, (m) => providerRegistry.getProvider(m.providerId) !== undefined);
-    const next = metadata === session.metadata ? session : { ...session, metadata };
-    if (choice === null || choice.reason !== "stamped") return { session: next, choice: undefined };
+    const reachable = (m: { providerId: string }): boolean => providerRegistry.getProvider(m.providerId) !== undefined;
+    const picked = sessionDirectorChoice(metadata, fusion, policy, reachable);
+    // Outside the fusion mode a stamp is kept for later, but nothing is
+    // picked or said: the director leads fusion only.
+    const choice = picked?.reason !== "stamped" && runMode?.mode !== "fusion" ? null : picked;
+    if (choice === null) {
+      return { session: metadata === session.metadata ? session : { ...session, metadata }, choice: undefined };
+    }
     assertProviderAllowed(choice.member.providerId, { constraintsActive: () => false, role: "the fusion director" });
-    return { session: next, choice: { director: choice.member, worker: resolveSessionWorker(metadata, fusion, policy) } };
+    if (choice.reason !== "stamped") {
+      // Picked here, not by the person: stamped so the session keeps it
+      // (a later turn does not re-pick), and said once. A frontend with
+      // a picker (the TUI) asks before the first turn instead.
+      metadata = withSessionFusionDirector(metadata, choice.member);
+      const text = directorPickedNoticeText(choice.member, choice.reason, sessionDirectorOptions(fusion, policy, reachable).length);
+      deps.emitEvent?.(session.id, {
+        type: "fusion_director_notice", sessionId: session.id, member: choice.member.ref, reason: choice.reason, text,
+      });
+      logger.info("fusion director picked for the session", { sessionId: session.id, director: choice.member.ref, reason: choice.reason });
+    }
+    return {
+      session: metadata === session.metadata ? session : { ...session, metadata },
+      choice: { director: choice.member, worker: resolveSessionWorker(metadata, fusion, policy) },
+    };
   };
 
   const executeTurnInPolicy = async (

@@ -36,7 +36,12 @@ export type ComposerSwitchIntent =
       readonly providerId: string;
     }
   /** Fusion's `workers` control: how many workers run at once. */
-  | { readonly kind: "fusionWorkers"; readonly workers: number };
+  | { readonly kind: "fusionWorkers"; readonly workers: number }
+  /**
+   * A fusion team member for the open chat (issue #37): its director, or
+   * its preferred worker (`member: null` clears the preference).
+   */
+  | { readonly kind: "fusionTeamMember"; readonly role: "director" | "worker"; readonly member: string | null };
 
 export interface ComposerSwitchRow {
   readonly id: string;

@@ -98,6 +98,9 @@ import { turnsToMessages } from "./chat/turns-to-messages.js";
 import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";
+import { teamMemberByRef } from "../runtime/session-director.js";
+import { withSessionFusionDirector, withSessionFusionWorker } from "../session/session-fusion-team.js";
+import { needsDirectorPick, teamPickerState } from "./fusion-team-picker.js";
 import type { SessionPickerEntry, TuiState } from "./tui-state.js";
 
 const DEBUG_BUNDLE_TRACE_LIMIT = 10;
@@ -630,6 +633,71 @@ export class ChatOrchestrator {
     } catch (err) {
       this.bus.emit({ type: "composer_notice", text: err instanceof Error ? err.message : String(err) });
     } finally { this.composerRoutePending = false; void this.resumeModelQueue(); }
+  }
+
+  /**
+   * Which providers can serve this chat's team members (issue #37): the
+   * registry's, minus what the chat folder's constraint refuses.
+   */
+  private teamUsable(session: SessionState): (providerId: string) => boolean {
+    const restriction = this.runtime.providerRestrictionFor?.(session) ?? null;
+    return (id) =>
+      this.runtime.providerRegistry.getProvider(id) !== undefined &&
+      (restriction === null || restriction.allowedProviders.includes(id));
+  }
+
+  /** `/director`, `/worker` and the first submit (issue #37): open a team picker for the open chat. */
+  openTeamPicker(role: "director" | "worker"): void {
+    const session = this.ensureSession();
+    const team = teamPickerState(resolveLlmConfig(getConfig()).runMode, session.metadata, this.teamUsable(session));
+    if (team === null) {
+      this.bus.emit({ type: "composer_notice", text: "No fusion team is configured (llm.runMode.fusion.team)." });
+      return;
+    }
+    this.bus.emit({ type: "composer_team_shown", team });
+    this.bus.emit({ type: "composer_switch_opened", kind: role === "director" ? "director" : "teamWorker" });
+  }
+
+  /**
+   * A team picker's row (issue #37): stamp the open chat's director or
+   * preferred worker in its metadata, never in the global config. Not
+   * while a turn runs: its save would put the old metadata back.
+   */
+  chooseFusionTeamMember(role: "director" | "worker", member: string | null): void {
+    const session = this.session;
+    if (!session) return;
+    if (this.currentController || this.runtime.turnController?.busySessionIds?.().includes(session.id)) {
+      this.bus.emit({ type: "composer_notice", text: "Wait for the current work to finish." });
+      return;
+    }
+    const fusion = resolveLlmConfig(getConfig()).runMode?.fusion;
+    const found = member === null ? null : teamMemberByRef(fusion, role === "director" ? "directors" : "workers", member);
+    if (found === null && (member !== null || role === "director")) return;
+    const metadata = role === "director"
+      ? withSessionFusionDirector(session.metadata, found)
+      : withSessionFusionWorker(session.metadata, found);
+    this.session = { ...session, metadata };
+    // A chat not in the store yet keeps the stamp in memory: its first
+    // turn runs on this copy and saves it.
+    if (this.runtime.sessionStore.load(session.id) !== null) this.runtime.sessionStore.save(this.session);
+    this.notify(role === "director"
+      ? `fusion director: ${member}`
+      : member === null ? "fusion worker: each task's own pick" : `fusion worker: ${member}`);
+  }
+
+  /**
+   * The first submit of a fusion chat whose team offers several
+   * directors and that has none (issue #37): the message goes back to
+   * the composer and the director picker opens.
+   */
+  private holdForDirectorPick(text: string): boolean {
+    const session = this.session;
+    if (!session) return false;
+    if (!needsDirectorPick(resolveLlmConfig(getConfig()).runMode, session.metadata, this.teamUsable(session))) return false;
+    this.bus.emit({ type: "input_changed", value: text });
+    this.openTeamPicker("director");
+    this.bus.emit({ type: "composer_notice", text: "Choose this chat's fusion director, then send again. Your message is kept here." });
+    return true;
   }
 
   async chooseComposerFusionModel(leg: "orchestrator" | "worker", modelId: string): Promise<void> {
@@ -1472,6 +1540,7 @@ export class ChatOrchestrator {
       this.emitQueue();
       return;
     }
+    if (this.holdForDirectorPick(text)) return;
     void this.runOneTurn(text);
   }
 

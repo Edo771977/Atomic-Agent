@@ -524,6 +524,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onSessionNewRequested: () => orchestrator.newSession(),
         onIncognitoSessionRequested: () => orchestrator.newSession({ incognito: true }),
         onCompactionRequested: (verb) => { void orchestrator.compactContext(verb); },
+        onTeamPickerRequested: (role) => { orchestrator.openTeamPicker(role); },
         onGoalCommand: (command) => orchestrator.goalCommand(command),
         onPromptEnhanceRequested: (draft) => { void orchestrator.enhancePrompt(draft); },
         onPromptEnhanceCancel: () => orchestrator.cancelPromptEnhance(),
@@ -801,6 +802,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
           void orchestrator.localModels.pausePull(kind),
         onComposerEngineRequested: (engine, leg) => { void orchestrator.chooseComposerEngine(engine, leg); },
         onComposerFusionModelRequested: (leg, model) => { void orchestrator.chooseComposerFusionModel(leg, model); },
+        onComposerTeamMemberChosen: (role, member) => { orchestrator.chooseFusionTeamMember(role, member); },
         onLocalModelsEngineRequested: (engine) => { void orchestrator.localModels.chooseEngine(engine); },
         onLocalModelsSetActiveRequested: (id) =>
           void orchestrator.localModels.setActive(id),

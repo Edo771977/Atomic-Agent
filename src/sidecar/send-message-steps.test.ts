@@ -217,4 +217,21 @@ describe("sidecar send_message — step ceiling", () => {
     expect(turnOptions).toHaveLength(1);
     expect(turnOptions[0]!.maxSteps).toBe(7);
   }, 60_000);
+
+  // Issue #37: the host may name the session's fusion director (and
+  // preferred worker); `executeTurn` stamps and checks them. Without a
+  // team the runtime refuses the named one, which the host sees.
+  it("passes a director and worker the client names to the turn", async () => {
+    const response = await sendOne({ director: "cloud:model-a", worker: "cloud:model-b" });
+    expect(response.kind === "response" && response.ok).toBe(false);
+    expect(turnOptions).toHaveLength(1);
+    expect(turnOptions[0]).toMatchObject({ director: "cloud:model-a", worker: "cloud:model-b" });
+  }, 60_000);
+
+  it("passes no director or worker that is not a string", async () => {
+    await sendOne({ director: 7, worker: null });
+    expect(turnOptions).toHaveLength(1);
+    expect("director" in turnOptions[0]!).toBe(false);
+    expect("worker" in turnOptions[0]!).toBe(false);
+  }, 60_000);
 });

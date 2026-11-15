@@ -960,6 +960,7 @@ export async function createAgentRuntime(
     inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill, sessionTeam },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
+    emitEvent: emitAgentLoopEventFor,
   });
   // ATO-586: an incognito chat closed mid-turn is deleted once the turn
   // has left the queue (`isBusy` is still true inside `executeTurn`).

@@ -1,4 +1,5 @@
 import { engineRows, fusionModelRows } from "./composer-engine-rows.js";
+import { selectTeamRows } from "./composer-switch-team-rows.js";
 export type {
   ComposerSwitchIntent,
   ComposerSwitchRow,
@@ -225,7 +226,11 @@ export function selectComposerSwitchRows(
         : kind === "workerProvider" ? engineRows(state, "worker")
         : kind === "workers"
           ? fusionModelRows(state, "worker")
-          : modelRows(state);
+          : kind === "director"
+            ? selectTeamRows(state, "director")
+            : kind === "teamWorker"
+              ? selectTeamRows(state, "worker")
+              : modelRows(state);
   const rows = gateRowsForOffline(all, state, offline);
   const open = state.composerSwitch;
   // The typed filter is applied here, not in the renderer: cursor
