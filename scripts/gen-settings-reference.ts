@@ -27,8 +27,10 @@ import ts from "typescript";
 import { listConfigLeaves } from "../src/config/config-paths.js";
 import { ENV_SETTINGS } from "../src/config/env-settings.js";
 import { USER_CONFIG_VERSION } from "../src/config/config-schema.js";
+import { defaultOfSetting } from "../src/config/settings-reference-data.js";
 import {
   buildSettingsReference,
+  mergeSettingKeys,
   renderSettingsReferenceMarkdown,
   type SettingDoc,
 } from "../src/config/settings-reference.js";
@@ -37,6 +39,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SCHEMA_FILE = resolve(ROOT, "src/config/config-schema.ts");
 export const GENERATED_MODULE = resolve(ROOT, "src/config/settings-docs.generated.ts");
 export const REFERENCE_DOC = resolve(ROOT, "docs/user/settings-reference.md");
+
+/** Stands for any name of a string record (`projects.constraints.<folder>`). */
+const RECORD_SEGMENT = "*";
+/** How deep the optional-key walk descends; the schema needs four. */
+const MAX_DEPTH = 6;
 
 /** Longest description kept; longer first paragraphs are cut at a sentence end. */
 const MAX_DESCRIPTION = 360;
@@ -98,10 +105,11 @@ function capitalize(rest: string): string {
 }
 
 /**
- * Walk `UserConfigFile` along every dotted key `config list` knows and
- * collect the declared type and JSDoc of each leaf. Keys the type does
- * not describe (none today) are simply left out; `buildSettingsReference`
- * then falls back to the type of the default value.
+ * Walk `UserConfigFile` along every dotted key `config list` knows, plus
+ * the optional keys the type declares with no default, and collect the
+ * declared type and JSDoc of each. Keys the type does not describe (none
+ * today) are simply left out; `buildSettingsReference` then falls back to
+ * the type of the default value.
  */
 export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<string, SettingDoc> {
   const program = ts.createProgram([schemaFile], {
@@ -133,15 +141,68 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
   const userRoot = findInterface("UserConfigFile");
   const runtimeRoot = findInterface("AtomicAgentConfig");
 
+  const recordValueOf = (type: ts.Type): ts.Type | undefined =>
+    checker.getIndexInfoOfType(checker.getNonNullableType(type), ts.IndexKind.String)?.type;
   const walk = (root: ts.InterfaceDeclaration, key: string): { symbol: ts.Symbol; type: ts.Type } | null => {
     let type: ts.Type | undefined = checker.getTypeAtLocation(root);
     let symbol: ts.Symbol | undefined;
     for (const part of key.split(".")) {
       if (!type) return null;
+      if (part === RECORD_SEGMENT) {
+        // `projects.constraints.*`: the record's value type; no symbol of its own.
+        type = recordValueOf(type);
+        symbol = undefined;
+        continue;
+      }
       symbol = checker.getNonNullableType(type).getProperty(part);
       type = symbol ? checker.getTypeOfSymbolAtLocation(symbol, root) : undefined;
     }
     return symbol && type ? { symbol, type } : null;
+  };
+
+  /**
+   * The keys `UserConfigFile` declares beyond the defaults' leaves: walk
+   * the type, stopping at every key the defaults already list, descending
+   * into plain object types and into the value type of a string record
+   * (as `*`), and taking anything else (primitives, unions, arrays) as a
+   * leaf. This is what puts the `llm` block and `projects.constraints`
+   * into the reference although a fresh file has no value for them.
+   */
+  const optionalKeys = (leafKeys: ReadonlySet<string>): string[] => {
+    const out: string[] = [];
+    // A mapped type (`Partial<Record<FusionRole, string>>`) has properties
+    // with no declaration to carry a comment: it is one leaf, documented
+    // on the key that holds it.
+    const isPlainObject = (type: ts.Type): boolean =>
+      (type.flags & ts.TypeFlags.Object) !== 0 &&
+      !checker.isArrayType(type) &&
+      !checker.isTupleType(type) &&
+      type.getCallSignatures().length === 0 &&
+      checker.getPropertiesOfType(type).length > 0 &&
+      checker.getPropertiesOfType(type).every((property) => (property.declarations?.length ?? 0) > 0);
+    const visit = (type: ts.Type, prefix: string, depth: number): void => {
+      for (const property of checker.getPropertiesOfType(checker.getNonNullableType(type))) {
+        const key = prefix === "" ? property.name : `${prefix}.${property.name}`;
+        if (leafKeys.has(key)) continue;
+        const declared = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(property, userRoot));
+        const record = recordValueOf(declared);
+        if (record && checker.getPropertiesOfType(declared).length === 0) {
+          out.push(key);
+          const value = checker.getNonNullableType(record);
+          if (isPlainObject(value) && depth < MAX_DEPTH) visit(value, `${key}.${RECORD_SEGMENT}`, depth + 1);
+          continue;
+        }
+        if (isPlainObject(declared) && depth < MAX_DEPTH) {
+          const before = out.length;
+          visit(declared, key, depth + 1);
+          // A block the defaults spell out (`analytics`) adds nothing here.
+          if (out.length > before || [...leafKeys].some((leaf) => leaf.startsWith(`${key}.`))) continue;
+        }
+        out.push(key);
+      }
+    };
+    visit(checker.getTypeAtLocation(userRoot), "", 0);
+    return out;
   };
   const rawDocOf = (symbol: ts.Symbol): string =>
     ts.displayPartsToString(symbol.getDocumentationComment(checker));
@@ -149,7 +210,11 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
 
   const docs: Record<string, SettingDoc> = {};
   const leaves = listConfigLeaves();
-  for (const leaf of leaves) {
+  const leafKeys = new Set(leaves.map((leaf) => leaf.key));
+  const optional = new Set(optionalKeys(leafKeys));
+  const allKeys = mergeSettingKeys([...leafKeys], [...optional]);
+  for (const key of allKeys) {
+    const leaf = { key };
     const own = walk(userRoot, leaf.key);
     if (!own) continue;
     let description = docOf(own.symbol);
@@ -171,7 +236,7 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
       }
       // A one-field block (`analytics.enabled`): the block's comment is the field's.
       const prefix = `${leaf.key.slice(0, dot)}.`;
-      const siblings = leaves.filter((other) => other.key.startsWith(prefix));
+      const siblings = allKeys.filter((other) => other.startsWith(prefix));
       if (description === "" && siblings.length === 1) {
         const parent = walk(userRoot, leaf.key.slice(0, dot));
         if (parent) description = docOf(parent.symbol);
@@ -184,14 +249,23 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
         ts.TypeFormatFlags.InTypeAlias | ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
       )
       // Optional properties read as `T | undefined`; the file never stores undefined.
-      .replace(/ \| undefined$/, "");
+      .replace(/ \| undefined$/, "")
+      // A string record reads as the `Record<string, X>` it was declared as.
+      .replace(/^\{ \[x: string\]: (.+); \}$/, "Record<string, $1>");
     // `5 | 2 | 1 | 3 | 4` reads better in order.
     const sorted = /^\d+( \| \d+)+$/.test(typeText)
       ? typeText.split(" | ").sort((a, b) => Number(a) - Number(b)).join(" | ")
       : typeText;
-    docs[leaf.key] = { type: sorted, description };
+    docs[leaf.key] = optional.has(leaf.key) ? { type: sorted, description, optional: true } : { type: sorted, description };
   }
   return docs;
+}
+
+/** Keys whose extracted description is empty; the check fails on any. */
+export function undocumentedKeys(docs: Readonly<Record<string, SettingDoc>>): string[] {
+  return Object.entries(docs)
+    .filter(([, doc]) => doc.description === "")
+    .map(([key]) => key);
 }
 
 /** The generated module's full text; stable key order (declaration order). */
@@ -206,19 +280,21 @@ export function renderGeneratedModule(docs: Record<string, SettingDoc>): string 
     "export const SETTINGS_DOCS: Readonly<Record<string, SettingDoc>> = {",
   ];
   for (const [key, doc] of Object.entries(docs)) {
-    lines.push(`  ${JSON.stringify(key)}: { type: ${JSON.stringify(doc.type)}, description: ${JSON.stringify(doc.description)} },`);
+    const optional = doc.optional ? ", optional: true" : "";
+    lines.push(`  ${JSON.stringify(key)}: { type: ${JSON.stringify(doc.type)}, description: ${JSON.stringify(doc.description)}${optional} },`);
   }
   lines.push("};", "");
   return lines.join("\n");
 }
 
-/** Both outputs, from one extraction. */
-export function renderAll(): { module: string; markdown: string } {
+/** Both outputs, from one extraction, and the keys still lacking a description. */
+export function renderAll(): { module: string; markdown: string; undocumented: string[] } {
   const docs = extractSettingDocs();
-  const entries = buildSettingsReference(listConfigLeaves(), docs, ENV_SETTINGS);
+  const entries = buildSettingsReference(listConfigLeaves(), docs, ENV_SETTINGS, defaultOfSetting);
   return {
     module: renderGeneratedModule(docs),
     markdown: renderSettingsReferenceMarkdown(entries, ENV_SETTINGS, USER_CONFIG_VERSION),
+    undocumented: undocumentedKeys(docs),
   };
 }
 
@@ -231,7 +307,11 @@ function readOrEmpty(path: string): string {
 }
 
 if (argv[1] && resolve(argv[1]) === fileURLToPath(import.meta.url)) {
-  const { module, markdown } = renderAll();
+  const { module, markdown, undocumented } = renderAll();
+  if (undocumented.length > 0) {
+    stderr.write(`no JSDoc description: ${undocumented.join(", ")}\nadd a comment on each key in its config type\n`);
+    if (argv.includes("--check")) exit(1);
+  }
   if (argv.includes("--check")) {
     const stale = [
       readOrEmpty(GENERATED_MODULE) === module ? null : GENERATED_MODULE,

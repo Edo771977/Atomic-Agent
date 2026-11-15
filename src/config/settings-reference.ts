@@ -8,8 +8,10 @@ import { envOverrideFor, type EnvSetting } from "./env-settings.js";
  * `docs/user/settings-reference.md` is generated from.
  *
  * The keys and defaults come from `USER_CONFIG_DEFAULTS` (through
- * `listConfigLeaves`), the types and descriptions from the JSDoc on
- * `UserConfigFile` (through the generated `settings-docs.generated.ts`),
+ * `listConfigLeaves`), plus the optional keys `UserConfigFile` declares
+ * with no default (the `llm` block, `projects.constraints.*`), the types
+ * and descriptions from the JSDoc on `UserConfigFile` (through the
+ * generated `settings-docs.generated.ts`; a key without one fails the check),
  * the env overrides from `env-settings.ts`. Nothing here is a second
  * list of keys: a key added to the schema shows up on the next
  * regeneration, and the reference test fails until it is regenerated.
@@ -21,6 +23,13 @@ export interface SettingDoc {
   readonly type: string;
   /** First paragraph of the key's JSDoc; empty when the key has none. */
   readonly description: string;
+  /**
+   * True for a key the type declares but `USER_CONFIG_DEFAULTS` has no
+   * value for (the whole `llm` block, `projects.constraints.*`, …). The
+   * generator finds these by walking `UserConfigFile`; a `*` segment
+   * stands for any name of a record (`projects.constraints.<folder>`).
+   */
+  readonly optional?: boolean;
 }
 
 /** One row of the reference. */
@@ -34,9 +43,12 @@ export interface SettingEntry {
   readonly envVar: string | null;
   /**
    * True when `atomic-agent config set <key> <value>` can write it:
-   * not a list (those need the whole-file JSON form) and not `version`.
+   * not a list (those need the whole-file JSON form), not `version`, and
+   * not an optional key with no default.
    */
   readonly settable: boolean;
+  /** True when the key has no default (see `SettingDoc.optional`). */
+  readonly optional: boolean;
 }
 
 const READ_ONLY = new Set(["version"]);
@@ -48,21 +60,64 @@ function typeOfDefault(value: unknown): string {
   return typeof value;
 }
 
+/**
+ * Row order: the keys with a default in schema order, each block's
+ * optional keys right after that block's last default, and blocks that
+ * have only optional keys (`llm`) at the end, in the order given.
+ */
+export function mergeSettingKeys(defaultKeys: readonly string[], optionalKeys: readonly string[]): string[] {
+  const pending = new Map<string, string[]>();
+  for (const key of optionalKeys) {
+    const block = blockOf(key);
+    pending.set(block, [...(pending.get(block) ?? []), key]);
+  }
+  const out: string[] = [];
+  defaultKeys.forEach((key, index) => {
+    out.push(key);
+    const block = blockOf(key);
+    const next = defaultKeys[index + 1];
+    if (next === undefined || blockOf(next) !== block) {
+      out.push(...(pending.get(block) ?? []));
+      pending.delete(block);
+    }
+  });
+  for (const keys of pending.values()) out.push(...keys);
+  return out;
+}
+
 /** Pure: join leaves, extracted docs and the env table into reference rows. */
 export function buildSettingsReference(
   leaves: readonly ConfigLeaf[],
   docs: Readonly<Record<string, SettingDoc>>,
   envSettings: readonly EnvSetting[],
+  defaultOf: (key: string) => unknown = () => undefined,
 ): SettingEntry[] {
-  return leaves.map((leaf) => {
-    const doc = docs[leaf.key];
+  const byKey = new Map(leaves.map((leaf) => [leaf.key, leaf]));
+  const optionalKeys = Object.entries(docs)
+    .filter(([key, doc]) => doc.optional === true && !byKey.has(key))
+    .map(([key]) => key);
+  return mergeSettingKeys([...byKey.keys()], optionalKeys).map((key) => {
+    const doc = docs[key];
+    const leaf = byKey.get(key);
+    if (!leaf) {
+      return {
+        key,
+        type: doc?.type ?? "unknown",
+        default: defaultOf(key),
+        description: doc?.description ?? "",
+        envVar: envOverrideFor(key, envSettings),
+        settable: false,
+        optional: true,
+      };
+    }
     return {
-      key: leaf.key,
+      key,
       type: doc?.type ?? typeOfDefault(leaf.defaultValue),
       default: leaf.defaultValue,
       description: doc?.description ?? "",
-      envVar: envOverrideFor(leaf.key, envSettings),
-      settable: !leaf.isArray && !READ_ONLY.has(leaf.key),
+      envVar: envOverrideFor(key, envSettings),
+      settable: !leaf.isArray && !READ_ONLY.has(key),
+      optional: false,
     };
   });
 }
@@ -105,7 +160,8 @@ export function renderSettingsText(
     lines.push(`${head}  [${entry.type}]`);
     if (entry.description) lines.push(`    ${entry.description}`);
     if (entry.envVar) lines.push(`    env ${entry.envVar} wins when set`);
-    if (!entry.settable && entry.key !== "version") lines.push("    list: set it with the whole-file JSON form");
+    if (entry.optional) lines.push("    optional: set it with the whole-file JSON form");
+    else if (!entry.settable && entry.key !== "version") lines.push("    list: set it with the whole-file JSON form");
   }
   return lines.join("\n");
 }
@@ -153,7 +209,7 @@ export function renderSettingsReferenceMarkdown(
     "",
     "<!-- GENERATED by scripts/gen-settings-reference.ts. Do not edit by hand. -->",
     "",
-    `Every setting in \`~/.atomic-agent/config.json\` (config version ${configVersion}), with its type, default and description, followed by the settings that only exist as environment variables. Defaults are what a fresh install gets; migrations and env variables can make an existing install differ.`,
+    `Every setting in \`~/.atomic-agent/config.json\` (config version ${configVersion}), with its type, default and description, followed by the settings that only exist as environment variables. Defaults are what a fresh install gets; migrations and env variables can make an existing install differ. A default of \`unset\` marks an optional key a fresh file does not have; a \`*\` in a key stands for any name (a folder, a webhook id).`,
     "",
     "Read or change a setting from the terminal:",
     "",
@@ -164,7 +220,7 @@ export function renderSettingsReferenceMarkdown(
     "atomic-agent config unset agent.maxSteps # back to the default",
     "```",
     "",
-    "In the TUI, `/settings <words>` searches the same list. The desktop app shows it under Settings, Advanced, All settings. List-valued keys have no single-value form; set them with the whole-file JSON form (`atomic-agent config set -`).",
+    "In the TUI, `/settings <words>` searches the same list. The desktop app shows it under Settings, Advanced, All settings. List-valued and optional keys have no single-value form; set them with the whole-file JSON form (`atomic-agent config set -`).",
     "",
   ];
   let block: string | null = null;

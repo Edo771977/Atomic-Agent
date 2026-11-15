@@ -240,7 +240,14 @@ export type UserLlmFusionConfig = {
    */
   outcomeLog?: boolean;
   /** Opt-in decisions from recent objective task-check outcomes; absent is off. */
-  measuredRouting?: { enabled?: boolean; minSamples?: number; days?: number };
+  measuredRouting?: {
+    /** Pick the model of an unpinned task from recent task-check outcomes. Default `false`. */
+    enabled?: boolean;
+    /** Outcomes a candidate needs before it can be picked, 3 to 1000. Default `8`. */
+    minSamples?: number;
+    /** How many days of outcomes count, 1 to 365. Default `30`. */
+    days?: number;
+  };
   /**
    * The one-call format check before the first fan-out on a local worker
    * leg: a few dozen tokens under the workers' own grammar, and a reply
@@ -320,6 +327,12 @@ export const DEFAULT_FUSION_ESCALATION_MAX_USD = 0.25;
 export const FUSION_JUDGE_MODES: readonly NonNullable<UserLlmFusionConfig["judge"]>[] = ["off", "on"];
 
 export type UserLlmRunModeConfig = {
+  /**
+   * How a chat runs: `local` (everything on this machine), `cloud`
+   * (everything on the active cloud provider) or `fusion` (a cloud model
+   * orchestrates local-model workers). `llm.activeTextProvider` stays
+   * authoritative.
+   */
   mode?: RunModeName;
   fusion?: UserLlmFusionConfig;
 };

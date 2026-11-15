@@ -37,7 +37,15 @@ export type UserLlmRouterConditions = {
 };
 
 export type UserLlmRouterConfig = {
+  /**
+   * Turn the rule-based model router on. Off unless this is `true` and
+   * `rules` has at least one rule.
+   */
   enabled: boolean;
+  /**
+   * Router rules, first match wins: conditions on the request (size, image,
+   * words, working folder, …) and the provider a matching turn goes to.
+   */
   rules: UserLlmRouterRule[];
 };
 

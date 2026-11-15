@@ -41,6 +41,7 @@ describe("buildSettingsReference", () => {
       description: "Steps in one leg.",
       envVar: null,
       settable: true,
+      optional: false,
     });
     expect(rows[3]?.envVar).toBe("X_CDP");
   });
@@ -49,6 +50,29 @@ describe("buildSettingsReference", () => {
     const rows = buildSettingsReference(leaves, {}, []);
     expect(rows.map((row) => row.type)).toEqual(["number", "array", "number", "null"]);
     expect(rows.every((row) => row.description === "")).toBe(true);
+  });
+
+  it("places keys with no default after their block's defaults, not settable", () => {
+    const rows = buildSettingsReference(
+      leaves,
+      {
+        "agent.maxSteps": { type: "number", description: "Steps." },
+        "agent.fallbackModel": { type: "string", description: "Optional model.", optional: true },
+        "llm.activeTextProvider": { type: "string", description: "Active provider.", optional: true },
+      },
+      [],
+    );
+    expect(rows.map((row) => row.key)).toEqual([
+      "agent.maxSteps",
+      "agent.fallbackModel",
+      "projects.roots",
+      "version",
+      "browser.cdpUrl",
+      "llm.activeTextProvider",
+    ]);
+    const optional = rows.find((row) => row.key === "agent.fallbackModel");
+    expect(optional).toMatchObject({ default: undefined, settable: false, optional: true });
+    expect(rows[0]?.optional).toBe(false);
   });
 
   it("marks lists and version as not settable with `config set <key> <value>`", () => {
@@ -95,13 +119,36 @@ describe("renderSettingsText", () => {
 });
 
 describe("the live settings reference", () => {
-  it("has one row per config.json key, in schema order", () => {
-    expect(listSettingsReference().map((row) => row.key)).toEqual(listConfigLeaves().map((leaf) => leaf.key));
+  it("has one row per config.json key with a default, in schema order", () => {
+    const withDefaults = listSettingsReference().filter((row) => !row.optional).map((row) => row.key);
+    expect(withDefaults).toEqual(listConfigLeaves().map((leaf) => leaf.key));
   });
 
   it("has generated docs for exactly the keys the schema has", () => {
     // A new key, or a removed one, without regenerating fails here.
-    expect(Object.keys(SETTINGS_DOCS), REGENERATE).toEqual(listConfigLeaves().map((leaf) => leaf.key));
+    const withDefaults = Object.entries(SETTINGS_DOCS).filter(([, doc]) => !doc.optional).map(([key]) => key);
+    expect(withDefaults, REGENERATE).toEqual(listConfigLeaves().map((leaf) => leaf.key));
+  });
+
+  it("covers optional keys that have no default", () => {
+    const keys = new Set(listSettingsReference().map((row) => row.key));
+    for (const key of [
+      "llm.activeTextProvider",
+      "llm.providers",
+      "llm.costTracking.dailyLimitUsd",
+      "llm.costTracking.onDailyLimit",
+      "llm.runMode.fusion.orchestratorReasoning",
+      "projects.constraints",
+      "projects.constraints.*.allowedProviders",
+      "projects.constraints.*.allowedEgress",
+    ]) {
+      expect(keys.has(key), key).toBe(true);
+    }
+  });
+
+  it("describes every key", () => {
+    const undocumented = listSettingsReference().filter((row) => row.description === "").map((row) => row.key);
+    expect(undocumented, "add a JSDoc comment on the key in its config type, then regenerate").toEqual([]);
   });
 
   it("covers the keys the issue names", () => {

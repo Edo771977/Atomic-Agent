@@ -62,16 +62,39 @@ export const WHILE_BUSY_SUBMIT_MODES: readonly WhileBusySubmitMode[] = ["steer",
 
 
 export interface OnboardingState {
+  /**
+   * When the first-run flow configured a backend (ISO time); `null` until
+   * then.
+   */
   completedAt: string | null;
+  /** When the first-run splash was first dismissed (ISO time). */
   introSeenAt: string | null;
+  /**
+   * When the first-run flow was escaped (ISO time); it does not reopen by
+   * itself afterwards.
+   */
   skippedAt: string | null;
+  /**
+   * When the first-run flow offered a second backend (ISO time); it is
+   * offered once.
+   */
   proposedSecondBackendAt: string | null;
+  /** When the first-run flow reached the local model list (ISO time). */
   localSetupSeenAt: string | null;
+  /**
+   * When the first-run flow offered to import another agent's data (ISO
+   * time); it is offered once.
+   */
   importOfferedAt: string | null;
 }
 
 export interface TuiConfig {
+  /** TUI color theme name, or `auto` to follow the terminal background. */
   theme: string;
+  /**
+   * A message sent while the agent works: `steer` folds it into the running
+   * turn at the next step, `queue` runs it as its own turn afterwards.
+   */
   whileBusySubmit: WhileBusySubmitMode;
   mouse: boolean;
   /**

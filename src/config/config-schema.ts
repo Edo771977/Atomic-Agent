@@ -669,7 +669,10 @@ export interface UserConfigFile {
   // index signature here would make every property name valid on the type
   // the whole tree writes back — `{ ...file, viison: … }` would compile.
   localModels: UserLocalModelsConfig;
-  log: { level: LogLevel };
+  log: {
+    /** Least severe line the log keeps: `debug`, `info`, `warn` or `error`. */
+    level: LogLevel;
+  };
   agent: UserAgentConfig;
   http: UserHttpConfig;
   web: {
@@ -783,6 +786,11 @@ export interface UserConfigFile {
    * win. No report is sent while an incognito chat is open.
    */
   analytics: {
+    /**
+     * Anonymous product analytics (PostHog). Only `{ provider, model }` and a
+     * random install id are sent; never message content, file paths, tool
+     * arguments or the IP. `false` turns it off.
+     */
     enabled: boolean;
     errorReports: boolean;
   };

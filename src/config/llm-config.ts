@@ -220,11 +220,36 @@ export type UserModelEntry = {
 };
 
 export type UserLlmFallbackConfig = {
+  /**
+   * Provider ids to fall over to, in order, when the active provider keeps
+   * failing.
+   */
   chain?: string[];
+  /**
+   * Also append the local llama-server provider to the end of the chain.
+   * Default `false`: a cloud error is shown rather than silently moving to a
+   * local model.
+   */
   appendLocal?: boolean;
+  /**
+   * Consecutive failures before the chain moves on (errors that mean the
+   * provider is down move at once). Default `3`.
+   */
   failureThreshold?: number;
+  /**
+   * Escalating cooldowns of a failed provider, in ms; the last entry is the
+   * cap. Default `[30000, 60000, 300000]`.
+   */
   cooldownMs?: number[];
+  /**
+   * Shortest gap between two probes of the primary while on a fallback, in
+   * ms. Default `300000`.
+   */
   probeThrottleMs?: number;
+  /**
+   * A provider with no error for this long starts its failure count afresh,
+   * in ms. Default `86400000` (one day).
+   */
   failureWindowMs?: number;
 };
 
@@ -250,6 +275,7 @@ export type UserLlmOpenRouterConfig = {
  * no ceiling, `onDailyLimit: "stop"`).
  */
 export type UserLlmCostTrackingConfig = {
+  /** Track the cost of cloud calls. Default `false`. */
   enabled?: boolean;
   showInStatusBar?: boolean;
   dailyResetHourUtc?: number;
@@ -268,9 +294,22 @@ export const DAILY_LIMIT_ACTIONS = ["stop", "local"] as const;
 export type DailyLimitAction = (typeof DAILY_LIMIT_ACTIONS)[number];
 
 export type UserLlmFileConfig = {
+  /** Id of the `providers` entry that answers chat turns. */
   activeTextProvider: string;
+  /** Id of the `providers` entry that computes embeddings for memory recall. */
   activeEmbeddingProvider: string;
+  /**
+   * How tool calls reach the model: `grammar` (a constrained-output grammar),
+   * `native_tools` (the provider's tool-calling API), or `auto` to pick per
+   * provider.
+   */
   toolTransport: UserLlmToolTransport;
+  /**
+   * The configured model providers (local llama-server, OpenAI-compatible,
+   * Anthropic, Gemini, OpenRouter, subscription CLIs), each with an `id`,
+   * `kind` and connection settings. The provider screens in the TUI and the
+   * desktop app write it.
+   */
   providers: UserLlmProviderEntry[];
   fallback?: UserLlmFallbackConfig;
   /** Run mode (local | cloud | fusion) and the fusion legs. See `llm-run-mode-config.ts`. */

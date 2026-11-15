@@ -13,7 +13,22 @@ import { parseStringArrayOrNull } from "./config-values.js";
  * that may receive its content and the egress classes its tools may use
  * (`allowedEgress`, absent = none; see `EGRESS_CLASSES`).
  */
-export type ProjectConstraintsConfig = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
+export type ProjectConstraintsConfig = Record<string, ProjectConstraintEntry>;
+
+/** One folder's entry in `projects.constraints`. */
+export interface ProjectConstraintEntry {
+  /**
+   * Provider ids that may receive a request carrying content of a session
+   * working in or under this folder. An empty list lets no provider serve it.
+   */
+  allowedProviders: string[];
+  /**
+   * Egress classes the folder's tools may use to send content off the
+   * machine (`web`, `http`, `browser`, `github`, `git`, `channels`, `mail`,
+   * `composio`, `serve`, `mcp:<server>`). Absent or empty: none.
+   */
+  allowedEgress?: string[];
+}
 
 export interface RuntimeProjectsConfig {
   roots: string[];
@@ -21,7 +36,16 @@ export interface RuntimeProjectsConfig {
 }
 
 export interface UserProjectsConfig {
+  /**
+   * Folders whose direct children are your projects; the agent matches
+   * project names against them. Empty: nothing is scanned.
+   */
   roots: string[];
+  /**
+   * Absolute folder → which providers may receive a session's content while
+   * it works in or under that folder, and which egress its tools may use.
+   * Empty: nothing is constrained.
+   */
   constraints: ProjectConstraintsConfig;
 }
 
