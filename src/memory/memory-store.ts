@@ -958,6 +958,22 @@ export class MemoryStore {
     return this.hasContentStmt.get(content.trim()) !== undefined;
   }
 
+  /**
+   * Every provider-constraint scope with live (not archived) notes, for
+   * the per-scope passes of background jobs (issue #33). Not filtered by
+   * the caller's scope: it names scopes, never their content.
+   */
+  listConstraintScopes(): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT constraint_scope AS scope FROM memories
+          WHERE constraint_scope IS NOT NULL AND consolidated_into IS NULL
+          ORDER BY scope`,
+      )
+      .all() as { scope: string }[];
+    return rows.map((r) => r.scope);
+  }
+
   /** Total number of stored entries. Useful for tests and diagnostics. */
   count(): number {
     const row = this.countStmt.get() as { count: number };
