@@ -26,6 +26,17 @@ function resolved(
 }
 
 describe("planModelRestore", () => {
+  it("never restores a per-turn stamp into the global config", () => {
+    // A turn pinned to a project's own model records it with perTurn;
+    // re-selecting it on /resume would persist it as defaultChatModel.
+    expect(
+      planModelRestore(
+        { providerId: "aimlapi", chatModel: "project-model", perTurn: true },
+        resolved(),
+      ),
+    ).toEqual({ kind: "none" });
+  });
+
   it("does nothing without a stamp", () => {
     expect(planModelRestore(null, resolved())).toEqual({ kind: "none" });
   });

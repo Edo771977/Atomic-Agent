@@ -27,6 +27,13 @@ export interface SessionLlmStamp {
    * names none (a bare llama-server serves whatever it loaded).
    */
   chatModel: string | null;
+  /**
+   * Set when the stamp records a model pinned for one turn only (a
+   * project's own cloud model), not the operator's configured choice.
+   * Such a stamp describes what ran; it must never be re-applied to the
+   * global config when the session is resumed.
+   */
+  perTurn?: true;
 }
 
 /**
@@ -45,9 +52,11 @@ export function readSessionLlmStamp(
   const providerId = (raw as { providerId?: unknown }).providerId;
   if (typeof providerId !== "string" || providerId.length === 0) return null;
   const chatModel = (raw as { chatModel?: unknown }).chatModel;
+  const perTurn = (raw as { perTurn?: unknown }).perTurn === true;
   return {
     providerId,
     chatModel:
       typeof chatModel === "string" && chatModel.length > 0 ? chatModel : null,
+    ...(perTurn ? { perTurn: true as const } : {}),
   };
 }

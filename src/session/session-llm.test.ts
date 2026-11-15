@@ -16,6 +16,19 @@ describe("readSessionLlmStamp", () => {
     ).toEqual({ providerId: "openrouter", chatModel: "z-ai/glm-5.2" });
   });
 
+  it("keeps the per-turn mark only when it is exactly true", () => {
+    expect(
+      readSessionLlmStamp({
+        [SESSION_LLM_METADATA_KEY]: { providerId: "cloud", chatModel: "m", perTurn: true },
+      }),
+    ).toEqual({ providerId: "cloud", chatModel: "m", perTurn: true });
+    expect(
+      readSessionLlmStamp({
+        [SESSION_LLM_METADATA_KEY]: { providerId: "cloud", chatModel: "m", perTurn: "yes" },
+      }),
+    ).toEqual({ providerId: "cloud", chatModel: "m" });
+  });
+
   it("normalises a missing or empty model to null", () => {
     expect(
       readSessionLlmStamp({

@@ -278,7 +278,9 @@ describe("runtime turn ownership recipes", () => {
 
     const options = fixture.loop.runTurn.mock.calls[0]?.[1];
     expect(options).toMatchObject({ providerId: "cloud", model: "project-model" });
-    expect(output.session.metadata?.llm).toEqual({ providerId: "cloud", chatModel: "project-model" });
+    // Marked per-turn: resuming the session must not adopt it as the
+    // global default (planModelRestore skips per-turn stamps).
+    expect(output.session.metadata?.llm).toEqual({ providerId: "cloud", chatModel: "project-model", perTurn: true });
     expect(output.session.metadata?.llmRoute).toMatchObject({ main: { providerId: "cloud", model: "project-model" } });
     expect(swap).not.toHaveBeenCalled();
     expect(registry.activeTextProviderId).toBe("local-llama");

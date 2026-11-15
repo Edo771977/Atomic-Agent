@@ -529,7 +529,7 @@ export function createRuntimeTurnService(
     // provider and model, not the active one: that is what it records.
     const turnModel = runOptions.providerId !== undefined ? runOptions.model : undefined;
     const llmStamp: SessionLlmStamp = turnModel !== undefined
-      ? { providerId: runOptions.providerId!, chatModel: turnModel }
+      ? { providerId: runOptions.providerId!, chatModel: turnModel, perTurn: true }
       : {
           providerId: llmResolved.activeTextProvider,
           chatModel: llmEntry?.defaultChatModel ?? llmEntry?.model ?? null,
