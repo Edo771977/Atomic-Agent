@@ -810,6 +810,18 @@ export function createTraceRecorder(
             ...(event.reason !== undefined ? { reason: event.reason } : {}),
           });
           return;
+        case "budget_notice":
+          push({
+            type: "budget_notice",
+            seq: nextSeq(),
+            sessionId,
+            ts: now(),
+            turnIndex: currentTurnIndex,
+            providerId: event.providerId,
+            reason: event.reason,
+            text: event.text,
+          });
+          return;
         case "llm_event":
           onStepEvent(event.event);
           return;
