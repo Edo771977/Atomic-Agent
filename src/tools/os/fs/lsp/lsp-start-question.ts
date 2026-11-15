@@ -2,7 +2,8 @@
  * The start question for a language server in an untrusted folder
  * (ATO-503): a language server runs the project's own code (tsconfig
  * plugins, a local TypeScript, pyright's environment), which is the
- * same trust as the folder's own skills and instruction files. So
+ * same trust as the folder's own skills (a trusted instruction file,
+ * which is only read, does not count). So
  * outside a trusted folder the first start in a work tree goes through
  * the approval gate as `trust_config`, the category for "this changes
  * what runs on the operator's behalf": it asks until level 5 and is

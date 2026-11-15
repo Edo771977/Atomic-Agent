@@ -205,8 +205,9 @@ export function registerRuntimeCoreTools(input: {
     },
     shellJobs,
     ...(webSearchKeyHelp === undefined ? {} : { webSearchKeyHelp }),
-    // A folder the operator trusted (any project skill or instruction
-    // file said yes to) starts language servers without a question
+    // A folder the operator trusted to run its code (a project skill
+    // said yes to; an instruction file alone is not enough) starts
+    // language servers without a question
     // (ATO-503). Read live, like the skill gate.
     isTrustedProject: (dir) => isProjectFolderTrusted(config.paths.userConfigFile, config.skills.projectTrust, dir),
     // A Fusion worker edits in its own worktree: a server each would be
