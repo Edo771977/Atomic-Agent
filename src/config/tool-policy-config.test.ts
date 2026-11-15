@@ -113,10 +113,10 @@ describe("outbound HTTP and tool configuration ownership", () => {
 
   it("keeps after-edit language-server diagnostics off by default and reads tools.lsp.enabled (ATO-503)", () => {
     expect(parseToolsConfig({}, createToolsDefaults).lsp).toStrictEqual({ enabled: false });
-    expect(parseToolsConfig({}, createToolsDefaults, {}, { enabled: true }).lsp).toStrictEqual({ enabled: true });
+    expect(parseToolsConfig({}, createToolsDefaults, {}, {}, { enabled: true }).lsp).toStrictEqual({ enabled: true });
     expect(schema.parseUserConfigFile({}).tools.lsp.enabled).toBe(false);
     expect(schema.parseUserConfigFile({ tools: { lsp: { enabled: true } } }).tools.lsp.enabled).toBe(true);
-    expect(() => schema.parseUserConfigFile({ tools: { lsp: { enabled: "yes" } } })).toThrow(/tools\.lsp\.enabled/);
+    expect(() => schema.parseUserConfigFile({ tools: { lsp: { enabled: 7 } } })).toThrow(/tools\.lsp\.enabled/);
   });
 
   it("keeps pointing on by default and reads tools.screen.point (ATO-1018)", () => {
