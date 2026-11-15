@@ -1,3 +1,4 @@
+import { sessionReadRoots } from "../../read-scope/index.js";
 import { OS_FS_PATCH_CONTRACT } from "./fs-patch-contract.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { refuseMaskedSecretWrite } from "./fs-masked-secret-guard.js";
@@ -157,6 +158,7 @@ export function buildOsFsPatchTool(
                 after: patched,
                 sessionId: ctx.sessionId,
                 signal: ctx.signal,
+                scopeRoots: sessionReadRoots(ctx),
                 ...(original.length > 0 ? { before: original } : {}),
               })) ?? null);
         const warning = joinWarnings(

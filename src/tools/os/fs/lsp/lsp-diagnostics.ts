@@ -41,6 +41,7 @@ import {
   serverForPath,
   type LspServerSpec,
 } from "./lsp-servers.js";
+import { isOutsideReadRoots } from "../../../read-scope/index.js";
 
 /** How long one file sync may wait for the server's diagnostics. */
 export const LSP_DIAGNOSTICS_TIMEOUT_MS = 3000;
@@ -65,6 +66,13 @@ export interface LspChangeInput {
   readonly sessionId?: string;
   /** The tool call's signal; aborting it drops the start question. */
   readonly signal?: AbortSignal;
+  /**
+   * The session's working directory and read roots (`sessionReadRoots`).
+   * A server reads its whole workspace and its diagnostics can quote it,
+   * so no server starts, and no diagnostics run, in a git root outside
+   * all of them (a session in a subfolder of a larger repository).
+   */
+  readonly scopeRoots: readonly string[];
 }
 
 /** What the start question is about. */
@@ -313,6 +321,7 @@ export function createLspDiagnostics(
     const root = findRoot(dirname(input.absolute));
     if (root === null) return null;
     if (options.skipRoot?.(root) === true) return null;
+    if (isOutsideReadRoots(root, input.scopeRoots)) return null;
     const known = entries.get(`${spec.id}\u0000${root}`);
     if (known === undefined || known.state === "unavailable") {
       // No server on PATH: nothing to ask about.

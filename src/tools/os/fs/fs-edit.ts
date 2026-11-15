@@ -1,3 +1,4 @@
+import { sessionReadRoots } from "../../read-scope/index.js";
 import { OS_FS_EDIT_CONTRACT, parseEditArgs as parseArgs } from "./fs-edit-contract.js";
 import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -164,6 +165,7 @@ async function editFile(
       after: updated,
       sessionId: ctx.sessionId,
       signal: ctx.signal,
+      scopeRoots: sessionReadRoots(ctx),
     })) ?? null;
 
   return withReplaceNotes(
