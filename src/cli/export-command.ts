@@ -15,12 +15,13 @@ const HELP =
     "atomic-agent export — save one chat as Markdown, HTML or Word (ATO-1054)",
     "",
     "Usage:",
-    "  atomic-agent export <sessionId> [--format md|html|docx] [--out <file>] [--no-tools]",
-    "  atomic-agent export --last      [--format md|html|docx] [--out <file>] [--no-tools]",
+    "  atomic-agent export <sessionId> [--format md|html|docx] [--out <file> [--force]] [--no-tools]",
+    "  atomic-agent export --last      [--format md|html|docx] [--out <file> [--force]] [--no-tools]",
     "",
     "Markdown and HTML go to stdout unless --out is given. Word (docx) is",
     "written to --out, or to a file named after the chat in the current",
-    "folder. --last exports the most recent chat. --no-tools leaves out the",
+    "folder. An existing file is never overwritten unless --force is given.",
+    "--last exports the most recent chat. --no-tools leaves out the",
     "one line per tool step. For a PDF, open the HTML in a browser and print",
     "it, or use Export in the desktop app. Session ids: `/session` in the TUI.",
     "",
@@ -64,9 +65,30 @@ export async function exportCommand(args: string[]): Promise<number> {
     return 0;
   }
   const path = resolve(out);
-  writeFileSync(path, file.body);
+  const failed = writeExportFile(path, file.body, parsed.force);
+  if (failed !== null) {
+    process.stderr.write(`${failed}\n`);
+    return 1;
+  }
   process.stderr.write(`exported ${state.id} -> ${path}\n`);
   return 0;
+}
+
+/**
+ * Write the export to `path`: a new file only (`wx`) unless `force`.
+ * Returns the message to print when it could not, else `null`. Exported
+ * for tests.
+ */
+export function writeExportFile(path: string, body: string | Buffer, force: boolean): string | null {
+  try {
+    writeFileSync(path, body, { flag: force ? "w" : "wx" });
+    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      return `${path} already exists; pass --force to overwrite it, or choose another --out`;
+    }
+    return `could not write ${path}: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 export interface ParsedExportArgs {
@@ -75,6 +97,8 @@ export interface ParsedExportArgs {
   format: NonNullable<ReturnType<typeof parseChatExportFormat>>;
   out: string | null;
   tools: boolean;
+  /** Overwrite an existing `--out` file. */
+  force: boolean;
 }
 
 /** The flags, or the usage error to print. Exported for tests. */
@@ -84,10 +108,12 @@ export function parseExportArgs(args: readonly string[]): ParsedExportArgs | str
   let formatRaw: string | null = null;
   let out: string | null = null;
   let tools = true;
+  let force = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] ?? "";
     if (arg === "--last") last = true;
     else if (arg === "--no-tools") tools = false;
+    else if (arg === "--force") force = true;
     else if (arg === "--format" || arg === "--out") {
       const value = args[i + 1];
       if (!value || value.startsWith("-")) return `${arg} needs a value`;
@@ -102,7 +128,7 @@ export function parseExportArgs(args: readonly string[]): ParsedExportArgs | str
   if (last && sessionId) return "give a session id or --last, not both";
   const format = parseChatExportFormat(formatRaw);
   if (!format) return `unknown format: ${formatRaw} (md, html or docx)`;
-  return { sessionId, last, format, out, tools };
+  return { sessionId, last, format, out, tools, force };
 }
 
 /** The newest chat someone has written in; unnamed empty sessions are skipped. */
