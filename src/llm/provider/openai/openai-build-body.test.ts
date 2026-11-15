@@ -7,6 +7,7 @@ import {
   openAiSuffixedWireNames,
 } from "./openai-tool-call-adapter.js";
 import type { ToolDescriptor } from "../../../prompt/stable-prefix.js";
+import { TOOL_RESULT_STATUS } from "./openai-native-messages.js";
 
 describe("buildOpenAiChatBody", () => {
   it("forwards responseFormat as response_format with type=json_schema and strict=true by default", () => {
@@ -625,7 +626,7 @@ describe("buildOpenAiChatBody — the native message layout", () => {
           { id: "call_1", type: "function", function: { name: "os__fs__read", arguments: '{"path":"a"}' } },
         ],
       },
-      { role: "tool", tool_call_id: "call_1", content: "A" },
+      { role: "tool", tool_call_id: "call_1", content: "A", [TOOL_RESULT_STATUS]: "ok" },
       { role: "user", content: "### respond\nRespond now.\n" },
     ]);
     expect(body.tools).toEqual(tools);

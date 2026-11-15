@@ -6,6 +6,7 @@ import { estimateTokens } from "../../../prompt/token-budget.js";
 import {
   NO_RESULT_RECORDED,
   PRESERVED_REASONING_TOKEN_BUDGET,
+  TOOL_RESULT_STATUS,
   buildNativeMessages,
   capPreservedReasoning,
   isNativeShapeRejection,
@@ -52,7 +53,7 @@ describe("buildNativeMessages", () => {
           },
         ],
       },
-      { role: "tool", tool_call_id: "call_1", content: "hello" },
+      { role: "tool", tool_call_id: "call_1", content: "hello", [TOOL_RESULT_STATUS]: "ok" },
       { role: "assistant", content: "it says hello" },
       { role: "user", content: "now b.txt" },
       { role: "user", content: "### world\n(none)\n\n### respond\nRespond now.\n" },
@@ -95,7 +96,10 @@ describe("buildNativeMessages", () => {
       role: "tool",
       tool_call_id: "call_0",
       content: "error: exit 1 (truncated)",
+      // The status rides along for the Anthropic wire's is_error, never serialized.
+      [TOOL_RESULT_STATUS]: "error",
     });
+    expect(JSON.stringify(messages[2])).not.toContain("tool-result-status");
   });
 
   it("answers a call the history has no result for before anything follows it", () => {

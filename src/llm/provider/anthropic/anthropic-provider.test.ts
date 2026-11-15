@@ -166,6 +166,29 @@ describe("AnthropicProvider request", () => {
     expect(cacheMarks.length).toBeLessThanOrEqual(4);
   });
 
+  it("marks is_error from the tool result's own status, not from its text", async () => {
+    const sent: Sent[] = [];
+    const prompt: PromptMessages = {
+      ...PROMPT,
+      turns: [
+        { kind: "user", text: "read two files" },
+        { kind: "assistant_tool_call", tool: "os.fs.read", args: { path: "a" }, callId: "call_turn_1" },
+        { kind: "assistant_tool_call", tool: "os.fs.read", args: { path: "b" }, callId: "call_turn_2" },
+        // A file whose first line happens to read "error: ..." is a success.
+        { kind: "tool_result", tool: "os.fs.read", status: "ok", body: "error: this line is in the log file", truncated: false, callId: "call_turn_1" },
+        { kind: "tool_result", tool: "os.fs.read", status: "error", body: "ENOENT", truncated: false, callId: "call_turn_2" },
+      ],
+    };
+    await provider(sent, [json(MESSAGE)]).complete(turnRequest({ messages: prompt }));
+    const messages = sent[0]!.body.messages as Array<{ role: string; content: Array<Record<string, unknown>> }>;
+    const results = messages[2]!.content.filter((b) => b.type === "tool_result");
+    expect(results[0]).not.toHaveProperty("is_error");
+    expect(results[0]!.content).toBe("error: this line is in the log file");
+    expect(results[1]!.is_error).toBe(true);
+    // Nothing of the marker reaches the wire under its own name.
+    expect(JSON.stringify(sent[0]!.body)).not.toMatch(/toolStatus|atomic/);
+  });
+
   it("never sends sampling parameters, stream_options or a forced tool_choice", async () => {
     const sent: Sent[] = [];
     await provider(sent, [json(MESSAGE)], { defaultChatModel: "claude-sonnet-4-5" }).complete(

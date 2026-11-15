@@ -17,7 +17,8 @@
  *  - assistant `tool_calls` become `tool_use` blocks; every `tool`
  *    message of one step becomes a `tool_result` block in ONE user
  *    message (consecutive same-role messages are merged, tool results
- *    first). A result our own renderer marked `error: …` is `is_error`.
+ *    first). `is_error` comes from the result's recorded status
+ *    (`TOOL_RESULT_STATUS`); the `error: ` prefix only without one.
  *  - `reasoning_content` on history messages is dropped: thinking blocks
  *    are never replayed, because the packer and compaction edit history
  *    and a replayed block bound to an edited prefix is a 400.
@@ -36,7 +37,7 @@
  *    every request with "Extra inputs are not permitted".
  */
 
-import { TOOL_ERROR_PREFIX } from "../openai/openai-native-messages.js";
+import { TOOL_ERROR_PREFIX, TOOL_RESULT_STATUS } from "../openai/openai-native-messages.js";
 import {
   ANTHROPIC_EFFORT_LEVELS,
   anthropicEffortLevels,
@@ -385,9 +386,21 @@ function toolResultBlock(message: Block): Block {
     type: "tool_result",
     tool_use_id: wireId(message.tool_call_id),
     content: text.length > 0 ? text : "(empty)",
-    ...(text.startsWith(TOOL_ERROR_PREFIX) ? { is_error: true } : {}),
+    ...(isErrorResult(message, text) ? { is_error: true } : {}),
     ...(cache !== undefined ? { cache_control: cache } : {}),
   };
+}
+
+/**
+ * The result's recorded status when the message carries it
+ * (`TOOL_RESULT_STATUS`); only a message without one (a chat-shaped
+ * request) falls back to our renderer's `error: ` prefix.
+ */
+function isErrorResult(message: Block, text: string): boolean {
+  const status = (message as { [TOOL_RESULT_STATUS]?: unknown })[TOOL_RESULT_STATUS];
+  if (status === "error") return true;
+  if (status !== undefined) return false;
+  return text.startsWith(TOOL_ERROR_PREFIX);
 }
 
 /** Tool ids must match `^[a-zA-Z0-9_-]+$`; the same rewrite on both sides keeps pairs matched. */

@@ -38,7 +38,11 @@ names, strict tools, effort, cache breakpoints, `extraBody`, model
   Anthropic allows.
 - Assistant `tool_calls` → `tool_use`; all `tool` messages of one step →
   `tool_result` blocks in one user message, before the tail text. A result
-  our renderer prefixed `error: ` is sent with `is_error: true`.
+  recorded with status `error` is sent with `is_error: true`: the status
+  rides on the `tool` message under a symbol key (`TOOL_RESULT_STATUS`,
+  never serialized), so a successful result whose text starts with
+  `error: ` stays a success. Only a message without it (a chat-shaped
+  request) falls back to our renderer's `error: ` prefix.
 - `tools` → `{name, description, input_schema}`; `tool_choice` is only
   `auto` (with `disable_parallel_tool_use` when parallel calls are off) or
   `none`. Forced `any` / `tool` is a 400 on Fable 5.x, Opus 5.5 and
