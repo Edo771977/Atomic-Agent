@@ -338,6 +338,31 @@ export class FusionRunStore {
     return this.remove(runId);
   }
 
+  /**
+   * Delete every run of `sessionId`, whatever its state (ATO-586: closing
+   * an incognito chat leaves none of its fan-outs behind). Returns how
+   * many files went; a folder that cannot be read has none to delete.
+   */
+  removeForSession(sessionId: string): number {
+    let names: string[];
+    try {
+      names = readdirSync(this.dir);
+    } catch {
+      return 0;
+    }
+    let removed = 0;
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const runId = name.slice(0, -".json".length);
+      if (!FusionRunStore.isValidRunId(runId)) continue;
+      const checkpoint = readCheckpoint(join(this.dir, name));
+      if (checkpoint?.sessionId !== sessionId) continue;
+      this.active.delete(runId);
+      if (this.remove(runId)) removed += 1;
+    }
+    return removed;
+  }
+
   /** @internal — the recorder's write. */
   write(checkpoint: FusionRunCheckpoint): string | undefined {
     try {

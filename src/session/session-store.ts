@@ -63,6 +63,13 @@ import {
   turnArchiveTableExists,
   type TurnArchiveStatements,
 } from "./turn-archive.js";
+import {
+  isIncognitoSession,
+  newIncognitoMark,
+  orphanIncognitoSessionIds,
+  storedSessionIsIncognito,
+  type IncognitoMark,
+} from "./incognito.js";
 
 // `turn_owner` names the process running a turn on the row (see
 // `beginTurn`) and is null otherwise — a shutdown's stand-in keeps it
@@ -398,6 +405,15 @@ export class SessionStore {
    * mark, never one another process put there since.
    */
   private readonly ownTurns = new Map<string, string>();
+  /**
+   * ATO-586: incognito chats this store has written and not yet deleted.
+   * While any is open the connection runs with `secure_delete` on, so the
+   * pages each save frees are zeroed rather than left holding the chat's
+   * text; off otherwise, since zeroing costs every save of an ordinary
+   * chat about half again its write time.
+   */
+  private readonly openIncognito = new Set<string>();
+  private secureDelete = false;
 
   constructor(options: SessionStoreOptions = {}) {
     const config = getConfig();
@@ -463,9 +479,15 @@ export class SessionStore {
     this.listRecentStmt = this.db.prepare(
       `SELECT id, status, payload FROM sessions ORDER BY updated_at DESC LIMIT ?`,
     );
+    // ATO-586: an incognito chat's folder is not a recent one. `instr`
+    // first, so only a payload that names the key is parsed as JSON.
     this.listRecentDirsStmt = this.db.prepare(
       `SELECT working_dir AS workingDir, updated_at AS updatedAt
-       FROM sessions ORDER BY updated_at DESC LIMIT ?`,
+       FROM sessions
+       WHERE NOT (instr(payload, '"incognito"') > 0
+                  AND json_valid(payload)
+                  AND json_type(payload, '$.incognito') = 'object')
+       ORDER BY updated_at DESC LIMIT ?`,
     );
     // Two statements, one SQL text: the cursor has to be absent from
     // the first page's `WHERE` for SQLite to plan a plain index walk,
@@ -819,6 +841,10 @@ export class SessionStore {
    * only `save` is held to `statusForSave`.
    */
   private write(state: SessionState, endsTurn: boolean): void {
+    if (isIncognitoSession(state)) {
+      this.openIncognito.add(state.id);
+      this.setSecureDelete(true);
+    }
     const archive = this.turnArchive();
     // One transaction: the archive rows the write adds and the payload
     // that counts them land together or not at all.
@@ -1112,11 +1138,63 @@ export class SessionStore {
     return this.listRecentDirsStmt.all(limit) as RecentWorkingDirRow[];
   }
 
+  /**
+   * The mark a new incognito chat carries (ATO-586), owned by this
+   * process in this database file — what `sweepOrphanIncognito` judges.
+   */
+  newIncognitoMark(now: number = Date.now()): IncognitoMark {
+    return newIncognitoMark(this.turnOwnerProbe, now, this.dbIdentity);
+  }
+
+  /** Whether the stored row `id` is an incognito chat. */
+  isIncognito(id: string): boolean {
+    return storedSessionIsIncognito(this.db, id);
+  }
+
+  /**
+   * Delete the incognito chats whose owning process is gone — the app
+   * was killed or crashed before it could close them. Boot only, before
+   * this process opens one of its own (see `orphanIncognitoSessionIds`).
+   * Returns the deleted ids so the caller can remove their trace files.
+   */
+  sweepOrphanIncognito(): string[] {
+    const ids = orphanIncognitoSessionIds(
+      this.db,
+      this.turnOwnerProbe,
+      this.dbIdentity,
+    );
+    for (const id of ids) this.delete(id);
+    return ids;
+  }
+
   delete(id: string): void {
+    const incognito = this.openIncognito.has(id) || storedSessionIsIncognito(this.db, id);
+    if (incognito) this.setSecureDelete(true);
     this.db.transaction(() => {
       this.deleteStmt.run(id);
       this.archiveStatements?.clear.run(id);
     })();
+    if (!incognito) return;
+    this.openIncognito.delete(id);
+    // ATO-586: the zeroed pages reach the database file and the WAL that
+    // still holds the chat's earlier pages is emptied. A reader holding
+    // an older snapshot can keep frames until the next checkpoint.
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* best effort: the automatic checkpoint gets there later */
+    }
+    if (this.openIncognito.size === 0) this.setSecureDelete(false);
+  }
+
+  private setSecureDelete(on: boolean): void {
+    if (this.secureDelete === on) return;
+    try {
+      this.db.pragma(`secure_delete = ${on ? "ON" : "OFF"}`);
+      this.secureDelete = on;
+    } catch {
+      /* a closed or busy handle: the next write tries again */
+    }
   }
 
   /**
@@ -1188,7 +1266,9 @@ export class SessionStore {
     const states: SessionState[] = [];
     for (const row of rows) {
       const state = this.readPayload(row, archive);
-      if (state) states.push(state);
+      // An incognito chat (ATO-586) is never listed; `load` by id still
+      // answers for it.
+      if (state && !isIncognitoSession(state)) states.push(state);
     }
     return states;
   }

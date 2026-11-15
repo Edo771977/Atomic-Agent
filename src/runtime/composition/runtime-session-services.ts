@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { describeSessionPinsFix, SessionPinsReadError, SessionStore, createEmptySessionState, createFusionWorkerSession, pruneSessions, readSessionPins, type FusionWorkerMeta, type SessionState } from "../../session/index.js";
@@ -7,6 +7,8 @@ import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
+import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
+import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 
 export function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
@@ -51,6 +53,10 @@ export function prepareRuntimeSessionStore(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  // An incognito chat (ATO-586) whose process died before closing it is
+  // deleted now, trace and all. Ones a live window still holds stay.
+  sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
+    new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }));
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a
@@ -137,16 +143,23 @@ export function installRuntimeSessionDelete(
 
 export function createRuntimeSessionFactories(
   workingDir: string,
-  sessionStore: Pick<SessionStore, "save">,
+  sessionStore: Pick<SessionStore, "save"> & Partial<Pick<SessionStore, "newIncognitoMark">>,
   ensureRecorder: ReturnType<typeof createRuntimeTraces>["ensureRecorder"],
 ) {
   const createSession = (
-    input: { metadata?: Record<string, unknown>; persist?: boolean } = {},
+    input: { metadata?: Record<string, unknown>; persist?: boolean; incognito?: boolean } = {},
   ): SessionState => {
+    // ATO-586: owned by this process, so the next start can tell a chat
+    // a crash left behind from one another window still holds.
+    if (input.incognito === true && !sessionStore.newIncognitoMark) {
+      throw new Error("incognito chats need a session store that can mark them");
+    }
+    const incognito = input.incognito === true ? sessionStore.newIncognitoMark!() : undefined;
     const state = createEmptySessionState({
       id: `s-${randomUUID()}`,
       workingDir,
       ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(incognito ? { incognito } : {}),
     });
     // Deferred: the first turn writes the row and opens the recorder, so
     // an allocation nobody speaks to leaves nothing behind — neither a

@@ -80,6 +80,18 @@ describe("fusion run checkpoints (ATO-617)", () => {
     expect(saved.state).toBe("running");
   });
 
+  it("removeForSession deletes every run of one session, ended or cut off, and no other (ATO-586)", () => {
+    const store = new FusionRunStore({ dir });
+    const stopped = start(store);
+    stopped.finish("interrupted");
+    const other = store.start({ sessionId: "s-2", workingDir: "/repo", args: { tasks: [] }, tasks: TASKS, waveCount: 1 });
+    other.finish("interrupted");
+    expect(store.removeForSession("s-1")).toBe(1);
+    expect(store.load(stopped.runId)).toBeNull();
+    expect(store.load(other.runId)).not.toBeNull();
+    expect(new FusionRunStore({ dir: join(dir, "absent") }).removeForSession("s-1")).toBe(0);
+  });
+
   it("writes a finished task and its spend at once", () => {
     const store = new FusionRunStore({ dir });
     const run = start(store);

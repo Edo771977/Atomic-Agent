@@ -295,6 +295,7 @@ export {
   writeThroughputRecord,
   readLaunchRecord,
   writeLaunchRecord,
+  eraseManagedChatSlots,
   THROUGHPUT_PROBE_TOKENS,
   type DaemonStartOptions,
   type DaemonStartResult,
@@ -305,6 +306,7 @@ export {
   type ThroughputRecord,
   type ThroughputSample,
 } from "./server/daemon-lifecycle.js";
+export { markPromptCachePrivate } from "./server/prompt-disk-cache.js";
 export {
   checkEmbeddingMemory,
   claimLowMemoryEmbeddingNote,
