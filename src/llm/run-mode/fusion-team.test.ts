@@ -234,7 +234,12 @@ describe("pickReviewer with strength (issue #38)", () => {
   // Neutral fixture tiers by model id; anything else is unknown.
   const tiers: Record<string, "cheap" | "balanced" | "best"> = { "m-cheap": "cheap", "m-mid": "balanced", "m-top": "best" };
   const strength = (x: TeamMember) => tiers[x.model] ?? null;
-  const pick = (reviewers: string[], worker: string, over: Partial<UserFusionTeamConfig> = {}, reachable = all) =>
+  const pick = (
+    reviewers: string[],
+    worker: string,
+    over: Partial<UserFusionTeamConfig> = {},
+    reachable: (x: TeamMember) => boolean = all,
+  ) =>
     pickReviewer({ directors: ["anthropic:m-top"], reviewers, ...over }, m(worker), { familyOf, reachable, strength })?.ref ?? null;
 
   it("prefers a stronger reviewer of another family, then a stronger one of the same family", () => {
