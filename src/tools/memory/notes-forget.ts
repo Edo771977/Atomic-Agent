@@ -26,9 +26,11 @@ export function buildNotesForgetTool(
     async run(rawArgs) {
       const id = rawArgs.id;
       try {
-        const removed = options.store.remove(
-          typeof id === "number" ? id : Number.NaN,
-        );
+        const numericId = typeof id === "number" ? id : Number.NaN;
+        // Per-folder provider constraints (issue #33): a note this
+        // session cannot see (another folder's constraint scope) is not
+        // its to delete; `get` reads through the scope, `remove` does not.
+        const removed = options.store.get(numericId) !== null && options.store.remove(numericId);
         return compressToolResult({
           tool: "memory.notes.forget",
           status: "ok",
