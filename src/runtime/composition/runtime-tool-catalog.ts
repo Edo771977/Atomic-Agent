@@ -443,6 +443,7 @@ export async function connectRuntimeMcpCatalog(input: {
       ? createMcpSamplingHandler({
           llamaServerClient: llama,
           server: "*",
+          constraintsActive: () => hasProjectConstraints(getConfig()),
         })
       : undefined,
     ...(options.handlers?.onChannelStatus
