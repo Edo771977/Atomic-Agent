@@ -34,7 +34,7 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
-import { createRuntimeEgressGuard } from "./composition/runtime-egress-guard.js";
+import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
 import { describeProviderRestriction } from "../llm/provider-policy.js";
@@ -375,9 +375,12 @@ export async function createAgentRuntime(
   // folder's content off the machine are refused at dispatch. MCP servers
   // are classed by the manager, which exists once the catalog connects.
   let egressMcp: McpManager | undefined;
-  const egressGuard = createRuntimeEgressGuard({
+  // The same guard refuses a write that would carry a constrained (or
+  // read-tainted) session's content out of its folder (write-out rule).
+  const egressGuard = createRuntimeDispatchGuard({
     effectivePolicyForSession: sessionProviderPolicy.effectivePolicyForSession,
     mcp: () => egressMcp,
+    readConfig: () => getConfig(),
   });
   // The registry taints first (onDispatch), then checks egress against
   // the narrowed policy (effectivePolicyForSession reads the tightened frame).

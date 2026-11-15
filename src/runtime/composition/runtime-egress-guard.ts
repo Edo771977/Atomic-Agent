@@ -1,7 +1,10 @@
 import { COMPOSIO_SERVER_NAME } from "../../composio/index.js";
-import type { ProviderPolicy } from "../../llm/provider-policy.js";
+import type { ProjectConstraintsConfig } from "../../config/tool-config.js";
+import { currentProviderPolicyFrame, type ProviderPolicy } from "../../llm/provider-policy.js";
 import type { McpManager } from "../../mcp/mcp-manager.js";
+import { FUSION_TMP_PREFIX } from "../../tools/fusion/branch-workspace.js";
 import { createEgressGuard, MCP_META_TOOLS, type EgressClass } from "../../tools/tool-egress.js";
+import { createWriteOutGuard } from "../../tools/tool-write-out.js";
 
 type McpLookup = Pick<McpManager, "serverForTool" | "transportKindOf">;
 
@@ -41,4 +44,34 @@ export function createRuntimeEgressGuard(deps: {
     policyForSession: deps.effectivePolicyForSession,
     mcpEgress: (tool, args) => mcpEgressClass(deps.mcp(), tool, args),
   });
+}
+
+/**
+ * A fusion worker's own temp copy (a folder under the fusion temp area,
+ * `atag-fusion-*`), when the turn running now is that worker's: the one
+ * place a constrained session may write outside its folder.
+ */
+export function fusionWorkerScratchDir(sessionId: string, workingDir: string): string | undefined {
+  const frame = currentProviderPolicyFrame();
+  if (frame?.role !== "a fusion worker" || frame.sessionId !== sessionId) return undefined;
+  return workingDir.split(/[\\/]/).some((part) => part.startsWith(FUSION_TMP_PREFIX)) ? workingDir : undefined;
+}
+
+/**
+ * The registry's whole dispatch guard: egress first, then the write-out
+ * rule (`tools/tool-write-out.ts`), both against the same effective policy.
+ */
+export function createRuntimeDispatchGuard(deps: {
+  effectivePolicyForSession: (sessionId: string) => ProviderPolicy | undefined;
+  mcp: () => McpLookup | undefined;
+  readConfig: () => { projects: { constraints?: ProjectConstraintsConfig } };
+}) {
+  const egress = createRuntimeEgressGuard(deps);
+  const writeOut = createWriteOutGuard({
+    policyForSession: deps.effectivePolicyForSession,
+    readConfig: deps.readConfig,
+    ownScratchDir: fusionWorkerScratchDir,
+  });
+  return (tool: string, args: Record<string, unknown>, ctx: { sessionId: string; workingDir?: string }): Error | null =>
+    egress(tool, args, ctx) ?? writeOut(tool, args, ctx);
 }
