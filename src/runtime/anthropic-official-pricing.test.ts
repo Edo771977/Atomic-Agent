@@ -59,8 +59,18 @@ describe("Anthropic's official prices on the first-party API", () => {
     ["claude-sonnet-5", { input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 }],
     ["claude-sonnet-4-6", { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 }],
     ["claude-haiku-4-5-20251001", { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 }],
+    ["claude-fable-5-1", { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 }],
+    ["claude-fable-5", { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 }],
+    ["claude-mythos-5-2", { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 }],
+    ["claude-mythos-5-1", { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 }],
+    ["claude-mythos-5", { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 }],
+    ["claude-opus-4-7", { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
+    ["claude-opus-4-6", { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
+    ["claude-opus-4-5-20251101", { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
+    ["claude-sonnet-4-5", { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 }],
   ])("prices %s at the official rates", (id, rates) => {
     expect(resolveModelPricingFor(config({}), id)?.pricing).toEqual(rates);
+    expect(resolveModelPricingFor(config({}), id)?.pricingSource).toBe("anthropic-official");
   });
 
   it("maps Haiku 5.5's prompts over 100,000 tokens to its long-context rates", () => {
@@ -97,6 +107,15 @@ describe("Anthropic's official prices on the first-party API", () => {
     expect(us?.pricingSource).toBe("anthropic-official");
     expect(us?.pricing?.input).toBeCloseTo(4.4, 9);
     expect(us?.pricing?.output).toBeCloseTo(22, 9);
+  });
+
+  it("prices Mythos 5.2 fast mode, and refuses US inference on models older than 4.6", () => {
+    expect(resolveModelPricingFor(config({ extraBody: { speed: "fast" } }), "claude-mythos-5-2")?.pricing)
+      .toMatchObject({ input: 16, output: 80 });
+    expect(resolveModelPricingFor(config({ extraBody: { speed: "fast" } }), "claude-fable-5-1")?.pricingSource).toBeUndefined();
+    expect(resolveModelPricingFor(config({ extraBody: { inference_geo: "us" } }), "claude-sonnet-4-5")?.pricingSource).toBeUndefined();
+    expect(resolveModelPricingFor(config({ extraBody: { inference_geo: "us" } }), "claude-opus-4-5")?.pricingSource).toBeUndefined();
+    expect(resolveModelPricingFor(config({ extraBody: { inference_geo: "us" } }), "claude-opus-4-6")?.pricing?.input).toBeCloseTo(5.5, 9);
   });
 
   it("leaves pricing unverified for a modifier it cannot price", () => {

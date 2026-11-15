@@ -14,6 +14,9 @@ type Pricing = NonNullable<UserModelConfigEntry["pricing"]>;
  * (`ANTHROPIC_FIRST_PARTY_HOST`): Bedrock, Vertex and OpenRouter set their
  * own prices.
  *
+ * Retired models (Opus 4.1, Opus 4, Sonnet 4) are left out: the
+ * first-party API no longer serves them.
+ *
  * Not modelled: 1-hour cache writes (2x input; settled at the 5-minute
  * rate), the Batch API discount, and the data-residency premium of
  * partner platforms.
@@ -24,6 +27,11 @@ export const ANTHROPIC_FIRST_PARTY_HOST = "api.anthropic.com";
 
 const PRICES: Readonly<Record<string, Pricing>> = {
   "claude-fable-5-2": { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 },
+  "claude-mythos-5-2": { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 },
+  "claude-fable-5-1": { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 },
+  "claude-mythos-5-1": { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 },
+  "claude-fable-5": { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 },
+  "claude-mythos-5": { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 },
   "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
   "claude-sonnet-5-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 },
   // Priced by prompt length: a prompt over 100,000 tokens (cache reads and
@@ -34,8 +42,12 @@ const PRICES: Readonly<Record<string, Pricing>> = {
   },
   "claude-opus-5": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-8": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
+  "claude-opus-4-7": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
+  "claude-opus-4-6": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
+  "claude-opus-4-5": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-sonnet-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 },
   "claude-sonnet-4-6": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
+  "claude-sonnet-4-5": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
   "claude-haiku-4-5": { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 },
 };
 
@@ -46,6 +58,7 @@ const PRICES: Readonly<Record<string, Pricing>> = {
  */
 const FAST_MODE_MULTIPLIER: Readonly<Record<string, number>> = {
   "claude-fable-5-2": 2, // $16 / $80
+  "claude-mythos-5-2": 2, // $16 / $80
   "claude-opus-5-5": 2, // $8 / $40
   "claude-opus-5": 2, // $10 / $50
   "claude-opus-4-8": 2, // $10 / $50
@@ -54,7 +67,7 @@ const FAST_MODE_MULTIPLIER: Readonly<Record<string, number>> = {
 /** `inference_geo: "us"` on Claude 4.6 and later: 1.1x every token category. */
 const US_INFERENCE_MULTIPLIER = 1.1;
 /** Models older than Claude 4.6 reject `inference_geo` (400). */
-const NO_INFERENCE_GEO = new Set(["claude-haiku-4-5"]);
+const NO_INFERENCE_GEO = new Set(["claude-haiku-4-5", "claude-opus-4-5", "claude-sonnet-4-5"]);
 
 /** `claude-haiku-4-5-20251001` → `claude-haiku-4-5`: a dated snapshot of a listed model. */
 function baseModelId(modelId: string): string {
