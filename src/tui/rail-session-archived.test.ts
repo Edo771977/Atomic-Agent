@@ -14,9 +14,10 @@ describe("rail session list — archived chats", () => {
     const stored = [spokenTo("s-a", "kept"), archived("s-b", "put away"), spokenTo("s-c", "also kept")];
     const { orchestrator, rail, picker } = harness(stored);
     orchestrator.refreshRecentSessions();
-    expect(rail().map((e) => e.sessionId)).toEqual(["s-a", "s-c"]);
+    // Store order: newest first, id descending on a tie (all three share a stamp).
+    expect(rail().map((e) => e.sessionId)).toEqual(["s-c", "s-a"]);
     orchestrator.openSessionPicker();
-    expect(picker().map((e) => e.sessionId)).toEqual(["s-a", "s-c"]);
+    expect(picker().map((e) => e.sessionId)).toEqual(["s-c", "s-a"]);
   });
 
   it("an unarchived chat (no archived key) is listed again", () => {
@@ -27,7 +28,7 @@ describe("rail session list — archived chats", () => {
     const { archived: _gone, ...rest } = stored[1]!.metadata as Record<string, unknown>;
     stored[1] = { ...stored[1]!, metadata: { ...rest, archivedSetAt: 2 } };
     orchestrator.refreshRecentSessions();
-    expect(rail().map((e) => e.sessionId)).toEqual(["s-a", "s-b"]);
+    expect(rail().map((e) => e.sessionId)).toEqual(["s-b", "s-a"]);
   });
 
   it("a pinned chat that is archived is not brought back by its pin", () => {
