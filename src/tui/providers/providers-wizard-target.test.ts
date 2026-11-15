@@ -470,6 +470,14 @@ describe("verifyTargetForWizard", () => {
       expect(headers.authorization).toBeUndefined();
     });
 
+    it("sends the contract probe to the native Messages API", () => {
+      const probe = contractProbeTargetForWizard(anthropic());
+      expect(probe).toMatchObject({
+        kind: "target",
+        target: { baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5", wire: "anthropic-messages" },
+      });
+    });
+
     it("reads a 401 as a rejected key, without the key in the detail", async () => {
       const target = verifyTargetForWizard(anthropic())!;
       const fetchImpl = vi.fn(

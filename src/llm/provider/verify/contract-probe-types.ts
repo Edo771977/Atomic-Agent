@@ -109,6 +109,14 @@ export interface ProviderContractProbeTarget {
   readonly model: string;
   readonly extraHeaders?: Record<string, string>;
   /**
+   * The native Anthropic Messages API instead of chat completions: the
+   * same rungs, translated (`toAnthropicMessagesBody`) and posted to
+   * `/v1/messages` with `x-api-key` and the current `anthropic-version`;
+   * the native stream is read through the provider's SSE translator.
+   * The forced rung goes out as `auto`, as every native turn does.
+   */
+  readonly wire?: "anthropic-messages";
+  /**
    * What a turn would put in `parallel_tool_calls` for this provider —
    * the executor's cap and the provider's declared capability, resolved
    * by the caller because neither is visible from here. Defaults to
