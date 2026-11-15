@@ -432,7 +432,7 @@ export async function createAgentRuntime(
   // session: the worker runner declares them, `os.fs.write` refuses to
   // replace them (`fs-declared-inputs.ts`).
   const declaredInputs = new DeclaredInputsRegistry();
-  registerRuntimeCoreTools({
+  const { languageServers } = registerRuntimeCoreTools({
     config, toolRegistry, dangerous, sessionStore, logger, resolveOriginalRequest: (id) => turnRequests.get(id),
     resolvePreviousReply: (id) => turnPreviousReplies.get(id),
     canAskUser: (id) => !turnsWithoutQuestions.has(id),
@@ -895,6 +895,7 @@ export async function createAgentRuntime(
     sessionStore, logger, steeringInbox, shellJobs, reflectionRunner, pendingSessionNamings, pendingPromptEnhances, turnsInFlight, compaction,
     browserBackend, mcpManager, profileStore, notesStore, lessonStore, procedureStore,
     embeddingBackfill: memoryEmbeddings,
+    ...(languageServers === undefined ? {} : { languageServers }),
     get scheduler() { return scheduler; },
     get taskRunner() { return taskRunner; },
     get telegramChannelForShutdown() { return telegramChannelForShutdown; },

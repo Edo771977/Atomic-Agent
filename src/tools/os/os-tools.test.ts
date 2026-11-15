@@ -537,6 +537,55 @@ describe("os.fs.trash", () => {
 });
 
 describe("registerOsTools", () => {
+  it("hands back the language servers it may start, for shutdown (ATO-503)", () => {
+    const gate = new ApprovalGate({ emit: () => undefined });
+    const base = {
+      config: {
+        tools: {
+          shell: { defaultTimeoutMs: 600_000, jobMaxMs: 3_600_000, maxJobs: 3, envPassthrough: [] },
+          screen: { enabled: false, point: true },
+          verify: { maxCopyBytes: 2 * 1024 * 1024 * 1024 },
+        },
+        http: {
+          enabled: true,
+          approvalMode: "writes",
+          hostAllowlist: null,
+          maxResponseBytes: 1_048_576,
+          defaultTimeoutMs: 30_000,
+        },
+        web: {
+          search: {
+            enabled: true,
+            provider: "duckduckgo",
+            maxResults: 8,
+            timeoutMs: 15_000,
+            cacheTtlMinutes: 15,
+            fallback: [],
+            searxng: { instanceUrl: null },
+            exa: {
+              endpoint: "https://mcp.exa.ai/mcp",
+              apiEndpoint: "https://api.exa.ai/search",
+              apiKeyEnv: "EXA_API_KEY",
+            },
+            brave: { apiKeyEnv: "BRAVE_SEARCH_API_KEY" },
+          },
+        },
+        projects: { roots: [], constraints: {} },
+      },
+    };
+    const off = registerOsTools(new ToolRegistry(), { ...base, approvals: gate, approvalRequired: false, listRecentSessionDirs: () => [] });
+    expect(off.languageServers).toBeUndefined();
+    const on = registerOsTools(new ToolRegistry(), {
+      ...base,
+      config: { ...base.config, tools: { ...base.config.tools, lsp: { enabled: true } } },
+      approvals: gate,
+      approvalRequired: false,
+      listRecentSessionDirs: () => [],
+    });
+    expect(typeof on.languageServers?.dispose).toBe("function");
+    on.languageServers?.dispose();
+  });
+
   it("registers the full OS tool surface", () => {
     const registry = new ToolRegistry();
     const gate = new ApprovalGate({ emit: () => undefined });

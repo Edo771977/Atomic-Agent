@@ -205,12 +205,44 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    * first start asks once. Omitted: no folder is trusted.
    */
   isTrustedProject?: (dir: string) => boolean;
+  /**
+   * Sessions that get no language-server diagnostics and start no
+   * server (ATO-503): the runtime passes Fusion workers, each in its own
+   * worktree.
+   */
+  skipLspSession?: (sessionId: string) => boolean;
+}
+
+/** What `registerOsTools` leaves running, for the runtime's shutdown. */
+export interface RegisteredOsTools {
+  /** The after-edit language servers, when `tools.lsp.enabled`. */
+  languageServers?: { dispose(): void };
 }
 
 export function registerOsTools(
   registry: ToolRegistry,
   options: RegisterOsToolsOptions,
-): void {
+): RegisteredOsTools {
+  // Opt-in (ATO-503): nothing starts until the first edit of a
+  // TypeScript/JavaScript/Python file inside a git repository.
+  const lspDiagnostics =
+    options.config.tools.lsp?.enabled === true
+      ? createLspDiagnostics({
+          enabled: true,
+          // A server runs project code: outside a trusted folder the
+          // first start in a work tree asks once (trust_config).
+          askToStart: askToStartLspThroughApprovals({
+            approvals: options.approvals,
+            approvalRequired: options.approvalRequired,
+          }),
+          ...(options.isTrustedProject === undefined
+            ? {}
+            : { isTrustedProject: options.isTrustedProject }),
+          ...(options.skipLspSession === undefined
+            ? {}
+            : { skipSession: options.skipLspSession }),
+        })
+      : undefined;
   registry.register(
     buildOsShellTool({
       approvals: options.approvals,
@@ -243,24 +275,7 @@ export function registerOsTools(
     ...(options.declaredInputs === undefined
       ? {}
       : { declaredInputs: options.declaredInputs }),
-    // Opt-in (ATO-503): nothing starts until the first edit of a
-    // TypeScript/JavaScript/Python file inside a git repository.
-    ...(options.config.tools.lsp?.enabled === true
-      ? {
-          lspDiagnostics: createLspDiagnostics({
-            enabled: true,
-            // A server runs project code: outside a trusted folder the
-            // first start in a work tree asks once (trust_config).
-            askToStart: askToStartLspThroughApprovals({
-              approvals: options.approvals,
-              approvalRequired: options.approvalRequired,
-            }),
-            ...(options.isTrustedProject === undefined
-              ? {}
-              : { isTrustedProject: options.isTrustedProject }),
-          }),
-        }
-      : {}),
+    ...(lspDiagnostics === undefined ? {} : { lspDiagnostics }),
   };
   registry.register(osFsReadTool);
   registry.register(buildOsFsWriteTool(fsMutation));
@@ -372,4 +387,5 @@ export function registerOsTools(
       approvalRequired: options.approvalRequired,
     }),
   );
+  return lspDiagnostics === undefined ? {} : { languageServers: lspDiagnostics };
 }

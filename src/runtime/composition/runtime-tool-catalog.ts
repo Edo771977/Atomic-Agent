@@ -32,12 +32,13 @@ import { finishTool } from "../../tools/finish.js";
 import { buildAskUserTool, replyTool } from "../../tools/conversation/index.js";
 import { buildBrowserTools, UserSiteApprovals } from "../../tools/browser/index.js";
 import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
-import { registerOsScreenTools, registerOsTools, type DeclaredInputsRegistry, type ShellJobRegistry, type WebSearchKeyHelp } from "../../tools/os/index.js";
+import { registerOsScreenTools, registerOsTools, type RegisteredOsTools, type DeclaredInputsRegistry, type ShellJobRegistry, type WebSearchKeyHelp } from "../../tools/os/index.js";
 import { registerVerifyTools, runChecks, verifySyntax } from "../../tools/verify/index.js";
 import { registerGithubTools } from "../../tools/github/index.js";
 import { resolveGithubToken } from "../../github/index.js";
 import { registerSkillTools } from "../../tools/skill/index.js";
 import { isProjectFolderTrusted } from "../../skills/project-trust.js";
+import { isFusionWorkerTurn } from "./runtime-egress-guard.js";
 import { buildToolViewTool } from "../../tools/tool-view/index.js";
 import { planUpdateTool } from "../../tools/plan/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
@@ -167,12 +168,12 @@ export function registerRuntimeCoreTools(input: {
   skillRegistry: SkillRegistry;
   /** Where the user adds an Exa key, for the web-search error (ATO-345). */
   webSearchKeyHelp?: WebSearchKeyHelp;
-} & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): void {
+} & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): RegisteredOsTools {
   const { config, toolRegistry, dangerous, sessionStore, resolveOriginalRequest, resolvePreviousReply, declaredInputs,
     shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, logger,
     webSearchKeyHelp, canAskUser } = input;
 
-  registerOsTools(toolRegistry, {
+  const osTools = registerOsTools(toolRegistry, {
     ...dangerous,
     config: {
       http: config.http,
@@ -207,6 +208,9 @@ export function registerRuntimeCoreTools(input: {
     // file said yes to) starts language servers without a question
     // (ATO-503). Read live, like the skill gate.
     isTrustedProject: (dir) => isProjectFolderTrusted(config.paths.userConfigFile, config.skills.projectTrust, dir),
+    // A Fusion worker edits in its own worktree: a server each would be
+    // N servers for one fan-out, so workers get none (ATO-503).
+    skipLspSession: isFusionWorkerTurn,
   });
   // Computer use (ATO-525): screenshot, click, type, key — macOS only and
   // opt-in (`tools.screen.enabled`, default off). A screenshot asks as
@@ -293,6 +297,7 @@ export function registerRuntimeCoreTools(input: {
       ? { isIncognitoSession: (sessionId: string) => sessionStore.isIncognito!(sessionId) }
       : {}),
   });
+  return osTools;
 }
 
 export function registerRuntimeVisionTools(input: {

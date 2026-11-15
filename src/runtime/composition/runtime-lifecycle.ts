@@ -27,6 +27,8 @@ export interface RuntimeLifecycleResources {
   readonly logger: Pick<StructuredLogger, "warn">;
   readonly steeringInbox: Pick<SteeringInbox, "clearAll">;
   readonly shellJobs: Pick<ShellJobRegistry, "endAll">;
+  /** The after-edit language servers (`tools.lsp.enabled`, ATO-503). */
+  readonly languageServers?: { dispose(): void };
   readonly reflectionRunner: Pick<ReflectionRunner, "abortPending"> | undefined;
   readonly pendingSessionNamings: Set<AbortController>;
   /** In-flight `/enhance` passes (`runtime.enhancePrompt`), aborted with naming. */
@@ -116,6 +118,12 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     // Every detached shell job, kept or not: nothing will wait on it
     // once this process is gone, and its ceiling timer dies with us.
     shellJobs.endAll();
+    // And every language server: a child process of ours, idle or not.
+    try {
+      resources.languageServers?.dispose();
+    } catch {
+      // already stopped
+    }
     // Cancel any in-flight reflection before tearing down the profile
     // store — otherwise a late-arriving completion could try to write
     // into a closed SQLite connection.
