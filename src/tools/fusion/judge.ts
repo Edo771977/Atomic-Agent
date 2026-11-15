@@ -444,7 +444,8 @@ export function renderJudgePrompt(input: {
     `- decision: "accept" when every item to rule on is met; "needs-changes" names at least one issue.`,
     `- issues: what is wrong, at most ${REVIEW_MAX_ISSUES} issues. item: the item id it breaks, or null for the work as a whole. file: the file it is in, or null. item and file at most ${REVIEW_REF_CHARS} characters each.`,
     `- severity: "blocker" (an item is not met), "major" (met only in part, or wrong behaviour), "minor" (style or a nit; does not block acceptance).`,
-    `- why: one line, at most ${REVIEW_WHY_CHARS} characters, naming what is wrong. An item no issue names counts as met.`,
+    `- why: one line, at most ${REVIEW_WHY_CHARS} characters, naming what is wrong.`,
+    "- List an issue for every item that is not met (a blocker naming its id), even when you also list others. An item no issue names counts as met.",
   ].join("\n");
 }
 

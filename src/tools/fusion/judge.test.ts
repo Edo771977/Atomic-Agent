@@ -282,6 +282,10 @@ describe("the structured review verdict (issue #38)", () => {
     const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "" });
     expect(prompt).toContain('{"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}');
     expect(prompt).toMatch(/at most 20 issues/);
+    // Under the issue list an item no issue names counts as met, so the
+    // reviewer is asked to name every unmet one.
+    expect(prompt).toMatch(/List an issue for every item that is not met/);
+    expect(prompt).toMatch(/An item no issue names counts as met/);
     expect(prompt).not.toContain('"pass"');
   });
 });
