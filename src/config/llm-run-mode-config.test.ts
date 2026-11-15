@@ -463,3 +463,24 @@ describe("taskTree (ATO-940)", () => {
     }
   });
 });
+
+describe("orchestratorReasoning (issue 29)", () => {
+  const providers = [
+    { id: "anthropic", kind: "anthropic" },
+    { id: "local-llama", kind: "llama-server" },
+  ];
+  it("takes low..max, reads an unknown level as unset and rejects a non-string", () => {
+    for (const level of ["low", "medium", "high", "xhigh", "max"]) {
+      expect(
+        parseLlmRunModeConfig({ fusion: { orchestratorReasoning: level } }, providers, "llm.runMode").fusion,
+      ).toEqual({ orchestratorReasoning: level });
+    }
+    expect(
+      parseLlmRunModeConfig({ fusion: { orchestratorReasoning: "ultra" } }, providers, "llm.runMode").fusion,
+    ).toEqual({});
+    expect(() =>
+      parseLlmRunModeConfig({ fusion: { orchestratorReasoning: 3 } }, providers, "llm.runMode"),
+    ).toThrow(/llm\.runMode\.fusion\.orchestratorReasoning/);
+  });
+});
+

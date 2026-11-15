@@ -146,6 +146,7 @@ const LLM_FUSION_KEYS: Record<keyof UserLlmFusionConfig, true> = {
   workers: true,
   cloudWorkers: true,
   workerReasoning: true,
+  orchestratorReasoning: true,
   workerMaxOutputTokens: true,
   workerMaxSteps: true,
   workerTimeoutMs: true,

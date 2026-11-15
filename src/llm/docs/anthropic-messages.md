@@ -87,3 +87,30 @@ the key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
 
 Not moved: the wizard's key check and contract probe, and `describeImage`,
 still use Anthropic's OpenAI-compatible routes, which accept the same key.
+
+## Effort and thinking
+
+Thinking is always on for Fable 5.x and Opus 5.5, so no `thinking`
+parameter is sent (an entry may still pass one through `extraBody`).
+Effort is `output_config.effort`, only for models that take it (Opus 4.5+,
+Sonnet 4.6+, Haiku 5+, every Fable and Mythos), clamped down to the model's
+levels (`anthropicEffortLevels` in `openai/model-params.ts`):
+
+- a person's level (`reasoningOverride`) beats the entry's `params` /
+  `extraBody` effort, keeping their other `output_config` fields;
+- else the turn's `reasoningEffort`; on a fusion orchestrator turn
+  without one, `llm.runMode.fusion.orchestratorReasoning`
+  (`low|medium|high|xhigh|max`, unset by default; other kinds receive
+  `xhigh` / `max` as `high`);
+- else `defaultReasoningEffort`: `medium` for Fable 5.2 and later;
+- a request that asked for no thinking (`disableThinking`: compaction, the
+  risk reviewer) gets `low`, since thinking cannot be disabled.
+
+Thinking blocks are never replayed: `reasoning_content` is dropped from
+history. The packer, compaction and per-step tails edit the history, and
+on Fable 5.2 (every account) and Opus 5.5 a replayed block whose prefix
+changed is a 400. The cost is that each step re-thinks without its earlier
+reasoning. Thinking text never becomes reply content.
+
+`reasoningControlFor` reports `effort` for this kind and `none` for an
+OpenAI-compatible route to an Anthropic host, which ignored the field.

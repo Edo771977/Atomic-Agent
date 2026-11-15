@@ -214,6 +214,10 @@ describe("resolveRunMode", () => {
     // absent one must reach the provider as "its default", not as a value.
     const plain = resolveRunMode(llm("openrouter", { mode: "fusion" }));
     expect(plain).not.toHaveProperty("workerReasoning");
+    expect(plain).not.toHaveProperty("orchestratorReasoning");
+    expect(
+      resolveRunMode(llm("openrouter", { mode: "fusion", fusion: { orchestratorReasoning: "xhigh" } })),
+    ).toMatchObject({ orchestratorReasoning: "xhigh" });
     expect(plain).not.toHaveProperty("workerMaxOutputTokens");
     expect(
       resolveRunMode(

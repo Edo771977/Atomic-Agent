@@ -11,6 +11,7 @@ import {
   FUSION_ISOLATION_MODES,
   FUSION_JUDGE_MODES,
   FUSION_ROLES,
+  FUSION_ORCHESTRATOR_REASONING_LEVELS,
   FUSION_WORKER_REASONING_LEVELS,
   RUN_MODE_NAMES,
 } from "./llm-run-mode-config.js";
@@ -33,6 +34,7 @@ export const SET_ASIDE_ENUM_KEYS: ReadonlyMap<string, readonly string[]> = new M
   ["llm.toolTransport", LLM_TOOL_TRANSPORTS],
   ["llm.runMode.mode", RUN_MODE_NAMES],
   ["llm.runMode.fusion.workerReasoning", FUSION_WORKER_REASONING_LEVELS],
+  ["llm.runMode.fusion.orchestratorReasoning", FUSION_ORCHESTRATOR_REASONING_LEVELS],
   ["llm.runMode.fusion.escalation", FUSION_ESCALATION_MODES],
   ["llm.runMode.fusion.judge", FUSION_JUDGE_MODES],
   ["llm.runMode.fusion.isolation", FUSION_ISOLATION_MODES],

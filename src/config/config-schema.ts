@@ -1169,6 +1169,11 @@ export interface UserConfigFile {
 // `off`) and `judgeProvider` (default the orchestrator leg), ATO-944.
 // Unversioned, additive: `llm.runMode.fusion.autoReplan` (0..5, default
 // 0 = off), ATO-941.
+// Unversioned, additive: `llm.runMode.fusion.orchestratorReasoning`
+// (`low|medium|high|xhigh|max`, unset by default: the provider's default),
+// issue 29. The effort of the fusion orchestrator's own completions; an
+// older file has no field, an older build drops the key on parse and the
+// whole-file write keeps it (`config-shape.ts`).
 // Unversioned, additive: `llm.runMode.fusion.roles` (`plan|build|review|
 // explore|utility` → provider id) and `mixLocalModels` (default false),
 // ATO-943. An older file has neither and runs every task on the worker leg.

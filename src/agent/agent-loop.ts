@@ -496,9 +496,15 @@ export class AgentLoop {
             ...(options.answerChannel !== undefined
               ? { answerChannel: options.answerChannel }
               : {}),
+            // A fusion orchestrator turn takes the configured
+            // `orchestratorReasoning` when the turn names no effort of its
+            // own (read per step, like the other fusion knobs).
             ...(options.reasoningEffort !== undefined
               ? { reasoningEffort: options.reasoningEffort }
-              : {}),
+              : fusionOrchestratorTurn &&
+                  getConfig().llm?.runMode?.fusion?.orchestratorReasoning !== undefined
+                ? { reasoningEffort: getConfig().llm!.runMode!.fusion!.orchestratorReasoning! }
+                : {}),
             ...(options.reasoningOverride !== undefined
               ? { reasoningOverride: options.reasoningOverride }
               : {}),
