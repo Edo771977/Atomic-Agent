@@ -740,13 +740,16 @@ export async function runLocalModelsStart(
 
   // A GPU shared with other work: the context fit below uses the VRAM
   // free right now, so say who holds the rest (measured by nvidia-smi;
-  // silent without it). The embedding server already up is ours.
+  // silent without it). The embedding server already up is ours, and so
+  // is a chat server already running (its pid file or Core session).
   if (device !== "cpu" && process.platform !== "darwin") {
     const usage = await probeNvidiaGpuUsage();
-    const shared =
-      usage === null
-        ? null
-        : describeForeignGpuUse(usage, embRunningPid === null ? [] : [embRunningPid]);
+    const ours: number[] = embRunningPid === null ? [] : [embRunningPid];
+    if (usage !== null) {
+      const chat = await getDaemonStatus(dataDir, cfg.localModels.managed.port).catch(() => null);
+      if (chat?.running === true && chat.pid !== null) ours.push(chat.pid);
+    }
+    const shared = usage === null ? null : describeForeignGpuUse(usage, ours);
     if (shared !== null) process.stderr.write(`${shared}\n`);
   }
 

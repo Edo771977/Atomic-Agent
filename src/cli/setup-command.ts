@@ -9,7 +9,7 @@ import {
   type FusionSetupPlan,
 } from "../llm/run-mode/fusion-setup-plan.js";
 import { MODEL_TIER_LABELS } from "../llm/provider/presets/model-tiers.js";
-import { detectFusionSetup, type FusionDetectDeps } from "./setup-fusion-detect.js";
+import { detectFusionSetup, fillEnvKeyPresetModels, type FusionDetectDeps } from "./setup-fusion-detect.js";
 import { createSetupPrompter, type SetupPrompter, type SetupTerminal } from "./setup-terminal-prompt.js";
 
 /**
@@ -38,7 +38,10 @@ const HELP = [
   "               Orchestrate with this ready provider instead of the suggested one",
   "  --orchestrator-model <id>",
   "               The model for a provider added from an API key found in .env or",
-  "               the environment (e.g. ANTHROPIC_API_KEY) with no entry yet",
+  "               the environment (e.g. ANTHROPIC_API_KEY) with no entry yet. Its",
+  "               chat models are asked from its /v1/models, with that key, only",
+  "               when setup could choose it: --orchestrator names it, or no",
+  "               configured orchestrator is ready (also on --dry-run)",
   "  --budget <usd>",
   "               Spend cap per fusion turn (default 1 on a per-token orchestrator):",
   "               once reached, no new delegation or worker starts and the",
@@ -253,7 +256,17 @@ async function runSetupFusion(
     ...(budgetUsd === undefined ? {} : { budgetUsd }),
     ...(orchestratorModel === undefined ? {} : { orchestratorModel }),
   };
+  // A key-only preset's model list is asked for only when setup could
+  // choose it: --orchestrator names it, or nothing configured is ready.
+  const detectDeps = deps.detect ?? {};
+  if (orchestrator !== undefined && facts.envKeyPresets?.some((f) => f.presetId === orchestrator)) {
+    facts = await fillEnvKeyPresetModels(facts, [orchestrator], detectDeps);
+  }
   let plan = planFusionSetup(facts, { ...opts, ...(orchestrator ? { orchestrator } : {}) });
+  if (!plan.ok && plan.needsModel && facts.envKeyPresets?.some((f) => f.models === null)) {
+    facts = await fillEnvKeyPresetModels(facts, facts.envKeyPresets.map((f) => f.presetId), detectDeps);
+    plan = planFusionSetup(facts, { ...opts, ...(orchestrator ? { orchestrator } : {}) });
+  }
   if (!plan.ok && plan.needsModel && plan.needsModel.models.length > 0 && !yes && !dryRun && prompter.isTerminal) {
     const model = await pickModel(plan.needsModel, prompter, write);
     if (model !== null) {

@@ -93,6 +93,27 @@ describe("FanoutFailureBreaker", () => {
     expect(b.tripped()).toBeUndefined();
   });
 
+  it("counts a row that failed after writing files by its underlying error (#29 review)", () => {
+    const b = new FanoutFailureBreaker("cloud");
+    const wrote = (error: string) => ({
+      status: "needs_orchestrator" as const,
+      finishedWithoutReply: true as const,
+      error,
+    });
+    for (let i = 1; i < REPEAT_FAILURE_STREAK; i += 1) {
+      b.observe(wrote(`worker died after ${i} steps`));
+      expect(b.tripped()).toBeUndefined();
+    }
+    b.observe(wrote("worker died after 9 steps"));
+    expect(b.tripped()).toMatchObject({ blocker: false, count: REPEAT_FAILURE_STREAK });
+    // A plain hand-back (a question, an approval refusal) is not counted.
+    const plain = new FanoutFailureBreaker("cloud");
+    for (let i = 0; i < REPEAT_FAILURE_STREAK; i += 1) {
+      plain.observe({ status: "needs_orchestrator", error: "worker died" });
+    }
+    expect(plain.tripped()).toBeUndefined();
+  });
+
   it("does not count rows that are not failures", () => {
     const b = new FanoutFailureBreaker("cloud");
     b.observe(failed("worker died"));

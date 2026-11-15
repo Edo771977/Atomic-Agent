@@ -990,6 +990,23 @@ describe("WorkerRunCollector — why a worker stopped", () => {
     expect(cancelled.finish({ ...base, reason: "cancelled" }).status).toBe("cancelled");
   });
 
+  it("keeps a failure the breaker reads as a blocker failed even after files changed (#29 review)", () => {
+    for (const error of [
+      "tool-call arguments are not a valid JSON object",
+      "HTTP 401 unauthorized",
+      "Codex is not signed in",
+      "you hit your 5-hour limit",
+      "usage limit reached for this plan",
+    ]) {
+      const c = new WorkerRunCollector({ workingDir: "/w" });
+      c.observe(toolExecuted("os.fs.write", "ok", "wrote", { path: "/w/a.py" }));
+      const result = c.finish({ ...base, reason: "failed", error });
+      expect(result.status, error).toBe("failed");
+      expect(result.finishedWithoutReply, error).toBeUndefined();
+      expect(result.notes?.join(" "), error).toMatch(/files changed: a\.py; unverified/);
+    }
+  });
+
   it("reports a contended local server as slow, not as one that stopped answering (#29)", () => {
     const c = new WorkerRunCollector();
     c.observe(

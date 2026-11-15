@@ -21,6 +21,7 @@ vi.mock("../local-llm/index.js", async () => {
     stopDaemon: vi.fn(),
     stopChatAndEmbeddingDaemons: vi.fn(),
     probeNvidiaGpuUsage: vi.fn(async () => null),
+    getDaemonStatus: vi.fn(actual.getDaemonStatus),
   };
 });
 
@@ -138,6 +139,22 @@ describe("runLocalModelsStart CPU-backend fallback", () => {
     stderrChunks = [];
     // Absent nvidia-smi (null): nothing is said.
     await runLocalModelsStart();
+    expect(stderrChunks.join("")).not.toContain("other processes hold");
+  });
+  it("does not count our own running chat server as another process on the GPU (#29 review)", async () => {
+    prepareManagedWindowsInstall();
+    vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockRejectedValue(new Error("test stop"));
+    const real = vi.mocked(localLlm.getDaemonStatus).getMockImplementation()!;
+    vi.mocked(localLlm.getDaemonStatus).mockResolvedValue({ running: true, pid: 4242, port: 19091, healthy: true, loading: false });
+    vi.mocked(localLlm.probeNvidiaGpuUsage).mockResolvedValueOnce({
+      gpus: [{ usedMiB: 3200, totalMiB: 8192 }],
+      apps: [{ pid: 4242, usedMiB: 3072 }],
+    });
+    try {
+      await runLocalModelsStart();
+    } finally {
+      vi.mocked(localLlm.getDaemonStatus).mockImplementation(real);
+    }
     expect(stderrChunks.join("")).not.toContain("other processes hold");
   });
   it("starts with a one-off context size without writing it to the config (ATO-334)", async () => {

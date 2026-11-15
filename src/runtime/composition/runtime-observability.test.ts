@@ -99,6 +99,19 @@ describe("runtime observability construction phases", () => {
     expect(component.getErrorReporter()).toBe(first.errorReporter);
   });
 
+  it("hands shutdown the reporter even while the gate holds, so queued reports still flush (#29 review)", () => {
+    const events: string[] = [];
+    const first = clients(events, "first");
+    vi.spyOn(analytics, "buildRuntimeTelemetry").mockReturnValue(first);
+    const config = getConfig();
+    config.analytics.enabled = true;
+    config.analytics.errorReports = true;
+    const component = createRuntimeObservability(config, {});
+    component.setErrorReportGate(() => true);
+    expect(component.getErrorReporter()).toBeNull();
+    expect(component.getShutdownErrorReporter()).toBe(first.errorReporter);
+  });
+
   it("uses current analytics for reports after a toggle and retains interactive launch gating", async () => {
     const events: string[] = [];
     const first = clients(events, "first");

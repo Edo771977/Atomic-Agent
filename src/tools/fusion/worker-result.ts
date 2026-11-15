@@ -28,6 +28,7 @@ import { describeChanges, FileChangeLog, type FileChange } from "./worker-change
 import { describeSyntax, type TaskSyntaxSummary } from "./syntax-pass.js";
 import type { ArtifactManifest } from "./artifact-manifest-types.js";
 import { MAX_WORKER_QUESTION_CHARS } from "./worker-question.js";
+import { classifyWorkerFailure } from "./failure-breaker.js";
 
 /**
  * The note on a task a worker could not finish because a step needs the
@@ -528,12 +529,20 @@ export class WorkerRunCollector {
     // gates still run, and under isolation the workspace is held, never
     // merged unseen (`finishedWithoutReply`). Credit, approval, budget and
     // cancellation keep their own outcome.
+    // A failure the fan-out breaker reads as a blocker (tool-protocol
+    // mismatch, not signed in, usage limit) stays `failed` too: the
+    // breaker counts only failed rows, and the next worker on the leg
+    // would fail the same way, files or not.
+    const blocker =
+      error !== undefined &&
+      classifyWorkerFailure({ status: "failed", error })?.blocker === true;
     const finishedWithoutReply =
       classified === "failed" &&
       changes.length > 0 &&
       !this.approvalRefused &&
       !this.creditExhausted &&
       input.stopCause !== "credit_exhausted" &&
+      !blocker &&
       (error === undefined || !NOT_A_MISSING_REPLY.test(error));
     const status: WorkerTaskStatus = finishedWithoutReply
       ? "needs_orchestrator"
@@ -544,7 +553,7 @@ export class WorkerRunCollector {
       classified !== "cancelled"
         ? [stopCauseNote(input.stopCause, input.stepCount)]
         : [];
-    if (finishedWithoutReply) {
+    if (finishedWithoutReply || (blocker && classified === "failed" && changes.length > 0)) {
       notes.push(finishedWithoutReplyNote(changes.map((c) => c.path)));
     }
     if (this.operatorOnlyRefused && status === "needs_orchestrator") {

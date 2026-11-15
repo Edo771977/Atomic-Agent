@@ -368,6 +368,36 @@ describe("planFusionSetup: an API key in the environment with no provider entry 
     expect(text).toContain("Manage › LLM › Cloud");
   });
 
+  it("does not apply one --orchestrator-model to every key found without --orchestrator (#29 review)", () => {
+    const two = {
+      envKeyPresets: [
+        { presetId: "anthropic", envVar: "ANTHROPIC_API_KEY", models: ["claude-a"] },
+        { presetId: "groq", envVar: "GROQ_API_KEY", models: ["llama-x"] },
+      ],
+    };
+    const plan = planFusionSetup(facts(two), { orchestratorModel: "claude-a" });
+    if (plan.ok) {
+      expect(plan.candidates.filter((c) => c.model === "claude-a").map((c) => c.providerId)).not.toContain("groq");
+    } else {
+      expect(plan.problems.join("\n")).toContain("--orchestrator anthropic");
+    }
+    const named = planFusionSetup(facts(two), { orchestrator: "anthropic", orchestratorModel: "claude-a" });
+    if (!named.ok) throw new Error(`expected ok: ${named.problems.join("; ")}`);
+    expect(named.orchestrator).toMatchObject({ providerId: "anthropic", model: "claude-a" });
+    expect(named.candidates.map((c) => c.providerId)).not.toContain("groq");
+  });
+
+  it("refuses an --orchestrator-model the endpoint does not list, naming what it does (#29 review)", () => {
+    const plan = planFusionSetup(facts(envKey()), { orchestrator: "anthropic", orchestratorModel: "claude-z" });
+    if (plan.ok) throw new Error("expected refusal");
+    const text = plan.problems.join("\n");
+    expect(text).toContain("claude-z");
+    expect(text).toContain("claude-a, claude-b");
+    // No list (not asked, or refused): the model is taken as given.
+    const unlisted = planFusionSetup(facts(envKey(null)), { orchestrator: "anthropic", orchestratorModel: "claude-z" });
+    expect(unlisted.ok).toBe(true);
+  });
+
   it("comes after a signed-in subscription, and the plan says the key was found", () => {
     const plan = planFusionSetup(facts({ claude: signedIn, ...envKey() }), { orchestratorModel: "claude-a" });
     if (!plan.ok) throw new Error("expected ok");
