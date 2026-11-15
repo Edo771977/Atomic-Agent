@@ -34,6 +34,10 @@ export function resolveLlmProviderApiKey(
     const key = process.env.GEMINI_API_KEY;
     return key && key.length > 0 ? key : undefined;
   }
+  if (entry.kind === "anthropic") {
+    const key = process.env.ANTHROPIC_API_KEY;
+    return key && key.length > 0 ? key : undefined;
+  }
   if (
     entry.kind === "openai-compatible" ||
     entry.kind === "qwen-openai-compatible"

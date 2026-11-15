@@ -1,6 +1,7 @@
 import { getConfig } from "../../../config/index.js";
 import { LlamaServerClient } from "../../llama-server-client.js";
 import { AimlapiProvider } from "../aimlapi/aimlapi-provider.js";
+import { AnthropicProvider } from "../anthropic/anthropic-provider.js";
 import { AIMLAPI_DEFAULT_CHAT_MODEL } from "../aimlapi/aimlapi-models-catalog.js";
 import {
   GeminiProvider,
@@ -86,6 +87,43 @@ function isEmbeddingOnlyEntry(entry: LlmProviderConfigEntry): boolean {
   );
 }
 
+/**
+ * The native Anthropic Messages client for an entry (`anthropic` kind).
+ * Same entry fields as the compat kinds; the key goes in `x-api-key`
+ * unless the entry names another header.
+ */
+function buildAnthropicProvider(
+  entry: LlmProviderConfigEntry,
+  logger: CreditLimitLoggerLike,
+): AnthropicProvider {
+  if (!entry.defaultChatModel) {
+    throw new Error(
+      `${entry.kind} provider "${entry.id}" requires defaultChatModel`,
+    );
+  }
+  const chatModel = entry.defaultChatModel;
+  return new AnthropicProvider({
+    id: entry.id,
+    ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
+    apiKey: entry.apiKey ?? "",
+    defaultChatModel: chatModel,
+    headers: entry.headers,
+    apiKeyHeader: entry.apiKeyHeader,
+    ...modelVisionOptions(entry, chatModel),
+    supportsParallelTools: entry.supportsTools ?? true,
+    requestTimeoutMs: entry.requestTimeoutMs,
+    extraBody: entry.extraBody,
+    maxOutputTokens: entry.maxOutputTokens,
+    strictTools: entry.strictTools,
+    promptCache: entry.promptCache,
+    messageShape: entry.messageShape,
+    ...modelWireOptions(entry, chatModel),
+    logger,
+  });
+}
+
+type CreditLimitLoggerLike = NonNullable<ConstructorParameters<typeof AnthropicProvider>[0]["logger"]>;
+
 export function registerBuiltInProviderKinds(): void {
   if (registered) return;
   registered = true;
@@ -155,6 +193,10 @@ export function registerBuiltInProviderKinds(): void {
       logger: ctx.logger,
     });
   });
+
+  registerProviderKind("anthropic", (ctx) =>
+    buildAnthropicProvider(ctx.entry, ctx.logger),
+  );
 
   registerProviderKind("qwen-openai-compatible", (ctx) => {
     const entry = ctx.entry;

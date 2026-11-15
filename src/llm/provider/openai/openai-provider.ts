@@ -180,6 +180,31 @@ export interface OpenAiProviderOptions {
    * client never leaves native tools.
    */
   jsonSchemaToolFallback?: boolean;
+  /**
+   * A chat wire other than `/chat/completions` (the Anthropic Messages
+   * API). The body is built by the shared builder and translated last,
+   * so `requestBudget.beforeSend`, the retries and the fallback
+   * classification see the body that is actually sent; a unary reply is
+   * translated back to the OpenAI shape before it is normalised. The
+   * stream side is the `streamConsumer`. Absent, chat completions.
+   */
+  wire?: OpenAiWireDialect;
+}
+
+/** See `OpenAiProviderOptions.wire`. */
+export interface OpenAiWireDialect {
+  /** The chat route, with its API prefix (`/v1/messages`). */
+  chatPath: string;
+  /** The finished OpenAI chat body, in the wire's own shape. */
+  toWireBody(body: Record<string, unknown>): Record<string, unknown>;
+  /**
+   * A unary reply in the OpenAI chat shape. Throws a typed
+   * `OpenAiHttpError` for a reply that is a failure (a refusal).
+   */
+  fromWireResponse(
+    json: Record<string, unknown>,
+    context: { url: string; label: string },
+  ): Record<string, unknown>;
 }
 
 export class OpenAiProvider implements LlmProvider {
@@ -208,6 +233,7 @@ export class OpenAiProvider implements LlmProvider {
   private readonly bodyOptions: OpenAiBodyOptions;
   private readonly reasoningFormat: ReasoningFormat;
   private readonly messageShape: "native" | "flat";
+  private readonly wire: OpenAiWireDialect | undefined;
   /**
    * Sessions whose requests go out flat after the service rejected the
    * native layout (`"*"` for requests without a session id). Per
@@ -260,6 +286,7 @@ export class OpenAiProvider implements LlmProvider {
     this.jsonSchemaToolFallback = options.jsonSchemaToolFallback ?? false;
     this.providerPreferences = options.providerPreferences;
     this.messageShape = options.messageShape ?? "native";
+    this.wire = options.wire;
     this.bodyOptions = {
       nameEscape: (name) => this.toolCallAdapter.nameEscape(name),
       ...(options.providerKind ? { providerKind: options.providerKind } : {}),
@@ -369,7 +396,7 @@ export class OpenAiProvider implements LlmProvider {
     const post = (body: Record<string, unknown>) =>
       openAiPostJson(
         this.http,
-        `${this.chatPathPrefix}/chat/completions`,
+        this.chatPath(),
         body,
         request,
         (sent) => {
@@ -415,6 +442,12 @@ export class OpenAiProvider implements LlmProvider {
       if (!this.shouldFallBackToFlat(request, shape, err)) throw err;
       this.markFlat(request, err);
       json = await sendOnce("flat");
+    }
+    if (this.wire) {
+      json = this.wire.fromWireResponse(json, {
+        url: `${this.http.baseUrl}${this.wire.chatPath}`,
+        label: this.http.label,
+      });
     }
     const adapted = adaptQwenTaggedToolResponse(
       json,
@@ -462,7 +495,12 @@ export class OpenAiProvider implements LlmProvider {
     if (body.tools !== undefined && isGeminiOpenAiCompatUrl(this.http.baseUrl)) {
       body.tools = toGeminiTools(body.tools);
     }
-    return body;
+    return this.wire ? this.wire.toWireBody(body) : body;
+  }
+
+  /** The chat route this client posts to. */
+  private chatPath(): string {
+    return this.wire?.chatPath ?? `${this.chatPathPrefix}/chat/completions`;
   }
 
   /** The layout this request goes out in, given what the session learned. */
@@ -712,7 +750,7 @@ export class OpenAiProvider implements LlmProvider {
     // error names a tool to leave out (`withoutRejectedTool`).
     let activeRequest = request;
     let body = this.buildBody(activeRequest, true, shape);
-    const path = `${this.chatPathPrefix}/chat/completions`;
+    const path = this.chatPath();
     let accumulated = "";
     let accumulatedReasoning = "";
     let streamFinal: StreamFinalResult | void = undefined;

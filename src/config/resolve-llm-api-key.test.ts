@@ -12,6 +12,11 @@ describe("resolveLlmProviderApiKey", () => {
       "gemini-test-key",
     );
   });
+
+  it("resolves native Anthropic keys from ANTHROPIC_API_KEY", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+    expect(resolveLlmProviderApiKey({ id: "claude", kind: "anthropic" })).toBe("sk-ant-test");
+  });
 });
 
 describe("resolveLlmProviderApiKey for a server on another computer (ATO-1066)", () => {

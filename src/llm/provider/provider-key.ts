@@ -108,6 +108,7 @@ export const KEYED_CLOUD_KINDS: ReadonlySet<string> = new Set([
   "openrouter",
   "aimlapi",
   "gemini",
+  "anthropic",
 ]);
 
 /**

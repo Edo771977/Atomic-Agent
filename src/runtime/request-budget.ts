@@ -36,7 +36,14 @@ function addsProviderSideInput(body: Record<string, unknown>): boolean {
   const tools = body.tools;
   if (tools === undefined || tools === null) return false;
   if (!Array.isArray(tools)) return true;
-  return tools.some(tool => typeof tool !== "object" || tool === null || (tool as { type?: unknown }).type !== "function");
+  // A client tool is an OpenAI `function`, or an Anthropic Messages tool
+  // (`input_schema`, no `type` or `custom`); anything else runs server-side.
+  return tools.some(tool => typeof tool !== "object" || tool === null || !isClientTool(tool as Record<string, unknown>));
+}
+
+function isClientTool(tool: Record<string, unknown>): boolean {
+  if (tool.type === "function") return true;
+  return (tool.type === undefined || tool.type === "custom") && typeof tool.input_schema === "object" && tool.input_schema !== null;
 }
 
 
