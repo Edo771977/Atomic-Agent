@@ -138,11 +138,11 @@ describe("atag doctor sqlite check (issue #29)", () => {
       stateDir: dir, write, engine: null,
       context: {
         findOnPath: () => true,
-        openSqlite: () => { throw new Error("better-sqlite3's native binding is missing; npm rebuild better-sqlite3 --foreground-scripts"); },
+        openSqlite: () => { throw new Error("better-sqlite3's native binding is missing; reinstall the dependencies with npm ci"); },
       },
     });
     expect(code).toBe(1);
-    expect(out).toMatch(/FAIL {2}sqlite: .*npm rebuild better-sqlite3/);
+    expect(out).toMatch(/FAIL {2}sqlite: .*npm ci/);
   });
 
   it("an in-memory database that opens is ok", async () => {

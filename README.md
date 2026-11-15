@@ -950,15 +950,15 @@ npm run build
 
 ### From source
 
-Prerequisites: Node 25.7 or newer, and a toolchain that can build `better-sqlite3`'s native binding when no prebuilt one matches your Node: Python 3 and a C++ compiler (Xcode Command Line Tools on macOS, `build-essential` on Linux). On Windows install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload (`Microsoft.VisualStudio.Workload.VCTools`) and Python 3.
+Prerequisites: Node 25.7 or newer (Node 26 included) and npm. `better-sqlite3` ships prebuilt N-API binaries for Windows, macOS and Linux on x64 and arm64, so `npm ci` compiles nothing and runs no script for it. On npm 12, which blocks dependency install scripts by default, the `allowScripts` field in `package.json` already decides the few that exist, so `npm ci` needs no `npm install-scripts approve`.
 
-If a command fails with `better-sqlite3's native binding is missing` (the raw form is `Could not locate the bindings file` or a `NODE_MODULE_VERSION` mismatch), the package's install script did not run for this Node: npm may have skipped or blocked it, or Node was upgraded since `npm install`. Rebuild it and watch the output:
+If a command fails with `better-sqlite3's native binding is missing` (the raw form is `Cannot find module '…better_sqlite3.node'`), the install is incomplete: run `npm ci` again. On a platform without a prebuilt binary, compile it, which needs Python 3 and a C++ compiler (Xcode Command Line Tools on macOS, `build-essential` on Linux; on Windows [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload, `Microsoft.VisualStudio.Workload.VCTools`, and Python 3):
 
 ```bash
-npm rebuild better-sqlite3 --foreground-scripts
+npx node-gyp rebuild --release --directory node_modules/better-sqlite3
 ```
 
-If your npm is configured to block dependency install scripts (`ignore-scripts`, or an allow-list policy), allow `better-sqlite3`'s script first, then rerun the rebuild. `atomic-agent doctor` checks this by opening an in-memory database. The installed build ships the binding; there the fix is to reinstall atomic-agent.
+A locally compiled binary takes precedence over the prebuilt one. `atomic-agent doctor` checks this by opening an in-memory database. The installed build ships the binding; there the fix is to reinstall atomic-agent.
 
 Core docs:
 
