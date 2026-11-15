@@ -14,6 +14,12 @@ export interface TurnLoopState {
   /** Set with `stopCause = "credit_exhausted"`: who refused, and what they said. */
   creditStop: { provider: string; detail: string } | null;
   /**
+   * The fusion turn's USD cap refused a request (issue #29): its figures
+   * and the loop's own priced spend at that moment. The next iteration is
+   * the one final report step; the turn then ends with reason `budget`.
+   */
+  turnBudgetStop: { spentUsd: number; capUsd: number; spendAtStopUsd: number } | null;
+  /**
    * The duration ceiling fired inside a completion request (F15). The
    * next iteration is the finalization step whatever the clock says —
    * the request was abandoned, so the wall must not be re-argued.
@@ -129,6 +135,7 @@ export function createTurnLoopState(): TurnLoopState {
     stepsTaken: 0,
     stopCause: "step_ceiling",
     creditStop: null,
+    turnBudgetStop: null,
     ceilingFiredMidRequest: false,
     endedOnFinalizationStep: false,
     spendUsd: 0,

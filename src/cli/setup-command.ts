@@ -38,7 +38,8 @@ const HELP = [
   "  --budget <usd>",
   "               Spend cap per fusion turn (default 1 on a per-token orchestrator):",
   "               once reached, no new delegation or worker starts and the",
-  "               orchestrator reports what is done. 0 means no cap",
+  "               orchestrator reports what is done in one short final reply",
+  "               (a turn can end a little over the cap). 0 means no cap",
 ].join("\n");
 
 export interface SetupCommandDeps {

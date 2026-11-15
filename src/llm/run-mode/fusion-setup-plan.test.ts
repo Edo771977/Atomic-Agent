@@ -233,6 +233,9 @@ describe("planFusionSetup: defaults", () => {
     expect(tip).toMatch(/once a turn has spent \$1/);
     expect(tip).toMatch(/no new delegation or worker/);
     expect(tip).toMatch(/reports what is done/);
+    // Issue #29: what really happens at the cap, overshoot included.
+    expect(tip).toMatch(/one short final reply/);
+    expect(tip).toMatch(/can end a little over/);
     expect(tip).toMatch(/0 means no cap/);
     expect(tip).toMatch(/atomic-agent setup fusion --budget <usd>/);
   });

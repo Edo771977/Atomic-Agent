@@ -402,7 +402,9 @@ function turnBudgetTip(usd: number | undefined): string {
   }
   return (
     `turnBudgetUsd ${usd}: once a turn has spent $${usd} (planning and workers), it starts no new delegation or worker ` +
-    `and the orchestrator reports what is done. 0 means no cap. Change it with: ${BUDGET_COMMAND} (--budget 0 for none)`
+    `and the orchestrator gets one short final reply (up to 1024 tokens) in which it reports what is done and what is left. ` +
+    `A reply already running when the cap is reached still completes, and that final reply is charged on top, so a turn can end a little over the cap. ` +
+    `0 means no cap. Change it with: ${BUDGET_COMMAND} (--budget 0 for none)`
   );
 }
 

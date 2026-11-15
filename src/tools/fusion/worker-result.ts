@@ -604,7 +604,9 @@ export function classifyWorkerStatus(
   approvalRefused: boolean,
   stopCause?: WorkerStopCause,
 ): WorkerTaskStatus {
-  if (reason === null || reason === "failed") return "failed";
+  // The turn cap refused the worker's request (issue #29): it did not
+  // finish its work, and a bound worker gets no final report past the cap.
+  if (reason === null || reason === "failed" || reason === "budget") return "failed";
   if (reason === "cancelled") return "cancelled";
   // Out of credit is not a ceiling the worker ran into; nothing it
   // wrote after that point exists, and re-delegating cannot help.

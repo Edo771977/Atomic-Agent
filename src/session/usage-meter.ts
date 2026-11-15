@@ -3,6 +3,7 @@ import type { ResolvedModel } from "../llm/provider/model-resolver.js";
 import type { RateLimitWindow } from "../llm/provider/rate-limits.js";
 import { estimateUsageCostUsd } from "../llm/provider/usage-cost.js";
 import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-snapshot.js";
+import { ANTHROPIC_OFFICIAL_PRICES_DATE } from "../llm/provider/official-prices/anthropic-official-prices.js";
 import type { DailySpendView } from "./daily-spend.js";
 
 /**
@@ -61,7 +62,7 @@ export interface SessionUsageState {
  * a price the operator configured (`userModels[].pricing`), the bundled
  * catalog, the provider's live model list. Nothing else is guessed.
  */
-export type CostSource = "provider" | "user" | "catalog" | "snapshot" | "live";
+export type CostSource = "provider" | "user" | "catalog" | "snapshot" | "live" | "official";
 
 export interface LimitReading extends RateLimitWindow {
   /** The provider link (account) the reading came from. */
@@ -92,7 +93,7 @@ export interface UsageRecordInput {
   modelId: string | null;
   usage?: CompletionUsage;
   /** The resolved model with its pricing, when any source priced it. */
-  model?: Pick<ResolvedModel, "pricing" | "source">;
+  model?: Pick<ResolvedModel, "pricing" | "source" | "pricingSource">;
   /** The serving link is a local model server. */
   local: boolean;
   /** The serving link is a subscription CLI (plan-billed). */
@@ -127,7 +128,8 @@ export function priceCompletion(
   return {
     kind: "priced",
     usd: estimateUsageCostUsd(usage, pricing),
-    source: source === "user" ? "user" : source === "live" ? "live" : source === "snapshot" ? "snapshot" : "catalog",
+    source: input.model?.pricingSource === "anthropic-official" ? "official"
+      : source === "user" ? "user" : source === "live" ? "live" : source === "snapshot" ? "snapshot" : "catalog",
   };
 }
 
@@ -469,6 +471,8 @@ function sourceLabel(source: CostSource): string {
       return `the bundled models.dev snapshot of ${MODELS_DEV_SNAPSHOT_DATE}, an estimate`;
     case "live":
       return "the provider's live price list";
+    case "official":
+      return `Anthropic's official price list of ${ANTHROPIC_OFFICIAL_PRICES_DATE}`;
   }
 }
 

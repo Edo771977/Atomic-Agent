@@ -208,6 +208,7 @@ function abnormalEnding(
 ): { status: GoalState["status"]; reason: string } | null {
   if (result.reason === "cancelled") return { status: "paused", reason: "the turn was stopped" };
   if (result.reason === "failed") return { status: "paused", reason: "the turn failed" };
+  if (result.reason === "budget") return { status: "budget_limited", reason: "the turn's spend cap was used up" };
   const cause: string | undefined = result.stopCause;
   if (cause !== undefined) {
     // Any ceiling (steps, time, and money once budgets land) is a budget.

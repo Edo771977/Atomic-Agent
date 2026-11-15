@@ -722,8 +722,19 @@ export interface StepCheckpoint {
 }
 
 /** Why a `runTurn` invocation returned. */
+/**
+ * How a turn ended. `budget` (issue #29): the fusion turn's USD cap
+ * refused a request; the turn took its one final report step (or could
+ * not) and stopped. Its events carry `budget` with the figures.
+ */
 export type AgentLoopReason =
-  "reply" | "finish" | "max_steps" | "cancelled" | "failed";
+  "reply" | "finish" | "max_steps" | "cancelled" | "failed" | "budget";
+
+/** What a `budget` stop says: the turn's accounted spend against its cap. */
+export interface TurnBudgetStopFigures {
+  spentUsd: number;
+  capUsd: number;
+}
 
 export type AgentLoopEvent =
   | CompactionEvent
@@ -751,6 +762,8 @@ export type AgentLoopEvent =
       reason: AgentLoopReason;
       stepCount: number;
       durationMs: number;
+      /** Set with reason `budget`. */
+      budget?: TurnBudgetStopFigures;
     }
   | {
       /**
@@ -1107,6 +1120,8 @@ export type AgentLoopEvent =
   | {
       type: "loop_completed";
       reason: AgentLoopReason;
+      /** Set with reason `budget`. */
+      budget?: TurnBudgetStopFigures;
     }
   /**
    * Terminal failure for the turn. `category` follows the canonical

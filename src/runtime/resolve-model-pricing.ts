@@ -11,13 +11,16 @@ import type { LlmProviderConfigEntry } from "../llm/provider/registry/provider-t
 import type { ResolvedLlmConfig } from "../llm/provider/registry/index.js";
 import { getCachedOpenRouterChatPicks } from "../llm/provider/openrouter/fetch-openrouter-chat-catalog.js";
 import { isLocalServerUrl } from "../llm/provider/openai/local-server-url.js";
+import { anthropicOfficialPricing } from "../llm/provider/official-prices/anthropic-official-prices.js";
 
 /**
  * Pricing for a model id on one provider, when any is known.
  *
  * Sources, first that knows the model wins: a hand-configured
  * `userModels[]` row, then the provider's bundled catalog (OpenRouter,
- * aimlapi), then the bundled models.dev snapshot (ATO-647), which prices
+ * aimlapi), then Anthropic's official first-party price table (issue #29,
+ * only on `api.anthropic.com`; marked `pricingSource`), then the bundled
+ * models.dev snapshot (ATO-647), which prices
  * and sizes the direct presets (Anthropic, Groq, DeepSeek, Moonshot,
  * Mistral, xAI, …) and the `gemini` kind. Without the last two only
  * operators who priced their models by hand ever saw a `cost_usd`.
@@ -40,9 +43,17 @@ export function resolveModelPricingFor(
   const entry = resolved.providers.find((p) => p.id === id);
   if (!entry) return undefined;
   const model = resolveModel(entry, modelId, catalogForProvider(entry));
-  if (model.source !== "default") return model;
+  // Anthropic's official first-party prices (issue #29): below a
+  // configured price and a bundled catalog, above the models.dev snapshot.
+  const official = anthropicOfficialPricing(entry, modelId);
+  const withOfficial = (row: ResolvedModel): ResolvedModel =>
+    official === undefined ? row : { ...row, pricing: official, pricingSource: "anthropic-official" };
+  if (model.source !== "default") {
+    return model.source === "user" && model.pricing === undefined ? withOfficial(model) : model;
+  }
   const modelsDev = modelsDevEntryForProvider(entry, modelId);
-  if (modelsDev !== undefined) return { ...modelsDev, source: "snapshot" };
+  if (modelsDev !== undefined) return withOfficial({ ...modelsDev, source: "snapshot" });
+  if (official !== undefined) return withOfficial(model);
   // Nothing configured and nothing bundled: OpenRouter's live model list
   // (fetched for the picker, cached for an hour) still knows the row's
   // `context_length` and prices. Better than the nominal 128k default,

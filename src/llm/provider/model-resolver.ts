@@ -26,6 +26,14 @@ export type ResolvedModel = {
    * (`verifiedAdmissionPricing`), and its context window is display-only.
    */
   source: "user" | "catalog" | "snapshot" | "live" | "default";
+  /**
+   * Set when `pricing` came from a provider's official price list rather
+   * than from the row's own source (issue #29: Anthropic's first-party
+   * prices, `anthropic-official-prices.ts`). Verified for admission
+   * whatever `source` says; `source` still describes the rest of the row
+   * (a snapshot context window stays display-only).
+   */
+  pricingSource?: "anthropic-official";
 };
 
 export type ModelCatalogEntry = Omit<ResolvedModel, "source"> & {

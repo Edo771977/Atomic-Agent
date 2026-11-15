@@ -110,6 +110,7 @@ function grammarRequestFields(params: LlmStreamParams) {
 function turnRequestFields(params: LlmStreamParams) {
   return {
     ...(params.budgetOwnerSessionId === undefined ? {} : { budgetOwnerSessionId: params.budgetOwnerSessionId }),
+    ...(params.finalReport === true ? { finalReport: true } : {}),
     ...(params.contextBudget ? { contextBudget: params.contextBudget } : {}),
     ...(typeof params.maxOutputTokens === "number"
       ? { maxOutputTokens: params.maxOutputTokens }
