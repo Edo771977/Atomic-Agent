@@ -55,3 +55,25 @@ describe("perTurnModelRefusal: the model must be known for the entry", () => {
     expect(perTurnModelRefusal(resolved, "listed", "from-the-list")).toBeNull();
   });
 });
+
+describe("perTurnModelRefusal: a fusion team member's model is known for its provider (issue #37)", () => {
+  const withTeam = (team: unknown): ResolvedLlmConfig => ({
+    ...resolved,
+    providers: [...resolved.providers, { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" } }],
+    ...(team === undefined ? {} : { runMode: { fusion: { team } } }),
+  }) as unknown as ResolvedLlmConfig;
+
+  it("refuses a subscription CLI's model no source knows", () => {
+    expect(perTurnModelRefusal(withTeam(undefined), "codex", "model-team")).toMatch(/model-team/);
+  });
+
+  it.each(["directors", "workers", "reviewers"])("takes a model the team lists for that provider among its %s", (role) => {
+    const team = { directors: ["compat:base-model"], [role]: ["codex:model-team"] };
+    expect(perTurnModelRefusal(withTeam(team), "codex", "model-team")).toBeNull();
+  });
+
+  it("a member on another provider does not make the model known here", () => {
+    const team = { directors: ["compat:model-team"] };
+    expect(perTurnModelRefusal(withTeam(team), "codex", "model-team")).not.toBeNull();
+  });
+});

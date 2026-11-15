@@ -2,6 +2,7 @@ import { isLocalServerUrl } from "../llm/provider/openai/local-server-url.js";
 import { getCachedOpenAiCompatModelsForBaseUrl } from "../llm/provider/openai/fetch-openai-compat-models.js";
 import { getCachedGeminiModelsForPanel } from "../llm/provider/gemini/fetch-gemini-models.js";
 import type { LlmProviderConfigEntry, ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
+import { teamMembers } from "../llm/run-mode/fusion-team.js";
 import { resolveModelPricingFor } from "./resolve-model-pricing.js";
 
 /**
@@ -37,7 +38,10 @@ export function perTurnModelRefusal(
  * price table or the models.dev snapshot for its preset (whatever
  * `resolveModelPricingFor` resolves from a source other than the
  * nominal default), or an id in the entry's cached model list
- * (`/v1/models`, Gemini's list) fetched by a model picker.
+ * (`/v1/models`, Gemini's list) fetched by a model picker. A model the
+ * fusion team (`llm.runMode.fusion.team`, issue #37) lists for this
+ * provider counts too: the person named it for that entry, which is how a
+ * subscription CLI without a model list (Codex) gets one.
  */
 export function perTurnModelIsKnown(
   resolved: ResolvedLlmConfig,
@@ -46,6 +50,7 @@ export function perTurnModelIsKnown(
 ): boolean {
   if (model === (entry.defaultChatModel ?? entry.model)) return true;
   if (entry.userModels?.some((row) => row.id === model)) return true;
+  if (isTeamModel(resolved, entry.id, model)) return true;
   const row = resolveModelPricingFor(resolved, model, entry.id);
   if (row !== undefined && (row.source !== "default" || row.pricingSource !== undefined)) return true;
   const baseUrl = entry.baseUrl ?? entry.url;
@@ -53,4 +58,11 @@ export function perTurnModelIsKnown(
     ? getCachedGeminiModelsForPanel()
     : baseUrl === undefined ? undefined : getCachedOpenAiCompatModelsForBaseUrl(baseUrl);
   return listed?.includes(model) === true;
+}
+
+function isTeamModel(resolved: ResolvedLlmConfig, providerId: string, model: string): boolean {
+  const team = resolved.runMode?.fusion?.team;
+  return (["directors", "workers", "reviewers"] as const).some((role) =>
+    teamMembers(team, role).some((m) => m.providerId === providerId && m.model === model),
+  );
 }
