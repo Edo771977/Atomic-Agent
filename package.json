@@ -78,6 +78,8 @@
     "linux:repo": "tsx scripts/linux-repo.ts",
     "fixtures:generate": "tsx scripts/generate-fixtures.ts",
     "models:snapshot": "tsx scripts/generate-models-dev-snapshot.ts",
+    "prices:anthropic": "tsx scripts/check-anthropic-prices.ts",
+    "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "release": "bash scripts/release.sh",
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
