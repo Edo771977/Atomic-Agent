@@ -161,6 +161,8 @@ describe("the structured review verdict (issue #38)", () => {
     ["a numeric item", JSON.stringify({ decision: "needs-changes", issues: [{ ...issue(), item: 1 }] })],
     ["an empty why", reviewJson("needs-changes", [issue({ why: "  " })])],
     ["a why over 200 chars", reviewJson("needs-changes", [issue({ why: "w".repeat(201) })])],
+    ["a file over 200 chars", reviewJson("needs-changes", [issue({ file: "f".repeat(201) })])],
+    ["an item over 200 chars", reviewJson("needs-changes", [issue({ item: "i".repeat(201) })])],
     ["more than 20 issues", reviewJson("needs-changes", Array.from({ length: 21 }, () => issue()))],
     ["needs-changes without an issue", reviewJson("needs-changes")],
   ])("refuses %s, without repair", (_what, content) => {
@@ -169,6 +171,7 @@ describe("the structured review verdict (issue #38)", () => {
 
   it("accepts the full schema at its bounds", () => {
     const issues = Array.from({ length: 20 }, (_, i) => issue({ item: i % 2 === 0 ? null : "a1", file: i % 3 === 0 ? "src/a.ts" : null, why: "w".repeat(200) }));
+    issues[1] = issue({ item: "i".repeat(200), file: "f".repeat(200), why: "w".repeat(200) });
     expect(parseJudgeAnswer(reviewJson("needs-changes", issues))).toEqual({ ok: true, decision: "needs-changes", issues });
   });
 

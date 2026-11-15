@@ -84,6 +84,8 @@ export interface ReviewVerdict {
 /** Schema bounds of a reviewer's answer. */
 export const REVIEW_MAX_ISSUES = 20;
 export const REVIEW_WHY_CHARS = 200;
+/** An issue's `item` and `file`, when given, are at most this long too. */
+export const REVIEW_REF_CHARS = 200;
 export const REVIEW_SEVERITIES: readonly ReviewSeverity[] = ["blocker", "major", "minor"];
 
 export type AcceptanceItemKind =
@@ -440,7 +442,7 @@ export function renderJudgePrompt(input: {
     "",
     'Answer with JSON only, exactly this shape and no other keys: {"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}',
     `- decision: "accept" when every item to rule on is met; "needs-changes" names at least one issue.`,
-    "- issues: what is wrong, at most 20 issues. item: the item id it breaks, or null for the work as a whole. file: the file it is in, or null.",
+    `- issues: what is wrong, at most ${REVIEW_MAX_ISSUES} issues. item: the item id it breaks, or null for the work as a whole. file: the file it is in, or null. item and file at most ${REVIEW_REF_CHARS} characters each.`,
     `- severity: "blocker" (an item is not met), "major" (met only in part, or wrong behaviour), "minor" (style or a nit; does not block acceptance).`,
     `- why: one line, at most ${REVIEW_WHY_CHARS} characters, naming what is wrong. An item no issue names counts as met.`,
   ].join("\n");
@@ -473,7 +475,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `issues`, each issue with exactly `item`, `severity`, `file` and
  * `why`. Nothing is repaired: a missing, extra or mistyped field, more
  * than {@link REVIEW_MAX_ISSUES} issues, a blank `why` or one over
- * {@link REVIEW_WHY_CHARS} chars, or a needs-changes with no issue,
+ * {@link REVIEW_WHY_CHARS} chars, an `item` or `file` over
+ * {@link REVIEW_REF_CHARS} chars, or a needs-changes with no issue,
  * refuses the whole answer.
  */
 export function parseJudgeAnswer(content: string): ParsedReviewAnswer {
@@ -503,11 +506,15 @@ export function parseJudgeAnswer(content: string): ParsedReviewAnswer {
       return { ok: false, error: `issue ${i + 1}: expected exactly item, severity, file and why` };
     }
     const { item, severity, file, why } = entry;
-    if (item !== null && typeof item !== "string") return { ok: false, error: `issue ${i + 1}: item` };
+    if (item !== null && (typeof item !== "string" || item.length > REVIEW_REF_CHARS)) {
+      return { ok: false, error: `issue ${i + 1}: item` };
+    }
     if (!REVIEW_SEVERITIES.includes(severity as ReviewSeverity)) {
       return { ok: false, error: `issue ${i + 1}: severity` };
     }
-    if (file !== null && typeof file !== "string") return { ok: false, error: `issue ${i + 1}: file` };
+    if (file !== null && (typeof file !== "string" || file.length > REVIEW_REF_CHARS)) {
+      return { ok: false, error: `issue ${i + 1}: file` };
+    }
     if (typeof why !== "string" || why.trim().length === 0 || why.length > REVIEW_WHY_CHARS) {
       return { ok: false, error: `issue ${i + 1}: why` };
     }
