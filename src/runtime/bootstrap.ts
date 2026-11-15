@@ -33,7 +33,7 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal } from "./session-provider-policy.js";
 import { createRuntimeEgressGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
@@ -1047,6 +1047,7 @@ export async function createAgentRuntime(
     // ATO-1084: the channels are attached below; read at call time.
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
+    serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,

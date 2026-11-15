@@ -1,4 +1,5 @@
 import type { ApprovalRequest } from "../approval/approval-gate.js";
+import { withholdApprovalDetails } from "../approval/approval-details-withheld.js";
 import { CHANNEL_RESTRICTED_NOTICE } from "../runtime/session-provider-policy.js";
 
 /**
@@ -32,27 +33,7 @@ export function channelSendWithheld(runtime: ChannelSendCheck, sessionId: string
 }
 
 export { CHANNEL_RESTRICTED_NOTICE };
-
-/** Reason shown on an approval prompt whose details were withheld. */
-export const APPROVAL_DETAILS_WITHHELD =
-  "details withheld: this folder is restricted; open atomic-agent on the computer to see them";
-
-/**
- * An approval prompt for a chat whose session may not send its content
- * there: the tool and kind only. The preview, reason, resources and the
- * grant units (command, host) are dropped, so no "Allow always" rule is
- * offered either. The gate still holds the full request; only the copy
- * the chat sees is cut.
- */
-export function withholdApprovalDetails(request: ApprovalRequest): ApprovalRequest {
-  return {
-    approvalId: request.approvalId,
-    sessionId: request.sessionId,
-    tool: request.tool,
-    category: request.category,
-    reason: APPROVAL_DETAILS_WITHHELD,
-  };
-}
+export { APPROVAL_DETAILS_WITHHELD, withholdApprovalDetails } from "../approval/approval-details-withheld.js";
 
 /** Wrap a chat's approval handler so a restricted session's prompt carries no details. */
 export function gateApprovalHandler(

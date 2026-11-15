@@ -185,11 +185,27 @@ export function channelNotifyRefusal(
   policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
   session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> } | null,
 ): string | null {
+  if (session === null) {
+    return policy.constraintsActive() ? "provider constraints are configured and the task has no session" : null;
+  }
+  return egressRefusal(policy, session, "channels");
+}
+
+/**
+ * Why `session`'s content may not leave this machine through `cls`
+ * right now, or `null` (issue #33), read through
+ * `effectivePolicyForSession`: `"channels"` for a chat, `"serve"` for an
+ * HTTP server listening on a network address.
+ */
+export function egressRefusal(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  cls: "channels" | "serve",
+): string | null {
   if (!policy.constraintsActive()) return null;
-  if (session === null) return "provider constraints are configured and the task has no session";
   const effective = policy.effectivePolicyForSession(session);
-  if (effective === undefined || effective.allowsEgress("channels")) return null;
-  return `folder ${effective.key} is restricted; "channels" is not in its allowedEgress`;
+  if (effective === undefined || effective.allowsEgress(cls)) return null;
+  return `folder ${effective.key} is restricted; "${cls}" is not in its allowedEgress`;
 }
 
 /**

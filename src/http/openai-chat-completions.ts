@@ -29,6 +29,7 @@ import { getConfig } from "../config/index.js";
 import { checkWorkingDir } from "./session-working-dir.js";
 import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
+import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import { openaiError } from "./openai-errors.js";
 import {
   beginSse,
@@ -153,6 +154,12 @@ export function createChatCompletionsHandler(): HttpHandler {
       );
       return;
     }
+    // Issue #33: a network server sends nothing of a constrained folder
+    // without "serve" (serve-egress.ts), whatever the session.
+    if (serveWithheld(ctx, session)()) {
+      sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+      return;
+    }
     const completionId = makeCompletionId();
     const created = Math.floor(Date.now() / 1000);
     if (parsed.stream) {
@@ -236,6 +243,11 @@ async function handleNonStream(
     return;
   }
   const parked = parkUndelivered(ctx, result.session.id, result);
+  // A read during the turn can have tainted it (issue #33).
+  if (serveWithheld(ctx, env.session)()) {
+    sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+    return;
+  }
   if (result.session.status === "failed") {
     // Surface classified LLM failures as HTTP 500 (matches the legacy
     // `runTurn`-throws contract that OpenAI clients depend on; an empty
@@ -344,12 +356,25 @@ async function handleStream(
         slowFirstTokenHint: () => buildSlowFirstTokenHint(getConfig()),
       })
     : null;
-  const hook = phases
+  const inner = phases
     ? (event: AgentLoopEvent): void => {
         phases.onEvent(event);
         frames(event);
       }
     : frames;
+  // Issue #33: once a read taints the turn, a network server writes
+  // nothing more of it and stops it.
+  const withheld = serveWithheld(ctx, env.session);
+  let cut = false;
+  const hook = (event: AgentLoopEvent): void => {
+    if (cut) return;
+    if (withheld()) {
+      cut = true;
+      controller.abort();
+      return;
+    }
+    inner(event);
+  };
   phases?.start();
   // Only this stream's turn asks the model server for prompt progress;
   // the TUI, channels and workers stream as before.
@@ -391,6 +416,7 @@ async function handleStream(
   // stranded steer can still be found.
   const parked = parkUndelivered(ctx, env.session.id, result);
 
+  if (cut || withheld()) error = new Error(SERVE_RESTRICTED_NOTICE);
   if (!error && result?.session.status === "failed") {
     error = new Error(
       `Agent loop failed: ${result.session.lastError ?? "unknown error"}`,

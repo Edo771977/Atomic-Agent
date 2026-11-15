@@ -16,7 +16,7 @@ export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders", "allowedEgress"] as co
  * else fails the load (closed), so a typo never opens a class.
  * `mcp:<server>` names one remote MCP server by its configured name.
  */
-export const EGRESS_CLASSES = ["web", "http", "browser", "github", "git", "channels", "mail", "composio"] as const;
+export const EGRESS_CLASSES = ["web", "http", "browser", "github", "git", "channels", "mail", "composio", "serve"] as const;
 export type EgressClass = (typeof EGRESS_CLASSES)[number] | `mcp:${string}`;
 
 export function isEgressClass(value: string): value is EgressClass {

@@ -404,6 +404,15 @@ export interface AgentRuntime {
     session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ) => string | null;
   /**
+   * Why `serve`, listening on a network address, may not send this
+   * session's content (issue #33): its folder or read taint lacks
+   * "serve" in `allowedEgress`; `null` when it may. Optional (absent:
+   * allowed).
+   */
+  readonly serveRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ) => string | null;
+  /**
    * Discord remote-control channel, or `null` when the build never
    * constructed one. Same contract as `telegramChannel`.
    */
