@@ -355,8 +355,10 @@ describe("atomic-agent setup fusion", () => {
       const llm = fileJson().llm as { activeTextProvider: string; providers: Array<Record<string, unknown>> };
       expect(llm.activeTextProvider).toBe("anthropic");
       expect(llm.providers.find((p) => p.id === "anthropic")).toMatchObject({
-        kind: "openai-compatible", apiKeyEnvVar: "ANTHROPIC_API_KEY", defaultChatModel: "claude-b",
+        kind: "anthropic", baseUrl: "https://api.anthropic.com", apiKeyEnvVar: "ANTHROPIC_API_KEY", defaultChatModel: "claude-b",
       });
+      // The native kind sends its own x-api-key and anthropic-version.
+      expect(llm.providers.find((p) => p.id === "anthropic")).not.toHaveProperty("headers");
       expect(h.out()).toMatch(/add provider anthropic \(.*ANTHROPIC_API_KEY/);
       expect(raw()).not.toContain(ANTHROPIC_SECRET);
       expect(h.out()).not.toContain(ANTHROPIC_SECRET);
