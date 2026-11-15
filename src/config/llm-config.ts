@@ -291,6 +291,8 @@ const PROVIDER_KINDS = new Set([
   "openrouter",
   "aimlapi",
   "gemini",
+  // The native Anthropic Messages API (`src/llm/provider/anthropic/`).
+  "anthropic",
   SUBSCRIPTION_CLI_KIND,
 ]);
 

@@ -76,6 +76,15 @@ describe("request budget scope", () => {
     expect(() => s.beforeSend({ model: "m", messages: [], plugins: [{ id: "web" }] })).toThrow(/provider-side input/);
   });
 
+  it("keeps the byte-sized input reservation for Anthropic Messages client tools", () => {
+    // The native Anthropic wire spells a client tool `{name, input_schema}`
+    // with no `type`; it adds no provider-side input.
+    const body = { model: "claude-fable-5-2", max_tokens: 4096, messages: [], tools: [{ name: "f", input_schema: { type: "object" } }] };
+    expect(() => setup(0.1).scope().beforeSend(body)).not.toThrow();
+    const server = { ...body, tools: [{ type: "web_search_20260209", name: "web_search" }] };
+    expect(() => setup(0.1).scope().beforeSend(server)).toThrow(/budget|cap/i);
+  });
+
   it("keeps the byte-sized input reservation for function tools", () => {
     const body = { model: "m", messages: [], tools: [{ type: "function", function: { name: "f", parameters: {} } }] };
     expect(() => setup(0.1).scope().beforeSend(body)).not.toThrow();

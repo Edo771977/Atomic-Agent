@@ -29,10 +29,10 @@ export function configuredFusionRoutingIdentity(
     if (address !== endpoint(local.url)) return undefined;
     model = local.liveModelId;
   } else {
-    if (!["openai-compatible", "qwen-openai-compatible", "openrouter", "aimlapi", "gemini"].includes(entry.kind)) return undefined;
+    if (!["openai-compatible", "qwen-openai-compatible", "openrouter", "aimlapi", "gemini", "anthropic"].includes(entry.kind)) return undefined;
     model = entry.defaultChatModel;
     if (!model || /(?:^|\/)auto(?:$|:)/i.test(model)) return undefined;
-    address = entry.baseUrl === undefined && ["openrouter", "aimlapi", "gemini"].includes(entry.kind)
+    address = entry.baseUrl === undefined && ["openrouter", "aimlapi", "gemini", "anthropic"].includes(entry.kind)
       ? `builtin:${entry.kind}` : endpoint(entry.baseUrl);
   }
   if (address === undefined) return undefined;

@@ -14,6 +14,14 @@ export type ToolCallTransport = "grammar" | "native_tools";
  */
 export type ReasoningEffort = "low" | "medium" | "high";
 
+/**
+ * `ReasoningEffort` plus the two levels above `high` that Anthropic's
+ * `output_config.effort` takes (`xhigh`, `max`). Only a configured
+ * effort (`llm.runMode.fusion.orchestratorReasoning`) reaches them; a
+ * kind without those levels gets `high` (`reasoningEffortField`).
+ */
+export type ExtendedReasoningEffort = ReasoningEffort | "xhigh" | "max";
+
 export interface CompletionUsage {
   /** Token counts were absent/incomplete on the wire; synthesized zeros are not a free bill. */
   incomplete?: true;
@@ -186,7 +194,7 @@ export interface CompletionRequest {
    * neither. Ignored by grammar-only providers. Set by the fusion
    * fan-out for its workers.
    */
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ExtendedReasoningEffort;
   /**
    * The reasoning level a person picked for this chat (ATO-490,
    * `reasoning-levels.ts`). Unlike `reasoningEffort` it beats the

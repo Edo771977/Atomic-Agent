@@ -122,6 +122,9 @@ function keepTailWithin(text: string, tokens: number): string {
 
 export const NO_RESULT_RECORDED = "(no result recorded)";
 
+/** How a failed call's `tool` message opens (read back as `is_error` by the Anthropic wire). */
+export const TOOL_ERROR_PREFIX = "error: ";
+
 export function buildNativeMessages(
   prompt: PromptMessages,
   options: NativeMessageOptions,
@@ -235,7 +238,7 @@ export function buildNativeMessages(
 function renderToolMessageContent(
   turn: Extract<PromptTurn, { kind: "tool_result" }>,
 ): string {
-  const body = turn.status === "error" ? `error: ${turn.body}` : turn.body;
+  const body = turn.status === "error" ? `${TOOL_ERROR_PREFIX}${turn.body}` : turn.body;
   return turn.truncated ? `${body} (truncated)` : body;
 }
 

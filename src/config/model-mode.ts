@@ -14,7 +14,7 @@ export function defaultProviderModelMode(
 ): ModelMode {
   if (
     entry.kind === "openrouter" || entry.kind === "aimlapi" ||
-    entry.kind === "gemini" || usesExternalCliAuth(entry)
+    entry.kind === "gemini" || entry.kind === "anthropic" || usesExternalCliAuth(entry)
   ) return "cloud";
   if (entry.kind !== "openai-compatible" || !entry.baseUrl) return "local";
   try {

@@ -244,12 +244,18 @@ function assembleOpenAiChatBody(
     cloudTakesReasoningOverride(options.providerKind, defaultChatModel)
       ? filtered.reasoningOverride
       : undefined;
+  // The native Anthropic kind: a call that asked for no thinking gets the
+  // floor, since Fable / Opus 5.5 cannot turn thinking off and would run
+  // at the service default (`reasoningEffortField` maps it to `low`).
+  const nativeAnthropic = options.providerKind === "anthropic";
   const effort =
     override ??
     filtered.reasoningEffort ??
-    (options.providerKind === "openrouter" && !filtered.disableThinking
+    ((options.providerKind === "openrouter" || nativeAnthropic) && !filtered.disableThinking
       ? defaultReasoningEffort(defaultChatModel)
-      : undefined);
+      : nativeAnthropic && filtered.disableThinking
+        ? "low"
+        : undefined);
   if (effort !== undefined) {
     Object.assign(
       body,
@@ -347,7 +353,7 @@ function assembleOpenAiChatBody(
   const modelParams = options.modelParams;
   if (!extraBody && !modelParams) return body;
   const effortKeys = override === undefined ? [] : Object.keys(body).filter(
-    (key) => key === "reasoning" || key === "reasoning_effort",
+    (key) => key === "reasoning" || key === "reasoning_effort" || key === "output_config",
   );
   // Vendor passthrough, then the model's own parameters. Merged last so
   // they can reach fields this builder does not model, then reserved
@@ -369,9 +375,15 @@ function assembleOpenAiChatBody(
   // say how much) gives way to the level's `effort`.
   if (override !== undefined) {
     const operatorReasoning = merged.reasoning;
+    const operatorOutputConfig = merged.output_config;
     delete merged.reasoning;
     delete merged.reasoning_effort;
     for (const key of effortKeys) merged[key] = body[key];
+    // Anthropic's `output_config` says more than effort (`format`): the
+    // operator's other fields stay, the level's `effort` wins.
+    if (effortKeys.includes("output_config") && isPlainRecord(operatorOutputConfig)) {
+      merged.output_config = { ...operatorOutputConfig, ...(body.output_config as Record<string, unknown>) };
+    }
     if (effortKeys.includes("reasoning") && isPlainRecord(operatorReasoning)) {
       if (operatorReasoning.enabled === false) {
         merged.reasoning = operatorReasoning;

@@ -3,7 +3,8 @@
  * instead of typing a base URL from memory.
  *
  * These are not new provider kinds: every preset resolves to the
- * existing `openai-compatible` kind with `baseUrl` filled in. Model
+ * existing `openai-compatible` kind with `baseUrl` filled in (Anthropic's
+ * entry is then served by the native `anthropic` client, by its host). Model
  * lists still come from the server's own `/v1/models` (#31, #41), so
  * nothing here needs updating when a vendor ships a new model.
  *
@@ -147,9 +148,14 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     // `x-api-key`. `anthropic-version` is mandatory on every request and
     // is the header the API dates its wire format by — pinned, not
     // floating, so a future default cannot silently reshape responses.
+    // The saved entry is `openai-compatible` on exactly this host, which
+    // resolves to the native Messages client (`anthropic/anthropic-route.ts`):
+    // Anthropic's OpenAI-compatible endpoint neither caches nor honours an
+    // effort. Entries saved with the old `2023-06-01` pin run on the
+    // current version too.
     apiKeyHeader: "x-api-key",
-    headers: { "anthropic-version": "2023-06-01" },
-    note: "Claude models through Anthropic's OpenAI-compatible endpoint",
+    headers: { "anthropic-version": "2026-10-21" },
+    note: "Claude models through Anthropic's native Messages API",
   },
   {
     id: "atomic-chat",

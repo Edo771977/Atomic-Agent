@@ -209,6 +209,59 @@ export function forgetLearnedModelParams(): void {
 const FABLE_MEDIUM_DEFAULT_RE =
   /^claude-fable-(?:5[.-](?:[2-9]|[1-9][0-9])|(?:[6-9]|[1-9][0-9]))(?![0-9])/i;
 
+/** Anthropic `output_config.effort` levels, lowest first. */
+export const ANTHROPIC_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type AnthropicEffort = (typeof ANTHROPIC_EFFORT_LEVELS)[number];
+
+/**
+ * The effort levels a Claude model takes on the Messages API, or `null`
+ * for one that answers `effort` with an error (Sonnet 4.5, Haiku 4.5 and
+ * older). Opus 4.5 takes low/medium/high; Opus 4.6 and Sonnet 4.6 add
+ * `max`; `xhigh` arrived with Opus 4.7, and every Fable, Mythos, Opus 5+,
+ * Sonnet 5+ and Haiku 5+ takes all five. Unknown future versions fall on
+ * the all-five side.
+ */
+export function anthropicEffortLevels(modelId: string): readonly AnthropicEffort[] | null {
+  const match = CLAUDE_MODEL_RE.exec(bareModelId(modelId.trim()));
+  if (!match) return null;
+  const family = match[1]!.toLowerCase();
+  const major = Number(match[2]);
+  const minor = match[3] === undefined ? 0 : Number(match[3]);
+  const all = ANTHROPIC_EFFORT_LEVELS;
+  const withMax: readonly AnthropicEffort[] = ["low", "medium", "high", "max"];
+  switch (family) {
+    case "fable":
+    case "mythos":
+      return all;
+    case "opus":
+      if (major > 4 || (major === 4 && minor >= 7)) return all;
+      if (major === 4 && minor === 6) return withMax;
+      if (major === 4 && minor === 5) return ["low", "medium", "high"];
+      return null;
+    case "sonnet":
+      if (major >= 5) return all;
+      if (major === 4 && minor >= 6) return withMax;
+      return null;
+    default:
+      // haiku
+      return major >= 5 ? all : null;
+  }
+}
+
+/** A level the model does not take, moved to the nearest it does (never up). */
+export function clampAnthropicEffort(
+  effort: AnthropicEffort,
+  levels: readonly AnthropicEffort[],
+): AnthropicEffort {
+  if (levels.includes(effort)) return effort;
+  const rank = ANTHROPIC_EFFORT_LEVELS.indexOf(effort);
+  for (let i = rank; i >= 0; i -= 1) {
+    const candidate = ANTHROPIC_EFFORT_LEVELS[i]!;
+    if (levels.includes(candidate)) return candidate;
+  }
+  return levels[0] ?? "low";
+}
+
 /**
  * The effort to send when the turn asked for none, or `undefined` to
  * leave the service's default. Only for a model whose service default
@@ -264,10 +317,22 @@ function bareModelId(modelId: string): string {
  */
 export function reasoningEffortField(
   providerKind: string | undefined,
-  effort: "low" | "medium" | "high",
+  requested: AnthropicEffort,
   modelId?: string,
   options: { disableThinking?: boolean } = {},
 ): Record<string, unknown> {
+  if (providerKind === "anthropic") {
+    // Native Messages API: `output_config.effort`, only for a model that
+    // takes it. Thinking cannot be turned off on Fable / Opus 5.5, so a
+    // call that wants none (the compaction summary) gets the floor.
+    const levels = modelId ? anthropicEffortLevels(modelId) : null;
+    if (levels === null) return {};
+    const effort = options.disableThinking === true ? "low" : requested;
+    return { output_config: { effort: clampAnthropicEffort(effort, levels) } };
+  }
+  // The levels above `high` are Anthropic's; every other kind gets `high`.
+  const effort: "low" | "medium" | "high" =
+    requested === "xhigh" || requested === "max" ? "high" : requested;
   switch (providerKind) {
     case "openrouter":
       return { reasoning: { effort } };
