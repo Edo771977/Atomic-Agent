@@ -5,6 +5,7 @@ import { ConfigValidationError, parseUserConfigFile } from "../config/index.js";
 import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
+import { Database } from "../native/index.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 
 /**
@@ -42,6 +43,8 @@ export interface DoctorContext {
   /** Whether a process id is running; injectable for tests. */
   pidAlive: (pid: number) => boolean;
   now: () => Date;
+  /** Opens and closes a database; injectable for tests. Defaults to an in-memory better-sqlite3 one. */
+  openSqlite?: () => void;
 }
 
 type Tree = Record<string, unknown>;
@@ -163,12 +166,28 @@ function checkSessionPins(ctx: DoctorContext): DoctorFinding[] {
   }
 }
 
+/**
+ * Sessions, tasks and memory all live in SQLite. A native binding that never
+ * built (npm blocked the install script, or Node was upgraded) fails every
+ * command that opens a store; the loader's message carries the fix.
+ */
+function checkSqlite(ctx: DoctorContext): DoctorFinding[] {
+  const open = ctx.openSqlite ?? (() => new Database(":memory:").close());
+  try {
+    open();
+    return [{ check: "sqlite", status: "ok", message: "better-sqlite3 opens a database" }];
+  } catch (err) {
+    return [{ check: "sqlite", status: "fail", message: err instanceof Error ? err.message : String(err) }];
+  }
+}
+
 export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[]> = [
   checkConfig,
   checkConfigMode,
   checkMcpCommands,
   checkCoreLocks,
   checkSessionPins,
+  checkSqlite,
 ];
 
 export function runDoctorChecks(ctx: DoctorContext): DoctorFinding[] {

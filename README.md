@@ -944,6 +944,18 @@ npm test
 npm run build
 ```
 
+### From source
+
+Prerequisites: Node 25.7 or newer, and a toolchain that can build `better-sqlite3`'s native binding when no prebuilt one matches your Node: Python 3 and a C++ compiler (Xcode Command Line Tools on macOS, `build-essential` on Linux). On Windows install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload (`Microsoft.VisualStudio.Workload.VCTools`) and Python 3.
+
+If a command fails with `better-sqlite3's native binding is missing` (the raw form is `Could not locate the bindings file` or a `NODE_MODULE_VERSION` mismatch), the package's install script did not run for this Node: npm may have skipped or blocked it, or Node was upgraded since `npm install`. Rebuild it and watch the output:
+
+```bash
+npm rebuild better-sqlite3 --foreground-scripts
+```
+
+If your npm is configured to block dependency install scripts (`ignore-scripts`, or an allow-list policy), allow `better-sqlite3`'s script first, then rerun the rebuild. `atomic-agent doctor` checks this by opening an in-memory database. The installed build ships the binding; there the fix is to reinstall atomic-agent.
+
 Core docs:
 
 - [PROMPT.md](src/prompt/README.md): prompt anatomy
