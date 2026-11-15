@@ -105,6 +105,11 @@ export const supplementalFiles = [
   'src/tools/os/fs/fs-missing-path.test.ts',
   'src/tools/os/fs/fs-locate-project.test.ts',
   'src/tracing/trace/trace-sink.test.ts',
+  // Per-folder provider constraints (issue #33): the Windows path rules
+  // (case, separators, \\?\, UNC, junctions) and worker policy stamps.
+  'src/config/project-constraint-match.test.ts',
+  'src/runtime/session-provider-policy.test.ts',
+  'src/llm/fallback/provider-policy-fallback.test.ts',
 ];
 /**
  * Test files in coreDirectories deliberately outside the Windows gate: not yet
