@@ -11,6 +11,8 @@ import {
   memberReachable,
   parseTeamMember,
   pickReviewer,
+  reviewEnabled,
+  reviewPassesOf,
   teamFactsFromSetup,
   teamFamilyOf,
   teamMembers,
@@ -198,5 +200,29 @@ describe("pickReviewer", () => {
     const plain = { ...team, crossFamilyReview: false };
     expect(pickReviewer(plain, m("local-llama:model-w"), { familyOf, reachable: all })?.ref).toBe("local-llama:model-r");
     expect(pickReviewer(plain, m("local-llama:model-r"), { familyOf, reachable: all })?.ref).toBe("anthropic:model-r");
+  });
+});
+
+describe("reviewEnabled and reviewPassesOf (issue #38)", () => {
+  const base: UserFusionTeamConfig = { directors: ["anthropic:model-a"] };
+  it("listed reviewers turn review on even with the judge off", () => {
+    expect(reviewEnabled({ ...base, reviewers: ["openai:model-r"] }, "off")).toBe(true);
+    expect(reviewEnabled({ ...base, reviewers: ["openai:model-r"] }, undefined)).toBe(true);
+  });
+  it("an explicit review setting wins over the judge and the reviewers", () => {
+    expect(reviewEnabled({ ...base, reviewers: ["openai:model-r"], review: "off" }, "on")).toBe(false);
+    expect(reviewEnabled({ ...base, review: "on" }, "off")).toBe(true);
+  });
+  it("without reviewers or a team, the judge decides as before", () => {
+    expect(reviewEnabled(base, "on")).toBe(true);
+    expect(reviewEnabled(base, "off")).toBe(false);
+    expect(reviewEnabled(undefined, "on")).toBe(true);
+    expect(reviewEnabled(undefined, undefined)).toBe(false);
+  });
+  it("passes default to 2 and keep an explicit 0", () => {
+    expect(reviewPassesOf(undefined)).toBe(2);
+    expect(reviewPassesOf(base)).toBe(2);
+    expect(reviewPassesOf({ ...base, reviewPasses: 0 })).toBe(0);
+    expect(reviewPassesOf({ ...base, reviewPasses: 1 })).toBe(1);
   });
 });

@@ -20,6 +20,8 @@ export {
   memberReachable,
   parseTeamMember,
   pickReviewer,
+  reviewEnabled,
+  reviewPassesOf,
   teamFactsFromSetup,
   teamFamilyOf,
   teamMembers,

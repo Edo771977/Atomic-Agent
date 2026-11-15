@@ -60,6 +60,37 @@ describe("llm.runMode.fusion.team", () => {
     expect(() => parse(team)).toThrow(message);
   });
 
+  it("reads review and reviewPasses (issue #38)", () => {
+    const team = { directors: ["anthropic:model-a"], reviewers: ["anthropic:model-e"], review: "off", reviewPasses: 0 };
+    expect(parse(team).fusion!.team).toEqual(team);
+    for (const passes of [1, 2]) {
+      expect(parse({ directors: ["anthropic:model-a"], review: "on", reviewPasses: passes }).fusion!.team)
+        .toEqual({ directors: ["anthropic:model-a"], review: "on", reviewPasses: passes });
+    }
+  });
+
+  it("reads an unknown review value as unset, as other enum-like values (newer build)", () => {
+    expect(parse({ directors: ["anthropic:model-a"], review: "strict" }).fusion!.team).toEqual({ directors: ["anthropic:model-a"] });
+  });
+
+  it.each([
+    [{ directors: ["anthropic:model-a"], review: true }, /team\.review: expected on\|off/],
+    [{ directors: ["anthropic:model-a"], reviewPasses: 3 }, /team\.reviewPasses: expected 0, 1 or 2/],
+    [{ directors: ["anthropic:model-a"], reviewPasses: 1.5 }, /team\.reviewPasses: expected 0, 1 or 2/],
+    [{ directors: ["anthropic:model-a"], reviewPasses: "2" }, /team\.reviewPasses: expected 0, 1 or 2/],
+  ])("rejects review settings %j", (team, message) => {
+    expect(() => parse(team)).toThrow(message);
+  });
+
+  it("keeps review and reviewPasses when a provider's members are dropped", () => {
+    const runMode = parse({ directors: ["anthropic:model-a"], workers: ["codex-cli:model-c"], review: "on", reviewPasses: 1 });
+    expect(scrubRunModeProviderPins(runMode, "codex-cli")!.fusion!.team).toEqual({
+      directors: ["anthropic:model-a"],
+      review: "on",
+      reviewPasses: 1,
+    });
+  });
+
   it("lets one member sit in several lists", () => {
     const team = { directors: ["anthropic:model-a"], reviewers: ["anthropic:model-a"] };
     expect(parse(team).fusion!.team).toEqual(team);

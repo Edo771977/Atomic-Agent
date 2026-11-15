@@ -1,3 +1,4 @@
+import { isSetAsideString } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
 
 /**
@@ -23,9 +24,10 @@ export type UserFusionTeamConfig = {
    */
   workers?: string[];
   /**
-   * Models that may judge a finished task, as `"<providerId>:<model>"`,
-   * when the judge is on (`judge: "on"`); they choose who judges, never
-   * whether. Unset or no reachable choice: the judge is `judgeProvider`.
+   * Models that may review a finished task, as `"<providerId>:<model>"`.
+   * Listing any turns per-task review on unless `review` is `"off"`
+   * (issue #38). No fitting reviewer for a task: `judgeProvider` reviews
+   * it when `judge` is on, else no model does.
    */
   reviewers?: string[];
   /**
@@ -34,7 +36,23 @@ export type UserFusionTeamConfig = {
    * reachable reviewer. Default `true`.
    */
   crossFamilyReview?: boolean;
+  /**
+   * Per-task review by a reviewer (issue #38). Unset: on when
+   * `reviewers` lists any, else `judge` decides as before. `"on"` or
+   * `"off"` set it explicitly, whatever `judge` says.
+   */
+  review?: "on" | "off";
+  /**
+   * How many extra passes a task gets when its review asks for changes,
+   * within the turn's budget: 0, 1 or 2. Default 2.
+   */
+  reviewPasses?: 0 | 1 | 2;
 };
+
+export const FUSION_TEAM_REVIEW_MODES: readonly NonNullable<UserFusionTeamConfig["review"]>[] = ["on", "off"];
+export const FUSION_TEAM_REVIEW_PASSES: readonly NonNullable<UserFusionTeamConfig["reviewPasses"]>[] = [0, 1, 2];
+/** `reviewPasses` when unset. */
+export const DEFAULT_FUSION_TEAM_REVIEW_PASSES: NonNullable<UserFusionTeamConfig["reviewPasses"]> = 2;
 
 /** The two halves of a team member; null when `raw` is not `"<providerId>:<model>"` with both halves non-blank. */
 export function splitTeamMemberRef(raw: string): { providerId: string; model: string } | null {
@@ -97,6 +115,19 @@ export function parseFusionTeam(
     }
     out.crossFamilyReview = obj.crossFamilyReview;
   }
+  if (obj.review !== undefined && !isSetAsideString(obj.review, FUSION_TEAM_REVIEW_MODES, `${field}.review`, undefined)) {
+    if (obj.review !== "on" && obj.review !== "off") {
+      throw new ConfigValidationError(`${field}.review`, "expected on|off");
+    }
+    out.review = obj.review;
+  }
+  if (obj.reviewPasses !== undefined) {
+    const passes = FUSION_TEAM_REVIEW_PASSES.find((n) => n === obj.reviewPasses);
+    if (passes === undefined) {
+      throw new ConfigValidationError(`${field}.reviewPasses`, "expected 0, 1 or 2");
+    }
+    out.reviewPasses = passes;
+  }
   return out;
 }
 
@@ -127,5 +158,7 @@ export function teamWithoutProviders(
     ...(workers !== undefined && workers.length > 0 ? { workers } : {}),
     ...(reviewers !== undefined && reviewers.length > 0 ? { reviewers } : {}),
     ...(team.crossFamilyReview === undefined ? {} : { crossFamilyReview: team.crossFamilyReview }),
+    ...(team.review === undefined ? {} : { review: team.review }),
+    ...(team.reviewPasses === undefined ? {} : { reviewPasses: team.reviewPasses }),
   };
 }

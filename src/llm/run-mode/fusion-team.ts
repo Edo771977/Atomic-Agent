@@ -1,4 +1,4 @@
-import { splitTeamMemberRef } from "../../config/llm-fusion-team-config.js";
+import { DEFAULT_FUSION_TEAM_REVIEW_PASSES, splitTeamMemberRef } from "../../config/llm-fusion-team-config.js";
 import {
   LOCAL_PROVIDER_KIND,
   type UserFusionTeamConfig,
@@ -254,4 +254,23 @@ export function pickReviewer(
         opts.reachable(r),
     ) ?? null
   );
+}
+
+/**
+ * Whether tasks get a review (issue #38): `team.review` when set; else on
+ * when the team lists reviewers, whatever `fusion.judge` says; else
+ * `fusion.judge` decides, as before the team.
+ */
+export function reviewEnabled(
+  team: UserFusionTeamConfig | undefined,
+  fusionJudge: UserLlmFusionConfig["judge"],
+): boolean {
+  if (team?.review !== undefined) return team.review === "on";
+  if ((team?.reviewers?.length ?? 0) > 0) return true;
+  return fusionJudge === "on";
+}
+
+/** The extra passes a task whose review asks for changes may get: `team.reviewPasses`, default 2. */
+export function reviewPassesOf(team: UserFusionTeamConfig | undefined): 0 | 1 | 2 {
+  return team?.reviewPasses ?? DEFAULT_FUSION_TEAM_REVIEW_PASSES;
 }
