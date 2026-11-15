@@ -39,8 +39,14 @@ function isRunningUnderSea(): boolean {
 
 let cached: DatabaseCtor | null = null;
 
-/** The raw errors `bindings`/Node give for a missing or wrong-ABI `.node` file. */
-const NATIVE_BINDING_ERROR = /Could not locate the bindings file|NODE_MODULE_VERSION|was compiled against/;
+/**
+ * The raw errors `bindings`/Node give for a missing or wrong-ABI `.node`
+ * file, and the loader's own: Windows cannot load it ("The specified
+ * module could not be found"), or Linux finds it built against a newer
+ * glibc (`GLIBC_2.38' not found).
+ */
+const NATIVE_BINDING_ERROR =
+  /Could not locate the bindings file|NODE_MODULE_VERSION|was compiled against|The specified module could not be found|GLIBC_[\d.]+'? not found/;
 
 export interface LoadBetterSqlite3Deps {
   req: (id: string) => unknown;

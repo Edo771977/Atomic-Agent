@@ -62,6 +62,14 @@ describe("loadBetterSqlite3Ctor", () => {
     expect(err?.cause).toBe(raw);
   });
 
+  it.each([
+    ["Windows, a binding that cannot be loaded", "\\\\?\\C:\\x\\node_modules\\better-sqlite3\\build\\Release\\better_sqlite3.node: The specified module could not be found."],
+    ["Linux, a binding built against a newer glibc", "/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found (required by /x/node_modules/better-sqlite3/build/Release/better_sqlite3.node)"],
+  ])("recognises %s (#29 review)", (_name, message) => {
+    expect(() => loadBetterSqlite3Ctor({ req: failingRequire(new Error(message)), sea: false, abi: "141", platform: "linux" }))
+      .toThrow(/ABI 141[\s\S]*npm rebuild better-sqlite3/);
+  });
+
   it("passes other errors through unchanged", () => {
     const raw = new Error("EACCES: permission denied");
     expect(() => loadBetterSqlite3Ctor({ req: failingRequire(raw), sea: false })).toThrow(raw);
