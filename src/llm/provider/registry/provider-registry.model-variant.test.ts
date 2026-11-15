@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AtomicAgentConfig } from "../../../config/index.js";
 import { getConfig } from "../../../config/index.js";
-import { ProviderRegistry, registerProviderKind } from "./provider-registry.js";
+import { MAX_MODEL_VARIANTS_PER_PROVIDER, ProviderRegistry, registerProviderKind } from "./provider-registry.js";
 import { ProviderNotAllowedError } from "../../provider-policy.js";
 import type { LlmProviderConfigEntry } from "./provider-types.js";
 
@@ -104,5 +104,25 @@ describe("ProviderRegistry.modelVariant (ATO-1148)", () => {
     const variant = await registry.modelVariant("cloud-b", "model-b-large");
 
     await expect(variant!.complete({ prompt: "x" } as never)).rejects.toBeInstanceOf(ProviderNotAllowedError);
+  });
+
+  it("keeps at most a bounded number of copies per provider, closing the least recently used", async () => {
+    const { built, config, ctx } = fixture();
+    const registry = await ProviderRegistry.fromConfig(config, ctx);
+    const first = await registry.modelVariant("cloud-b", "m-0");
+    const firstRecord = built.at(-1)!;
+    for (let i = 1; i < MAX_MODEL_VARIANTS_PER_PROVIDER; i += 1) await registry.modelVariant("cloud-b", `m-${i}`);
+    // Touch m-0 so m-1 is now the least recently used.
+    expect(await registry.modelVariant("cloud-b", "m-0")).toBe(first);
+    const secondRecord = built.find((record) => record.entry.defaultChatModel === "m-1")!;
+
+    await registry.modelVariant("cloud-b", "m-overflow");
+
+    expect(secondRecord.closed).toBe(true);
+    expect(firstRecord.closed).toBe(false);
+    expect(await registry.modelVariant("cloud-b", "m-0")).toBe(first);
+    const before = built.length;
+    await registry.modelVariant("cloud-b", "m-1");
+    expect(built.length).toBe(before + 1);
   });
 });

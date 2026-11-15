@@ -55,6 +55,12 @@ async function buildOrSkip(
  */
 export type ConstraintsActive = () => boolean;
 
+/**
+ * Most per-turn model copies kept per provider (ATO-1148); the least
+ * recently used one is closed and rebuilt on its next use.
+ */
+export const MAX_MODEL_VARIANTS_PER_PROVIDER = 16;
+
 export class ProviderRegistry {
   private readonly providers: Map<string, LlmProvider>;
   private readonly entries: Map<string, LlmProviderConfigEntry>;
@@ -168,7 +174,8 @@ export class ProviderRegistry {
    * The provider `id` built for `model` instead of the chat model its
    * entry names (ATO-1148). The base provider is returned as-is when it
    * already serves that model. Built once per (id, model) from the same
-   * entry and kept until the provider is replaced or removed; the active
+   * entry and kept until the provider is replaced or removed, at most
+   * {@link MAX_MODEL_VARIANTS_PER_PROVIDER} per provider; the active
    * provider, the entries and the config are not touched, so a turn on
    * a project's model never moves another chat's model.
    *
@@ -186,7 +193,19 @@ export class ProviderRegistry {
     const byModel = this.variants.get(id) ?? new Map<string, Promise<LlmProvider>>();
     this.variants.set(id, byModel);
     const known = byModel.get(model);
-    if (known) return known;
+    if (known) {
+      // Map order is the recency order: a hit moves to the back.
+      byModel.delete(model);
+      byModel.set(model, known);
+      return known;
+    }
+    while (byModel.size >= MAX_MODEL_VARIANTS_PER_PROVIDER) {
+      const [oldest, evicted] = byModel.entries().next().value as [string, Promise<LlmProvider>];
+      byModel.delete(oldest);
+      // A turn still holding the copy keeps its object; HTTP providers
+      // have nothing to tear down, so closing it is safe.
+      void evicted.then((v) => v.close()).catch(() => undefined);
+    }
     // Guarded like every provider the registry holds: a copy must not be
     // a way round a folder's provider constraint (issue #33).
     const built = Promise.resolve(
