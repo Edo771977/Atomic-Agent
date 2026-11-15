@@ -133,3 +133,20 @@ export function workerPolicyStampFromFrame(): ProviderPolicyStamp | null | undef
   if (frame === undefined) return undefined;
   return frame.policy === undefined ? null : toProviderPolicyStamp(frame.policy);
 }
+
+/**
+ * Why a task's notification may not go to its chat right now, or `null`
+ * (issue #33): its session's policy, read at send time through
+ * `effectivePolicyForSession`, must list "channels". A task with no
+ * session while constraints exist is refused (fail closed).
+ */
+export function channelNotifyRefusal(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  sessionId: string | null,
+): string | null {
+  if (!policy.constraintsActive()) return null;
+  if (sessionId === null) return "provider constraints are configured and the task has no session";
+  const effective = policy.effectivePolicyForSession(sessionId);
+  if (effective === undefined || effective.allowsEgress("channels")) return null;
+  return `folder ${effective.key} is restricted; "channels" is not in its allowedEgress`;
+}

@@ -147,6 +147,14 @@ export interface TaskRunnerOptions {
    * a live status to send. Absent sink or cadence: off.
    */
   snapshotSink?: TaskSnapshotSink;
+  /**
+   * Asked at send time, for every report and before live snapshots
+   * start: a reason the task's notification may not leave this machine
+   * (its session is in a constrained folder whose allowedEgress lacks
+   * "channels", issue #33), or `null`. A refused report is withheld with
+   * an info note; the task's result stays local. Absent ⇒ never refused.
+   */
+  notifyRefusal?: (task: TaskRecord) => string | null;
   snapshotCadence?: { everySteps: number; everyMs: number } | null;
   logger?: StructuredLogger;
   /**
@@ -526,7 +534,7 @@ export class TaskRunner {
     // timer whatever ends the run.
     let snapshots: ReturnType<typeof startTaskSnapshots> | null = null;
     const startSnapshots = (): ReturnType<typeof startTaskSnapshots> | null =>
-      collector && this.options.snapshotSink
+      collector && this.options.snapshotSink && this.notifyRefused(claimed) === null
         ? startTaskSnapshots({
             sink: this.options.snapshotSink,
             cadence: this.options.snapshotCadence,
@@ -1186,6 +1194,17 @@ export class TaskRunner {
    * supplies one). Fire-and-forget: a rejecting or throwing sink is
    * warn-logged and never alters the task's status or the drain.
    */
+  /** `notifyRefusal`'s answer; a throwing check refuses (fail closed). */
+  private notifyRefused(task: TaskRecord): string | null {
+    const check = this.options.notifyRefusal;
+    if (check === undefined) return null;
+    try {
+      return check(task);
+    } catch (err) {
+      return `notify check failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   private maybeReport(
     task: TaskRecord,
     replyText: string | null,
@@ -1194,6 +1213,11 @@ export class TaskRunner {
     const sink = this.options.reportSink;
     if (!sink || task.notify === null) return;
     if (!isReportableStatus(task.status)) return;
+    const refused = this.notifyRefused(task);
+    if (refused !== null) {
+      this.options.logger?.info("task report withheld", { taskId: task.id, notify: task.notify, reason: refused });
+      return;
+    }
     const report = buildTaskReport(task, task.status, replyText, run);
     void (async () => sink(report))().catch((err) => {
       this.options.logger?.warn("task report sink failed", {

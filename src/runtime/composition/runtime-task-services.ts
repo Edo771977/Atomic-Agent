@@ -9,6 +9,7 @@ import {
   type TaskReportSink,
 } from "../../tasks/index.js";
 import type { TaskRunnerRuntime } from "../../tasks/task-runner.js";
+import type { TaskRecord } from "../../tasks/index.js";
 import { createSchedulerLeadership, Scheduler } from "../../scheduler/index.js";
 import { WebhookSessionStore, WEBHOOK_SESSIONS_FILENAME } from "../../http/webhook-session-store.js";
 import { registerTaskTools } from "../../tools/tasks/index.js";
@@ -79,6 +80,8 @@ export function createRuntimeTaskRunner(args: {
   metrics: AgentMetrics;
   /** The live approval level, so a task started under another is left alone (ATO-1324). */
   approvalLevel?: () => number;
+  /** A constrained folder's veto on a task's notification, at send time (issue #33). */
+  notifyRefusal?: (task: TaskRecord) => string | null;
 }): TaskRunner {
   const { config, taskStore, runTurn, sessionStore, createSession, toolRegistry, resolveTelegram, logger, metrics } = args;
   const taskRunner = new TaskRunner({
@@ -122,6 +125,7 @@ export function createRuntimeTaskRunner(args: {
     logger,
     metrics,
     ...(args.approvalLevel ? { approvalLevel: args.approvalLevel } : {}),
+    ...(args.notifyRefusal ? { notifyRefusal: args.notifyRefusal } : {}),
     // Continue a run a crash, a kill or a restart cut off from its
     // session's checkpoint (ATO-1109).
     resume: {

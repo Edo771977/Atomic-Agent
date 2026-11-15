@@ -849,6 +849,43 @@ describe("TaskRunner", () => {
       expect(reports[0]!.durationMs).not.toBeNull();
     });
 
+    it("withholds the report when the task's folder refuses channels at send time, keeping the result (issue #33)", async () => {
+      const reports: TaskReport[] = [];
+      const notes: Array<{ message: string; context: unknown }> = [];
+      let restricted = false;
+      const runtime: TaskRunnerRuntime = {
+        // The folder becomes constrained while the task runs: the check
+        // must be the one at send time, not at scheduling.
+        runTurn: async (sess) => {
+          restricted = true;
+          return { session: sess, reason: "reply", stepCount: 1 };
+        },
+      };
+      const asked: string[] = [];
+      const runner = new TaskRunner({
+        store,
+        runtime,
+        sessionLoader: fakeSessionLoader(session),
+        defaultMaxSteps: 5,
+        backoff: { initialMs: 1, maxMs: 10 },
+        enabled: true,
+        runOnCreate: false,
+        sleep: async () => undefined,
+        reportSink: (r) => { reports.push(r); },
+        notifyRefusal: (task) => {
+          asked.push(task.id);
+          return restricted ? "folder /w is restricted" : null;
+        },
+        logger: { info: (message: string, context: unknown) => notes.push({ message, context }), warn: () => undefined } as never,
+      });
+      const t = store.create({ sessionId: session.id, userMessage: "scan", origin: "cli", maxAttempts: 1, notify: "telegram" });
+      const final = await runner.runOne(t.id);
+      expect(final?.status).toBe("completed");
+      expect(reports).toEqual([]);
+      expect(asked).toContain(t.id);
+      expect(notes.some((n) => n.message === "task report withheld" && JSON.stringify(n.context).includes("restricted"))).toBe(true);
+    });
+
     it("reports off the completed row before a recurring requeue flips it back to pending", async () => {
       const reports: TaskReport[] = [];
       const { runtime } = replyingRuntime("digest sent");

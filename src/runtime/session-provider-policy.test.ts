@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
-import { createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
 
 describe("session provider policy (issue #33)", () => {
   let root: string | undefined;
@@ -116,6 +116,22 @@ describe("session provider policy (issue #33)", () => {
       } finally {
         rmSync(temp, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("channelNotifyRefusal (a task's notification, at send time)", () => {
+    it("refuses a constrained session without channels, allows one with it, and leaves unconstrained ones alone", () => {
+      const { project, config, policy } = setup();
+      expect(channelNotifyRefusal(policy, "s-1")).toContain(`folder ${project} is restricted`);
+      config.projects.constraints[project] = { allowedProviders: ["local-llama"], allowedEgress: ["channels"] } as never;
+      expect(channelNotifyRefusal(policy, "s-1")).toBeNull();
+      config.projects.constraints = {} as never;
+      expect(channelNotifyRefusal(policy, "s-1")).toBeNull();
+    });
+
+    it("refuses a task with no session while constraints exist (fail closed)", () => {
+      const { policy } = setup();
+      expect(channelNotifyRefusal(policy, null)).not.toBeNull();
     });
   });
 });

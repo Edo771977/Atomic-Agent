@@ -33,7 +33,7 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy } from "./session-provider-policy.js";
 import { createRuntimeEgressGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
@@ -917,6 +917,8 @@ export async function createAgentRuntime(
     config, taskStore, runTurn, sessionStore, createSession, toolRegistry,
     resolveTelegram: () => telegramChannelForShutdown, logger, metrics,
     approvalLevel: () => approvals.getLevel(),
+    // A task in a constrained folder notifies its chat only with "channels" allowed (issue #33).
+    notifyRefusal: (task) => channelNotifyRefusal(sessionProviderPolicy, task.sessionId),
   });
 
   registerRuntimeFusionAndReadScope({
