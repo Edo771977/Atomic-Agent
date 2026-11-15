@@ -126,8 +126,9 @@ API too:
   (no balance when the body talks billing). It costs nothing and does
   not prove the balance;
 - the contract probe: its rungs translated by `toAnthropicMessagesBody`
-  and posted to `/v1/messages` (the forced rung goes out as `auto`), the
-  native stream read through `createAnthropicSseTranslator`;
+  and posted to `/v1/messages`, the native stream read through
+  `createAnthropicSseTranslator`. It starts at the `auto` rung (a forced
+  rung would go out as `auto` too), so the verdict is that rung's;
 - `describeImage`: the shared describe body translated the same way, so
   each image is a base64 `image` block, posted to `/v1/messages`.
 
