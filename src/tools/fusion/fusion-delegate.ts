@@ -626,6 +626,8 @@ export function buildFusionDelegateTool(
         const own = taskLegs.get(t.id);
         return own?.isWorkerLeg === false && legKey(own) === legKey(leg);
       };
+      // A team member on the worker leg asks for its model on every turn.
+      const workerLegPin = [...taskLegs.values()].find((leg) => leg.isWorkerLeg && leg.pinModel !== undefined)?.pinModel;
       const roleProviderIds = [...new Set([...roleLegs.values()].map((leg) => leg.providerId))];
 
       // The turn's caps (ATO-947). Unset — the default — and nothing
@@ -1228,7 +1230,10 @@ export function buildFusionDelegateTool(
           const taskId = readFusionWorkerMeta(session.metadata)?.taskId;
           const provider = options.providerId;
           if (taskId !== undefined) {
-            const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined
+            // A model of the turn's own (a team member's) is not what the
+            // entry's identity describes, unless it is the worker leg's.
+            const pinnedElsewhere = options.model !== undefined && options.model !== workerModel;
+            const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined && !pinnedElsewhere
               ? deps.resolveRoutingIdentity?.(provider) : undefined;
             // Once a task's identity changes between turns it stays unattributed.
             if (!executionIdentities.has(taskId)) executionIdentities.set(taskId, identity);
@@ -1569,6 +1574,7 @@ export function buildFusionDelegateTool(
             maxWorkers: workerLegMaxWorkers,
             acquireTaskPermit: acquirePermitFor(slotAffine),
             providerId: workerProviderId,
+            ...(workerLegPin === undefined ? {} : { model: workerLegPin }),
             workerModel,
             workerMaxSteps: mode.workerMaxSteps,
             workerTimeoutMs: mode.workerTimeoutMs,
@@ -1632,6 +1638,7 @@ export function buildFusionDelegateTool(
             maxWorkers: Math.min(maxWorkers, roleLegWidth(leg, tasks.length)),
             acquireTaskPermit: acquirePermitFor(local),
             providerId: leg.providerId,
+            ...(leg.pinModel === undefined ? {} : { model: leg.pinModel }),
             workerModel:
               onlyRole === "-" ? leg.model : `${leg.model} (${onlyRole})`,
             workerMaxSteps: mode.workerMaxSteps,

@@ -2132,6 +2132,55 @@ describe("fusion.delegate — fusion team routing (issue #37)", () => {
     expect(rows.find((r) => r.id === "d")).toMatchObject({ model: "model-d" });
   });
 
+  it("pins each worker turn to its member's model and prices it by that model", async () => {
+    const pins = new Map<string, Pin>();
+    const priced: string[] = [];
+    const result = await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode(),
+        workerSupportsSlotAffinity: () => false,
+        resolveFusionTeam: () => teamContext(),
+        currentWorker: () => member("api-d:model-d"),
+        resolveWorkerPricing: (providerId, model) => {
+          priced.push(`${providerId}:${model}`);
+          return undefined;
+        },
+        runTurn: recording(pins),
+      }),
+    ).run(
+      {
+        tasks: [
+          { id: "c", instructions: "one", model: "model-c" },
+          { id: "w", instructions: "two", model: "cli-b:model-b" },
+          { id: "d", instructions: "three" },
+        ],
+      },
+      ctx(),
+    );
+    expect(result.status).toBe("ok");
+    expect(Object.fromEntries(pins)).toEqual({
+      c: { providerId: "cli-b", model: "model-c" },
+      w: { providerId: "cli-b", model: "model-b" },
+      d: { providerId: "api-d", model: "model-d" },
+    });
+    expect(priced).toEqual(expect.arrayContaining(["cli-b:model-c", "api-d:model-d"]));
+  });
+
+  it("sends no model on a local member, whose server serves one model", async () => {
+    const pins = new Map<string, Pin>();
+    await buildFusionDelegateTool(
+      deps({
+        resolveFusionTeam: () =>
+          teamContext({
+            team: { directors: ["openrouter:big"], workers: ["local-llama:small"] },
+            pinsModel: (id) => id !== "local-llama",
+          }),
+        runTurn: recording(pins),
+      }),
+    ).run({ tasks: [{ id: "a", instructions: "one" }] }, ctx());
+    expect(pins.get("a")).toEqual({ providerId: "local-llama", model: undefined });
+  });
+
   it("falls back to the default worker when the session has none", async () => {
     const pins = new Map<string, Pin>();
     await buildFusionDelegateTool(
