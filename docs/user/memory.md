@@ -11,6 +11,8 @@ A deterministic grounding guard skips reflection for probes and one-off instruct
 
 Current defaults enable profile, notes, reflection, recall/index injection and query rewriting. Embedding recall, typed-note extraction and segmented reflection are optional and disabled by default. Installed configuration can differ after overrides/migration; inspect your actual settings before diagnosing behavior.
 
+A folder listed in `projects.constraints` (see the README's "Confidential folders") keeps its memory to itself: notes, lessons, procedures and profile facts written there are recalled only in sessions of that folder (or of one restricted to a subset of its providers), never in other chats. A session elsewhere cannot overwrite or delete them, and memory maintenance for them uses only the providers the folder allows.
+
 Deleting a chat is not the same operation as deleting durable memory. Review what the selected memory operation changes. Do not store secrets as facts.
 
 For implementation work read [memory](../../src/memory/README.md), [retrieval](../../src/memory/docs/retrieval.md), [formation](../../src/memory/docs/formation.md), and [configuration](../../src/config/docs/compatibility.md).

@@ -17,6 +17,8 @@ Profile rendering selects pinned/contextual facts. Lessons and procedures have s
 
 Notes and lessons that claim a user name ("I am Alex", "The user is Alex") reach `### recalled`, `### memory-index` and `### lessons` only when some stored user message carries that name; a name not checked yet stays out until a background check settles it ([name guard](../recall-name-guard.ts)). Verdicts are cached for the process, but a name the user types later counts from that turn on: the outermost provider hands the turn's own message (never the rewriter's query) to the guard, and failed checks are retried after the next message. Known limit: a `grounded` verdict is never invalidated within the process, so a name stays allowed after the messages that grounded it are deleted or forgotten, until the next start. The guard never changes a row; `memory forget --before <date>` clears old test-run memory.
 
+Per-folder provider constraints scope every read: a row written under a constraint is visible only to a session of the same constraint or a stricter one ([memory scoping](../../llm/docs/provider-policy.md#memory-scoping), [scope](../memory-constraint-scope.ts)).
+
 ## Sources and tests
 
 - [Store](../memory-store.ts), [context provider](../memory-context-provider.ts), [profile](../profile-store.ts), [renderer](../notes-renderer.ts).
