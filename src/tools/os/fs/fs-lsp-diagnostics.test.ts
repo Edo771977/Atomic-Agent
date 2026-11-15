@@ -66,14 +66,16 @@ describe("after-edit language-server diagnostics in fs tools (ATO-503)", () => {
       { path: "a.ts", oldString: "= 1;", newString: "= 'x';" },
       makeCtx(dir),
     );
+    // The session and signal ride along for the start question.
     expect(lsp.calls).toEqual([
-      {
+      expect.objectContaining({
         absolute: join(dir, "a.ts"),
         display: "a.ts",
         change: "edit",
         before: "const n: number = 1;\n",
         after: "const n: number = 'x';\n",
-      },
+        sessionId: "test-session",
+      }),
     ]);
     expect(result.summary.startsWith(BLOCK)).toBe(true);
     expect(result.details.parseWarning).toBe(BLOCK);
