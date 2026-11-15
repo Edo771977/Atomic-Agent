@@ -1,4 +1,6 @@
 import { exportChat, parseChatExportFormat } from "../session/index.js";
+import { getConfig } from "../config/index.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
 import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
@@ -38,6 +40,9 @@ export function createExportSessionHandler(): HttpHandler {
     }
     const file = await exportChat(state, format, {
       includeTools: url.searchParams.get("tools") !== "0",
+      // The config's stored keys too, not only the .env ones (ATO-1077
+      // set); read per request, so a key added mid-session is covered.
+      knownSecrets: runtimeKnownSecrets(getConfig()),
       describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
     });
     const binary = typeof file.body !== "string";

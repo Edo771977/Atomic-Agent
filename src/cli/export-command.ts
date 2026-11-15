@@ -8,6 +8,7 @@ import {
   SessionStore,
   type SessionState,
 } from "../session/index.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
 
 const HELP =
@@ -57,6 +58,8 @@ export async function exportCommand(args: string[]): Promise<number> {
 
   const file = await exportChat(state, parsed.format, {
     includeTools: parsed.tools,
+    // The config's stored keys too, not only the .env ones (ATO-1077 set).
+    knownSecrets: runtimeKnownSecrets(config),
     describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
   });
   const out = parsed.out ?? (typeof file.body === "string" ? null : file.filename);
