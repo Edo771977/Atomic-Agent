@@ -69,22 +69,59 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     return forSession({ id, ...session });
   };
   /**
-   * The policy that governs `sessionId` right now: the policy frame of
-   * the turn running (which already holds a fusion worker's stamp), or,
-   * outside any frame, the session's own (`forSessionId`, fail closed).
+   * The policy that governs a session right now: the policy frame of the
+   * turn running for it (which already holds a fusion worker's stamp),
+   * or otherwise the session's own: `forSession` for a session object
+   * (a chat session not stored yet), `forSessionId` for an id (fail
+   * closed). A frame set for another session is not borrowed.
    * The tool dispatch guard (egress, `tools/tool-egress.ts`) reads it
    * through this one function, so a later rule that narrows a session's
    * policy mid-turn (a read taint) extends it here and every check
    * follows.
    */
-  const effectivePolicyForSession = (sessionId: string): ProviderPolicy | undefined => {
+  const effectivePolicyForSession = (
+    target: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  ): ProviderPolicy | undefined => {
+    const id = typeof target === "string" ? target : target.id;
     const frame = currentProviderPolicyFrame();
-    return frame !== undefined ? frame.policy : forSessionId(sessionId);
+    if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === id)) return frame.policy;
+    return typeof target === "string" ? forSessionId(target) : forSession(target);
   };
   return { constraintsActive, forWorkingDir, forSession, forSessionId, effectivePolicyForSession };
 }
 
 export type SessionProviderPolicy = ReturnType<typeof createSessionProviderPolicy>;
+
+export const CHANNEL_RESTRICTED_CODE = "ATOMIC_AGENT_CHANNEL_RESTRICTED";
+/**
+ * The only text a chat gets back for a turn refused in a constrained
+ * folder: fixed, so no session content (not even the folder) leaves.
+ */
+export const CHANNEL_RESTRICTED_NOTICE = "This folder is restricted; open atomic-agent on the computer.";
+
+/**
+ * A turn that arrived from a remote chat (Telegram, Discord, a swarm
+ * bot) for a session in a constrained folder whose `allowedEgress` does
+ * not list `channels` (issue #33). Thrown before the model runs; the
+ * chat adapters answer with `CHANNEL_RESTRICTED_NOTICE` alone.
+ */
+export class ChannelRestrictedError extends Error {
+  readonly code = CHANNEL_RESTRICTED_CODE;
+  constructor(readonly policyKey: string) {
+    super(CHANNEL_RESTRICTED_NOTICE);
+    this.name = "ChannelRestrictedError";
+  }
+}
+
+/** Is `err` (or a cause) the chat refusal? */
+export function isChannelRestricted(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth += 1) {
+    if ((current as { code?: unknown }).code === CHANNEL_RESTRICTED_CODE) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
 
 /**
  * The stamp a fusion worker carries: the policy of the turn fanning it

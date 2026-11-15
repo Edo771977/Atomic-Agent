@@ -33,7 +33,7 @@ import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
 import { currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
-import type { SessionProviderPolicy } from "../session-provider-policy.js";
+import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
 import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
 import { answerChannelForOrigin, type AnswerChannel } from "../../prompt/answer-style.js";
 import type { RequestBudgetNotices } from "../request-budget-notices.js";
@@ -697,6 +697,7 @@ export function createRuntimeTurnService(
     const worker = readFusionWorkerMeta(session.metadata) !== null;
     return runWithProviderPolicy(sessionPolicy.forSession(session), run, {
       role: worker ? "a fusion worker" : "the main model",
+      sessionId: session.id,
     });
   };
   const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
@@ -752,6 +753,13 @@ export function createRuntimeTurnService(
     // waiting behind whatever is running on the session.
     assertKnownProvider(runOptions.providerId);
     const origin = runOptions.origin ?? "cli";
+    // A remote chat sends the reply (and progress) off this machine: in a
+    // constrained folder it needs "channels" in allowedEgress (issue #33).
+    // Refused here, before the queue and the model.
+    if ((origin === "telegram" || origin === "discord") && sessionPolicy !== undefined) {
+      const policy = sessionPolicy.effectivePolicyForSession(session);
+      if (policy !== undefined && !policy.allowsEgress("channels")) throw new ChannelRestrictedError(policy.key);
+    }
     const submission = {
       sessionId: session.id,
       origin,

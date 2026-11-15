@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { attachFailedAttempts } from "../../llm/fallback/failed-attempts.js";
+import { CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError } from "../../runtime/session-provider-policy.js";
 import { createAttachmentInbox } from "../attachments/inbox.js";
 import {
   DISCORD_ATTACHMENT_DOWNLOAD_LIMIT_BYTES,
@@ -293,6 +294,13 @@ describe("handleDiscordMessage", () => {
     expect(ensureApprovalSession.mock.invocationCallOrder[0]).toBeLessThan(
       ctx.runTurn.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("answers a turn refused for a restricted folder with the fixed notice only (issue #33)", async () => {
+    const ctx = makeCtx();
+    (ctx.runtime.runTurn as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new ChannelRestrictedError("/work/secret"));
+    await handleDiscordMessage(msg(), ctx);
+    expect(ctx.sent).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 
   it("reports a failed turn instead of going silent", async () => {

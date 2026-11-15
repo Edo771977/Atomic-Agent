@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import type { AgentLoopEvent } from "../../agent/agent-loop.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
+import { CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError } from "../../runtime/session-provider-policy.js";
 import {
   createEmptySessionState,
   type SessionState,
@@ -413,6 +414,17 @@ describe("handleInboundText", () => {
     expect(api.sent[0]!.text).toBe("done");
     expect(api.deletes).toHaveLength(0);
     expect(api.edits).toHaveLength(0);
+  });
+
+  it("answers a turn refused for a restricted folder with the fixed notice only (issue #33)", async () => {
+    const { runtime } = makeFakeRuntime({ scripts: [] });
+    (runtime as unknown as { runTurn: unknown }).runTurn = vi.fn(async () => { throw new ChannelRestrictedError("/work/secret"); });
+    const api = makeFakeApi();
+    const ctx = makeContext(runtime, api, pointer, OWNER, join(dir, "inbox"));
+    await handleInboundText(makeUpdate("do it"), ctx);
+    const texts = api.sent.map((m) => m.text);
+    expect(texts).toContain(CHANNEL_RESTRICTED_NOTICE);
+    expect(texts.some((t) => t.includes("/work/secret") || t.startsWith("Turn failed"))).toBe(false);
   });
 
   it("formats loop_failed events as a single error message", async () => {

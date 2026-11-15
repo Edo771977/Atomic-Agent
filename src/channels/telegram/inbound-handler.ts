@@ -10,6 +10,7 @@ import {
 import { describeFailedAttempts } from "../../llm/fallback/index.js";
 import type { LlmFailureCategory } from "../../llm/reliability/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
+import { CHANNEL_RESTRICTED_NOTICE, isChannelRestricted } from "../../runtime/session-provider-policy.js";
 import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 
@@ -1219,6 +1220,8 @@ function formatFailure(failure: {
   error: Error;
   category: LlmFailureCategory;
 }): string {
+  // A constrained folder's turn (issue #33): the fixed notice, nothing else.
+  if (isChannelRestricted(failure.error)) return CHANNEL_RESTRICTED_NOTICE;
   return `Turn failed [${failure.category}]: ${failure.error.message}${describeFailedAttempts(failure.error)}`;
 }
 

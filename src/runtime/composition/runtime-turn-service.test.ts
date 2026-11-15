@@ -22,7 +22,7 @@ import { resolveModelMode } from "../../llm/model-mode.js";
 import { resolveLlmConfig } from "../../llm/provider/registry/provider-types.js";
 import type { TurnProgress } from "../../session/turn-progress.js";
 import { RequestBudgetNotices } from "../request-budget-notices.js";
-import { createSessionProviderPolicy } from "../session-provider-policy.js";
+import { CHANNEL_RESTRICTED_CODE, CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError, createSessionProviderPolicy } from "../session-provider-policy.js";
 import { currentProviderPolicy, currentProviderPolicyFrame } from "../../llm/provider-policy.js";
 
 function deferred<T>() {
@@ -492,9 +492,9 @@ describe("runtime turn ownership recipes", () => {
       effective: "fusion" as const, stored: "fusion" as const,
       orchestratorProviderId: orchestrator, workerProviderId: worker, primaryProviderId: orchestrator,
     });
-    function serviceWith(allowed: string[] | null, runMode?: ReturnType<typeof fusionMode>) {
+    function serviceWith(allowed: string[] | null, runMode?: ReturnType<typeof fusionMode>, allowedEgress?: string[]) {
       const sessionProviderPolicy = createSessionProviderPolicy({
-        readConfig: () => ({ projects: { roots: [], constraints: allowed === null ? {} : { [dir]: { allowedProviders: allowed } } } }),
+        readConfig: () => ({ projects: { roots: [], constraints: allowed === null ? {} : { [dir]: { allowedProviders: allowed, ...(allowedEgress ? { allowedEgress } : {}) } } } }),
         loadSession: () => null,
       });
       return createRuntimeTurnService(fixture.config, {
@@ -520,7 +520,23 @@ describe("runtime turn ownership recipes", () => {
         return result(value, options);
       });
       await serviceWith(null).executeTurn(session(), "request");
-      expect(seen).toEqual({ policy: undefined, role: "the main model" });
+      expect(seen).toMatchObject({ policy: undefined, role: "the main model" });
+    });
+
+    it.each(["telegram", "discord"] as const)("refuses a %s turn in a constrained folder before the model runs, with a fixed notice", async (origin) => {
+      const before = fixture.loop.runTurn.mock.calls.length;
+      const turn = serviceWith(["local-llama"]).runTurn(session(), "confidential question", { origin });
+      await expect(turn).rejects.toBeInstanceOf(ChannelRestrictedError);
+      await expect(turn).rejects.toMatchObject({ code: CHANNEL_RESTRICTED_CODE, message: CHANNEL_RESTRICTED_NOTICE });
+      expect(fixture.loop.runTurn.mock.calls.length).toBe(before);
+    });
+
+    it("lets a chat turn run when the folder allows \"channels\", and leaves other origins and unconstrained folders alone", async () => {
+      const before = fixture.loop.runTurn.mock.calls.length;
+      await serviceWith(["local-llama"], undefined, ["channels"]).runTurn(session(), "q", { origin: "telegram" });
+      await serviceWith(null).runTurn(session(), "q", { origin: "discord" });
+      await serviceWith(["local-llama"]).runTurn(session(), "q", { origin: "tui" });
+      expect(fixture.loop.runTurn.mock.calls.length).toBe(before + 3);
     });
 
     it("a fusion worker runs under its parent's stamped policy, not its own folder", async () => {

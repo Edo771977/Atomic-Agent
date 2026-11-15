@@ -81,6 +81,20 @@ describe("session provider policy (issue #33)", () => {
       expect(runWithProviderPolicy(undefined, () => policy.effectivePolicyForSession("s-1"))).toBeUndefined();
     });
 
+    it("ignores a frame that belongs to another session (a task drained inside some turn)", () => {
+      const { project, policy } = setup();
+      const other = makeProviderPolicy({ key: "/x", allowedProviders: [], allowedEgress: ["web"], matchedDir: "/x" });
+      const seen = runWithProviderPolicy(other, () => policy.effectivePolicyForSession("s-1"), { sessionId: "s-other" });
+      expect(seen?.key).toBe(project);
+      expect(runWithProviderPolicy(other, () => policy.effectivePolicyForSession("s-other"), { sessionId: "s-other" })?.key).toBe("/x");
+    });
+
+    it("takes a session object, so a chat session not stored yet reads its own folder", () => {
+      const { project, policy } = setup();
+      expect(policy.effectivePolicyForSession({ id: "s-new", workingDir: join(project, "x") })?.key).toBe(project);
+      expect(policy.effectivePolicyForSession({ id: "s-new", workingDir: tmpdir() })).toBeUndefined();
+    });
+
     it("re-derives the session's folder without a frame, and refuses an unknown id", () => {
       const { project, policy } = setup();
       expect(policy.effectivePolicyForSession("s-1")?.key).toBe(project);

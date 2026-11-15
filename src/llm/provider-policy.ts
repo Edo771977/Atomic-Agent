@@ -28,6 +28,12 @@ export interface ProviderPolicyFrame {
   readonly policy: ProviderPolicy | undefined;
   /** What is calling, for the refusal ("the main model", "fusion judge"). */
   readonly role?: string;
+  /**
+   * The session this frame was set for, when the setter knows it. A
+   * lookup for another session (a task drained inside some turn) then
+   * does not borrow this frame (`effectivePolicyForSession`).
+   */
+  readonly sessionId?: string;
 }
 
 const frameStore = new AsyncLocalStorage<ProviderPolicyFrame>();
@@ -36,10 +42,14 @@ const frameStore = new AsyncLocalStorage<ProviderPolicyFrame>();
 export function runWithProviderPolicy<T>(
   policy: ProviderPolicy | undefined,
   fn: () => T,
-  options: { role?: string } = {},
+  options: { role?: string; sessionId?: string } = {},
 ): T {
   return frameStore.run(
-    options.role === undefined ? { policy } : { policy, role: options.role },
+    {
+      policy,
+      ...(options.role === undefined ? {} : { role: options.role }),
+      ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+    },
     fn,
   );
 }
