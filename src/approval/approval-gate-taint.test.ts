@@ -126,6 +126,8 @@ describe("ApprovalGate review after outside content (ATO-618)", () => {
     expect(isTaintSensitive("fs_write_workspace")).toBe(false);
     expect(isTaintSensitive("http")).toBe(true);
     expect(isTaintSensitive("other")).toBe(true);
+    // ask_user always reaches the person; the taint has nothing to hold.
+    expect(isTaintSensitive("user_question")).toBe(false);
   });
 
   it("holds a session grant too, and a new turn clears the taint", async () => {
