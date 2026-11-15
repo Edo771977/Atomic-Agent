@@ -125,6 +125,9 @@ const defaultStartClient: StartClient = (spec, binary, rootDir) =>
   startLspClient({
     binary,
     args: spec.args,
+    ...(spec.initializationOptions === undefined
+      ? {}
+      : { initializationOptions: spec.initializationOptions }),
     rootDir,
     initializeTimeoutMs: LSP_INITIALIZE_TIMEOUT_MS,
   });

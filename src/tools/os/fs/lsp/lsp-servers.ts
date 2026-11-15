@@ -14,6 +14,13 @@ export interface LspServerSpec {
   /** Binary looked up on PATH. */
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * Sent as `initializationOptions` in `initialize`. For
+   * typescript-language-server, `disableAutomaticTypingAcquisition`
+   * stops tsserver from running npm to fetch `@types` packages: the
+   * diagnostics must never install anything or reach the network.
+   */
+  readonly initializationOptions?: Readonly<Record<string, unknown>>;
   readonly extensions: ReadonlySet<string>;
   languageId(path: string): string;
 }
@@ -34,6 +41,7 @@ export const LSP_SERVERS: readonly LspServerSpec[] = [
     id: "typescript",
     command: "typescript-language-server",
     args: ["--stdio"],
+    initializationOptions: { disableAutomaticTypingAcquisition: true },
     extensions: new Set(Object.keys(TS_LANGUAGE_IDS)),
     languageId: (path) =>
       TS_LANGUAGE_IDS[extname(path).toLowerCase()] ?? "typescript",

@@ -41,6 +41,23 @@ function wire() {
 const FILE = "/repo/src/a.ts";
 const URI = pathToFileURL(FILE).href;
 
+describe("LSP server process (ATO-503)", () => {
+  it("sends the server's initializationOptions in initialize", async () => {
+    const { connection, received, send, until } = wire();
+    const client = new LspConnectionClient(connection);
+    const done = client.initialize("/repo", 1000, { disableAutomaticTypingAcquisition: true });
+    await until(1);
+    expect(received[0]).toMatchObject({
+      method: "initialize",
+      params: { initializationOptions: { disableAutomaticTypingAcquisition: true } },
+    });
+    send({ jsonrpc: "2.0", id: 1, result: { capabilities: {} } });
+    await done;
+    client.dispose();
+  });
+
+});
+
 describe("LSP framing (ATO-503)", () => {
   it("splits frames across and within chunks", () => {
     const reader = new MessageReader();

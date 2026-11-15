@@ -71,6 +71,8 @@ export interface StartLspClientOptions {
   /** Absolute path of the server binary (found on PATH). */
   readonly binary: string;
   readonly args: readonly string[];
+  /** The server's `initializationOptions` (`LspServerSpec`). */
+  readonly initializationOptions?: Readonly<Record<string, unknown>>;
   /** The git work tree the server treats as its workspace. */
   readonly rootDir: string;
   readonly initializeTimeoutMs: number;
@@ -94,7 +96,11 @@ export class LspConnectionClient implements DiagnosticsClient {
     return !this.connection.disposed;
   }
 
-  async initialize(rootDir: string, timeoutMs: number): Promise<void> {
+  async initialize(
+    rootDir: string,
+    timeoutMs: number,
+    initializationOptions: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
     const rootUri = pathToFileURL(rootDir).href;
     await this.connection.request(
       "initialize",
@@ -109,7 +115,7 @@ export class LspConnectionClient implements DiagnosticsClient {
           },
           workspace: { configuration: true, workspaceFolders: true },
         },
-        initializationOptions: {},
+        initializationOptions,
       },
       timeoutMs,
     );
@@ -272,7 +278,11 @@ export async function startLspClient(
   (stdin as { unref?: () => void }).unref?.();
   try {
     await Promise.race([
-      client.initialize(options.rootDir, options.initializeTimeoutMs),
+      client.initialize(
+        options.rootDir,
+        options.initializeTimeoutMs,
+        options.initializationOptions,
+      ),
       failed,
     ]);
   } catch (err) {

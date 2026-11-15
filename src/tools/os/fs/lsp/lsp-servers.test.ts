@@ -13,6 +13,12 @@ describe("serverForPath (ATO-503)", () => {
     expect(serverForPath("/r/a.go")).toBeNull();
     expect(serverForPath("/r/README.md")).toBeNull();
   });
+
+  it("turns off tsserver's automatic type acquisition, which would run npm over the network", () => {
+    expect(serverForPath("/r/a.ts")?.initializationOptions).toMatchObject({
+      disableAutomaticTypingAcquisition: true,
+    });
+  });
 });
 
 describe("findOnPath / findGitRoot (ATO-503)", () => {
