@@ -1,4 +1,5 @@
 import type { LlmProviderConfigEntry, UserModelConfigEntry } from "../registry/provider-types.js";
+import { effectiveEntryUrl } from "../anthropic/anthropic-route.js";
 
 type Pricing = NonNullable<UserModelConfigEntry["pricing"]>;
 
@@ -98,7 +99,7 @@ export function anthropicOfficialPricing(
   modelId: string,
 ): Pricing | undefined {
   if (entry.kind === "subscription-cli" || entry.kind === "llama-server") return undefined;
-  if (hostOf(entry.baseUrl ?? entry.url) !== ANTHROPIC_FIRST_PARTY_HOST) return undefined;
+  if (hostOf(effectiveEntryUrl(entry)) !== ANTHROPIC_FIRST_PARTY_HOST) return undefined;
   const id = baseModelId(modelId);
   const base = Object.hasOwn(PRICES, id) ? PRICES[id] : undefined;
   if (base === undefined) return undefined;

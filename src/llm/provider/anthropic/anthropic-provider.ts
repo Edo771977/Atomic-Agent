@@ -12,7 +12,9 @@ import {
 } from "./anthropic-messages-response.js";
 import { createAnthropicStreamConsumer } from "./anthropic-stream-consumer.js";
 
-export const DEFAULT_ANTHROPIC_BASE = "https://api.anthropic.com";
+import { DEFAULT_ANTHROPIC_BASE } from "./anthropic-route.js";
+
+export { DEFAULT_ANTHROPIC_BASE };
 /** The API version raw HTTP sends (`anthropic-version`), pinned. */
 export const ANTHROPIC_API_VERSION = "2026-10-21";
 /**

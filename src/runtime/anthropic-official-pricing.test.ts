@@ -105,6 +105,16 @@ describe("Anthropic's official prices on the first-party API", () => {
     expect(resolveModelPricingFor(config({ extraBody: { inference_geo: "eu" } }), "claude-opus-5-5")?.pricingSource).toBeUndefined();
   });
 
+  it("prices a native kind \"anthropic\" entry without baseUrl (it calls the default first-party host)", () => {
+    const native = config({ kind: "anthropic", baseUrl: undefined });
+    const model = resolveModelPricingFor(native, "claude-fable-5-2");
+    expect(model?.pricingSource).toBe("anthropic-official");
+    expect(model?.pricing).toEqual({ input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 });
+    // A native entry on a gateway is still not first-party.
+    const gateway = config({ kind: "anthropic", baseUrl: "https://gateway.example.com" });
+    expect(resolveModelPricingFor(gateway, "claude-fable-5-2")?.pricingSource).toBeUndefined();
+  });
+
   it("names the official table as the cost source of an estimate", () => {
     const model = resolveModelPricingFor(config({}), "claude-fable-5-2");
     expect(priceCompletion({ usage: { promptTokens: 1_000_000, completionTokens: 0, totalTokens: 1_000_000 }, model, local: false, plan: false }))
