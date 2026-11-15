@@ -156,7 +156,6 @@ import { withCandidateOutcome } from "./candidate-outcomes.js";
 import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
-import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
@@ -309,10 +308,6 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * a function returning undefined: no team, routing as before.
    */
   resolveFusionTeam?: () => FusionTeamContext | undefined;
-  /** The session's director, when one was chosen; absent or null: the team's default director. */
-  currentDirector?: () => TeamMember | null;
-  /** The session's worker, when one was chosen; absent, null or no longer a worker: the default worker. */
-  currentWorker?: () => TeamMember | null;
 }
 
 /**
