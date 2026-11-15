@@ -865,6 +865,24 @@ describe("review passes with a fusion team (issue #38)", () => {
     expect(written.find((r) => r.type === "task")!).not.toHaveProperty("review");
   });
 
+  it.each([
+    ["a team without reviewers", { reviewers: [] }],
+    ["a team with no fitting reviewer", { reviewers: ["local:small"] }],
+  ])("with %s keeps the judgeProvider's one retry, wording and no review-exhausted", async (_what, over) => {
+    const { result, briefs, row } = await run(team(over), () => blocker, {}, { autoReplan: 2 });
+    expect(briefs).toHaveLength(2);
+    expect(briefs[1]).not.toContain("Remaining review issues");
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/^judge: 1 of 2 acceptance items not met after one retry/);
+    expect(row.judge?.passes).toBeUndefined();
+    expect(row.failure).toBeUndefined();
+    expect(result.details.review).toBeUndefined();
+    expect(result.summary).not.toContain("review: ");
+    const replan = result.details.replan as { pending: Array<{ id: string }>; reviewExhausted: unknown[] };
+    expect(replan.pending.map((t) => t.id)).toEqual(["t"]);
+    expect(replan.reviewExhausted).toEqual([]);
+  });
+
   it("without a team keeps the judge's one retry and its wording", async () => {
     const { briefs, row } = await run(undefined, () => blocker);
     expect(briefs).toHaveLength(2);

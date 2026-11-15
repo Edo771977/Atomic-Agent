@@ -1292,9 +1292,6 @@ export function buildFusionDelegateTool(
               on: reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
               passes: reviewPassesOf(teamContext.team),
             };
-      // Extra passes a task its review sends back may get: the team's, or
-      // the judge's one retry without a team, as before.
-      const reviewPassLimit = teamReview?.passes ?? 1;
       const taskMember = (taskId: string): TeamMember => {
         const leg = taskLegs.get(taskId);
         const providerId = leg?.providerId ?? workerProviderId;
@@ -1302,6 +1299,11 @@ export function buildFusionDelegateTool(
         return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
       };
       const judgeTargets = new Map<string, JudgeTarget | null>();
+      // Tasks a team reviewer judges: only these get the team's review
+      // passes, review clause and review-exhausted hand-off (issue #38).
+      // A task judged on `judgeProvider` (no reviewer, or none fits)
+      // keeps the legacy judge: one retry, its wording.
+      const teamJudged = new Set<string>();
       const judgeTargetFor = (taskId: string): JudgeTarget | null => {
         if (!judgeTargets.has(taskId)) {
           if (teamReview?.on === false) {
@@ -1312,6 +1314,7 @@ export function buildFusionDelegateTool(
             team?.hasReviewers === true && (teamReview !== undefined || judgeTarget !== null)
               ? team.reviewerFor(taskMember(taskId))
               : null;
+          if (reviewer !== null && teamReview !== undefined) teamJudged.add(taskId);
           judgeTargets.set(
             taskId,
             reviewer === null
@@ -1325,6 +1328,14 @@ export function buildFusionDelegateTool(
         }
         return judgeTargets.get(taskId)!;
       };
+      const reviewedByTeam = (taskId: string): boolean => {
+        judgeTargetFor(taskId);
+        return teamJudged.has(taskId);
+      };
+      // Extra passes a task its review sends back may get: the team's for
+      // a task a team reviewer judges, else the judge's one retry.
+      const passLimitFor = (taskId: string): number =>
+        teamReview !== undefined && reviewedByTeam(taskId) ? teamReview.passes : 1;
       const judging =
         deps.escalationComplete !== undefined &&
         (teamReview === undefined ? judgeTarget !== null : teamReview.on);
@@ -1588,7 +1599,7 @@ export function buildFusionDelegateTool(
                     items: (id: string) => acceptance.get(id),
                     judgeable,
                     run: judgeOne,
-                    keepForRetry: reviewPass < reviewPassLimit,
+                    keepForRetry: tasks.some((t) => reviewPass < passLimitFor(t.id)),
                   },
                 }
               : {}),
@@ -2363,7 +2374,9 @@ export function buildFusionDelegateTool(
             return undefined;
           };
           let open = [...verdicts].filter(([, v]) => needsChanges(v)).map(([id]) => id);
-          for (let pass = 1; pass <= reviewPassLimit && open.length > 0; pass += 1) {
+          for (let pass = 1; ; pass += 1) {
+            open = open.filter((id) => pass <= passLimitFor(id));
+            if (open.length === 0) break;
             const stop = passStop();
             if (stop !== undefined) {
               for (const id of open) stopped.set(id, stop);
@@ -2374,7 +2387,7 @@ export function buildFusionDelegateTool(
               open.map((id) => {
                 const verdict = verdicts.get(id)!;
                 const items = acceptance.get(id) ?? [];
-                const issues = teamReview === undefined ? undefined : renderReviewIssues(verdict.review);
+                const issues = reviewedByTeam(id) ? renderReviewIssues(verdict.review) : undefined;
                 return [
                   id,
                   [renderRetryFindings(items, verdict), issues]
@@ -2433,7 +2446,7 @@ export function buildFusionDelegateTool(
           }
           // The director's view (issue #38): the review on the row, with a team.
           const withReview = (row: WorkerTaskResult, verdict: JudgeVerdict): WorkerTaskResult =>
-            teamReview === undefined
+            !reviewedByTeam(row.id)
               ? row
               : {
                   ...row,
@@ -2458,8 +2471,9 @@ export function buildFusionDelegateTool(
             const verdict = verdicts.get(r.id);
             if (verdict === undefined) return r;
             const ran = passes.get(r.id) ?? 0;
-            const row = withReview(applyJudgeVerdict(r, verdict, ran > 0, teamReview === undefined ? undefined : ran), verdict);
-            if (teamReview === undefined) return row;
+            const byTeam = reviewedByTeam(r.id);
+            const row = withReview(applyJudgeVerdict(r, verdict, ran > 0, byTeam ? ran : undefined), verdict);
+            if (!byTeam) return row;
             const stop = stopped.get(r.id);
             if (stop !== undefined) {
               return { ...row, notes: [...(row.notes ?? []), `review stopped: ${stop}`] };
