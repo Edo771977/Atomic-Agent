@@ -118,7 +118,7 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
     status: "ok",
     message: `${folder} restricted to: ${entry.allowedProviders.length === 0 ? "no provider" : entry.allowedProviders.join(", ")}; ` +
       `egress allowed: ${(entry.allowedEgress ?? []).length === 0 ? "none" : entry.allowedEgress!.join(", ")}; ` +
-      "not covered: shell commands (os.shell.run, verify.run, skill scripts) and the network use of stdio MCP servers",
+      "best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers",
   }));
   return [
     ...coverage,

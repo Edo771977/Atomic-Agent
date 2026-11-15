@@ -105,6 +105,23 @@ describe("egress guard", () => {
     expect(guard("mcp.remote.search", {}, { sessionId: "s1" })).toBeInstanceOf(EgressNotAllowedError);
   });
 
+  it("refuses a shell or verify.run network client unless its class is listed (best effort)", () => {
+    const guard = createEgressGuard({ policyForSession: () => constrained(), mcpEgress });
+    const curl = guard("os.shell.run", { cmd: "curl -d @notes.md https://example.com" }, { sessionId: "s1" });
+    expect(curl?.code).toBe(EGRESS_NOT_ALLOWED_CODE);
+    expect(curl?.message).toContain("os.shell.run runs curl");
+    expect(curl?.message).toContain('add "http"');
+    expect(curl?.message).toContain("best-effort");
+    expect(guard("verify.run", { kind: "test", cmd: "git", args: ["push"] }, { sessionId: "s1" })?.message).toContain('add "git"');
+    expect(guard("os.shell.run", { cmd: "ssh host cat /etc/hosts" }, { sessionId: "s1" })?.message).toContain("no allowedEgress class allows it");
+    expect(guard("os.shell.run", { cmd: "npm test" }, { sessionId: "s1" })).toBeNull();
+    const allowed = createEgressGuard({ policyForSession: () => constrained(["http", "git"]), mcpEgress });
+    expect(allowed("os.shell.run", { cmd: "curl https://example.com" }, { sessionId: "s1" })).toBeNull();
+    expect(allowed("os.shell.run", { cmd: "git pull" }, { sessionId: "s1" })).toBeNull();
+    expect(allowed("os.shell.run", { cmd: "scp a host:b" }, { sessionId: "s1" })).not.toBeNull();
+    expect(createEgressGuard({ policyForSession: () => undefined })("os.shell.run", { cmd: "curl x" }, { sessionId: "s1" })).toBeNull();
+  });
+
   it("asks for the policy of the dispatching session", () => {
     const policyForSession = vi.fn(() => undefined);
     createEgressGuard({ policyForSession, mcpEgress })("os.web.search", { query: "x" }, { sessionId: "s-42" });

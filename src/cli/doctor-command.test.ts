@@ -41,7 +41,7 @@ describe("atag doctor (ATO-577)", () => {
     tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedEgress: ["github"] }, "/work/other": { allowedProviders: [] } } };
     save(tree);
     expect(await run([])).toBe(0);
-    expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; not covered: shell commands (os.shell.run, verify.run, skill scripts) and the network use of stdio MCP servers");
+    expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers");
     expect(out).toContain("project-constraints: /work/other restricted to: no provider; egress allowed: none;");
   });
 
