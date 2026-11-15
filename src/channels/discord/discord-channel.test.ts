@@ -313,4 +313,50 @@ describe("DiscordChannel per-channel approval bindings", () => {
     vi.unstubAllGlobals();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("sendOwnerNotice DMs the first owner while up, and only then", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+        if (url.endsWith("/users/@me")) {
+          return new Response(JSON.stringify({ id: "9", username: "b" }), { status: 200 });
+        }
+        if (url.endsWith("/gateway/bot")) {
+          return new Response(JSON.stringify({ url: "wss://gw.test" }), { status: 200 });
+        }
+        calls.push({ url, body: init?.body ? JSON.parse(init.body) : null });
+        if (url.endsWith("/users/@me/channels")) {
+          return new Response(JSON.stringify({ id: "dm-1" }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ id: "m1" }), { status: 200 });
+      }),
+    );
+    let socket: FakeSocket | null = null;
+    const { channel } = makeChannel({
+      ownerUserIds: ["111", "222"],
+      createSocket: () => {
+        socket = new FakeSocket();
+        return socket;
+      },
+    });
+    expect(await channel.sendOwnerNotice("waiting")).toBe("channel_not_up");
+    await channel.start();
+    await settle();
+    socket!.frame(OP.DISPATCH, { session_id: "x", resume_gateway_url: "wss://gw.test" }, "READY");
+    await settle();
+    expect(channel.state()).toBe("up");
+    expect(await channel.sendOwnerNotice("waiting")).toBe("sent");
+    expect(calls.map((c) => c.url.split("/api/v10")[1] ?? c.url)).toEqual([
+      "/users/@me/channels",
+      "/channels/dm-1/messages",
+    ]);
+    expect(calls[0]!.body).toEqual({ recipient_id: "111" });
+    expect(calls[1]!.body).toMatchObject({ content: "waiting" });
+    channel.setOwnerUserIds([]);
+    expect(await channel.sendOwnerNotice("waiting")).toBe("not_paired");
+    await channel.stop();
+    expect(await channel.sendOwnerNotice("waiting")).toBe("channel_not_up");
+    vi.unstubAllGlobals();
+  });
 });

@@ -1036,6 +1036,31 @@ export class TelegramChannel {
   }
 
   /**
+   * One plain-text notice from the agent itself to the paired owner's DM
+   * (the approval-pending reminder). Never queues: a notice is about
+   * now, and a channel that is not up answers `channel_not_up`. Never
+   * throws; a dropped chunk is `delivery_failed`.
+   */
+  async sendOwnerNotice(text: string): Promise<TaskReportDelivery> {
+    const bot = this.bot;
+    if (this.currentState !== "up" || !bot) return "channel_not_up";
+    const ownerUserId = this.currentOwnerUserId;
+    if (ownerUserId === null) return "not_paired";
+    const result = await sendOutbound({
+      api: bot.api,
+      chatId: ownerUserId,
+      text,
+      parseMode: "plain",
+      logger: {
+        warn: (message, context) => this.deps.logger.warn(message, context),
+      },
+    });
+    if (result.dropped > 0) return "delivery_failed";
+    this.deps.metrics?.recordTelegramMessage({ direction: "out" });
+    return "sent";
+  }
+
+  /**
    * Show a running task's status snapshot (ATO-965) in the owner's DM:
    * the first one posts a silent message, every later one edits it, so
    * a long task keeps ONE updating bubble. An edit that fails (message

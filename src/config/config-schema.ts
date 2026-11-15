@@ -53,6 +53,7 @@ import {
 } from "./integration-config.js";
 export {
   parseDownloadNotifyChannel, type DownloadNotifyChannelSetting,
+  type ApprovalPendingNotifyConfig, type ApprovalPendingNotifyChannel,
   type NotificationsConfig, type AtomicMailConfig, type GitConfig, type ComposioConfig,
 } from "./integration-config.js";
 
@@ -1659,6 +1660,8 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     (obj.notifications as Record<string, unknown> | undefined) ?? {};
   const notificationsDownloads =
     (notifications.downloads as Record<string, unknown> | undefined) ?? {};
+  const notificationsApprovalPending =
+    (notifications.approvalPending as Record<string, unknown> | undefined) ?? {};
   const atomicMail =
     (obj.atomicMail as Record<string, unknown> | undefined) ?? {};
   const git = (obj.git as Record<string, unknown> | undefined) ?? {};
@@ -1767,6 +1770,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     notifications: parseNotificationsConfig(
       notificationsDownloads,
       () => USER_CONFIG_DEFAULTS.notifications,
+      notificationsApprovalPending,
     ),
     atomicMail: parseAtomicMailConfig(atomicMail),
     git: parseGitConfig(git, () => USER_CONFIG_DEFAULTS.git),

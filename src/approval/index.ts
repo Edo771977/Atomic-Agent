@@ -8,6 +8,7 @@ export {
 export type {
   ApprovalDecision,
   ApprovalEmitter,
+  ApprovalPendingObserver,
   ApprovalGrantScope,
   ApprovalRequest,
   SessionGrantsSnapshot,

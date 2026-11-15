@@ -67,6 +67,22 @@ describe("runtime lifecycle ownership", () => {
     expect(events).toEqual(order);
   });
 
+  it("drops the approval-pending reminders before the channels stop", async () => {
+    const events: string[] = [];
+    const { resources } = fixture(events);
+    let connected = false;
+    const lifecycle = createRuntimeLifecycle({
+      ...resources,
+      get approvalPendingNotifier() {
+        return connected ? { dispose: () => { events.push("approvalPending.dispose"); } } : null;
+      },
+    });
+    connected = true;
+    await lifecycle.shutdown();
+    expect(events.indexOf("approvalPending.dispose")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("approvalPending.dispose")).toBeLessThan(events.indexOf("telegram.stop"));
+  });
+
   it("aborts an in-flight prompt enhance on shutdown", async () => {
     const events: string[] = [];
     const { resources } = fixture(events);

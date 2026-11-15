@@ -197,6 +197,20 @@ export interface ApprovalDecision {
 export type ApprovalEmitter = (request: ApprovalRequest) => void;
 
 /**
+ * Watches the prompts a person is actually asked: `opened` right after a
+ * request is emitted, `closed` once it is answered, denied for its
+ * session or dropped by an aborted turn. A request the level, a grant, a
+ * rule, a reviewer or a refuse policy settles is never seen. For
+ * observers that act on a prompt left waiting (the approval-pending
+ * notifier); an observer cannot decide anything, and one that throws is
+ * ignored.
+ */
+export interface ApprovalPendingObserver {
+  opened(request: ApprovalRequest): void;
+  closed(approvalId: string): void;
+}
+
+/**
  * What the gate does for a session's request that would otherwise
  * prompt. `refuse` resolves it denied with `reason`, emitting nothing:
  * for a session with nobody at the other end of a prompt (a fusion
@@ -397,6 +411,7 @@ export class ApprovalGate {
   private readonly taintHeld = new Set<string>();
   /** `agent.taintReview`, read live; off until bootstrap wires it. */
   private taintReview: () => boolean = () => false;
+  private pendingObserver: ApprovalPendingObserver | undefined;
 
   constructor(options: { emit: ApprovalEmitter; level?: ApprovalLevel }) {
     this.emitter = options.emit;
@@ -410,6 +425,21 @@ export class ApprovalGate {
    */
   setSessionPolicy(sessionId: string, policy: SessionApprovalPolicy): void {
     this.policiesBySession.set(sessionId, policy);
+  }
+
+  /** Install (or with `undefined`, remove) the observer of waiting prompts. */
+  setPendingObserver(observer: ApprovalPendingObserver | undefined): void {
+    this.pendingObserver = observer;
+  }
+
+  private observePending(call: (observer: ApprovalPendingObserver) => void): void {
+    const observer = this.pendingObserver;
+    if (observer === undefined) return;
+    try {
+      call(observer);
+    } catch {
+      // An observer only watches; the prompt goes on either way.
+    }
   }
 
   /** Install (or with `undefined`, remove) the saved approval rules. */
@@ -685,7 +715,7 @@ export class ApprovalGate {
     }
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const onAbort = (): void => {
-        this.pending.delete(approvalId);
+        if (this.pending.delete(approvalId)) this.observePending((o) => o.closed(approvalId));
         reject(
           new ApprovalGateError(
             "approval aborted before a decision was made",
@@ -710,6 +740,9 @@ export class ApprovalGate {
       }
       signal?.addEventListener("abort", onAbort, { once: true });
       this.emitter(request);
+      // After the emitter: a host that answers synchronously has already
+      // closed it, and an observer must not start a timer for it.
+      if (this.pending.has(approvalId)) this.observePending((o) => o.opened(request));
     });
   }
 
@@ -1129,6 +1162,7 @@ export class ApprovalGate {
     if (!entry) return false;
     this.pending.delete(decision.approvalId);
     entry.detach();
+    this.observePending((o) => o.closed(decision.approvalId));
     entry.ledger?.push({
       verdict: decision.approved ? "approved" : "denied",
       category: entry.request.category,

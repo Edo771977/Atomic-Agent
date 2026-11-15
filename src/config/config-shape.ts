@@ -93,6 +93,7 @@ export const FIXED_CONFIG_BRANCHES: ReadonlySet<string> = new Set([
   "swarm",
   "notifications",
   "notifications.downloads",
+  "notifications.approvalPending",
   "atomicMail",
   "git",
   "composio",
