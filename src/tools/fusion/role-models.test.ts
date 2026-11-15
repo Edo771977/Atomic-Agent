@@ -260,4 +260,12 @@ describe("routing by fusion team member (issue #37)", () => {
     const same = { providerId: "cli-b", model: "model-b" };
     expect(unknownModels([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, same, team)).toContain('names model "orchestrator"');
   });
+
+  it("keeps them apart with a team of directors only (no workers list)", () => {
+    const director = { providerId: "cli-b", model: "model-a", member: "cli-b:model-a", pinModel: "model-a" };
+    expect(unknownModels([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, undefined)).toBeUndefined();
+    expect(resolveTaskLegs([task("h", { model: ORCHESTRATOR_TASK_MODEL })], cloudWorker, undefined, director, undefined).get("h")).toEqual({
+      providerId: "cli-b", model: "model-a", isWorkerLeg: false, orchestrator: true, member: "cli-b:model-a", pinModel: "model-a",
+    });
+  });
 });

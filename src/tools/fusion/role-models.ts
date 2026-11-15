@@ -136,11 +136,13 @@ function orchestratorTarget(
 ): WorkerLegRef | undefined {
   // The resolver never makes the two legs one provider; were they, the
   // name would simply mean the worker leg. With a team the legs are
-  // members: a director and a worker on one provider are two.
+  // members: a director and a worker on one provider are two, also when
+  // the team lists only directors (the orchestrator leg is a member).
   if (orchestratorLeg === undefined) return undefined;
+  const byMember = team !== undefined || orchestratorLeg.member !== undefined;
   const same =
     orchestratorLeg.providerId === workerLeg.providerId &&
-    (team === undefined || orchestratorLeg.model === workerLeg.model);
+    (!byMember || orchestratorLeg.model === workerLeg.model);
   return same ? undefined : orchestratorLeg;
 }
 
