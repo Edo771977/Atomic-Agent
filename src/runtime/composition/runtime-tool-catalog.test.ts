@@ -25,6 +25,7 @@ import type { McpToolMeta, McpSamplingHandler } from "../../mcp/index.js";
 import * as composio from "../../composio/index.js";
 import { setDynamicResourceClassResolver } from "../../agent/tool-resource-class.js";
 import { DailySpendStore } from "../../session/daily-spend.js";
+import { makeProviderPolicy, runWithProviderPolicy, runWithProviderRole } from "../../llm/provider-policy.js";
 import { createDailySpendBudget } from "../daily-spend-budget.js";
 import { DailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
 import { createRuntimeToolRegistry, registerRuntimeCoreTools, connectRuntimeMcpCatalog, mcpGrammarHookFor, registerRuntimeFusionAndReadScope, runtimeKnownSecrets } from "./runtime-tool-catalog.js";
@@ -408,6 +409,42 @@ describe("fusion escalation calls in the session readout (ATO-1388)", () => {
       expect(record).toHaveBeenCalledWith("s-1", expect.objectContaining({ providerId: "cloud", modelId: "big", usage, local: false }));
       await wired.escalationComplete({ providerId: "cloud", prompt: "p", maxOutputTokens: 100, signal });
       expect(record).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fusion escalation and judge calls under a folder's provider constraint (issue #33)", () => {
+  it("refuses a provider the folder does not allow before anything is sent, and lets an allowed one through", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "catalog-policy-"));
+    try {
+      const config = getConfig(); const toolRegistry = new ToolRegistry();
+      const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+      const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+      const usage = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
+      const providers = {
+        cloud: { id: "cloud", complete: vi.fn(async () => ({ content: "advice", usage, modelId: "big" })) },
+        local: { id: "local", complete: vi.fn(async () => ({ content: "advice", usage, modelId: "small" })) },
+      };
+      registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+        resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+        prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+        providerRegistry: { getProvider: (id: string) => providers[id as keyof typeof providers] as never }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const },
+        slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+      const wired = builder.mock.calls.at(-1)?.[0];
+      if (!wired?.escalationComplete) throw new Error("escalation seam missing");
+      const signal = new AbortController().signal;
+      const policy = makeProviderPolicy({ key: directory, allowedProviders: ["local"], matchedDir: directory });
+      await runWithProviderPolicy(policy, async () => {
+        await expect(runWithProviderRole("the fusion judge", () =>
+          wired.escalationComplete!({ providerId: "cloud", prompt: "p", maxOutputTokens: 10, signal })))
+          .rejects.toThrow(`folder ${directory} is restricted to: local; provider "cloud" may not serve the fusion judge`);
+        await wired.escalationComplete!({ providerId: "local", prompt: "p", maxOutputTokens: 10, signal });
+      });
+      expect(providers.cloud.complete).not.toHaveBeenCalled();
+      expect(providers.local.complete).toHaveBeenCalledTimes(1);
     } finally {
       vi.restoreAllMocks();
       await rm(directory, { recursive: true, force: true });

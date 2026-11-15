@@ -20,6 +20,7 @@ import type { DailySpendBudget } from "../daily-spend-budget.js";
 import type { ModelProfile } from "../../llm/model-profile.js";
 import type { SlotManager } from "../../llm/slot-manager.js";
 import { createFusionFormatProbeFor } from "./fusion-format-check.js";
+import { assertProviderAllowed, hasProjectConstraints, runWithProviderRole } from "../../llm/provider-policy.js";
 import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
@@ -845,7 +846,11 @@ export function registerRuntimeFusionAndReadScope(input: {
                 if (provider === undefined) {
                   throw new Error(`format check: provider ${providerId} is not configured`);
                 }
-                return provider.complete(request);
+                // The worker leg must be one the folder allows (issue #33).
+                return runWithProviderRole("the fusion format check", async () => {
+                  assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
+                  return provider.complete(request);
+                });
               },
               slotOccupancy: async () => {
                 try {
@@ -875,6 +880,9 @@ export function registerRuntimeFusionAndReadScope(input: {
         if (provider === undefined) {
           throw new Error(`escalation provider ${providerId} is not configured`);
         }
+        // The folder's provider constraint (issue #33), on the provider
+        // actually returned, before the spend ceiling and anything sent.
+        assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
         const request = {
           prompt,
           maxOutputTokens,

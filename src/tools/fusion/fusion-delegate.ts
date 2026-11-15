@@ -150,6 +150,7 @@ import { rebaseVerifyWorkspaceValue } from "../verify/rebase-verify-workspace.js
 import { withCandidateOutcome } from "./candidate-outcomes.js";
 import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
+import { runWithProviderRole } from "../../llm/provider-policy.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1191,7 +1192,10 @@ export function buildFusionDelegateTool(
           }
           return deps.runTurn(session, message, options);
         } }),
-        ...(sideComplete === undefined ? {} : { escalationComplete: sideComplete }),
+        // Named for the folder's provider-policy refusal (issue #33).
+        ...(sideComplete === undefined ? {} : {
+          escalationComplete: (call) => runWithProviderRole("fusion escalation", () => sideComplete(call)),
+        }),
         ...(originalRequest === undefined
           ? {}
           : {
@@ -1378,7 +1382,8 @@ export function buildFusionDelegateTool(
             : { knownSecrets: collectKnownSecrets() }),
           target: judgeTarget!,
           pricing: judgePricing,
-          complete: sideComplete!,
+          // Named for the folder's provider-policy refusal (issue #33).
+          complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
           signal: runSignal,
         });
         if (verdict.costUsd !== null && verdict.costUsd > 0) {
