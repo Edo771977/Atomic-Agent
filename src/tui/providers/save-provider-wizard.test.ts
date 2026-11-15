@@ -13,6 +13,7 @@ import {
   saveProviderWizardToConfig,
 } from "./save-provider-wizard.js";
 import { createProvidersWizardState } from "./providers-wizard-state.js";
+import { envHintForWizard } from "./providers-wizard-target.js";
 
 const ENV_KEYS = [
   "OPENROUTER_API_KEY",
@@ -23,6 +24,8 @@ const ENV_KEYS = [
   "GROQ_API_KEY",
   "LMSTUDIO_API_KEY",
   "NOUS_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "WORK_KEY",
 ] as const;
 
 describe("saveProviderWizardToConfig", () => {
@@ -576,5 +579,74 @@ describe("saveProviderWizardToConfig", () => {
     expect(cfg.llm?.activeTextProvider).toBe("claude-cli");
     expect(cfg.llm?.activeEmbeddingProvider).toBe("local-llama");
     expect(existsSync(join(stateDir, ".env"))).toBe(false);
+  });
+
+  describe("reconfiguring a native anthropic entry", () => {
+    function seedClaudeWork(): void {
+      upsertLlmProvider({
+        id: "claude-work",
+        kind: "anthropic",
+        apiKeyEnvVar: "WORK_KEY",
+        defaultChatModel: "claude-opus-5-5",
+        headers: { "anthropic-beta": "work-beta" },
+        apiKeyHeader: "x-work-key",
+        extraBody: { metadata: { user_id: "w" } },
+        userModels: [{ id: "claude-opus-5-5", kind: "chat", contextWindow: 1_000_000 }],
+      });
+      resetConfigCache();
+    }
+
+    function configureClaudeWork(apiKeyBuffer: string) {
+      return {
+        ...createProvidersWizardState("configure", {
+          providerId: "claude-work",
+          kind: "openai-compatible",
+          entryKind: "anthropic",
+        }),
+        phase: "pick_embedding" as const,
+        apiKeyBuffer,
+        chatModelLine: "claude-opus-5-5",
+        selectedEmbeddingChoiceId: LOCAL_EMBEDDING_CHOICE_ID,
+      };
+    }
+
+    it("keeps its own key variable when the key screen is skipped", () => {
+      process.env.WORK_KEY = "sk-work";
+      seedClaudeWork();
+      const built = saveProviderWizardToConfig(configureClaudeWork(""));
+      expect(built.entry).toMatchObject({ id: "claude-work", kind: "anthropic", apiKeyEnvVar: "WORK_KEY" });
+      const saved = getConfig().llm?.providers.find((p) => p.id === "claude-work");
+      expect(saved?.apiKeyEnvVar).toBe("WORK_KEY");
+    });
+
+    it("writes a typed key to the entry's variable, never to ANTHROPIC_API_KEY", () => {
+      process.env.ANTHROPIC_API_KEY = "sk-personal";
+      seedClaudeWork();
+      const built = saveProviderWizardToConfig(configureClaudeWork("sk-work-new"));
+      expect(built.entry.apiKeyEnvVar).toBe("WORK_KEY");
+      expect(process.env.WORK_KEY).toBe("sk-work-new");
+      expect(process.env.ANTHROPIC_API_KEY).toBe("sk-personal");
+      const dotenv = readFileSync(join(stateDir, ".env"), "utf8");
+      expect(dotenv).toContain("WORK_KEY=");
+      expect(dotenv).not.toContain("ANTHROPIC_API_KEY=");
+    });
+
+    it("names the entry's own variable on the key screen", () => {
+      seedClaudeWork();
+      expect(envHintForWizard(configureClaudeWork(""))).toBe("WORK_KEY");
+    });
+
+    it("carries over headers, apiKeyHeader, extraBody and userModels", () => {
+      process.env.WORK_KEY = "sk-work";
+      seedClaudeWork();
+      saveProviderWizardToConfig(configureClaudeWork(""));
+      const saved = getConfig().llm?.providers.find((p) => p.id === "claude-work");
+      expect(saved).toMatchObject({
+        headers: { "anthropic-beta": "work-beta" },
+        apiKeyHeader: "x-work-key",
+        extraBody: { metadata: { user_id: "w" } },
+        userModels: [{ id: "claude-opus-5-5", kind: "chat", contextWindow: 1_000_000 }],
+      });
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { getConfig } from "../../config/index.js";
+import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import {
   maySendSharedOpenAiKey,
   resolveLlmProviderApiKey,
@@ -13,6 +14,7 @@ import { findProviderPreset } from "./provider-presets.js";
 import {
   isSharedCompatKeyVar,
   networkComputerKeyEnvVar,
+  ownPresetKeyEnvVar,
   wizardKeyIsOptional,
 } from "./providers-wizard-target.js";
 import {
@@ -51,6 +53,31 @@ function defaultChatModelForKind(kind: ProvidersWizardKind): string {
 }
 
 export { networkComputerKeyEnvVar };
+
+/**
+ * `entry` with the stored entry's hand-set request shaping kept: extra
+ * headers (merged over the preset's, the operator's value winning), the
+ * key header, extra body fields and the user model list with its
+ * pricing. `upsertLlmProvider` replaces the whole entry, so a field left
+ * off here is deleted from config.json.
+ */
+function withStoredRequestShaping(
+  entry: UserLlmProviderEntry,
+  stored: UserLlmProviderEntry,
+): UserLlmProviderEntry {
+  let next = entry;
+  if (stored.headers) next = { ...next, headers: { ...next.headers, ...stored.headers } };
+  if (stored.apiKeyHeader !== undefined && next.apiKeyHeader === undefined) {
+    next = { ...next, apiKeyHeader: stored.apiKeyHeader };
+  }
+  if (stored.extraBody !== undefined && next.extraBody === undefined) {
+    next = { ...next, extraBody: stored.extraBody };
+  }
+  if (stored.userModels !== undefined && next.userModels === undefined) {
+    next = { ...next, userModels: stored.userModels };
+  }
+  return next;
+}
 
 export function saveProviderWizardToConfig(
   wizard: ProvidersWizardState,
@@ -127,6 +154,13 @@ export function saveProviderWizardToConfig(
           ? stored.apiKeyEnvVar
           : networkComputerKeyEnvVar(entry.id))
       : undefined;
+  // A preset entry on a variable of its own keeps it (`ownPresetKeyEnvVar`):
+  // the preset's is the operator's other account's key.
+  const ownKeyEnvVar = preset ? ownPresetKeyEnvVar(preset, stored) : undefined;
+  if (ownKeyEnvVar) entry = { ...entry, apiKeyEnvVar: ownKeyEnvVar };
+  // Request shaping the wizard has no screen for, read from config.json
+  // (not `existing`, whose values the environment may have filled).
+  if (storedFile) entry = withStoredRequestShaping(entry, storedFile);
   if (wizard.apiKeyBuffer.trim().length > 0) {
     // Validate the value that is actually persisted: the dotenv writer
     // trims, and `trim()` strips U+00A0/U+FEFF paste artifacts that are
@@ -143,7 +177,7 @@ export function saveProviderWizardToConfig(
     writeProviderApiKeyToDotenv(
       kind,
       wizard.apiKeyBuffer,
-      preset?.envVar ?? networkKeyEnvVar,
+      ownKeyEnvVar ?? preset?.envVar ?? networkKeyEnvVar,
     );
     if (networkKeyEnvVar) entry = { ...entry, apiKeyEnvVar: networkKeyEnvVar };
   } else if (stored?.apiKey) {
