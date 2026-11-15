@@ -54,6 +54,7 @@ import {
   setConfiguredBackendVariant,
 } from "../local-llm/backend/windows-backend-variant.js";
 import {
+  runLocalModelsDevices,
   runLocalModelsPull,
   runLocalModelsStart,
   runLocalModelsStartEmbedding,
@@ -727,5 +728,57 @@ describe("runLocalModelsStart on a computer without an Atomic Core build", () =>
     resetConfigCache();
     expect(getConfig().localModels.managed.engine).toBe("atomic-core");
     expect(localLlm.startChatAndEmbeddingDaemons).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Issue #29: `models devices` said "run models update first" and `models
+ * update` said "switch to managed mode first", so an external-mode user
+ * went round in a loop. Devices now says which mode it is in first.
+ */
+describe("runLocalModelsDevices without a downloaded backend", () => {
+  let stateDir: string;
+  let stderrChunks: string[];
+
+  beforeEach(() => {
+    stateDir = mkdtempSync(join(tmpdir(), "atomic-models-devices-"));
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    stderrChunks = [];
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.ATOMIC_AGENT_STATE_DIR;
+    resetConfigCache();
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function writeMode(mode: "managed" | "external"): void {
+    writeUserConfigFileSync(getUserConfigPath(stateDir), {
+      ...USER_CONFIG_DEFAULTS,
+      localModels: { ...USER_CONFIG_DEFAULTS.localModels, mode, url: "http://127.0.0.1:8080" },
+    });
+    resetConfigCache();
+  }
+
+  it("external mode: names the external server and the way to managed mode, not models update alone", async () => {
+    writeMode("external");
+    await expect(runLocalModelsDevices()).resolves.toBe(1);
+    const err = stderrChunks.join("");
+    expect(err).toContain("models devices lists the managed engine's GPUs; you're using an external server (http://127.0.0.1:8080)");
+    expect(err).toContain("Pick a managed model first: atomic-agent models use <id>, then atomic-agent models update.");
+    expect(err).not.toContain("backend not downloaded");
+  });
+
+  it("managed mode: keeps pointing at models update", async () => {
+    writeMode("managed");
+    await expect(runLocalModelsDevices()).resolves.toBe(1);
+    expect(stderrChunks.join("")).toContain("backend not downloaded; run 'atomic-agent models update' first");
   });
 });

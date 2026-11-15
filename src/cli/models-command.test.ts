@@ -194,9 +194,11 @@ describe("modelsCommand", () => {
   });
 
   it("devices exits 1 when the backend is not downloaded", async () => {
+    // The default config is external mode: devices says so instead of
+    // sending the user to `models update`, which refuses external mode.
     const code = await modelsCommand(["devices"]);
     expect(code).toBe(1);
-    expect(stderrChunks.join("")).toMatch(/backend not downloaded/);
+    expect(stderrChunks.join("")).toMatch(/you're using an external server .*atomic-agent models use <id>, then atomic-agent models update/);
   });
 
   it("use-device with no arg exits 1", async () => {
