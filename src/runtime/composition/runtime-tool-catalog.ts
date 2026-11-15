@@ -25,7 +25,7 @@ import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
-import { ToolRegistry } from "../../tools/tool-registry.js";
+import { ToolRegistry, type ToolRegistryOptions } from "../../tools/tool-registry.js";
 import { runtimeKnownSecrets } from "../runtime-known-secrets.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { finishTool } from "../../tools/finish.js";
@@ -118,11 +118,13 @@ export function createRuntimeToolRegistry(
   browserBackend: BrowserBackend,
   dangerous: DangerousToolOptions,
   outputSpill?: ToolOutputSpill,
+  onDispatch?: ToolRegistryOptions["onDispatch"],
 ) {
 
 
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
+    ...(onDispatch ? { onDispatch } : {}),
     knownSecrets: () => runtimeKnownSecrets(getConfig()),
     // Outside text read on a session holds its risky silent approvals
     // for the rest of the turn when `agent.taintReview` is on (ATO-618).

@@ -15,6 +15,13 @@ export interface ProviderPolicy {
   readonly allowedProviders: readonly string[];
   /** The session folder the entry matched. */
   readonly matchedDir: string;
+  /**
+   * Read taint (issue #33 group C): the constrained folders this
+   * session read files from, when that is why the policy applies (an
+   * unconstrained session that read inside one). Absent for a folder's
+   * own constraint.
+   */
+  readonly readFrom?: readonly string[];
   /** Whether `providerId` (the ACTUAL provider about to be called) is allowed. */
   allows(providerId: string): boolean;
 }
@@ -24,33 +31,47 @@ export interface ProviderPolicyStamp {
   key: string;
   allowedProviders: string[];
   matchedDir: string;
+  readFrom?: string[];
 }
 
 export function makeProviderPolicy(stamp: {
   key: string;
   allowedProviders: readonly string[];
   matchedDir: string;
+  readFrom?: readonly string[] | undefined;
 }): ProviderPolicy {
   const allowed = Object.freeze([...stamp.allowedProviders]);
+  const readFrom = stamp.readFrom !== undefined && stamp.readFrom.length > 0
+    ? Object.freeze([...stamp.readFrom])
+    : undefined;
   return Object.freeze({
     key: stamp.key,
     allowedProviders: allowed,
     matchedDir: stamp.matchedDir,
+    ...(readFrom === undefined ? {} : { readFrom }),
     allows: (providerId: string) => allowed.includes(providerId),
   });
 }
 
 export function toProviderPolicyStamp(policy: ProviderPolicy): ProviderPolicyStamp {
-  return { key: policy.key, allowedProviders: [...policy.allowedProviders], matchedDir: policy.matchedDir };
+  return {
+    key: policy.key,
+    allowedProviders: [...policy.allowedProviders],
+    matchedDir: policy.matchedDir,
+    ...(policy.readFrom === undefined ? {} : { readFrom: [...policy.readFrom] }),
+  };
 }
 
 /** Rebuild a stamped policy; anything malformed is `undefined` (the caller fails closed). */
 export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefined {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const { key, allowedProviders, matchedDir } = raw as Record<string, unknown>;
+  const { key, allowedProviders, matchedDir, readFrom } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)) return undefined;
   if (!allowedProviders.every((id): id is string => typeof id === "string")) return undefined;
-  return makeProviderPolicy({ key, allowedProviders, matchedDir });
+  if (readFrom !== undefined && !(Array.isArray(readFrom) && readFrom.every((dir): dir is string => typeof dir === "string"))) {
+    return undefined;
+  }
+  return makeProviderPolicy({ key, allowedProviders, matchedDir, readFrom });
 }
 
 type ConstraintSource = { projects: { constraints?: ProjectConstraintsConfig } };

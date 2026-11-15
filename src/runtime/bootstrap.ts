@@ -34,6 +34,7 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { createSessionProviderPolicy } from "./session-provider-policy.js";
+import { createSessionReadTaint } from "./session-read-taint.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
 import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
@@ -356,7 +357,19 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 
-  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill);
+  // Read taint (issue #33 group C): a read inside a constrained folder
+  // narrows the session's provider policy at dispatch.
+  const sessionReadTaint = createSessionReadTaint({
+    readConfig: () => getConfig(),
+    patchStoredSession: (id, patch) => {
+      const stored = sessionStore.load(id);
+      if (stored === null) return;
+      stored.metadata = patch(stored.metadata ?? {});
+      sessionStore.save(stored);
+    },
+  });
+  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill,
+    (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); });
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)
@@ -872,7 +885,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });

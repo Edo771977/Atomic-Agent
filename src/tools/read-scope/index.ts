@@ -53,3 +53,4 @@ export type { CommandReadCheck } from "./confine-reads.js";
 
 export { createReadTargetCheck } from "./confine-reads.js";
 export type { ReadTargetCheck } from "./confine-reads.js";
+export { readTaintTargets } from "./read-taint-targets.js";
