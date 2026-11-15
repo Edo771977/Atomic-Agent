@@ -73,6 +73,7 @@ export type FailureCategory =
   | "syntax"
   | "checks"
   | "judge-red"
+  | "review-exhausted"
   | "not-started"
   | "error";
 
@@ -232,11 +233,12 @@ export function outcomeLabel(value: string): string {
 
 /** The category a non-green row is counted under; null for `ok`. */
 export function failureCategory(
-  row: Pick<WorkerTaskResult, "status" | "error" | "syntax" | "checks" | "judge">,
+  row: Pick<WorkerTaskResult, "status" | "error" | "syntax" | "checks" | "judge" | "failure">,
 ): FailureCategory | null {
   if (row.status === "ok") return null;
   if (row.status !== "failed") return row.status;
   if ((row.error ?? "").startsWith("not started:")) return "not-started";
+  if (row.failure === "review-exhausted") return "review-exhausted";
   const cls = classifyWorkerFailure(row);
   if (cls?.blocker === true) {
     return cls.signature.slice("blocker:".length) as FailureCategory;

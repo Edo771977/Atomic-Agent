@@ -344,3 +344,28 @@ describe("the fix each status calls for", () => {
     }
   });
 });
+
+describe("tasks whose review passes ran out (issue #38)", () => {
+  const exhausted = { id: "hud", status: "failed", failure: "review-exhausted", error: "review-exhausted: needs-changes after 2 review passes" } as never;
+
+  it("lists them in their own bucket for the director, never as pending", () => {
+    const report = describeReplan([exhausted, { id: "plain", status: "failed" } as never], () => 1, 2);
+    expect(report.pending.map((t) => t.id)).toEqual(["plain"]);
+    expect(report.reviewExhausted).toEqual([
+      expect.objectContaining({ id: "hud", status: "failed", replansLeft: 1 }),
+    ]);
+    const block = renderReplanBlock(report);
+    expect(block).toContain("REVIEW PASSES USED");
+    expect(block).toMatch(/re-delegate .*another worker or model/);
+    expect(block).toMatch(/fix it yourself/);
+    expect(block).toMatch(/accept it .*reasons/);
+    expect(block).toMatch(/ask the person only if you cannot proceed/i);
+    expect(block).toContain("- hud (failed): review-exhausted: needs-changes after 2 review passes");
+  });
+
+  it("with no replans left is reported as exhausted, as before", () => {
+    const report = describeReplan([exhausted], () => 3, 2);
+    expect(report.reviewExhausted).toEqual([]);
+    expect(report.exhausted.map((t) => t.id)).toEqual(["hud"]);
+  });
+});

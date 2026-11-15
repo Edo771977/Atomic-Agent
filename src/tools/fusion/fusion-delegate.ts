@@ -1479,9 +1479,14 @@ export function buildFusionDelegateTool(
         judgeTargetFor(r.id) !== null &&
         (r.status === "ok" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
+      // Tasks whose last review was cut short by the budget or a cancel:
+      // a stop, never a review that ran out of passes (issue #38).
+      const reviewCutShort = new Set<string>();
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
+        reviewCutShort.delete(input.task.id);
         if (stop !== undefined || runSignal.aborted) {
+          reviewCutShort.add(input.task.id);
           return {
             green: false,
             items: [],
@@ -2433,10 +2438,21 @@ export function buildFusionDelegateTool(
             if (verdict === undefined) return r;
             const ran = passes.get(r.id) ?? 0;
             const row = applyJudgeVerdict(r, verdict, ran > 0, teamReview === undefined ? undefined : ran);
+            if (teamReview === undefined) return row;
             const stop = stopped.get(r.id);
-            return stop === undefined || teamReview === undefined
-              ? row
-              : { ...row, notes: [...(row.notes ?? []), `review stopped: ${stop}`] };
+            if (stop !== undefined) {
+              return { ...row, notes: [...(row.notes ?? []), `review stopped: ${stop}`] };
+            }
+            // The passes ran out and the review still does not accept: the
+            // director decides (`describeReplan`'s review-exhausted bucket).
+            if (verdict.review.decision === "accept" || reviewCutShort.has(r.id)) return row;
+            const head = `review-exhausted: ${verdict.review.decision} after ${ran} review pass${ran === 1 ? "" : "es"}`;
+            return {
+              ...row,
+              status: "failed" as const,
+              failure: "review-exhausted" as const,
+              error: row.error === undefined ? head : `${head}; ${row.error}`,
+            };
           });
         }
         // Workspaces kept for a retry are done with, retried or not.
@@ -2718,7 +2734,8 @@ export function buildFusionDelegateTool(
               ...(replan === undefined ||
             (replan.pending.length === 0 &&
               replan.exhausted.length === 0 &&
-              replan.failedOnOrchestrator.length === 0)
+              replan.failedOnOrchestrator.length === 0 &&
+              replan.reviewExhausted.length === 0)
                 ? {}
                 : { replan }),
               ...(treeReport === undefined ? {} : { taskTree: treeReport }),

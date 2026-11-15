@@ -39,6 +39,14 @@ describe("automatic replan hold (ATO-941)", () => {
     expect(replanToolSet(mixed)?.names).toEqual(["fusion.delegate"]);
   });
 
+  it("does not hold the planner for tasks whose review passes ran out (issue #38)", () => {
+    const s = observeReplanStep(createReplanState(), [
+      delegate({ replan: { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: [{ id: "hud", status: "failed" }] } }),
+    ]);
+    expect(replanToolSet(s)).toBeNull();
+    expect(takeReplanNotice(s).notice).toBeNull();
+  });
+
   it("does not count an unparsed or refused delegate as the replan", () => {
     let s = observeReplanStep(createReplanState(), [
       delegate({ replan: { pending: [{ id: "a" }] } }),

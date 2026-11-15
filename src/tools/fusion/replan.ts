@@ -61,6 +61,13 @@ export interface ReplanReport {
    * person like an exhausted task, whatever replans are left.
    */
   failedOnOrchestrator: ReplanTask[];
+  /**
+   * Failed `review-exhausted` (issue #38) with replans left: a team's
+   * review still asked for changes after the last pass. The director
+   * decides (re-delegate, fix it itself, or accept with reasons); never
+   * pending, so the loop does not hold the next step to the delegate.
+   */
+  reviewExhausted: ReplanTask[];
   max: number;
 }
 
@@ -129,6 +136,7 @@ export function describeReplan(
   const pending: ReplanTask[] = [];
   const exhausted: ReplanTask[] = [];
   const failedOnOrchestrator: ReplanTask[] = [];
+  const reviewExhausted: ReplanTask[] = [];
   for (const result of results) {
     if (!isOpenResult(result)) continue;
     const runs = attempts(result.id);
@@ -138,8 +146,9 @@ export function describeReplan(
     // A question asked again on the orchestrator's model is still a
     // question to answer, not a failure past what a round fixes.
     const stop = left > 0 && runs >= 2 && onOrchestrator && result.status !== "needs_input";
+    const reviewed = result.status === "failed" && result.failure === "review-exhausted" && left > 0 && !stop;
     const fix =
-      left > 0 && !stop
+      left > 0 && !stop && !reviewed
         ? replanFix(
             result.id,
             result.status,
@@ -156,10 +165,11 @@ export function describeReplan(
       ...(fix === undefined ? {} : { fix }),
     };
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
+    else if (reviewed) reviewExhausted.push(task);
     else if (left > 0) pending.push(task);
     else exhausted.push(task);
   }
-  return { pending, exhausted, failedOnOrchestrator, max };
+  return { pending, exhausted, failedOnOrchestrator, reviewExhausted, max };
 }
 
 /**
@@ -193,6 +203,17 @@ export function renderReplanBlock(report: ReplanReport): string {
         ...report.pending.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one${t.fix === undefined ? "" : `; fix: ${t.fix}`}`,
+        ),
+      ].join("\n"),
+    );
+  }
+  if (report.reviewExhausted.length > 0) {
+    parts.push(
+      [
+        "REVIEW PASSES USED — the reviewer still asks for changes on these tasks (the remaining issues are on each row's `review:` clause and in details.review). You decide; finishing the task is preferred over asking the person: re-delegate it with `fusion.delegate` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:",
+        ...report.reviewExhausted.map(
+          (t) =>
+            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,
         ),
       ].join("\n"),
     );

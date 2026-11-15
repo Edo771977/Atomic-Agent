@@ -852,3 +852,52 @@ describe("review passes with a fusion team (issue #38)", () => {
     expect(row.failure).toBeUndefined();
   });
 });
+
+describe("review exhausted: the director decides (issue #38)", () => {
+  const team: FusionTeamContext = {
+    team: { directors: ["api-a:model-a"], workers: ["local:small"], reviewers: ["cli-b:model-r"] },
+    fusion: { workerProvider: "local" },
+    familyOf: (m) => (m.providerId === "local" ? "local" : "openai"),
+    reachable: () => true,
+    pinsModel: (id) => id !== "local",
+  };
+  const run = async (content: string, runOver: Partial<ResolvedRunMode> = {}, context: FusionTeamContext | null = team) => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-ex-"));
+    const d = deps(dir, answer(content), {
+      resolveRunMode: () => mode({ autoReplan: 2, ...runOver }),
+      resolveFusionTeam: () => context ?? undefined,
+    });
+    const result = await buildFusionDelegateTool(d).run(
+      { tasks: TASK },
+      { workingDir: dir, sessionId: "s-ex", stepIndex: 0, signal: new AbortController().signal },
+    );
+    rmSync(dir, { recursive: true, force: true });
+    return { result, briefs: d.briefs, row: (result.details.tasks as Array<{ status: string; failure?: string; error?: string }>)[0]! };
+  };
+  const blocker = reviewJson("needs-changes", [{ item: "a2", severity: "blocker", file: "a.txt", why: "no score" }]);
+
+  it("fails a task still sent back after the last pass as review-exhausted, for the director, not as pending", async () => {
+    const { result, briefs, row } = await run(blocker);
+    expect(briefs).toHaveLength(3);
+    expect(row.status).toBe("failed");
+    expect(row.failure).toBe("review-exhausted");
+    expect(row.error).toMatch(/^review-exhausted: needs-changes after 2 review passes/);
+    const replan = result.details.replan as { pending: unknown[]; reviewExhausted: Array<{ id: string }> };
+    expect(replan.pending).toEqual([]);
+    expect(replan.reviewExhausted.map((t) => t.id)).toEqual(["t"]);
+    expect(result.summary).toContain("REVIEW PASSES USED");
+  });
+
+  it("an answer that cannot be read after the passes is review-exhausted too", async () => {
+    const { row } = await run("not json");
+    expect(row.status).toBe("failed");
+    expect(row.failure).toBe("review-exhausted");
+    expect(row.error).toMatch(/^review-exhausted: unverified after 0 review passes/);
+  });
+
+  it("without a team the still-red task fails as before, and is pending for the replan", async () => {
+    const { result, row } = await run(blocker, {}, null);
+    expect(row.failure).toBeUndefined();
+    expect((result.details.replan as { pending: Array<{ id: string }> }).pending.map((t) => t.id)).toEqual(["t"]);
+  });
+});

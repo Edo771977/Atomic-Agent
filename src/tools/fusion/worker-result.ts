@@ -267,6 +267,14 @@ export interface WorkerTaskResult {
   /** The judge's verdict on this task's acceptance list (ATO-944), when it ran. */
   judge?: JudgeSummary;
   /**
+   * Why a `failed` row failed, when a status and error alone cannot say:
+   * `review-exhausted` (issue #38), a fusion team's review still asked
+   * for changes (or could not verify) after the last review pass; the
+   * director decides (`describeReplan`'s own bucket), it is not re-run
+   * as pending.
+   */
+  failure?: "review-exhausted";
+  /**
    * The worker's turn failed or threw after it changed files, so the row
    * is `needs_orchestrator` rather than `failed` (issue #29): the files
    * exist but no report vouches for them. Under isolation its workspace

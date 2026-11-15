@@ -195,6 +195,10 @@ describe("fusion outcome records", () => {
       failureCategory(row({ status: "failed", error: "check failed", checks: { total: 2, failed: 1 } })),
     ).toBe("checks");
     expect(failureCategory(row({ status: "failed", error: "boom" }))).toBe("error");
+    // Issue #38: a team's review that ran out of passes names itself.
+    expect(
+      failureCategory(row({ status: "failed", error: "review-exhausted: needs-changes", failure: "review-exhausted", checks: { total: 1, failed: 1 } })),
+    ).toBe("review-exhausted");
   });
 
   it("reads the judge's verdict as green, red, unverified or off", () => {
