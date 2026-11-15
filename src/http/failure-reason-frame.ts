@@ -1,4 +1,5 @@
 import { getConfig } from "../config/index.js";
+import { currentLocalModelConfigured, findConstraintRefusal, formatConstraintRefusal } from "../runtime/constraint-refusal.js";
 import {
   ATOMIC_CHAT_NOT_RUNNING_CODE,
   isAtomicChatNotRunning,
@@ -24,7 +25,9 @@ export interface FailureReasonFields {
    * protection is on); `local_port_taken` (ATO-1277: another program
    * answers on the managed engine's port);
    * `local_out_of_memory` (ATO-334: the managed model ran out of memory
-   * and was not brought back). Hosts branch on
+   * and was not brought back); `ATOMIC_AGENT_PROVIDER_NOT_ALLOWED` /
+   * `ATOMIC_AGENT_EGRESS_NOT_ALLOWED` (a per-folder constraint refused
+   * the turn; `advice` carries the TUI's sentence and hint). Hosts branch on
    * it instead of reading the words.
    */
   code?: string;
@@ -59,7 +62,16 @@ export function failureReasonFields(
   shown: unknown,
   ending: unknown,
   llamaUrl: string | null,
+  opts: { localModelConfigured?: boolean } = {},
 ): FailureReasonFields {
+  const constraint = findConstraintRefusal(ending) ?? findConstraintRefusal(shown);
+  if (constraint !== null) {
+    const localModelConfigured = opts.localModelConfigured ?? currentLocalModelConfigured();
+    return {
+      code: constraint.code,
+      advice: formatConstraintRefusal(constraint, { localModelConfigured }).replace(/\n\s*/g, " — "),
+    };
+  }
   if (isLocalEngineDown(ending)) return { code: LOCAL_ENGINE_DOWN_CODE };
   if (isAtomicChatNotRunning(ending)) return { code: ATOMIC_CHAT_NOT_RUNNING_CODE };
   // ATO-334: a host can offer a smaller model or a restart with a smaller window.

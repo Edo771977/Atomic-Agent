@@ -26,7 +26,7 @@ import {
 } from "../../github/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
-import { buildDebugBundleSnapshot } from "../debug-bundle/build-snapshot.js";
+import { buildDebugBundleSnapshot, type DebugBundleSnapshot } from "../debug-bundle/build-snapshot.js";
 import { selectLlmActiveRouteSummary } from "../llm-panel/llm-panel-selectors.js";
 import type { TuiState } from "../tui-state.js";
 import { buildIssueReport, type IssueReport } from "./build-issue-report.js";
@@ -123,20 +123,21 @@ export class IssueReportOrchestrator {
     const generation = this.generation;
     this.bus.emit({ type: "issue_report_building" });
     try {
-      // Issue #33: a restricted session's conversation does not go to
-      // GitHub; the report falls back to errors only, and says so.
+      // Issue #33: a restricted session's content does not go to GitHub,
+      // not even its errors; the report carries the environment facts
+      // only, and says so.
       const currentId = this.deps.currentSessionId?.() ?? state.session.sessionId;
       const target = currentId ? { id: currentId, workingDir: state.session.workingDir } : null;
       const refusal = target === null ? null : this.githubRefusal(target);
       const level: IssueReportLevel = refusal !== null && requested !== "errors" ? "errors" : requested;
-      if (level !== requested) {
+      if (refusal !== null) {
         this.bus.emit({
           type: "system_message",
           variant: "warn",
-          text: `issue report: errors only — this session's ${refusal}, so its conversation, logs and traces stay on this machine`,
+          text: `issue report: version and platform only — this session's ${refusal}, so its conversation, failures, logs and traces stay on this machine`,
         });
       }
-      const snapshot = buildDebugBundleSnapshot(state);
+      const snapshot = this.withoutRestrictedContent(buildDebugBundleSnapshot(state), refusal, currentId);
       const route = selectLlmActiveRouteSummary(state);
       const now = (this.deps.now ?? (() => new Date()))();
       const redaction: RedactionContext = {
@@ -147,6 +148,7 @@ export class IssueReportOrchestrator {
         snapshot,
         level,
         redaction,
+        ...(refusal === null ? {} : { withheld: refusal }),
         facts: {
           version: getAppVersion(),
           platform: process.platform,
@@ -293,6 +295,37 @@ export class IssueReportOrchestrator {
     return ids
       .filter((id) => this.githubRefusal(id === current ? { id, workingDir: state.session.workingDir } : id) === null)
       .slice(0, TRACE_LIMIT);
+  }
+
+  /**
+   * A restricted on-screen session sends none of its own content, not
+   * even at the errors level: its failure lines, run reasons and log
+   * lines can quote the folder's files. Log lines another restricted
+   * session wrote (by `context.sessionId`) are left out either way.
+   */
+  private withoutRestrictedContent(
+    snapshot: DebugBundleSnapshot,
+    refusal: string | null,
+    currentId: string | null,
+  ): DebugBundleSnapshot {
+    if (refusal !== null) {
+      return { ...snapshot, lastRunStatus: null, messages: [], feed: [], logs: [], reasoning: [], runHistory: [] };
+    }
+    const verdicts = new Map<string, boolean>();
+    const restricted = (id: string): boolean => {
+      if (id === currentId) return false;
+      let refused = verdicts.get(id);
+      if (refused === undefined) {
+        refused = this.githubRefusal(id) !== null;
+        verdicts.set(id, refused);
+      }
+      return refused;
+    };
+    const logs = snapshot.logs.filter((l) => {
+      const id = (l.context as { sessionId?: unknown } | undefined)?.sessionId;
+      return typeof id !== "string" || !restricted(id);
+    });
+    return logs.length === snapshot.logs.length ? snapshot : { ...snapshot, logs };
   }
 
   private githubRefusal(session: string | { id: string; workingDir: string }): string | null {

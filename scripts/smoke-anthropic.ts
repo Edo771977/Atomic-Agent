@@ -2,7 +2,7 @@
  * Live smoke test of the native Anthropic provider, run by hand with the
  * owner's own key. Not part of `npm test` or CI.
  *
- *   ANTHROPIC_API_KEY=... npm run smoke:anthropic
+ *   npm run smoke:anthropic        (the key from ANTHROPIC_API_KEY, else <stateDir>/.env)
  *   npm run smoke:anthropic -- --model claude-fable-5-2 --max-usd 0.50
  *
  * Through the real `AnthropicProvider` (raw HTTP, the runtime's own wire
@@ -23,7 +23,13 @@
  * never printed; offline mode (`ATOMIC_AGENT_OFFLINE`, `network.offline`)
  * refuses the run.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { describeMalformedApiKey } from "../src/config/api-key-shape.js";
+import { resolveStateDir } from "../src/config/load-config.js";
+import { decodeDotenvBytes, dotenvTextValue } from "../src/config/load-dotenv.js";
 
 import { applyOfflineModeFromConfigFile } from "../src/cli/offline-from-config.js";
 import { isOfflineNetwork } from "../src/llm/offline-network.js";
@@ -288,13 +294,45 @@ async function run(args: SmokeArgs, apiKey: string, pricing: Pricing, capUsd: nu
 /** No `ANTHROPIC_API_KEY`: nothing ran. Not 0, which a wrapper would read as a pass. */
 export const SMOKE_EXIT_SKIPPED_NO_KEY = 3;
 
+// No `VAR="..."` command to paste: a placeholder typed into a shell stays
+// there and overrides the saved key for every later command in it.
 const HOW_TO_SET_KEY = [
   "skipped: ANTHROPIC_API_KEY is not set; nothing was sent (exit 3).",
-  "Set it for this one command, then run again:",
-  '  macOS/Linux:        ANTHROPIC_API_KEY="sk-ant-..." npm run smoke:anthropic',
-  '  Windows PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."; npm run smoke:anthropic',
+  "Save your key once, then run again:",
+  "  add a line ANTHROPIC_API_KEY=<your key> to <stateDir>/.env (default ~/.atomic-agent/.env),",
+  "  or save it in the TUI (Esc, Manage, LLM, Cloud, Anthropic); then: npm run smoke:anthropic",
   "Options: --model <id> (default claude-haiku-5-5), --max-usd <amount> (default cap $0.25).",
 ].join("\n");
+
+/** `<stateDir>/.env` as text, or `null` when there is none (or it cannot be read). */
+function readStateDotenv(): string | null {
+  try {
+    return decodeDotenvBytes(readFileSync(join(resolveStateDir(), ".env")));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The key the runtime would use: ANTHROPIC_API_KEY from the environment,
+ * else the one saved in `<stateDir>/.env`. A malformed environment value
+ * (a placeholder such as `...`) is never sent: the `.env` value replaces
+ * it, as the runtime's `.env` loader does, with the same one-line notice.
+ */
+export function resolveSmokeApiKey(
+  env: Readonly<Record<string, string | undefined>>,
+  dotenvText: string | null,
+): { key: string | null; notice: string | null } {
+  const shell = env.ANTHROPIC_API_KEY?.trim() ?? "";
+  const saved = dotenvText === null ? "" : (dotenvTextValue(dotenvText, "ANTHROPIC_API_KEY")?.trim() ?? "");
+  const savedOk = saved !== "" && describeMalformedApiKey(saved, { strictLength: true }) === null;
+  if (shell === "") return { key: savedOk ? saved : null, notice: null };
+  const bad = describeMalformedApiKey(shell, { strictLength: savedOk });
+  if (bad === null) return { key: shell, notice: null };
+  const what = `ANTHROPIC_API_KEY in the environment ${bad} (${shell.length} characters)`;
+  if (savedOk) return { key: saved, notice: `${what}; using the value from .env` };
+  return { key: null, notice: `${what}; it was not sent` };
+}
 
 /**
  * The script's exit code: 0 passed (or `--help`), 1 a check failed, 2 the
@@ -308,6 +346,7 @@ export async function smokeMain(
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
   },
+  deps: { readStateDotenv?: () => string | null } = {},
 ): Promise<number> {
   let args: SmokeArgs;
   try {
@@ -320,7 +359,9 @@ export async function smokeMain(
     out.stdout(`${HOW_TO_SET_KEY.split("\n").slice(1).join("\n")}\n`);
     return 0;
   }
-  const apiKey = env.ANTHROPIC_API_KEY?.trim() ?? "";
+  const resolved = resolveSmokeApiKey(env, (deps.readStateDotenv ?? readStateDotenv)());
+  if (resolved.notice !== null) out.stderr(`${resolved.notice}\n`);
+  const apiKey = resolved.key ?? "";
   if (apiKey === "") {
     out.stdout(`${HOW_TO_SET_KEY}\n`);
     return SMOKE_EXIT_SKIPPED_NO_KEY;

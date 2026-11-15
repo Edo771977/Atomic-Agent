@@ -87,6 +87,7 @@ import {
   reduceIssueReport,
 } from "./issue-report/index.js";
 import { withReportHint } from "./chat/format-agent-error-for-chat.js";
+import { findConstraintRefusal, formatConstraintRefusal } from "../runtime/constraint-refusal.js";
 import type { TuiAction } from "./tui-action.js";
 import type { RunOutcome, StreamingToolCall, TuiState } from "./tui-state.js";
 
@@ -794,9 +795,15 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       // sentence says what happened and what to change; the transport
       // wording ("couldn't reach the provider") would not be true.
       const spendLimit = findDailySpendLimitError(event.error);
+      // A per-folder constraint refused the turn before anything was
+      // sent: this machine's policy, not the provider failing and not a
+      // bug, so it says what the folder allows and gets no /report hint.
+      const constraint = findConstraintRefusal(event.error);
       // ATO-334: the out-of-memory sentence is already plain and says
       // what to do; the transport wording around it would not.
-      const chatError = spendLimit !== null
+      const chatError = constraint !== null
+        ? `Turn stopped. ${formatConstraintRefusal(constraint, { localModelConfigured: state.session.localBackendConfigured })}`
+        : spendLimit !== null
         ? spendLimit.message
         : isLocalOutOfMemory(event.error)
         ? event.error.message
@@ -858,7 +865,7 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
           }),
           {
             role: "system",
-            text: withReportHint(failureText),
+            text: constraint !== null ? failureText : withReportHint(failureText),
             variant: "warn",
             retryText: failedPrompt.length > 0 ? failedPrompt : undefined,
           },

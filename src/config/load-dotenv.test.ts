@@ -55,6 +55,7 @@ describe("loadDotenvFromStateDir", () => {
       exists: false,
       loaded: [],
       skipped: [],
+      replacedPlaceholders: [],
       error: null,
     });
     expect(process.env.ATOMIC_DOTENV_TEST_FOO).toBeUndefined();
