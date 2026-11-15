@@ -45,10 +45,9 @@ function baseArgs(input: CliArgsInput): string[] {
     // write outside the sandbox. See the README for the honest limits.
     "-s",
     "read-only",
-    // Verified: under a ChatGPT login Codex rejects every explicit model
-    // id ("not supported when using Codex with a ChatGPT account") and
-    // resolves one server-side, so the flag is omitted unless the
-    // operator deliberately set one.
+    // A model the entry (or a per-turn copy of it) names is passed as
+    // `-m`, which a ChatGPT login accepts; with none, Codex resolves the
+    // account's default server-side, so the flag is omitted.
     ...(input.model ? ["-m", input.model] : []),
     // Unlike Claude's inline --json-schema, Codex reads the schema from
     // a file the provider staged for us.
@@ -187,7 +186,7 @@ export const codexCliAdapter: CliAdapterDescriptor = {
   displayName: "OpenAI Codex subscription",
   productName: "Codex",
   defaultBinary: "codex",
-  // Empty on purpose: Codex picks the model the account supports.
+  // Empty on purpose: with no model named, Codex picks the account's default.
   defaultChatModel: "",
   staticModels: [],
   // Codex does not publish a context window per model here; this only

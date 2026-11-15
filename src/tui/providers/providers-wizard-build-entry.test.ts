@@ -215,8 +215,17 @@ describe("buildProviderEntryFromWizard", () => {
       subscriptionCli: { cli: "codex" },
     });
     // Writing "" would fail config validation (parseOptionalString
-    // rejects the empty string), and any pinned id is rejected by Codex
-    // under a ChatGPT login.
+    // rejects the empty string).
     expect(built.entry.defaultChatModel).toBeUndefined();
+  });
+
+  it("keeps a model typed for codex, which a ChatGPT login accepts as -m (issue #37)", () => {
+    const built = buildProviderEntryFromWizard({
+      kind: "codex-cli",
+      chatModelId: "",
+      embeddingChoiceId: "",
+      customChatModel: "model-a",
+    });
+    expect(built.entry.defaultChatModel).toBe("model-a");
   });
 });

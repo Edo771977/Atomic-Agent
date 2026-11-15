@@ -11,8 +11,8 @@
  *    describe or the provider does not serve.
  *  - Cheap: lowest price that still calls tools reliably. Balanced: the
  *    pick for everyday work. Best: the strongest model, price aside.
- *  - Leave a kind out rather than guess. Codex is out on purpose: under
- *    a ChatGPT login it rejects every explicit model and picks its own.
+ *  - Leave a kind out rather than guess. Codex is out: it has no bundled
+ *    catalog to check a tier against.
  *
  * Re-checked against the bundled catalogs 2026-10-28.
  */

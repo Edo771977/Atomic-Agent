@@ -49,16 +49,17 @@ describe("codexCliAdapter argv", () => {
   });
 
   it("omits -m entirely when no model is configured", () => {
-    // Verified live: under a ChatGPT login Codex rejects every explicit
-    // model id and resolves one server-side.
+    // Codex then resolves the account's default model server-side.
     expect(codexCliAdapter.completeArgs(input)).not.toContain("-m");
     expect(codexCliAdapter.defaultChatModel).toBe("");
     expect(codexCliAdapter.staticModels).toEqual([]);
   });
 
   it("passes an operator-chosen model when one is set", () => {
-    const args = codexCliAdapter.completeArgs({ ...input, model: "gpt-5.1" });
-    expect(args[args.indexOf("-m") + 1]).toBe("gpt-5.1");
+    // Issue #37: verified that a ChatGPT login accepts an explicit `-m`,
+    // which a Codex team member (and its per-turn copy) relies on.
+    const args = codexCliAdapter.completeArgs({ ...input, model: "model-a" });
+    expect(args[args.indexOf("-m") + 1]).toBe("model-a");
   });
 
   it("takes the schema as a file path, never inline", () => {
@@ -135,8 +136,7 @@ describe("codexCliAdapter parseResult", () => {
       JSON.stringify({
         type: "turn.failed",
         error: {
-          message:
-            "The 'x' model is not supported when using Codex with a ChatGPT account.",
+          message: "The 'x' model does not exist or you do not have access to it.",
         },
       }),
     ].join("\n");
@@ -144,7 +144,7 @@ describe("codexCliAdapter parseResult", () => {
       SubscriptionCliInvocationError,
     );
     expect(() => codexCliAdapter.parseResult(failed, "")).toThrow(
-      /not supported when using Codex/,
+      /does not exist or you do not have access/,
     );
   });
 
