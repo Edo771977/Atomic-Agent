@@ -88,6 +88,11 @@ export function saveProviderWizardToConfig(
   }
 
   const providers = getConfig().llm?.providers ?? [];
+  // The entry as written in config.json (`storedProviderFileEntry`).
+  const storedFile =
+    wizard.mode === "configure" && wizard.providerId
+      ? storedProviderFileEntry(wizard.providerId)
+      : undefined;
   const built = buildProviderEntryFromWizard({
     kind,
     presetId: wizard.presetId,
@@ -99,6 +104,7 @@ export function saveProviderWizardToConfig(
     baseUrl: wizard.baseUrlLine,
     customChatModel: wizard.chatModelLine,
     customEmbeddingModel: wizard.embeddingModelLine,
+    ...(storedFile ? { storedKind: storedFile.kind } : {}),
   });
 
   const existing = providers.find((provider) => provider.id === built.entry.id);
@@ -142,7 +148,6 @@ export function saveProviderWizardToConfig(
   // `existing` for keys: getConfig() has already filled its apiKey from
   // the environment, and copying that wrote a shared cloud key into
   // config.json in clear (ATO-1066).
-  const storedFile = existing ? storedProviderFileEntry(existing.id) : undefined;
   const stored = storedFile
     ? storedEntryAtBaseUrl(storedFile, entry.baseUrl)
     : undefined;

@@ -649,4 +649,68 @@ describe("saveProviderWizardToConfig", () => {
       });
     });
   });
+
+  describe("an anthropic-named entry behind a proxy", () => {
+    function configure(providerId: string, kind: "openai-compatible", entryKind?: string) {
+      const stored = getConfig().llm?.providers.find((p) => p.id === providerId);
+      return {
+        ...createProvidersWizardState("configure", {
+          providerId,
+          kind,
+          ...(stored?.baseUrl ? { baseUrl: stored.baseUrl } : {}),
+          ...(entryKind ? { entryKind } : {}),
+        }),
+        phase: "pick_embedding" as const,
+        apiKeyBuffer: "",
+        chatModelLine: "claude-opus-5-5",
+        selectedEmbeddingChoiceId: LOCAL_EMBEDDING_CHOICE_ID,
+      };
+    }
+
+    it("stays openai-compatible: /v1/messages is never posted to the proxy", () => {
+      process.env.WORK_KEY = "sk-proxy";
+      upsertLlmProvider({
+        id: "anthropic",
+        kind: "openai-compatible",
+        baseUrl: "https://llm-proxy.corp.example",
+        apiKeyEnvVar: "WORK_KEY",
+      });
+      resetConfigCache();
+      const built = saveProviderWizardToConfig(configure("anthropic", "openai-compatible"));
+      expect(built.entry).toMatchObject({
+        id: "anthropic",
+        kind: "openai-compatible",
+        baseUrl: "https://llm-proxy.corp.example",
+        apiKeyEnvVar: "WORK_KEY",
+      });
+    });
+
+    it("a native entry on a Messages gateway stays native", () => {
+      process.env.WORK_KEY = "sk-gw";
+      upsertLlmProvider({
+        id: "claude-gw",
+        kind: "anthropic",
+        baseUrl: "https://messages-gw.corp.example",
+        apiKeyEnvVar: "WORK_KEY",
+      });
+      resetConfigCache();
+      const built = saveProviderWizardToConfig(
+        configure("claude-gw", "openai-compatible", "anthropic"),
+      );
+      expect(built.entry).toMatchObject({ kind: "anthropic", baseUrl: "https://messages-gw.corp.example" });
+    });
+
+    it("an openai-compatible entry on api.anthropic.com moves to the native kind", () => {
+      process.env.ANTHROPIC_API_KEY = "sk-ant";
+      upsertLlmProvider({
+        id: "anthropic",
+        kind: "openai-compatible",
+        baseUrl: "https://api.anthropic.com",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      });
+      resetConfigCache();
+      const built = saveProviderWizardToConfig(configure("anthropic", "openai-compatible"));
+      expect(built.entry.kind).toBe("anthropic");
+    });
+  });
 });
