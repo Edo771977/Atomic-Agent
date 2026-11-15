@@ -1,3 +1,5 @@
+import { ensureConstraintScopeSchema } from "./memory-constraint-scope.js";
+
 /**
  * SQLite schema for the cross-session memory store. Lives in a file
  * separate from `sessions.sqlite` because durable facts and notes are
@@ -605,6 +607,7 @@ function ensureNameGroundingColumns(db: MemoryDatabaseLike): void {
 
 export interface MemoryDatabaseLike {
   exec(sql: string): unknown;
+  function?: (name: string, options: { deterministic?: boolean }, fn: (...args: never[]) => unknown) => unknown;
   prepare(sql: string): {
     get(...params: unknown[]): unknown;
     run(...params: unknown[]): unknown;
@@ -652,6 +655,9 @@ export function applyMigrations(db: MemoryDatabaseLike): void {
   // Every open, after the versioned steps: the v7 rebuild above creates
   // `profile_facts` without these columns. Idempotent.
   ensureNameGroundingColumns(db);
+  // Per-folder provider constraints (issue #33): the `constraint_scope`
+  // column and the scope functions every read and insert names.
+  ensureConstraintScopeSchema(db);
   if (current === MEMORY_SCHEMA_VERSION) return;
   db.prepare(
     `INSERT INTO schema_meta (key, value) VALUES ('version', ?)

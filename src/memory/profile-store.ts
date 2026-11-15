@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import type { AgentMetrics } from "../tracing/agent-metrics.js";
 
 import { applyMigrations } from "./memory-schema.js";
+import { currentWriteScope } from "./memory-constraint-scope.js";
 import {
   isNameGroundingStatus,
   isNameProfileKey,
@@ -184,6 +185,7 @@ interface ProfileRow {
   vote_score: number;
   name_grounding: string | null;
   name_checked_at: number | null;
+  constraint_scope?: string | null;
 }
 
 /**
@@ -207,6 +209,9 @@ export class ProfileStore {
   private readonly markSupersededStmt: Database.Statement;
   private readonly preflipParentStmt!: Database.Statement;
   private readonly selectActiveByKeyStmt: Database.Statement;
+  private readonly selectVisibleActiveByKeyStmt: Database.Statement;
+  private readonly selectAnyByIdStmt: Database.Statement;
+  private readonly selectEveryActiveStmt: Database.Statement;
   private readonly selectActiveByIdStmt: Database.Statement;
   private readonly selectAllActiveStmt: Database.Statement;
   private readonly historyByKeyStmt: Database.Statement;
@@ -234,11 +239,11 @@ export class ProfileStore {
       `INSERT INTO profile_facts
          (key, value, pinned, keywords, valid_from, superseded_by,
           supersedes, created_at, updated_at, name_grounding,
-          name_checked_at)
+          name_checked_at, constraint_scope)
        VALUES
          (@key, @value, @pinned, @keywords, @valid_from, NULL,
           @supersedes, @created_at, @updated_at, @name_grounding,
-          @name_checked_at)`,
+          @name_checked_at, memory_scope_write())`,
     );
     this.markSupersededStmt = this.db.prepare(
       `UPDATE profile_facts
@@ -264,21 +269,48 @@ export class ProfileStore {
     this.selectActiveByKeyStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at
+              vote_score, name_grounding, name_checked_at, constraint_scope
          FROM profile_facts
         WHERE key = ? AND superseded_by IS NULL`,
+    );
+    // Per-folder provider constraints (issue #33): reads see only the
+    // facts the call's scope may (memory-constraint-scope.ts); the write
+    // path above reads every scope, to refuse a cross-scope supersede.
+    this.selectVisibleActiveByKeyStmt = this.db.prepare(
+      `SELECT id, key, value, pinned, keywords, valid_from,
+              superseded_by, supersedes, created_at, updated_at,
+              vote_score, name_grounding, name_checked_at, constraint_scope
+         FROM profile_facts
+        WHERE key = ? AND superseded_by IS NULL
+          AND memory_scope_visible(constraint_scope)`,
     );
     this.selectActiveByIdStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at
+              vote_score, name_grounding, name_checked_at, constraint_scope
+         FROM profile_facts
+        WHERE id = ? AND memory_scope_visible(constraint_scope)`,
+    );
+    this.selectAnyByIdStmt = this.db.prepare(
+      `SELECT id, key, value, pinned, keywords, valid_from,
+              superseded_by, supersedes, created_at, updated_at,
+              vote_score, name_grounding, name_checked_at, constraint_scope
          FROM profile_facts
         WHERE id = ?`,
     );
     this.selectAllActiveStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at
+              vote_score, name_grounding, name_checked_at, constraint_scope
+         FROM profile_facts
+        WHERE superseded_by IS NULL
+          AND memory_scope_visible(constraint_scope)
+        ORDER BY key ASC`,
+    );
+    this.selectEveryActiveStmt = this.db.prepare(
+      `SELECT id, key, value, pinned, keywords, valid_from,
+              superseded_by, supersedes, created_at, updated_at,
+              vote_score, name_grounding, name_checked_at, constraint_scope
          FROM profile_facts
         WHERE superseded_by IS NULL
         ORDER BY key ASC`,
@@ -286,9 +318,10 @@ export class ProfileStore {
     this.historyByKeyStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at
+              vote_score, name_grounding, name_checked_at, constraint_scope
          FROM profile_facts
         WHERE key = ?
+          AND memory_scope_visible(constraint_scope)
         ORDER BY valid_from ASC, id ASC`,
     );
     this.forgetKey = prepareProfileKeyForget(this.db);
@@ -361,13 +394,29 @@ export class ProfileStore {
         // incoming key, capture its id so we can flip it after insert.
         const sameKeyActive = this.selectActiveByKeyStmt.get(normalisedKey) as
           ProfileRow | undefined;
+        // Per-folder provider constraints (issue #33): a fact belongs to
+        // the scope that wrote it. A write from another scope would hide
+        // the old value from its own sessions (or publish a constrained
+        // value to everyone), so it is refused instead.
+        const writeScope = currentWriteScope();
+        if (sameKeyActive && (sameKeyActive.constraint_scope ?? null) !== writeScope) {
+          throw new ProfileValidationError(
+            "key",
+            `profile key "${normalisedKey}" belongs to another provider-constraint scope (projects.constraints) and cannot be changed from this session`,
+          );
+        }
         // Cross-key supersession: only fires when `supersedesKey` was
         // provided AND differs from the incoming key (same-key is
         // already handled above).
-        const crossKeyActive =
+        const crossKeyCandidate =
           supersedesKey !== null && supersedesKey !== normalisedKey
             ? (this.selectActiveByKeyStmt.get(supersedesKey) as
                 ProfileRow | undefined)
+            : undefined;
+        // A cross-key hint never reaches into another scope.
+        const crossKeyActive =
+          crossKeyCandidate && (crossKeyCandidate.constraint_scope ?? null) === writeScope
+            ? crossKeyCandidate
             : undefined;
 
         // Pick which row this new write supersedes. Same-key wins over
@@ -475,7 +524,10 @@ export class ProfileStore {
     const normalisedKey = validateKey(key);
     return this.db.transaction((): boolean => {
       const hadActive =
-        this.selectActiveByKeyStmt.get(normalisedKey) !== undefined;
+        this.selectVisibleActiveByKeyStmt.get(normalisedKey) !== undefined;
+      // A fact this session cannot see (another constraint scope) is not
+      // its to forget.
+      if (!hadActive && this.selectActiveByKeyStmt.get(normalisedKey) !== undefined) return false;
       this.forgetKey(normalisedKey);
       return hadActive;
     })();
@@ -488,7 +540,7 @@ export class ProfileStore {
    */
   get(key: string): ProfileFact | null {
     const normalisedKey = validateKey(key);
-    const row = this.selectActiveByKeyStmt.get(normalisedKey) as
+    const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as
       ProfileRow | undefined;
     if (!row) return null;
     return rowToFact(row);
@@ -532,7 +584,8 @@ export class ProfileStore {
    * the sessions written since, in case the user has said it by now).
    */
   listNameFactsToCheck(): ProfileNameFactToCheck[] {
-    const rows = this.selectAllActiveStmt.all() as ProfileRow[];
+    // Every scope: the check reads stored messages, it sends nothing.
+    const rows = this.selectEveryActiveStmt.all() as ProfileRow[];
     const out: ProfileNameFactToCheck[] = [];
     for (const row of rows) {
       if (!isNameProfileKey(row.key)) continue;
@@ -559,7 +612,7 @@ export class ProfileStore {
     now: number = Date.now(),
     options: { ifUnconfirmed?: boolean } = {},
   ): boolean {
-    const row = this.selectActiveByIdStmt.get(id) as ProfileRow | undefined;
+    const row = this.selectAnyByIdStmt.get(id) as ProfileRow | undefined;
     if (!row || !isNameProfileKey(row.key)) return false;
     const stmt = options.ifUnconfirmed
       ? this.markUnconfirmedNameGroundingStmt
