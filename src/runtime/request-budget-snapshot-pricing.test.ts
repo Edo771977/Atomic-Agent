@@ -18,19 +18,22 @@ import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-
  * generation time: good enough to estimate spend, never good enough to
  * refuse a request ahead of sending it. A preset priced only by the
  * snapshot must stay metered under a turn cap or a daily limit.
+ * (DeepSeek: every Anthropic model in the snapshot is also in Anthropic's
+ * official price table, which makes a first-party Anthropic link verified,
+ * issue #29; `deepseek-v4-pro` is priced by the snapshot alone.)
  */
 const resolved = {
-  activeTextProvider: "anthropic",
-  activeEmbeddingProvider: "anthropic",
+  activeTextProvider: "deepseek",
+  activeEmbeddingProvider: "deepseek",
   toolTransport: "auto",
   providers: [
-    { id: "anthropic", kind: "openai-compatible", baseUrl: "https://api.anthropic.com", defaultChatModel: "claude-haiku-4-5" },
+    { id: "deepseek", kind: "openai-compatible", baseUrl: "https://api.deepseek.com", defaultChatModel: "deepseek-v4-pro" },
   ],
 } as unknown as ResolvedLlmConfig;
 const entry = resolved.providers[0]!;
-const provider = { id: "anthropic", supportsRequestBudget: true } as LlmProvider;
-// ~1M tokens of prompt: far above a $1 cap at the snapshot's input rate.
-const huge = "x".repeat(3_000_000);
+const provider = { id: "deepseek", supportsRequestBudget: true } as LlmProvider;
+// ~3M tokens of prompt: far above a $1 cap at the snapshot's input rate.
+const huge = "x".repeat(9_000_000);
 
 function turn(usd = 1) {
   const budget = new FusionTurnBudget();
@@ -40,34 +43,34 @@ function turn(usd = 1) {
     { sessionId: "p", prompt: "hi", maxOutputTokens: 64_000 } as CompletionRequest,
     provider,
     entry,
-    resolveModelPricingFor(resolved, "claude-haiku-4-5"),
+    resolveModelPricingFor(resolved, "deepseek-v4-pro"),
   )!;
   return { budget, scope };
 }
 
 describe("snapshot-only pricing is an estimate, not admission pricing", () => {
   it("resolves the preset model from the snapshot under its own source", () => {
-    const model = resolveModelPricingFor(resolved, "claude-haiku-4-5");
+    const model = resolveModelPricingFor(resolved, "deepseek-v4-pro");
     expect(model?.source).toBe("snapshot");
-    expect(model?.pricing).toMatchObject({ input: 1, output: 5 });
+    expect(model?.pricing).toMatchObject({ input: 0.66, output: 1.98 });
     expect(verifiedAdmissionPricing(model)).toBeUndefined();
     expect(linkSpendBilling(entry, verifiedAdmissionPricing(model))).toBe("billed");
   });
 
-  it("keeps an Anthropic preset in meter mode under a $1 turn cap and never refuses it", () => {
+  it("keeps a snapshot-priced preset in meter mode under a $1 turn cap and never refuses it", () => {
     const { scope } = turn(1);
     const s = scope();
     expect(s.mode).toBe("meter");
-    const body = { model: "claude-haiku-4-5", messages: [{ role: "user", content: huge }], max_tokens: 64_000 };
+    const body = { model: "deepseek-v4-pro", messages: [{ role: "user", content: huge }], max_tokens: 64_000 };
     expect(() => s.beforeSend(body)).not.toThrow();
     expect(body.max_tokens).toBe(64_000);
   });
 
   it("admits web_search_options and a non-base service_tier under the cap", () => {
     const { scope } = turn(1);
-    const web = { model: "claude-haiku-4-5", messages: [], web_search_options: {} };
+    const web = { model: "deepseek-v4-pro", messages: [], web_search_options: {} };
     expect(() => scope().beforeSend(web)).not.toThrow();
-    const tier = { model: "claude-haiku-4-5", messages: [], service_tier: "on_demand" };
+    const tier = { model: "deepseek-v4-pro", messages: [], service_tier: "on_demand" };
     expect(() => scope().beforeSend(tier)).not.toThrow();
   });
 
@@ -75,8 +78,8 @@ describe("snapshot-only pricing is an estimate, not admission pricing", () => {
     const store = new DailySpendStore({ path: join(mkdtempSync(join(tmpdir(), "snapshot-day-")), "daily-spend.json") });
     const daily = createDailySpendBudget(store, () => ({ dailyLimitUsd: 1 }));
     const s = createRequestBudgetScope(undefined, { prompt: "hi" } as CompletionRequest, provider, entry,
-      resolveModelPricingFor(resolved, "claude-haiku-4-5"), daily)!;
-    expect(() => s.beforeSend({ model: "claude-haiku-4-5", messages: [{ role: "user", content: huge }], web_search_options: {} })).not.toThrow();
+      resolveModelPricingFor(resolved, "deepseek-v4-pro"), daily)!;
+    expect(() => s.beforeSend({ model: "deepseek-v4-pro", messages: [{ role: "user", content: huge }], web_search_options: {} })).not.toThrow();
     expect(s.hint).toMatch(/daily spend limit/);
     // Its calls are counted by the snapshot's estimate, not only by reported cost.
     expect(s.hint).not.toMatch(/only by reported cost/);
@@ -91,9 +94,9 @@ describe("snapshot-only pricing is an estimate, not admission pricing", () => {
   it("still settles an estimate from the snapshot when the reply reports no cost", () => {
     const { budget, scope } = turn(10);
     const s = scope();
-    s.beforeSend({ model: "claude-haiku-4-5", messages: [] });
+    s.beforeSend({ model: "deepseek-v4-pro", messages: [] });
     s.finish({ usage: { promptTokens: 1_000_000, completionTokens: 0, totalTokens: 1_000_000 } } as never);
-    expect(budget.check("p", { usd: 0 })!.spentUsd).toBeCloseTo(1, 9);
+    expect(budget.check("p", { usd: 0 })!.spentUsd).toBeCloseTo(0.66, 9);
   });
 
   it("counts the link as priced for the spend readout (the total is an estimate)", () => {

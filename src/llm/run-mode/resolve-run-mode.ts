@@ -1,5 +1,6 @@
 import type {
   FusionRole,
+  FusionOrchestratorReasoning,
   FusionWorkerReasoning,
   RunModeName,
 } from "../../config/llm-run-mode-config.js";
@@ -58,6 +59,8 @@ export type ResolvedRunMode = {
   cloudWorkers?: number;
   /** `llm.runMode.fusion.workerReasoning`, present only when configured. */
   workerReasoning?: FusionWorkerReasoning;
+  /** `llm.runMode.fusion.orchestratorReasoning`, present only when configured. */
+  orchestratorReasoning?: FusionOrchestratorReasoning;
   /** `llm.runMode.fusion.workerMaxOutputTokens`, present only when configured. */
   workerMaxOutputTokens?: number;
   /**
@@ -366,6 +369,9 @@ export function resolveRunMode(
     ...(fusion?.workerReasoning === undefined
       ? {}
       : { workerReasoning: fusion.workerReasoning }),
+    ...(fusion?.orchestratorReasoning === undefined
+      ? {}
+      : { orchestratorReasoning: fusion.orchestratorReasoning }),
     ...(fusion?.workerMaxOutputTokens === undefined
       ? {}
       : { workerMaxOutputTokens: fusion.workerMaxOutputTokens }),

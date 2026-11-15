@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { AgentLoop } from "./agent-loop.js";
+import { resetConfigCache } from "../config/index.js";
 import { captureModelModePolicy, type ResolvedModelMode } from "../llm/model-mode.js";
 import type {
   LessonLifecycleHook,
@@ -674,3 +675,64 @@ describe("AgentLoop stalled Fusion review (F41)", () => {
     expect(finished.every((f) => f.reviewStall === undefined)).toBe(true);
   });
 });
+
+describe("llm.runMode.fusion.orchestratorReasoning (issue 29)", () => {
+  let stateDir: string;
+  let workingDir: string;
+  const previousStateDir = process.env.ATOMIC_AGENT_STATE_DIR;
+
+  beforeEach(() => {
+    stateDir = mkdtempSync(join(tmpdir(), "atomic-orch-reasoning-"));
+    workingDir = mkdtempSync(join(tmpdir(), "atomic-orch-reasoning-wd-"));
+    writeFileSync(
+      join(stateDir, "config.json"),
+      JSON.stringify({
+        llm: {
+          activeTextProvider: "or",
+          activeEmbeddingProvider: "or",
+          toolTransport: "auto",
+          providers: [{ id: "or", kind: "openrouter" }],
+          runMode: { fusion: { orchestratorReasoning: "xhigh" } },
+        },
+      }),
+    );
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+  });
+
+  afterEach(() => {
+    if (previousStateDir === undefined) delete process.env.ATOMIC_AGENT_STATE_DIR;
+    else process.env.ATOMIC_AGENT_STATE_DIR = previousStateDir;
+    resetConfigCache();
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workingDir, { recursive: true, force: true });
+  });
+
+  it("is the orchestrator's effort on fusion orchestrator turns only, under a turn's own", async () => {
+    const grammar = await buildGrammar(PLAIN_INSTRUCT_PROFILE);
+    const efforts: Array<string | undefined> = [];
+    const makeLoop = (isFusionMode: boolean) =>
+      new AgentLoop({
+        registry: buildDefaultToolRegistry(),
+        slotManager: new SlotManager(2),
+        grammar,
+        profile: PLAIN_INSTRUCT_PROFILE,
+        llmComplete: async (params) => {
+          efforts.push(params.reasoningEffort);
+          return makeCompletion(JSON.stringify([{ tool: "reply", args: { text: "done" } }]));
+        },
+        toolDescriptors: TOOLS,
+        capabilities: CAPS,
+        skillCatalog: SKILLS,
+        isFusionMode: () => isFusionMode,
+      });
+    const session = (id: string) => createEmptySessionState({ id, workingDir });
+    await makeLoop(true).runTurn(session("s-orch"), turnOptions());
+    await makeLoop(true).runTurn(session("s-orch-own"), turnOptions({ reasoningEffort: "low" }));
+    // A worker's turn is ephemeral: not the orchestrator's.
+    await makeLoop(true).runTurn(session("s-worker"), turnOptions({ ephemeral: true }));
+    await makeLoop(false).runTurn(session("s-plain"), turnOptions());
+    expect(efforts).toEqual(["xhigh", "low", undefined, undefined]);
+  });
+});
+

@@ -327,6 +327,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
         }
       : {}),
     ...(ctx.maxTokens !== undefined ? { maxTokens: ctx.maxTokens } : {}),
+    ...(ctx.finalReport === true ? { finalReport: true } : {}),
     ...(localReplyCap !== null ? { localReplyCap } : {}),
     // The turn's own settings ride on every completion of the step; the
     // repair retry spreads `llmParams`, so they inherit without a second
@@ -334,12 +335,23 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
     ...(ctx.maxOutputTokens !== undefined
       ? { maxOutputTokens: ctx.maxOutputTokens }
       : {}),
-    ...(ctx.reasoningEffort !== undefined
-      ? { reasoningEffort: ctx.reasoningEffort }
-      : {}),
-    ...(ctx.reasoningOverride !== undefined
-      ? { reasoningOverride: ctx.reasoningOverride }
-      : {}),
+    // The final report after a turn cap (issue #29) runs at the floor:
+    // models that cannot turn thinking off (Fable, Opus 5.5) share the
+    // report's `max_tokens` with their thinking, and at the turn's own
+    // effort could spend it all before any text. `low` is
+    // `output_config.effort: low` natively. Not `disableThinking`: on a
+    // local template that switch would disagree with a thinking profile's
+    // grammar and framing for this step.
+    ...(ctx.finalReport === true
+      ? { reasoningEffort: "low" as const }
+      : {
+          ...(ctx.reasoningEffort !== undefined
+            ? { reasoningEffort: ctx.reasoningEffort }
+            : {}),
+          ...(ctx.reasoningOverride !== undefined
+            ? { reasoningOverride: ctx.reasoningOverride }
+            : {}),
+        }),
   };
   if (deps.modelModePolicy) {
     llmParams.prepareForLink = (link) => {

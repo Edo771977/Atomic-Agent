@@ -33,6 +33,8 @@ export type ProviderWaitCause =
   | { readonly kind: "dropped" }
   | { readonly kind: "unreachable" }
   | { readonly kind: "timeout" }
+  /** A local server that answers and works but decodes nothing in time (`LlamaServerError.contended`). */
+  | { readonly kind: "contended" }
   | { readonly kind: "loading" }
   | { readonly kind: "http"; readonly status: number }
   | { readonly kind: "stream_error"; readonly status: number | null }
@@ -107,6 +109,9 @@ export function classifyProviderWaitCause(err: unknown): ProviderWaitCause {
       link instanceof OpenAiHttpError ||
       link instanceof LlamaServerError
     ) {
+      if (link instanceof LlamaServerError && link.timedOut && link.contended) {
+        return { kind: "contended" };
+      }
       if (link.timedOut) return { kind: "timeout" };
       if (link.status !== null) return statusCause(link.status, link.message);
       break;

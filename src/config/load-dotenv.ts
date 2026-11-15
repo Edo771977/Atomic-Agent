@@ -64,6 +64,67 @@ const READ_BACKOFF_MS: readonly number[] = [50, 150];
  */
 const KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
+/**
+ * Decode `.env` bytes by their byte-order mark. Windows PowerShell 5.1's
+ * `>` and `Out-File` write UTF-16LE with a BOM (FF FE), and some editors
+ * write UTF-16BE (FE FF) or UTF-8 with a BOM (EF BB BF); read as plain
+ * UTF-8 those files parse to nothing, so their keys were silently
+ * ignored. Without a BOM, bytes whose NULs all fall on one parity —
+ * every odd byte NUL for UTF-16LE, every even one for UTF-16BE, as
+ * ASCII text in UTF-16 reads — are that UTF-16 (`bomlessUtf16`);
+ * anything else is UTF-8.
+ */
+export function decodeDotenvBytes(bytes: Buffer): string {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return bytes.subarray(2).toString("utf16le");
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    const swapped = Buffer.from(bytes.subarray(2));
+    swapBytes(swapped);
+    return swapped.toString("utf16le");
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return bytes.subarray(3).toString("utf8");
+  }
+  const bomless = bomlessUtf16(bytes);
+  if (bomless === "le") return bytes.toString("utf16le");
+  if (bomless === "be") {
+    const swapped = Buffer.from(bytes);
+    swapBytes(swapped);
+    return swapped.toString("utf16le");
+  }
+  return bytes.toString("utf8");
+}
+
+/**
+ * A BOM-less UTF-16 file of mostly ASCII text: an even length, and at
+ * least half its code units carrying a NUL high byte with every NUL on
+ * that side. A UTF-8 file with a stray NUL is not mistaken for one.
+ */
+function bomlessUtf16(bytes: Buffer): "le" | "be" | null {
+  if (bytes.length < 2 || bytes.length % 2 !== 0) return null;
+  let evenNul = 0;
+  let oddNul = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] !== 0) continue;
+    if (i % 2 === 0) evenNul += 1;
+    else oddNul += 1;
+  }
+  const units = bytes.length / 2;
+  if (oddNul >= units / 2 && evenNul === 0) return "le";
+  if (evenNul >= units / 2 && oddNul === 0) return "be";
+  return null;
+}
+
+/** Swap each byte pair in place; a trailing odd byte (a truncated file) stays. */
+function swapBytes(buf: Buffer): void {
+  for (let i = 0; i + 1 < buf.length; i += 2) {
+    const a = buf[i]!;
+    buf[i] = buf[i + 1]!;
+    buf[i + 1] = a;
+  }
+}
+
 /** Blocking sleep for the synchronous config bootstrap path. */
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -229,7 +290,7 @@ export function loadDotenvFromStateDir(
   deps: Partial<DotenvIoDeps> = {},
 ): DotenvLoadResult {
   const io: DotenvIoDeps = {
-    readFile: deps.readFile ?? ((p) => readFileSync(p, "utf8")),
+    readFile: deps.readFile ?? ((p) => decodeDotenvBytes(readFileSync(p))),
     sleep: deps.sleep ?? sleepSync,
   };
   const path = join(stateDir, ".env");
@@ -253,7 +314,22 @@ export function loadDotenvFromStateDir(
 
   result.exists = true;
 
-  const lines = read.raw.split(/\r?\n/);
+  const text = read.raw.replace(/^\uFEFF/, "");
+  let lines = text.split(/\r?\n/);
+  if (text.includes("\u0000")) {
+    // NUL bytes `decodeDotenvBytes` could not read as UTF-16: a damaged
+    // or partly binary file. Its clean lines still load; the lines with
+    // NULs are skipped, said once instead of a warning per line (and
+    // never echoing the content).
+    const clean = lines.filter((l) => !l.includes("\u0000"));
+    const skipped = lines.length - clean.length;
+    lines = clean;
+    process.stderr.write(
+      `atomic-agent: ${path} looks UTF-16/binary; save as UTF-8. ` +
+        `${skipped} line${skipped === 1 ? "" : "s"} with NUL bytes ${skipped === 1 ? "was" : "were"} skipped this run.\n`,
+    );
+  }
+
   for (let i = 0; i < lines.length; i += 1) {
     const parsed = parseDotenvLine(lines[i] ?? "", i + 1, (reason) => {
       process.stderr.write(

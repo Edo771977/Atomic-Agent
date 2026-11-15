@@ -107,6 +107,20 @@ describe("TaskRunner budgets", () => {
     expect(final?.stopCause).toBe("time_ceiling");
   });
 
+  it("stores turn_budget for a run its turn cap stopped, not a clean completion", async () => {
+    const reports: TaskReport[] = [];
+    const { runner } = runnerWith([{ reason: "budget" }], reports);
+    const task = store.create({
+      sessionId: session.id,
+      userMessage: "capped by the fusion turn budget",
+      origin: "cli",
+      maxAttempts: 1,
+    });
+    const final = await runner.runOne(task.id);
+    expect(final?.status).toBe("completed");
+    expect(final?.stopCause).toBe("turn_budget");
+  });
+
   it("stores no stop cause for a run that finished on its own", async () => {
     const { runner } = runnerWith([{}]);
     const task = store.create({

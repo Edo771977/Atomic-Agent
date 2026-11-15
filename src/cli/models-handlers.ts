@@ -22,11 +22,13 @@ import {
   readLogTail,
   resolveLogFilePath,
   getConfiguredBackendVariant,
+  describeForeignGpuUse,
   getDaemonStatus,
   getEmbeddingDaemonStatus,
   getEmbeddingModelDef,
   getLocalModelDef,
   isBackendDownloaded,
+  probeNvidiaGpuUsage,
   isDownloadJobLive,
   isEmbeddingModelDownloaded,
   isKnownEmbeddingModelId,
@@ -736,6 +738,21 @@ export async function runLocalModelsStart(
     );
   }
 
+  // A GPU shared with other work: the context fit below uses the VRAM
+  // free right now, so say who holds the rest (measured by nvidia-smi;
+  // silent without it). The embedding server already up is ours, and so
+  // is a chat server already running (its pid file or Core session).
+  if (device !== "cpu" && process.platform !== "darwin") {
+    const usage = await probeNvidiaGpuUsage();
+    const ours: number[] = embRunningPid === null ? [] : [embRunningPid];
+    if (usage !== null) {
+      const chat = await getDaemonStatus(dataDir, cfg.localModels.managed.port).catch(() => null);
+      if (chat?.running === true && chat.pid !== null) ours.push(chat.pid);
+    }
+    const shared = usage === null ? null : describeForeignGpuUse(usage, ours);
+    if (shared !== null) process.stderr.write(`${shared}\n`);
+  }
+
   // Which direction fusion is pointing decides what `parallel: "auto"`
   // means for this launch (see `resolveLocalLegRole`). Resolved here
   // because the run mode is a layer `src/local-llm/**` may not import,
@@ -1190,8 +1207,13 @@ export async function runLocalModelsDevices(): Promise<number> {
   const cfg = getConfig();
   const dataDir = cfg.paths.localModelsDataDir;
   if (!isBackendDownloaded(dataDir, getConfig().localModels.managed.engine)) {
+    // `models update` refuses external mode, so sending an external-mode
+    // user there alone was a loop (issue #29): say the mode and the way out.
     process.stderr.write(
-      "backend not downloaded; run 'atomic-agent models update' first\n",
+      cfg.localModels.mode === "managed"
+        ? "backend not downloaded; run 'atomic-agent models update' first\n"
+        : `models devices lists the managed engine's GPUs; you're using an external server (${cfg.localModels.url}). ` +
+            "Pick a managed model first: atomic-agent models use <id>, then atomic-agent models update.\n",
     );
     return 1;
   }

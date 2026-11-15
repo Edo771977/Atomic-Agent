@@ -116,6 +116,7 @@ describe("buildRuntimeTelemetry", () => {
     const store = fakeStore();
     buildRuntimeTelemetry({
       enabled: true,
+      errorReports: true,
       store,
       dimensions: DIMENSIONS,
       version: "1.0.0",
@@ -131,6 +132,39 @@ describe("buildRuntimeTelemetry", () => {
     ]);
   });
 
+  it("leaves error reports off unless they are opted into, even with analytics on (#29)", () => {
+    const f = factories();
+    buildRuntimeTelemetry({
+      enabled: true,
+      store: fakeStore(),
+      dimensions: DIMENSIONS,
+      version: "1.0.0",
+      env: {},
+      factories: f,
+    });
+    expect(f.createAnalyticsClient.mock.calls[0]).toMatchObject([{ enabled: true }]);
+    expect(f.createSentryClient.mock.calls[0]).toMatchObject([{ enabled: false }]);
+    // Opted in but analytics off, or killed by the environment: still off.
+    for (const [enabled, env] of [
+      [false, {}],
+      [true, { DO_NOT_TRACK: "1" }],
+      [true, { ATOMIC_AGENT_ANALYTICS: "off" }],
+      [true, { ATOMIC_AGENT_OFFLINE: "1" }],
+    ] as const) {
+      const g = factories();
+      buildRuntimeTelemetry({
+        enabled,
+        errorReports: true,
+        store: fakeStore(),
+        dimensions: DIMENSIONS,
+        version: "1.0.0",
+        env,
+        factories: g,
+      });
+      expect(g.createSentryClient.mock.calls[0], JSON.stringify(env)).toMatchObject([{ enabled: false }]);
+    }
+  });
+
   it("DO_NOT_TRACK=1 disables both and leaves the shared id alone (ATO-1189)", () => {
     const f = factories();
     const store = fakeStore();
@@ -140,6 +174,7 @@ describe("buildRuntimeTelemetry", () => {
       dimensions: DIMENSIONS,
       version: "1.0.0",
       env: { DO_NOT_TRACK: "1" },
+      errorReports: true,
       factories: f,
     });
     expect(store.getSharedInstallId).toHaveBeenCalledWith(false, "desktop");
@@ -156,6 +191,7 @@ describe("buildRuntimeTelemetry", () => {
       dimensions: DIMENSIONS,
       version: "1.0.0",
       env: { ATOMIC_AGENT_ANALYTICS: "off" },
+      errorReports: true,
       factories: f,
     });
     expect(store.getSharedInstallId).toHaveBeenCalledWith(false, "desktop");

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { defaultProviderModelMode } from "./model-mode.js";
 import { parseUserConfigFile, USER_CONFIG_VERSION } from "./config-schema.js";
 
 describe("llm-config", () => {
@@ -82,6 +83,24 @@ describe("llm-config", () => {
       kind: "gemini",
       defaultChatModel: "gemini-2.5-flash",
     });
+  });
+
+  it("accepts the native anthropic kind", () => {
+    const parsed = parseUserConfigFile({
+      version: USER_CONFIG_VERSION,
+      llm: {
+        activeTextProvider: "claude",
+        activeEmbeddingProvider: "local-llama",
+        toolTransport: "auto",
+        providers: [
+          { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
+          { id: "claude", kind: "anthropic", defaultChatModel: "claude-fable-5-2" },
+        ],
+      },
+    });
+    const entry = parsed.llm?.providers.find((p) => p.id === "claude");
+    expect(entry).toMatchObject({ kind: "anthropic", defaultChatModel: "claude-fable-5-2" });
+    expect(defaultProviderModelMode(entry!)).toBe("cloud");
   });
 
   it("accepts qwen-openai-compatible as an explicit compatibility provider", () => {

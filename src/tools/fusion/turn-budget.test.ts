@@ -11,6 +11,7 @@ import {
   type FusionDelegateDeps,
 } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
+import { TurnBudgetExhaustedError, findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 import { fanoutSpend, WorkerRunCollector } from "./worker-result.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -709,5 +710,39 @@ describe("the per-turn cap on model: \"orchestrator\" tasks", () => {
       resolved({ mode: "fusion", fusion: { maxOrchestratorTasksPerTurn: 0 } })
         .maxOrchestratorTasksPerTurn,
     ).toBe(0);
+  });
+});
+
+describe("turn-cap request refusals (issue #29)", () => {
+  function exhausted(): FusionTurnBudget {
+    const budget = new FusionTurnBudget();
+    budget.begin("p", 0, { usd: 1 });
+    budget.reserveRequest("p", 0).settle(1.13);
+    return budget;
+  }
+
+  it("refuses a zero-hold (metered) request with a typed error in plain words", () => {
+    let caught: unknown;
+    try { exhausted().reserveRequest("p", 0); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(TurnBudgetExhaustedError);
+    const error = caught as TurnBudgetExhaustedError;
+    expect(error.message).toBe("the $1.00 turn cap is used up ($1.13 accounted); no further requests this turn");
+    expect(error).toMatchObject({ capUsd: 1, accountedUsd: 1.13, requestUsd: 0, heldUsd: 0 });
+  });
+
+  it("keeps the detailed wording when a real reservation does not fit", () => {
+    const budget = new FusionTurnBudget();
+    budget.begin("p", 0, { usd: 1 });
+    budget.reserveRequest("p", 0).settle(0.9);
+    let caught: unknown;
+    try { budget.reserveRequest("p", 0.2); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(TurnBudgetExhaustedError);
+    expect((caught as Error).message).toBe("turn budget cannot cover this request: $0.20 reserved cost would exceed the $1.00 cap ($0.90 accounted, $0.00 held)");
+  });
+
+  it("is found through wrapping causes", () => {
+    const inner = new TurnBudgetExhaustedError({ capUsd: 1, accountedUsd: 1.13, heldUsd: 0, requestUsd: 0 });
+    expect(findTurnBudgetExhaustedError(new Error("wrapped", { cause: inner }))).toBe(inner);
+    expect(findTurnBudgetExhaustedError(new Error("other"))).toBeNull();
   });
 });

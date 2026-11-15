@@ -12,6 +12,7 @@ import {
   syncDirectoryBestEffort,
   writeFileSyncedSync,
 } from "./durable-write.js";
+import { decodeDotenvBytes } from "./load-dotenv.js";
 import { restrictWindowsAcl } from "./windows-acl.js";
 
 /**
@@ -73,7 +74,10 @@ export function setDotenvKey(
 
   const path = join(stateDir, ".env");
   const existed = existsSync(path);
-  const original = existed ? readFileSync(path, "utf8") : "";
+  // Decoded the way the loader reads it (a UTF-16 file saved by
+  // PowerShell 5.1 included) and written back as UTF-8: appending UTF-8
+  // to UTF-16 bytes left a file the loader could no longer read.
+  const original = existed ? decodeDotenvBytes(readFileSync(path)).replace(/^\uFEFF/, "") : "";
   const updated = applyMutation(original, key, value);
 
   if (updated === null) {

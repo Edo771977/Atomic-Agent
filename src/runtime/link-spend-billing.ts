@@ -27,9 +27,13 @@ export function verifiablePricing(pricing: ModelPricing | undefined): pricing is
  * refuse one: a link priced only by the snapshot is metered.
  */
 export function verifiedAdmissionPricing(
-  model: Pick<ResolvedModel, "pricing" | "source"> | undefined,
+  model: Pick<ResolvedModel, "pricing" | "source" | "pricingSource"> | undefined,
 ): ModelPricing | undefined {
-  return model === undefined || model.source === "snapshot" ? undefined : model.pricing;
+  if (model === undefined) return undefined;
+  // An official price list (Anthropic's first-party prices) is verified
+  // even on a row whose other fields came from the snapshot.
+  if (model.pricingSource === "anthropic-official") return model.pricing;
+  return model.source === "snapshot" ? undefined : model.pricing;
 }
 
 /**

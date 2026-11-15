@@ -848,7 +848,7 @@ describe("user config file IO", () => {
       });
       writeUserConfigFileSync(path, {
         ...USER_CONFIG_DEFAULTS,
-        analytics: { enabled: false },
+        analytics: { enabled: false, errorReports: false },
       });
       const onDisk = readDisk(path);
       expect(onDisk.analytics.enabled).toBe(false);

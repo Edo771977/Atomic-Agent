@@ -152,6 +152,8 @@ If something isn't working:
 2. Open an issue on [GitHub](https://github.com/AtomicBot-ai/atomic-agent/issues).
 3. Or ask for help in our [Discord](https://discord.gg/DCqtG8WZX8).
 
+On Windows, traces and logs are UTF-8 without a BOM. Windows PowerShell 5.1's `Get-Content` reads such files in the ANSI code page, so accented text looks garbled (`Ã¨` for `è`) although the file is fine; read them with `Get-Content -Encoding UTF8 <file>` (PowerShell 7 reads UTF-8 by default).
+
 ## Talk to Us
 
 Building something with Atomic Agent, stuck on setup, or just want to share what you are working on? Grab a slot and talk to the team directly: **[cal.com/atomicagent/demo](https://cal.com/atomicagent/demo)**. No agenda required. Questions, feedback, feature requests, or a plain hello all count. We read every issue and every Discord message too, but sometimes a 15-minute call beats a week of comments.
@@ -718,7 +720,7 @@ By default, Atomic Agent does not require a hosted agent provider. Model calls g
 
 Anonymous usage analytics is on by default. Every event carries a random install id shared by the terminal and desktop apps on the same machine (stored in `~/.atomic-agent-install-id`; the desktop app reuses the terminal's existing id unless analytics is off in the terminal's config), your OS platform and CPU architecture, the app version, the desktop app version when it comes from the desktop app, which surface sent it (terminal UI, command line, or desktop), and the install channel (the install script, a Linux `deb`, `rpm` or AUR package, or the desktop `dmg`, `exe`, `AppImage`, or `deb` package). It sends the provider and model names exactly as configured, including a custom provider's name and, for a model added from Hugging Face, its repository id, plus turn-shape numbers (latency, step count, outcome, token counts, estimated cost). It also records that the app launched, which first-run screen was reached (a fixed list of screen names, never anything you typed), and that a backend was set up: the provider name and whether it is local or cloud, never the key, the URL, or the host. The desktop app adds these event groups: launch and health (startup timings, agent start failures and restarts, window crashes, app close), onboarding screens, model downloads and backend start, chat turn timing, approval answers, button and menu usage by action id only, and feature usage counts (settings panes, sessions, voice, tasks, skills, MCP servers, Telegram setup, import). If you turn analytics off, one last event records that it was switched off and how many days after install. Message content, file paths, tool arguments, full URLs, keys, and your IP address are never sent.
 
-Crash reports go to Sentry on the same switch. They carry path-stripped stack frames, the error type and category, safe scalar codes, a bounded tool name, the surface, install channel and app versions as tags, and, for a failed connection, only the class of the endpoint host (`localhost`, `private`, `known_cloud`, or `other`), never the host itself. A failed model turn also reports the provider id when it is a built-in one, which local engine served it (`atomic-core`, `llama-server`, or `external`), how long and how many times the turn waited for the provider, and, for the engine the agent manages, whether its process was alive (`alive`, `dead`, `no_pid`, or `unknown`). No native memory dumps are sent. Turn both off with `/privacy analytics off` in the TUI, the Privacy switch in the desktop app, or `"analytics": { "enabled": false }` in `config.json`. The TUI toggle applies live; an edit to `config.json` applies to processes started after it. In the desktop app the switch stops the app's own reporting at once, and the bundled agent stops after its runtime restarts. Setting `ATOMIC_AGENT_ANALYTICS=off` or the standard `DO_NOT_TRACK=1` in the environment turns both off for that process whatever the config says.
+Crash reports (Sentry) are off by default and opt-in: set `"analytics": { "errorReports": true }` in `config.json` (it applies to processes started after the edit). They are sent only while analytics is also on, never while an incognito chat is open, and never with any of the kill switches below. They carry path-stripped stack frames, the error type and category, safe scalar codes, a bounded tool name, the surface, install channel and app versions as tags, and, for a failed connection, only the class of the endpoint host (`localhost`, `private`, `known_cloud`, or `other`), never the host itself. A failed model turn also reports the provider id when it is a built-in one, which local engine served it (`atomic-core`, `llama-server`, or `external`), how long and how many times the turn waited for the provider, and, for the engine the agent manages, whether its process was alive (`alive`, `dead`, `no_pid`, or `unknown`). No native memory dumps are sent. Turn analytics, and with it any opted-in crash reports, off with `/privacy analytics off` in the TUI, the Privacy switch in the desktop app, or `"analytics": { "enabled": false }` in `config.json`. The TUI toggle applies live; an edit to `config.json` applies to processes started after it. In the desktop app the switch stops the app's own reporting at once, and the bundled agent stops after its runtime restarts. Setting `ATOMIC_AGENT_ANALYTICS=off` or the standard `DO_NOT_TRACK=1` in the environment turns both off for that process whatever the config says.
 
 Local-first bounds where control lives, not where packets go. Network egress happens when:
 
@@ -859,7 +861,7 @@ Drives a vendor CLI you are already signed into, so a flat-rate subscription can
 
 **Prerequisite:** the CLI installed and signed in: `claude` then `/login`, or `npm i -g @openai/codex` then `codex login`. Atomic only spawns the binary; it never reads, copies, or replays its OAuth tokens or keychain entries.
 
-In the TUI: **Providers → `n` →** pick the subscription row, then type a model. For Claude that is `sonnet`, `opus`, `haiku`, `fable`, or a pinned id like `claude-sonnet-5`; **for Codex leave it blank**: under a ChatGPT login Codex rejects explicit model ids (`not supported when using Codex with a ChatGPT account`) and resolves one itself. There is no API-key screen, because there is no key. Equivalent `config.json`:
+In the TUI: **Esc → Manage › LLM › Cloud → `n` →** pick the subscription row, then type a model. For Claude that is `sonnet`, `opus`, `haiku`, `fable`, or a pinned id like `claude-sonnet-5`; **for Codex leave it blank**: under a ChatGPT login Codex rejects explicit model ids (`not supported when using Codex with a ChatGPT account`) and resolves one itself. There is no API-key screen, because there is no key. Equivalent `config.json`:
 
 ```json
 {
@@ -943,6 +945,18 @@ npm run lint
 npm test
 npm run build
 ```
+
+### From source
+
+Prerequisites: Node 25.7 or newer, and a toolchain that can build `better-sqlite3`'s native binding when no prebuilt one matches your Node: Python 3 and a C++ compiler (Xcode Command Line Tools on macOS, `build-essential` on Linux). On Windows install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload (`Microsoft.VisualStudio.Workload.VCTools`) and Python 3.
+
+If a command fails with `better-sqlite3's native binding is missing` (the raw form is `Could not locate the bindings file` or a `NODE_MODULE_VERSION` mismatch), the package's install script did not run for this Node: npm may have skipped or blocked it, or Node was upgraded since `npm install`. Rebuild it and watch the output:
+
+```bash
+npm rebuild better-sqlite3 --foreground-scripts
+```
+
+If your npm is configured to block dependency install scripts (`ignore-scripts`, or an allow-list policy), allow `better-sqlite3`'s script first, then rerun the rebuild. `atomic-agent doctor` checks this by opening an in-memory database. The installed build ships the binding; there the fix is to reinstall atomic-agent.
 
 Core docs:
 

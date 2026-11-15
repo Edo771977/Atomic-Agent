@@ -412,9 +412,11 @@ export interface AtomicAgentConfig {
    * `UserConfigFile.analytics`. Only `{ provider, model }` and a random
    * anonymous install id ever leave the machine — never message content,
    * paths, tool args, or the machine's IP (see `src/analytics/`).
+   * `errorReports` mirrors `UserConfigFile.analytics.errorReports`.
    */
   analytics: {
     enabled: boolean;
+    errorReports: boolean;
   };
   /**
    * Telegram remote-control channel. Mirrors `UserConfigFile.telegram`.
@@ -770,9 +772,17 @@ export interface UserConfigFile {
    * `{ provider, model }` plus a random anonymous install id are sent;
    * message content, file paths, tool arguments, and the machine's IP
    * are never transmitted (see `src/analytics/`).
+   *
+   * `errorReports` (additive, unversioned; issue #29) opts in to
+   * anonymous crash/error reports (Sentry). Default `false`, so a file
+   * without it sends none; reports go out only when it is `true` AND
+   * `enabled` is `true`, and the environment kill switches
+   * (`DO_NOT_TRACK`, `ATOMIC_AGENT_ANALYTICS=off`, offline mode) still
+   * win. No report is sent while an incognito chat is open.
    */
   analytics: {
     enabled: boolean;
+    errorReports: boolean;
   };
   /**
    * Telegram remote-control channel. Added in config v9. Older files
@@ -1169,6 +1179,11 @@ export interface UserConfigFile {
 // `off`) and `judgeProvider` (default the orchestrator leg), ATO-944.
 // Unversioned, additive: `llm.runMode.fusion.autoReplan` (0..5, default
 // 0 = off), ATO-941.
+// Unversioned, additive: `llm.runMode.fusion.orchestratorReasoning`
+// (`low|medium|high|xhigh|max`, unset by default: the provider's default),
+// issue 29. The effort of the fusion orchestrator's own completions; an
+// older file has no field, an older build drops the key on parse and the
+// whole-file write keeps it (`config-shape.ts`).
 // Unversioned, additive: `llm.runMode.fusion.roles` (`plan|build|review|
 // explore|utility` → provider id) and `mixLocalModels` (default false),
 // ATO-943. An older file has neither and runs every task on the worker leg.
@@ -1367,6 +1382,7 @@ export const USER_CONFIG_DEFAULTS: UserConfigFile = {
   tui: createTuiDefaults(),
   analytics: {
     enabled: true,
+    errorReports: false,
   },
   telegram: createTelegramDefaults(),
   discord: createDiscordDefaults(),
@@ -1739,6 +1755,10 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
       enabled: parseBool(
         analytics.enabled ?? USER_CONFIG_DEFAULTS.analytics.enabled,
         "analytics.enabled",
+      ),
+      errorReports: parseBool(
+        analytics.errorReports ?? USER_CONFIG_DEFAULTS.analytics.errorReports,
+        "analytics.errorReports",
       ),
     },
     telegram: parseTelegramConfig(telegram, () => USER_CONFIG_DEFAULTS.telegram),

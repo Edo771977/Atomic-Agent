@@ -73,9 +73,11 @@ export function createRuntimeObservability(
   // `shutdown` closures read these variables at call time, so a reassign
   // is picked up on the next event.
   //
-  // Anonymous error reporting (Sentry) shares the opt-out flag
-  // (`config.analytics.enabled`, or `ATOMIC_AGENT_ANALYTICS=off` for the
-  // process) and the anonymous install id with product analytics. Strict
+  // Anonymous error reporting (Sentry) is opt-in (`config.analytics.
+  // errorReports`, default off, issue #29) and also needs analytics
+  // allowed: the opt-out flag (`config.analytics.enabled`, or
+  // `ATOMIC_AGENT_ANALYTICS=off` / DO_NOT_TRACK / offline for the
+  // process) still wins. It shares the anonymous install id. Strict
   // allowlist: only error type / category / safe scalar codes /
   // path-stripped stack frames ever leave the machine — never message
   // content, paths, tool args, or IP (see `src/error-reporting/`). Each
@@ -83,6 +85,7 @@ export function createRuntimeObservability(
   const buildTelemetry = (enabled: boolean) =>
     buildRuntimeTelemetry({
       enabled,
+      errorReports: config.analytics.errorReports,
       store: analyticsStateStore,
       dimensions: analyticsDimensions,
       version: getAppVersion(),
@@ -91,6 +94,7 @@ export function createRuntimeObservability(
       sentryRateLimitPath: resolve(config.paths.stateDir, SENTRY_RATE_LIMIT_FILE),
     });
   let { analytics, errorReporter } = buildTelemetry(config.analytics.enabled);
+  let errorReportsHeld: () => boolean = () => false;
   // Not awaited: delivery is confirmed in the background, and only then
   // is the install marked as sent (see `captureAppInstalled`).
   void captureAppInstalled(analytics, analyticsStateStore, appInstalledContext());
@@ -161,7 +165,22 @@ export function createRuntimeObservability(
     metrics,
     analyticsStateStore,
     getAnalytics: () => analytics,
-    getErrorReporter: () => errorReporter,
+    // Null while the gate holds (an incognito chat is open, issue #29):
+    // every capture site reads the reporter through this getter.
+    getErrorReporter: () => (errorReportsHeld() ? null : errorReporter),
+    /**
+     * The reporter whatever the gate says, for flush/shutdown only: the
+     * gate holds new captures, and reports queued before it must still
+     * be flushed and the client closed when the runtime stops.
+     */
+    getShutdownErrorReporter: () => errorReporter,
+    /**
+     * Hold error reports while `gate` answers true. Bootstrap sets it
+     * once the incognito registry exists (`IncognitoSessions.anyOpen`).
+     */
+    setErrorReportGate: (gate: () => boolean): void => {
+      errorReportsHeld = gate;
+    },
     createControls,
   };
 }

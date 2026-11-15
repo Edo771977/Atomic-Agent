@@ -6,6 +6,7 @@ import { createRequestBudgetScope } from "./request-budget.js";
 import { createDailySpendBudget } from "./daily-spend-budget.js";
 import { DailySpendStore } from "../session/daily-spend.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
+import { FINAL_REPORT_MAX_TOKENS, TurnBudgetExhaustedError } from "../llm/reliability/turn-budget-error.js";
 import { FusionTurnBudget } from "../tools/fusion/turn-budget.js";
 import { OpenAiProvider } from "../llm/provider/openai/openai-provider.js";
 import { OpenAiHttpError } from "../llm/provider/openai/openai-http.js";
@@ -73,6 +74,15 @@ describe("request budget scope", () => {
     const req = { sessionId: "p", prompt: "hi", maxOutputTokens: 4096 } as CompletionRequest;
     const s = createRequestBudgetScope(budget, req, provider, entry, { ...model, source: "default" })!;
     expect(() => s.beforeSend({ model: "m", messages: [], plugins: [{ id: "web" }] })).toThrow(/provider-side input/);
+  });
+
+  it("keeps the byte-sized input reservation for Anthropic Messages client tools", () => {
+    // The native Anthropic wire spells a client tool `{name, input_schema}`
+    // with no `type`; it adds no provider-side input.
+    const body = { model: "claude-fable-5-2", max_tokens: 4096, messages: [], tools: [{ name: "f", input_schema: { type: "object" } }] };
+    expect(() => setup(0.1).scope().beforeSend(body)).not.toThrow();
+    const server = { ...body, tools: [{ type: "web_search_20260209", name: "web_search" }] };
+    expect(() => setup(0.1).scope().beforeSend(server)).toThrow(/budget|cap/i);
   });
 
   it("keeps the byte-sized input reservation for function tools", () => {
@@ -635,5 +645,78 @@ describe("request budget scope", () => {
       const { daily } = day(1);
       expect(createRequestBudgetScope(undefined, request(), provider, { id: "x", kind } as LlmProviderConfigEntry, model, daily)).toBeUndefined();
     });
+  });
+});
+
+describe("one final report past an exhausted turn cap (issue #29)", () => {
+  function overCap() {
+    const budget = new FusionTurnBudget();
+    budget.begin("p", 0, { usd: 1 });
+    budget.reserveRequest("p", 0).settle(1.13);
+    return budget;
+  }
+  const meterModel = { ...model, source: "snapshot" } as ResolvedModel;
+  const report = { sessionId: "p", prompt: "hi", finalReport: true, maxTokens: FINAL_REPORT_MAX_TOKENS } as CompletionRequest;
+
+  it("admits one metered final report, settles it as overspend and refuses a second", () => {
+    const budget = overCap();
+    const plain = () => createRequestBudgetScope(budget, { sessionId: "p", prompt: "hi" } as CompletionRequest, provider, entry, meterModel);
+    expect(plain).toThrow(TurnBudgetExhaustedError);
+    const s = createRequestBudgetScope(budget, report, provider, entry, meterModel)!;
+    expect(s.mode).toBe("meter");
+    s.beforeSend({ model: "m", messages: [] });
+    s.finish({ usage: { promptTokens: 1_000, completionTokens: 500, totalTokens: 1_500, costUsd: 0.02 } } as never);
+    expect(spent(budget)).toBeCloseTo(1.15, 9);
+    expect(() => createRequestBudgetScope(budget, report, provider, entry, meterModel)).toThrow(TurnBudgetExhaustedError);
+  });
+
+  it("admits a priced final report past the cap with its ceiling clamped", () => {
+    const budget = overCap();
+    const s = createRequestBudgetScope(budget, { ...report, maxOutputTokens: 16_000 }, provider, entry, model)!;
+    const body: Record<string, unknown> = { model: "m", messages: [], max_tokens: 32_000 };
+    s.beforeSend(body);
+    expect(body.max_tokens).toBe(FINAL_REPORT_MAX_TOKENS);
+    s.finish({ usage: { promptTokens: 1_000, completionTokens: 1_000, totalTokens: 2_000 } } as never);
+    expect(spent(budget)).toBeCloseTo(1.13 + (1_000 * 3 + 1_000 * 15) / 1_000_000, 9);
+  });
+
+  it("lets a released final report (a 429) try again, but never after it settled", () => {
+    const budget = overCap();
+    const s = createRequestBudgetScope(budget, report, provider, entry, model)!;
+    s.beforeSend({ model: "m", messages: [] });
+    s.onResponse(429);
+    s.beforeSend({ model: "m", messages: [] });
+    s.finish({ usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } } as never);
+    expect(() => createRequestBudgetScope(budget, report, provider, entry, model)!.beforeSend({ model: "m", messages: [] })).toThrow(TurnBudgetExhaustedError);
+  });
+
+  it("lets the provider retry a final report once after an uncertain dispatch (500, 408, reset)", () => {
+    const budget = overCap();
+    const s = createRequestBudgetScope(budget, report, provider, entry, model)!;
+    s.beforeSend({ model: "m", messages: [] });
+    s.onResponse(500);
+    // The first send may have been billed: its hold settles in full, and
+    // the retry still gets its own admission past the cap.
+    expect(() => s.beforeSend({ model: "m", messages: [] })).not.toThrow();
+    s.onResponse(408);
+    expect(() => s.beforeSend({ model: "m", messages: [] })).toThrow(TurnBudgetExhaustedError);
+  });
+
+  it("never admits a worker's, a side call's or an unmarked request past the cap", () => {
+    const budget = overCap();
+    budget.bindSession("w", "p");
+    expect(() => createRequestBudgetScope(budget, { ...report, sessionId: "w" }, provider, entry, meterModel)).toThrow(TurnBudgetExhaustedError);
+    expect(() => createRequestBudgetScope(budget, { ...report, sessionId: "compaction:p", budgetOwnerSessionId: "p" }, provider, entry, meterModel)).toThrow(TurnBudgetExhaustedError);
+    expect(() => createRequestBudgetScope(budget, { sessionId: "p", prompt: "hi", maxTokens: 1024 } as CompletionRequest, provider, entry, meterModel)).toThrow(TurnBudgetExhaustedError);
+  });
+
+  it("keeps the daily limit strict: no final report once the day is spent", () => {
+    const store = new DailySpendStore({ path: join(mkdtempSync(join(tmpdir(), "daily-budget-")), "daily-spend.json") });
+    const daily = createDailySpendBudget(store, () => ({ dailyLimitUsd: 1 }));
+    store.record({ kind: "priced", usd: 1, source: "provider" });
+    const budget = overCap();
+    expect(() => createRequestBudgetScope(budget, report, provider, entry, meterModel, daily)).toThrow(DailySpendLimitError);
+    const s = () => createRequestBudgetScope(budget, report, provider, entry, model, daily)!.beforeSend({ model: "m", messages: [] });
+    expect(s).toThrow(DailySpendLimitError);
   });
 });

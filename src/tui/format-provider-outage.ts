@@ -44,6 +44,8 @@ function describeCause(cause: ProviderWaitCause): string | null {
       return "no connection";
     case "timeout":
       return "the request timed out";
+    case "contended":
+      return "a slot is processing but no token comes";
     case "loading":
       return "the server is still loading the model";
     case "http":
@@ -204,6 +206,9 @@ function shortenReason(flat: string): string {
   return `${flat.slice(0, REASON_MAX_LEN - 1)}…`;
 }
 
+/** The reason text of `LlamaServerError.contended` (`llama-server-client.ts`). */
+const CONTENDED_REASON = /\bslow or contended\b/i;
+
 /**
  * The chat notice for a turn that has just parked on its provider.
  *
@@ -227,8 +232,13 @@ export function formatProviderWaitNotice(
       ? cause
       : causeFromReasonText(reason),
   );
-  const lead =
-    phrase === null
+  const contended =
+    cause?.kind === "contended" || (cause === undefined && CONTENDED_REASON.test(reason));
+  // A server that answers and works too slowly is not "not answering":
+  // the operator's fix is the other program on the GPU or fewer workers.
+  const lead = contended
+    ? "The local model is slow or contended (its GPU may be shared with another program, or more workers run than it can serve)."
+    : phrase === null
       ? "The model is not answering."
       : `The model is not answering (${phrase}).`;
   const lines = [

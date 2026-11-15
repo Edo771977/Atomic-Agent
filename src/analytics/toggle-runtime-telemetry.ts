@@ -40,6 +40,12 @@ const DEFAULT_FACTORIES: RuntimeTelemetryFactories = {
  */
 export function buildRuntimeTelemetry(options: {
   enabled: boolean;
+  /**
+   * `config.analytics.errorReports`: crash/error reports are opt-in
+   * (issue #29). Sentry is built only when this is `true` and analytics
+   * is allowed (`enabled`, no environment kill switch).
+   */
+  errorReports?: boolean;
   store: AnalyticsStateStore;
   dimensions: AnalyticsDimensions;
   version: string;
@@ -66,7 +72,7 @@ export function buildRuntimeTelemetry(options: {
       ...logger,
     }),
     errorReporter: factories.createSentryClient({
-      enabled,
+      enabled: enabled && options.errorReports === true,
       installId,
       release: options.version,
       platform: process.platform,

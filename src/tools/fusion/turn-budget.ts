@@ -1,4 +1,5 @@
 import type { BreakerTrip } from "./failure-breaker.js";
+import { TurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 
 /**
  * The per-turn caps of a fusion run (ATO-947): money and wall-clock time.
@@ -45,6 +46,12 @@ interface TurnState {
   externalUsd: number;
   heldUsd: number;
   conservativeUsd: number;
+  /**
+   * The turn's one final report past an exhausted cap is held or settled
+   * (`reserveFinalReport`). Cleared again when that hold is released
+   * unsent, so a refused send (a 429) does not use it up.
+   */
+  finalReportUsed: boolean;
   /** The orchestrator's meter reading when the turn began; spend is the delta. */
   orchestratorBaseUsd: number;
   /**
@@ -138,7 +145,7 @@ export class FusionTurnBudget {
       startedAt: this.now(),
       workerUsd: 0,
       ...(requestLimits?.usd === undefined && requestLimits?.timeMs === undefined ? {} : { requestLimits: { ...requestLimits } }),
-      requestUsd: 0, externalUsd: 0, heldUsd: 0, conservativeUsd: 0,
+      requestUsd: 0, externalUsd: 0, heldUsd: 0, conservativeUsd: 0, finalReportUsed: false,
       orchestratorBaseUsd,
       attempts: new Map(),
       family: new Map(),
@@ -160,7 +167,7 @@ export class FusionTurnBudget {
         active: true,
         startedAt: this.now(),
         workerUsd: 0,
-        requestUsd: 0, externalUsd: 0, heldUsd: 0, conservativeUsd: 0,
+        requestUsd: 0, externalUsd: 0, heldUsd: 0, conservativeUsd: 0, finalReportUsed: false,
         orchestratorBaseUsd: 0,
         attempts: new Map(),
         family: new Map(),
@@ -223,8 +230,42 @@ export class FusionTurnBudget {
     if (!Number.isFinite(upperUsd) || upperUsd < 0) throw new Error("request budget estimate is not finite");
     const committed = state.requestUsd + state.externalUsd;
     if (committed + state.heldUsd + upperUsd > cap + 1e-10) {
-      throw new Error(`turn budget cannot cover this request: ${formatUsd(upperUsd)} reserved cost would exceed the ${formatUsd(cap)} cap (${formatUsd(committed)} accounted, ${formatUsd(state.heldUsd)} held)`);
+      throw new TurnBudgetExhaustedError({ capUsd: cap, accountedUsd: committed, heldUsd: state.heldUsd, requestUsd: upperUsd });
     }
+    return this.hold(state, upperUsd);
+  }
+
+  /**
+   * The owning turn's final report (issue #29): admitted like any request
+   * while it fits, and once per turn past the cap when nothing fits any
+   * more, so the orchestrator can still tell the person what is done.
+   * Its real cost settles as overspend on the turn. A bound worker never
+   * gets one: its requests keep the ordinary refusal.
+   */
+  reserveFinalReport(sessionId: string, upperUsd: number): { settle(actualUsd?: number): void; release(): void } {
+    try { return this.reserveRequest(sessionId, upperUsd); } catch (error) {
+      if (!(error instanceof TurnBudgetExhaustedError) || this.owners.has(sessionId)) throw error;
+      const state = this.turns.get(sessionId);
+      if (state === undefined || state.finalReportUsed) throw error;
+      state.finalReportUsed = true;
+      return this.hold(state, upperUsd, () => { state.finalReportUsed = false; });
+    }
+  }
+
+  /**
+   * Give the owning turn's final report back after a send of it was
+   * settled without knowing whether it was delivered (a 500, 408 or reset
+   * the provider retries): the retry is the same report, not a second
+   * one. The request scope calls it at most once per report request; the
+   * settled hold still counts in full.
+   */
+  reopenFinalReport(sessionId: string): void {
+    if (this.owners.has(sessionId)) return;
+    const state = this.turns.get(sessionId);
+    if (state !== undefined) state.finalReportUsed = false;
+  }
+
+  private hold(state: TurnState, upperUsd: number, onRelease?: () => void): { settle(actualUsd?: number): void; release(): void } {
     state.heldUsd += upperUsd;
     let settled = false;
     const release = (): boolean => {
@@ -234,7 +275,7 @@ export class FusionTurnBudget {
       return true;
     };
     return {
-      release: () => { release(); },
+      release: () => { if (release()) onRelease?.(); },
       settle: actualUsd => {
         if (!release()) return;
         const known = actualUsd !== undefined && Number.isFinite(actualUsd) && actualUsd >= 0;

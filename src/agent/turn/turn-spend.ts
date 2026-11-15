@@ -92,3 +92,17 @@ export function costCeilingNotice(spendUsd: number, ceilingUsd: number): string 
     "and that the budget can be raised to continue."
   );
 }
+
+/**
+ * The final report step's notice after the fusion turn's USD cap refused
+ * a request (issue #29). The step is admitted once past the cap with a
+ * small output ceiling, so the reply must be short.
+ */
+export function turnBudgetFinalReportNotice(spentUsd: number, capUsd: number): string {
+  return (
+    `The ${formatUsd(capUsd)} turn cap is used up (${formatUsd(spentUsd)} accounted); no further requests or delegations run this turn. ` +
+    "This is the final allowed step. Do not call any tool and do not do the remaining work yourself. " +
+    "Reply now, briefly and in plain words: say that the budget stopped the work, what is done, what is left, " +
+    "and that the person can raise llm.runMode.fusion.turnBudgetUsd or say how to continue."
+  );
+}

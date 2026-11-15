@@ -205,7 +205,7 @@ async function fetchCapabilities(
 
 describe("activeReasoningControl (ATO-490)", () => {
   const runtimeWith = (
-    providers: Array<{ id: string; kind: string }>,
+    providers: Array<{ id: string; kind: string; baseUrl?: string }>,
     active: { id: string; chatModelId?: string; toolTransport?: string; reasoningFormat?: string },
   ) => ({
     config: { llm: { activeTextProvider: active.id, activeEmbeddingProvider: "x", providers, toolTransport: "auto" } },
@@ -220,6 +220,13 @@ describe("activeReasoningControl (ATO-490)", () => {
       },
     },
   }) as unknown as Parameters<typeof activeReasoningControl>[0];
+
+  it("offers effort on an old Anthropic preset entry, which now runs on the native kind", () => {
+    const providers = [{ id: "anthropic", kind: "openai-compatible", baseUrl: "https://api.anthropic.com" }];
+    expect(activeReasoningControl(runtimeWith(providers, { id: "anthropic", chatModelId: "claude-fable-5-2" }))).toEqual({
+      control: "effort", levels: ["auto", "low", "medium", "high"],
+    });
+  });
 
   it("offers every level on a reasoning cloud model, only Auto on one that does not", () => {
     const providers = [{ id: "or", kind: "openrouter" }];

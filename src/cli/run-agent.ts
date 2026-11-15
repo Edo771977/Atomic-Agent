@@ -19,6 +19,7 @@ import {
   classifyLocalServerError,
   isLocalEngineDown,
   localServerErrorLines,
+  turnBudgetStopLine,
 } from "../llm/reliability/index.js";
 import { resolveLlmConfig } from "../llm/provider/registry/provider-types.js";
 import { createAgentRuntime } from "../runtime/bootstrap.js";
@@ -326,6 +327,10 @@ export function formatAgentEvent(
     case "turn_started":
       return `» turn ${event.turnIndex} started`;
     case "turn_finished":
+      // Issue #29: say why a turn its fusion USD cap stopped ended there.
+      if (event.reason === "budget" && event.budget !== undefined) {
+        return `» ${turnBudgetStopLine(event.budget.spentUsd, event.budget.capUsd)} (turn ${event.turnIndex}, ${event.stepCount} steps, ${event.durationMs}ms)`;
+      }
       return `» turn ${event.turnIndex} ${event.reason} (${event.stepCount} steps, ${event.durationMs}ms)`;
     case "step_started":
       return `[step ${event.stepIndex}] started`;

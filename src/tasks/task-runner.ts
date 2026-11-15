@@ -701,9 +701,12 @@ export class TaskRunner {
         );
       }
       // `completed` also covers a run a ceiling ended; the row says which,
-      // so a reader does not take unfinished work for finished.
-      if (result.stopCause !== undefined) {
-        this.options.store.recordStopCause(claimed.id, result.stopCause);
+      // so a reader does not take unfinished work for finished. A turn
+      // its USD cap stopped (`budget`) is one of them even when the
+      // result names no cause.
+      const stopCause = result.stopCause ?? (result.reason === "budget" ? "turn_budget" : undefined);
+      if (stopCause !== undefined) {
+        this.options.store.recordStopCause(claimed.id, stopCause);
       }
       const completed = this.options.store.markCompleted(claimed.id);
       this.recordTerminal(completed);

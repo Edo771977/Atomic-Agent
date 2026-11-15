@@ -38,6 +38,17 @@ describe("setDotenvKey", () => {
     expect(readFileSync(envPath, "utf8")).toBe("TELEGRAM_BOT_TOKEN=abc:xyz\n");
   });
 
+  it("rewrites a UTF-16 .env as UTF-8 when it adds a key, so the loader still reads both (#29 review)", () => {
+    const text = "SOME_OTHER_KEY=kept\r\n";
+    writeFileSync(envPath, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]));
+    setDotenvKey(stateDir, "TELEGRAM_BOT_TOKEN", "abc:xyz");
+    const bytes = readFileSync(envPath);
+    expect(bytes.includes(0)).toBe(false);
+    expect(bytes.toString("utf8")).toBe("SOME_OTHER_KEY=kept\nTELEGRAM_BOT_TOKEN=abc:xyz\n");
+    const loaded = loadDotenvFromStateDir(stateDir);
+    expect(loaded.loaded).toEqual(["SOME_OTHER_KEY", "TELEGRAM_BOT_TOKEN"]);
+  });
+
   it("writes the file with mode 0600", () => {
     setDotenvKey(stateDir, "TELEGRAM_BOT_TOKEN", "secret");
     const mode = statSync(envPath).mode & 0o777;

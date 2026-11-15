@@ -230,4 +230,64 @@ describe("loadDotenvFromStateDir", () => {
     expect(serialised).not.toContain("super-secret-token-do-not-leak");
     expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO"]);
   });
+
+  describe("file encodings Windows editors write (issue #29)", () => {
+    const line = "ATOMIC_DOTENV_TEST_FOO=sk-utf16\r\nATOMIC_DOTENV_TEST_BAR=second\r\n";
+
+    it("reads a UTF-16LE file with a BOM (PowerShell 5.1 `>` / Out-File)", () => {
+      writeFileSync(join(dir, ".env"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(line, "utf16le")]));
+      const result = loadDotenvFromStateDir(dir);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+      expect(process.env.ATOMIC_DOTENV_TEST_FOO).toBe("sk-utf16");
+      expect(stderrCalls.join("")).toBe("");
+    });
+
+    it("reads a UTF-16BE file with a BOM", () => {
+      const le = Buffer.from(line, "utf16le");
+      const be = Buffer.alloc(le.length);
+      for (let i = 0; i + 1 < le.length; i += 2) { be[i] = le[i + 1]!; be[i + 1] = le[i]!; }
+      writeFileSync(join(dir, ".env"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
+      expect(loadDotenvFromStateDir(dir).loaded).toContain("ATOMIC_DOTENV_TEST_FOO");
+      expect(process.env.ATOMIC_DOTENV_TEST_FOO).toBe("sk-utf16");
+    });
+
+    it("strips a UTF-8 BOM so the first key is not lost", () => {
+      writeFileSync(join(dir, ".env"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(line, "utf8")]));
+      const result = loadDotenvFromStateDir(dir);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+      expect(stderrCalls.join("")).toBe("");
+    });
+
+    it("reads a UTF-16LE file without a BOM by its NUL pattern (#29 review)", () => {
+      writeFileSync(join(dir, ".env"), Buffer.from(line, "utf16le"));
+      const result = loadDotenvFromStateDir(dir);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+      expect(process.env.ATOMIC_DOTENV_TEST_FOO).toBe("sk-utf16");
+    });
+
+    it("reads a UTF-16BE file without a BOM by its NUL pattern (#29 review)", () => {
+      const le = Buffer.from(line, "utf16le");
+      const be = Buffer.alloc(le.length);
+      for (let i = 0; i + 1 < le.length; i += 2) { be[i] = le[i + 1]!; be[i + 1] = le[i]!; }
+      writeFileSync(join(dir, ".env"), be);
+      expect(loadDotenvFromStateDir(dir).loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+    });
+
+    it("a file with stray NUL bytes loads its clean lines and says to save it as UTF-8, without echoing it (#29 review)", () => {
+      writeFileSync(
+        join(dir, ".env"),
+        Buffer.concat([
+          Buffer.from("ATOMIC_DOTENV_TEST_FOO=sk-utf16\n", "utf8"),
+          Buffer.from([0x41, 0x00, 0x42, 0x3d, 0x00, 0x0a]),
+          Buffer.from("ATOMIC_DOTENV_TEST_BAR=second\n", "utf8"),
+        ]),
+      );
+      const result = loadDotenvFromStateDir(dir);
+      expect(result.loaded).toEqual(["ATOMIC_DOTENV_TEST_FOO", "ATOMIC_DOTENV_TEST_BAR"]);
+      const err = stderrCalls.join("");
+      expect(err).toContain("save as UTF-8");
+      expect(err).toContain("1 line with NUL bytes was skipped");
+      expect(err).not.toContain("sk-utf16");
+    });
+  });
 });

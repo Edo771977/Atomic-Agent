@@ -23,6 +23,16 @@ function result(
 }
 
 describe("buildFinalAssistantPayload", () => {
+  it("sends a budget-stopped turn's final report with finish_reason length (issue #29)", () => {
+    const payload = buildFinalAssistantPayload(
+      result([userTurn("fan out", 1), assistantReplyTurn("two of three done", 2)], "budget"),
+    );
+    expect(payload).toEqual({
+      message: { role: "assistant", content: "two of three done" },
+      finish_reason: "length",
+    });
+  });
+
   it("returns the reply that ended the turn, not a progress note before it", () => {
     const payload = buildFinalAssistantPayload(
       result([

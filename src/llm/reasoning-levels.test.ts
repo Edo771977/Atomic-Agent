@@ -65,3 +65,28 @@ describe("reasoningControlFor / reasoningLevelsFor", () => {
     expect(reasoningLevelsFor("none")).toEqual(["auto"]);
   });
 });
+
+describe("reasoningControlFor on Anthropic routes", () => {
+  it("offers effort on the native kind for models that take one", () => {
+    expect(reasoningControlFor({ providerKind: "anthropic", modelId: "claude-fable-5-2" })).toBe("effort");
+    expect(reasoningControlFor({ providerKind: "anthropic", modelId: "claude-opus-5-5" })).toBe("effort");
+    // Haiku 4.5 and Sonnet 4.5 answer `effort` with an error.
+    expect(reasoningControlFor({ providerKind: "anthropic", modelId: "claude-haiku-4-5" })).toBe("none");
+    expect(reasoningControlFor({ providerKind: "anthropic", modelId: "claude-sonnet-4-5" })).toBe("none");
+  });
+
+  it("offers nothing on the OpenAI-compatible endpoint, which ignored reasoning_effort", () => {
+    expect(
+      reasoningControlFor({
+        providerKind: "openai-compatible",
+        baseUrl: "https://eu.api.anthropic.com/v1",
+        modelId: "claude-fable-5-2",
+      }),
+    ).toBe("none");
+    // Any other OpenAI-compatible route keeps its switch.
+    expect(
+      reasoningControlFor({ providerKind: "openai-compatible", baseUrl: "https://api.openai.com", modelId: "gpt-5" }),
+    ).toBe("effort");
+  });
+});
+

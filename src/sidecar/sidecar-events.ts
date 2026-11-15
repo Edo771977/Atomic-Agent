@@ -305,9 +305,15 @@ export interface TurnStartedPayload {
 export interface TurnFinishedPayload {
   sessionId: string;
   turnIndex: number;
-  reason: "reply" | "finish" | "max_steps" | "cancelled" | "failed";
+  /**
+   * `budget` (issue #29): the fusion turn's USD cap stopped the turn; the
+   * final report, when one arrived, was sent as the assistant reply.
+   */
+  reason: "reply" | "finish" | "max_steps" | "cancelled" | "failed" | "budget";
   stepCount: number;
   durationMs: number;
+  /** With reason `budget`: the turn's accounted spend, its cap, and the stop line to show. */
+  budget?: { spentUsd: number; capUsd: number; text: string };
 }
 
 export interface LlmRequestPayload {

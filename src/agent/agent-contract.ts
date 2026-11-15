@@ -546,14 +546,17 @@ export interface SteeringChannel {
  * pay for the next request, so the turn parks where it is and resumes
  * after a top-up, the same way as after a ceiling. `cost_ceiling` is the
  * task's spend budget (`taskMaxCostUsd`): it ends the task through the
- * same reserved summary step as `time_ceiling`.
+ * same reserved summary step as `time_ceiling`. `turn_budget` is the
+ * fusion turn's USD cap (`turnBudgetUsd`, issue #29): set whenever the
+ * turn ends with reason `budget`, report or not.
  */
 export type TaskStopCause =
   | "step_ceiling"
   | "time_ceiling"
   | "cost_ceiling"
   | "no_progress"
-  | "credit_exhausted";
+  | "credit_exhausted"
+  | "turn_budget";
 
 export interface RunTurnOptions {
   /** Frozen policy for this turn, its workers and background reflection. */
@@ -722,8 +725,19 @@ export interface StepCheckpoint {
 }
 
 /** Why a `runTurn` invocation returned. */
+/**
+ * How a turn ended. `budget` (issue #29): the fusion turn's USD cap
+ * refused a request; the turn took its one final report step (or could
+ * not) and stopped. Its events carry `budget` with the figures.
+ */
 export type AgentLoopReason =
-  "reply" | "finish" | "max_steps" | "cancelled" | "failed";
+  "reply" | "finish" | "max_steps" | "cancelled" | "failed" | "budget";
+
+/** What a `budget` stop says: the turn's accounted spend against its cap. */
+export interface TurnBudgetStopFigures {
+  spentUsd: number;
+  capUsd: number;
+}
 
 export type AgentLoopEvent =
   | CompactionEvent
@@ -751,6 +765,8 @@ export type AgentLoopEvent =
       reason: AgentLoopReason;
       stepCount: number;
       durationMs: number;
+      /** Set with reason `budget`. */
+      budget?: TurnBudgetStopFigures;
     }
   | {
       /**
@@ -972,7 +988,17 @@ export type AgentLoopEvent =
         | "escalated"
         | "finished"
         | "failed"
-        | "cancelled";
+        | "cancelled"
+        /**
+         * Not lines either (issue #30): an interval the leg spent queued
+         * for a server slot (`started` to the first token) or held on the
+         * operator's approval of its checks, opened and closed by `edge`.
+         * The live row shows it and leaves it out of the leg's work time.
+         */
+        | "queued"
+        | "awaiting-approval";
+      /** `phase: "queued"` / `"awaiting-approval"` only: the interval opens or closes. */
+      edge?: "start" | "end";
       /**
        * Which leg this line is about. `worker` when absent, so the
        * event's original shape still reads correctly. The orchestrator
@@ -1107,6 +1133,8 @@ export type AgentLoopEvent =
   | {
       type: "loop_completed";
       reason: AgentLoopReason;
+      /** Set with reason `budget`. */
+      budget?: TurnBudgetStopFigures;
     }
   /**
    * Terminal failure for the turn. `category` follows the canonical
@@ -1168,7 +1196,8 @@ export interface RunTurnResult {
    * finalization step (the last step the step or time ceiling allows,
    * where only the terminal tools are offered). A reply written there
    * summarises how far the work got; it is not evidence the work
-   * finished. Absent when the model ended the turn on an ordinary step,
+   * finished. `turn_budget` on every `budget` turn (the fusion turn
+   * cap). Absent when the model ended the turn on an ordinary step,
    * and on `cancelled` / `failed`. A fusion worker reads it to report
    * `max_steps` rather than `ok` for a worker that ran out of steps and
    * said so in its reply.

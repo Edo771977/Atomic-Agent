@@ -62,7 +62,17 @@ export interface ContractCheckResult {
  */
 export type ContractCheckRunner = ((
   specs: readonly Record<string, unknown>[],
-  ctx: { workingDir: string; signal: AbortSignal; inputIntegrity?: VerificationInputIntegrity },
+  ctx: {
+    workingDir: string;
+    signal: AbortSignal;
+    inputIntegrity?: VerificationInputIntegrity;
+    /**
+     * Told when a held runner (`contract-check-hold.ts`) starts and ends
+     * authorizing the batch, an operator prompt included: a worker's
+     * self-check records that time as `heldMs` (issue #30).
+     */
+    onHold?: { start(): void; end(): void };
+  },
 ) => Promise<{ ok: boolean; results: readonly ContractCheckResult[] }>) & { readonly supportsInputIntegrity?: true };
 
 /** The note a held batch carries: on the contract line, rows, the candidate's rejection. */

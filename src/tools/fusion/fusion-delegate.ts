@@ -1758,6 +1758,9 @@ export function buildFusionDelegateTool(
                   ...(executionIdentities.get(r.id) !== undefined && executionIdentities.get(r.id) === deps.resolveRoutingIdentity?.(providerId)
                     ? { routingIdentity: executionIdentities.get(r.id) } : {}),
                   attempt: turnBudget.attempts(ctx.sessionId, r.id),
+                  // Issue #30: 0 is the report's "no-checks", apart from
+                  // a declared check whose evidence is missing.
+                  taskChecks: (parsed.contract?.checks ?? []).filter((check) => check.task === r.id).length,
                   pricing,
                   merge:
                     mode.isolation === "worktree" ? (mergeOutcomes.get(r.id) ?? null) : null,
@@ -2643,7 +2646,12 @@ function terminalMetadataUnavailable(report: CandidateIntegrationReport | undefi
 }
 
 function candidateToolResult(result: CompressedToolResult, report: CandidateIntegrationReport, candidateDir: string, originalDir: string, cap: number, knownSecrets?: readonly KnownSecret[]): CompressedToolResult {
-  const note = report.status === "promoted" ? "Candidate promoted after final integration checks." : `Candidate rejected; file promotion did not complete. ${report.reason ?? ""}`;
+  // Issue #29: a rejected candidate's files are named, so a cancelled
+  // task's new file missing from the folder does not read as a deletion.
+  const notApplied = report.status === "rejected" && report.changes.length > 0
+    ? ` Not applied to the folder: ${report.changes.slice(0, 10).join(", ")}${report.changes.length > 10 ? ` and ${report.changes.length - 10} more` : ""}.`
+    : "";
+  const note = report.status === "promoted" ? "Candidate promoted after final integration checks." : `Candidate rejected; file promotion did not complete. ${report.reason ?? ""}${notApplied}`;
   const recovery = (report.patch === undefined ? "" : ` Changes retained at ${report.patch.path}${report.patch.filesDir === undefined ? "" : ` and ${report.patch.filesDir}`}.`) + (report.retainedWorkspace === undefined ? "" : ` Recovery workspace retained at ${report.retainedWorkspace}; remove it manually after recovery.`) + (report.heldArtifactsDir === undefined ? "" : ` Held task artifacts: ${report.heldArtifactsDir}.`) + (report.rollbackConflicts === undefined ? "" : ` Rollback left these concurrently changed or unwritable paths for review: ${report.rollbackConflicts.join(", ")}.`) + (report.ignoredChanges === undefined ? "" : ` Ignored or disposable paths kept private to the candidate, never promoted: ${report.ignoredChanges.join(", ")}.`);
   const details = rebaseCandidateValue(result.details, [candidateDir, candidateDir.replace(/\\/g, "/")], originalDir);
   delete details.runId;

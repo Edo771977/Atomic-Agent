@@ -40,7 +40,7 @@ describe("bootstrap embedding client authenticates to the managed daemon (#582)"
     embedAuth.length = 0;
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
       ...USER_CONFIG_DEFAULTS,
-      analytics: { enabled: false },
+      analytics: { enabled: false, errorReports: false },
       localModels: {
         ...USER_CONFIG_DEFAULTS.localModels,
         mode: "managed",

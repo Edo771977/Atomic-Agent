@@ -27,6 +27,8 @@ Read docs/profiles.md for framing/grammar and docs/fallback.md for reliability; 
 
 Read [model behavior mode](docs/model-mode.md) for the explicit local/cloud policy flag, configuration precedence, per-turn lifetime and full cloud context. Native message IDs remain stable across checkpoints; the final OpenAI body checks messages, schemas and output reserve against a known cloud window before sending.
 
+Read [the native Anthropic provider](docs/anthropic-messages.md) for the `anthropic` kind (`POST /v1/messages`): why it is raw HTTP over the shared transport, the request/response mapping, prompt caching, effort and the migration of old preset entries.
+
 Read [router/README.md](router/README.md) for the opt-in rule-based model router (`llm.router`, ATO-483): it puts a provider first in a turn's fallback chain by request features and stays silent under the local run mode, Fusion or a pinned turn.
 
 ## Validation

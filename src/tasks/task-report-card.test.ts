@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { buildTaskReportCard, stopCauseLine } from "./task-report-card.js";
+
+describe("the turn-cap stop cause", () => {
+  it("has its own line, not the generic fallback", () => {
+    expect(stopCauseLine("turn_budget")).toMatch(/turn budget/i);
+    expect(stopCauseLine("turn_budget")).not.toMatch(/Stopped early/);
+  });
+});
 import type { TaskRunSummary } from "./task-run-summary.js";
 
 function summary(overrides: Partial<TaskRunSummary> = {}): TaskRunSummary {

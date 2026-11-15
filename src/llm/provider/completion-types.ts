@@ -14,6 +14,14 @@ export type ToolCallTransport = "grammar" | "native_tools";
  */
 export type ReasoningEffort = "low" | "medium" | "high";
 
+/**
+ * `ReasoningEffort` plus the two levels above `high` that Anthropic's
+ * `output_config.effort` takes (`xhigh`, `max`). Only a configured
+ * effort (`llm.runMode.fusion.orchestratorReasoning`) reaches them; a
+ * kind without those levels gets `high` (`reasoningEffortField`).
+ */
+export type ExtendedReasoningEffort = ReasoningEffort | "xhigh" | "max";
+
 export interface CompletionUsage {
   /** Token counts were absent/incomplete on the wire; synthesized zeros are not a free bill. */
   incomplete?: true;
@@ -144,6 +152,12 @@ export interface CompletionRequest {
   /** Internal active-turn budget owner; never serialized or used for provider routing. */
   budgetOwnerSessionId?: string;
   requestBudget?: CompletionRequestBudget;
+  /**
+   * Internal: the owning turn's one final report after its USD cap
+   * refused (issue #29). The request scope admits it once past an
+   * exhausted cap with a small output ceiling; never serialized.
+   */
+  finalReport?: boolean;
   /** Full-context capacity check; internal, never serialized as an API field. */
   contextBudget?: { window: number | null; replyReserve: number };
   /** Internal policy of the attempted link; never part of the API request body. */
@@ -180,7 +194,7 @@ export interface CompletionRequest {
    * neither. Ignored by grammar-only providers. Set by the fusion
    * fan-out for its workers.
    */
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ExtendedReasoningEffort;
   /**
    * The reasoning level a person picked for this chat (ATO-490,
    * `reasoning-levels.ts`). Unlike `reasoningEffort` it beats the

@@ -114,7 +114,7 @@ describe("vision.describe follows the live route", () => {
   const writeConfig = (over: Partial<UserConfigFile>): void => {
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
       ...USER_CONFIG_DEFAULTS,
-      analytics: { enabled: false },
+      analytics: { enabled: false, errorReports: false },
       // Trust the operator on the local link, so the test does not
       // depend on a `/props` probe landing before the call.
       vision: { ...USER_CONFIG_DEFAULTS.vision, autoDetect: false },

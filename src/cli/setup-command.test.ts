@@ -15,7 +15,8 @@ import { setupCommand, type SetupCommandDeps } from "./setup-command.js";
 import type { FusionDetectDeps } from "./setup-fusion-detect.js";
 
 const SECRET = "sk-or-v1-THIS-MUST-NOT-PRINT";
-const KEY_VARS = ["OPENROUTER_API_KEY", "AIMLAPI_API_KEY", "GEMINI_API_KEY", "OPENAI_COMPAT_API_KEY", "OPENAI_API_KEY"];
+const KEY_VARS = ["OPENROUTER_API_KEY", "AIMLAPI_API_KEY", "GEMINI_API_KEY", "OPENAI_COMPAT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
+const ANTHROPIC_SECRET = "sk-ant-THIS-MUST-NOT-PRINT";
 const MODEL = listLocalModels()[0]!.id;
 
 describe("atomic-agent setup fusion", () => {
@@ -73,6 +74,9 @@ describe("atomic-agent setup fusion", () => {
         recommendModelId: async () => MODEL,
         claudeCliDefaultModel: () => "cli-default",
         probeExternal: async () => false,
+        // Only the variables this file controls, so a key in the developer's shell changes nothing.
+        env: () => Object.fromEntries(KEY_VARS.map((k) => [k, process.env[k]])),
+        listPresetModels: async () => null,
         ...detect,
       },
       confirm: async () => { throw new Error("must not ask"); },
@@ -301,7 +305,7 @@ describe("atomic-agent setup fusion", () => {
       expect(fileJson().llm.activeTextProvider).toBe("openrouter");
       const bad = harness(ready);
       expect(await setupCommand(["fusion", "--yes", "--orchestrator", "local-llama"], bad.deps)).toBe(1);
-      expect(bad.out()).toMatch(/local-llama cannot orchestrate now/);
+      expect(bad.out()).toMatch(/`local-llama` is not a configured provider that can answer now/);
       expect(await setupCommand(["fusion", "--orchestrator"], harness().deps)).toBe(2);
     });
   });
@@ -325,5 +329,77 @@ describe("atomic-agent setup fusion", () => {
     expect(await setupCommand([], harness().deps)).toBe(2);
     expect(await setupCommand(["nope"], harness().deps)).toBe(2);
     expect(await setupCommand(["fusion", "--bogus"], harness().deps)).toBe(2);
+  });
+
+  describe("an ANTHROPIC_API_KEY in .env with no provider entry (issue #29)", () => {
+    function seedAnthropicKey(): void {
+      seed({ openrouter: false, key: false });
+      writeFileSync(join(stateDir, ".env"), `ANTHROPIC_API_KEY=${ANTHROPIC_SECRET}\n`, { mode: 0o600 });
+    }
+    const models = { listPresetModels: async () => ["claude-a", "claude-b"] };
+
+    it("is found, and with no model to use the refusal says how to pick one", async () => {
+      seedAnthropicKey();
+      const h = harness(models);
+      expect(await setupCommand(["fusion", "--yes"], h.deps)).toBe(1);
+      expect(h.out()).toContain("ANTHROPIC_API_KEY is set");
+      expect(h.out()).toContain("--orchestrator anthropic --orchestrator-model <id>");
+      expect(h.out()).toContain("claude-a, claude-b");
+      expect(h.out()).not.toContain(ANTHROPIC_SECRET);
+    });
+
+    it("--orchestrator-model adds the preset's entry keyed by its own variable", async () => {
+      seedAnthropicKey();
+      const h = harness(models);
+      expect(await setupCommand(["fusion", "--yes", "--orchestrator", "anthropic", "--orchestrator-model", "claude-b"], h.deps)).toBe(0);
+      const llm = fileJson().llm as { activeTextProvider: string; providers: Array<Record<string, unknown>> };
+      expect(llm.activeTextProvider).toBe("anthropic");
+      expect(llm.providers.find((p) => p.id === "anthropic")).toMatchObject({
+        kind: "openai-compatible", apiKeyEnvVar: "ANTHROPIC_API_KEY", defaultChatModel: "claude-b",
+      });
+      expect(h.out()).toMatch(/add provider anthropic \(.*ANTHROPIC_API_KEY/);
+      expect(raw()).not.toContain(ANTHROPIC_SECRET);
+      expect(h.out()).not.toContain(ANTHROPIC_SECRET);
+    });
+
+    it("does not ask the preset's /v1/models when a configured orchestrator is ready, even on --dry-run (#29 review)", async () => {
+      seed();
+      writeFileSync(join(stateDir, ".env"), `OPENROUTER_API_KEY=${SECRET}\nANTHROPIC_API_KEY=${ANTHROPIC_SECRET}\n`, { mode: 0o600 });
+      let asked = 0;
+      const h = harness({ listPresetModels: async () => { asked += 1; return ["claude-a"]; } });
+      expect(await setupCommand(["fusion", "--dry-run"], h.deps)).toBe(0);
+      expect(asked).toBe(0);
+      // Naming the preset is a reason to ask.
+      const named = harness({ listPresetModels: async () => { asked += 1; return ["claude-a"]; } });
+      expect(await setupCommand(["fusion", "--dry-run", "--orchestrator", "anthropic"], named.deps)).toBe(1);
+      expect(asked).toBe(1);
+      expect(named.out()).toContain("claude-a");
+    });
+
+    it("lists only chat models, dropping embedding, speech and moderation ids (#29 review)", async () => {
+      seedAnthropicKey();
+      const h = harness({
+        listPresetModels: async () => ["claude-a", "text-embedding-3-small", "tts-1-hd", "whisper-1", "omni-moderation-latest", "claude-b"],
+      });
+      expect(await setupCommand(["fusion", "--yes"], h.deps)).toBe(1);
+      expect(h.out()).toContain("claude-a, claude-b.");
+      expect(h.out()).not.toContain("embedding");
+      expect(h.out()).not.toContain("whisper");
+    });
+
+    it("a terminal asks for the model from the list it serves", async () => {
+      seedAnthropicKey();
+      const input = Object.assign(new PassThrough(), { isTTY: true });
+      const output = new PassThrough();
+      let asked = "";
+      output.on("data", (b: Buffer) => { asked += b.toString(); });
+      input.write("2\ny\n");
+      const h = harness(models, { confirm: undefined, terminal: { input, output } });
+      expect(await setupCommand(["fusion"], h.deps)).toBe(0);
+      expect(h.out()).toContain("2) claude-b");
+      expect(asked).toMatch(/Which model/);
+      expect((fileJson().llm as { providers: Array<Record<string, unknown>> }).providers.find((p) => p.id === "anthropic"))
+        .toMatchObject({ defaultChatModel: "claude-b" });
+    });
   });
 });

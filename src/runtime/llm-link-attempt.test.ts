@@ -74,6 +74,17 @@ describe("llm-link-attempt — the structured prompt", () => {
     }
   });
 
+  it("forwards the turn's final-report marker on both transports, and none when unset (issue #29)", async () => {
+    for (const transport of ["grammar", "native_tools"] as const) {
+      const { requests, provider } = recording(transport);
+      const deps = { resolveSlice: () => ({ provider, transport }) };
+      await completeOnLink(deps, { ...params, finalReport: true }, transport);
+      await completeOnLink(deps, params, transport);
+      expect(requests[0]?.finalReport).toBe(true);
+      expect(requests[1]).not.toHaveProperty("finalReport");
+    }
+  });
+
   it("forwards a side call's temperature on both transports, and none when unset", async () => {
     for (const transport of ["grammar", "native_tools"] as const) {
       const { requests, provider } = recording(transport);

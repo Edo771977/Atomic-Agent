@@ -28,6 +28,7 @@ import { describeChanges, FileChangeLog, type FileChange } from "./worker-change
 import { describeSyntax, type TaskSyntaxSummary } from "./syntax-pass.js";
 import type { ArtifactManifest } from "./artifact-manifest-types.js";
 import { MAX_WORKER_QUESTION_CHARS } from "./worker-question.js";
+import { classifyWorkerFailure } from "./failure-breaker.js";
 
 /**
  * The note on a task a worker could not finish because a step needs the
@@ -101,6 +102,13 @@ export const WORKER_STATUS_ORDER: readonly WorkerTaskStatus[] = [
 
 /** Which ceiling ended a worker's loop — see `RunTurnResult.stopCause`. */
 export type WorkerStopCause = NonNullable<RunTurnResult["stopCause"]>;
+
+/** `WorkerTaskResult.localTokens`: Σ timing tokens of usage-less completions. */
+export interface WorkerLocalTokens {
+  promptTokens: number;
+  predictedTokens: number;
+  cacheHitTokens: number;
+}
 
 export interface WorkerToolStats {
   calls: number;
@@ -198,10 +206,32 @@ export interface WorkerTaskResult {
    * the daemon rather than at the fan-out's width.
    */
   queueWaitMs?: number | null;
+  /**
+   * Of `durationMs`, the time before the server's first token (issue
+   * #30): `queueWaitMs`, or the whole duration for a worker never
+   * served. Not work; the outcome log leaves it out of its duration.
+   */
+  queuedMs?: number;
+  /**
+   * Of `durationMs`, the time this worker's self-check spent in the held
+   * runner's authorization (`contract-check-hold.ts`), an operator prompt
+   * included (issue #30). Not work either.
+   */
+  heldMs?: number;
   /** Call-wide scheduler wait before dispatch; excluded from durationMs and provider queueWaitMs. */
   schedulerQueueWaitMs?: number;
   tools: WorkerToolStats;
   usage?: CompletionUsage;
+  /**
+   * Token counts of the completions that reported no `usage` (a
+   * llama-server worker reports only its `timing` and `cacheHitTokens`),
+   * summed apart from `usage` (issue #30). Never synthetic usage: pricing
+   * (`rowCostUsd`), the status header and the budget split branch on
+   * `usage !== undefined`, and an unpriced local leg must stay unpriced.
+   * `promptTokens` includes each step's cached part. On a row a cloud
+   * re-run replaced, only the local attempt's counts (like its `usage`).
+   */
+  localTokens?: WorkerLocalTokens;
   /**
    * Present only when some of the worker's completions carried the
    * service's bill and some did not: `usage.costUsd` is then absent (a
@@ -237,6 +267,13 @@ export interface WorkerTaskResult {
   /** The judge's verdict on this task's acceptance list (ATO-944), when it ran. */
   judge?: JudgeSummary;
   /**
+   * The worker's turn failed or threw after it changed files, so the row
+   * is `needs_orchestrator` rather than `failed` (issue #29): the files
+   * exist but no report vouches for them. Under isolation its workspace
+   * is held as a patch, not merged (`runIsolatedWave`).
+   */
+  finishedWithoutReply?: true;
+  /**
    * The model the task ran on, set when models by role are configured
    * (ATO-943); absent, it ran on the worker leg as every task did.
    */
@@ -268,6 +305,13 @@ export interface WorkerTaskResult {
    * (`worker-self-check.ts`). For the outcome log; nothing renders it.
    */
   selfCheckNotice?: true;
+  /**
+   * Telemetry only, never acceptance (issue #30): the worker's own last
+   * `verify.run` had the identical spec of one of its task's declared
+   * checks and passed after its last change (`WorkerCheckRuns`). Not set
+   * on a row a cloud re-run replaced.
+   */
+  selfCheckPassed?: true;
   /** Escalations that reached the worker (advisor hints, a re-run), for the outcome log. */
   escalations?: number;
   /**
@@ -338,6 +382,8 @@ export class WorkerRunCollector {
   private writes = 0;
   private readonly byTool: Record<string, number> = {};
   private usage: CompletionUsage | undefined;
+  /** Σ timing tokens of the completions without `usage` (issue #30). */
+  private localTokens: WorkerLocalTokens | undefined;
   /**
    * Priced one completion at a time: the service's bill over the
    * completions that reported one, plus the estimate of each unbilled
@@ -351,6 +397,7 @@ export class WorkerRunCollector {
   private readonly pricing: WorkerPricing | undefined;
   private lastLoopError: string | undefined;
   private lastWaitReason: string | undefined;
+  private creditExhausted = false;
   /** The last few tool results, one line each — what a hand-back reports. */
   private readonly recent: string[] = [];
   private readonly replaced: ReplacedInput[] = [];
@@ -387,6 +434,7 @@ export class WorkerRunCollector {
       return;
     }
     if (event.type === "credit_exhausted") {
+      this.creditExhausted = true;
       // The loop pauses the worker's turn resumable, but a worker is
       // never resumed: for the orchestrator this is a failed task with
       // the reason, not a stopped one.
@@ -427,6 +475,16 @@ export class WorkerRunCollector {
         `${result.tool} ${result.status}: ${oneLine(result.summary, FINDING_CHARS)}`,
       );
       if (this.recent.length > FINDINGS_KEPT) this.recent.shift();
+      return;
+    }
+    if (inner.type === "llm_completed" && inner.completion.usage === undefined) {
+      const timing = inner.completion.timing;
+      const prev = this.localTokens ?? { promptTokens: 0, predictedTokens: 0, cacheHitTokens: 0 };
+      this.localTokens = {
+        promptTokens: prev.promptTokens + finiteTokens(timing?.promptTokens),
+        predictedTokens: prev.predictedTokens + finiteTokens(timing?.predictedTokens),
+        cacheHitTokens: prev.cacheHitTokens + finiteTokens(inner.completion.cacheHitTokens),
+      };
       return;
     }
     if (inner.type === "llm_completed" && inner.completion.usage) {
@@ -474,7 +532,11 @@ export class WorkerRunCollector {
   private failureMessage(): string | undefined {
     if (this.lastLoopError !== undefined) return this.lastLoopError;
     if (this.lastWaitReason !== undefined) {
-      return `the provider stopped answering: ${this.lastWaitReason}`;
+      // A server that answers and works too slowly (`slow or contended`,
+      // `LlamaServerError.contended`) did not stop answering.
+      return SERVER_CONTENDED.test(this.lastWaitReason)
+        ? `the local model was slow or contended (GPU may be shared): ${this.lastWaitReason}`
+        : `the provider stopped answering: ${this.lastWaitReason}`;
     }
     return undefined;
   }
@@ -500,24 +562,51 @@ export class WorkerRunCollector {
     error?: string;
     stopCause?: WorkerStopCause;
   }): WorkerTaskResult {
-    const status = classifyWorkerStatus(
+    const classified = classifyWorkerStatus(
       input.reason,
       this.approvalRefused,
       input.stopCause,
     );
     const error =
-      input.error ?? (status === "ok" ? undefined : this.failureMessage());
+      input.error ?? (classified === "ok" ? undefined : this.failureMessage());
     const hint = error === undefined ? undefined : workerFailureHint(error);
+    const changes = this.changes.list();
+    // Issue #29: a turn that failed (or threw) after writing files is not
+    // a dead task: the files are there, only the report is missing. The
+    // orchestrator reads them before accepting; the syntax and contract
+    // gates still run, and under isolation the workspace is held, never
+    // merged unseen (`finishedWithoutReply`). Credit, approval, budget and
+    // cancellation keep their own outcome.
+    // A failure the fan-out breaker reads as a blocker (tool-protocol
+    // mismatch, not signed in, usage limit) stays `failed` too: the
+    // breaker counts only failed rows, and the next worker on the leg
+    // would fail the same way, files or not.
+    const blocker =
+      error !== undefined &&
+      classifyWorkerFailure({ status: "failed", error })?.blocker === true;
+    const finishedWithoutReply =
+      classified === "failed" &&
+      changes.length > 0 &&
+      !this.approvalRefused &&
+      !this.creditExhausted &&
+      input.stopCause !== "credit_exhausted" &&
+      !blocker &&
+      (error === undefined || !NOT_A_MISSING_REPLY.test(error));
+    const status: WorkerTaskStatus = finishedWithoutReply
+      ? "needs_orchestrator"
+      : classified;
     const notes =
       input.stopCause !== undefined &&
-      status !== "failed" &&
-      status !== "cancelled"
+      classified !== "failed" &&
+      classified !== "cancelled"
         ? [stopCauseNote(input.stopCause, input.stepCount)]
         : [];
+    if (finishedWithoutReply || (blocker && classified === "failed" && changes.length > 0)) {
+      notes.push(finishedWithoutReplyNote(changes.map((c) => c.path)));
+    }
     if (this.operatorOnlyRefused && status === "needs_orchestrator") {
       notes.push(WORKER_OPERATOR_ONLY_NOTE);
     }
-    const changes = this.changes.list();
     return {
       id: input.id,
       title: input.title,
@@ -532,6 +621,7 @@ export class WorkerRunCollector {
         byTool: { ...this.byTool },
       },
       ...(this.usage ? { usage: this.usage } : {}),
+      ...(this.localTokens ? { localTokens: { ...this.localTokens } } : {}),
       // A sum that still carries the whole bill (`usage.costUsd`) needs
       // no split.
       ...(this.anyBilled && this.usage !== undefined && this.usage.costUsd === undefined
@@ -545,8 +635,31 @@ export class WorkerRunCollector {
         : { replacedInputs: [...this.replaced] }),
       ...(changes.length === 0 ? {} : { changes }),
       ...(this.changes.shellRan() ? { shellRan: true as const } : {}),
+      ...(finishedWithoutReply ? { finishedWithoutReply: true as const } : {}),
     };
   }
+}
+
+function finiteTokens(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * Failures that are not "the work stopped before its report": out of
+ * credit or quota, a spend budget, a cancellation. Their row stays
+ * `failed` even when files changed (`WorkerRunCollector.finish`).
+ */
+const NOT_A_MISSING_REPLY =
+  /\b402\b|\b429\b|payment required|insufficient (?:credits?|funds|balance|quota)|out of (?:credits?|funds|credit)|quota (?:exceeded|exhausted)|exceeded (?:your|the) (?:current )?quota|\bbudget\b|spend (?:cap|limit)|daily (?:spend )?limit|\bcancel(?:l?ed)?\b|\baborted?\b/i;
+
+/** How many changed paths the note names before it counts the rest. */
+const NO_REPLY_PATHS_SHOWN = 8;
+
+/** The note on a row that failed after writing files (issue #29). */
+export function finishedWithoutReplyNote(paths: readonly string[]): string {
+  const shown = paths.slice(0, NO_REPLY_PATHS_SHOWN).join(", ");
+  const more = paths.length > NO_REPLY_PATHS_SHOWN ? ` and ${paths.length - NO_REPLY_PATHS_SHOWN} more` : "";
+  return `finished without a reply; files changed: ${shown}${more}; unverified — read/check them before accepting`;
 }
 
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {
@@ -604,7 +717,9 @@ export function classifyWorkerStatus(
   approvalRefused: boolean,
   stopCause?: WorkerStopCause,
 ): WorkerTaskStatus {
-  if (reason === null || reason === "failed") return "failed";
+  // The turn cap refused the worker's request (issue #29): it did not
+  // finish its work, and a bound worker gets no final report past the cap.
+  if (reason === null || reason === "failed" || reason === "budget") return "failed";
   if (reason === "cancelled") return "cancelled";
   // Out of credit is not a ceiling the worker ran into; nothing it
   // wrote after that point exists, and re-delegating cannot help.
@@ -750,6 +865,8 @@ export const WORKER_HINT_CONTEXT =
   "the local server ran out of context: use fewer workers at once or shorter briefs";
 export const WORKER_HINT_SATURATED =
   "the local server was saturated: fewer parallel workers";
+export const WORKER_HINT_CONTENDED =
+  "the local server was working but slow or contended: close other programs using the GPU, or run fewer parallel workers";
 export const WORKER_HINT_QUOTA =
   "provider credit/quota exhausted — retrying will not help";
 /**
@@ -769,6 +886,7 @@ const CONTEXT_EXCEEDED =
   /context size has been exceeded|ran out of context|exceeds? the (?:available )?context|context (?:size|length|window) (?:exceeded|was exceeded)/i;
 const SERVER_SATURATED =
   /no first token|first[- ]token timeout|sent no data for \d+\s*ms|idle timeout/i;
+const SERVER_CONTENDED = /\bslow or contended\b/i;
 const SERVER_UNREACHABLE =
   /stopped answering GET \/slots|it is unreachable|accepted the connection and answered nothing/i;
 const CREDIT_OR_QUOTA =
@@ -789,6 +907,7 @@ export function workerFailureHint(message: string): string | undefined {
   // better-evidenced diagnosis, and "use fewer workers" is the wrong
   // advice for a daemon that is not answering anybody.
   if (SERVER_UNREACHABLE.test(message)) return WORKER_HINT_UNREACHABLE;
+  if (SERVER_CONTENDED.test(message)) return WORKER_HINT_CONTENDED;
   if (SERVER_SATURATED.test(message)) return WORKER_HINT_SATURATED;
   if (CONTEXT_EXCEEDED.test(message)) return WORKER_HINT_CONTEXT;
   if (CREDIT_OR_QUOTA.test(message)) return WORKER_HINT_QUOTA;

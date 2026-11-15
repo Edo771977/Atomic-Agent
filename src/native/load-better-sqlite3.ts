@@ -39,11 +39,59 @@ function isRunningUnderSea(): boolean {
 
 let cached: DatabaseCtor | null = null;
 
+/**
+ * The raw errors `bindings`/Node give for a missing or wrong-ABI `.node`
+ * file, and the loader's own: Windows cannot load it ("The specified
+ * module could not be found"), or Linux finds it built against a newer
+ * glibc (`GLIBC_2.38' not found).
+ */
+const NATIVE_BINDING_ERROR =
+  /Could not locate the bindings file|NODE_MODULE_VERSION|was compiled against|The specified module could not be found|GLIBC_[\d.]+'? not found/;
+
+export interface LoadBetterSqlite3Deps {
+  req: (id: string) => unknown;
+  /** Running as the installed single-executable build. */
+  sea: boolean;
+  /** Node's native module ABI (`process.versions.modules`). */
+  abi?: string;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * Loads the module, and turns a missing or mismatched native binding (an
+ * install script that never ran, e.g. npm blocking it, or a Node upgrade)
+ * into an error that says how to fix it. The original stays as `cause`.
+ */
+export function loadBetterSqlite3Ctor(deps: LoadBetterSqlite3Deps): DatabaseCtor {
+  try {
+    return deps.req("better-sqlite3") as DatabaseCtor;
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (!NATIVE_BINDING_ERROR.test(raw)) throw err;
+    const abi = deps.abi ?? process.versions.modules;
+    const head = `better-sqlite3's native binding is missing or was built for another Node version (this Node needs ABI ${abi}).`;
+    let fix: string;
+    if (deps.sea) {
+      fix = "The installed files are incomplete or from another release: reinstall atomic-agent.";
+    } else {
+      fix = "From source, build it for this Node: npm rebuild better-sqlite3 --foreground-scripts";
+      if ((deps.platform ?? process.platform) === "win32") {
+        fix += " (on Windows this needs Visual Studio Build Tools with the \"Desktop development with C++\" (VCTools) workload, and Python 3).";
+      } else {
+        fix += " (this needs a C++ toolchain and Python 3).";
+      }
+      fix += " If npm blocked the package's install script, allow it and run the rebuild again.";
+    }
+    throw new Error(`${head} ${fix}`, { cause: err });
+  }
+}
+
 function resolveCtor(): DatabaseCtor {
   if (cached) return cached;
 
   let req: NodeRequire;
-  if (isRunningUnderSea()) {
+  const sea = isRunningUnderSea();
+  if (sea) {
     // The anchor file does not need to exist; `createRequire` only uses
     // it as the resolution root for `node_modules` lookups.
     const anchor = join(dirname(execPath), "__atomic_sea_anchor__.js");
@@ -51,7 +99,7 @@ function resolveCtor(): DatabaseCtor {
   } else {
     req = createRequire(import.meta.url);
   }
-  cached = req("better-sqlite3") as DatabaseCtor;
+  cached = loadBetterSqlite3Ctor({ req, sea });
   return cached;
 }
 

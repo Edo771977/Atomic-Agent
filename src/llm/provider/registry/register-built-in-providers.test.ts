@@ -313,3 +313,90 @@ describe("the vision request budget through the llama-server factory", () => {
     expect(await visionOutcome({ requestTimeoutMs: 20 })).toBe("rejected");
   });
 });
+
+describe("anthropic kind", () => {
+  it("builds the native Messages client: POST /v1/messages with x-api-key", async () => {
+    registerBuiltInProviderKinds();
+    const factory = getProviderFactory("anthropic");
+    expect(factory).toBeDefined();
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url: String(url), headers: init?.headers as Record<string, string> });
+        return new Response(
+          JSON.stringify({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    const provider = await factory!({
+      config: {} as AtomicAgentConfig,
+      entry: { id: "claude", kind: "anthropic", apiKey: "sk-ant-x", defaultChatModel: "claude-fable-5-2" },
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+    });
+    const result = await provider.complete({ prompt: "hi" });
+    expect(result.content).toBe("ok");
+    expect(calls[0]!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(calls[0]!.headers["x-api-key"]).toBe("sk-ant-x");
+  });
+
+  it("requires a chat model", async () => {
+    registerBuiltInProviderKinds();
+    await expect(async () =>
+      getProviderFactory("anthropic")!({
+        config: {} as AtomicAgentConfig,
+        entry: { id: "claude", kind: "anthropic" },
+        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+      }),
+    ).rejects.toThrow(/defaultChatModel/);
+  });
+});
+
+describe("old Anthropic preset entries (openai-compatible on api.anthropic.com)", () => {
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
+  const urlFor = async (baseUrl: string): Promise<string> => {
+    registerBuiltInProviderKinds();
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        const body = String(url).endsWith("/v1/messages")
+          ? { content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }
+          : { choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }] };
+        return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      }),
+    );
+    const provider = await getProviderFactory("openai-compatible")!({
+      config: {} as AtomicAgentConfig,
+      entry: {
+        id: "anthropic",
+        kind: "openai-compatible",
+        baseUrl,
+        apiKey: "sk-ant-x",
+        apiKeyHeader: "x-api-key",
+        headers: { "anthropic-version": "2023-06-01" },
+        defaultChatModel: "claude-fable-5-2",
+      },
+      logger,
+    });
+    const result = await provider.complete({ prompt: "hi" });
+    expect(result.content).toBe("ok");
+    return urls[0]!;
+  };
+
+  it.each(["https://api.anthropic.com", "https://api.anthropic.com/v1", "https://API.anthropic.com/"])(
+    "routes %s to the native Messages API at resolve time",
+    async (baseUrl) => {
+      expect(await urlFor(baseUrl)).toMatch(/^https:\/\/api\.anthropic\.com\/v1\/messages$/i);
+    },
+  );
+
+  it.each([
+    ["https://eu.api.anthropic.com", "https://eu.api.anthropic.com/v1/chat/completions"],
+    ["https://gateway.example.com/anthropic", "https://gateway.example.com/anthropic/v1/chat/completions"],
+  ])("leaves %s on chat completions (exact host only)", async (baseUrl, expected) => {
+    expect(await urlFor(baseUrl)).toBe(expected);
+  });
+});

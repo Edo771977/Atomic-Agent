@@ -8,6 +8,7 @@ import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-
 import { modelParamProfile } from "../llm/provider/openai/model-params.js";
 import { formatUsd, type FusionTurnBudget } from "../tools/fusion/turn-budget.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
+import { FINAL_REPORT_MAX_TOKENS, TurnBudgetExhaustedError } from "../llm/reliability/turn-budget-error.js";
 import type { DailySpendBudget, DailySpendHold } from "./daily-spend-budget.js";
 import { linkSpendBilling, verifiablePricing, verifiedAdmissionPricing, type ModelPricing } from "./link-spend-billing.js";
 import { OFFLINE_ERROR_CODE } from "../llm/offline-network.js";
@@ -36,7 +37,14 @@ function addsProviderSideInput(body: Record<string, unknown>): boolean {
   const tools = body.tools;
   if (tools === undefined || tools === null) return false;
   if (!Array.isArray(tools)) return true;
-  return tools.some(tool => typeof tool !== "object" || tool === null || (tool as { type?: unknown }).type !== "function");
+  // A client tool is an OpenAI `function`, or an Anthropic Messages tool
+  // (`input_schema`, no `type` or `custom`); anything else runs server-side.
+  return tools.some(tool => typeof tool !== "object" || tool === null || !isClientTool(tool as Record<string, unknown>));
+}
+
+function isClientTool(tool: Record<string, unknown>): boolean {
+  if (tool.type === "function") return true;
+  return (tool.type === undefined || tool.type === "custom") && typeof tool.input_schema === "object" && tool.input_schema !== null;
 }
 
 
@@ -127,8 +135,7 @@ function releaseHolds(holds: SendHolds): void {
 }
 
 function isCapRefusal(error: unknown): boolean {
-  return error instanceof DailySpendLimitError ||
-    (error instanceof Error && error.message.startsWith("turn budget cannot cover this request"));
+  return error instanceof DailySpendLimitError || error instanceof TurnBudgetExhaustedError;
 }
 
 /**
@@ -245,7 +252,12 @@ export function createRequestBudgetScope(
   const dayPriced = day !== undefined && dayLimit !== null && billing === "hard";
   const priceRequired = turnPriced || dayPriced;
   const label = turnPriced ? "turn budget" : "daily spend limit";
-  const caps = [request.maxTokens, request.maxOutputTokens, entry?.maxOutputTokens].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  // The owning turn's one report after its cap refused (issue #29). A
+  // side call (`budgetOwnerSessionId`: compaction, risk, rewriter) never
+  // carries it; a bound worker is refused by the ledger itself.
+  const finalReport = request.finalReport === true && request.budgetOwnerSessionId === undefined;
+  const reserveTurn = (usd: number): Hold => finalReport ? budget!.reserveFinalReport(sessionId!, usd) : budget!.reserveRequest(sessionId!, usd);
+  const caps = [request.maxTokens, request.maxOutputTokens, entry?.maxOutputTokens, ...(finalReport ? [FINAL_REPORT_MAX_TOKENS] : [])].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
   // No context-window fallback: providers reject a window-sized output
   // limit, and reserving one would hold dollars per request.
   const outputCap = caps.length > 0 ? Math.min(...caps) : undefined;
@@ -259,7 +271,7 @@ export function createRequestBudgetScope(
   // no turn hold behind.
   let dayHeld = day !== undefined && !dayPriced ? day.reserve(entryId, 0) : undefined;
   let held: Hold | undefined;
-  try { held = !turnPriced && limits?.usd !== undefined ? budget!.reserveRequest(sessionId!, 0) : undefined; } catch (error) {
+  try { held = !turnPriced && limits?.usd !== undefined ? reserveTurn(0) : undefined; } catch (error) {
     dayHeld?.release();
     throw error;
   }
@@ -268,6 +280,8 @@ export function createRequestBudgetScope(
   const timer = timeLeft === undefined ? undefined : setTimeout(() => deadline.abort(new DOMException("the turn time cap stopped this request", "AbortError")), timeLeft);
   timer?.unref?.();
   let done = false;
+  // Whether this final report already used its one retry past the cap.
+  let reportReopened = false;
   // Multiplier of the most recent physical send; settlement prices usage with it.
   let tierMultiplier = 1;
   // The latest priced send's input bound and per-output-token rate (USD),
@@ -277,7 +291,7 @@ export function createRequestBudgetScope(
   let sendHoldUsd = 0;
   const hintKey = `${sessionId ?? ""}:${provider.id}`;
   const reserveBoth = (usd: number): SendHolds => {
-    const turn = turnPriced ? budget!.reserveRequest(sessionId!, usd) : undefined;
+    const turn = turnPriced ? reserveTurn(usd) : undefined;
     let dailyHold: DailySpendHold | undefined;
     try { dailyHold = dayPriced ? day!.reserve(entryId, usd) : undefined; } catch (error) {
       turn?.release();
@@ -295,7 +309,18 @@ export function createRequestBudgetScope(
       if (signal.aborted) throw signal.reason;
       if (!priceRequired) return;
       // A retry after an ambiguous dispatch can have been billed too.
-      if (turnPriced) { held?.settle(); held = undefined; }
+      // For the final report it is still the same report: it may be
+      // admitted past the cap once more (one retry), the earlier hold
+      // counting in full.
+      if (turnPriced) {
+        const uncertain = held !== undefined;
+        held?.settle();
+        held = undefined;
+        if (uncertain && finalReport && !reportReopened) {
+          reportReopened = true;
+          budget!.reopenFinalReport(sessionId!);
+        }
+      }
       if (dayPriced) { dayHeld?.settle(); dayHeld = undefined; }
       if (request.signal?.aborted) throw request.signal.reason;
       const wireCaps = [body.max_tokens, body.max_completion_tokens].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);

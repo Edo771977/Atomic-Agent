@@ -15,7 +15,8 @@ import { refreshMemoryContext, createSurfacedMemoryTracker, profileFactsForPromp
 export { MAX_SURFACED_NOTE_ALLOWLIST } from "./turn/turn-memory-context.js";
 import { finalizeAgentTurn, finalizeFailedAgentTurn } from "./turn/turn-finalization.js";
 import { armApprovalDeadline } from "./turn/approval-deadline.js";
-import { costCeilingNotice, costCeilingReached, recordCompactionSpend, recordStepSpend } from "./turn/turn-spend.js";
+import { costCeilingNotice, costCeilingReached, recordCompactionSpend, recordStepSpend, turnBudgetFinalReportNotice } from "./turn/turn-spend.js";
+import { FINAL_REPORT_MAX_TOKENS } from "../llm/reliability/turn-budget-error.js";
 export { formatTaskStoppedReply } from "./turn/turn-finalization.js";
 import { delegationProducedWork, recordDelegation, wouldRefuse as fusionGateWouldRefuse } from "./policies/fusion-orchestrator-mode.js";
 import { observeReviewStep, reviewStallSignal, reviewStallToolSet, takeReviewStallNotice, type ReviewStallSignal } from "./review-stall.js";
@@ -354,7 +355,10 @@ export class AgentLoop {
         !outOfTime && costCeilingReached(turn.spendUsd, costCeilingUsd);
       if (outOfTime) turn.stopCause = "time_ceiling";
       else if (outOfBudget) turn.stopCause = "cost_ceiling";
-      const finalizationStep = i === stepCeiling - 1 || outOfTime || outOfBudget;
+      // The fusion turn's USD cap refused the last request (issue #29):
+      // this is the one final report step, admitted past the cap.
+      const turnBudgetStop = turn.turnBudgetStop;
+      const finalizationStep = i === stepCeiling - 1 || outOfTime || outOfBudget || turnBudgetStop !== null;
       // The stalled-review phase this step runs under, read before the
       // prompt is built (`review-stall.ts`): the notice joins the step's
       // `### notice` — inside `noticeForThisStep`, so a retry of the
@@ -398,7 +402,9 @@ export class AgentLoop {
       }
       const effectiveTransport: ToolCallTransport =
         pinnedSlice?.toolTransport ?? this.deps.toolTransport ?? "grammar";
-      const finalizationNotice = outOfBudget
+      const finalizationNotice = turnBudgetStop !== null
+        ? turnBudgetFinalReportNotice(turnBudgetStop.spentUsd, turnBudgetStop.capUsd)
+        : outOfBudget
         ? costCeilingNotice(turn.spendUsd, costCeilingUsd)
         : "This is the final allowed step. Do not call any non-terminal tool; " +
           "summarize the completed work with reply, or end the session with finish.";
@@ -472,6 +478,7 @@ export class AgentLoop {
                 }
               : {}),
             ...(finalizationStep ? { terminalOnly: true } : {}),
+            ...(turnBudgetStop !== null ? { finalReport: true } : {}),
             ...(replanSet !== null
               ? { toolSet: replanSet }
               : stallSignal?.phase === "cut"
@@ -479,10 +486,12 @@ export class AgentLoop {
                 : {}),
             ...(options.toolFilter ? { toolFilter: options.toolFilter } : {}),
             toolRole,
-            ...(turn.truncationRetry?.stepIndex === i &&
-            turn.truncationRetry.maxTokens !== undefined
-              ? { maxTokens: turn.truncationRetry.maxTokens }
-              : {}),
+            ...(turnBudgetStop !== null
+              ? { maxTokens: FINAL_REPORT_MAX_TOKENS }
+              : turn.truncationRetry?.stepIndex === i &&
+                  turn.truncationRetry.maxTokens !== undefined
+                ? { maxTokens: turn.truncationRetry.maxTokens }
+                : {}),
             ...(profileFacts !== undefined ? { profileFacts } : {}),
             ...(options.userMessage !== undefined
               ? { userMessage: options.userMessage }
@@ -496,9 +505,15 @@ export class AgentLoop {
             ...(options.answerChannel !== undefined
               ? { answerChannel: options.answerChannel }
               : {}),
+            // A fusion orchestrator turn takes the configured
+            // `orchestratorReasoning` when the turn names no effort of its
+            // own (read per step, like the other fusion knobs).
             ...(options.reasoningEffort !== undefined
               ? { reasoningEffort: options.reasoningEffort }
-              : {}),
+              : fusionOrchestratorTurn &&
+                  getConfig().llm?.runMode?.fusion?.orchestratorReasoning !== undefined
+                ? { reasoningEffort: getConfig().llm!.runMode!.fusion!.orchestratorReasoning! }
+                : {}),
             ...(options.reasoningOverride !== undefined
               ? { reasoningOverride: options.reasoningOverride }
               : {}),
@@ -833,6 +848,13 @@ export class AgentLoop {
           ...(outcome.progressNote !== undefined ? { progressNote: true } : {}),
           ...(stallSignal !== null ? { reviewStall: stallSignal } : {}),
         });
+        // The final report after the turn cap (issue #29): whatever it
+        // closed with, the cap is what ended the turn.
+        if (turnBudgetStop !== null) {
+          turn.reason = "budget";
+          if (outcome.terminal === "session") state = { ...state, status: "completed" };
+          break;
+        }
         if (outcome.terminal === "session") {
           turn.reason = "finish";
           turn.endedOnFinalizationStep = finalizationStep;
@@ -1187,6 +1209,11 @@ export class AgentLoop {
     return finalizeAgentTurn({
       state, options, reason: turn.reason, stepsTaken: turn.stepsTaken, turnIndex, turnStartedAt,
       taskStartedAt, stepCeiling, stopCause: turn.stopCause, creditStop: turn.creditStop, endedOnFinalizationStep: turn.endedOnFinalizationStep,
+      ...(turn.turnBudgetStop !== null ? { turnBudget: {
+        // The report's own priced cost is overspend on top of the refusal's figure.
+        spentUsd: turn.turnBudgetStop.spentUsd + Math.max(0, turn.spendUsd - turn.turnBudgetStop.spendAtStopUsd),
+        capUsd: turn.turnBudgetStop.capUsd,
+      } } : {}),
       surfacedLessonIds, surfacedProcedureIds, surfacedNoteIds, costCeilingUsd,
       ...(this.deps.priceCompletion ? { spendUsd: turn.spendUsd } : {}),
     }, this.deps, (sessionId) => this.flushSteering(sessionId));

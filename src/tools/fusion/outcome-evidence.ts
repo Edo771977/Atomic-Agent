@@ -14,3 +14,16 @@ export function taskCheckEvidence(row: TaskOutcomeRecord): "passed" | "failed" |
   if (row.acceptance === "checks-failed" && row.status === "failed" && row.failure === "checks") return "failed";
   return "unverified";
 }
+
+/**
+ * The report's check column (issue #30): `taskCheckEvidence`, except a
+ * row whose record says no task-attributed check was declared
+ * (`taskChecks: 0`) is `no-checks` rather than `unverified`. An older
+ * record without the count, and a candidate row, stay `unverified`.
+ * Display only: measured routing reads `taskCheckEvidence`.
+ */
+export function taskCheckColumn(row: TaskOutcomeRecord): "passed" | "failed" | "unverified" | "no-checks" {
+  const evidence = taskCheckEvidence(row);
+  if (evidence !== "unverified") return evidence;
+  return !("candidate" in row) && row.taskChecks === 0 ? "no-checks" : "unverified";
+}

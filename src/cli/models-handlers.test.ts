@@ -20,6 +20,8 @@ vi.mock("../local-llm/index.js", async () => {
     holdEmbeddingForLowMemory: vi.fn(async () => ({ ok: true })),
     stopDaemon: vi.fn(),
     stopChatAndEmbeddingDaemons: vi.fn(),
+    probeNvidiaGpuUsage: vi.fn(async () => null),
+    getDaemonStatus: vi.fn(actual.getDaemonStatus),
   };
 });
 
@@ -54,6 +56,7 @@ import {
   setConfiguredBackendVariant,
 } from "../local-llm/backend/windows-backend-variant.js";
 import {
+  runLocalModelsDevices,
   runLocalModelsPull,
   runLocalModelsStart,
   runLocalModelsStartEmbedding,
@@ -123,6 +126,36 @@ describe("runLocalModelsStart CPU-backend fallback", () => {
     vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockClear();
     await runLocalModelsStart();
     expect(vi.mocked(localLlm.startChatAndEmbeddingDaemons).mock.calls[0]![0].chat.throughputProbe).toBeUndefined();
+  });
+  it("warns at start when other processes hold GPU memory, from nvidia-smi's measurement (#29)", async () => {
+    prepareManagedWindowsInstall();
+    vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockRejectedValue(new Error("test stop"));
+    vi.mocked(localLlm.probeNvidiaGpuUsage).mockResolvedValueOnce({
+      gpus: [{ usedMiB: 3200, totalMiB: 8192 }],
+      apps: [{ pid: 4242, usedMiB: 3072 }],
+    });
+    await runLocalModelsStart();
+    expect(stderrChunks.join("")).toContain("other processes hold 3072 MiB on the GPU");
+    stderrChunks = [];
+    // Absent nvidia-smi (null): nothing is said.
+    await runLocalModelsStart();
+    expect(stderrChunks.join("")).not.toContain("other processes hold");
+  });
+  it("does not count our own running chat server as another process on the GPU (#29 review)", async () => {
+    prepareManagedWindowsInstall();
+    vi.mocked(localLlm.startChatAndEmbeddingDaemons).mockRejectedValue(new Error("test stop"));
+    const real = vi.mocked(localLlm.getDaemonStatus).getMockImplementation()!;
+    vi.mocked(localLlm.getDaemonStatus).mockResolvedValue({ running: true, pid: 4242, port: 19091, healthy: true, loading: false });
+    vi.mocked(localLlm.probeNvidiaGpuUsage).mockResolvedValueOnce({
+      gpus: [{ usedMiB: 3200, totalMiB: 8192 }],
+      apps: [{ pid: 4242, usedMiB: 3072 }],
+    });
+    try {
+      await runLocalModelsStart();
+    } finally {
+      vi.mocked(localLlm.getDaemonStatus).mockImplementation(real);
+    }
+    expect(stderrChunks.join("")).not.toContain("other processes hold");
   });
   it("starts with a one-off context size without writing it to the config (ATO-334)", async () => {
     prepareManagedWindowsInstall();
@@ -727,5 +760,57 @@ describe("runLocalModelsStart on a computer without an Atomic Core build", () =>
     resetConfigCache();
     expect(getConfig().localModels.managed.engine).toBe("atomic-core");
     expect(localLlm.startChatAndEmbeddingDaemons).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Issue #29: `models devices` said "run models update first" and `models
+ * update` said "switch to managed mode first", so an external-mode user
+ * went round in a loop. Devices now says which mode it is in first.
+ */
+describe("runLocalModelsDevices without a downloaded backend", () => {
+  let stateDir: string;
+  let stderrChunks: string[];
+
+  beforeEach(() => {
+    stateDir = mkdtempSync(join(tmpdir(), "atomic-models-devices-"));
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    stderrChunks = [];
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.ATOMIC_AGENT_STATE_DIR;
+    resetConfigCache();
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function writeMode(mode: "managed" | "external"): void {
+    writeUserConfigFileSync(getUserConfigPath(stateDir), {
+      ...USER_CONFIG_DEFAULTS,
+      localModels: { ...USER_CONFIG_DEFAULTS.localModels, mode, url: "http://127.0.0.1:8080" },
+    });
+    resetConfigCache();
+  }
+
+  it("external mode: names the external server and the way to managed mode, not models update alone", async () => {
+    writeMode("external");
+    await expect(runLocalModelsDevices()).resolves.toBe(1);
+    const err = stderrChunks.join("");
+    expect(err).toContain("models devices lists the managed engine's GPUs; you're using an external server (http://127.0.0.1:8080)");
+    expect(err).toContain("Pick a managed model first: atomic-agent models use <id>, then atomic-agent models update.");
+    expect(err).not.toContain("backend not downloaded");
+  });
+
+  it("managed mode: keeps pointing at models update", async () => {
+    writeMode("managed");
+    await expect(runLocalModelsDevices()).resolves.toBe(1);
+    expect(stderrChunks.join("")).toContain("backend not downloaded; run 'atomic-agent models update' first");
   });
 });

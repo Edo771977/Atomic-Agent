@@ -29,6 +29,19 @@ export const FUSION_WORKER_REASONING_LEVELS: readonly FusionWorkerReasoning[] = 
   "high",
   "unbounded",
 ];
+/**
+ * `llm.runMode.fusion.orchestratorReasoning` — the effort of the fusion
+ * orchestrator's own turns. Anthropic's five `output_config.effort`
+ * levels; a kind without `xhigh` / `max` gets `high`.
+ */
+export type FusionOrchestratorReasoning = "low" | "medium" | "high" | "xhigh" | "max";
+export const FUSION_ORCHESTRATOR_REASONING_LEVELS: readonly FusionOrchestratorReasoning[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
 /** Upper bound on `workerMaxOutputTokens`; anything larger is a typo. */
 export const FUSION_WORKER_MAX_OUTPUT_TOKENS_MAX = 1_000_000;
 
@@ -90,6 +103,13 @@ export type UserLlmFusionConfig = {
    * lifts that bound.
    */
   workerReasoning?: FusionWorkerReasoning;
+  /**
+   * Reasoning effort of the orchestrator's own completions in a fusion
+   * turn (not the workers', not ordinary turns). Unset by default: the
+   * provider's default (Fable 5.2+ on the native Anthropic kind: medium).
+   * A turn's explicit effort still wins; a person's level beats both.
+   */
+  orchestratorReasoning?: FusionOrchestratorReasoning;
   /**
    * Per-step output cap for worker completions, in tokens. Unset by
    * default (the model's maximum). Keep it above the largest single
@@ -516,6 +536,22 @@ function parseFusion(
       );
     }
     out.workerReasoning = level as FusionWorkerReasoning;
+  }
+  if (obj.orchestratorReasoning !== undefined && !isSetAsideString(
+    obj.orchestratorReasoning, FUSION_ORCHESTRATOR_REASONING_LEVELS, `${field}.orchestratorReasoning`, undefined,
+  )) {
+    // ATO-1241: a level a newer build added is left unset (the provider's default).
+    const level = obj.orchestratorReasoning;
+    if (
+      typeof level !== "string" ||
+      !FUSION_ORCHESTRATOR_REASONING_LEVELS.includes(level as FusionOrchestratorReasoning)
+    ) {
+      throw new ConfigValidationError(
+        `${field}.orchestratorReasoning`,
+        `expected ${FUSION_ORCHESTRATOR_REASONING_LEVELS.join("|")}`,
+      );
+    }
+    out.orchestratorReasoning = level as FusionOrchestratorReasoning;
   }
   if (obj.workerMaxOutputTokens !== undefined) {
     out.workerMaxOutputTokens = parseBoundedInt(

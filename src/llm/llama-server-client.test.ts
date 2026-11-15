@@ -13,6 +13,7 @@ import {
 import type { CompletionResult } from "./llama-server-client.js";
 import { resetConfigCache } from "../config/config-cache.js";
 import { scrubError } from "../error-reporting/error-scrubber.js";
+import { classifyProviderWaitCause } from "./reliability/provider-wait-cause.js";
 
 type Handler = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -1719,6 +1720,95 @@ describe("LlamaServerClient.completeStream deadlines", () => {
       expect(chunk.done).toBe(false);
       expect((chunk.value as { delta: string }).delta).toBe("hi");
       opened().close();
+    });
+
+    it("names a first-token timeout behind a slot that processes and decodes nothing as slow/contended (#29)", async () => {
+      // A GPU shared with another program: the server answers /slots,
+      // the slot is processing, its prompt is fully evaluated, and not
+      // one token is decoded across the whole first-token budget. That
+      // is not a server that is not answering; it is one that is
+      // working slowly.
+      vi.useFakeTimers();
+      let tick = 0;
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: async () => {
+          tick += 1;
+          const prompted = {
+            ...busy(0),
+            n_past: 4_000 + tick,
+            n_prompt_tokens_processed: 4_000,
+            prompt_progress: { processed: 4_000, total: 4_000, cache: 0 },
+          };
+          return new Response(JSON.stringify([prompted, idle(1)]), { status: 200 });
+        },
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err).toBeInstanceOf(LlamaServerError);
+      expect(err.timedOut).toBe(true);
+      expect(err.contended).toBe(true);
+      expect(err.message).toContain("slow or contended");
+      expect(err.message).toContain("GPU may be shared");
+      expect(classifyProviderWaitCause(err)).toEqual({ kind: "contended" });
+    });
+
+    it("does not call a long prompt evaluation contended: the prompt counter moves while n_decoded stays 0 (#29 review)", async () => {
+      vi.useFakeTimers();
+      let tick = 0;
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: async () => {
+          tick += 1;
+          const prefill = { ...busy(0), n_prompt_tokens_processed: 512 * tick, prompt_progress: { processed: 512 * tick, total: 1_000_000, cache: 0 } };
+          return new Response(JSON.stringify([prefill, idle(1)]), { status: 200 });
+        },
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err.timedOut).toBe(true);
+      expect(err.contended).toBe(false);
+      expect(err.message).toContain("ATOMIC_AGENT_LLAMA_FIRST_TOKEN_TIMEOUT_MS");
+      expect(err.message).toContain("evaluating the prompt");
+    });
+
+    it("does not call a first-token timeout contended when the slot reports no prompt counter (#29 review)", async () => {
+      // `busy(0)` has only `n_decoded`: a prompt eval and a contended
+      // decode read the same, so the advice stays the first-token one.
+      vi.useFakeTimers();
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: slotsJson([busy(0), idle(1)]),
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err.contended).toBe(false);
+      expect(err.message).toContain("ATOMIC_AGENT_LLAMA_FIRST_TOKEN_TIMEOUT_MS");
+    });
+
+    it("does not call a first-token timeout contended while another slot keeps decoding", async () => {
+      vi.useFakeTimers();
+      let tick = 0;
+      const { client } = streamingClient(60_000, {
+        firstTokenTimeoutMs: 2 * 60_000,
+        slots: async () => {
+          tick += 1;
+          return new Response(JSON.stringify([idle(0), busy(1, tick)]), { status: 200 });
+        },
+      });
+      const stream = client.completeStream({ prompt: "p", sessionId: "s", slotId: 0 });
+      const failure = stream.next().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+      const err = (await failure) as LlamaServerError;
+      expect(err.timedOut).toBe(true);
+      expect(err.contended).toBe(false);
+      expect(err.message).toContain("queued behind other requests");
     });
 
     it("reads another slot's work as this request being queued, and a changed idle table as movement", async () => {

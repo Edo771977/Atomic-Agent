@@ -7,6 +7,7 @@ import {
   type FusionSetupFacts,
   type FusionSetupProviderFact,
 } from "./fusion-setup-plan.js";
+import { findProviderPreset } from "../provider/presets/provider-presets.js";
 
 const LOCAL: FusionSetupProviderFact = {
   id: "local-llama", kind: "llama-server", keyState: "unverified", envVar: null, subscriptionCli: null,
@@ -21,6 +22,7 @@ function facts(over: {
   local?: Partial<FusionSetupFacts["local"]>;
   runMode?: FusionSetupFacts["runMode"];
   active?: string;
+  envKeyPresets?: FusionSetupFacts["envKeyPresets"];
 } = {}): FusionSetupFacts {
   return {
     stateDir: "/state",
@@ -39,6 +41,7 @@ function facts(over: {
       recommendedModelId: null,
       ...over.local,
     },
+    ...(over.envKeyPresets ? { envKeyPresets: over.envKeyPresets } : {}),
   };
 }
 
@@ -113,7 +116,11 @@ describe("planFusionSetup: detection matrix", () => {
     expect(plan.write.fusion).toMatchObject({ escalation: "advisor", turnBudgetUsd: 1 });
     const bad = planFusionSetup(f, { orchestrator: "nope" });
     if (bad.ok) throw new Error("expected refusal");
-    expect(bad.problems.join("\n")).toMatch(/nope cannot orchestrate now; ready: claude-cli, openrouter/);
+    const text = bad.problems.join("\n");
+    expect(text).toContain("`nope` is not a configured provider that can answer now");
+    expect(text).toContain("Esc → Manage › LLM › Cloud → n");
+    expect(text).toContain("/state/.env");
+    expect(text).toMatch(/Ready: claude-cli, openrouter\./);
   });
 
   it("adds a Claude Code entry with no key when only the CLI is signed in", () => {
@@ -233,6 +240,9 @@ describe("planFusionSetup: defaults", () => {
     expect(tip).toMatch(/once a turn has spent \$1/);
     expect(tip).toMatch(/no new delegation or worker/);
     expect(tip).toMatch(/reports what is done/);
+    // Issue #29: what really happens at the cap, overshoot included.
+    expect(tip).toMatch(/one short final reply/);
+    expect(tip).toMatch(/can end a little over/);
     expect(tip).toMatch(/0 means no cap/);
     expect(tip).toMatch(/atomic-agent setup fusion --budget <usd>/);
   });
@@ -320,5 +330,91 @@ describe("planFusionSetup: refusals say what to do", () => {
     const text = plan.problems.join("\n");
     expect(text).toMatch(/No local model server answers at http:\/\/127\.0\.0\.1:9931/);
     expect(text).toMatch(/models pull rec-1 --background[\s\S]*models use rec-1/);
+  });
+});
+
+describe("planFusionSetup: an API key in the environment with no provider entry (issue #29)", () => {
+  const ANTHROPIC = findProviderPreset("anthropic")!;
+  const presetModel = (ANTHROPIC as { readonly defaultChatModel?: string }).defaultChatModel;
+  const envKey = (models: readonly string[] | null = ["claude-a", "claude-b"]) => ({
+    envKeyPresets: [{ presetId: "anthropic", envVar: "ANTHROPIC_API_KEY", models }],
+  });
+  const signedIn = { state: "ready" as const, fix: null };
+
+  it("adds the preset's entry, keyed by its own variable, with the model picked", () => {
+    const plan = planFusionSetup(facts(envKey()), { orchestrator: "anthropic", orchestratorModel: "claude-b" });
+    if (!plan.ok) throw new Error(`expected ok: ${plan.problems.join("; ")}`);
+    expect(plan.orchestrator).toMatchObject({ providerId: "anthropic", priced: true, model: "claude-b" });
+    expect(plan.write.addProvider).toEqual({
+      id: "anthropic",
+      kind: "openai-compatible",
+      baseUrl: ANTHROPIC.baseUrl,
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      ...(ANTHROPIC.apiKeyHeader ? { apiKeyHeader: ANTHROPIC.apiKeyHeader } : {}),
+      ...(ANTHROPIC.headers ? { headers: { ...ANTHROPIC.headers } } : {}),
+      defaultChatModel: "claude-b",
+    });
+    expect(plan.changes.some((c) => c.key === "llm.providers[+anthropic]")).toBe(true);
+  });
+
+  it.skipIf(presetModel !== undefined)("with no model to use, says how to pick one and lists what it serves", () => {
+    const plan = planFusionSetup(facts(envKey()));
+    if (plan.ok) throw new Error("expected refusal");
+    expect(plan.needsModel).toEqual({ providerId: "anthropic", envVar: "ANTHROPIC_API_KEY", models: ["claude-a", "claude-b"] });
+    const text = plan.problems.join("\n");
+    expect(text).toContain("ANTHROPIC_API_KEY");
+    expect(text).toContain("--orchestrator anthropic --orchestrator-model <id>");
+    expect(text).toContain("claude-a, claude-b");
+    expect(text).toContain("Manage › LLM › Cloud");
+  });
+
+  it("does not apply one --orchestrator-model to every key found without --orchestrator (#29 review)", () => {
+    const two = {
+      envKeyPresets: [
+        { presetId: "anthropic", envVar: "ANTHROPIC_API_KEY", models: ["claude-a"] },
+        { presetId: "groq", envVar: "GROQ_API_KEY", models: ["llama-x"] },
+      ],
+    };
+    const plan = planFusionSetup(facts(two), { orchestratorModel: "claude-a" });
+    if (plan.ok) {
+      expect(plan.candidates.filter((c) => c.model === "claude-a").map((c) => c.providerId)).not.toContain("groq");
+    } else {
+      expect(plan.problems.join("\n")).toContain("--orchestrator anthropic");
+    }
+    const named = planFusionSetup(facts(two), { orchestrator: "anthropic", orchestratorModel: "claude-a" });
+    if (!named.ok) throw new Error(`expected ok: ${named.problems.join("; ")}`);
+    expect(named.orchestrator).toMatchObject({ providerId: "anthropic", model: "claude-a" });
+    expect(named.candidates.map((c) => c.providerId)).not.toContain("groq");
+  });
+
+  it("refuses an --orchestrator-model the endpoint does not list, naming what it does (#29 review)", () => {
+    const plan = planFusionSetup(facts(envKey()), { orchestrator: "anthropic", orchestratorModel: "claude-z" });
+    if (plan.ok) throw new Error("expected refusal");
+    const text = plan.problems.join("\n");
+    expect(text).toContain("claude-z");
+    expect(text).toContain("claude-a, claude-b");
+    // No list (not asked, or refused): the model is taken as given.
+    const unlisted = planFusionSetup(facts(envKey(null)), { orchestrator: "anthropic", orchestratorModel: "claude-z" });
+    expect(unlisted.ok).toBe(true);
+  });
+
+  it("comes after a signed-in subscription, and the plan says the key was found", () => {
+    const plan = planFusionSetup(facts({ claude: signedIn, ...envKey() }), { orchestratorModel: "claude-a" });
+    if (!plan.ok) throw new Error("expected ok");
+    expect(plan.orchestrator.providerId).toBe("claude-cli");
+    expect(plan.candidates.map((c) => c.providerId)).toEqual(["claude-cli", "anthropic"]);
+    expect(plan.warnings.join("\n")).toContain(
+      "using your Claude subscription; an ANTHROPIC_API_KEY was found — pass --orchestrator anthropic to use the API instead",
+    );
+  });
+
+  it("is not offered again once an entry reads that variable", () => {
+    const entry: FusionSetupProviderFact = {
+      id: "my-anthropic", kind: "openai-compatible", keyState: "present", envVar: "ANTHROPIC_API_KEY", subscriptionCli: null,
+    };
+    const plan = planFusionSetup(facts({ providers: [LOCAL, entry], ...envKey() }), { orchestratorModel: "claude-a" });
+    if (!plan.ok) throw new Error("expected ok");
+    expect(plan.candidates.map((c) => c.providerId)).toEqual(["my-anthropic"]);
+    expect(plan.write.addProvider).toBeUndefined();
   });
 });

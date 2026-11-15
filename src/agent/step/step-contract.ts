@@ -1,4 +1,4 @@
-import type { PromptMessages, ChatPromptParts, PromptProgress, ReasoningEffort, ResponseFormatJsonSchema, ToolCallTransport } from "../../llm/provider/completion-types.js";
+import type { PromptMessages, ChatPromptParts, PromptProgress, ExtendedReasoningEffort, ReasoningEffort, ResponseFormatJsonSchema, ToolCallTransport } from "../../llm/provider/completion-types.js";
 import type { StreamChunk, CompletionResult } from "../../llm/llama-server-client.js";
 import type { ToolRegistry } from "../../tools/tool-registry.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
@@ -25,6 +25,8 @@ import type { BatchLoopSignal } from "../dispatch/batch-contract.js";
 export interface LlmStreamParams {
   /** Owning active turn for a sidecall; independent of its routing/breaker partition. */
   budgetOwnerSessionId?: string;
+  /** The turn's one report after its USD cap refused (`CompletionRequest.finalReport`). */
+  finalReport?: boolean;
   contextBudget?: { window: number | null; replyReserve: number };
   /** Rebuild and commit context for the actual attempted policy/window, including fallback. */
   prepareForLink?: (options: {
@@ -97,8 +99,8 @@ export interface LlmStreamParams {
    * fusion worker's `workerMaxOutputTokens` rides here.
    */
   maxOutputTokens?: number;
-  /** The turn's reasoning effort (`RunTurnOptions.reasoningEffort`). */
-  reasoningEffort?: ReasoningEffort;
+  /** The turn's reasoning effort (`RunTurnOptions.reasoningEffort`, or the fusion orchestrator's). */
+  reasoningEffort?: ExtendedReasoningEffort;
   /** The chat's reasoning level (`RunTurnOptions.reasoningOverride`, ATO-490). */
   reasoningOverride?: ReasoningEffort;
   /** See `CompletionRequest.disableThinking`. */
@@ -371,7 +373,7 @@ export interface StepContext {
   /** `RunTurnOptions.answerChannel`, rendered as `### answer-style` (`answer-style.ts`). */
   answerChannel?: import("../../prompt/answer-style.js").AnswerChannel;
   /** The turn's reasoning effort — see `LlmStreamParams.reasoningEffort`. */
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ExtendedReasoningEffort;
   /**
    * The chat's reasoning level (ATO-490): a cloud reasoning effort over
    * the model's `params`. Its local think budget reaches the grammar as
@@ -398,6 +400,13 @@ export interface StepContext {
    * result (`batch-executor.ts`), a tail terminal still lands.
    */
   terminalOnly?: boolean;
+  /**
+   * The final report after the fusion turn's USD cap refused a request
+   * (issue #29): rides on the step's completions as
+   * `LlmStreamParams.finalReport`, which the request scope admits once
+   * past the exhausted cap. Set with `terminalOnly` and a small `maxTokens`.
+   */
+  finalReport?: boolean;
   /**
    * The only tool names this step may emit or run (`step-tool-set.ts`)
    * — `terminalOnly` with the names supplied. Narrows the per-request

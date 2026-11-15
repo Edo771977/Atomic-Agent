@@ -122,6 +122,17 @@ function keepTailWithin(text: string, tokens: number): string {
 
 export const NO_RESULT_RECORDED = "(no result recorded)";
 
+/** How a failed call's `tool` message opens (what the model reads). */
+export const TOOL_ERROR_PREFIX = "error: ";
+
+/**
+ * The tool result's own status (`ok` / `error`) on a `tool` message, for
+ * the Anthropic wire's `is_error`. A symbol key: it survives the
+ * builder's object spreads and is never serialized, so no other wire
+ * ever sees it.
+ */
+export const TOOL_RESULT_STATUS: unique symbol = Symbol.for("atomic-agent.tool-result-status");
+
 export function buildNativeMessages(
   prompt: PromptMessages,
   options: NativeMessageOptions,
@@ -216,6 +227,7 @@ export function buildNativeMessages(
           role: "tool",
           tool_call_id: id,
           content: renderToolMessageContent(turn),
+          [TOOL_RESULT_STATUS]: turn.status,
         });
         break;
       }
@@ -235,7 +247,7 @@ export function buildNativeMessages(
 function renderToolMessageContent(
   turn: Extract<PromptTurn, { kind: "tool_result" }>,
 ): string {
-  const body = turn.status === "error" ? `error: ${turn.body}` : turn.body;
+  const body = turn.status === "error" ? `${TOOL_ERROR_PREFIX}${turn.body}` : turn.body;
   return turn.truncated ? `${body} (truncated)` : body;
 }
 

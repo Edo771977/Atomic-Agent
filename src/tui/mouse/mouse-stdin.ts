@@ -30,6 +30,7 @@
  *     once so the caller can turn mouse tracking off for the session
  *     instead of letting the terminal spray coordinates into the chat.
  */
+import { StringDecoder } from "node:string_decoder";
 import { PassThrough } from "node:stream";
 import { decodeMouseEvents } from "./parse-mouse-events.js";
 import type { TuiMouseEvent } from "./mouse-event.js";
@@ -208,6 +209,10 @@ export function createMouseStdin(
   // ESC-split hold described in the module doc — a chunk-final ESC kept
   // back briefly in case it is the start of a split report.
   let pending = "";
+  // A read can also end inside a multibyte UTF-8 character ("è" is C3 A8);
+  // decoding each Buffer on its own turned both halves into U+FFFD. The
+  // decoder keeps an incomplete tail for the next read.
+  const utf8 = new StringDecoder("utf8");
   let escHeld = false;
   let escTimer: NodeJS.Timeout | null = null;
   const flushHeldEsc = (): void => {
@@ -224,7 +229,7 @@ export function createMouseStdin(
     let raw =
       pending +
       (escHeld ? ESC : "") +
-      (typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+      (typeof chunk === "string" ? chunk : utf8.write(chunk));
     escHeld = false;
     if (raw.endsWith(ESC)) {
       raw = raw.slice(0, -1);

@@ -15,7 +15,8 @@ import type { LlmProviderConfigEntry } from "./provider-types.js";
 export function entryHasNoChatModel(entry: LlmProviderConfigEntry): boolean {
   return (
     (entry.kind === "openai-compatible" ||
-      entry.kind === "qwen-openai-compatible") &&
+      entry.kind === "qwen-openai-compatible" ||
+      entry.kind === "anthropic") &&
     !entry.defaultChatModel
   );
 }
