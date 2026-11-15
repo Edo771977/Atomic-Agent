@@ -822,4 +822,12 @@ export interface ResumableFusionRun {
   readonly updatedAt: number;
   /** One plain line: what is done, what is left. */
   readonly summary: string;
+  /** The folder the run worked in. */
+  readonly workingDir?: string;
+  /** The first ~80 characters of the person's request, on one line; `null` when unknown. */
+  readonly request?: string | null;
+  /** When the run started (epoch ms). */
+  readonly startedAt?: number;
+  readonly tasksDone?: number;
+  readonly tasksLeft?: number;
 }

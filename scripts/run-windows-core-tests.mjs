@@ -140,6 +140,7 @@ export const deferredFiles = [
   'src/tools/fusion/role-models.test.ts',
   'src/tools/fusion/run-checkpoint.test.ts',
   'src/tools/fusion/run-resume.test.ts',
+  'src/tools/fusion/run-resume-details.test.ts',
   'src/tools/fusion/task-permits.test.ts',
   'src/tools/fusion/task-profiles.test.ts',
   'src/tools/fusion/task-tree.test.ts',

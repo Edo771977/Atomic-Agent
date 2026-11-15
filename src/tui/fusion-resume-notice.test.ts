@@ -62,3 +62,36 @@ describe("fusion resume notices", () => {
     expect(line).toContain("/sessions");
   });
 });
+
+describe("the start-up notice says which work was cut off", () => {
+  const now = 10 * 60 * 60 * 1000;
+  const detailed = {
+    runId: "fr-1",
+    sessionId: "s-1",
+    updatedAt: now - 60_000,
+    summary: "unfinished Fusion run fr-1: 1 of 3 tasks done; 2 left",
+    workingDir: "/work/app",
+    request: "Refactor the billing module and add tests",
+    startedAt: now - 2 * 60 * 60 * 1000,
+    tasksDone: 1,
+    tasksLeft: 2,
+  };
+
+  it("names the folder, the request, when it started and the tasks done and left", () => {
+    const line = formatStartupFusionNotice([detailed], null, now)!;
+    expect(line).toContain("/work/app");
+    expect(line).toContain('"Refactor the billing module and add tests"');
+    expect(line).toContain("started 2h ago");
+    expect(line).toContain("1 task done, 2 left");
+    expect(line).toContain("/fusion resume");
+    expect(line).toContain("/fusion discard");
+  });
+
+  it("lists at most three runs and counts the rest", () => {
+    const runs = [1, 2, 3, 4].map((i) => ({ ...detailed, runId: `fr-${i}`, sessionId: `s-${i}` }));
+    const line = formatStartupFusionNotice(runs, null, now)!;
+    expect(line.match(/\/work\/app/g)).toHaveLength(3);
+    expect(line).toContain("1 more");
+  });
+});
+

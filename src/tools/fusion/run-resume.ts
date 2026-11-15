@@ -155,6 +155,36 @@ function confirmationResult(
   return { ...row, status: "needs_orchestrator", queueWaitMs: null };
 }
 
+/** How much of the original request the start-up notice quotes. */
+const REQUEST_PREVIEW_CHARS = 80;
+
+/**
+ * What the start-up notice needs to say which work a cut-off run is: its
+ * folder, the first ~80 characters of the person's request on one line
+ * (`null` when the runtime did not know it), when it started and how many
+ * tasks are done and left.
+ */
+export function resumableRunDetails(checkpoint: FusionRunCheckpoint): {
+  workingDir: string;
+  request: string | null;
+  startedAt: number;
+  tasksDone: number;
+  tasksLeft: number;
+} {
+  const done = checkpoint.tasks.filter(isSettledForResume).length;
+  const flat = checkpoint.originalRequest?.replace(/\s+/g, " ").trim() ?? "";
+  const request = flat.length === 0
+    ? null
+    : flat.length > REQUEST_PREVIEW_CHARS ? `${flat.slice(0, REQUEST_PREVIEW_CHARS)}…` : flat;
+  return {
+    workingDir: checkpoint.workingDir,
+    request,
+    startedAt: checkpoint.startedAt,
+    tasksDone: done,
+    tasksLeft: checkpoint.tasks.length - done,
+  };
+}
+
 /** One line for the person: what is left of an unfinished run. */
 export function describeResumableRun(checkpoint: FusionRunCheckpoint): string {
   const total = checkpoint.tasks.length;

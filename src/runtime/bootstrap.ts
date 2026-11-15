@@ -73,6 +73,7 @@ import {
   FusionRunStore,
   FusionTurnBudget,
   describeResumableRun,
+  resumableRunDetails,
   renderResumeRequest,
 } from "../tools/fusion/index.js";
 
@@ -1003,6 +1004,7 @@ export async function createAgentRuntime(
         sessionId: run.sessionId,
         updatedAt: run.updatedAt,
         summary: describeResumableRun(run),
+        ...resumableRunDetails(run),
       })),
     resumeMessage: (sessionId: string, runId?: string) => {
       const run =
