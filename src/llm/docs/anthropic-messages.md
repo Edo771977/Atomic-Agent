@@ -48,7 +48,13 @@ names, strict tools, effort, cache breakpoints, `extraBody`, model
   `none`. Forced `any` / `tool` is a 400 on Fable 5.x, Opus 5.5 and
   Sonnet 5.5.
 - `max_tokens` is always sent: the request's cap, the turn's, the entry's
-  `maxOutputTokens`, else 32 000. Never the context window.
+  `maxOutputTokens`, else 32 000 on a stream and 16 000 on a unary
+  request. Never the context window. A unary reply returns nothing until
+  it is complete, and the request timeout (`requestTimeoutMs`, default
+  600 000 ms for this transport) bounds the whole of it: the lower
+  default keeps a slow model's longest unbounded reply inside it. Set
+  `maxOutputTokens` (and, for longer unary replies, `requestTimeoutMs`)
+  on the entry to change either.
 - `temperature`, `top_p`, `top_k` are sent only when the entry's
   `extraBody` or `userModels[].params` sets them and the entry pins an
   `anthropic-version` older than `2026-10-21`; that version rejects them

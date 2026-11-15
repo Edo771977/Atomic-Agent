@@ -24,7 +24,8 @@
  *    and a replayed block bound to an edited prefix is a 400.
  *  - `tool_choice` is only ever `auto` or `none`: Fable 5.x, Opus 5.5
  *    and Sonnet 5.5 answer a forced `any` / `tool` with a 400.
- *  - `max_tokens` is required: the body's own cap, else the default.
+ *  - `max_tokens` is required: the body's own cap, else the default
+ *    (32 000 streamed, 16 000 unary).
  *  - sampling parameters (`temperature`, `top_p`, `top_k`) are sent only
  *    when the entry configured them explicitly (`extraBody` / `params`)
  *    AND the pinned `anthropic-version` predates 2026-10-21, which
@@ -46,11 +47,20 @@ import {
 } from "../openai/model-params.js";
 
 /**
- * `max_tokens` when nothing bounded the reply: the API requires the
- * field. A reply budget, not the context window (a window-sized cap is a
- * 400 and would hold a window of dollars in the request budget).
+ * `max_tokens` when nothing bounded a streamed reply: the API requires
+ * the field. A reply budget, not the context window (a window-sized cap
+ * is a 400 and would hold a window of dollars in the request budget).
  */
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 32_000;
+
+/**
+ * The same default for a unary (non-streaming) request. Nothing arrives
+ * until the whole reply is written, so a 32k-token reply at a slow
+ * model's pace could outlast the 10-minute request timeout
+ * (`OPENAI_DEFAULT_REQUEST_TIMEOUT_MS`) and be billed with nothing
+ * returned; Anthropic recommends streaming for long replies.
+ */
+export const ANTHROPIC_UNARY_DEFAULT_MAX_TOKENS = 16_000;
 
 /** Keys the translation owns; an explicit passthrough cannot replace them. */
 const OWNED_KEYS = new Set([
@@ -208,7 +218,7 @@ function readCap(openAi: Record<string, unknown>): number {
       return Math.floor(value);
     }
   }
-  return ANTHROPIC_DEFAULT_MAX_TOKENS;
+  return openAi.stream === true ? ANTHROPIC_DEFAULT_MAX_TOKENS : ANTHROPIC_UNARY_DEFAULT_MAX_TOKENS;
 }
 
 /**

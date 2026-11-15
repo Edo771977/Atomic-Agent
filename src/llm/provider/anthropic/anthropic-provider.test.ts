@@ -276,9 +276,11 @@ describe("AnthropicProvider request", () => {
     await p.complete({ prompt: "hi" });
     await p.complete({ prompt: "hi", maxTokens: 1000 });
     expect(sent.map((s) => s.body.max_tokens)).toEqual([4096, 1000]);
+    // Unbounded and unary: a smaller default, so a long reply cannot run
+    // into the 10-minute request timeout with nothing streamed.
     const bare: Sent[] = [];
     await provider(bare, [json(MESSAGE)]).complete({ prompt: "hi" });
-    expect(bare[0]!.body.max_tokens).toBe(32_000);
+    expect(bare[0]!.body.max_tokens).toBe(16_000);
   });
 
   it("calls requestBudget.beforeSend with the final Messages body, on every physical send", async () => {
@@ -298,7 +300,7 @@ describe("AnthropicProvider request", () => {
     expect(seen).toHaveLength(2);
     expect(seen[0]).toHaveProperty("messages");
     expect(seen[0]).not.toHaveProperty("stream_options");
-    expect(seen[0]!.max_tokens).toBe(32_000);
+    expect(seen[0]!.max_tokens).toBe(16_000);
     // The clamp the budget wrote is what went out.
     expect(sent.map((s) => s.body.max_tokens)).toEqual([77, 77]);
   });
@@ -463,6 +465,8 @@ describe("AnthropicProvider streaming", () => {
     ]);
     const { chunks, result } = await drain(p, turnRequest());
     expect(sent[0]!.body.stream).toBe(true);
+    // A stream keeps the larger default reply budget.
+    expect(sent[0]!.body.max_tokens).toBe(32_000);
     expect(chunks.join("")).toBe("Hello");
     expect(result.content).toBe("Hello");
     expect(result.toolCalls).toEqual([
