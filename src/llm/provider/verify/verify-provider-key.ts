@@ -12,6 +12,10 @@
 
 import { openAiFetch, type OpenAiHttpDeps } from "../openai/openai-http.js";
 import {
+  anthropicHeaders,
+  normalizeAnthropicBaseUrl,
+} from "../anthropic/anthropic-provider.js";
+import {
   modelParamProfile,
   resolveTemperature,
 } from "../openai/model-params.js";
@@ -49,6 +53,9 @@ export async function verifyProviderKey(
   } = {},
 ): Promise<ProviderVerifyResult> {
   const startedAt = Date.now();
+  if (target.wire === "anthropic-messages") {
+    return verifyAnthropicKey(target, opts, startedAt);
+  }
   const models = target.probeModels.filter((id) => id.length > 0);
   if (models.length === 0) {
     return result(
@@ -176,6 +183,63 @@ export async function verifyProviderKey(
         "no usable model",
         startedAt,
       );
+}
+
+/**
+ * The native Anthropic check: one `GET /v1/models` with the key in
+ * `x-api-key` and the version the Messages client sends. It costs
+ * nothing and proves the key, not the balance (a 401/403 is the key,
+ * unless its body talks about billing). Through `openAiFetch`, so the
+ * offline guard, the redirect refusal and the timeout are the shared
+ * transport's.
+ */
+async function verifyAnthropicKey(
+  target: ProviderVerifyTarget,
+  opts: { signal?: AbortSignal; timeoutMs?: number; fetchImpl?: typeof fetch },
+  startedAt: number,
+): Promise<ProviderVerifyResult> {
+  const deps: OpenAiHttpDeps = {
+    baseUrl: normalizeAnthropicBaseUrl(target.baseUrl),
+    apiKey: target.apiKey,
+    apiKeyHeader: "x-api-key",
+    extraHeaders: anthropicHeaders(target.extraHeaders),
+    requestTimeoutMs: opts.timeoutMs ?? PROVIDER_VERIFY_TIMEOUT_MS,
+    fetchImpl: opts.fetchImpl ?? fetch,
+    label: target.label,
+  };
+  if (opts.signal?.aborted) {
+    return result("cancelled", null, null, "check cancelled", startedAt);
+  }
+  let res: Response;
+  try {
+    res = await openAiFetch(
+      deps,
+      "/v1/models",
+      null,
+      { ...(opts.signal ? { signal: opts.signal } : {}) },
+      false,
+      "GET",
+    );
+  } catch (err) {
+    if (opts.signal?.aborted || isAbortError(err)) {
+      return result("cancelled", null, null, "check cancelled", startedAt);
+    }
+    return result(
+      classifyVerifyTransportError(err),
+      null,
+      null,
+      err instanceof Error ? err.message : String(err),
+      startedAt,
+      target.apiKey,
+    );
+  }
+  const body = res.ok ? "" : await readBounded(res);
+  if (res.ok) await res.body?.cancel().catch(() => undefined);
+  const verdict = classifyVerifyResponse(res.status, body);
+  // No model is involved, so the "try another model" answers are the
+  // provider failing in a way that says nothing about the key.
+  const status = verdict.kind === "status" ? verdict.status : "provider_error";
+  return result(status, null, res.status, body, startedAt, target.apiKey);
 }
 
 /**

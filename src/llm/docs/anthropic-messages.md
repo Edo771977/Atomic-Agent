@@ -96,19 +96,40 @@ both paths agree:
 
 ## Preset and migration of old entries
 
-The `anthropic` preset still saves an `openai-compatible` entry on
-`https://api.anthropic.com` (now with `anthropic-version: 2026-10-21`).
-At provider construction, an `openai-compatible` entry whose host is
-exactly `api.anthropic.com` (with or without `/v1`, any letter case) is
-built as the native client (`anthropic-route.ts`); `config.json` is not
-rewritten, so key resolution (`ANTHROPIC_API_KEY` via `apiKeyEnvVar`),
-model mode and the wizard read it as before. A gateway, another
-Anthropic host or `qwen-openai-compatible` keeps chat completions.
-`kind: "anthropic"` can also be written explicitly (`baseUrl` optional;
-the key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
+The `anthropic` preset (`nativeKind: "anthropic"`) saves an explicit
+native entry: `kind: "anthropic"`, `baseUrl: https://api.anthropic.com`,
+`apiKeyEnvVar: ANTHROPIC_API_KEY`, and no `apiKeyHeader` / `headers`,
+since this kind sends `x-api-key` and the current `anthropic-version`
+itself. The TUI wizard and `setup fusion`'s key-only preset offer build
+it with the same `presetEntryFields`. Reconfiguring a native entry reopens
+it on the preset, so it stays native.
 
-Not moved: the wizard's key check and contract probe, and `describeImage`,
-still use Anthropic's OpenAI-compatible routes, which accept the same key.
+Entries saved before as `openai-compatible` on `https://api.anthropic.com`
+keep working: at provider construction one whose host is exactly
+`api.anthropic.com` (with or without `/v1`, any letter case) is built as
+the native client (`anthropic-route.ts`); `config.json` is not rewritten,
+so key resolution, model mode and the wizard read it as before (saving it
+again from the wizard writes the native kind). A gateway, another
+Anthropic host or `qwen-openai-compatible` keeps chat completions.
+`kind: "anthropic"` can also be written by hand (`baseUrl` optional; the
+key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
+
+Around the turns, native entries (and the routed old ones) use the native
+API too:
+
+- model listing (wizard, LLM pane, `models search`, `setup fusion`):
+  `GET {base}/v1/models?limit=1000` with `x-api-key` and the settled
+  `anthropic-version` (`anthropic-models.ts`; the API pages 20 ids by
+  default);
+- the wizard's key check: that same `GET`, through the shared transport
+  (offline mode refuses it). 2xx accepts the key, 401/403 rejects it
+  (no balance when the body talks billing). It costs nothing and does
+  not prove the balance;
+- the contract probe: its rungs translated by `toAnthropicMessagesBody`
+  and posted to `/v1/messages` (the forced rung goes out as `auto`), the
+  native stream read through `createAnthropicSseTranslator`;
+- `describeImage`: the shared describe body translated the same way, so
+  each image is a base64 `image` block, posted to `/v1/messages`.
 
 ## Effort and thinking
 

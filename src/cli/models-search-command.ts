@@ -8,6 +8,10 @@ import {
 import type { ModelCatalogEntry } from "../llm/provider/model-resolver.js";
 import { searchModels } from "../llm/provider/model-search.js";
 import { fetchOpenAiCompatModels } from "../llm/provider/openai/fetch-openai-compat-models.js";
+import {
+  fetchAnthropicModels,
+  isNativeAnthropicEntry,
+} from "../llm/provider/anthropic/anthropic-models.js";
 import { fetchGeminiModels } from "../llm/provider/gemini/fetch-gemini-models.js";
 import {
   listAimlapiChatPicks,
@@ -183,6 +187,9 @@ async function liveModels(
       return [];
     }
     return listOrRecord(entry, failures, () => fetchGeminiModels(entry.apiKey));
+  }
+  if (isNativeAnthropicEntry(entry)) {
+    return listOrRecord(entry, failures, () => fetchAnthropicModels(entry.apiKey, entry));
   }
   if (!entry.baseUrl) return [];
   if (

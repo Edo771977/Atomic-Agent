@@ -67,12 +67,14 @@ export async function fetchOpenAiCompatModels(
   baseUrl: string,
   apiKey?: string,
   auth?: OpenAiCompatAuth,
+  /** Appended to the route, e.g. Anthropic's `?limit=1000` (its page is 20 by default). */
+  query = "",
 ): Promise<readonly string[]> {
   const cached = getCachedOpenAiCompatModels(baseUrl, apiKey);
   if (cached) return cached;
 
   const base = normalizeOpenAiBaseUrl(baseUrl);
-  const res = await fetch(`${base}/v1/models`, {
+  const res = await fetch(`${base}/v1/models${query}`, {
     headers: buildOpenAiAuthHeaders(apiKey, auth),
     signal: AbortSignal.timeout(10_000),
     // On a cross-origin redirect fetch drops Authorization but forwards a

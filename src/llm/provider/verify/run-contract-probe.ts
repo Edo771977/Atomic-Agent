@@ -48,6 +48,13 @@
  */
 
 import { openAiFetch, type OpenAiHttpDeps } from "../openai/openai-http.js";
+import { toAnthropicMessagesBody } from "../anthropic/anthropic-messages-body.js";
+import { createAnthropicSseTranslator } from "../anthropic/anthropic-messages-response.js";
+import {
+  ANTHROPIC_MESSAGES_PATH,
+  anthropicHeaders,
+  normalizeAnthropicBaseUrl,
+} from "../anthropic/anthropic-provider.js";
 import {
   modelParamProfile,
   resolveTemperature,
@@ -320,10 +327,15 @@ async function runRung(
   }
   ctx.state.requests += 1;
 
+  const native = target.wire === "anthropic-messages";
+  const extraHeaders = native
+    ? anthropicHeaders(target.extraHeaders)
+    : (target.extraHeaders ?? {});
   const deps: OpenAiHttpDeps = {
-    baseUrl: target.baseUrl,
+    baseUrl: native ? normalizeAnthropicBaseUrl(target.baseUrl) : target.baseUrl,
     apiKey: target.apiKey,
-    extraHeaders: target.extraHeaders ?? {},
+    ...(native ? { apiKeyHeader: "x-api-key" } : {}),
+    extraHeaders,
     requestTimeoutMs: remainingMs,
     fetchImpl: ctx.fetchImpl ?? fetch,
     label: target.label,
@@ -333,8 +345,10 @@ async function runRung(
   try {
     res = await openAiFetch(
       deps,
-      `${target.apiPathPrefix}/chat/completions`,
-      body,
+      native ? ANTHROPIC_MESSAGES_PATH : `${target.apiPathPrefix}/chat/completions`,
+      native
+        ? toAnthropicMessagesBody(body, { apiVersion: extraHeaders["anthropic-version"] })
+        : body,
       { ...(ctx.signal ? { signal: ctx.signal } : {}) },
       true,
       "POST",
@@ -380,7 +394,9 @@ async function runRung(
   if (sse.aborted || ctx.signal?.aborted) {
     return { kind: "aborted", status: "cancelled", detail: "probe cancelled" };
   }
-  const observation = accumulateProbeStream(sse.text);
+  const observation = accumulateProbeStream(
+    native ? translateAnthropicSse(sse.text) : sse.text,
+  );
   // Our own deadline is not a route defect. A single byte is enough to
   // put text in the buffer — OpenRouter sends `: OPENROUTER PROCESSING`
   // while a request is queued, and a reasoning model can take seconds
@@ -439,6 +455,12 @@ function probeBody(
       ? { type: "function", function: { name: CONTRACT_PROBE_TOOL_NAME } }
       : "auto";
   return body;
+}
+
+/** A buffered native Messages stream as the OpenAI chunks the accumulator reads. */
+function translateAnthropicSse(text: string): string {
+  const translator = createAnthropicSseTranslator();
+  return translator.push(text) + translator.flush();
 }
 
 /**

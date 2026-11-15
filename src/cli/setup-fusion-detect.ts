@@ -14,6 +14,7 @@ import {
 } from "../config/llm-provider-commands.js";
 import { providerKeyStatus } from "../llm/provider/provider-key.js";
 import { fetchOpenAiCompatModels } from "../llm/provider/openai/fetch-openai-compat-models.js";
+import { fetchAnthropicModels } from "../llm/provider/anthropic/anthropic-models.js";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../llm/provider/presets/provider-presets.js";
 import {
   checkSubscriptionCli,
@@ -94,7 +95,9 @@ async function defaultProbeExternal(url: string): Promise<boolean> {
 
 async function defaultListPresetModels(preset: ProviderPreset, apiKey: string): Promise<readonly string[] | null> {
   try {
-    return await fetchOpenAiCompatModels(preset.baseUrl, apiKey, preset);
+    return preset.nativeKind === "anthropic"
+      ? await fetchAnthropicModels(apiKey, { baseUrl: preset.baseUrl })
+      : await fetchOpenAiCompatModels(preset.baseUrl, apiKey, preset);
   } catch {
     return null;
   }

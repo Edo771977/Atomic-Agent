@@ -441,6 +441,61 @@ describe("verifyTargetForWizard", () => {
     );
     expect(result.status).toBe("ok");
   });
+
+  describe("Anthropic: the native models route", () => {
+    const anthropic = (): ProvidersWizardState => ({
+      ...withKey("openai-compatible", "anthropic"),
+      apiKeyBuffer: "sk-ant-wizard-secret",
+      baseUrlLine: "https://api.anthropic.com",
+      chatModelLine: "claude-opus-5-5",
+    });
+
+    it("checks the key with GET /v1/models, x-api-key and anthropic-version", async () => {
+      const target = verifyTargetForWizard(anthropic());
+      expect(target).toMatchObject({ baseUrl: "https://api.anthropic.com", wire: "anthropic-messages" });
+      const fetchImpl = vi.fn(
+        async (_url: string, _init?: RequestInit) =>
+          new Response(JSON.stringify({ data: [{ id: "claude-opus-5-5" }] }), { status: 200 }),
+      );
+      const result = await verifyProviderKey(target!, { fetchImpl: fetchImpl as unknown as typeof fetch });
+      expect(result.status).toBe("ok");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchImpl.mock.calls[0]!;
+      expect(url).toBe("https://api.anthropic.com/v1/models");
+      expect(init?.method).toBe("GET");
+      expect(init?.body).toBeUndefined();
+      const headers = init?.headers as Record<string, string>;
+      expect(headers["x-api-key"]).toBe("sk-ant-wizard-secret");
+      expect(headers["anthropic-version"]).toBe("2026-10-21");
+      expect(headers.authorization).toBeUndefined();
+    });
+
+    it("sends the contract probe to the native Messages API", () => {
+      const probe = contractProbeTargetForWizard(anthropic());
+      expect(probe).toMatchObject({
+        kind: "target",
+        target: { baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5", wire: "anthropic-messages" },
+      });
+    });
+
+    it("reads a 401 as a rejected key, without the key in the detail", async () => {
+      const target = verifyTargetForWizard(anthropic())!;
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              type: "error",
+              error: { type: "authentication_error", message: "invalid x-api-key sk-ant-wizard-secret" },
+            }),
+            { status: 401 },
+          ),
+      );
+      const result = await verifyProviderKey(target, { fetchImpl: fetchImpl as unknown as typeof fetch });
+      expect(result).toMatchObject({ status: "invalid_key", httpStatus: 401, probedModel: null });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(result.detail).not.toContain("sk-ant-wizard-secret");
+    });
+  });
 });
 
 describe("the shared compat key and a server on another computer (ATO-1066)", () => {

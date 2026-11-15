@@ -3,8 +3,9 @@
  * instead of typing a base URL from memory.
  *
  * These are not new provider kinds: every preset resolves to the
- * existing `openai-compatible` kind with `baseUrl` filled in (Anthropic's
- * entry is then served by the native `anthropic` client, by its host). Model
+ * existing `openai-compatible` kind with `baseUrl` filled in, except one
+ * that names a native kind of its own (`nativeKind`: Anthropic saves a
+ * `kind: "anthropic"` entry). Model
  * lists still come from the server's own `/v1/models` (#31, #41), so
  * nothing here needs updating when a vendor ships a new model.
  *
@@ -91,6 +92,14 @@ export interface ProviderPreset {
   /** One-line hint shown under the label. */
   readonly note?: string;
   /**
+   * The config kind an entry saved from this preset gets instead of
+   * `openai-compatible`, for a service with a native client. That client
+   * authenticates and versions its requests itself, so the saved entry
+   * carries no `apiKeyHeader` / `headers`; the two fields above still
+   * describe how model discovery and the key check reach the service.
+   */
+  readonly nativeKind?: "anthropic";
+  /**
    * Set for services whose endpoint is per account (an Azure resource, an
    * AWS Region) or whose local port varies (Foundry Local, Lemonade), so
    * no single `baseUrl` serves everyone. `baseUrl` is then
@@ -148,13 +157,14 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     // `x-api-key`. `anthropic-version` is mandatory on every request and
     // is the header the API dates its wire format by — pinned, not
     // floating, so a future default cannot silently reshape responses.
-    // The saved entry is `openai-compatible` on exactly this host, which
-    // resolves to the native Messages client (`anthropic/anthropic-route.ts`):
+    // The saved entry is the native `anthropic` kind (Messages API):
     // Anthropic's OpenAI-compatible endpoint neither caches nor honours an
-    // effort. Entries saved with the old `2023-06-01` pin run on the
-    // current version too.
+    // effort. Older entries saved as `openai-compatible` on this host are
+    // routed to the native client at build time (`anthropic-route.ts`),
+    // and their old `2023-06-01` pin runs on the current version too.
     apiKeyHeader: "x-api-key",
     headers: { "anthropic-version": "2026-10-21" },
+    nativeKind: "anthropic",
     note: "Claude models through Anthropic's native Messages API",
   },
   {
@@ -397,6 +407,44 @@ export function cloudPresetForUrl(url: string): ProviderPreset | undefined {
       (preset.perAccountEndpoint?.hostPattern?.test(parsed.hostname) ?? false)
     );
   });
+}
+
+/** What an entry saved from a preset carries about its service (`presetEntryFields`). */
+export interface PresetEntryFields {
+  readonly kind: "openai-compatible" | "anthropic";
+  readonly baseUrl: string;
+  readonly apiKeyEnvVar: string;
+  readonly apiKeyHeader?: string;
+  readonly headers?: Record<string, string>;
+}
+
+/**
+ * The service half of the entry a preset saves, shared by the TUI wizard
+ * and `setup fusion` so both write the same entry: the kind, the URL
+ * (`baseUrl`, or the operator's own for a per-account preset), the
+ * preset's key variable and, for an `openai-compatible` entry, its header
+ * contract (cloned, so the frozen preset literal cannot be mutated
+ * through the saved entry). A native kind sends its own headers.
+ */
+export function presetEntryFields(
+  preset: ProviderPreset,
+  baseUrl: string = preset.baseUrl,
+): PresetEntryFields {
+  if (preset.nativeKind) {
+    return { kind: preset.nativeKind, baseUrl, apiKeyEnvVar: preset.envVar };
+  }
+  return {
+    kind: "openai-compatible",
+    baseUrl,
+    apiKeyEnvVar: preset.envVar,
+    ...(preset.apiKeyHeader ? { apiKeyHeader: preset.apiKeyHeader } : {}),
+    ...(preset.headers ? { headers: { ...preset.headers } } : {}),
+  };
+}
+
+/** The preset a native-kind entry belongs to (`kind: "anthropic"` → Anthropic). */
+export function presetForNativeKind(kind: string): ProviderPreset | undefined {
+  return PROVIDER_PRESETS.find((p) => p.nativeKind !== undefined && p.nativeKind === kind);
 }
 
 export function findProviderPreset(id: string): ProviderPreset | undefined {

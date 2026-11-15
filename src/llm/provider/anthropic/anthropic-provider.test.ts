@@ -528,3 +528,42 @@ describe("AnthropicProvider streaming", () => {
     expect(result.finishReason).toBe("length");
   });
 });
+
+describe("AnthropicProvider.describeImage", () => {
+  it("sends the image as a native base64 block to /v1/messages", async () => {
+    const sent: Sent[] = [];
+    const p = provider(
+      sent,
+      [json({ ...MESSAGE, content: [{ type: "text", text: "a red square" }] })],
+      { supportsVision: true },
+    );
+    const result = await p.describeImage({
+      prompt: "What is in this image?",
+      images: [{ id: 1, bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }],
+      temperature: 0.2,
+    });
+
+    expect(result.text).toBe("a red square");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(sent[0]!.headers["x-api-key"]).toBe("sk-ant-test");
+    expect(sent[0]!.headers["anthropic-version"]).toBe("2026-10-21");
+    expect(sent[0]!.body).toMatchObject({
+      model: "claude-fable-5-2",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+            { type: "text", text: "What is in this image?" },
+          ],
+        },
+      ],
+    });
+    // Chat-completions fields stay off the native wire.
+    for (const key of ["temperature", "max_completion_tokens", "stream"]) {
+      expect(sent[0]!.body).not.toHaveProperty(key);
+    }
+  });
+});

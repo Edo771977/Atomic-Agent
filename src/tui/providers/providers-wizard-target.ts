@@ -374,6 +374,8 @@ export function endpointForKind(
   baseUrl: string;
   apiPathPrefix: string;
   extraHeaders?: Record<string, string>;
+  /** Set for a preset with a native client (Anthropic's Messages API). */
+  wire?: "anthropic-messages";
 } {
   if (kind === "openrouter") {
     return {
@@ -397,8 +399,14 @@ export function endpointForKind(
       apiPathPrefix: GEMINI_API_PATH_PREFIX,
     };
   }
-  // The key check and the contract probe both post `<prefix>/chat/completions`.
   const baseUrl = baseUrlForWizard(wizard);
+  // A native Anthropic entry: the key check reads `/v1/models` and the
+  // contract probe posts `/v1/messages`, both with Anthropic's headers.
+  const preset = wizard.presetId ? findProviderPreset(wizard.presetId) : undefined;
+  if (preset?.nativeKind === "anthropic") {
+    return { baseUrl, apiPathPrefix: "/v1", wire: "anthropic-messages" };
+  }
+  // The key check and the contract probe both post `<prefix>/chat/completions`.
   return { baseUrl, apiPathPrefix: openAiChatPathPrefix(baseUrl) };
 }
 
@@ -443,5 +451,6 @@ export function verifyTargetForWizard(
     apiKey,
     probeModels,
     ...(endpoint.extraHeaders ? { extraHeaders: endpoint.extraHeaders } : {}),
+    ...(endpoint.wire ? { wire: endpoint.wire } : {}),
   };
 }
