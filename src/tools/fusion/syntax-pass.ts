@@ -92,7 +92,9 @@ export function syntaxPassFiles(
 }
 
 /**
- * Run the syntax pass over every `ok` row and fold the verdicts in.
+ * Run the syntax pass over every `ok` row, and every row that finished
+ * without a reply (`finishedWithoutReply`, which keeps its status and
+ * gets a failure in its notes), and fold the verdicts in.
  * Never throws: a checker that throws, or outlasts `budgetMs`
  * (`SYNTAX_PASS_BUDGET_MS`), leaves the rows `ok` with the reason on
  * their `syntax` summary, never a pass it did not make. The checkers
@@ -120,7 +122,9 @@ export async function runSyntaxPass(
   const absoluteOf = new Map<string, string>();
   const queued: string[] = [];
   for (const row of rows) {
-    if (row.status !== "ok") continue;
+    // A row that failed after writing files (issue #29) is checked too:
+    // a truncated file is exactly what it may have left behind.
+    if (row.status !== "ok" && row.finishedWithoutReply !== true) continue;
     const task = tasks.find((t) => t.id === row.id);
     const files: string[] = [];
     let outOfScope = 0;
@@ -241,6 +245,11 @@ export async function runSyntaxPass(
     };
     if (failed.length === 0) return { ...row, syntax };
     const error = describeSyntaxFailure(syntax);
+    // Already handed to the orchestrator unverified: the verdict goes in
+    // its note, and its own error (why the turn stopped) stays.
+    if (row.status !== "ok") {
+      return { ...row, syntax, notes: [...(row.notes ?? []), error] };
+    }
     return {
       ...row,
       status: "failed",

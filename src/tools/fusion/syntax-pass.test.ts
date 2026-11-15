@@ -110,6 +110,27 @@ describe("runSyntaxPass", () => {
     expect(runner.mock.calls[0]![0]).toEqual([join(dir, "bad.js")]);
   });
 
+  it("checks a row that finished without a reply and reports a failure in its note, keeping it handed back (#29 review)", async () => {
+    const [out] = await runSyntaxPass(
+      [
+        row({
+          status: "needs_orchestrator",
+          finishedWithoutReply: true,
+          error: "model returned an empty reply",
+          notes: ["finished without a reply; files changed: bad.js; unverified — read/check them before accepting"],
+          changes: [{ path: "bad.js", kind: "new", addedLines: 1, removedLines: 0 }],
+        }),
+      ],
+      [{ id: "t1", title: "Task", instructions: "x" }],
+      { runner: realRunner, workingDir: dir, roots: [dir], signal },
+    );
+    expect(out!.status).toBe("needs_orchestrator");
+    expect(out!.error).toBe("model returned an empty reply");
+    expect(out!.syntax!.failedFiles).toEqual(["bad.js"]);
+    expect(out!.notes).toContain("syntax: 1 file failed (bad.js)");
+    expect(formatDelegateOutput([out!], 8000)).toContain("syntax: 1 file failed (bad.js)");
+  });
+
   it("checks the declared files as well as the changed ones (a shell may have written them)", async () => {
     const runner = vi.fn(realRunner);
     const [out] = await runSyntaxPass(
