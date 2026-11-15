@@ -31,7 +31,12 @@ import {
 } from "../../llm/provider/openrouter/fetch-openrouter-chat-catalog.js";
 import { fetchOpenAiCompatModels } from "../../llm/provider/openai/fetch-openai-compat-models.js";
 import { fetchGeminiModels } from "../../llm/provider/gemini/fetch-gemini-models.js";
+import {
+  fetchAnthropicModels,
+  isNativeAnthropicEntry,
+} from "../../llm/provider/anthropic/anthropic-models.js";
 import { OPENAI_COMPAT_DEFAULT_BASE_URL } from "./providers-model-options.js";
+import { presetForNativeKind } from "./provider-presets.js";
 import { isProvidersAction } from "./providers-actions.js";
 import type { ProviderRow } from "./providers-panel-state.js";
 import { saveProviderWizardToConfig } from "./save-provider-wizard.js";
@@ -141,7 +146,9 @@ export class ProvidersOrchestrator {
     if (!id) return;
     const provider = resolved.providers.find((p) => p.id === id);
     const fileEntry = config.llm?.providers.find((e) => e.id === id);
-    if (!provider || provider.kind !== "openai-compatible") return;
+    if (!provider) return;
+    const native = provider.kind === "anthropic";
+    if (provider.kind !== "openai-compatible" && !native) return;
     const baseUrl = fileEntry?.baseUrl ?? OPENAI_COMPAT_DEFAULT_BASE_URL;
     // Every open gets a fresh generation so a response from a picker the
     // operator already closed (or reopened for the same provider) cannot
@@ -158,7 +165,9 @@ export class ProvidersOrchestrator {
       // `fileEntry` carries this service's header contract
       // (`apiKeyHeader` / `headers`) when it came from a preset, so
       // discovery authenticates exactly the way chat turns will.
-      const models = await fetchOpenAiCompatModels(baseUrl, apiKey, fileEntry);
+      const models = listsNatively(provider, fileEntry)
+        ? await fetchAnthropicModels(apiKey, fileEntry ?? provider)
+        : await fetchOpenAiCompatModels(baseUrl, apiKey, fileEntry);
       this.bus.emit({
         type: "providers_chat_model_picker_loaded",
         generation,
@@ -193,8 +202,12 @@ export class ProvidersOrchestrator {
     if (!id) return;
     const provider = resolved.providers.find((p) => p.id === id);
     const fileEntry = config.llm?.providers.find((e) => e.id === id);
-    if (!provider || !isCloudProviderKind(provider.kind)) return;
-    if (provider.kind !== "openai-compatible" && provider.kind !== "gemini")
+    if (!provider) return;
+    if (
+      provider.kind !== "openai-compatible" &&
+      provider.kind !== "gemini" &&
+      provider.kind !== "anthropic"
+    )
       return;
     const generation = ++this.inlineModelsGeneration;
     this.bus.emit({
@@ -210,7 +223,9 @@ export class ProvidersOrchestrator {
       const models =
         provider.kind === "gemini"
           ? await fetchGeminiModels(apiKey)
-          : await fetchOpenAiCompatModels(baseUrl, apiKey, fileEntry);
+          : listsNatively(provider, fileEntry)
+            ? await fetchAnthropicModels(apiKey, fileEntry ?? provider)
+            : await fetchOpenAiCompatModels(baseUrl, apiKey, fileEntry);
       this.bus.emit({
         type: "providers_inline_models_loaded",
         providerId: id,
@@ -557,6 +572,7 @@ export class ProvidersOrchestrator {
           ...createProvidersWizardState("configure", {
             providerId: id,
             kind,
+            entryKind: provider.kind,
             ...(fileEntry?.baseUrl ? { baseUrl: fileEntry.baseUrl } : {}),
             ...(chatModel ? { chatModel } : {}),
           }),
@@ -674,6 +690,18 @@ export class ProvidersOrchestrator {
  * Use `configureWizardKindForRow` to decide whether a row can be
  * configured — `subscription-cli` can, and is not one of these.
  */
+/**
+ * Whether a provider's models are listed the native Anthropic way
+ * (`x-api-key`, `anthropic-version`): a `kind: "anthropic"` entry, or an
+ * old `openai-compatible` one on `api.anthropic.com`.
+ */
+function listsNatively(
+  provider: { kind: string; baseUrl?: string | undefined },
+  fileEntry: UserLlmProviderEntry | undefined,
+): boolean {
+  return isNativeAnthropicEntry(fileEntry ?? provider);
+}
+
 export function isCloudProviderKind(kind: string): kind is ProvidersWizardKind {
   return (
     kind === "openrouter" ||
@@ -698,6 +726,10 @@ export function configureWizardKindForRow(row: {
   subscriptionCli?: { cli: string } | null;
 }): ProvidersWizardKind | null {
   if (isCloudProviderKind(row.kind)) return row.kind;
+  // A native kind a preset saves (Anthropic) is reconfigured on that
+  // preset's row, whose wizard kind is `openai-compatible`; pass the
+  // stored kind as `entryKind` so the run keeps the preset.
+  if (presetForNativeKind(row.kind)) return "openai-compatible";
   if (row.kind === SUBSCRIPTION_CLI_KIND && row.subscriptionCli) {
     return wizardKindForSubscriptionCli(row.subscriptionCli.cli);
   }

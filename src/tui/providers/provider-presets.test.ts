@@ -12,6 +12,8 @@ import {
   suggestPresetEntryId,
 } from "./provider-presets.js";
 import { buildProviderEntryFromWizard } from "./providers-wizard-build-entry.js";
+import { configureWizardKindForRow } from "./providers-orchestrator.js";
+import { createProvidersWizardState } from "./providers-wizard-state.js";
 
 describe("PROVIDER_PRESETS", () => {
   it("has unique ids", () => {
@@ -306,14 +308,43 @@ describe("Anthropic preset — outgoing request headers", () => {
     );
   }
 
-  it("survives the wizard save and the config.json round trip", () => {
+  it("survives the wizard save and the config.json round trip as a native entry", () => {
     const entry = entryAfterRestart();
-    expect(entry.apiKeyHeader).toBe("x-api-key");
-    expect(entry.headers).toEqual({ "anthropic-version": "2026-10-21" });
+    // An explicit native entry: the `anthropic` kind sends `x-api-key`
+    // and the current `anthropic-version` itself, so no header contract
+    // (and no version pin that would later go stale) is written.
+    expect(entry.kind).toBe("anthropic");
+    expect(entry.baseUrl).toBe("https://api.anthropic.com");
+    expect(entry.apiKeyHeader).toBeUndefined();
+    expect(entry.headers).toBeUndefined();
     // The key itself must NOT be in the entry — it stays in the env var
     // so it never lands in a config file.
     expect(entry.apiKeyEnvVar).toBe("ANTHROPIC_API_KEY");
     expect(entry.apiKey).toBeUndefined();
+  });
+
+  it("reopens a native entry on the preset, so a reconfigure keeps it native", () => {
+    // A hand-written entry under any id, with no baseUrl (the kind's default).
+    const row = { kind: "anthropic", subscriptionCli: null };
+    const kind = configureWizardKindForRow(row);
+    expect(kind).toBe("openai-compatible");
+    const wizard = createProvidersWizardState("configure", {
+      providerId: "claude",
+      kind: kind!,
+      entryKind: "anthropic",
+    });
+    expect(wizard.presetId).toBe("anthropic");
+    expect(wizard.baseUrlLine).toBe("https://api.anthropic.com");
+    const rebuilt = buildProviderEntryFromWizard({
+      kind: wizard.kind!,
+      presetId: wizard.presetId,
+      existingProviderId: "claude",
+      chatModelId: "",
+      embeddingChoiceId: "local",
+      customChatModel: "claude-opus-5-5",
+      baseUrl: wizard.baseUrlLine,
+    });
+    expect(rebuilt.entry).toMatchObject({ id: "claude", kind: "anthropic", apiKeyEnvVar: "ANTHROPIC_API_KEY" });
   });
 
   it("sends x-api-key and anthropic-version on model discovery", async () => {
@@ -360,7 +391,7 @@ describe("Anthropic preset — outgoing request headers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     registerBuiltInProviderKinds();
-    const factory = getProviderFactory("openai-compatible");
+    const factory = getProviderFactory("anthropic");
     expect(factory).toBeDefined();
     const provider = await factory!({
       entry: { ...entryAfterRestart(), apiKey: KEY },
@@ -371,8 +402,6 @@ describe("Anthropic preset — outgoing request headers", () => {
     const result = await provider.complete({ prompt: "hi" });
     expect(result.content).toBe("ok");
 
-    // The preset's entry is `openai-compatible` on api.anthropic.com,
-    // which resolves to the native kind (`anthropic-route.ts`).
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe("https://api.anthropic.com/v1/messages");
     const sent = new Headers(
       (fetchMock.mock.calls[0]?.[1] as RequestInit).headers as HeadersInit,

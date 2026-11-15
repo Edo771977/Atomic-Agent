@@ -5,6 +5,7 @@ import { OfflineNetworkError, isOfflineRefusal } from "../../offline-network.js"
 import { OpenAiHttpError, isModerationRefusal } from "../openai/openai-http.js";
 import { shouldAdvance } from "../../fallback/should-advance.js";
 import { AnthropicProvider } from "./anthropic-provider.js";
+import { ImageRejectedAsTooLargeError } from "../model-vision-rejections.js";
 
 type Sent = { url: string; headers: Record<string, string>; body: Record<string, unknown> };
 
@@ -526,5 +527,75 @@ describe("AnthropicProvider streaming", () => {
     const { result } = await drain(p, { prompt: "hi" });
     expect(result.truncated).toBe(true);
     expect(result.finishReason).toBe("length");
+  });
+});
+
+describe("AnthropicProvider.describeImage", () => {
+  it("sends the image as a native base64 block to /v1/messages", async () => {
+    const sent: Sent[] = [];
+    const p = provider(
+      sent,
+      [json({ ...MESSAGE, content: [{ type: "text", text: "a red square" }] })],
+      { supportsVision: true },
+    );
+    const result = await p.describeImage({
+      prompt: "What is in this image?",
+      images: [{ id: 1, bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }],
+      temperature: 0.2,
+    });
+
+    expect(result.text).toBe("a red square");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(sent[0]!.headers["x-api-key"]).toBe("sk-ant-test");
+    expect(sent[0]!.headers["anthropic-version"]).toBe("2026-10-21");
+    expect(sent[0]!.body).toMatchObject({
+      model: "claude-fable-5-2",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+            { type: "text", text: "What is in this image?" },
+          ],
+        },
+      ],
+    });
+    // Chat-completions fields stay off the native wire.
+    for (const key of ["temperature", "max_completion_tokens", "stream"]) {
+      expect(sent[0]!.body).not.toHaveProperty(key);
+    }
+  });
+
+  it("names an oversized image instead of marking the model blind", async () => {
+    const sent: Sent[] = [];
+    const p = provider(sent, [
+      json(
+        {
+          type: "error",
+          error: {
+            type: "invalid_request_error",
+            message:
+              "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: 6291456 bytes > 5242880 bytes",
+          },
+        },
+        400,
+      ),
+    ]);
+    expect(p.capabilities.visionSource).toBe("assumed");
+    const err = await p
+      .describeImage({
+        prompt: "x",
+        images: [{ id: 1, bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }],
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ImageRejectedAsTooLargeError);
+    expect((err as Error).message).toMatch(/image is too large/i);
+    expect((err as Error).message).toMatch(/vision\.maxImageBytes/);
+    expect((err as Error).message).toContain("5 MB maximum");
+    // One oversized image is not evidence the model cannot see.
+    expect(p.capabilities).toMatchObject({ vision: true, visionSource: "assumed" });
+    expect(sent).toHaveLength(1);
   });
 });

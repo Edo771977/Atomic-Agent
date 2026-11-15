@@ -49,13 +49,17 @@ import {
   renderPkgbuild,
   type PackageTarget,
 } from "./linux-packaging.js";
+import { betterSqlite3BindingPath } from "./bundle-targets.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 /** The ELF files of a bundle whose glibc requirements decide the package's dependency. */
 const ELF_FILES = [
   "atomic-agent",
-  "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+  // A bundle ships only its own architecture's prebuilt binding.
+  ...(["x64", "arm64"] as const).map(
+    (arch) => `node_modules/better-sqlite3/${betterSqlite3BindingPath({ platform: "linux", arch })}`,
+  ),
   "vendor/rg",
 ];
 

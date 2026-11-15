@@ -46,3 +46,40 @@ export function isImageRejection(
 
 const IMAGE_REJECTION_PATTERN =
   /image|vision|multimodal|modalit|validation failed|content.{0,40}(array|string)|not support|unsupported/i;
+
+/**
+ * Whether a failed describe request is the service refusing an image's
+ * size (the Messages API's per-image limit: `image exceeds 5 MB
+ * maximum`, or a 413 for the whole body). Checked before
+ * `isImageRejection`, whose `image` wording it also matches: one
+ * oversized image says nothing about whether the model can see.
+ */
+export function isImageSizeRejection(
+  status: number | null,
+  message: string,
+): boolean {
+  if (status === 413) return true;
+  if (status !== 400 && status !== 422) return false;
+  return IMAGE_SIZE_REJECTION_PATTERN.test(message);
+}
+
+const IMAGE_SIZE_REJECTION_PATTERN =
+  /image.{0,80}(exceeds|too large|too big|maximum (size|allowed))|(exceeds|too large).{0,40}image/i;
+
+/**
+ * A describe call the service refused because an image was too large.
+ * The message says what to change, keeping the service's own words
+ * (which name its limit) after it.
+ */
+export class ImageRejectedAsTooLargeError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly serviceMessage: string,
+  ) {
+    super(
+      `the image is too large for provider "${providerId}": lower vision.maxImageBytes ` +
+        `or crop/downscale the image before describing it (${serviceMessage})`,
+    );
+    this.name = "ImageRejectedAsTooLargeError";
+  }
+}

@@ -96,19 +96,46 @@ both paths agree:
 
 ## Preset and migration of old entries
 
-The `anthropic` preset still saves an `openai-compatible` entry on
-`https://api.anthropic.com` (now with `anthropic-version: 2026-10-21`).
-At provider construction, an `openai-compatible` entry whose host is
-exactly `api.anthropic.com` (with or without `/v1`, any letter case) is
-built as the native client (`anthropic-route.ts`); `config.json` is not
-rewritten, so key resolution (`ANTHROPIC_API_KEY` via `apiKeyEnvVar`),
-model mode and the wizard read it as before. A gateway, another
-Anthropic host or `qwen-openai-compatible` keeps chat completions.
-`kind: "anthropic"` can also be written explicitly (`baseUrl` optional;
-the key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
+The `anthropic` preset (`nativeKind: "anthropic"`) saves an explicit
+native entry: `kind: "anthropic"`, `baseUrl: https://api.anthropic.com`,
+`apiKeyEnvVar: ANTHROPIC_API_KEY`, and no `apiKeyHeader` / `headers`,
+since this kind sends `x-api-key` and the current `anthropic-version`
+itself. The TUI wizard and `setup fusion`'s key-only preset offer build
+it with the same `presetEntryFields`. Reconfiguring a native entry reopens
+it on the preset, so it stays native.
 
-Not moved: the wizard's key check and contract probe, and `describeImage`,
-still use Anthropic's OpenAI-compatible routes, which accept the same key.
+Entries saved before as `openai-compatible` on `https://api.anthropic.com`
+keep working: at provider construction one whose host is exactly
+`api.anthropic.com` (with or without `/v1`, any letter case) is built as
+the native client (`anthropic-route.ts`); `config.json` is not rewritten,
+so key resolution, model mode and the wizard read it as before (saving it
+again from the wizard writes the native kind). A gateway, another
+Anthropic host or `qwen-openai-compatible` keeps chat completions.
+`kind: "anthropic"` can also be written by hand (`baseUrl` optional; the
+key from `apiKey`, `apiKeyEnvVar` or `ANTHROPIC_API_KEY`).
+
+Around the turns, native entries (and the routed old ones) use the native
+API too:
+
+- model listing (wizard, LLM pane, `models search`, `setup fusion`):
+  `GET {base}/v1/models?limit=1000` with `x-api-key` and the settled
+  `anthropic-version` (`anthropic-models.ts`; the API pages 20 ids by
+  default);
+- the wizard's key check: that same `GET`, through the shared transport
+  (offline mode refuses it). 2xx accepts the key, 401/403 rejects it
+  (no balance when the body talks billing). It costs nothing and does
+  not prove the balance;
+- the contract probe: its rungs translated by `toAnthropicMessagesBody`
+  and posted to `/v1/messages`, the native stream read through
+  `createAnthropicSseTranslator`. It starts at the `auto` rung (a forced
+  rung would go out as `auto` too), so the verdict is that rung's;
+- `describeImage`: the shared describe body translated the same way, so
+  each image is a base64 `image` block, posted to `/v1/messages`. A
+  refusal of an image's size (a 400 naming the per-image maximum, or a
+  413) is `ImageRejectedAsTooLargeError`, which names
+  `vision.maxImageBytes` and never marks the model blind. The limit is
+  not checked before sending: the API's per-image maximum is not
+  recorded here, and `vision.maxImageBytes` (8 MiB) may sit above it.
 
 ## Effort and thinking
 
@@ -136,3 +163,40 @@ reasoning. Thinking text never becomes reply content.
 
 `reasoningControlFor` reports `effort` for this kind and `none` for an
 OpenAI-compatible route to an Anthropic host, which ignored the field.
+
+## How to verify on your machine
+
+Unit tests use fake responses only. To check the real API with your own
+key, run the live smoke test ([script](../../../scripts/smoke-anthropic.ts),
+not part of `npm test` or CI):
+
+```sh
+ANTHROPIC_API_KEY="sk-ant-..." npm run smoke:anthropic
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:ANTHROPIC_API_KEY="..."; npm run smoke:anthropic
+```
+
+It goes through `AnthropicProvider` on `claude-haiku-5-5` (`-- --model
+claude-fable-5-2` to pick another listed model) and prints PASS/FAIL for:
+the prompt cache (a ~2,000-token fixed system prompt sent twice; PASS when
+the second reply reports `cache_read_input_tokens`; the first's
+`cache_creation_input_tokens` is shown too), a tool round trip (one tool
+call, its result sent back, an answer that uses it), and, as information,
+output tokens at effort `low` against `medium`. It ends with the run's
+cost at the official prices. Before the first request it prices the worst
+case (every prefix written twice, every reply at its cap) and refuses
+above $0.25 unless `-- --max-usd <amount>` raises the cap (Fable 5.2's
+worst case is about $0.34); it also stops once the priced spend passes
+the cap. Without a key it prints these instructions and exits 3
+("skipped: no key", never read as a pass); in offline mode it refuses
+(exit 2); the key is never printed. Exit code 1 means a check failed.
+
+The official price table itself is checked against Anthropic's page with
+`npm run prices:anthropic` ([scripts README](../../../scripts/README.md)),
+from a source checkout. Once the table is over 90 days old `/usage` says
+"price list from <date>; check" and names the official pricing page, which
+a packaged install can open too.

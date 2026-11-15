@@ -34,6 +34,9 @@
  *     skipped when rung 1 streamed, because a stream already proved the
  *     route takes `tools` and the control could only mislead.
  *
+ * The native Anthropic Messages wire starts at rung 2: its body sends
+ * `auto` whatever the choice, so a forced rung would repeat rung 2.
+ *
  * Rung 3 is what turns "HTTP 400" into a sentence an operator can act
  * on, and it is deliberately an experiment rather than a regex over the
  * error body: provider wording for "tools unsupported" is not stable,
@@ -48,6 +51,13 @@
  */
 
 import { openAiFetch, type OpenAiHttpDeps } from "../openai/openai-http.js";
+import { toAnthropicMessagesBody } from "../anthropic/anthropic-messages-body.js";
+import { createAnthropicSseTranslator } from "../anthropic/anthropic-messages-response.js";
+import {
+  ANTHROPIC_MESSAGES_PATH,
+  anthropicHeaders,
+  normalizeAnthropicBaseUrl,
+} from "../anthropic/anthropic-provider.js";
 import {
   modelParamProfile,
   resolveTemperature,
@@ -159,52 +169,60 @@ export async function runProviderContractProbe(
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     });
 
-  // Rung 1 — the real contract, forced.
-  const forced = await run(probeBody(target, model, "required_named"));
-  if (forced.kind === "aborted") {
-    return emit(forced.status, null, "required_named", forced.detail);
-  }
   // What rung 1 left open, in the two shapes rung 2 has to tell apart.
-  // Exactly one of these is set by the time rung 2 runs; anything else
-  // rung 1 saw was already the verdict and returned above.
+  // At most one of these is set by the time rung 2 runs; anything else
+  // rung 1 saw was already the verdict and returned.
   let forcedRefusal: { httpStatus: number; body: string } | null = null;
   let forcedIgnored: { httpStatus: number; detail: string } | null = null;
-  if (forced.kind === "stream") {
-    const forcedStatus = classifyProbeStream(
-      forced.observation,
-      "required_named",
-    );
-    if (forcedStatus !== "forced_tool_choice_ignored") {
-      return emit(
-        forcedStatus,
-        forced.httpStatus,
-        "required_named",
-        streamDetail(forced.observation),
-      );
+
+  // The native Messages wire has no forced rung: the body translator sends
+  // `auto` for any choice (forcing a tool is a 400 on current Claude
+  // models), so rung 1 would be rung 2's request. A prose answer to it
+  // read as "ignores a forced choice" and paid for a second, identical
+  // request. The verdict comes from the auto rung alone.
+  if (target.wire !== "anthropic-messages") {
+    // Rung 1 — the real contract, forced.
+    const forced = await run(probeBody(target, model, "required_named"));
+    if (forced.kind === "aborted") {
+      return emit(forced.status, null, "required_named", forced.detail);
     }
-    // The route took `tool_choice` and then answered prose anyway. That
-    // is a real observation about the route, but it is not yet an
-    // answer about Atomic: turns never force a tool (`step-executor`
-    // sends `auto`), so what still has to be settled is whether this
-    // route emits tool calls in the mode it will actually be run in.
-    forcedIgnored = {
-      httpStatus: forced.httpStatus,
-      detail: streamDetail(forced.observation),
-    };
-  } else {
-    const forcedStatus = classifyContractProbeHttpFailure(
-      forced.httpStatus,
-      forced.body,
-    );
-    if (contractProbeFailureIsTerminal(forcedStatus)) {
-      return emit(
-        forcedStatus,
-        forced.httpStatus,
+    if (forced.kind === "stream") {
+      const forcedStatus = classifyProbeStream(
+        forced.observation,
         "required_named",
+      );
+      if (forcedStatus !== "forced_tool_choice_ignored") {
+        return emit(
+          forcedStatus,
+          forced.httpStatus,
+          "required_named",
+          streamDetail(forced.observation),
+        );
+      }
+      // The route took `tool_choice` and then answered prose anyway. That
+      // is a real observation about the route, but it is not yet an
+      // answer about Atomic: turns never force a tool (`step-executor`
+      // sends `auto`), so what still has to be settled is whether this
+      // route emits tool calls in the mode it will actually be run in.
+      forcedIgnored = {
+        httpStatus: forced.httpStatus,
+        detail: streamDetail(forced.observation),
+      };
+    } else {
+      const forcedStatus = classifyContractProbeHttpFailure(
+        forced.httpStatus,
         forced.body,
       );
+      if (contractProbeFailureIsTerminal(forcedStatus)) {
+        return emit(
+          forcedStatus,
+          forced.httpStatus,
+          "required_named",
+          forced.body,
+        );
+      }
+      forcedRefusal = { httpStatus: forced.httpStatus, body: forced.body };
     }
-    forcedRefusal = { httpStatus: forced.httpStatus, body: forced.body };
   }
 
   // Rung 2 — same payload, no forcing. This is the request a turn makes.
@@ -320,10 +338,15 @@ async function runRung(
   }
   ctx.state.requests += 1;
 
+  const native = target.wire === "anthropic-messages";
+  const extraHeaders = native
+    ? anthropicHeaders(target.extraHeaders)
+    : (target.extraHeaders ?? {});
   const deps: OpenAiHttpDeps = {
-    baseUrl: target.baseUrl,
+    baseUrl: native ? normalizeAnthropicBaseUrl(target.baseUrl) : target.baseUrl,
     apiKey: target.apiKey,
-    extraHeaders: target.extraHeaders ?? {},
+    ...(native ? { apiKeyHeader: "x-api-key" } : {}),
+    extraHeaders,
     requestTimeoutMs: remainingMs,
     fetchImpl: ctx.fetchImpl ?? fetch,
     label: target.label,
@@ -333,8 +356,10 @@ async function runRung(
   try {
     res = await openAiFetch(
       deps,
-      `${target.apiPathPrefix}/chat/completions`,
-      body,
+      native ? ANTHROPIC_MESSAGES_PATH : `${target.apiPathPrefix}/chat/completions`,
+      native
+        ? toAnthropicMessagesBody(body, { apiVersion: extraHeaders["anthropic-version"] })
+        : body,
       { ...(ctx.signal ? { signal: ctx.signal } : {}) },
       true,
       "POST",
@@ -380,7 +405,9 @@ async function runRung(
   if (sse.aborted || ctx.signal?.aborted) {
     return { kind: "aborted", status: "cancelled", detail: "probe cancelled" };
   }
-  const observation = accumulateProbeStream(sse.text);
+  const observation = accumulateProbeStream(
+    native ? translateAnthropicSse(sse.text) : sse.text,
+  );
   // Our own deadline is not a route defect. A single byte is enough to
   // put text in the buffer — OpenRouter sends `: OPENROUTER PROCESSING`
   // while a request is queued, and a reasoning model can take seconds
@@ -439,6 +466,12 @@ function probeBody(
       ? { type: "function", function: { name: CONTRACT_PROBE_TOOL_NAME } }
       : "auto";
   return body;
+}
+
+/** A buffered native Messages stream as the OpenAI chunks the accumulator reads. */
+function translateAnthropicSse(text: string): string {
+  const translator = createAnthropicSseTranslator();
+  return translator.push(text) + translator.flush();
 }
 
 /**

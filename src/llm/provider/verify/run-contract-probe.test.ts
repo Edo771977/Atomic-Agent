@@ -497,3 +497,116 @@ describe("runProviderContractProbe", () => {
     await expect(running).resolves.toMatchObject({ status: "cancelled" });
   });
 });
+
+describe("runProviderContractProbe on the native Anthropic Messages API", () => {
+  const ANTHROPIC: ProviderContractProbeTarget = {
+    label: "Anthropic (Claude)",
+    baseUrl: "https://api.anthropic.com",
+    apiPathPrefix: "/v1",
+    apiKey: "sk-ant-probe-secret",
+    model: "claude-opus-5-5",
+    wire: "anthropic-messages",
+  };
+
+  const event = (name: string, data: unknown): string =>
+    `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+
+  const NATIVE_TOOL_STREAM =
+    event("message_start", {
+      type: "message_start",
+      message: { id: "msg_1", model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 0 } },
+    }) +
+    event("content_block_start", {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: "toolu_1", name: CONTRACT_PROBE_TOOL_NAME, input: {} },
+    }) +
+    event("content_block_delta", {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "input_json_delta", partial_json: '{"ok":true}' },
+    }) +
+    event("content_block_stop", { type: "content_block_stop", index: 0 }) +
+    event("message_delta", {
+      type: "message_delta",
+      delta: { stop_reason: "tool_use" },
+      usage: { output_tokens: 5 },
+    }) +
+    event("message_stop", { type: "message_stop" });
+
+  it("posts a Messages body to /v1/messages and reads the native stream", async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(NATIVE_TOOL_STREAM, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.status).toBe("tools_supported");
+    expect(result.requests).toBe(1);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://api.anthropic.com/v1/messages");
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-api-key"]).toBe("sk-ant-probe-secret");
+    expect(headers["anthropic-version"]).toBe("2026-10-21");
+    expect(headers.authorization).toBeUndefined();
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: "claude-opus-5-5",
+      max_tokens: 1024,
+      stream: true,
+      messages: [{ role: "user", content: [{ type: "text" }] }],
+      tools: [{ name: CONTRACT_PROBE_TOOL_NAME, input_schema: { type: "object" } }],
+      // Forcing a tool is a 400 on current Claude models; turns send auto.
+      tool_choice: { type: "auto" },
+    });
+    // No chat-completions fields leak onto the native wire.
+    for (const key of ["stream_options", "parallel_tool_calls", "temperature"]) {
+      expect(body).not.toHaveProperty(key);
+    }
+  });
+
+  it("probes the native wire in auto only: a prose answer is one request, not an ignored forcing", async () => {
+    const PROSE_STREAM =
+      event("message_start", {
+        type: "message_start",
+        message: { id: "msg_2", model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 0 } },
+      }) +
+      event("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) +
+      event("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Sure." } }) +
+      event("content_block_stop", { type: "content_block_stop", index: 0 }) +
+      event("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } }) +
+      event("message_stop", { type: "message_stop" });
+    const fetchImpl = vi.fn(
+      async () => new Response(PROSE_STREAM, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.status).not.toBe("forced_tool_choice_ignored");
+    expect(result.status).toBe("inconclusive_no_tool_call");
+    expect(result.toolChoiceMode).toBe("auto");
+    expect(result.requests).toBe(1);
+  });
+
+  it("reports a native tool call as the auto rung's verdict", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(NATIVE_TOOL_STREAM, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result).toMatchObject({ status: "tools_supported", toolChoiceMode: "auto", requests: 1 });
+  });
+
+  it("reads a refused key from the native error body, redacted", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "authentication_error", message: "invalid x-api-key sk-ant-probe-secret" },
+          }),
+          { status: 401 },
+        ),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.status).toBe("endpoint_auth_failed");
+    expect(result.detail).not.toContain("sk-ant-probe-secret");
+  });
+});

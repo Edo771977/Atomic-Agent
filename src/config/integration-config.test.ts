@@ -64,15 +64,15 @@ describe("integration configuration ownership", () => {
   it("keeps direct null clearing distinct from the composing default fallback", () => {
     const saved = USER_CONFIG_DEFAULTS.notifications;
     try {
-      USER_CONFIG_DEFAULTS.notifications = { downloads: { channel: "email" } };
+      USER_CONFIG_DEFAULTS.notifications = { downloads: { channel: "email" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } };
       expect(parseDownloadNotifyChannel(null, "channel")).toBeNull();
       expect(parseDownloadNotifyChannel(undefined, "channel")).toBeNull();
       expect(parseNotificationsConfig({ channel: null }, () => USER_CONFIG_DEFAULTS.notifications))
-        .toEqual({ downloads: { channel: "email" } });
+        .toEqual({ downloads: { channel: "email" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } });
       expect(parseUserConfigFile({ notifications: { downloads: { channel: null } } }).notifications)
-        .toEqual({ downloads: { channel: "email" } });
+        .toEqual({ downloads: { channel: "email" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } });
       expect(parseUserConfigFile({ notifications: { downloads: { channel: "off" } } }).notifications)
-        .toEqual({ downloads: { channel: "off" } });
+        .toEqual({ downloads: { channel: "off" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } });
     } finally {
       USER_CONFIG_DEFAULTS.notifications = saved;
     }
@@ -84,15 +84,15 @@ describe("integration configuration ownership", () => {
     const parsed = parseNotificationsConfig({
       get channel() {
         events.push("raw.channel");
-        defaults = { downloads: { channel: "discord" } };
+        defaults = { downloads: { channel: "discord" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } };
         return undefined;
       },
     }, () => {
       events.push("defaults");
       return defaults;
     });
-    expect(events).toEqual(["raw.channel", "defaults"]);
-    expect(parsed).toEqual({ downloads: { channel: "discord" } });
+    expect(events.slice(0, 2)).toEqual(["raw.channel", "defaults"]);
+    expect(parsed).toEqual({ downloads: { channel: "discord" }, approvalPending: { enabled: false, afterMinutes: 5, channel: "auto" } });
   });
 
   it("keeps the notifications downloads reference prepared before late TUI validation", () => {
@@ -235,5 +235,51 @@ describe("integration configuration ownership", () => {
     expect(a.pendingVerification).not.toHaveProperty("extra");
     const n = parseNotificationsConfig({}, createNotificationsDefaults);
     expect(n.downloads).not.toBe(parseNotificationsConfig({}, createNotificationsDefaults).downloads);
+  });
+});
+
+describe("notifications.approvalPending", () => {
+  it("is off by default, five minutes, any running channel", () => {
+    expect(createNotificationsDefaults().approvalPending).toEqual({
+      enabled: false,
+      afterMinutes: 5,
+      channel: "auto",
+    });
+    expect(parseUserConfigFile({}).notifications.approvalPending).toEqual({
+      enabled: false,
+      afterMinutes: 5,
+      channel: "auto",
+    });
+  });
+
+  it("parses an opt-in and keeps the download block beside it", () => {
+    const parsed = parseUserConfigFile({
+      notifications: {
+        downloads: { channel: "off" },
+        approvalPending: { enabled: true, afterMinutes: 12, channel: "discord" },
+      },
+    }).notifications;
+    expect(parsed).toEqual({
+      downloads: { channel: "off" },
+      approvalPending: { enabled: true, afterMinutes: 12, channel: "discord" },
+    });
+    expect(
+      parseUserConfigFile({ notifications: { approvalPending: { enabled: true } } })
+        .notifications.approvalPending,
+    ).toEqual({ enabled: true, afterMinutes: 5, channel: "auto" });
+  });
+
+  it("refuses less than one minute, a non-integer and an unknown channel", () => {
+    for (const afterMinutes of [0, -3, 1.5, "soon"]) {
+      expect(captureError(() =>
+        parseUserConfigFile({ notifications: { approvalPending: { afterMinutes } } }),
+      ).message).toContain("notifications.approvalPending.afterMinutes");
+    }
+    expect(captureError(() =>
+      parseUserConfigFile({ notifications: { approvalPending: { channel: "email" } } }),
+    ).message).toContain("notifications.approvalPending.channel");
+    expect(captureError(() =>
+      parseUserConfigFile({ notifications: { approvalPending: { enabled: "maybe" } } }),
+    ).message).toContain("notifications.approvalPending.enabled");
   });
 });

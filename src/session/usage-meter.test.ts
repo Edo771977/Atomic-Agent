@@ -17,6 +17,7 @@ import {
   type SessionUsageState,
 } from "./usage-meter.js";
 import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-snapshot.js";
+import { ANTHROPIC_OFFICIAL_PRICES_DATE } from "../llm/provider/official-prices/anthropic-official-prices.js";
 
 const NOW = new Date(2026, 10, 6, 12, 0, 0).getTime();
 const usage = { promptTokens: 1_000_000, completionTokens: 100_000, totalTokens: 1_100_000 };
@@ -252,6 +253,20 @@ describe("formatUsageReport", () => {
     expect(text).toContain(`prices from the bundled models.dev snapshot of ${MODELS_DEV_SNAPSHOT_DATE}, an estimate`);
   });
 
+
+  it("asks for a price refresh once the official Anthropic list is over 90 days old", () => {
+    const state = { ...EMPTY_SESSION_USAGE, costUsd: 1, pricedCalls: 1, costSources: ["official" as const] };
+    const listed = Date.parse(`${ANTHROPIC_OFFICIAL_PRICES_DATE}T00:00:00Z`);
+    const day = 24 * 60 * 60 * 1000;
+    const fresh = formatUsageReport(state, listed + 90 * day);
+    expect(fresh).toContain(`prices from Anthropic's official price list of ${ANTHROPIC_OFFICIAL_PRICES_DATE})`);
+    expect(fresh).not.toContain("check https://");
+    const stale = formatUsageReport(state, listed + 91 * day);
+    expect(stale).toContain(
+      `(price list from ${ANTHROPIC_OFFICIAL_PRICES_DATE}; check https://platform.claude.com/docs/en/about-claude/pricing)`,
+    );
+    expect(stale).not.toContain("npm run");
+  });
 
   it("says plainly when there is no limit reading", () => {
     const text = formatUsageReport(undefined, NOW);

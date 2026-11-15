@@ -2,7 +2,10 @@ import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import { normalizeOpenAiBaseUrl } from "../../llm/provider/openai/normalize-openai-base-url.js";
 import {
   findProviderPreset,
+  presetEntryFields,
   suggestPresetEntryId,
+  type PresetEntryFields,
+  type ProviderPreset,
 } from "./provider-presets.js";
 import {
   GEMINI_DEFAULT_CHAT_MODEL,
@@ -68,6 +71,35 @@ function providerIdForWizardSave(input: {
   return baseIdForKind(input.kind);
 }
 
+/**
+ * `presetEntryFields`, except that a native-kind preset (Anthropic) only
+ * makes an entry native on the service's own host, or when the entry
+ * already was native (a Messages API gateway). An `openai-compatible`
+ * entry named `anthropic` that points at a proxy speaks chat completions
+ * there: switching it to the native kind would post `/v1/messages` to
+ * the proxy. It stays compatible and keeps its own header contract (the
+ * reconfigure carries the stored one over), with the preset's key
+ * variable as its default.
+ */
+function wizardPresetFields(
+  preset: ProviderPreset,
+  baseUrl: string,
+  storedKind: string | undefined,
+): PresetEntryFields {
+  const fields = presetEntryFields(preset, baseUrl);
+  if (!preset.nativeKind || storedKind === preset.nativeKind) return fields;
+  if (hostOf(baseUrl) === hostOf(preset.baseUrl)) return fields;
+  return { kind: "openai-compatible", baseUrl, apiKeyEnvVar: preset.envVar };
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function isCuratedCatalogKind(kind: ProvidersWizardKind): boolean {
   return kind === "openrouter" || kind === "aimlapi";
 }
@@ -85,6 +117,8 @@ export function buildProviderEntryFromWizard(input: {
   existingProviderId?: string | null;
   /** Ids already in config, so an added preset picks a free one. */
   takenProviderIds?: readonly string[];
+  /** Kind of the stored entry being reconfigured, as written in config.json. */
+  storedKind?: string;
 }): BuiltWizardProvider {
   const id = providerIdForWizardSave(input);
   const subscriptionCli = subscriptionCliForWizardKind(input.kind);
@@ -133,33 +167,27 @@ export function buildProviderEntryFromWizard(input: {
       : input.customEmbeddingModel?.trim();
   }
 
+  const baseUrl =
+    input.kind === "openai-compatible"
+      ? normalizeOpenAiBaseUrl(input.baseUrl ?? "") ||
+        OPENAI_COMPAT_DEFAULT_BASE_URL
+      : undefined;
   const entry: UserLlmProviderEntry = {
     id,
     kind: input.kind,
     defaultChatModel: chatModel,
     ...(defaultEmbeddingModel ? { defaultEmbeddingModel } : {}),
-    ...(input.kind === "openai-compatible"
-      ? {
-          baseUrl:
-            normalizeOpenAiBaseUrl(input.baseUrl ?? "") ||
-            OPENAI_COMPAT_DEFAULT_BASE_URL,
-        }
-      : {}),
-    // The preset's env var and header contract both ride on the entry.
-    // The env var so two services never resolve one shared key (see
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    // The preset's kind, env var and header contract ride on the entry
+    // (`presetEntryFields`, shared with `setup fusion`). The env var so
+    // two services never resolve one shared key (see
     // `resolveLlmProviderApiKey`); the headers because the entry — not
     // the build-time preset table — is what every later request is built
-    // from. Copying them here is what makes the override survive a
-    // restart: `parseLlmProviderEntry` reads both back out of
-    // `config.json`, and `registerBuiltInProviderKinds` hands them to the
-    // provider. `headers` is cloned so the frozen preset literal cannot
-    // be mutated through the saved entry.
-    ...(input.kind === "openai-compatible" && preset
-      ? {
-          apiKeyEnvVar: preset.envVar,
-          ...(preset.apiKeyHeader ? { apiKeyHeader: preset.apiKeyHeader } : {}),
-          ...(preset.headers ? { headers: { ...preset.headers } } : {}),
-        }
+    // from, and `parseLlmProviderEntry` reads them back out of
+    // `config.json`. A preset with a native kind (Anthropic) saves that
+    // kind, whose client sends its own headers.
+    ...(baseUrl !== undefined && preset
+      ? wizardPresetFields(preset, baseUrl, input.storedKind)
       : {}),
   };
 

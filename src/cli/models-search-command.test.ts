@@ -366,17 +366,38 @@ describe("runModelsSearch", () => {
         true,
       );
 
+      // The old compat entry on api.anthropic.com runs on the native
+      // client, so it lists the native way too: the current version
+      // (the old preset's pin counts as unset) and the largest page.
       expect(fetchMock.mock.calls[0]?.[0]).toBe(
-        "https://api.anthropic.com/v1/models",
+        "https://api.anthropic.com/v1/models?limit=1000",
       );
       expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
         "x-api-key": "sk-ant-search-headers",
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2026-10-21",
       });
       expect(hits).toEqual([
         { providerId: "anthropic", id: "claude-opus-5" },
         { providerId: "anthropic", id: "claude-sonnet-5" },
       ]);
+    });
+
+    it("lists a native anthropic entry without baseUrl on the default host", async () => {
+      const fetchMock = vi.fn(
+        async (_url: string, _init?: RequestInit) =>
+          new Response(JSON.stringify({ data: [{ type: "model", id: "claude-opus-5-5" }] }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const hits = await collectHits(
+        [{ id: "claude", kind: "anthropic", apiKey: "sk-ant-native-search" }],
+        true,
+      );
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.anthropic.com/v1/models?limit=1000");
+      expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+        "x-api-key": "sk-ant-native-search",
+        "anthropic-version": "2026-10-21",
+      });
+      expect(hits).toEqual([{ providerId: "claude", id: "claude-opus-5-5" }]);
     });
   });
 

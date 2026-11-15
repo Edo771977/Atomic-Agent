@@ -12,6 +12,8 @@ export type {
   TelegramConfig,
   NotificationsConfig,
   DownloadNotifyChannelSetting,
+  ApprovalPendingNotifyConfig,
+  ApprovalPendingNotifyChannel,
   AtomicMailConfig,
   TelegramParseMode,
   UserConfigFile,

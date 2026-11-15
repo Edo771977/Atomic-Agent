@@ -144,7 +144,9 @@ export function envHintForWizard(wizard: ProvidersWizardState): string {
   const preset = wizard.presetId
     ? findProviderPreset(wizard.presetId)
     : undefined;
-  if (preset) return preset.envVar;
+  if (preset) {
+    return ownPresetKeyEnvVar(preset, storedEntryForWizard(wizard)) ?? preset.envVar;
+  }
   // ATO-1066: a key for an endpoint the shared variables are never sent
   // to (another computer on the network, plain http:// off this machine)
   // gets a variable of its own (`saveProviderWizardToConfig`); naming the
@@ -158,6 +160,24 @@ export function envHintForWizard(wizard: ProvidersWizardState): string {
   if (wizard.kind === "aimlapi") return "AIMLAPI_API_KEY";
   if (wizard.kind === "gemini") return "GEMINI_API_KEY";
   return "OPENAI_COMPAT_API_KEY";
+}
+
+/**
+ * The variable a preset entry being reconfigured keeps instead of the
+ * preset's: one the operator gave it (a second Anthropic account
+ * `claude-work` on `WORK_KEY`), so the key screen names it and the save
+ * writes a typed key there, never over the preset's variable and so the
+ * operator's other account. A shared OPENAI_* name is not the entry's
+ * own; the preset's variable replaces it.
+ */
+export function ownPresetKeyEnvVar(
+  preset: { readonly envVar: string },
+  stored: UserLlmProviderEntry | undefined,
+): string | undefined {
+  const own = stored?.apiKeyEnvVar;
+  return own !== undefined && own !== preset.envVar && !isSharedCompatKeyVar(own)
+    ? own
+    : undefined;
 }
 
 /** `.env` variable for the key of a server on another computer: `custom-192-168-1-20-8080` -> `ATOMIC_AGENT_KEY_CUSTOM_192_168_1_20_8080`. */
@@ -374,6 +394,8 @@ export function endpointForKind(
   baseUrl: string;
   apiPathPrefix: string;
   extraHeaders?: Record<string, string>;
+  /** Set for a preset with a native client (Anthropic's Messages API). */
+  wire?: "anthropic-messages";
 } {
   if (kind === "openrouter") {
     return {
@@ -397,8 +419,14 @@ export function endpointForKind(
       apiPathPrefix: GEMINI_API_PATH_PREFIX,
     };
   }
-  // The key check and the contract probe both post `<prefix>/chat/completions`.
   const baseUrl = baseUrlForWizard(wizard);
+  // A native Anthropic entry: the key check reads `/v1/models` and the
+  // contract probe posts `/v1/messages`, both with Anthropic's headers.
+  const preset = wizard.presetId ? findProviderPreset(wizard.presetId) : undefined;
+  if (preset?.nativeKind === "anthropic") {
+    return { baseUrl, apiPathPrefix: "/v1", wire: "anthropic-messages" };
+  }
+  // The key check and the contract probe both post `<prefix>/chat/completions`.
   return { baseUrl, apiPathPrefix: openAiChatPathPrefix(baseUrl) };
 }
 
@@ -443,5 +471,6 @@ export function verifyTargetForWizard(
     apiKey,
     probeModels,
     ...(endpoint.extraHeaders ? { extraHeaders: endpoint.extraHeaders } : {}),
+    ...(endpoint.wire ? { wire: endpoint.wire } : {}),
   };
 }

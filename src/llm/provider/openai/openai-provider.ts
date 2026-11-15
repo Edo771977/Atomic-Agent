@@ -76,7 +76,9 @@ import { jsonSchemaToolModes } from "./json-schema-tool-mode.js";
 import { normalizeToolSchemaBooleans } from "./tool-schema-booleans.js";
 import { findToolBehindSchemaError } from "./tool-schema-rejection.js";
 import {
+  ImageRejectedAsTooLargeError,
   isImageRejection,
+  isImageSizeRejection,
   markModelCannotSee,
   modelCannotSee,
 } from "../model-vision-rejections.js";
@@ -1115,9 +1117,16 @@ export class OpenAiProvider implements LlmProvider {
           ...(this.bodyOptions.modelParams
             ? { modelParams: this.bodyOptions.modelParams }
             : {}),
+          ...(this.wire ? { wire: this.wire } : {}),
         },
       );
     } catch (error) {
+      if (
+        error instanceof OpenAiHttpError &&
+        isImageSizeRejection(error.status, error.message)
+      ) {
+        throw new ImageRejectedAsTooLargeError(this.id, error.message);
+      }
       // Only a model nobody described learns from a rejection: an
       // operator's `supportsVision` or a catalogue row is not overruled
       // by one 400, and its error goes back as the service wrote it.

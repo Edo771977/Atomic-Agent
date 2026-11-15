@@ -3,7 +3,10 @@ import type { ResolvedModel } from "../llm/provider/model-resolver.js";
 import type { RateLimitWindow } from "../llm/provider/rate-limits.js";
 import { estimateUsageCostUsd } from "../llm/provider/usage-cost.js";
 import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-snapshot.js";
-import { ANTHROPIC_OFFICIAL_PRICES_DATE } from "../llm/provider/official-prices/anthropic-official-prices.js";
+import {
+  ANTHROPIC_OFFICIAL_PRICES_DATE,
+  anthropicOfficialPricesStaleNote,
+} from "../llm/provider/official-prices/anthropic-official-prices.js";
 import type { DailySpendView } from "./daily-spend.js";
 
 /**
@@ -413,7 +416,7 @@ export function formatUsageReport(
     if (state.pricedCalls > 0) {
       lines.push(
         `  cost: ${formatUsd(state.costUsd)} over ${plural(state.pricedCalls, "priced call")}` +
-          ` (prices from ${state.costSources.map(sourceLabel).join(", ")})`,
+          ` (prices from ${state.costSources.map((source) => sourceLabel(source, now)).join(", ")})`,
       );
     }
     if (state.unpricedCalls > 0) {
@@ -458,7 +461,7 @@ export function formatUsageReport(
   return lines.join("\n");
 }
 
-function sourceLabel(source: CostSource): string {
+function sourceLabel(source: CostSource, now: number): string {
   switch (source) {
     case "provider":
       return "the provider's bill";
@@ -471,8 +474,13 @@ function sourceLabel(source: CostSource): string {
       return `the bundled models.dev snapshot of ${MODELS_DEV_SNAPSHOT_DATE}, an estimate`;
     case "live":
       return "the provider's live price list";
-    case "official":
-      return `Anthropic's official price list of ${ANTHROPIC_OFFICIAL_PRICES_DATE}`;
+    case "official": {
+      // Copied by hand from Anthropic's page: past 90 days, ask for a check.
+      const stale = anthropicOfficialPricesStaleNote(now);
+      return stale === undefined
+        ? `Anthropic's official price list of ${ANTHROPIC_OFFICIAL_PRICES_DATE}`
+        : `Anthropic's official price list ${stale}`;
+    }
   }
 }
 

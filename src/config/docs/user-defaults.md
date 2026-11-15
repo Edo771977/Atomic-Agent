@@ -262,6 +262,9 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 79.
 ## notifications
 
 - `notifications.downloads.channel` (default `null`).
+- `notifications.approvalPending.enabled` (default `false`; `true` sends one plain message per approval prompt that has waited `afterMinutes`, see [approval pending notifications](../../notifications/README.md)).
+- `notifications.approvalPending.afterMinutes` (default `5`; whole minutes, 1 to 1440).
+- `notifications.approvalPending.channel` (default `"auto"`; `"telegram"`, `"discord"`, or `"auto"` for Telegram when it is up and paired, else Discord).
 
 ## atomicMail
 

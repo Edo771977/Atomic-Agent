@@ -94,6 +94,7 @@ export function contractProbeTargetForWizard(
       // supportsParallelTools`).
       parallelToolCalls: getConfig().agent.maxParallelToolCalls > 1,
       ...(endpoint.extraHeaders ? { extraHeaders: endpoint.extraHeaders } : {}),
+      ...(endpoint.wire ? { wire: endpoint.wire } : {}),
     },
   };
 }

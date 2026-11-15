@@ -10,6 +10,7 @@ import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeS
 import { createInterruptedTurns } from "./interrupted-turns.js";
 import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition/runtime-turn-service.js";
 import { createIncognitoSessions } from "./incognito-sessions.js";
+import { installApprovalPendingNotifier } from "./composition/runtime-approval-pending.js";
 import { eraseManagedChatSlots, markPromptCachePrivate } from "../local-llm/index.js";
 import { createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
@@ -808,6 +809,7 @@ export async function createAgentRuntime(
   let discordChannelForShutdown: DiscordChannel | null = null;
   let swarmForShutdown: SwarmRegistry | null = null;
   let stopPluginMcpWatch: (() => void) | null = null;
+  let approvalPendingNotifier: { dispose(): void } | null = null;
   const turnState = prepareRuntimeTurnState();
   const { pendingSessionNamings, turnsInFlight } = turnState;
   // In-flight `/enhance` passes; shutdown aborts them beside naming.
@@ -822,6 +824,7 @@ export async function createAgentRuntime(
     get discordChannelForShutdown() { return discordChannelForShutdown; },
     get swarmForShutdown() { return swarmForShutdown; },
     get pluginMcpWatch() { return stopPluginMcpWatch; },
+    get approvalPendingNotifier() { return approvalPendingNotifier; },
     get consolidatorJob() { return consolidatorJob; },
     get taskStore() { return taskStore; },
     get analytics() { return observability.getAnalytics(); },
@@ -1091,6 +1094,18 @@ export async function createAgentRuntime(
     connectTelegram: (channel) => { telegramChannelForShutdown = channel; },
     connectDiscord: (channel) => { discordChannelForShutdown = channel; },
     connectSwarm: (swarm) => { swarmForShutdown = swarm; },
+  });
+  // `notifications.approvalPending`: a prompt left unanswered pings the
+  // owner once, through whichever of these channels is up at that moment.
+  approvalPendingNotifier = installApprovalPendingNotifier({
+    approvals,
+    readSettings: () => getConfig().notifications.approvalPending,
+    isIncognito: (id) => sessionStore.isIncognito(id),
+    anyIncognitoOpen: incognitoSessions.anyOpen,
+    isChannelOwned: (id) => approvalRouter.isRouted(id),
+    resolveTelegram: () => telegramChannelForShutdown,
+    resolveDiscord: () => discordChannelForShutdown,
+    logger,
   });
 
   // Deferred from the Scheduler construction site above: the first

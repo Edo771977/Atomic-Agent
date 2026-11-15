@@ -1383,6 +1383,68 @@ describe("TelegramChannel live-control surface", () => {
     });
   });
 
+  describe("sendOwnerNotice", () => {
+    it("never queues: a channel that is not up answers channel_not_up", async () => {
+      const { factory, state } = makeBotFactory();
+      const channel = new TelegramChannel({
+        runtime: fakeRuntime(),
+        config: makeConfig(dir, 42),
+        token: "1234:abcdef",
+        logger,
+        botFactory: factory,
+        lock: fakeLock().lock,
+      });
+      expect(await channel.sendOwnerNotice("waiting")).toBe("channel_not_up");
+      await channel.start();
+      // Nothing was held back for the transition to up.
+      expect(state.sendMessageCalls).toHaveLength(0);
+    });
+
+    it("answers not_paired without an owner", async () => {
+      const { factory, state } = makeBotFactory();
+      const channel = new TelegramChannel({
+        runtime: fakeRuntime(),
+        config: makeConfig(dir, null),
+        token: "1234:abcdef",
+        logger,
+        botFactory: factory,
+        lock: fakeLock().lock,
+      });
+      await channel.start();
+      expect(await channel.sendOwnerNotice("waiting")).toBe("not_paired");
+      expect(state.sendMessageCalls).toHaveLength(0);
+    });
+
+    it("sends the text as plain text to the owner's DM", async () => {
+      const { factory, state } = makeBotFactory();
+      const channel = new TelegramChannel({
+        runtime: fakeRuntime(),
+        config: makeConfig(dir, 42),
+        token: "1234:abcdef",
+        logger,
+        botFactory: factory,
+        lock: fakeLock().lock,
+      });
+      await channel.start();
+      expect(await channel.sendOwnerNotice("waiting <b>&")).toBe("sent");
+      expect(state.sendMessageCalls).toEqual([{ chatId: 42, text: "waiting <b>&" }]);
+    });
+
+    it("answers delivery_failed when Telegram refuses the message", async () => {
+      const { factory } = makeBotFactory({ sendMessageError: new Error("403") });
+      const channel = new TelegramChannel({
+        runtime: fakeRuntime(),
+        config: makeConfig(dir, 42),
+        token: "1234:abcdef",
+        logger,
+        botFactory: factory,
+        lock: fakeLock().lock,
+      });
+      await channel.start();
+      expect(await channel.sendOwnerNotice("waiting")).toBe("delivery_failed");
+    });
+  });
+
   describe("buildTaskReportSink", () => {
     function makeSinkReport(): TaskReport {
       return {

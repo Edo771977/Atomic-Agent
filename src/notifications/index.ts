@@ -10,3 +10,9 @@ export {
   type DownloadNotifyInput,
   type DownloadNotifyResult,
 } from "./download-notifier.js";
+export {
+  ApprovalPendingNotifier,
+  formatApprovalPendingNotice,
+  type ApprovalPendingNotifierDeps,
+  type OwnerNoticeSender,
+} from "./approval-pending-notifier.js";
