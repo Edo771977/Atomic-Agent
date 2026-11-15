@@ -86,7 +86,7 @@ describe("sidecar start_session — local probe gating", () => {
   const writeConfig = (llm: UserConfigFile["llm"]): void => {
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
       ...USER_CONFIG_DEFAULTS,
-      analytics: { enabled: false },
+      analytics: { enabled: false, errorReports: false },
       ...(llm ? { llm } : {}),
     });
     resetConfigCache();

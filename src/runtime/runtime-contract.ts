@@ -689,8 +689,9 @@ export interface AgentRuntime {
     handler: ApprovalHandler,
   ): () => void;
   /**
-   * Hot-toggle anonymous analytics + error reporting (they share the
-   * single `config.analytics.enabled` opt-out). Rebuilds the in-memory
+   * Hot-toggle anonymous analytics + error reporting (both stop on the
+   * `config.analytics.enabled` opt-out; error reports also need the
+   * `config.analytics.errorReports` opt-in, read at start). Rebuilds the in-memory
    * PostHog / Sentry clients so the change applies without a restart.
    * Persisting the flag to `config.json` is the caller's responsibility
    * (the TUI settings tab). Idempotent. Turning it off first sends

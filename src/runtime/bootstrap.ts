@@ -864,6 +864,8 @@ export async function createAgentRuntime(
     slotsOf: (id) => [slotManager.pinnedSlot(id), slotManager.reservedSideCallSlotId()]
       .filter((slot): slot is number => slot !== null && slot >= 0),
   });
+  // Issue #29: no error report leaves while an incognito chat is open.
+  observability.setErrorReportGate(incognitoSessions.anyOpen);
   const runTurn: typeof runQueuedTurn = (session, ...rest) => {
     incognitoSessions.noteTurn(session);
     return runQueuedTurn(session, ...rest).finally(() => incognitoSessions.settle(session.id));

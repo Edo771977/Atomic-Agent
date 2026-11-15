@@ -212,5 +212,8 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
     return { ...worker, incognito: mark };
   };
 
-  return { discard, settle, noteTurn, forWorker };
+  /** Whether an incognito chat ran a turn here and is not closed yet: error reports hold (#29). */
+  const anyOpen = (): boolean => open.size > 0;
+
+  return { discard, settle, noteTurn, forWorker, anyOpen };
 }

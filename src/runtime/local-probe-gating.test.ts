@@ -154,7 +154,7 @@ function writeConfig(stateDir: string, over: Partial<UserConfigFile>): void {
   writeUserConfigFileSync(getUserConfigPath(stateDir), {
     ...USER_CONFIG_DEFAULTS,
     // Keep the runtime off the network for everything unrelated.
-    analytics: { enabled: false },
+    analytics: { enabled: false, errorReports: false },
     ...over,
   });
   resetConfigCache();

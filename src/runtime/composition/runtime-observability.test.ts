@@ -81,6 +81,24 @@ describe("runtime observability construction phases", () => {
     await controls.setAnalyticsEnabled(false);
   });
 
+  it("passes the error-report opt-in through and reports nothing while the gate holds (incognito, #29)", () => {
+    const events: string[] = [];
+    const first = clients(events, "first");
+    const builder = vi.spyOn(analytics, "buildRuntimeTelemetry").mockReturnValue(first);
+    const config = getConfig();
+    expect(config.analytics.errorReports).toBe(false);
+    config.analytics.enabled = true;
+    config.analytics.errorReports = true;
+    const component = createRuntimeObservability(config, {});
+    expect(builder.mock.calls[0]![0]).toMatchObject({ enabled: true, errorReports: true });
+    expect(component.getErrorReporter()).toBe(first.errorReporter);
+    let incognito = true;
+    component.setErrorReportGate(() => incognito);
+    expect(component.getErrorReporter()).toBeNull();
+    incognito = false;
+    expect(component.getErrorReporter()).toBe(first.errorReporter);
+  });
+
   it("uses current analytics for reports after a toggle and retains interactive launch gating", async () => {
     const events: string[] = [];
     const first = clients(events, "first");

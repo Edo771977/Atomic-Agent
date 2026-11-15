@@ -154,7 +154,7 @@ describe("a llama-server that accepts and never answers", () => {
     closeFake = close;
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
       ...USER_CONFIG_DEFAULTS,
-      analytics: { enabled: false },
+      analytics: { enabled: false, errorReports: false },
       // The query rewriter's own budget (10 s by default) also waits on
       // this server for a referential follow-up; it runs beside the
       // `/props` sync, so a short one leaves the probe as the long pole.

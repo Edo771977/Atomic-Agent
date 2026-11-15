@@ -245,6 +245,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 79.
 
 ## analytics
 
+- `analytics.errorReports` (default `false`): opt in to anonymous crash/error reports (Sentry). Sent only when this and `analytics.enabled` are both `true`, the kill switches below are off, and no incognito chat is open. Read at start.
 - `analytics.enabled` (default `true`). `ATOMIC_AGENT_ANALYTICS=off` or `DO_NOT_TRACK=1` in the environment turns analytics and crash reports off for that process whatever this says. `ATOMIC_AGENT_TEAM=1`, or a file `~/.atomic-agent-team`, marks the machine as one of ours: events are still sent, tagged `test_run` (for the team's own QA and test runs).
 
 ## telegram

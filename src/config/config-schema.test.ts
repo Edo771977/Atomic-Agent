@@ -2492,3 +2492,24 @@ describe("agent.sessionSectionsMaxTokens (config v74)", () => {
     expect(parsed.agent.maxSteps).toBe(7);
   });
 });
+
+describe("analytics.errorReports (#29: crash reports opt-in)", () => {
+  it("is off by default, for an old file and a current one, while product analytics stays on", () => {
+    expect(USER_CONFIG_DEFAULTS.analytics).toEqual({ enabled: true, errorReports: false });
+    expect(parseUserConfigFile({ version: USER_CONFIG_VERSION }).analytics.errorReports).toBe(false);
+    expect(parseUserConfigFile({ version: 40, analytics: { enabled: true } }).analytics).toEqual({
+      enabled: true,
+      errorReports: false,
+    });
+  });
+
+  it("reads an opt-in and refuses a non-boolean", () => {
+    expect(
+      parseUserConfigFile({ version: USER_CONFIG_VERSION, analytics: { errorReports: true } }).analytics
+        .errorReports,
+    ).toBe(true);
+    expect(() =>
+      parseUserConfigFile({ version: USER_CONFIG_VERSION, analytics: { errorReports: "sometimes" } }),
+    ).toThrow(ConfigValidationError);
+  });
+});

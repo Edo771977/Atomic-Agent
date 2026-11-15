@@ -722,6 +722,7 @@ export function loadConfig(): AtomicAgentConfig {
     },
     analytics: {
       enabled: user.analytics.enabled,
+      errorReports: user.analytics.errorReports,
     },
     telegram: {
       enabled: user.telegram.enabled,
