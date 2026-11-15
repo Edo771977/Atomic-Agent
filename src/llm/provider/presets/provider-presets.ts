@@ -91,7 +91,8 @@ export interface ProviderPreset {
   readonly note?: string;
   /**
    * Set for services whose endpoint is per account (an Azure resource, an
-   * AWS Region), so no single `baseUrl` serves everyone. `baseUrl` is then
+   * AWS Region) or whose local port varies (Foundry Local, Lemonade), so
+   * no single `baseUrl` serves everyone. `baseUrl` is then
    * a template: the wizard opens the base URL step prefilled with it and
    * shows `hint`, and refuses to go on while the URL still contains
    * `placeholder`. `hostPattern` (cloud services) names the real hosts, so a
@@ -244,11 +245,15 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     // port 13305 since its 2026 releases (older ones used 8000); it serves
     // the OpenAI API under both `/v1` and `/api/v1`. A key is checked only
     // when the server was started with LEMONADE_API_KEY, the same variable
-    // this preset reads.
+    // this preset reads. The port moved, so the URL is asked for (like
+    // Foundry Local): an older server on 8000 is fixed on that screen.
     baseUrl: "http://localhost:13305",
     envVar: "LEMONADE_API_KEY",
     local: true,
     note: "AMD's server on your machine (GPUs, NPUs); no API key needed",
+    perAccountEndpoint: {
+      hint: "13305 is the default port; older Lemonade releases use 8000",
+    },
   },
   {
     id: "mistral",

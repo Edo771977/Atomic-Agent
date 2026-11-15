@@ -144,14 +144,15 @@ describe("PROVIDER_PRESETS", () => {
   });
 
   it("offers Lemonade and Foundry Local as keyless local servers", () => {
-    // ATO-626. Lemonade (AMD) listens on a fixed default port; Foundry
-    // Local picks its port at start, so it asks for the URL and has no
-    // cloud host pattern to match.
+    // ATO-626. Lemonade (AMD) moved its default port (13305 now, 8000 on
+    // older releases) and Foundry Local picks its port at start, so both
+    // ask for the URL and have no cloud host pattern to match.
     const lemonade = findProviderPreset("lemonade");
     expect(lemonade?.local).toBe(true);
     expect(lemonade?.baseUrl).toBe("http://localhost:13305");
     expect(lemonade?.envVar).toBe("LEMONADE_API_KEY");
-    expect(lemonade?.perAccountEndpoint).toBeUndefined();
+    expect(lemonade?.perAccountEndpoint?.hint).toMatch(/8000/);
+    expect(lemonade?.perAccountEndpoint?.hostPattern).toBeUndefined();
     const foundry = findProviderPreset("foundry-local");
     expect(foundry?.local).toBe(true);
     expect(foundry?.baseUrl).toBe("http://localhost:5273");

@@ -673,7 +673,7 @@ describe("handleProvidersWizardKey", () => {
     expect(wizard.baseUrlLine).toBe("http://localhost:61234");
   });
 
-  it("takes Lemonade straight to the model choice, like the other local servers", () => {
+  it("asks Lemonade for its URL (13305 now, 8000 on older releases), then skips the key screen", () => {
     let wizard = createProvidersWizardState("add");
     const lemonadeIdx = presetRowIndex("lemonade");
     for (let i = 0; i < lemonadeIdx; i += 1) {
@@ -681,8 +681,28 @@ describe("handleProvidersWizardKey", () => {
     }
     wizard = next(wizard, "", emptyKey({ return: true }));
     expect(wizard.presetId).toBe("lemonade");
+    expect(wizard.phase).toBe("base_url");
     expect(wizard.baseUrlLine).toBe("http://localhost:13305");
+    // An older server on 8000, typed without a scheme, gets plain http.
+    wizard = { ...wizard, baseUrlLine: "localhost:8000" };
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    expect(wizard.error).toBeNull();
     expect(wizard.phase).toBe("chat_model_line");
+    expect(wizard.baseUrlLine).toBe("http://localhost:8000");
+  });
+
+  it("refuses a junk URL for a local server with its own http example", () => {
+    let wizard = createProvidersWizardState("add");
+    const foundryIdx = presetRowIndex("foundry-local");
+    for (let i = 0; i < foundryIdx; i += 1) {
+      wizard = next(wizard, "", emptyKey({ downArrow: true }));
+    }
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    wizard = { ...wizard, baseUrlLine: "not a url" };
+    wizard = next(wizard, "", emptyKey({ return: true }));
+    expect(wizard.phase).toBe("base_url");
+    expect(wizard.error).toContain("http://localhost:5273");
+    expect(wizard.error).not.toContain("https://");
   });
 
   it("a fixed-endpoint preset never shows the URL screen", () => {
