@@ -1484,8 +1484,9 @@ export function buildFusionDelegateTool(
       let judgeSpendUsd = 0;
       const judgePricingFor = (target: JudgeTarget) =>
         deps.resolveWorkerPricing?.(target.providerId, target.model ?? target.providerId);
-      // The first judge that ruled, named on the spend line.
-      const judgeUsed: { target?: JudgeTarget } = {};
+      // Every distinct judge that ruled (a team may ask several
+      // reviewers), named on the spend line.
+      const judgesUsed = new Set<string>();
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
         judgeTargetFor(r.id) !== null &&
@@ -1509,7 +1510,7 @@ export function buildFusionDelegateTool(
           };
         }
         const target = judgeTargetFor(input.task.id)!;
-        judgeUsed.target ??= target;
+        judgesUsed.add(target.model ?? target.providerId);
         const verdict = await judgeTask({
           ...input,
           ...(deps.knownSecrets === undefined
@@ -2747,7 +2748,7 @@ export function buildFusionDelegateTool(
                 : ""
             }${
               judgeSpendUsd > 0
-                ? `\n\nThe judge (${judgeUsed.target?.model ?? judgeUsed.target?.providerId}) cost ${formatUsd(judgeSpendUsd)} this fan-out.`
+                ? `\n\n${judgeSpendLine([...judgesUsed])} cost ${formatUsd(judgeSpendUsd)} this fan-out.`
                 : ""
             }${
               roleSpendUsd > 0
@@ -2926,4 +2927,15 @@ function checkpointArgs(
   return Object.fromEntries(
     Object.entries(args).filter(([key]) => key !== "resume" && key !== "confirm"),
   );
+}
+
+/** Judges named on the spend line, at most this many before "+N more". */
+const SPEND_LINE_JUDGES = 3;
+
+/** "The judge (x)" or "The judges (x, y, +2 more)". */
+function judgeSpendLine(labels: readonly string[]): string {
+  const shown = labels.slice(0, SPEND_LINE_JUDGES);
+  const more = labels.length - shown.length;
+  const names = [...shown, ...(more > 0 ? [`+${more} more`] : [])].join(", ");
+  return `The judge${labels.length === 1 ? "" : "s"} (${names})`;
 }

@@ -699,6 +699,26 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     expect(onCli.calls).toEqual([{ providerId: "api-a", model: "model-o" }]);
   });
 
+  it("names every distinct reviewer that ruled on the spend line, not only the first", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-spend-"));
+    writeFileSync(join(dir, "b.txt"), "b");
+    const d = deps(dir, async () => ({
+      content: ACCEPT,
+      usage: { promptTokens: 1_000, completionTokens: 200, totalTokens: 1_200, costUsd: 0.01 },
+    }), { resolveFusionTeam: () => team() });
+    const result = await buildFusionDelegateTool(d).run(
+      {
+        tasks: [
+          { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] },
+          { id: "u", title: "U", instructions: "read b.txt", model: "cli-b:model-b" },
+        ],
+      },
+      { workingDir: dir, sessionId: "s-spend", stepIndex: 0, signal: new AbortController().signal },
+    );
+    rmSync(dir, { recursive: true, force: true });
+    expect(result.summary).toMatch(/The judges \(model-r, model-o\) cost \$0\.02/);
+  });
+
   it("with crossFamilyReview off asks the first reachable reviewer", async () => {
     const onCli = await run(team({ crossFamilyReview: false }), [{ ...TASK[0]!, model: "cli-b:model-b" }]);
     expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
