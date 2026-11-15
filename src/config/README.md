@@ -14,6 +14,7 @@ This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) befo
 - [full agent policy](agent/README.md)
 - [http-config.ts](http-config.ts)
 - [tool-config.ts](tool-config.ts)
+- [project-constraints-config.ts](project-constraints-config.ts) and [project-constraint-match.ts](project-constraint-match.ts): `projects.constraints` (v80), parsed fail closed, and `resolveProjectConstraint(config, workingDir)` → `ProviderPolicy | undefined` (`{ key, allowedProviders, matchedDir, allows(id) }`), `hasProjectConstraints`, the stamp helpers for fusion workers; enforcement is [provider policy](../llm/docs/provider-policy.md)
 - [skills-config.ts](skills-config.ts)
 - [session-retention-config.ts](session-retention-config.ts)
 - [tracing-config.ts](tracing-config.ts)

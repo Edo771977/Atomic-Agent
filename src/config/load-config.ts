@@ -480,6 +480,12 @@ export function loadConfig(): AtomicAgentConfig {
     },
     projects: {
       roots: [...user.projects.roots],
+      constraints: Object.fromEntries(
+        Object.entries(user.projects.constraints).map(([folder, entry]) => [
+          folder,
+          { allowedProviders: [...entry.allowedProviders] },
+        ]),
+      ),
     },
     tools: {
       shell: {
