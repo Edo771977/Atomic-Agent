@@ -437,6 +437,8 @@ export class ChatOrchestrator {
     this.plugins = new PluginsOrchestrator(bus);
     this.issueReport = new IssueReportOrchestrator(runtime, bus, {
       currentSessionId: () => this.session?.id ?? null,
+      // Issue #33: a session whose folder lacks "github" sends errors only.
+      githubRefusal: (session) => this.runtime.egressRefusal?.(session, "github") ?? null,
     });
     this.sessionRail = new SessionRailOrchestrator(
       options.sessionRailLayout ?? configSessionRailLayoutStore,

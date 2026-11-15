@@ -17,6 +17,8 @@ Read [TUI instructions](../AGENTS.md), [levels](report-levels.ts), [error scrubb
 
 [IssueReportOrchestrator](issue-report-orchestrator.ts) owns prepared report state, busy and generation guards. It builds the selected [report](build-issue-report.ts), [packs the body](issue-body.ts) and [writes the ZIP](write-report-zip.ts) before showing confirmation with path, size, disclosure and destination. Redaction lives in [text](redact.ts) and [trace](trace-redaction.ts) helpers; local trace data is not automatically safe to publish.
 
+Per-folder constraints (issue #33, [policy](../../llm/docs/provider-policy.md#egress-allowedegress)): `githubRefusal` asks whether the session's effective policy allows the `github` class. A refused on-screen session gets an errors-only report whatever level was picked, with a warning saying why; a refused session's trace is left out at every level; and a fuller report prepared before the session became restricted is not sent.
+
 Closing increments the generation so an obsolete build result cannot reopen the popup. This is a result guard, not general cancellation of asynchronous work. Sending uses the existing credential refusal and injected GitHub API seam; the view does not send anything itself. Runtime retains store/tracing ownership, and moving files does not change disclosure levels, packaging limits or resource lifetimes.
 
 ## Checks

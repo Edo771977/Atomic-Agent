@@ -1048,6 +1048,7 @@ export async function createAgentRuntime(
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
+    egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),
     offlineMode: createOfflineModeControl({
       channels: () => ({
         telegram: telegramChannelForShutdown,

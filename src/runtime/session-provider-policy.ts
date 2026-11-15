@@ -195,12 +195,13 @@ export function channelNotifyRefusal(
  * Why `session`'s content may not leave this machine through `cls`
  * right now, or `null` (issue #33), read through
  * `effectivePolicyForSession`: `"channels"` for a chat, `"serve"` for an
- * HTTP server listening on a network address.
+ * HTTP server listening on a network address, `"github"` for an issue
+ * report.
  */
 export function egressRefusal(
   policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
   session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
-  cls: "channels" | "serve",
+  cls: string,
 ): string | null {
   if (!policy.constraintsActive()) return null;
   const effective = policy.effectivePolicyForSession(session);

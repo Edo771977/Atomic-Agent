@@ -413,6 +413,14 @@ export interface AgentRuntime {
     session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ) => string | null;
   /**
+   * The same answer for any egress class (`"github"` for the TUI's issue
+   * report, issue #33). Optional (absent: allowed).
+   */
+  readonly egressRefusal?: (
+    session: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
+    cls: string,
+  ) => string | null;
+  /**
    * Discord remote-control channel, or `null` when the build never
    * constructed one. Same contract as `telegramChannel`.
    */
