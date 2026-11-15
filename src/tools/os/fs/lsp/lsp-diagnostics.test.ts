@@ -413,3 +413,13 @@ describe("language-server budget (ATO-503)", () => {
     expect(clients.every((c) => c.client.disposed)).toBe(true);
   });
 });
+
+describe("constrained folders (ATO-503, issue #33)", () => {
+  it("starts no server for a work tree that holds a constrained folder", async () => {
+    // The server reads the whole tree; its diagnostics can quote files
+    // from the constrained folder into an unconstrained session.
+    const { lsp, starts } = setup({ skipRoot: (root) => root === REPO });
+    expect(await lsp.diagnoseChange(change())).toBeNull();
+    expect(starts).toEqual([]);
+  });
+});

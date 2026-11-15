@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  hasConstrainedFolderInside,
   hasProjectConstraints,
   makeProviderPolicy,
   normalizeConstraintPath,
@@ -149,5 +150,20 @@ describe("allowedEgress on the policy", () => {
     expect(back?.allowedEgress).toEqual(["http"]);
     expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], matchedDir: "/w" })?.allowedEgress).toEqual([]);
     expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], allowedEgress: "web", matchedDir: "/w" })).toBeUndefined();
+  });
+});
+
+describe("hasConstrainedFolderInside (the LSP root check, ATO-503)", () => {
+  const config = { projects: { constraints: { "/work/repo/secret": { allowedProviders: ["local-llama"] } } } };
+  const opts = { platform: "linux" as const, realpath: () => undefined };
+  it("is true for a folder that holds a constrained one below it", () => {
+    expect(hasConstrainedFolderInside(config, "/work/repo", opts)).toBe(true);
+    expect(hasConstrainedFolderInside(config, "/work", opts)).toBe(true);
+  });
+  it("is false for the constrained folder itself, a folder inside it, a sibling, or no constraints", () => {
+    expect(hasConstrainedFolderInside(config, "/work/repo/secret", opts)).toBe(false);
+    expect(hasConstrainedFolderInside(config, "/work/repo/secret/src", opts)).toBe(false);
+    expect(hasConstrainedFolderInside(config, "/work/other", opts)).toBe(false);
+    expect(hasConstrainedFolderInside({ projects: {} }, "/work/repo", opts)).toBe(false);
   });
 });

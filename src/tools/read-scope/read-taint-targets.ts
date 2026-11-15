@@ -2,6 +2,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { resolveUserPath } from "../os/expand-home.js";
 import { READ_TOOL_TARGETS, SHELL_TOOL, URL_LIKE, VERIFY_TOOL, verifyRunShellCalls } from "./read-scope-targets.js";
 import { shellTokens } from "./read-scope-shell.js";
+import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
 
 /**
  * The absolute paths a tool call reads, for the read taint of per-folder
@@ -67,10 +68,18 @@ const repoArg = (args: Record<string, unknown>): string[] => {
  * its checkpoint, an extraction copies an archive's entries out, and
  * the git mutations print the repository's files and history (a push
  * or fetch then sends them: tainting first lets the egress guard see
- * the repository's constraint).
+ * the repository's constraint). A write of a file a language server
+ * diagnoses (ATO-503, `tools.lsp.enabled`) can come back with errors
+ * that quote the file's project, so it taints like an edit; other
+ * writes return no content. The taint is decided at dispatch, before
+ * the config is read, so it applies with the diagnostics off too.
  */
 const TAINT_ONLY_TARGETS: ReadonlyMap<string, (args: Record<string, unknown>) => string[]> = new Map([
   ["os.fs.archive.extract", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
+  ["os.fs.write", (args: Record<string, unknown>) => {
+    const path = str(args.path);
+    return path !== undefined && serverForPath(path) !== null ? [path] : [];
+  }],
   ["os.fs.edit", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
   ["os.fs.restore", (args: Record<string, unknown>) => [str(args.path)].filter((p): p is string => p !== undefined)],
   [

@@ -20,6 +20,9 @@
  *    for `idleShutdownMs` is stopped, and a Fusion worker's session
  *    (`skipSession`) starts none: a worktree per worker would be a
  *    server per worker;
+ *  - none in a work tree that holds a constrained folder (`skipRoot`);
+ *    a write or edit inside one taints the session at dispatch
+ *    (`read-taint-targets.ts`), as its diagnostics quote that project;
  *  - a language server runs the project's own code (tsconfig plugins,
  *    a local TypeScript, pyright's environment), so in a folder the
  *    operator has not trusted the first start asks once for the work
@@ -119,6 +122,12 @@ export interface LspDiagnosticsOptions {
    * passes Fusion workers, each of which works in its own worktree.
    */
   readonly skipSession?: (sessionId: string) => boolean;
+  /**
+   * Work trees no server may start in: the runtime passes one that holds
+   * a constrained folder (`projects.constraints`), whose files the server
+   * would read and its diagnostics could quote, past the read taint.
+   */
+  readonly skipRoot?: (root: string) => boolean;
   /** Default `LSP_MAX_SERVERS`. */
   readonly maxServers?: number;
   /** Default `LSP_IDLE_SHUTDOWN_MS`. */
@@ -303,6 +312,7 @@ export function createLspDiagnostics(
     if (spec === null) return null;
     const root = findRoot(dirname(input.absolute));
     if (root === null) return null;
+    if (options.skipRoot?.(root) === true) return null;
     const known = entries.get(`${spec.id}\u0000${root}`);
     if (known === undefined || known.state === "unavailable") {
       // No server on PATH: nothing to ask about.

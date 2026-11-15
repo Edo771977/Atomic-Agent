@@ -211,6 +211,8 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    * worktree.
    */
   skipLspSession?: (sessionId: string) => boolean;
+  /** Work trees that start no language server (one holding a constrained folder). */
+  skipLspRoot?: (root: string) => boolean;
 }
 
 /** What `registerOsTools` leaves running, for the runtime's shutdown. */
@@ -241,6 +243,9 @@ export function registerOsTools(
           ...(options.skipLspSession === undefined
             ? {}
             : { skipSession: options.skipLspSession }),
+          ...(options.skipLspRoot === undefined
+            ? {}
+            : { skipRoot: options.skipLspRoot }),
         })
       : undefined;
   registry.register(

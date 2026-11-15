@@ -29,4 +29,11 @@ describe("readTaintTargets", () => {
       expect(readTaintTargets(tool, { repo: "/work/secret" }, wd)).toContain("/work/secret");
     }
   });
+
+  it("taints a write of a file a language server diagnoses (its result can quote the project, ATO-503)", () => {
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/a.ts", content: "x" }, wd)).toEqual(["/work/secret/a.ts"]);
+    expect(readTaintTargets("os.fs.write", { path: "../secret/b.py", content: "x" }, wd)).toEqual(["/work/secret/b.py"]);
+    // No language server reads a note: nothing comes back to taint.
+    expect(readTaintTargets("os.fs.write", { path: "/work/secret/notes.md", content: "x" }, wd)).toEqual([]);
+  });
 });

@@ -39,6 +39,7 @@ import { resolveGithubToken } from "../../github/index.js";
 import { registerSkillTools } from "../../tools/skill/index.js";
 import { isProjectFolderTrusted } from "../../skills/project-trust.js";
 import { isFusionWorkerTurn } from "./runtime-egress-guard.js";
+import { hasConstrainedFolderInside } from "../../config/project-constraint-match.js";
 import { buildToolViewTool } from "../../tools/tool-view/index.js";
 import { planUpdateTool } from "../../tools/plan/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
@@ -211,6 +212,10 @@ export function registerRuntimeCoreTools(input: {
     // A Fusion worker edits in its own worktree: a server each would be
     // N servers for one fan-out, so workers get none (ATO-503).
     skipLspSession: isFusionWorkerTurn,
+    // A repository holding a constrained folder: the server would read
+    // it and its errors could quote it past the read taint (issue #33).
+    // Read live, like the egress guard.
+    skipLspRoot: (root) => hasConstrainedFolderInside(getConfig(), root),
   });
   // Computer use (ATO-525): screenshot, click, type, key — macOS only and
   // opt-in (`tools.screen.enabled`, default off). A screenshot asks as
