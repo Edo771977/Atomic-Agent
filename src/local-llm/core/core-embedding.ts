@@ -8,7 +8,7 @@ import {
   type EmbeddingClient,
   type EmbeddingPrompts,
 } from "../../memory/embeddings/embedding-client.js";
-import { activateCoreVersion, installSelectedBackend, isCoreBackendInstalled } from "./core-backend.js";
+import { activateCoreVersion, installSelectedBackend, isCoreBackendInstalled, refuseEngineDownloadOffline } from "./core-backend.js";
 import { connectCore, CoreRequestError, withCoreClient, type CoreControlClient } from "./core-client.js";
 import { CORE_OPERATION_WAIT_MS, withCoreOperation } from "./core-operation.js";
 import { isNewerVersion } from "../../update/compare-semver.js";
@@ -133,6 +133,9 @@ export function chooseUpstreamEngine(catalog: UpstreamCatalog, minBuild: number)
  * that was already there and still refused by Core is not reinstalled.
  */
 export async function installCoreEmbeddingEngine(client: CoreControlClient, opts: DownloadFileOptions = {}, minBuild = CORE_EMBEDDING_MIN_BUILD): Promise<{ build: string; installedNow: boolean }> {
+  // Reached only when Core refused every installed build; its catalog
+  // and the download come from GitHub through Core.
+  refuseEngineDownloadOffline();
   const catalog = await client.call<UpstreamCatalog>(`/backends/${UPSTREAM}/catalog`, {}, { signal: opts.signal, timeoutMs: 60_000 });
   const choice = chooseUpstreamEngine(catalog, minBuild);
   if (choice.kind === "none") {

@@ -139,8 +139,11 @@ describe("saving and restoring the slots' caches (ATO-456)", () => {
     expect(existsSync(join(dir, "slot-5-0.bin"))).toBe(false);
   });
 
+  /** A pid no process has: the owner of the mark has exited. */
+  const GONE = 0x7ffffff0;
+
   it("an incognito chat since the last save: the stop saves no slot (ATO-586)", async () => {
-    markPromptCachePrivate(dataDir);
+    markPromptCachePrivate(dataDir, Date.now, GONE);
     const server = fakeServer({
       slots: [{ id: 0, is_processing: false }, { id: 1, is_processing: false }],
       savedTokens: { 0: 40_000, 1: 40_000 },
@@ -153,10 +156,37 @@ describe("saving and restoring the slots' caches (ATO-456)", () => {
   });
 
   it("a new launch clears the mark the previous server's run left (ATO-586)", async () => {
-    markPromptCachePrivate(dataDir);
+    markPromptCachePrivate(dataDir, Date.now, GONE);
     promptCacheLaunchArgs(dataDir);
     const server = fakeServer({ slots: [{ id: 0, is_processing: false }], savedTokens: { 0: 40_000 } });
     expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(1);
+  });
+
+  it("a relaunch or stop while the marking process lives keeps the mark: a mid-turn restart saves nothing (ATO-586)", async () => {
+    markPromptCachePrivate(dataDir);
+    const server = fakeServer({ slots: [{ id: 0, is_processing: false }], savedTokens: { 0: 40_000 } });
+    // restart_smaller / partial-offload restart: stop, then a fresh launch, mid-turn.
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(0);
+    promptCacheLaunchArgs(dataDir);
+    // The turn's later steps run on the new launch; its stop still saves nothing.
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl: server.fetchImpl })).toBe(0);
+    expect(server.calls.filter((c) => c.action === "save")).toEqual([]);
+  });
+
+  it("a mark written while the stop is saving stops it and drops what it saved (ATO-586)", async () => {
+    const server = fakeServer({
+      slots: [{ id: 0, is_processing: false }, { id: 1, is_processing: false }],
+      savedTokens: { 0: 40_000, 1: 40_000 },
+    });
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      const res = await server.fetchImpl(input, init);
+      // An incognito turn starts right after the first slot's save.
+      if (new URL(String(input)).searchParams.get("action") === "save") markPromptCachePrivate(dataDir);
+      return res;
+    }) as typeof fetch;
+    expect(await savePromptCaches({ dataDir, port: 19091, apiKey: "k", fingerprint: "fp", fetchImpl })).toBe(0);
+    expect(server.calls.filter((c) => c.action === "save").map((c) => c.slot)).toEqual([0]);
+    expect(readdirSync(dir).filter((n) => n.endsWith(".bin") || n.endsWith(".bin.json"))).toEqual([]);
   });
 
   it("marking is a no-op while the disk cache is off (no folder)", () => {

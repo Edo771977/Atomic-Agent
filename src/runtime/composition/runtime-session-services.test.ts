@@ -7,6 +7,7 @@ import type { AtomicAgentConfig } from "../../config/index.js";
 import * as sessions from "../../session/index.js";
 import { SessionStore } from "../../session/session-store.js";
 import { StructuredLogger, type LogRecord } from "../../tracing/structured-logger.js";
+import { TaskStore } from "../../tasks/task-store.js";
 import { createRuntimeSessionFactories, installRuntimeSessionDelete, prepareRuntimeSessionStore } from "./runtime-session-services.js";
 
 describe("runtime session phases", () => {
@@ -33,6 +34,19 @@ describe("runtime session phases", () => {
     await rm(dir, { recursive: true, force: true });
   });
   function open() { const store = prepareRuntimeSessionStore(config, logger); stores.push(store); return store; }
+
+  it("the boot sweep drops the tasks of the incognito chats it deletes (ATO-586)", () => {
+    const tasks = new TaskStore({ dbFile: config.paths.tasksDbFile });
+    tasks.create({ sessionId: "s-dead", userMessage: "secret follow-up", origin: "http", maxAttempts: 1 });
+    tasks.create({ sessionId: "s-plain", userMessage: "ordinary", origin: "http", maxAttempts: 1 });
+    tasks.close();
+    vi.spyOn(SessionStore.prototype, "sweepOrphanIncognito").mockReturnValue(["s-dead"]);
+    open();
+    const after = new TaskStore({ dbFile: config.paths.tasksDbFile });
+    try {
+      expect(after.list().map((t) => t.sessionId)).toEqual(["s-plain"]);
+    } finally { after.close(); }
+  });
 
   it("recovers before retention reads pins and passes the existing pin sources", () => {
     config.sessions.retention.enabled = true;

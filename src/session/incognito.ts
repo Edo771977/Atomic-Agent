@@ -27,8 +27,9 @@ import {
  *    closed, and on the next start when the process that owned it is gone
  *    (a crash, a kill) — see `SessionStore.sweepOrphanIncognito`.
  *
- * Reading existing memory is left on: the chat still knows the user, it
- * just does not learn from this conversation.
+ * Saved memory is not read either (decision 8): no profile facts,
+ * recalled notes, lessons or procedures reach its prompt, and the recall
+ * tools refuse (`turn-memory-context.ts`, `tools/memory/incognito-guard.ts`).
  *
  * The row is still written while the chat is open: every runtime path
  * (turn marks, checkpoints, the HTTP routes, the desktop) loads a session

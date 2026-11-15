@@ -9,6 +9,7 @@ import {
   coreEmbeddingStatus,
   coreEmbeddingTimeoutMs,
   createCoreEmbeddingClient,
+  installCoreEmbeddingEngine,
   readCoreEmbeddingRecord,
   startCoreEmbedding,
   startCoreEmbeddingOn,
@@ -16,6 +17,7 @@ import {
   type CoreEmbeddingStatus,
 } from "./core-embedding.js";
 import { retireIdleCore } from "./core-sessions.js";
+import { OfflineNetworkError, resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
 import { CORE_VERSION, activeCoreVersion, coreBinary, coreRoot, coreVersionDir, writeCoreJson } from "./core-state.js";
 import { EmbeddingUnavailableError } from "../../memory/embeddings/embedding-client.js";
 
@@ -47,6 +49,17 @@ const ready: CoreEmbeddingStatus = {
 const record = (change: object = {}) =>
   writeCoreJson(coreEmbeddingRecordPath(dir), { coreVersion: CORE_VERSION, modelId: "embeddinggemma-2", modelPath: "/m.gguf", ...change });
 const disable = ["/embedding/config", { enabled: false }, { method: "PUT", timeoutMs: 30_000 }];
+
+describe("installCoreEmbeddingEngine offline", () => {
+  it("refuses before asking Core for the upstream catalog or a download", async () => {
+    setOfflineNetwork(true);
+    try {
+      const call = vi.fn(async () => ({}));
+      await expect(installCoreEmbeddingEngine({ call } as unknown as CoreControlClient)).rejects.toBeInstanceOf(OfflineNetworkError);
+      expect(call).not.toHaveBeenCalled();
+    } finally { resetOfflineNetworkForTests(); }
+  });
+});
 
 describe("chooseUpstreamEngine", () => {
   const min = 11454;

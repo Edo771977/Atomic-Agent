@@ -79,8 +79,8 @@ export interface RegisterMemoryToolsOptions {
    * tools (`memory.profile.list` / `.history`, `memory.notes.recall`,
    * `memory.lessons.recall`, `memory.procedures.recall`) refuse there
    * too: an incognito chat does not read saved memory either (decision
-   * 8). Removing a fact or forgetting a note stays allowed: it writes
-   * nothing from the chat.
+   * 8). The removals (`memory.profile.remove`, `memory.notes.forget`)
+   * refuse as well: an incognito chat changes durable memory in no way.
    */
   isIncognitoSession?: (sessionId: string) => boolean;
 }

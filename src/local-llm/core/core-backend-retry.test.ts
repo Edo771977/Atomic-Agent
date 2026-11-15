@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { activateCoreVersion, installCoreBackend } from "./core-backend.js";
 import { connectCore, CoreRequestError } from "./core-client.js";
 import { CoreUnavailableError } from "./core-errors.js";
+import { installSelectedBackend } from "./core-backend.js";
+import { OfflineNetworkError, resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
 import { activeCoreVersion, CORE_VERSION, coreBinary, coreRoot, coreVersionDir, readCoreBackend, writeCoreJson } from "./core-state.js";
 
 const fake = vi.hoisted(() => ({ call: vi.fn(), downloadEvents: vi.fn(), snapshot: vi.fn() }));
@@ -127,4 +129,14 @@ it("does not switch Core versions while the active Core runs its embedding modul
   olderCoreServing([], { enabled: false });
   await expect(activateCoreVersion(dir, CORE_VERSION)).resolves.toBe(true);
   expect(activeCoreVersion(dir)).toBe(CORE_VERSION);
+});
+
+it("refuses an engine install while offline mode is on, before asking Core for its catalog or a download", async () => {
+  route(() => ({ path: backendPath }));
+  setOfflineNetwork(true);
+  try {
+    await expect(installCoreBackend(dir)).rejects.toBeInstanceOf(OfflineNetworkError);
+    await expect(installSelectedBackend(fake as never, "llamacpp-upstream", { version: "b1", backend: "cpu" }, {})).rejects.toBeInstanceOf(OfflineNetworkError);
+    expect(fake.call).not.toHaveBeenCalled();
+  } finally { resetOfflineNetworkForTests(); }
 });

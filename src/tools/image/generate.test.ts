@@ -9,6 +9,7 @@ import { CoreImageError } from "../../local-llm/core/core-image.js";
 import { coreDownloadProgress } from "./core-download-progress.js";
 import { buildImageGenerateTool, cloudAspectRatio, cloudBatches, IMAGE_PARALLEL_JOBS, runWhenFree, settleLimited, type ImageGenerateToolOptions } from "./generate.js";
 import { openRouterImageKey } from "./openrouter-key.js";
+import { resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
 
 let dir: string;
 let work: string;
@@ -54,6 +55,19 @@ function tool(over: Partial<ImageGenerateToolOptions> & Pick<ImageGenerateToolOp
 }
 
 describe("image.generate", () => {
+  it("refuses while offline mode is on, before asking or touching Core (Core would proxy to OpenRouter)", async () => {
+    setOfflineNetwork(true);
+    try {
+      const core = fakeCore();
+      const { built, request } = tool({ withCore: core.withCore });
+      const result = await built.run({ prompt: "a fox" }, ctx());
+      expect(result.status).toBe("error");
+      expect(result.summary).toMatch(/offline mode: openrouter\.ai blocked/);
+      expect(request).not.toHaveBeenCalled();
+      expect(core.call).not.toHaveBeenCalled();
+    } finally { resetOfflineNetworkForTests(); }
+  });
+
   it("asks before a paid cloud picture, saves it in the working folder and points at reply.attachments", async () => {
     const core = fakeCore();
     const { built, request, report } = tool({ withCore: core.withCore });

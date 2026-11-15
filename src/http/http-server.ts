@@ -138,6 +138,7 @@ export function createHttpServer(
   const undeliveredSteers =
     options.undeliveredSteers ?? new UndeliveredSteerStore();
   const compiled = options.routes.map(compileRoute);
+  const incognitoChats = new Set<string>();
 
   const server = createServer(async (req, res) => {
     try {
@@ -147,6 +148,7 @@ export function createHttpServer(
         approvalBus,
         completionRegistry,
         undeliveredSteers,
+        incognitoChats,
       });
     } catch (err) {
       handleRouteError(res, err);
@@ -186,7 +188,20 @@ export function createHttpServer(
         approvalBus,
         completionRegistry,
         undeliveredSteers,
-        close: () => closeServer(server, sockets),
+        close: async () => {
+          await closeServer(server, sockets);
+          // ATO-586: the incognito chats this server opened. A chat whose
+          // turn is still ending is deleted when it settles; one that
+          // cannot be deleted now is the next start's sweep.
+          for (const id of incognitoChats) {
+            try {
+              options.runtime.discardIncognitoSession?.(id);
+            } catch {
+              /* left for the boot sweep */
+            }
+          }
+          incognitoChats.clear();
+        },
       });
     };
     server.once("error", onError);

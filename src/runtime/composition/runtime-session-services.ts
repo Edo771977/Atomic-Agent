@@ -9,6 +9,7 @@ import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
+import { TaskStore } from "../../tasks/task-store.js";
 
 export function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
@@ -55,8 +56,16 @@ export function prepareRuntimeSessionStore(
   }
   // An incognito chat (ATO-586) whose process died before closing it is
   // deleted now, trace and all. Ones a live window still holds stay.
-  sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
-    new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }));
+  // The task queue is built later; it is opened here only when there
+  // is an orphan's task to drop, and closed again.
+  let tasks: TaskStore | null = null;
+  try {
+    sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
+      new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
+      { removeForSession: (id) => (tasks ??= new TaskStore({ dbFile: config.paths.tasksDbFile })).removeForSession(id) });
+  } finally {
+    (tasks as TaskStore | null)?.close();
+  }
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a

@@ -19,7 +19,10 @@ import { OFFLINE_ENV } from "../config/network-config.js";
  *  - tools that run another program or bypass `fetch` check
  *    `offlineRefusal` themselves before anything is sent: `os.web.*`,
  *    `os.http.request` (curl), the browser tools (Chrome), subscription
- *    CLI providers and the Telegram bot (grammy's own HTTP client).
+ *    CLI providers and the Telegram bot (grammy's own HTTP client);
+ *  - calls to Atomic Core (loopback) that make Core reach the internet:
+ *    `image.generate` / `video.generate` (OpenRouter) and Core engine
+ *    installs (GitHub) refuse with `offlineRefusalFor` first.
  *
  * Not enforced, and not claimed: shell commands, git, stdio MCP servers
  * and any other child process the user asks for. Without an OS sandbox

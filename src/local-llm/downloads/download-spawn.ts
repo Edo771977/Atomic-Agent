@@ -2,6 +2,8 @@ import { execSync, spawn as nodeSpawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 
 import { isSeaBuild, selfInvocation } from "../../runtime/self-invocation.js";
+import { OFFLINE_ENV } from "../../config/network-config.js";
+import { isOfflineNetwork } from "../../llm/offline-network.js";
 import { classifyPidLiveness } from "../server/daemon-lifecycle.js";
 import {
   downloadJobId,
@@ -100,7 +102,9 @@ export function spawnDownloadWorker(
       // The state dir and every other ATOMIC_AGENT_* knob travel by
       // environment; a worker reading a different `~/.atomic-agent`
       // would download into the wrong place.
-      env: { ...(input.env ?? process.env) },
+      // Offline mode switched on live (or by the runtime) is not in
+      // config.json yet when the worker reads it: say so by environment.
+      env: { ...(input.env ?? process.env), ...(isOfflineNetwork() ? { [OFFLINE_ENV]: "1" } : {}) },
     });
     child.unref();
     if (child.pid == null) {
