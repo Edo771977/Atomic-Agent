@@ -10,7 +10,10 @@ import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-c
  * may or may not have completed and side effects must be checked before
  * they are repeated, then the interrupted request) and marks the turn
  * "resume queued", so a second call answers `409 resume_queued` (the
- * same in-memory mark the TUI's `/resume` and `/fusion resume` use). The
+ * same mark the TUI's `/resume` and `/fusion resume` use; it lives in this
+ * agent process's memory, so another process serving the same state dir
+ * does not see it). A mark this route hands out lapses after
+ * `RESUME_HOLD_MS` (10 minutes) if the turn has not started by then. The
  * client sends `text` through `POST /v1/chat/completions` like any
  * message, the same path the TUI's `/resume` takes, so the reply streams
  * where every other reply does. The continuing turn replaces the old
@@ -29,6 +32,13 @@ import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-c
  * not yet started, `409 nothing_to_resume` when its last turn was not
  * cut off by a restart or this agent cannot resume turns.
  */
+/**
+ * How long a handed-out resume holds its mark. A client that took the
+ * text and crashed before sending or releasing it would otherwise leave
+ * `409 resume_queued` until the agent restarts.
+ */
+export const RESUME_HOLD_MS = 10 * 60_000;
+
 export function createResumeInterruptedTurnHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const id = ctx.params.id ?? "";
@@ -70,7 +80,7 @@ export function createResumeInterruptedTurnHandler(): HttpHandler {
       sendJson(res, 200, { id, released: true });
       return;
     }
-    const offer = turns?.resume(id) ?? null;
+    const offer = turns?.resume(id, { holdMs: RESUME_HOLD_MS }) ?? null;
     if (offer !== null && "alreadyQueued" in offer) {
       sendError(res, 409, openaiError(
         `nothing to resume now: ${offer.alreadyQueued}`,

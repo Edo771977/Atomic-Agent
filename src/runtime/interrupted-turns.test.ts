@@ -211,4 +211,21 @@ describe("createInterruptedTurns", () => {
       expect(fusion.asked).toEqual([]);
     });
   });
+
+  it("a mark handed out with holdMs lapses after it, one without never does", () => {
+    cutOffByRestart("s-ttl");
+    let now = 10_000;
+    const turns = createInterruptedTurns(store, undefined, { now: () => now });
+    const first = turns.resume("s-ttl", { holdMs: 60_000 });
+    expect(first).toMatchObject({ text: expect.any(String) });
+    now += 59_999;
+    expect(turns.resume("s-ttl", { holdMs: 60_000 })).toMatchObject({ alreadyQueued: expect.any(String) });
+    // The client that took the text never sent or released it.
+    now += 2;
+    expect(turns.pending("s-ttl")).not.toBeNull();
+    expect(turns.resume("s-ttl")).toEqual(first);
+    // Queued again without a hold (the TUI): it holds however long it takes.
+    now += 10 * 60 * 60_000;
+    expect(turns.resume("s-ttl")).toMatchObject({ alreadyQueued: expect.any(String) });
+  });
 });
