@@ -3,6 +3,7 @@ import {
   PROVIDER_PRESETS,
   presetForEntryId,
 } from "../presets/provider-presets.js";
+import { ANTHROPIC_API_HOST, effectiveEntryUrl } from "../anthropic/anthropic-route.js";
 
 /**
  * Where our provider ids and models.dev's differ (ATO-647).
@@ -72,6 +73,10 @@ export function modelsDevProviderFor(
 ): string | undefined {
   const byKind = MODELS_DEV_PROVIDER_FOR_KIND[entry.kind];
   if (byKind !== undefined) return byKind;
+  // The native kind defaults to the first-party host when `baseUrl` is unset.
+  if (entry.kind === "anthropic") {
+    return hostOf(effectiveEntryUrl(entry)) === ANTHROPIC_API_HOST ? MODELS_DEV_PROVIDER_FOR_PRESET.anthropic : undefined;
+  }
   if (entry.kind !== "openai-compatible") return undefined;
   const host = hostOf(entry.baseUrl ?? entry.url);
   const named = presetForEntryId(entry.id);

@@ -489,6 +489,7 @@ describe("stoppedForMoney (ATO-1350)", () => {
   it("is true only when the budget or the provider credit ended the turn", () => {
     expect(stoppedForMoney("cost_ceiling")).toBe(true);
     expect(stoppedForMoney("credit_exhausted")).toBe(true);
+    expect(stoppedForMoney("turn_budget")).toBe(true);
     expect(stoppedForMoney("time_ceiling")).toBe(false);
     expect(stoppedForMoney("step_ceiling")).toBe(false);
     expect(stoppedForMoney("no_progress")).toBe(false);

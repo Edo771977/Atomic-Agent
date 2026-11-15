@@ -37,6 +37,12 @@ describe("modelsDevProviderFor", () => {
     expect(modelsDevProviderFor(preset("my-endpoint", "https://llm.example.com/v1"))).toBeUndefined();
   });
 
+  it("maps a native anthropic kind on the first-party host, with or without baseUrl", () => {
+    expect(modelsDevProviderFor({ id: "claude", kind: "anthropic" })).toBe("anthropic");
+    expect(modelsDevProviderFor({ id: "claude", kind: "anthropic", baseUrl: "https://api.anthropic.com/v1" })).toBe("anthropic");
+    expect(modelsDevProviderFor({ id: "claude", kind: "anthropic", baseUrl: "https://gateway.example.com" })).toBeUndefined();
+  });
+
   it("maps the gemini kind and leaves local servers and aggregators alone", () => {
     expect(modelsDevProviderFor({ id: "gemini", kind: "gemini" })).toBe("google");
     expect(modelsDevProviderFor(preset("ollama", "http://localhost:11434"))).toBeUndefined();

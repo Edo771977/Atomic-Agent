@@ -43,9 +43,12 @@ export function turnBudgetRefusalSentence(params: { capUsd: number; accountedUsd
 
 /**
  * Output ceiling of the final report a turn gets after its cap refused
- * (issue #29): the agent step asks for it and the request scope clamps to it.
+ * (issue #29): the agent step asks for it and the request scope clamps to
+ * it and prices its hold at it. Sized for thinking plus a short report:
+ * Fable / Opus 5.5 cannot turn thinking off, and it shares this budget
+ * with the text even at the report's low effort.
  */
-export const FINAL_REPORT_MAX_TOKENS = 1024;
+export const FINAL_REPORT_MAX_TOKENS = 4096;
 
 /** The short stop line every surface shows for a turn its cap ended. */
 export function turnBudgetStopLine(spentUsd: number, capUsd: number): string {

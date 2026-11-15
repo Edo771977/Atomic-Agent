@@ -1,3 +1,4 @@
+import { FINAL_REPORT_MAX_TOKENS } from "../../reliability/turn-budget-error.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CompletionRequest } from "../completion-types.js";
@@ -77,5 +78,13 @@ describe("AnthropicProvider effort", () => {
     expect(await effortOf("claude-fable-5-2", { disableThinking: true })).toBe("low");
     expect(await effortOf("claude-opus-5-5", { disableThinking: true, reasoningEffort: "high" })).toBe("low");
   });
-});
 
+  it("sends the turn-cap final report at effort low with a thinking-sized max_tokens", async () => {
+    const sent: Sent[] = [];
+    await provider(sent, [json(MESSAGE)], { defaultChatModel: "claude-opus-5-5" }).complete({
+      prompt: "report", finalReport: true, reasoningEffort: "low", maxTokens: FINAL_REPORT_MAX_TOKENS,
+    });
+    expect(sent[0]!.body.output_config).toEqual({ effort: "low" });
+    expect(sent[0]!.body.max_tokens).toBe(4096);
+  });
+});

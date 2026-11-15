@@ -546,14 +546,17 @@ export interface SteeringChannel {
  * pay for the next request, so the turn parks where it is and resumes
  * after a top-up, the same way as after a ceiling. `cost_ceiling` is the
  * task's spend budget (`taskMaxCostUsd`): it ends the task through the
- * same reserved summary step as `time_ceiling`.
+ * same reserved summary step as `time_ceiling`. `turn_budget` is the
+ * fusion turn's USD cap (`turnBudgetUsd`, issue #29): set whenever the
+ * turn ends with reason `budget`, report or not.
  */
 export type TaskStopCause =
   | "step_ceiling"
   | "time_ceiling"
   | "cost_ceiling"
   | "no_progress"
-  | "credit_exhausted";
+  | "credit_exhausted"
+  | "turn_budget";
 
 export interface RunTurnOptions {
   /** Frozen policy for this turn, its workers and background reflection. */
@@ -1183,7 +1186,8 @@ export interface RunTurnResult {
    * finalization step (the last step the step or time ceiling allows,
    * where only the terminal tools are offered). A reply written there
    * summarises how far the work got; it is not evidence the work
-   * finished. Absent when the model ended the turn on an ordinary step,
+   * finished. `turn_budget` on every `budget` turn (the fusion turn
+   * cap). Absent when the model ended the turn on an ordinary step,
    * and on `cancelled` / `failed`. A fusion worker reads it to report
    * `max_steps` rather than `ok` for a worker that ran out of steps and
    * said so in its reply.

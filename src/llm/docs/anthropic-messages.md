@@ -38,16 +38,38 @@ names, strict tools, effort, cache breakpoints, `extraBody`, model
   Anthropic allows.
 - Assistant `tool_calls` → `tool_use`; all `tool` messages of one step →
   `tool_result` blocks in one user message, before the tail text. A result
-  our renderer prefixed `error: ` is sent with `is_error: true`.
+  recorded with status `error` is sent with `is_error: true`: the status
+  rides on the `tool` message under a symbol key (`TOOL_RESULT_STATUS`,
+  never serialized), so a successful result whose text starts with
+  `error: ` stays a success. Only a message without it (a chat-shaped
+  request) falls back to our renderer's `error: ` prefix.
 - `tools` → `{name, description, input_schema}`; `tool_choice` is only
   `auto` (with `disable_parallel_tool_use` when parallel calls are off) or
   `none`. Forced `any` / `tool` is a 400 on Fable 5.x, Opus 5.5 and
   Sonnet 5.5.
 - `max_tokens` is always sent: the request's cap, the turn's, the entry's
-  `maxOutputTokens`, else 32 000. Never the context window.
+  `maxOutputTokens`, else 32 000 on a stream and 16 000 on a unary
+  request. Never the context window. A unary reply returns nothing until
+  it is complete, and the request timeout (`requestTimeoutMs`, default
+  600 000 ms for this transport) bounds the whole of it: the lower
+  default keeps a slow model's longest unbounded reply inside it. Set
+  `maxOutputTokens` (and, for longer unary replies, `requestTimeoutMs`)
+  on the entry to change either.
 - `temperature`, `top_p`, `top_k` are sent only when the entry's
-  `extraBody` or `userModels[].params` sets them. Other explicit
-  passthrough keys (`thinking`, `metadata`, …) are copied as written.
+  `extraBody` or `userModels[].params` sets them and the entry pins an
+  `anthropic-version` older than `2026-10-21`; that version rejects them
+  on every model, so on it they are left out.
+- Other explicit keys are copied as written only when they are Messages
+  fields (`PASSTHROUGH_KEYS`: `metadata`, `stop_sequences`,
+  `service_tier`, `thinking`, `inference_geo`, `speed`, `cache_control`,
+  `container`, `mcp_servers`, `context_management`). Compat-era OpenAI
+  keys are translated: `max_completion_tokens` → `max_tokens` (when no cap
+  is set), `reasoning_effort` → `output_config.effort` (clamped; the
+  entry's own `output_config.effort` wins), `parallel_tool_calls: false`
+  → `disable_parallel_tool_use`. Every other key (`n`, `seed`,
+  `presence_penalty`, `frequency_penalty`, `logit_bias`, `stream_options`,
+  `user`, unknown ones) is dropped. Each dropped key is warned about once
+  per provider instance.
 - `response_format` (sub-calls) → `output_config.format`.
 - Headers: the key in `x-api-key` (or the entry's `apiKeyHeader`),
   `anthropic-version: 2026-10-21` unless the entry pins another value (the

@@ -12,7 +12,9 @@ import {
 } from "./anthropic-messages-response.js";
 import { createAnthropicStreamConsumer } from "./anthropic-stream-consumer.js";
 
-export const DEFAULT_ANTHROPIC_BASE = "https://api.anthropic.com";
+import { DEFAULT_ANTHROPIC_BASE } from "./anthropic-route.js";
+
+export { DEFAULT_ANTHROPIC_BASE };
 /** The API version raw HTTP sends (`anthropic-version`), pinned. */
 export const ANTHROPIC_API_VERSION = "2026-10-21";
 /**
@@ -46,9 +48,21 @@ export class AnthropicProvider extends OpenAiProvider {
       ...Object.keys(options.extraBody ?? {}),
       ...Object.keys(options.modelParams ?? {}),
     ]);
+    const headers = anthropicHeaders(options.headers);
+    const apiVersion = headers["anthropic-version"];
+    const warned = new Set<string>();
+    const onDroppedKeys = (keys: readonly string[]): void => {
+      const fresh = keys.filter((key) => !warned.has(key));
+      if (fresh.length === 0) return;
+      for (const key of fresh) warned.add(key);
+      options.logger?.warn(
+        `llm: "${options.id}" left out ${fresh.join(", ")} from extraBody/params: not accepted by the Anthropic Messages API (anthropic-version ${apiVersion})`,
+        { provider: options.id, keys: fresh, anthropicVersion: apiVersion },
+      );
+    };
     const wire: OpenAiWireDialect = {
       chatPath: ANTHROPIC_MESSAGES_PATH,
-      toWireBody: (body) => toAnthropicMessagesBody(body, { explicitKeys }),
+      toWireBody: (body) => toAnthropicMessagesBody(body, { explicitKeys, apiVersion, onDroppedKeys }),
       fromWireResponse: (json, context) => {
         try {
           return anthropicMessageToOpenAi(json);
@@ -71,7 +85,7 @@ export class AnthropicProvider extends OpenAiProvider {
       apiPathPrefix: "/v1",
       providerKind: "anthropic",
       apiKeyHeader: options.apiKeyHeader ?? "x-api-key",
-      headers: anthropicHeaders(options.headers),
+      headers,
       streamConsumer: createAnthropicStreamConsumer(options.reasoningFormat ?? "auto"),
       wire,
     });

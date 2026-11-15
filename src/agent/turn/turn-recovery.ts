@@ -130,7 +130,9 @@ export function recoverTurnStep(
       });
       return { kind: "retry_same" };
     }
-    if (turn.turnBudgetStop !== null) {
+    // The daily limit refusing the report is its own stop, with its own
+    // advice: it keeps the daily-limit failure below, not `budget`.
+    if (turn.turnBudgetStop !== null && !isDailySpendLimitError(err)) {
       deps.logger?.warn("final report after the fusion turn cap did not complete; stopping the turn", {
         sessionId: state.id, stepIndex: i, error: runError.message,
       });
@@ -284,10 +286,15 @@ export function recoverTurnStep(
   // crossed between the two attempts.
   const repeatedEmptyAfterAnnouncedRetry =
     turn.emptyRecoveries > 0 && isRecoverableEmptyCompletion(err);
+  // The turn-cap report refused by the daily limit (issue #29) is that
+  // limit's failure, with its advice, not a step-ceiling outcome.
+  const dailyLimitRefusedReport =
+    turn.turnBudgetStop !== null && isDailySpendLimitError(err);
   if (
     finalizationStep &&
     !cancelled &&
-    !repeatedEmptyAfterAnnouncedRetry
+    !repeatedEmptyAfterAnnouncedRetry &&
+    !dailyLimitRefusedReport
   ) {
     // A failed finalization must not execute more work or turn a
     // bounded run into an unbounded retry. Preserve the established

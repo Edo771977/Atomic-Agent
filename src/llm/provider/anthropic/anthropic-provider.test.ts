@@ -166,6 +166,29 @@ describe("AnthropicProvider request", () => {
     expect(cacheMarks.length).toBeLessThanOrEqual(4);
   });
 
+  it("marks is_error from the tool result's own status, not from its text", async () => {
+    const sent: Sent[] = [];
+    const prompt: PromptMessages = {
+      ...PROMPT,
+      turns: [
+        { kind: "user", text: "read two files" },
+        { kind: "assistant_tool_call", tool: "os.fs.read", args: { path: "a" }, callId: "call_turn_1" },
+        { kind: "assistant_tool_call", tool: "os.fs.read", args: { path: "b" }, callId: "call_turn_2" },
+        // A file whose first line happens to read "error: ..." is a success.
+        { kind: "tool_result", tool: "os.fs.read", status: "ok", body: "error: this line is in the log file", truncated: false, callId: "call_turn_1" },
+        { kind: "tool_result", tool: "os.fs.read", status: "error", body: "ENOENT", truncated: false, callId: "call_turn_2" },
+      ],
+    };
+    await provider(sent, [json(MESSAGE)]).complete(turnRequest({ messages: prompt }));
+    const messages = sent[0]!.body.messages as Array<{ role: string; content: Array<Record<string, unknown>> }>;
+    const results = messages[2]!.content.filter((b) => b.type === "tool_result");
+    expect(results[0]).not.toHaveProperty("is_error");
+    expect(results[0]!.content).toBe("error: this line is in the log file");
+    expect(results[1]!.is_error).toBe(true);
+    // Nothing of the marker reaches the wire under its own name.
+    expect(JSON.stringify(sent[0]!.body)).not.toMatch(/toolStatus|atomic/);
+  });
+
   it("never sends sampling parameters, stream_options or a forced tool_choice", async () => {
     const sent: Sent[] = [];
     await provider(sent, [json(MESSAGE)], { defaultChatModel: "claude-sonnet-4-5" }).complete(
@@ -178,14 +201,73 @@ describe("AnthropicProvider request", () => {
     expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
   });
 
-  it("sends a sampling parameter the entry configured explicitly", async () => {
+  it("sends an explicit sampling parameter only on an API version older than 2026-10-21", async () => {
     const sent: Sent[] = [];
     await provider(sent, [json(MESSAGE)], {
       defaultChatModel: "claude-sonnet-4-5",
+      headers: { "anthropic-version": "2026-06-01" },
       extraBody: { temperature: 0.3, metadata: { user_id: "u" } },
     }).complete({ prompt: "hi" });
     expect(sent[0]!.body.temperature).toBe(0.3);
     expect(sent[0]!.body.metadata).toEqual({ user_id: "u" });
+  });
+
+  it("drops explicit sampling parameters on the pinned 2026-10-21 version, warning once", async () => {
+    const sent: Sent[] = [];
+    const warn = vi.fn();
+    const p = provider(sent, [json(MESSAGE)], {
+      extraBody: { temperature: 0.3, top_p: 0.9 },
+      modelParams: { top_k: 5 },
+      logger: { warn },
+    });
+    await p.complete({ prompt: "hi" });
+    await p.complete({ prompt: "hi" });
+    for (const body of sent.map((s) => s.body)) {
+      for (const key of ["temperature", "top_p", "top_k"]) expect(body).not.toHaveProperty(key);
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/temperature/);
+  });
+
+  it("translates or drops compat-era OpenAI-only extraBody keys instead of forwarding them", async () => {
+    const sent: Sent[] = [];
+    const warn = vi.fn();
+    const p = provider(sent, [json(MESSAGE)], {
+      extraBody: {
+        max_completion_tokens: 2000,
+        reasoning_effort: "high",
+        presence_penalty: 0.1,
+        frequency_penalty: 0.2,
+        n: 1,
+        seed: 7,
+        logit_bias: { "1": 2 },
+        stream_options: { include_usage: true },
+        parallel_tool_calls: false,
+        user: "someone",
+        some_future_openai_knob: true,
+        metadata: { user_id: "u" },
+        service_tier: "auto",
+        inference_geo: "us",
+      },
+      logger: { warn },
+    });
+    await p.complete(turnRequest());
+    await p.complete(turnRequest());
+    const body = sent[0]!.body;
+    expect(body.max_tokens).toBe(2000);
+    expect(body.output_config).toMatchObject({ effort: "high" });
+    for (const key of [
+      "max_completion_tokens", "reasoning_effort", "presence_penalty", "frequency_penalty", "n",
+      "seed", "logit_bias", "stream_options", "parallel_tool_calls", "user", "some_future_openai_knob",
+    ]) {
+      expect(body).not.toHaveProperty(key);
+    }
+    expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+    expect(body.metadata).toEqual({ user_id: "u" });
+    expect(body.service_tier).toBe("auto");
+    expect(body.inference_geo).toBe("us");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/presence_penalty/);
   });
 
   it("always sends max_tokens: the request cap, the entry ceiling, else the default", async () => {
@@ -194,9 +276,11 @@ describe("AnthropicProvider request", () => {
     await p.complete({ prompt: "hi" });
     await p.complete({ prompt: "hi", maxTokens: 1000 });
     expect(sent.map((s) => s.body.max_tokens)).toEqual([4096, 1000]);
+    // Unbounded and unary: a smaller default, so a long reply cannot run
+    // into the 10-minute request timeout with nothing streamed.
     const bare: Sent[] = [];
     await provider(bare, [json(MESSAGE)]).complete({ prompt: "hi" });
-    expect(bare[0]!.body.max_tokens).toBe(32_000);
+    expect(bare[0]!.body.max_tokens).toBe(16_000);
   });
 
   it("calls requestBudget.beforeSend with the final Messages body, on every physical send", async () => {
@@ -216,7 +300,7 @@ describe("AnthropicProvider request", () => {
     expect(seen).toHaveLength(2);
     expect(seen[0]).toHaveProperty("messages");
     expect(seen[0]).not.toHaveProperty("stream_options");
-    expect(seen[0]!.max_tokens).toBe(32_000);
+    expect(seen[0]!.max_tokens).toBe(16_000);
     // The clamp the budget wrote is what went out.
     expect(sent.map((s) => s.body.max_tokens)).toEqual([77, 77]);
   });
@@ -381,6 +465,8 @@ describe("AnthropicProvider streaming", () => {
     ]);
     const { chunks, result } = await drain(p, turnRequest());
     expect(sent[0]!.body.stream).toBe(true);
+    // A stream keeps the larger default reply budget.
+    expect(sent[0]!.body.max_tokens).toBe(32_000);
     expect(chunks.join("")).toBe("Hello");
     expect(result.content).toBe("Hello");
     expect(result.toolCalls).toEqual([

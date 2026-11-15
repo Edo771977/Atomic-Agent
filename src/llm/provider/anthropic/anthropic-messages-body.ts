@@ -17,25 +17,50 @@
  *  - assistant `tool_calls` become `tool_use` blocks; every `tool`
  *    message of one step becomes a `tool_result` block in ONE user
  *    message (consecutive same-role messages are merged, tool results
- *    first). A result our own renderer marked `error: …` is `is_error`.
+ *    first). `is_error` comes from the result's recorded status
+ *    (`TOOL_RESULT_STATUS`); the `error: ` prefix only without one.
  *  - `reasoning_content` on history messages is dropped: thinking blocks
  *    are never replayed, because the packer and compaction edit history
  *    and a replayed block bound to an edited prefix is a 400.
  *  - `tool_choice` is only ever `auto` or `none`: Fable 5.x, Opus 5.5
  *    and Sonnet 5.5 answer a forced `any` / `tool` with a 400.
- *  - `max_tokens` is required: the body's own cap, else the default.
+ *  - `max_tokens` is required: the body's own cap, else the default
+ *    (32 000 streamed, 16 000 unary).
  *  - sampling parameters (`temperature`, `top_p`, `top_k`) are sent only
- *    when the entry configured them explicitly (`extraBody` / `params`).
+ *    when the entry configured them explicitly (`extraBody` / `params`)
+ *    AND the pinned `anthropic-version` predates 2026-10-21, which
+ *    rejects them on every model.
+ *  - other explicit keys pass through only when they are Messages API
+ *    fields ({@link PASSTHROUGH_KEYS}). Compat-era OpenAI keys are
+ *    translated where they mean something here (`max_completion_tokens`,
+ *    `reasoning_effort`, `parallel_tool_calls`) and otherwise dropped, so
+ *    an old OpenAI-compatible entry routed to this client does not fail
+ *    every request with "Extra inputs are not permitted".
  */
 
-import { TOOL_ERROR_PREFIX } from "../openai/openai-native-messages.js";
+import { TOOL_ERROR_PREFIX, TOOL_RESULT_STATUS } from "../openai/openai-native-messages.js";
+import {
+  ANTHROPIC_EFFORT_LEVELS,
+  anthropicEffortLevels,
+  clampAnthropicEffort,
+  type AnthropicEffort,
+} from "../openai/model-params.js";
 
 /**
- * `max_tokens` when nothing bounded the reply: the API requires the
- * field. A reply budget, not the context window (a window-sized cap is a
- * 400 and would hold a window of dollars in the request budget).
+ * `max_tokens` when nothing bounded a streamed reply: the API requires
+ * the field. A reply budget, not the context window (a window-sized cap
+ * is a 400 and would hold a window of dollars in the request budget).
  */
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 32_000;
+
+/**
+ * The same default for a unary (non-streaming) request. Nothing arrives
+ * until the whole reply is written, so a 32k-token reply at a slow
+ * model's pace could outlast the 10-minute request timeout
+ * (`OPENAI_DEFAULT_REQUEST_TIMEOUT_MS`) and be billed with nothing
+ * returned; Anthropic recommends streaming for long replies.
+ */
+export const ANTHROPIC_UNARY_DEFAULT_MAX_TOKENS = 16_000;
 
 /** Keys the translation owns; an explicit passthrough cannot replace them. */
 const OWNED_KEYS = new Set([
@@ -55,12 +80,56 @@ const OWNED_KEYS = new Set([
  */
 const SAMPLING_KEYS = new Set(["temperature", "top_p", "top_k"]);
 
+/** The first `anthropic-version` that answers any sampling parameter with a 400. */
+export const NO_SAMPLING_API_VERSION = "2026-10-21";
+
+/**
+ * Explicit keys copied as written: Messages API request fields this
+ * translation does not build itself. Anything else an entry sets is
+ * dropped (with a warning), since the API answers an unknown top-level
+ * field with a 400. Extend this list when the API adds a field.
+ */
+export const PASSTHROUGH_KEYS: ReadonlySet<string> = new Set([
+  "metadata",
+  "stop_sequences",
+  "service_tier",
+  "thinking",
+  "inference_geo",
+  "speed",
+  "cache_control",
+  "container",
+  "mcp_servers",
+  "context_management",
+]);
+
+/** Explicit keys translated into a Messages field (never copied as written). */
+const TRANSLATED_KEYS = new Set([
+  "output_config",
+  "stop",
+  "response_format",
+  "max_completion_tokens",
+  "reasoning_effort",
+  "parallel_tool_calls",
+]);
+
 export interface AnthropicBodyOptions {
   /**
    * Keys the entry's `extraBody` / model `params` set. Only these are
    * copied through verbatim, and only these bring sampling parameters.
    */
   explicitKeys?: ReadonlySet<string>;
+  /** The `anthropic-version` the request is sent with; sampling keys are dropped from 2026-10-21. */
+  apiVersion?: string;
+  /** Told the explicit keys this body left out (the provider warns once). */
+  onDroppedKeys?: (keys: readonly string[]) => void;
+}
+
+/** Does this `anthropic-version` still take sampling parameters? Unparsable versions are treated as current. */
+export function apiVersionTakesSampling(version: string | undefined): boolean {
+  if (version === undefined) return false;
+  const trimmed = version.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
+  return trimmed < NO_SAMPLING_API_VERSION;
 }
 
 type Block = Record<string, unknown>;
@@ -91,21 +160,55 @@ export function toAnthropicMessagesBody(
   } else if (typeof openAi.stop === "string" && openAi.stop.length > 0) {
     body.stop_sequences = [openAi.stop];
   }
+  const dropped: string[] = [];
   const outputConfig = translateOutputConfig(openAi);
-  if (outputConfig !== undefined) body.output_config = outputConfig;
+  const effort = explicit.has("reasoning_effort")
+    ? translateReasoningEffort(openAi.reasoning_effort, openAi.model, explicit, outputConfig)
+    : undefined;
+  if (effort === null) dropped.push("reasoning_effort");
+  const config = effort ? { ...outputConfig, effort } : outputConfig;
+  if (config !== undefined) body.output_config = config;
+  const sampling = apiVersionTakesSampling(options.apiVersion);
   for (const key of SAMPLING_KEYS) {
-    if (explicit.has(key) && openAi[key] !== undefined) body[key] = openAi[key];
+    if (!explicit.has(key) || openAi[key] === undefined) continue;
+    if (sampling) body[key] = openAi[key];
+    else dropped.push(key);
   }
   // The operator's own passthrough fields (`thinking`, `metadata`,
   // `service_tier`, …), as written. Owned keys and the ones translated
-  // above keep the translation's value.
+  // above keep the translation's value; anything the API does not define
+  // is left out.
   for (const key of explicit) {
-    if (OWNED_KEYS.has(key) || SAMPLING_KEYS.has(key)) continue;
-    if (key === "output_config" || key === "stop" || key === "response_format") continue;
-    if (openAi[key] !== undefined) body[key] = openAi[key];
+    if (OWNED_KEYS.has(key) || SAMPLING_KEYS.has(key) || TRANSLATED_KEYS.has(key)) continue;
+    if (openAi[key] === undefined) continue;
+    if (PASSTHROUGH_KEYS.has(key)) body[key] = openAi[key];
+    else dropped.push(key);
   }
   if (openAi.stream === true) body.stream = true;
+  if (dropped.length > 0) options.onDroppedKeys?.(dropped);
   return body;
+}
+
+/**
+ * An explicit OpenAI-style `reasoning_effort` as `output_config.effort`,
+ * clamped to the model's levels. `undefined` when the entry's own
+ * `output_config.effort` already says it; `null` when the value or the
+ * model takes no effort (dropped).
+ */
+function translateReasoningEffort(
+  raw: unknown,
+  model: unknown,
+  explicit: ReadonlySet<string>,
+  outputConfig: Record<string, unknown> | undefined,
+): AnthropicEffort | undefined | null {
+  if (explicit.has("output_config") && outputConfig?.effort !== undefined) return undefined;
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().toLowerCase();
+  const requested: AnthropicEffort | undefined =
+    value === "minimal" ? "low" : (ANTHROPIC_EFFORT_LEVELS as readonly string[]).includes(value) ? (value as AnthropicEffort) : undefined;
+  if (requested === undefined) return null;
+  const levels = typeof model === "string" ? anthropicEffortLevels(model) : null;
+  return levels === null ? null : clampAnthropicEffort(requested, levels);
 }
 
 function readCap(openAi: Record<string, unknown>): number {
@@ -115,7 +218,7 @@ function readCap(openAi: Record<string, unknown>): number {
       return Math.floor(value);
     }
   }
-  return ANTHROPIC_DEFAULT_MAX_TOKENS;
+  return openAi.stream === true ? ANTHROPIC_DEFAULT_MAX_TOKENS : ANTHROPIC_UNARY_DEFAULT_MAX_TOKENS;
 }
 
 /**
@@ -293,9 +396,21 @@ function toolResultBlock(message: Block): Block {
     type: "tool_result",
     tool_use_id: wireId(message.tool_call_id),
     content: text.length > 0 ? text : "(empty)",
-    ...(text.startsWith(TOOL_ERROR_PREFIX) ? { is_error: true } : {}),
+    ...(isErrorResult(message, text) ? { is_error: true } : {}),
     ...(cache !== undefined ? { cache_control: cache } : {}),
   };
+}
+
+/**
+ * The result's recorded status when the message carries it
+ * (`TOOL_RESULT_STATUS`); only a message without one (a chat-shaped
+ * request) falls back to our renderer's `error: ` prefix.
+ */
+function isErrorResult(message: Block, text: string): boolean {
+  const status = (message as { [TOOL_RESULT_STATUS]?: unknown })[TOOL_RESULT_STATUS];
+  if (status === "error") return true;
+  if (status !== undefined) return false;
+  return text.startsWith(TOOL_ERROR_PREFIX);
 }
 
 /** Tool ids must match `^[a-zA-Z0-9_-]+$`; the same rewrite on both sides keeps pairs matched. */

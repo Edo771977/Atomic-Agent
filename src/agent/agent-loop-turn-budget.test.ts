@@ -14,7 +14,7 @@ import type { CapabilitiesSummary, ToolDescriptor } from "../prompt/stable-prefi
 /**
  * Issue #29: the fusion turn's USD cap refused the orchestrator's next
  * request. The turn takes one final no-tools report step (marked
- * `finalReport`, a 1024-token ceiling) and ends with reason `budget`
+ * `finalReport`, a 4096-token ceiling at low effort) and ends with reason `budget`
  * instead of failing with no report.
  */
 
@@ -89,13 +89,35 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     expect(calls).toHaveLength(2);
     expect(calls[0]!.finalReport).toBeUndefined();
     expect(calls[1]!.finalReport).toBe(true);
-    expect(calls[1]!.maxTokens).toBe(1024);
+    expect(calls[1]!.maxTokens).toBe(4096);
     expect(calls[1]!.prompt).toContain("turn cap is used up");
     expect(result.reason).toBe("budget");
+    expect(result.stopCause).toBe("turn_budget");
     expect(result.session.turns.at(-1)).toMatchObject({ text: "Two of three parts are done; the third is left." });
     expect(events.some((e) => e.type === "loop_failed")).toBe(false);
     expect(events).toContainEqual({ type: "loop_completed", reason: "budget", budget: { spentUsd: 1.13, capUsd: 1 } });
     expect(events.find((e) => e.type === "turn_finished")).toMatchObject({ reason: "budget", budget: { spentUsd: 1.13, capUsd: 1 } });
+  });
+
+  it("sends the report at low effort with room for thinking, whatever the turn's effort", async () => {
+    // Fable / Opus 5.5 always think, sharing max_tokens with the text: at
+    // the turn's medium/xhigh effort a 1024-token report could end on
+    // max_tokens with no text at all.
+    const { agent, calls } = loop((call) => {
+      if (call === 1) throw exhausted();
+      return replyCall("Done so far: a and b.");
+    });
+    await agent.runTurn(createEmptySessionState({ id: "s-effort", workingDir: "/work" }), {
+      ...options(),
+      reasoningEffort: "high",
+      reasoningOverride: "medium",
+    });
+    expect(calls[0]!.reasoningEffort).toBe("high");
+    expect(calls[1]!.finalReport).toBe(true);
+    expect(calls[1]!.reasoningEffort).toBe("low");
+    expect(calls[1]!.disableThinking).toBeUndefined();
+    expect(calls[1]!.reasoningOverride).toBeUndefined();
+    expect(calls[1]!.maxTokens).toBeGreaterThanOrEqual(4096);
   });
 
   it("stops with reason budget and no further call when the final report is refused too", async () => {
@@ -103,8 +125,23 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     const result = await agent.runTurn(createEmptySessionState({ id: "s-cap2", workingDir: "/work" }), options());
     expect(calls).toHaveLength(2);
     expect(result.reason).toBe("budget");
+    expect(result.stopCause).toBe("turn_budget");
     expect(events.some((e) => e.type === "loop_failed")).toBe(false);
     expect(events.find((e) => e.type === "turn_finished")).toMatchObject({ reason: "budget" });
+  });
+
+  it("reports a daily-limit refusal of the final report as the daily limit, not the turn cap", async () => {
+    const { agent, calls, events } = loop((call) => {
+      if (call === 1) throw exhausted();
+      throw new DailySpendLimitError({ spentUsd: 5, limitUsd: 5, providerId: "cloud" });
+    });
+    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap-day", workingDir: "/work" }), options());
+    expect(calls).toHaveLength(2);
+    expect(result.reason).toBe("failed");
+    expect(result.stopCause).toBeUndefined();
+    expect(events.find((e) => e.type === "turn_finished")).not.toMatchObject({ reason: "budget" });
+    const failed = events.find((e) => e.type === "loop_failed");
+    expect(failed && "error" in failed ? String(failed.error.message) : "").toMatch(/daily/i);
   });
 
   it("takes no final call when the daily limit is what refused", async () => {

@@ -32,6 +32,7 @@ const STOP_CAUSE_LINES: Record<string, string> = {
   cost_ceiling: "Stopped at the budget limit. The work may not be finished.",
   no_progress: "Stopped because the run was not making progress.",
   credit_exhausted: "The provider account ran out of credit. Top up to resume.",
+  turn_budget: "Stopped at the turn budget. The work may not be finished.",
 };
 
 export function stopCauseLine(cause: string): string {

@@ -12,6 +12,26 @@
  */
 
 export const ANTHROPIC_API_HOST = "api.anthropic.com";
+/** Where a native `anthropic` entry without `baseUrl` sends its requests. */
+export const DEFAULT_ANTHROPIC_BASE = "https://api.anthropic.com";
+
+/**
+ * The URL an entry's requests actually go to: a native `anthropic` entry
+ * without `baseUrl` calls {@link DEFAULT_ANTHROPIC_BASE} (`AnthropicProvider`).
+ * Pricing and catalog lookups that key on the host must read this, not the
+ * raw config field.
+ */
+export function effectiveEntryUrl(entry: {
+  readonly kind: string;
+  readonly baseUrl?: string | undefined;
+  readonly url?: string | undefined;
+}): string | undefined {
+  const configured = entry.baseUrl ?? entry.url;
+  if (entry.kind === "anthropic" && (configured === undefined || configured.trim() === "")) {
+    return DEFAULT_ANTHROPIC_BASE;
+  }
+  return configured;
+}
 
 export function routesToNativeAnthropic(entry: {
   readonly kind: string;
