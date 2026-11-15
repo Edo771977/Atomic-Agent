@@ -82,6 +82,19 @@ describe("parsePricingPage on the saved official page", () => {
     });
   });
 
+  it("two long-prompt rows for one model are a problem (exit 2), not the last one kept", () => {
+    const longRow = FIXTURE.split("\n").find((line) => line.includes("Haiku 5.5 (for prompts over 100,000 tokens)"))!;
+    const second = longRow
+      .replace("over 100,000 tokens", "over 200,000 tokens")
+      .replace("$2.50 / MTok", "$3 / MTok");
+    const doubled = FIXTURE.replace(longRow, `${longRow}\n${second}`);
+    const parsed = parsePricingPage(doubled);
+    expect(parsed.problems).toEqual([
+      expect.stringMatching(/claude-haiku-5-5: .*long-prompt rows? listed twice/),
+    ]);
+    expect(reportCheck(parsed, COMMITTED).code).toBe(2);
+  });
+
   it("matches the committed table: the check exits 0", () => {
     const report = reportCheck(page, COMMITTED);
     expect(report.lines.filter((l) => /^(added|removed|changed|unknown|cannot)/.test(l))).toEqual([]);

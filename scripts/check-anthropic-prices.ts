@@ -211,7 +211,10 @@ export function parsePricingPage(markdown: string): ParsedPage {
     }
     if (Object.keys(rates).length !== 4) continue;
     const full = rates as Rates;
-    if (name.tier === "long") long.set(name.id, { thresholdTokens: name.thresholdTokens, ...full });
+    // Two "for prompts over" rows for one model would need a second tier
+    // the table cannot hold; keeping the last one would drop a price.
+    if (name.tier === "long" && long.has(name.id)) page.problems.push(`${name.id}: long-prompt row listed twice`);
+    else if (name.tier === "long") long.set(name.id, { thresholdTokens: name.thresholdTokens, ...full });
     else if (Object.hasOwn(page.prices, name.id)) page.problems.push(`${name.id}: listed twice`);
     else page.prices[name.id] = { ...full };
   }
