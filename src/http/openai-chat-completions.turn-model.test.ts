@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as configuration from "../config/index.js";
-import { parseTurnModel } from "./openai-chat-completions.js";
+import { parseTurnModel, turnModelPolicyRefusal } from "./openai-chat-completions.js";
 
 /**
  * ATO-1148: the desktop asks for a project's own cloud model per turn
@@ -56,5 +56,24 @@ describe("parseTurnModel", () => {
     withProviders();
     expect(parseTurnModel({ provider_id: "openrouter", provider_model: "nobody/never-heard-of" }))
       .toMatch(/"nobody\/never-heard-of" is not known for llm provider "openrouter"/);
+  });
+});
+
+describe("turnModelPolicyRefusal (a folder constraint, before the turn)", () => {
+  const session = { id: "s", workingDir: "/work/acme", metadata: {} };
+  const restricted = { runtime: { providerRestrictionFor: () => ({ label: "restricted to: local-llama", allowedProviders: ["local-llama"], folder: "/work/acme", readFrom: [] }) } } as never;
+
+  it("refuses a provider the session's folder does not allow, naming folder and provider", () => {
+    const refusal = turnModelPolicyRefusal(restricted, session, { providerId: "openrouter", model: "m" });
+    expect(refusal).toMatch(/"openrouter"/);
+    expect(refusal).toMatch(/\/work\/acme/);
+  });
+
+  it("lets an allowed provider, an unconstrained session and the active model through", () => {
+    const allowing = { runtime: { providerRestrictionFor: () => ({ label: "", allowedProviders: ["openrouter"], folder: "/work/acme", readFrom: [] }) } } as never;
+    expect(turnModelPolicyRefusal(allowing, session, { providerId: "openrouter", model: "m" })).toBeNull();
+    expect(turnModelPolicyRefusal({ runtime: { providerRestrictionFor: () => null } } as never, session, { providerId: "openrouter", model: "m" })).toBeNull();
+    expect(turnModelPolicyRefusal(restricted, session, null)).toBeNull();
+    expect(turnModelPolicyRefusal({ runtime: {} } as never, session, { providerId: "openrouter", model: "m" })).toBeNull();
   });
 });

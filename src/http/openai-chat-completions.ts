@@ -184,6 +184,13 @@ export function createChatCompletionsHandler(): HttpHandler {
       sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
       return;
     }
+    // ATO-1148: a per-turn provider the chat's folder does not allow is a
+    // bad request now, not a turn that fails at the provider seam.
+    const policyRefusal = turnModelPolicyRefusal(ctx, session, parsed.turnModel);
+    if (policyRefusal !== null) {
+      sendError(res, 400, openaiError(policyRefusal, "invalid_request_error", "provider_id"));
+      return;
+    }
     const completionId = makeCompletionId();
     const created = Math.floor(Date.now() / 1000);
     if (parsed.stream) {
@@ -1415,6 +1422,24 @@ export function parseTurnModel(
   if (typeof model !== "string") return "provider_id needs provider_model, the model to run on it";
   const refusal = perTurnModelRefusal(resolveLlmConfig(getConfig()), providerId.trim(), model.trim());
   return refusal ?? { providerId: providerId.trim(), model: model.trim() };
+}
+
+/**
+ * ATO-1148: why the session's folder constraint (issue #33, read through
+ * `providerRestrictionFor`, which includes its read taint) does not let
+ * the per-turn provider receive its content, or null. The seam check in
+ * the turn still holds; this only answers early, before a session lock
+ * or a model call.
+ */
+export function turnModelPolicyRefusal(
+  ctx: Pick<HandlerContext, "runtime">,
+  session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  turnModel: { providerId: string; model: string } | null,
+): string | null {
+  if (turnModel === null) return null;
+  const restriction = ctx.runtime.providerRestrictionFor?.(session) ?? null;
+  if (restriction === null || restriction.allowedProviders.includes(turnModel.providerId)) return null;
+  return `llm provider "${turnModel.providerId}" may not receive this chat's content: folder ${restriction.folder} is ${restriction.label}`;
 }
 
 /**
