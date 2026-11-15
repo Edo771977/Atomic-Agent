@@ -32,6 +32,9 @@ import { captureModelModePolicy, resolveModelMode, type ModelModePolicy } from "
 import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
+import { currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
+import type { SessionProviderPolicy } from "../session-provider-policy.js";
+import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
 import { answerChannelForOrigin, type AnswerChannel } from "../../prompt/answer-style.js";
 import type { RequestBudgetNotices } from "../request-budget-notices.js";
 
@@ -92,6 +95,8 @@ export interface RuntimeTurnDependencies {
     resolveRouteVision: RuntimeProviders["resolveRouteVision"];
     resolveActiveModelName: RuntimeProviders["resolveActiveModelName"];
     fallbackChain: Pick<ProviderFallbackChain, "standingOverrideFor" | "setTurnPrimary">;
+    /** Per-folder provider constraints (issue #33); absent in narrow test rigs. */
+    sessionProviderPolicy?: SessionProviderPolicy;
     /** True when today's spend ceiling refuses a paid link now (ATO-649); the router passes over it. */
     dailyLimitRefuses?: (providerId: string) => boolean;
     budgetNotices?: RequestBudgetNotices;
@@ -353,7 +358,7 @@ export function createRuntimeTurnService(
     }
   };
 
-  const executeTurn = async (
+  const executeTurnInPolicy = async (
     session: SessionState,
     userMessage: string,
     runOptions: {
@@ -380,6 +385,27 @@ export function createRuntimeTurnService(
       answerChannel?: AnswerChannel;
     } = {},
   ): Promise<RunTurnResult> => {
+    // A folder's provider constraint can leave only one Fusion leg (issue
+    // #33): the turn then runs as a single model without `fusion.delegate`
+    // (pinned to the worker leg when only that one is allowed). A worker
+    // turn is the fan-out's own and is never degraded here.
+    if (readFusionWorkerMeta(session.metadata) === null) {
+      const degradation = fusionPolicyDegradation(resolveCurrentRunMode(), currentProviderPolicy());
+      if (degradation.kind !== "none") {
+        logger.info("fusion limited by the folder's provider constraint", {
+          sessionId: session.id,
+          degradation: degradation.kind,
+          folder: currentProviderPolicy()?.key,
+        });
+        runOptions = {
+          ...runOptions,
+          toolFilter: withoutFusionDelegate(runOptions.toolFilter),
+          ...(degradation.kind === "worker-solo" && runOptions.providerId === undefined
+            ? { providerId: degradation.providerId }
+            : {}),
+        };
+      }
+    }
     assertKnownProvider(runOptions.providerId);
     // A fusion worker session is throwaway: no recorder, no trace pin, no
     // memory, and — at the end — no save. The parent session's turn
@@ -443,6 +469,7 @@ export function createRuntimeTurnService(
       pinnedProviderId: runOptions.providerId,
       runMode: resolveCurrentRunMode(),
       isRegistered: (id) => providerRegistry.getProvider(id) !== undefined,
+      isAllowed: currentPolicyAllows,
       logger,
       sessionId: session.id,
       ...(dailyLimitRefuses === undefined ? {} : { dailyLimitRefuses }),
@@ -659,7 +686,23 @@ export function createRuntimeTurnService(
     logger,
   });
 
-  const runTurn = async (
+  /**
+   * Every turn runs inside its session's provider-policy frame (issue
+   * #33): the folder's constraint, or for a fusion worker its parent's
+   * stamp. Without the policy dep (narrow test rigs) no frame is set.
+   */
+  const sessionPolicy = deps.inference.sessionProviderPolicy;
+  const inSessionPolicy = <T>(session: SessionState, run: () => Promise<T>): Promise<T> => {
+    if (sessionPolicy === undefined) return run();
+    const worker = readFusionWorkerMeta(session.metadata) !== null;
+    return runWithProviderPolicy(sessionPolicy.forSession(session), run, {
+      role: worker ? "a fusion worker" : "the main model",
+    });
+  };
+  const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
+    inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+
+  const runTurnInPolicy = async (
     session: SessionState,
     userMessage: string,
     runOptions: {
@@ -818,6 +861,11 @@ export function createRuntimeTurnService(
       throw error;
     }
   };
+
+  // The goal judge and the rounds' side calls run here, outside any
+  // single turn: they get the session's frame too.
+  const runTurn: typeof runTurnInPolicy = (session, userMessage, runOptions) =>
+    inSessionPolicy(session, () => runTurnInPolicy(session, userMessage, runOptions));
 
   return { executeTurn, steer, runTurn, controlGoal: goals.control };
 }

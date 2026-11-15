@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
+import { workerPolicyStampFromFrame } from "../session-provider-policy.js";
 import { describeSessionPinsFix, SessionPinsReadError, SessionStore, createEmptySessionState, createFusionWorkerSession, pruneSessions, readSessionPins, type FusionWorkerMeta, type SessionState } from "../../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../../http/webhook-session-store.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -187,10 +188,17 @@ export function createRuntimeSessionFactories(
     meta: FusionWorkerMeta,
     dir?: string,
     inheritWorkspace: boolean = dir !== undefined,
-  ): SessionState => ({
-    ...createFusionWorkerSession({ workingDir: dir ?? workingDir, meta }),
-    ...(inheritWorkspace ? { inheritedWorkspace: true } : {}),
-  });
+  ): SessionState => {
+    // The parent's provider policy, stamped at fan-out (issue #33): this
+    // runs inside the parent turn's frame. The worker obeys it wherever it
+    // runs; its own folder (often a temp copy) is never matched again.
+    const stamp = meta.providerPolicy !== undefined ? meta.providerPolicy : workerPolicyStampFromFrame();
+    const stamped = stamp === undefined ? meta : { ...meta, providerPolicy: stamp };
+    return {
+      ...createFusionWorkerSession({ workingDir: dir ?? workingDir, meta: stamped }),
+      ...(inheritWorkspace ? { inheritedWorkspace: true } : {}),
+    };
+  };
 
   return { createSession, createEphemeralSession };
 }

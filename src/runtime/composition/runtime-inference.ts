@@ -6,6 +6,7 @@ import type { RuntimeLocalProfile, RuntimeConnectedLocalProfile } from "./runtim
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import { ProviderRegistry, resolveLlmConfig, type LlmProvider } from "../../llm/provider/index.js";
+import { hasProjectConstraints } from "../../llm/provider-policy.js";
 import { resolveActiveToolTransport } from "../../llm/provider/registry/resolve-tool-transport.js";
 import { modelWantsStrictTools } from "../../llm/provider/model-strict-tools.js";
 import { resolveRunMode, type ResolvedRunMode } from "../../llm/run-mode/index.js";
@@ -60,6 +61,8 @@ export async function connectRuntimeProviders(
   const { getLiveProfile, getLiveModelId } = connected;
   const providerRegistry = await ProviderRegistry.fromConfig(config, {
     config,
+    // Live: a constraint added or removed in config lands on the next call.
+    constraintsActive: () => hasProjectConstraints(getConfig()),
     llamaClient: llama,
     getProfile: getLiveProfile,
     getModelId: getLiveModelId,
@@ -339,6 +342,8 @@ export function connectRuntimeFallback(
     resolveCatalogContextWindow?: RuntimeModelContext["resolveCatalogContextWindow"];
     turnBudget?: FusionTurnBudget;
     budgetNotices?: RequestBudgetNotices;
+    /** Per-folder provider constraints at the seam (issue #33). */
+    providerPolicy?: FallbackSeamDeps["providerPolicy"];
   },
 ) {
   const {
@@ -573,6 +578,7 @@ export function connectRuntimeFallback(
     } satisfies Pick<FallbackSeamDeps, "requestBudget">),
     recordUnaryUsage,
     recordStreamUsage,
+    ...(deps.providerPolicy === undefined ? {} : { providerPolicy: deps.providerPolicy }),
   };
 
   const overrideScope = (params: LlmStreamParams) => {

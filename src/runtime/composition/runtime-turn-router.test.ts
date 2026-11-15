@@ -52,6 +52,14 @@ describe("routeTurnProvider (ATO-483)", () => {
     expect(JSON.stringify(info.mock.calls)).not.toContain('"hi"');
   });
 
+  it("never routes to a provider the folder's constraint does not allow (issue #33)", () => {
+    const { providerId } = run(
+      configWith({ enabled: true, rules: [{ provider: "groq" }] }),
+      { isAllowed: (id) => id === "openrouter" },
+    );
+    expect(providerId).toBeUndefined();
+  });
+
   it("skips a provider the registry did not build", () => {
     const { providerId } = run(
       configWith({ enabled: true, rules: [{ provider: "unbuilt" }, { provider: "groq" }] }),

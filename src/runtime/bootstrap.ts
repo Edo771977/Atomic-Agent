@@ -33,6 +33,9 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
+import { createSessionProviderPolicy } from "./session-provider-policy.js";
+import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
+import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
 import type { SessionState } from "../session/session-state.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
@@ -328,6 +331,12 @@ export async function createAgentRuntime(
   });
 
   const sessionStore = prepareRuntimeSessionStore(config, logger);
+  // Per-folder provider constraints (issue #33): the policy of a session,
+  // matched live against `projects.constraints`; see session-provider-policy.ts.
+  const sessionProviderPolicy = createSessionProviderPolicy({
+    readConfig: () => getConfig(),
+    loadSession: (id) => sessionStore.load(id),
+  });
   // The commands `os.shell.run` detached at the default timeout (F47).
   // One registry for the runtime, so the turn-end (`executeTurn`),
   // session-delete and shutdown paths below can stop what a session
@@ -479,6 +488,7 @@ export async function createAgentRuntime(
     fallbackChain, resolveActiveLlmSlice, localBackend: connectedLocal.localBackend, profileManager,
     costAccumulator, turnUsageMeter, sessionUsage, dailySpend, resolveModelPricing, resolveCatalogContextWindow,
     turnBudget: fusionTurnBudget, budgetNotices,
+    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: sessionProviderPolicy.forSessionId },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
@@ -606,7 +616,12 @@ export async function createAgentRuntime(
     // The same live resolution the `fusion.delegate` descriptor gate
     // reads, so the tool the orchestrator is being pushed towards is
     // always in the catalog when the push happens.
-    isFusionMode: () => resolveCurrentRunMode().effective === "fusion",
+    // Not when the folder's provider constraint leaves only one leg
+    // (issue #33): the turn then runs as a single model.
+    isFusionMode: () => {
+      const runMode = resolveCurrentRunMode();
+      return runMode.effective === "fusion" && fusionPolicyDegradation(runMode, currentProviderPolicy()).kind === "none";
+    },
     // A fusion turn starts: its fan-out grant is dropped and its $ /
     // time caps (ATO-947) start from zero.
     clearFanoutTurnGrant: (sessionId: string) => {
@@ -853,7 +868,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
   });
