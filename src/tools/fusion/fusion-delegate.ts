@@ -1469,6 +1469,7 @@ export function buildFusionDelegateTool(
             unverified:
               stop === undefined ? "the turn was cancelled" : `not judged: ${stop.message}`,
             costUsd: null,
+            review: { decision: "unverified", issues: [], reviewer: null },
           };
         }
         const target = judgeTargetFor(input.task.id)!;

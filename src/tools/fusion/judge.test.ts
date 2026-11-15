@@ -15,6 +15,7 @@ import {
   JUDGE_FILE_CHARS,
   judgeTask,
   parseJudgeAnswer,
+  renderJudgePrompt,
   renderRetryFindings,
   RETRY_OUTPUT_CHARS,
   type AcceptanceItem,
@@ -30,8 +31,16 @@ import type { DelegateTask } from "./delegate-args.js";
 const logger = new StructuredLogger({ level: "error", sinks: [] });
 const TARGET = { providerId: "cloud", model: "judge-model" };
 
-function answer(items: Array<{ id: string; pass: unknown; why?: string }>): EscalationComplete {
-  return async () => ({ content: JSON.stringify({ items }) });
+type Issue = { item: string | null; severity: "blocker" | "major" | "minor"; file: string | null; why: string };
+/** A reviewer's answer in the strict schema (issue #38). */
+const reviewJson = (decision: "accept" | "needs-changes", issues: Issue[] = []): string =>
+  JSON.stringify({ decision, issues });
+const reject = (item: string, why: string): string =>
+  reviewJson("needs-changes", [{ item, severity: "blocker", file: null, why }]);
+const ACCEPT = reviewJson("accept");
+
+function answer(content: string): EscalationComplete {
+  return async () => ({ content });
 }
 
 describe("acceptance checklist (ATO-944)", () => {
@@ -77,7 +86,7 @@ describe("the judge cannot pass what the facts fail", () => {
       pricing: undefined,
       complete: async () => {
         called += 1;
-        return { content: '{"items":[{"id":"a2","pass":true}]}' };
+        return { content: ACCEPT };
       },
       signal: new AbortController().signal,
     });
@@ -86,7 +95,7 @@ describe("the judge cannot pass what the facts fail", () => {
     expect(verdict.items.find((v) => v.id === "a1")).toMatchObject({ pass: false, why: "missing" });
   });
 
-  it("reads only a literal true as a pass, and an item without a verdict as red", async () => {
+  it("reads a needs-changes issue as its item red, and an item no issue names as met", async () => {
     writeFileSync(join(dir, "a.txt"), "hello");
     const both: AcceptanceItem[] = [
       ...items,
@@ -101,12 +110,17 @@ describe("the judge cannot pass what the facts fail", () => {
       workingDir: dir,
       target: TARGET,
       pricing: undefined,
-      complete: answer([{ id: "a2", pass: "yes" }]),
+      complete: answer(reviewJson("needs-changes", [{ item: "a3", severity: "major", file: "a.txt", why: "no score" }])),
       signal: new AbortController().signal,
     });
     expect(verdict.green).toBe(false);
-    expect(verdict.items.find((v) => v.id === "a2")?.pass).toBe(false);
-    expect(verdict.items.find((v) => v.id === "a3")?.why).toBe("the judge gave no verdict");
+    expect(verdict.items.find((v) => v.id === "a2")?.pass).toBe(true);
+    expect(verdict.items.find((v) => v.id === "a3")).toMatchObject({ pass: false, why: "no score", by: "judge" });
+    expect(verdict.review).toEqual({
+      decision: "needs-changes",
+      issues: [{ item: "a3", severity: "major", file: "a.txt", why: "no score", by: "reviewer" }],
+      reviewer: "judge-model",
+    });
   });
 
   it("leaves a task unverified, never green, when the answer cannot be read", async () => {
@@ -128,8 +142,144 @@ describe("the judge cannot pass what the facts fail", () => {
   });
 
   it("parses a JSON answer wrapped in prose", () => {
-    const parsed = parseJudgeAnswer('Here: {"items":[{"id":"a1","pass":true,"why":"ok"}]} done');
-    expect(parsed?.get("a1")).toEqual({ pass: true, why: "ok" });
+    const parsed = parseJudgeAnswer(`Here: ${reviewJson("accept", [{ item: "a1", severity: "minor", file: null, why: "nit" }])} done`);
+    expect(parsed).toEqual({ ok: true, decision: "accept", issues: [{ item: "a1", severity: "minor", file: null, why: "nit" }] });
+  });
+});
+
+describe("the structured review verdict (issue #38)", () => {
+  const issue = (over: Partial<Issue> = {}): Issue => ({ item: "a1", severity: "blocker", file: null, why: "wrong", ...over });
+
+  it.each([
+    ["not JSON", "Looks great to me!"],
+    ["an unknown decision", JSON.stringify({ decision: "maybe", issues: [] })],
+    ["a missing issues list", JSON.stringify({ decision: "accept" })],
+    ["an extra top-level key", JSON.stringify({ decision: "accept", issues: [], items: [] })],
+    ["an extra issue key", JSON.stringify({ decision: "needs-changes", issues: [{ ...issue(), line: 3 }] })],
+    ["an issue without file", JSON.stringify({ decision: "needs-changes", issues: [{ item: "a1", severity: "major", why: "x" }] })],
+    ["an unknown severity", reviewJson("needs-changes", [issue({ severity: "critical" as never })])],
+    ["a numeric item", JSON.stringify({ decision: "needs-changes", issues: [{ ...issue(), item: 1 }] })],
+    ["an empty why", reviewJson("needs-changes", [issue({ why: "  " })])],
+    ["a why over 200 chars", reviewJson("needs-changes", [issue({ why: "w".repeat(201) })])],
+    ["more than 20 issues", reviewJson("needs-changes", Array.from({ length: 21 }, () => issue()))],
+    ["needs-changes without an issue", reviewJson("needs-changes")],
+  ])("refuses %s, without repair", (_what, content) => {
+    expect(parseJudgeAnswer(content).ok).toBe(false);
+  });
+
+  it("accepts the full schema at its bounds", () => {
+    const issues = Array.from({ length: 20 }, (_, i) => issue({ item: i % 2 === 0 ? null : "a1", file: i % 3 === 0 ? "src/a.ts" : null, why: "w".repeat(200) }));
+    expect(parseJudgeAnswer(reviewJson("needs-changes", issues))).toEqual({ ok: true, decision: "needs-changes", issues });
+  });
+
+  const dir = mkdtempSync(join(tmpdir(), "judge-rv-"));
+  writeFileSync(join(dir, "a.txt"), "hello");
+  const task: DelegateTask = { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] };
+  const items = buildAcceptanceChecklist(task, undefined);
+  const judge = (content: string, target: typeof TARGET & { pinModel?: string } = TARGET, workingDir = dir) =>
+    judgeTask({
+      task,
+      items,
+      facts: { checkOutcomes: [], findings: [] },
+      reply: "",
+      contract: undefined,
+      workingDir,
+      target,
+      pricing: undefined,
+      complete: answer(content),
+      signal: new AbortController().signal,
+    });
+
+  it("turns an accept with a blocker or major issue into needs-changes", async () => {
+    for (const severity of ["blocker", "major"] as const) {
+      const verdict = await judge(reviewJson("accept", [issue({ item: "a2", severity, why: "half done" })]));
+      expect(verdict.green).toBe(false);
+      expect(verdict.review.decision).toBe("needs-changes");
+      expect(verdict.items.find((v) => v.id === "a2")).toMatchObject({ pass: false, why: "half done" });
+    }
+  });
+
+  it("closes a minor-only review as accept and keeps the minors listed, whatever decision it named", async () => {
+    for (const decision of ["accept", "needs-changes"] as const) {
+      const verdict = await judge(reviewJson(decision, [issue({ item: "a2", severity: "minor", file: "a.txt", why: "rename x" })]));
+      expect(verdict.green).toBe(true);
+      expect(verdict.unverified).toBeUndefined();
+      expect(verdict.review).toEqual({
+        decision: "accept",
+        issues: [{ item: "a2", severity: "minor", file: "a.txt", why: "rename x", by: "reviewer" }],
+        reviewer: "judge-model",
+      });
+      expect(verdict.items.every((v) => v.pass)).toBe(true);
+    }
+  });
+
+  it("puts an issue that names no judged item on the instructions item, so the list is red", async () => {
+    const verdict = await judge(reviewJson("needs-changes", [issue({ item: null, why: "breaks the build" }), issue({ item: "a1", why: "too short" })]));
+    expect(verdict.green).toBe(false);
+    // a1 is a fact (the file exists): the reviewer does not change it.
+    expect(verdict.items.find((v) => v.id === "a1")).toMatchObject({ pass: true, by: "fact" });
+    expect(verdict.items.find((v) => v.id === "a2")).toMatchObject({ pass: false, by: "judge" });
+    expect(verdict.items.find((v) => v.id === "a2")?.why).toContain("breaks the build");
+    expect(verdict.items.find((v) => v.id === "a2")?.why).toContain("too short");
+    expect(verdict.review.issues.map((i) => i.item)).toEqual([null, "a1"]);
+  });
+
+  it("leaves a malformed answer unverified, naming the reviewer that was asked", async () => {
+    const verdict = await judge(JSON.stringify({ items: [{ id: "a2", pass: true }] }), { ...TARGET, pinModel: "model-r" });
+    expect(verdict.green).toBe(false);
+    expect(verdict.unverified).toMatch(/could not be read/);
+    expect(verdict.review).toEqual({ decision: "unverified", issues: [], reviewer: "model-r" });
+  });
+
+  it("makes red facts blocker issues by fact, without asking the reviewer", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "judge-rv-"));
+    let called = 0;
+    const verdict = await judgeTask({
+      task,
+      items,
+      facts: { checkOutcomes: [], findings: [] },
+      reply: "",
+      contract: undefined,
+      workingDir: empty,
+      target: TARGET,
+      pricing: undefined,
+      complete: async () => {
+        called += 1;
+        return { content: ACCEPT };
+      },
+      signal: new AbortController().signal,
+    });
+    expect(called).toBe(0);
+    expect(verdict.review).toEqual({
+      decision: "needs-changes",
+      issues: [{ item: "a1", severity: "blocker", file: "a.txt", why: "missing", by: "fact" }],
+      reviewer: null,
+    });
+    rmSync(empty, { recursive: true, force: true });
+  });
+
+  it("an all-green list with nothing to judge is an accept no reviewer gave", async () => {
+    const verdict = await judgeTask({
+      task,
+      items: items.filter((i) => !i.judged),
+      facts: { checkOutcomes: [], findings: [] },
+      reply: "",
+      contract: undefined,
+      workingDir: dir,
+      target: TARGET,
+      pricing: undefined,
+      complete: answer(ACCEPT),
+      signal: new AbortController().signal,
+    });
+    expect(verdict.green).toBe(true);
+    expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null });
+  });
+
+  it("asks for the new JSON shape", () => {
+    const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "" });
+    expect(prompt).toContain('{"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}');
+    expect(prompt).toMatch(/at most 20 issues/);
+    expect(prompt).not.toContain('"pass"');
   });
 });
 
@@ -205,7 +355,7 @@ describe("a node closes only on a green list (ATO-944)", () => {
     let judged = 0;
     const d = deps(dir, async () => {
       judged += 1;
-      return { content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "no score in a.txt" }] }) };
+      return { content: reject("a2", "no score in a.txt") };
     });
     const result = await buildFusionDelegateTool(d).run(
       { tasks: TASK },
@@ -226,7 +376,7 @@ describe("a node closes only on a green list (ATO-944)", () => {
     const sessions: Array<string | undefined> = [];
     const d = deps(dir, async (call) => {
       sessions.push(call.sessionId);
-      return { content: JSON.stringify({ items: [{ id: "a2", pass: true, why: "ok" }] }) };
+      return { content: ACCEPT };
     });
     await buildFusionDelegateTool(d).run(
       { tasks: TASK },
@@ -242,11 +392,7 @@ describe("a node closes only on a green list (ATO-944)", () => {
     let judged = 0;
     const d = deps(dir, async () => {
       judged += 1;
-      return {
-        content: JSON.stringify({
-          items: [{ id: "a2", pass: judged > 1, why: judged > 1 ? "score present" : "missing score" }],
-        }),
-      };
+      return { content: judged > 1 ? ACCEPT : reject("a2", "missing score") };
     });
     const result = await buildFusionDelegateTool(d).run(
       { tasks: TASK },
@@ -275,11 +421,7 @@ describe("a node closes only on a green list (ATO-944)", () => {
       dir,
       async () => {
         judged += 1;
-        return {
-          content: JSON.stringify({
-            items: [{ id: "a1", pass: judged > 1, why: judged > 1 ? "covered" : "too thin" }],
-          }),
-        };
+        return { content: judged > 1 ? ACCEPT : reject("a1", "too thin") };
       },
       { resolveRunMode: () => mode({ taskTree: { maxDepth: 2, maxNodes: 24 } }) },
     );
@@ -312,9 +454,7 @@ describe("a node closes only on a green list (ATO-944)", () => {
   it("keeps the status of a retry that ended without being judged (stopped by the person)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "judge-c-"));
     let runs = 0;
-    const d = deps(dir, async () => ({
-      content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "no score" }] }),
-    }));
+    const d = deps(dir, async () => ({ content: reject("a2", "no score") }));
     d.runTurn = async () => {
       runs += 1;
       writeFileSync(join(dir, "a.txt"), `attempt ${runs}`);
@@ -365,6 +505,7 @@ describe("the retry brief carries a failing check's output", () => {
     const text = renderRetryFindings(items, {
       green: false,
       costUsd: null,
+      review: { decision: "needs-changes", issues: [], reviewer: null },
       items: [
         {
           id: "a1",
@@ -383,7 +524,7 @@ describe("the retry brief carries a failing check's output", () => {
 
   it("reaches the retried worker's brief from a real failing check", async () => {
     const dir = mkdtempSync(join(tmpdir(), "judge-out-"));
-    const d = deps(dir, answer([{ id: "a3", pass: true }]), {
+    const d = deps(dir, answer(ACCEPT), {
       runChecks: async () => ({
         ok: false,
         results: [
@@ -410,7 +551,7 @@ describe("the retry brief carries a failing check's output", () => {
 
   it("masks a secret in the check output before the retry brief quotes it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "judge-mask-"));
-    const d = deps(dir, answer([{ id: "a3", pass: true }]), {
+    const d = deps(dir, answer(ACCEPT), {
       runChecks: async () => ({
         ok: false,
         results: [
@@ -523,7 +664,7 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     reachable: () => true,
     pinsModel: (id) => id !== "local",
   });
-  const green = { content: JSON.stringify({ items: [{ id: "a2", pass: true, why: "ok" }] }) };
+  const green = { content: ACCEPT };
   const run = async (context: FusionTeamContext | undefined, task = TASK, over: Partial<ResolvedRunMode> = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "judge-team-"));
     const calls: Array<{ providerId: string; model: string | undefined }> = [];

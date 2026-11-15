@@ -192,9 +192,9 @@ describe("merge only green tasks (isolation)", () => {
     const complete: EscalationComplete = async () => {
       judged += 1;
       return {
-        content: JSON.stringify({
-          items: [{ id: "a2", pass: judged > 1, why: judged > 1 ? "fixed" : "unfinished" }],
-        }),
+        content: judged > 1
+          ? JSON.stringify({ decision: "accept", issues: [] })
+          : JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "unfinished" }] }),
       };
     };
     const firstSeenAtRetry: string[] = [];
@@ -236,7 +236,7 @@ describe("merge only green tasks (isolation)", () => {
   it("keeps a task still red after its retry out of the folder, as a patch", async () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     const complete: EscalationComplete = async () => ({
-      content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "wrong" }] }),
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "wrong" }] }),
     });
     const d = deps(
       repo,
@@ -544,7 +544,7 @@ describe("held-back patches and kept workspaces (isolation)", () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     let retrying = false;
     const complete: EscalationComplete = async () => ({
-      content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "unfinished" }] }),
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "unfinished" }] }),
     });
     const d = deps(
       repo,
@@ -584,7 +584,7 @@ describe("the judge reads the task's diff (isolation)", () => {
     const prompts: string[] = [];
     const complete: EscalationComplete = async (call) => {
       prompts.push(call.prompt);
-      return { content: JSON.stringify({ items: [{ id: "a2", pass: true, why: "ok" }] }) };
+      return { content: JSON.stringify({ decision: "accept", issues: [] }) };
     };
     const d = deps(
       repo,

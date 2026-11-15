@@ -11,6 +11,7 @@ import { CHECK_OUTPUT_CHARS, tailClip } from "./contract-checks.js";
 import type { EscalationComplete } from "./escalation.js";
 import type { WorkerPricing, WorkerTaskResult } from "./worker-result.js";
 import type { WorkspaceChange } from "./branch-diff.js";
+import { outcomeLabel } from "./outcome-log.js";
 import {
   knownSecretsFromEnv,
   maskSecrets,
@@ -46,7 +47,44 @@ import {
  *     read leaves the node unverified, never green.
  *  3. A red list re-runs the task once with the judge's findings; a list
  *     still red after that is reported as failed, item by item.
+ *
+ * The judge answers a strict review schema (issue #38, {@link
+ * parseJudgeAnswer}): a decision and a list of issues, each with a
+ * severity. Every verdict also carries that review ({@link
+ * ReviewVerdict}): red facts are blocker issues `by: "fact"`; an accept
+ * with a blocker or major issue, or with a red fact, is needs-changes; a
+ * minor-only review is an accept that lists its minors; an answer
+ * outside the schema is unverified, never repaired.
  */
+
+/** How much an issue a review found weighs (issue #38). */
+export type ReviewSeverity = "blocker" | "major" | "minor";
+
+/** One issue of a review: from a red fact, or from the reviewer model. */
+export interface ReviewIssue {
+  /** The acceptance item it concerns (`a3`); null for the work as a whole. */
+  item: string | null;
+  severity: ReviewSeverity;
+  /** The file it is in, when one; null otherwise. */
+  file: string | null;
+  why: string;
+  by: "fact" | "reviewer";
+}
+
+export type ReviewDecision = "accept" | "needs-changes" | "unverified";
+
+/** A task's review: the decision, every issue, and who reviewed. */
+export interface ReviewVerdict {
+  decision: ReviewDecision;
+  issues: ReviewIssue[];
+  /** `outcomeLabel` of the reviewer model that was asked; null when no model was. */
+  reviewer: string | null;
+}
+
+/** Schema bounds of a reviewer's answer. */
+export const REVIEW_MAX_ISSUES = 20;
+export const REVIEW_WHY_CHARS = 200;
+export const REVIEW_SEVERITIES: readonly ReviewSeverity[] = ["blocker", "major", "minor"];
 
 export type AcceptanceItemKind =
   | "check"
@@ -77,8 +115,8 @@ export const JUDGE_EVIDENCE_CHARS = 24_000;
 export const JUDGE_DIFF_FILE_CHARS = 12_000;
 /** Touched paths listed by name; the rest are counted. */
 export const JUDGE_TOUCHED_PATHS = 40;
-/** Room for one short verdict per item. */
-export const JUDGE_MAX_OUTPUT_TOKENS = 1_200;
+/** Room for the decision and up to {@link REVIEW_MAX_ISSUES} short issues. */
+export const JUDGE_MAX_OUTPUT_TOKENS = 2_000;
 
 export function buildAcceptanceChecklist(
   task: DelegateTask,
@@ -166,6 +204,8 @@ export interface JudgeVerdict {
   /** Why no verdict could be reached, when none was; never green then. */
   unverified?: string;
   costUsd: number | null;
+  /** The structured review (issue #38); `green` is `review.decision === "accept"`. */
+  review: ReviewVerdict;
 }
 
 export interface JudgeFacts {
@@ -398,37 +438,106 @@ export function renderJudgePrompt(input: {
     "## Evidence",
     input.evidence,
     "",
-    'Answer with JSON only: {"items":[{"id":"a1","pass":false,"why":"one line naming what is wrong or what shows it is met"}]} — one entry per item to rule on.',
+    'Answer with JSON only, exactly this shape and no other keys: {"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}',
+    `- decision: "accept" when every item to rule on is met; "needs-changes" names at least one issue.`,
+    "- issues: what is wrong, at most 20 issues. item: the item id it breaks, or null for the work as a whole. file: the file it is in, or null.",
+    `- severity: "blocker" (an item is not met), "major" (met only in part, or wrong behaviour), "minor" (style or a nit; does not block acceptance).`,
+    `- why: one line, at most ${REVIEW_WHY_CHARS} characters, naming what is wrong. An item no issue names counts as met.`,
   ].join("\n");
 }
 
-/** Per-item verdicts from the judge's answer; `null` when it cannot be read at all. */
-export function parseJudgeAnswer(
-  content: string,
-): Map<string, { pass: boolean; why: string }> | null {
+/** A reviewer's answer read against the schema; `ok: false` with the first reason it is not. */
+export type ParsedReviewAnswer =
+  | {
+      ok: true;
+      decision: "accept" | "needs-changes";
+      issues: Array<Omit<ReviewIssue, "by">>;
+    }
+  | { ok: false; error: string };
+
+const ANSWER_KEYS = ["decision", "issues"];
+const ISSUE_KEYS = ["item", "severity", "file", "why"];
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const own = Object.keys(value);
+  return own.length === keys.length && keys.every((k) => Object.hasOwn(value, k));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * The reviewer's answer, strictly (issue #38): the JSON object in the
+ * content (prose around it is ignored), with exactly `decision` and
+ * `issues`, each issue with exactly `item`, `severity`, `file` and
+ * `why`. Nothing is repaired: a missing, extra or mistyped field, more
+ * than {@link REVIEW_MAX_ISSUES} issues, a blank `why` or one over
+ * {@link REVIEW_WHY_CHARS} chars, or a needs-changes with no issue,
+ * refuses the whole answer.
+ */
+export function parseJudgeAnswer(content: string): ParsedReviewAnswer {
   const start = content.indexOf("{");
   const end = content.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
+  if (start === -1 || end <= start) return { ok: false, error: "no JSON object" };
   let parsed: unknown;
   try {
     parsed = JSON.parse(content.slice(start, end + 1));
   } catch {
-    return null;
+    return { ok: false, error: "not valid JSON" };
   }
-  const items = (parsed as { items?: unknown }).items;
-  if (!Array.isArray(items)) return null;
-  const out = new Map<string, { pass: boolean; why: string }>();
-  for (const entry of items) {
-    if (entry === null || typeof entry !== "object") continue;
-    const { id, pass, why } = entry as Record<string, unknown>;
-    // Only a literal `true` passes: "yes", 1 or a missing field do not.
-    if (typeof id !== "string") continue;
-    out.set(id, {
-      pass: pass === true,
-      why: typeof why === "string" && why.trim().length > 0 ? why.trim() : "no reason given",
-    });
+  if (!isRecord(parsed) || !exactKeys(parsed, ANSWER_KEYS)) {
+    return { ok: false, error: "expected exactly decision and issues" };
   }
-  return out;
+  const { decision, issues } = parsed;
+  if (decision !== "accept" && decision !== "needs-changes") {
+    return { ok: false, error: "decision is not accept or needs-changes" };
+  }
+  if (!Array.isArray(issues)) return { ok: false, error: "issues is not a list" };
+  if (issues.length > REVIEW_MAX_ISSUES) {
+    return { ok: false, error: `more than ${REVIEW_MAX_ISSUES} issues` };
+  }
+  const out: Array<Omit<ReviewIssue, "by">> = [];
+  for (const [i, entry] of issues.entries()) {
+    if (!isRecord(entry) || !exactKeys(entry, ISSUE_KEYS)) {
+      return { ok: false, error: `issue ${i + 1}: expected exactly item, severity, file and why` };
+    }
+    const { item, severity, file, why } = entry;
+    if (item !== null && typeof item !== "string") return { ok: false, error: `issue ${i + 1}: item` };
+    if (!REVIEW_SEVERITIES.includes(severity as ReviewSeverity)) {
+      return { ok: false, error: `issue ${i + 1}: severity` };
+    }
+    if (file !== null && typeof file !== "string") return { ok: false, error: `issue ${i + 1}: file` };
+    if (typeof why !== "string" || why.trim().length === 0 || why.length > REVIEW_WHY_CHARS) {
+      return { ok: false, error: `issue ${i + 1}: why` };
+    }
+    out.push({ item, severity: severity as ReviewSeverity, file, why });
+  }
+  if (decision === "needs-changes" && out.length === 0) {
+    return { ok: false, error: "needs-changes without an issue" };
+  }
+  return { ok: true, decision, issues: out };
+}
+
+/** A blocker or major issue: one that keeps a task from closing. */
+export function blocksAcceptance(issue: Pick<ReviewIssue, "severity">): boolean {
+  return issue.severity !== "minor";
+}
+
+/** Red facts as blocker issues; a skipped item is not one. */
+function factIssues(
+  items: readonly AcceptanceItem[],
+  facts: readonly ItemVerdict[],
+): ReviewIssue[] {
+  return facts
+    .filter((v) => !v.pass && v.by === "fact")
+    .map((v) => ({
+      item: v.id,
+      severity: "blocker" as const,
+      file: items.find((i) => i.id === v.id)?.path ?? null,
+      why: v.why,
+      by: "fact" as const,
+    }));
 }
 
 export interface JudgeTarget {
@@ -458,6 +567,7 @@ export async function judgeTask(input: {
   complete: EscalationComplete;
   signal: AbortSignal;
 }): Promise<JudgeVerdict> {
+  const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
   const factVerdicts: ItemVerdict[] = [];
   for (const item of input.items) {
     const verdict = await factVerdict(item, input.facts, input.workingDir);
@@ -477,12 +587,18 @@ export async function judgeTask(input: {
         by: "skipped",
       }),
     );
+    const green = factVerdicts.every((v) => v.pass) && skipped.length === 0;
     return {
-      green: factVerdicts.every((v) => v.pass) && skipped.length === 0,
+      green,
       items: [...factVerdicts, ...skipped].sort(
         (a, b) => itemOrder(a.id) - itemOrder(b.id),
       ),
       costUsd: null,
+      review: {
+        decision: green ? "accept" : "needs-changes",
+        issues: factIssues(input.items, factVerdicts),
+        reviewer: null,
+      },
     };
   }
   const evidence = await gatherEvidence(
@@ -518,27 +634,54 @@ export async function judgeTask(input: {
       items: factVerdicts,
       unverified: `the judge could not run: ${err instanceof Error ? err.message : String(err)}`,
       costUsd,
+      review: { decision: "unverified", issues: [], reviewer },
     };
   }
   const ruled = parseJudgeAnswer(content);
-  if (ruled === null) {
+  if (!ruled.ok) {
     return {
       green: false,
       items: factVerdicts,
-      unverified: "the judge's answer could not be read",
+      unverified: `the judge's answer could not be read (${ruled.error})`,
       costUsd,
+      review: { decision: "unverified", issues: [], reviewer },
     };
   }
+  const issues: ReviewIssue[] = ruled.issues.map((issue) => ({ ...issue, by: "reviewer" }));
+  // An issue on an item the facts ruled on, on no item, or on an unknown
+  // one is the work's as a whole: it lands on the instructions item, so
+  // a blocking one still keeps the list red. Facts are not the judge's.
+  const fallback =
+    needsJudge.find((item) => item.kind === "instructions") ?? needsJudge[needsJudge.length - 1]!;
+  const onItem = (issue: ReviewIssue): string =>
+    issue.item !== null && needsJudge.some((item) => item.id === issue.item) ? issue.item : fallback.id;
   const judged = needsJudge.map((item): ItemVerdict => {
-    const verdict = ruled.get(item.id);
-    return verdict === undefined
-      ? { id: item.id, pass: false, why: "the judge gave no verdict", by: "judge" }
-      : { id: item.id, ...verdict, by: "judge" };
+    const mine = issues.filter((issue) => onItem(issue) === item.id);
+    const why = (list: readonly ReviewIssue[]): string =>
+      list
+        .map((issue) => (issue.item === item.id ? issue.why : `${issue.item === null ? "" : `[${issue.item}] `}${issue.why}`))
+        .join("; ");
+    const blocking = mine.filter(blocksAcceptance);
+    if (blocking.length > 0) return { id: item.id, pass: false, why: why(blocking), by: "judge" };
+    return {
+      id: item.id,
+      pass: true,
+      why: mine.length === 0 ? "no issue found" : `minor: ${why(mine)}`,
+      by: "judge",
+    };
   });
   const all = [...factVerdicts, ...judged].sort(
     (a, b) => itemOrder(a.id) - itemOrder(b.id),
   );
-  return { green: all.every((v) => v.pass), items: all, costUsd };
+  const green = all.every((v) => v.pass);
+  // The decision follows the issues: a blocking one, whatever the
+  // reviewer decided, is needs-changes; minors alone are an accept.
+  return {
+    green,
+    items: all,
+    costUsd,
+    review: { decision: green ? "accept" : "needs-changes", issues, reviewer },
+  };
 }
 
 function itemOrder(id: string): number {
@@ -587,6 +730,8 @@ export interface JudgeSummary {
   unverified?: string;
   costUsd: number | null;
   items: ItemVerdict[];
+  /** The structured review (issue #38); absent on summaries from before it. */
+  review?: ReviewVerdict;
 }
 
 /** Fold a verdict into the task's row: a node closes only on a green list. */
@@ -604,6 +749,7 @@ export function applyJudgeVerdict(
     ...(verdict.unverified === undefined ? {} : { unverified: verdict.unverified }),
     costUsd: verdict.costUsd,
     items: verdict.items,
+    review: verdict.review,
   };
   const after = retried ? " after one retry" : "";
   if (verdict.unverified !== undefined) {
