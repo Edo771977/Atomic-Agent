@@ -4,11 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   hasProjectConstraints,
+  makeProviderPolicy,
   normalizeConstraintPath,
+  providerPolicyFromStamp,
   resolveProjectConstraint,
+  toProviderPolicyStamp,
 } from "./project-constraint-match.js";
 
-type Constraints = Record<string, { allowedProviders: string[] }>;
+type Constraints = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
 const cfg = (constraints: Constraints) => ({ projects: { roots: [], constraints } });
 const noReal = () => undefined;
 
@@ -112,5 +115,29 @@ describe("resolveProjectConstraint", () => {
       const viaLink = cfg({ [link]: { allowedProviders: [] } });
       expect(resolveProjectConstraint(viaLink, join(real, "sub"))?.key).toBe(link);
     });
+  });
+});
+
+describe("allowedEgress on the policy", () => {
+  it("defaults to no egress class in a constrained folder", () => {
+    const policy = resolveProjectConstraint(cfg({ "/w": { allowedProviders: ["local-llama"] } }), "/w/a", { realpath: noReal, platform: "linux" });
+    expect(policy?.allowedEgress).toEqual([]);
+    expect(policy?.allowsEgress("web")).toBe(false);
+  });
+
+  it("carries the entry's classes and answers for them", () => {
+    const policy = resolveProjectConstraint(cfg({ "/w": { allowedProviders: [], allowedEgress: ["web", "mcp:docs"] } }), "/w", { realpath: noReal, platform: "linux" });
+    expect(policy?.allowsEgress("web")).toBe(true);
+    expect(policy?.allowsEgress("mcp:docs")).toBe(true);
+    expect(policy?.allowsEgress("mcp:other")).toBe(false);
+    expect(policy?.allowsEgress("github")).toBe(false);
+  });
+
+  it("survives a stamp round trip, and a stamp without the list allows no egress (fail closed)", () => {
+    const policy = makeProviderPolicy({ key: "/w", allowedProviders: ["a"], allowedEgress: ["http"], matchedDir: "/w" });
+    const back = providerPolicyFromStamp(toProviderPolicyStamp(policy));
+    expect(back?.allowedEgress).toEqual(["http"]);
+    expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], matchedDir: "/w" })?.allowedEgress).toEqual([]);
+    expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], allowedEgress: "web", matchedDir: "/w" })).toBeUndefined();
   });
 });

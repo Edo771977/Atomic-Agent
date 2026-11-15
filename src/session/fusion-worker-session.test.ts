@@ -29,6 +29,15 @@ describe("fusion worker sessions", () => {
     ).toEqual(meta);
   });
 
+  it("keeps the stamped egress classes of its parent's policy (issue #33)", () => {
+    const providerPolicy = { key: "/w", allowedProviders: ["local-llama"], allowedEgress: ["web"], matchedDir: "/w" };
+    expect(readFusionWorkerMeta({ [FUSION_WORKER_METADATA_KEY]: { ...meta, providerPolicy } })?.providerPolicy)
+      .toEqual(providerPolicy);
+    // A malformed egress list makes the stamp unreadable: the runtime then refuses the worker.
+    expect(readFusionWorkerMeta({ [FUSION_WORKER_METADATA_KEY]: { ...meta, providerPolicy: { ...providerPolicy, allowedEgress: "web" } } })?.providerPolicy)
+      .toEqual({ key: "(unreadable fusion worker policy)", allowedProviders: [], allowedEgress: [], matchedDir: "" });
+  });
+
   it("two workers never share an id", () => {
     const a = createFusionWorkerSession({ workingDir: "/work", meta });
     const b = createFusionWorkerSession({ workingDir: "/work", meta });

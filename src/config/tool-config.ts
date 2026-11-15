@@ -8,7 +8,12 @@ import { parseStringArrayOrNull } from "./config-values.js";
  * `project-constraints-config.ts`; matched by `project-constraint-match.ts`.
  * Spelled out structurally here so this owner keeps its narrow imports.
  */
-export type ProjectConstraintsConfig = Record<string, { allowedProviders: string[] }>;
+/**
+ * `projects.constraints` (issue #33): absolute folder → the provider ids
+ * that may receive its content and the egress classes its tools may use
+ * (`allowedEgress`, absent = none; see `EGRESS_CLASSES`).
+ */
+export type ProjectConstraintsConfig = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
 
 export interface RuntimeProjectsConfig {
   roots: string[];

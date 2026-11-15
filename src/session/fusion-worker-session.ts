@@ -47,6 +47,8 @@ export interface FusionWorkerMeta {
 export interface WorkerProviderPolicyStamp {
   key: string;
   allowedProviders: string[];
+  /** Egress classes the parent's folder allows; absent (an older stamp) = none. */
+  allowedEgress?: string[];
   matchedDir: string;
 }
 
@@ -54,10 +56,12 @@ function readPolicyStamp(raw: unknown): WorkerProviderPolicyStamp | null | undef
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   if (typeof raw !== "object" || Array.isArray(raw)) return "malformed";
-  const { key, allowedProviders, matchedDir } = raw as Record<string, unknown>;
+  const { key, allowedProviders, allowedEgress, matchedDir } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)
     || !allowedProviders.every((id) => typeof id === "string")) return "malformed";
-  return { key, allowedProviders: [...allowedProviders] as string[], matchedDir };
+  if (allowedEgress === undefined) return { key, allowedProviders: [...allowedProviders] as string[], matchedDir };
+  if (!Array.isArray(allowedEgress) || !allowedEgress.every((c) => typeof c === "string")) return "malformed";
+  return { key, allowedProviders: [...allowedProviders] as string[], allowedEgress: [...allowedEgress] as string[], matchedDir };
 }
 
 /**
@@ -104,7 +108,7 @@ export function readFusionWorkerMeta(
   // closed rather than open.
   const stamp = readPolicyStamp(providerPolicy);
   const policy = stamp === "malformed"
-    ? { providerPolicy: { key: "(unreadable fusion worker policy)", allowedProviders: [], matchedDir: "" } }
+    ? { providerPolicy: { key: "(unreadable fusion worker policy)", allowedProviders: [], allowedEgress: [], matchedDir: "" } }
     : stamp === undefined ? {} : { providerPolicy: stamp };
   return typeof operatorRequest === "string"
     ? { parentSessionId, taskId, operatorRequest, ...policy }

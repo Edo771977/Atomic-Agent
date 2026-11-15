@@ -75,6 +75,31 @@ describe("projects.constraints parsing", () => {
       .toThrow(/did you mean "allowedProviders" \(got "allowedProvider"\)/);
   });
 
+  it("reads allowedEgress classes, mcp:<server> included", () => {
+    expect(parseProjectConstraints({ "/w": { allowedProviders: [], allowedEgress: ["web", "mcp:docs", "web"] } }, { platform: "linux" }))
+      .toEqual({ "/w": { allowedProviders: [], allowedEgress: ["web", "mcp:docs"] } });
+  });
+
+  it.each([
+    ["not a list", "web"],
+    ["an unknown class", ["internet"]],
+    ["an empty mcp server", ["mcp:"]],
+    ["a non-string", [3]],
+  ])("rejects allowedEgress that is %s (fail closed)", (_label, allowedEgress) => {
+    expect(() => parseProjectConstraints({ "/w": { allowedProviders: [], allowedEgress } }, { platform: "linux" }))
+      .toThrow(ConfigValidationError);
+  });
+
+  it("names the known egress classes when one is unknown", () => {
+    expect(() => parseProjectConstraints({ "/w": { allowedProviders: [], allowedEgress: ["webb"] } }, { platform: "linux" }))
+      .toThrow(/"webb".*web, http, browser/);
+  });
+
+  it("suggests allowedEgress for a near miss", () => {
+    expect(projectConstraintNotices({ "/w": { allowedProviders: [], allowedEgres: ["web"] } }, []))
+      .toEqual([expect.stringMatching(/unknown key "allowedEgres" \(ignored\); did you mean "allowedEgress"\?/)]);
+  });
+
   it("drops an unknown key inside an entry from the parsed value", () => {
     expect(parseProjectConstraints({ "/w": { allowedProviders: ["a"], colour: "red" } }, { platform: "linux" }))
       .toEqual({ "/w": { allowedProviders: ["a"] } });

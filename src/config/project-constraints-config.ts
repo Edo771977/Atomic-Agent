@@ -8,7 +8,21 @@ export type { ProjectConstraintsConfig } from "./tool-config.js";
 const FIELD = "projects.constraints";
 
 /** The keys an entry may hold; anything else is warned about and ignored. */
-export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders"] as const;
+export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders", "allowedEgress"] as const;
+
+/**
+ * The egress classes `allowedEgress` may name: what a tool in a
+ * constrained folder may send off this machine (issue #33). Anything
+ * else fails the load (closed), so a typo never opens a class.
+ * `mcp:<server>` names one remote MCP server by its configured name.
+ */
+export const EGRESS_CLASSES = ["web", "http", "browser", "github", "git", "channels", "mail", "composio"] as const;
+export type EgressClass = (typeof EGRESS_CLASSES)[number] | `mcp:${string}`;
+
+export function isEgressClass(value: string): value is EgressClass {
+  if ((EGRESS_CLASSES as readonly string[]).includes(value)) return true;
+  return value.startsWith("mcp:") && value.slice(4).trim().length > 0;
+}
 
 /** The known entry key `key` most likely means, or `null` when none is close. */
 export function suggestConstraintEntryKey(key: string): string | null {
@@ -30,11 +44,14 @@ function unknownEntryKeys(entry: Record<string, unknown>): string[] {
 
 /**
  * Parse `projects.constraints` (config v80): `{ "<absolute folder>":
- * { allowedProviders: string[] } }`. Fail closed: anything malformed —
- * a non-object block or entry, a relative or empty folder, a missing or
- * non-list `allowedProviders`, an empty or non-string id — is a
- * `ConfigValidationError`, so a typo can never quietly lift a constraint.
- * An empty list is valid and means no provider may serve the folder.
+ * { allowedProviders: string[], allowedEgress?: string[] } }`. Fail
+ * closed: anything malformed — a non-object block or entry, a relative
+ * or empty folder, a missing or non-list `allowedProviders`, an empty or
+ * non-string id, an `allowedEgress` that is not a list of known classes
+ * (`EGRESS_CLASSES`, `mcp:<server>`) — is a `ConfigValidationError`, so a
+ * typo can never quietly lift a constraint. An empty `allowedProviders`
+ * is valid and means no provider may serve the folder; an absent or
+ * empty `allowedEgress` means no tool may send content off the machine.
  *
  * Unknown keys inside an entry are dropped here and kept on disk by the
  * whole-file writer (`projects.constraints` is a dictionary branch,
@@ -82,7 +99,26 @@ export function parseProjectConstraints(
       }
       if (!ids.includes(id)) ids.push(id);
     }
-    out[folder] = { allowedProviders: ids };
+    const egress = parseAllowedEgress((entry as { allowedEgress?: unknown }).allowedEgress, `${field}.allowedEgress`);
+    out[folder] = egress === undefined ? { allowedProviders: ids } : { allowedProviders: ids, allowedEgress: egress };
+  }
+  return out;
+}
+
+function parseAllowedEgress(raw: unknown, field: string): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new ConfigValidationError(field, `expected a list of egress classes (${EGRESS_CLASSES.join(", ")}, mcp:<server>)`);
+  }
+  const out: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== "string" || !isEgressClass(value)) {
+      throw new ConfigValidationError(
+        field,
+        `${JSON.stringify(value)} is not an egress class; expected one of ${EGRESS_CLASSES.join(", ")}, mcp:<server>`,
+      );
+    }
+    if (!out.includes(value)) out.push(value);
   }
   return out;
 }
