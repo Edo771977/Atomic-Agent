@@ -146,6 +146,21 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
   });
 
+  it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {
+    fixture.config.llm!.runMode!.mode = "cloud";
+    const sessionProviderPolicy = createSessionProviderPolicy({
+      readConfig: () => ({ projects: { roots: [], constraints: { [dir]: { allowedProviders: ["cloud-a", "local-llama"] } } } }),
+      loadSession: () => null,
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps, inference: { ...fixture.deps.inference, sessionProviderPolicy },
+    });
+    const output = await service.executeTurn(session("s", withSessionFusionDirector({}, member("cloud-b:model-b"), 1)), "request");
+    expect(fixture.loop.runTurn).toHaveBeenCalledTimes(1);
+    expect(readSessionFusionDirector(output.session.metadata)?.member).toBe("cloud-b:model-b");
+    expect(fixture.setTurnPrimary).not.toHaveBeenCalledWith("s", "cloud-b");
+  });
+
   it("auto-picks the only reachable director, stamps it and says so once", async () => {
     const notices: unknown[] = [];
     fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"] };

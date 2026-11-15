@@ -410,9 +410,10 @@ export function createRuntimeTurnService(
    * The session's fusion team choice for this turn (issue #37). A
    * `director` / `worker` a caller names is checked against the team and
    * stamped on the session first; then the stamped director, while the
-   * team lists it, leads. A director whose provider the folder refuses
-   * is refused here with the provider refusal every surface already
-   * shows. No team: no choice, and the turn runs as before.
+   * team lists it, leads in the fusion mode. A director whose provider
+   * the folder refuses is refused there with the provider refusal every
+   * surface already shows. Another mode or no team: no choice, and the
+   * turn runs as before.
    */
   const pickTurnTeam = (
     session: SessionState,
@@ -444,8 +445,9 @@ export function createRuntimeTurnService(
     const reachable = (m: { providerId: string }): boolean => providerRegistry.getProvider(m.providerId) !== undefined;
     const picked = sessionDirectorChoice(metadata, fusion, policy, reachable);
     // Outside the fusion mode a stamp is kept for later, but nothing is
-    // picked or said: the director leads fusion only.
-    const choice = picked?.reason !== "stamped" && runMode?.mode !== "fusion" ? null : picked;
+    // picked, said or enforced: the director leads fusion only, so a
+    // director the folder refuses does not block a cloud or local turn.
+    const choice = runMode?.mode !== "fusion" ? null : picked;
     if (choice === null) {
       return { session: metadata === session.metadata ? session : { ...session, metadata }, choice: undefined };
     }
