@@ -14,8 +14,11 @@ import { theme } from "./theme/theme.js";
 export function QuestionPrompt({
   question,
   skipButton,
+  warning,
 }: {
   question: UserQuestion;
+  /** The gate's note on a question asked after outside content. */
+  warning?: string;
   /** The deny button of the approval prompt, labelled as a skip. */
   skipButton: ReactNode;
 }): ReactElement {
@@ -30,6 +33,9 @@ export function QuestionPrompt({
       <Text bold color={theme.colors.accent}>
         ? question for you
       </Text>
+      {warning === undefined ? null : (
+        <Text color={theme.colors.warn}>{`⚠ ${warning}`}</Text>
+      )}
       <Box marginTop={1}>
         <Text bold>{question.prompt}</Text>
       </Box>
