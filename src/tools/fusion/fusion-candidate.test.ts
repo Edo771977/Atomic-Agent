@@ -475,3 +475,15 @@ describe("the configured copy limit (`tools.verify.maxCopyBytes`)", () => {
     expect(runTurn).not.toHaveBeenCalled();
   });
 });
+
+it("names the files a rejected candidate did not apply, e.g. a cancelled task's new file (#29)", async () => {
+  const f = await fixture();
+  f.deps.runTurn = async session => {
+    await writeFile(join(session.workingDir, "csv_total.py"), "print(1)\n");
+    return { session, reason: "cancelled", stepCount: 1 };
+  };
+  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]] }, f.ctx);
+  expect(result.details.candidateIntegration).toMatchObject({ status: "rejected" });
+  await expect(readFile(join(f.root, "csv_total.py"))).rejects.toThrow();
+  expect(result.summary).toContain("Not applied to the folder: csv_total.py");
+});

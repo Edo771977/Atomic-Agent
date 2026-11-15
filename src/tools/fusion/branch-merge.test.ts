@@ -300,6 +300,25 @@ describe("runIsolatedWave", () => {
     expect(wave.results[0]!.notes?.join(" ")).toMatch(/discarded with its workspace/);
   });
 
+  it("names the files a cancelled task's dropped workspace did not apply (#29)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const wave = await runIsolatedWave({
+      realDir: repo,
+      tasks: [task("csv")],
+      writeScope: [repo],
+      inputs: [],
+      options: { tmpRoot: await tmpRoot() },
+      run: fakeRun(
+        { csv: (dir) => writeFile(join(dir, "csv_total.py"), "print(1)\n") },
+        { csv: "cancelled" },
+      ),
+    });
+    await expect(readFile(join(repo, "csv_total.py"), "utf8")).rejects.toThrow();
+    const notes = wave.results[0]!.notes?.join(" ") ?? "";
+    expect(notes).toContain("not applied: csv_total.py (task cancelled)");
+    expect(notes).toMatch(/discarded with its workspace/);
+  });
+
   it("holds a row that finished without a reply as a patch instead of merging it unseen (#29)", async () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     const wave = await runIsolatedWave({

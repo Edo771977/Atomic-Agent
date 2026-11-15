@@ -533,6 +533,30 @@ export interface IsolatedWaveResult {
   kept?: Map<string, KeptBranch>;
 }
 
+/** How many dropped paths a note names before it counts the rest. */
+const DROPPED_PATHS_SHOWN = 10;
+
+const DROPPED_BECAUSE: Partial<Record<WorkerTaskStatus, string>> = {
+  cancelled: "task cancelled",
+  failed: "task failed",
+  timeout: "task timed out",
+  queued: "task never served",
+};
+
+/**
+ * The note on a task whose workspace was dropped unmerged: the paths it
+ * added, changed or removed there, which never reach the folder.
+ */
+export function droppedWorkspaceNote(
+  paths: readonly string[],
+  status: WorkerTaskStatus,
+): string {
+  const shown = paths.slice(0, DROPPED_PATHS_SHOWN).map((p) => p.split(sep).join("/"));
+  const more = paths.length > DROPPED_PATHS_SHOWN ? ` and ${paths.length - DROPPED_PATHS_SHOWN} more` : "";
+  const why = DROPPED_BECAUSE[status] ?? `task ${status}`;
+  return `not applied: ${shown.join(", ")}${more} (${why}); its changes to ${paths.length} file${paths.length === 1 ? "" : "s"} were discarded with its workspace, so the folder never had them`;
+}
+
 function heldNote(
   reason: string | undefined,
   changes: number,
@@ -665,16 +689,15 @@ export async function runIsolatedWave(
           : { error: rebaseText(raw.error, [ws.dir], input.realDir) }),
       };
       if (!MERGED_STATUSES.has(row.status)) {
-        const dropped = (await touchedPaths(ws)).length;
+        // Issue #29: name what is lost. A cancelled task's new file simply
+        // not being in the folder read as the agent deleting it.
+        const dropped = await touchedPaths(ws);
         out.push(
-          dropped === 0
+          dropped.length === 0
             ? row
             : {
                 ...row,
-                notes: [
-                  ...(row.notes ?? []),
-                  `its changes to ${dropped} file${dropped === 1 ? "" : "s"} were discarded with its workspace (${row.status})`,
-                ],
+                notes: [...(row.notes ?? []), droppedWorkspaceNote(dropped, row.status)],
               },
         );
         continue;
