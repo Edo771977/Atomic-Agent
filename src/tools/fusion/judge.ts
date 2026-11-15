@@ -434,6 +434,8 @@ export function parseJudgeAnswer(
 export interface JudgeTarget {
   providerId: string;
   model: string | null;
+  /** The model the completion asks for (a fusion team reviewer's, issue #37); absent, the provider's own. */
+  pinModel?: string;
 }
 
 /**
@@ -496,6 +498,7 @@ export async function judgeTask(input: {
   try {
     const answer = await input.complete({
       providerId: input.target.providerId,
+      ...(input.target.pinModel === undefined ? {} : { model: input.target.pinModel }),
       prompt: renderJudgePrompt({
         task: input.task,
         items: input.items,

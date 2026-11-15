@@ -102,12 +102,14 @@ import {
   redItems,
   renderAcceptanceBlock,
   renderRetryFindings,
+  type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   ORCHESTRATOR_TASK_MODEL,
   allowedModels,
+  legKey,
   resolveTaskLegs,
   unknownModels,
   type TaskLeg,
@@ -153,7 +155,9 @@ import { rebaseVerifyWorkspaceValue } from "../verify/rebase-verify-workspace.js
 import { withCandidateOutcome } from "./candidate-outcomes.js";
 import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
-import { runWithProviderRole } from "../../llm/provider-policy.js";
+import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
+import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
+import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -299,6 +303,16 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * project's trusted ones. Absent (tests, embedders), the built-ins.
    */
   resolveAgentProfiles?: (workingDir: string) => AgentProfileSet;
+  /**
+   * The fusion team (`llm.runMode.fusion.team`, issue #37) this call
+   * routes by. Absent: read from the live config (`teamContextFromConfig`);
+   * a function returning undefined: no team, routing as before.
+   */
+  resolveFusionTeam?: () => FusionTeamContext | undefined;
+  /** The session's director, when one was chosen; absent or null: the team's default director. */
+  currentDirector?: () => TeamMember | null;
+  /** The session's worker, when one was chosen; absent, null or no longer a worker: the default worker. */
+  currentWorker?: () => TeamMember | null;
 }
 
 /**
@@ -489,6 +503,19 @@ export function buildFusionDelegateTool(
       // refuses the call; without `roles` every task is on the worker
       // leg, as before.
       const workerLegRef = { providerId: workerProviderId, model: workerModel };
+      // The fusion team (issue #37): its workers are the models a task
+      // may name, keyed by member; the director is the session's.
+      const teamContext = deps.resolveFusionTeam === undefined ? teamContextFromConfig() : deps.resolveFusionTeam();
+      const team =
+        teamContext === undefined
+          ? undefined
+          : resolveTeamRouting(teamContext, {
+              allows: currentPolicyAllows,
+              ...(deps.currentDirector === undefined ? {} : { currentDirector: deps.currentDirector }),
+              ...(deps.currentWorker === undefined ? {} : { currentWorker: deps.currentWorker }),
+            });
+      const teamTasks = team?.tasks;
+      const director = team?.director ?? null;
       // Subagent profiles (ATO-566): applied before the legs are picked,
       // since a profile's model can set the task's role.
       let profileReports: AppliedProfileReport[] = [];
@@ -512,7 +539,7 @@ export function buildFusionDelegateTool(
         const profiled = applyTaskProfiles(
           parsed.tasks,
           profiles,
-          allowedModels(workerLegRef, mode.roles),
+          allowedModels(workerLegRef, mode.roles, teamTasks),
         );
         if (!profiled.ok) {
           return error(profiled.error, { field: "tasks", reason: "unknown-profile" });
@@ -539,9 +566,11 @@ export function buildFusionDelegateTool(
       // A CLI leg whose own shell stays on (Codex: `-s read-only`) can
       // read past the worker's read scope; as a worker or role leg that
       // is the operator's pick, but this target is the planner's.
+      // With a team the limit follows the session's director member.
+      const orchestratorProviderId = director?.providerId ?? mode.orchestratorProviderId;
       const orchestratorCliToolsOn =
-        mode.orchestratorProviderId !== null &&
-        deps.cliToolsStayOn?.(mode.orchestratorProviderId) === true;
+        orchestratorProviderId !== null &&
+        deps.cliToolsStayOn?.(orchestratorProviderId) === true;
       if (
         orchestratorCliToolsOn &&
         parsed.tasks.some((t) => t.model === ORCHESTRATOR_TASK_MODEL)
@@ -552,17 +581,27 @@ export function buildFusionDelegateTool(
         );
       }
       const orchestratorLegRef =
-        mode.orchestratorProviderId === null || orchestratorCliToolsOn
+        orchestratorCliToolsOn
           ? undefined
-          : {
-              providerId: mode.orchestratorProviderId,
-              model: mode.orchestratorModel ?? mode.orchestratorProviderId,
-            };
+          : director !== null
+            ? {
+                providerId: director.providerId,
+                model: director.model,
+                member: director.ref,
+                ...(team!.pinsModel(director.providerId) ? { pinModel: director.model } : {}),
+              }
+            : mode.orchestratorProviderId === null
+              ? undefined
+              : {
+                  providerId: mode.orchestratorProviderId,
+                  model: mode.orchestratorModel ?? mode.orchestratorProviderId,
+                };
       const modelProblem = unknownModels(
         parsed.tasks,
         workerLegRef,
         mode.roles,
         orchestratorLegRef,
+        teamTasks,
       );
       if (modelProblem !== undefined) {
         return error(modelProblem, { field: "tasks", reason: "unknown-model" });
@@ -572,6 +611,7 @@ export function buildFusionDelegateTool(
         workerLegRef,
         mode.roles,
         orchestratorLegRef,
+        teamTasks,
       );
       const routing = mode.measuredRouting?.enabled === true
         ? measuredTaskLegs(parsed.tasks.filter((task) => resume === undefined || resume.rerun.includes(task.id)), taskLegs, workerLegRef, mode.roles, orchestratorLegRef, {
@@ -583,6 +623,7 @@ export function buildFusionDelegateTool(
           attempted: (id) => turnBudget.attempts(ctx.sessionId, id) > 0,
           cliToolsStayOn: (provider) => deps.cliToolsStayOn?.(provider) === true,
           identityFor: (provider) => deps.resolveRoutingIdentity?.(provider),
+          ...(teamTasks === undefined ? {} : { team: true }),
         }) : undefined;
       if (routing !== undefined) taskLegs = routing.legs;
       // Tasks sized past what a small local worker does well: run as
@@ -599,13 +640,21 @@ export function buildFusionDelegateTool(
       const declaredInputs = parsed.contract?.inputs ?? [];
       const oversized = oversizedLocalTasks(parsed.tasks, taskIsLocal, declaredInputs);
       const sizeWarnings = localTaskSizeWarnings(parsed.tasks, taskIsLocal, declaredInputs);
-      // The legs other than the worker leg, one per provider.
+      // The legs other than the worker leg, one per provider (per member
+      // with a team: two models on one provider are two legs).
       const roleLegs = new Map<string, TaskLeg>();
       for (const leg of taskLegs.values()) {
-        if (!leg.isWorkerLeg && !roleLegs.has(leg.providerId)) {
-          roleLegs.set(leg.providerId, leg);
+        if (!leg.isWorkerLeg && !roleLegs.has(legKey(leg))) {
+          roleLegs.set(legKey(leg), leg);
         }
       }
+      const onLeg = (t: DelegateTask, leg: TaskLeg): boolean => {
+        const own = taskLegs.get(t.id);
+        return own?.isWorkerLeg === false && legKey(own) === legKey(leg);
+      };
+      // A team member on the worker leg asks for its model on every turn.
+      const workerLegPin = [...taskLegs.values()].find((leg) => leg.isWorkerLeg && leg.pinModel !== undefined)?.pinModel;
+      const roleProviderIds = [...new Set([...roleLegs.values()].map((leg) => leg.providerId))];
 
       // The turn's caps (ATO-947). Unset — the default — and nothing
       // below changes: no check, no extra signal, no timer.
@@ -645,7 +694,7 @@ export function buildFusionDelegateTool(
         const priorTrip = refusalFromTrips(
           turnBudget.trips(ctx.sessionId),
           workerProviderId,
-          [...roleLegs.keys()],
+          roleProviderIds,
         );
         if (priorTrip !== undefined) {
           return error(
@@ -708,7 +757,7 @@ export function buildFusionDelegateTool(
         });
       }
 
-      for (const providerId of roleLegs.keys()) {
+      for (const providerId of roleProviderIds) {
         try {
           await deps.warmWorkerBackend(providerId);
         } catch (err) {
@@ -771,10 +820,7 @@ export function buildFusionDelegateTool(
       let localWidth = slotAffine ? Math.min(legTaskCount, workerLegMaxWorkers) : 0;
       let cloudWidth = slotAffine ? 0 : Math.min(legTaskCount, workerLegMaxWorkers);
       for (const leg of roleLegs.values()) {
-        const count = parsed.tasks.filter((t) => {
-          const own = taskLegs.get(t.id);
-          return own?.isWorkerLeg === false && own.providerId === leg.providerId;
-        }).length;
+        const count = parsed.tasks.filter((t) => onLeg(t, leg)).length;
         if (count === 0) continue;
         if (deps.workerSupportsSlotAffinity(leg.providerId)) localWidth += roleLegWidth(leg, count);
         else cloudWidth += roleLegWidth(leg, count);
@@ -819,6 +865,7 @@ export function buildFusionDelegateTool(
         workerLegMaxWorkers < legTaskCount && workerLegMaxWorkers === poolSize;
 
       const orchestratorModel =
+        director?.model ??
         mode.orchestratorModel ??
         mode.orchestratorProviderId ??
         mode.primaryProviderId;
@@ -867,8 +914,8 @@ export function buildFusionDelegateTool(
       if (mode.localFormatCheck !== false && deps.localGrammarProbeFor !== undefined) {
         const localLegs = new Map<string, string>();
         if (slotAffine && legTaskCount > 0) localLegs.set(workerProviderId, workerModel);
-        for (const [providerId, leg] of roleLegs) {
-          if (deps.workerSupportsSlotAffinity(providerId)) localLegs.set(providerId, leg.model);
+        for (const leg of roleLegs.values()) {
+          if (deps.workerSupportsSlotAffinity(leg.providerId)) localLegs.set(leg.providerId, leg.model);
         }
         for (const [providerId, model] of localLegs) {
           const probe = deps.localGrammarProbeFor(providerId, {
@@ -1209,7 +1256,10 @@ export function buildFusionDelegateTool(
           const taskId = readFusionWorkerMeta(session.metadata)?.taskId;
           const provider = options.providerId;
           if (taskId !== undefined) {
-            const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined
+            // A model of the turn's own (a team member's) is not what the
+            // entry's identity describes, unless it is the worker leg's.
+            const pinnedElsewhere = options.model !== undefined && options.model !== workerModel;
+            const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined && !pinnedElsewhere
               ? deps.resolveRoutingIdentity?.(provider) : undefined;
             // Once a task's identity changes between turns it stays unattributed.
             if (!executionIdentities.has(taskId)) executionIdentities.set(taskId, identity);
@@ -1235,15 +1285,44 @@ export function buildFusionDelegateTool(
 
       // The judge's acceptance lists (ATO-944), built before any work so
       // every brief carries its own, read-only. Off: no list, no suffix.
+      // With a team's reviewers (issue #37) the judge of a task is the
+      // reviewer `pickReviewer` gives for the member that ran it, on that
+      // reviewer's own model; none fits: `judgeProvider`, as before.
       const judgeTarget = mode.judge ?? null;
+      const taskMember = (taskId: string): TeamMember => {
+        const leg = taskLegs.get(taskId);
+        const providerId = leg?.providerId ?? workerProviderId;
+        const model = leg === undefined || leg.isWorkerLeg ? workerModel : leg.model;
+        return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
+      };
+      const judgeTargets = new Map<string, JudgeTarget | null>();
+      const judgeTargetFor = (taskId: string): JudgeTarget | null => {
+        if (!judgeTargets.has(taskId)) {
+          const reviewer = team?.hasReviewers === true ? team.reviewerFor(taskMember(taskId)) : null;
+          judgeTargets.set(
+            taskId,
+            reviewer === null
+              ? judgeTarget
+              : {
+                  providerId: reviewer.providerId,
+                  model: reviewer.model,
+                  ...(team!.pinsModel(reviewer.providerId) ? { pinModel: reviewer.model } : {}),
+                },
+          );
+        }
+        return judgeTargets.get(taskId)!;
+      };
       const judging =
-        judgeTarget !== null && deps.escalationComplete !== undefined;
+        deps.escalationComplete !== undefined &&
+        (judgeTarget !== null || (team?.hasReviewers === true && parsed.tasks.some((t) => judgeTargetFor(t.id) !== null)));
       const acceptance = new Map(
         judging
-          ? parsed.tasks.map((t) => [
-              t.id,
-              buildAcceptanceChecklist(t, parsed.contract),
-            ])
+          ? parsed.tasks
+              .filter((t) => judgeTargetFor(t.id) !== null)
+              .map((t) => [
+                t.id,
+                buildAcceptanceChecklist(t, parsed.contract),
+              ])
           : [],
       );
       const acceptanceSuffix = judging
@@ -1379,15 +1458,13 @@ export function buildFusionDelegateTool(
       // The judge's spend counts toward the turn's cap, whether it ruled
       // in a task's workspace before the merge or after the waves.
       let judgeSpendUsd = 0;
-      const judgePricing =
-        judging && judgeTarget !== null
-          ? deps.resolveWorkerPricing?.(
-              judgeTarget.providerId,
-              judgeTarget.model ?? judgeTarget.providerId,
-            )
-          : undefined;
+      const judgePricingFor = (target: JudgeTarget) =>
+        deps.resolveWorkerPricing?.(target.providerId, target.model ?? target.providerId);
+      // The first judge that ruled, named on the spend line.
+      const judgeUsed: { target?: JudgeTarget } = {};
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
+        judgeTargetFor(r.id) !== null &&
         (r.status === "ok" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
       const judgeOne: GateJudge = async (input) => {
@@ -1401,13 +1478,15 @@ export function buildFusionDelegateTool(
             costUsd: null,
           };
         }
+        const target = judgeTargetFor(input.task.id)!;
+        judgeUsed.target ??= target;
         const verdict = await judgeTask({
           ...input,
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
-          target: judgeTarget!,
-          pricing: judgePricing,
+          target,
+          pricing: judgePricingFor(target),
           // Named for the folder's provider-policy refusal (issue #33).
           complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
           signal: runSignal,
@@ -1551,6 +1630,7 @@ export function buildFusionDelegateTool(
             maxWorkers: workerLegMaxWorkers,
             acquireTaskPermit: acquirePermitFor(slotAffine),
             providerId: workerProviderId,
+            ...(workerLegPin === undefined ? {} : { model: workerLegPin }),
             workerModel,
             workerMaxSteps: mode.workerMaxSteps,
             workerTimeoutMs: mode.workerTimeoutMs,
@@ -1580,7 +1660,7 @@ export function buildFusionDelegateTool(
       // escalation target is dropped where it is this very provider.
       const rolePricing = new Map(
         [...roleLegs.values()].map((leg) => [
-          leg.providerId,
+          legKey(leg),
           deps.resolveWorkerPricing?.(leg.providerId, leg.model),
         ]),
       );
@@ -1598,7 +1678,7 @@ export function buildFusionDelegateTool(
         concurrentTaskIds: readonly string[],
       ): Promise<WorkerTaskResult[]> => {
         const local = deps.workerSupportsSlotAffinity(leg.providerId);
-        const pricing = rolePricing.get(leg.providerId);
+        const pricing = rolePricing.get(legKey(leg));
         const roles = new Set(
           tasks.map((t) => taskLegs.get(t.id)?.role ?? "-"),
         );
@@ -1614,6 +1694,7 @@ export function buildFusionDelegateTool(
             maxWorkers: Math.min(maxWorkers, roleLegWidth(leg, tasks.length)),
             acquireTaskPermit: acquirePermitFor(local),
             providerId: leg.providerId,
+            ...(leg.pinModel === undefined ? {} : { model: leg.pinModel }),
             workerModel:
               onlyRole === "-" ? leg.model : `${leg.model} (${onlyRole})`,
             workerMaxSteps: mode.workerMaxSteps,
@@ -1672,10 +1753,7 @@ export function buildFusionDelegateTool(
             ? Promise.resolve<WorkerTaskResult[]>([])
             : runOnLeg(onWorkerLeg, contract, briefSuffix, taskWorkspace, allowSplit, concurrent),
           ...[...roleLegs.values()].map((leg) => {
-            const mine = tasks.filter((t) => {
-              const own = taskLegs.get(t.id);
-              return own?.isWorkerLeg === false && own.providerId === leg.providerId;
-            });
+            const mine = tasks.filter((t) => onLeg(t, leg));
             return mine.length === 0
               ? Promise.resolve<WorkerTaskResult[]>([])
               : runOnRoleLeg(leg, mine, contract, briefSuffix, taskWorkspace, allowSplit, concurrent);
@@ -1775,7 +1853,7 @@ export function buildFusionDelegateTool(
             const pricing =
               leg === undefined || leg.isWorkerLeg
                 ? workerPricing
-                : rolePricing.get(leg.providerId);
+                : rolePricing.get(legKey(leg));
             return {
               row: r,
               record: taskOutcomeRecord(
@@ -2199,7 +2277,7 @@ export function buildFusionDelegateTool(
         // red list is re-run once with the findings, and a list still red
         // after that is a failed task, item by item. Its spend counts
         // toward the turn's cap.
-        if (judging && judgeTarget !== null) {
+        if (judging) {
           const judgeRows = async (
             rows: readonly WorkerTaskResult[],
           ): Promise<Map<string, JudgeVerdict>> => {
@@ -2377,7 +2455,7 @@ export function buildFusionDelegateTool(
         // Where each task ran (ATO-943): the model and role on the row, and
         // a note when it is not the worker leg or not where it asked to be.
         // Without roles and without a task naming a model, rows are as before.
-        if (mode.roles !== undefined || roleLegs.size > 0) {
+        if (mode.roles !== undefined || roleLegs.size > 0 || teamTasks !== undefined) {
           results = results.map((r) => {
             const leg = taskLegs.get(r.id);
             if (leg === undefined) return r;
@@ -2391,7 +2469,7 @@ export function buildFusionDelegateTool(
             // A subscription leg has no price: turnBudgetUsd cannot see
             // these turns, only the count cap does.
             ...(leg.orchestrator === true &&
-            rolePricing.get(leg.providerId) === undefined
+            rolePricing.get(legKey(leg)) === undefined
               ? [
                   "unpriced: counted against llm.runMode.fusion.maxOrchestratorTasksPerTurn, not turnBudgetUsd",
                 ]
@@ -2422,16 +2500,16 @@ export function buildFusionDelegateTool(
           });
         }
         let roleSpendUsd = 0;
-        for (const [providerId, pricing] of rolePricing) {
+        for (const [key, pricing] of rolePricing) {
           if (pricing === undefined) continue;
+          const leg = roleLegs.get(key)!;
           roleSpendUsd += fanoutSpend(
-            results.filter(
-              (r) =>
-                taskLegs.get(r.id)?.providerId === providerId &&
-                taskLegs.get(r.id)?.isWorkerLeg === false,
-            ),
+            results.filter((r) => {
+              const own = taskLegs.get(r.id);
+              return own !== undefined && !own.isWorkerLeg && legKey(own) === key;
+            }),
             pricing,
-            providerId,
+            leg.providerId,
           ).usd;
         }
 
@@ -2552,7 +2630,7 @@ export function buildFusionDelegateTool(
                 : ""
             }${
               judgeSpendUsd > 0
-                ? `\n\nThe judge (${judgeTarget?.model ?? judgeTarget?.providerId}) cost ${formatUsd(judgeSpendUsd)} this fan-out.`
+                ? `\n\nThe judge (${judgeUsed.target?.model ?? judgeUsed.target?.providerId}) cost ${formatUsd(judgeSpendUsd)} this fan-out.`
                 : ""
             }${
               roleSpendUsd > 0

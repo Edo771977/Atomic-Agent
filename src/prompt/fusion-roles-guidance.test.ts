@@ -53,3 +53,20 @@ describe("### fusion roles line (ATO-943)", () => {
     expect(block.endsWith(formatFusionRolesLine(facts)!)).toBe(true);
   });
 });
+
+describe("### fusion team workers line (issue #37)", () => {
+  it("lists the team's workers by member, and nothing without them", () => {
+    const base = config();
+    expect(resolveFusionMachineFacts(base)).not.toHaveProperty("teamWorkers");
+    const withTeam = config();
+    (withTeam.llm!.runMode!.fusion as Record<string, unknown>).team = {
+      directors: ["openrouter:sonnet"],
+      workers: ["or-coder:qwen-coder", "or-coder:qwen-max"],
+    };
+    const facts = resolveFusionMachineFacts(withTeam);
+    expect(facts.teamWorkers).toEqual(["or-coder:qwen-coder", "or-coder:qwen-max"]);
+    const block = buildFusionGuidance(facts);
+    expect(block).toContain("Team workers: `or-coder:qwen-coder`, `or-coder:qwen-max`.");
+    expect(block).toContain("no other model is accepted");
+  });
+});
