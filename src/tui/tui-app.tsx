@@ -2494,6 +2494,7 @@ export function TuiApp({
                   <Box flexShrink={0}>
                     <ApprovalModal
                       request={state.pendingApproval}
+                      codingMode={state.codingMode}
                       pathDraft={state.approvalPathDraft}
                       onPathOpen={onApprovalPathOpen}
                       onPathChange={(value) =>

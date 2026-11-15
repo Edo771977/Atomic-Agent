@@ -337,7 +337,7 @@ atomic-agent export --last --format docx --out chat.docx
 |---|---|
 | `default` | Approvals follow `agent.approvalLevel`. |
 | `plan` | Read-only; the agent presents a plan, then you can run it in `auto` or `bypass permissions`. |
-| `auto` | File writes inside the workspace stop asking. |
+| `auto` | File writes inside the workspace stop asking. Shell commands and `verify.run` verifications still ask (`ctrl+f` at their prompt allows them for the session; risky ones always ask). |
 | `bypass permissions` | Nothing asks this session; hardline shell-guard rules still block. |
 
 Switch modes with `/mode`, `ctrl+g M`, or the composer chip. On an approval prompt, `ctrl+y` approves, `ctrl+d` denies, `ctrl+f` grants the category, `ctrl+b` retargets a write or grants a shell command's shape, `ctrl+z` pages through the full command when the preview is cut, `esc` aborts, and typing answers the agent in words. `/theme` switches between six palettes: `classic-dark`, `classic-light`, `toxic-green`, `khorne-red`, `darky-dark`, `moon-yellow`. The TUI is clickable; to select text, drag over plain text, or turn the mouse off with `/mouse off` or `--no-mouse`. Handy slash commands: `/help`, `/tools`, `/model`, `/privacy`. A failed or long turn raises a desktop notification, sessions are named from their first prompt, and inside a [herdr](https://github.com/herdrdev/herdr) pane the TUI labels the pane with its state.
