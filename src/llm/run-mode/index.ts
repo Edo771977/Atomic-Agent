@@ -25,6 +25,7 @@ export {
   teamFactsFromSetup,
   teamFamilyOf,
   teamMembers,
+  teamStrengthOf,
 } from "./fusion-team.js";
 export type {
   PickReviewerOptions,

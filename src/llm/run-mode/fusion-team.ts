@@ -7,6 +7,12 @@ import {
 import type { ProviderPolicy } from "../../config/project-constraint-match.js";
 import { SUBSCRIPTION_CLI_KIND } from "../../config/provider-auth-mode.js";
 import { isLocalServerUrl } from "../provider/openai/local-server-url.js";
+import {
+  MODEL_TIER_ORDER,
+  modelTierKey,
+  modelTierOf,
+  type ModelTier,
+} from "../provider/presets/model-tiers.js";
 import type { ProviderKeyStatus } from "../provider/provider-key.js";
 import type { SubscriptionCliState } from "../provider/subscription-cli/subscription-cli-status.js";
 import type { FusionSetupFacts } from "./fusion-setup-plan.js";
@@ -230,14 +236,54 @@ export function defaultWorker(
 export interface PickReviewerOptions {
   readonly familyOf: (member: TeamMember) => TeamFamily;
   readonly reachable: (member: TeamMember) => boolean;
+  /**
+   * The member's tier in the model tier table ({@link teamStrengthOf});
+   * null when it holds none. Given, the strength rule picks (issue #38);
+   * absent, the first fitting reviewer in config order, as in issue #37.
+   */
+  readonly strength?: (member: TeamMember) => ModelTier | null;
 }
 
+/** {@link modelTierOf} for a member over a provider list; null for an unlisted provider or a model with no tier. */
+export function teamStrengthOf(
+  providers: readonly ({ readonly id: string } & TeamProviderRef)[],
+): (member: TeamMember) => ModelTier | null {
+  return (member) => {
+    const provider = providers.find((p) => p.id === member.providerId);
+    if (provider === undefined) return null;
+    return modelTierOf(modelTierKey(provider.kind, cliName(provider)), member.model);
+  };
+}
+
+type Strength = "stronger" | "equal" | "weaker" | "unknown";
+
+/** How `reviewer` compares with `worker`: a local model is below any cloud one; else by tier, unknown when either has none. */
+function compareStrength(worker: TeamMember, reviewer: TeamMember, opts: PickReviewerOptions): Strength {
+  const workerLocal = opts.familyOf(worker) === "local";
+  const reviewerLocal = opts.familyOf(reviewer) === "local";
+  if (workerLocal !== reviewerLocal) return workerLocal ? "stronger" : "weaker";
+  const w = opts.strength?.(worker) ?? null;
+  const r = opts.strength?.(reviewer) ?? null;
+  if (w === null || r === null) return "unknown";
+  const diff = MODEL_TIER_ORDER.indexOf(r) - MODEL_TIER_ORDER.indexOf(w);
+  return diff > 0 ? "stronger" : diff === 0 ? "equal" : "weaker";
+}
+
+const STRENGTH_RANK: Readonly<Record<Exclude<Strength, "weaker">, number>> = { stronger: 0, equal: 1, unknown: 2 };
+
 /**
- * The reviewer (judge) of a task `worker` ran. With `crossFamilyReview`
- * (the default) the first reachable reviewer whose family differs from
- * the worker's; with it off, the first reachable reviewer that is not
- * the worker itself. Null when there is none: the caller falls back to
- * `judgeProvider`, as before the team.
+ * The reviewer (judge) of a task `worker` ran; never the worker itself,
+ * never one that cannot answer. Null when there is none: the caller falls
+ * back to `judgeProvider`, as before the team.
+ *
+ * Without `strength`: with `crossFamilyReview` (the default) the first
+ * reviewer whose family differs from the worker's; with it off, the
+ * first one.
+ *
+ * With `strength` (issue #38): never a weaker reviewer. Stronger before
+ * equal before unknown (either tier missing); within each, another
+ * family before the worker's own while `crossFamilyReview` is on; then
+ * config order. A local model is below any cloud one.
  */
 export function pickReviewer(
   team: UserFusionTeamConfig,
@@ -246,14 +292,20 @@ export function pickReviewer(
 ): TeamMember | null {
   const cross = team.crossFamilyReview ?? true;
   const workerFamily = cross ? opts.familyOf(worker) : undefined;
-  return (
-    teamMembers(team, "reviewers").find(
-      (r) =>
-        r.ref !== worker.ref &&
-        (!cross || opts.familyOf(r) !== workerFamily) &&
-        opts.reachable(r),
-    ) ?? null
-  );
+  const candidates = teamMembers(team, "reviewers").filter((r) => r.ref !== worker.ref && opts.reachable(r));
+  if (opts.strength === undefined) {
+    return candidates.find((r) => !cross || opts.familyOf(r) !== workerFamily) ?? null;
+  }
+  let best: { member: TeamMember; rank: number } | null = null;
+  for (const member of candidates) {
+    const strength = compareStrength(worker, member, opts);
+    if (strength === "weaker") continue;
+    const sameFamily = cross && opts.familyOf(member) === workerFamily ? 1 : 0;
+    const rank = STRENGTH_RANK[strength] * 2 + sameFamily;
+    // Strictly lower only: an equal rank keeps the earlier one (config order).
+    if (best === null || rank < best.rank) best = { member, rank };
+  }
+  return best?.member ?? null;
 }
 
 /**

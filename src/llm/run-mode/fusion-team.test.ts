@@ -15,6 +15,7 @@ import {
   reviewPassesOf,
   teamFactsFromSetup,
   teamFamilyOf,
+  teamStrengthOf,
   teamMembers,
   type TeamMember,
   type TeamReachabilityFacts,
@@ -224,5 +225,64 @@ describe("reviewEnabled and reviewPassesOf (issue #38)", () => {
     expect(reviewPassesOf(base)).toBe(2);
     expect(reviewPassesOf({ ...base, reviewPasses: 0 })).toBe(0);
     expect(reviewPassesOf({ ...base, reviewPasses: 1 })).toBe(1);
+  });
+});
+
+describe("pickReviewer with strength (issue #38)", () => {
+  const familyOf = teamFamilyOf(providers);
+  const all = () => true;
+  // Neutral fixture tiers by model id; anything else is unknown.
+  const tiers: Record<string, "cheap" | "balanced" | "best"> = { "m-cheap": "cheap", "m-mid": "balanced", "m-top": "best" };
+  const strength = (x: TeamMember) => tiers[x.model] ?? null;
+  const pick = (reviewers: string[], worker: string, over: Partial<UserFusionTeamConfig> = {}, reachable = all) =>
+    pickReviewer({ directors: ["anthropic:m-top"], reviewers, ...over }, m(worker), { familyOf, reachable, strength })?.ref ?? null;
+
+  it("prefers a stronger reviewer of another family, then a stronger one of the same family", () => {
+    const reviewers = ["anthropic:m-mid", "claude-cli:m-top", "openai:m-top"];
+    expect(pick(reviewers, "anthropic:m-cheap")).toBe("openai:m-top");
+    expect(pick(["anthropic:m-mid", "claude-cli:m-top"], "anthropic:m-cheap")).toBe("anthropic:m-mid");
+  });
+
+  it("takes a stronger same-family reviewer over an equal one of another family", () => {
+    expect(pick(["openai:m-cheap", "claude-cli:m-mid"], "anthropic:m-cheap")).toBe("claude-cli:m-mid");
+  });
+
+  it("falls to an equal reviewer, other family first, and never a weaker one", () => {
+    expect(pick(["anthropic:m-mid", "openai:m-mid", "openai:m-cheap"], "claude-cli:m-mid")).toBe("openai:m-mid");
+    expect(pick(["anthropic:m-mid", "openai:m-cheap"], "claude-cli:m-mid")).toBe("anthropic:m-mid");
+    expect(pick(["openai:m-cheap", "anthropic:m-mid"], "claude-cli:m-top")).toBeNull();
+  });
+
+  it("never the worker itself, nor one that cannot answer", () => {
+    expect(pick(["anthropic:m-top"], "anthropic:m-top")).toBeNull();
+    expect(pick(["openai:m-top", "anthropic:m-top"], "claude-cli:m-cheap", {}, (x) => x.providerId !== "openai")).toBe("anthropic:m-top");
+  });
+
+  it("ranks local below any cloud model, whatever its tier", () => {
+    expect(pick(["local-llama:m-top", "openai:unknown-model"], "local-llama:m-cheap")).toBe("openai:unknown-model");
+    expect(pick(["local-llama:m-top", "lmstudio:m-top"], "openai:m-cheap")).toBeNull();
+  });
+
+  it("unknown strength comes after known stronger or equal ones, in config order, other family first", () => {
+    expect(pick(["openai:unknown-model", "anthropic:m-mid"], "claude-cli:m-mid")).toBe("anthropic:m-mid");
+    expect(pick(["anthropic:unknown-a", "openai:unknown-b"], "claude-cli:m-mid")).toBe("openai:unknown-b");
+    expect(pick(["anthropic:unknown-a", "claude-cli:unknown-b"], "claude-cli:m-mid")).toBe("anthropic:unknown-a");
+    expect(pick(["openai:m-top", "anthropic:m-top"], "claude-cli:unknown")).toBe("openai:m-top");
+  });
+
+  it("crossFamilyReview false drops the family preference but keeps the strength rule", () => {
+    const off = { crossFamilyReview: false };
+    expect(pick(["claude-cli:m-top", "openai:m-top"], "anthropic:m-cheap", off)).toBe("claude-cli:m-top");
+    expect(pick(["openai:m-mid", "claude-cli:m-top"], "anthropic:m-cheap", off)).toBe("openai:m-mid");
+    expect(pick(["openai:m-cheap"], "anthropic:m-top", off)).toBeNull();
+  });
+
+  it("teamStrengthOf reads the model tier table for the member's provider", () => {
+    const of = teamStrengthOf(providers);
+    expect(of(m("claude-cli:opus"))).toBe("best");
+    expect(of(m("claude-cli:haiku"))).toBe("cheap");
+    expect(of(m("claude-cli:not-a-tier"))).toBeNull();
+    expect(of(m("local-llama:anything"))).toBeNull();
+    expect(of(m("missing:anything"))).toBeNull();
   });
 });
