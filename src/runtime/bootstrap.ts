@@ -524,7 +524,7 @@ export async function createAgentRuntime(
     fallbackChain, resolveActiveLlmSlice, localBackend: connectedLocal.localBackend, profileManager,
     costAccumulator, turnUsageMeter, sessionUsage, dailySpend, resolveModelPricing, resolveCatalogContextWindow,
     turnBudget: fusionTurnBudget, budgetNotices,
-    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: sessionProviderPolicy.forSessionId },
+    providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
   installRiskReviewer({
