@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { createRequire } from "node:module";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 
-import { ConfigValidationError, parseUserConfigFile } from "../config/index.js";
+import { ConfigValidationError, parseUserConfigFile, projectConstraintNotices } from "../config/index.js";
 import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
@@ -91,6 +91,30 @@ function checkConfig(ctx: DoctorContext): DoctorFinding[] {
     }
     return [{ check: "config", status: "fail", message: `${err.field}: ${err.reason} (no automatic fix; \`atag config set\` or edit the file)` }];
   }
+}
+
+/**
+ * `projects.constraints` (issue #33): the same warnings the load prints
+ * (an unknown key inside an entry, an allowed provider that is not
+ * configured). Only for a file that parses; `checkConfig` reports the rest.
+ */
+function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
+  if (!existsSync(ctx.configPath)) return [];
+  let parsed: ReturnType<typeof parseUserConfigFile>;
+  let tree: Tree;
+  try {
+    tree = readRawConfigTree(ctx.configPath);
+    parsed = parseUserConfigFile(tree);
+  } catch {
+    return [];
+  }
+  const raw = asObject(tree.projects)?.constraints;
+  const known = parsed.llm?.providers.map((p) => p.id) ?? ["local-llama"];
+  return projectConstraintNotices(raw, known).map((line) => ({
+    check: "project-constraints",
+    status: "warn" as const,
+    message: line.replace(/^\[atomic-agent\] /, ""),
+  }));
 }
 
 /** config.json holds API keys: readable by its owner only. */
@@ -232,6 +256,7 @@ function openDefaultSqlite(): string {
 
 export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[]> = [
   checkConfig,
+  checkProjectConstraints,
   checkConfigMode,
   checkMcpCommands,
   checkCoreLocks,

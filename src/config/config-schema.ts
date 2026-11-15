@@ -23,7 +23,7 @@ export { DEFAULT_SKILLS_CATALOG_BUDGET, parseSkillNameArray, parseSkillTapArray 
 import { createSessionDefaults, parseSessionConfig, type RuntimeSessionsConfig, type UserSessionsConfig } from "./session-retention-config.js";
 import { createTracingDefaults, parseTracingConfig, type RuntimeTracingConfig, type UserTracingConfig } from "./tracing-config.js";
 import { createNetworkDefaults, parseNetworkConfig, type NetworkConfig } from "./network-config.js";
-import { noteUnknownConstraintProviders, parseProjectConstraints } from "./project-constraints-config.js";
+import { noteProjectConstraintNotices, parseProjectConstraints } from "./project-constraints-config.js";
 
 import {
   createTuiDefaults, parseTuiConfig,
@@ -1721,8 +1721,8 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
   }
 
   const projectConstraints = parseProjectConstraints(projects.constraints);
-  noteUnknownConstraintProviders(
-    projectConstraints,
+  noteProjectConstraintNotices(
+    projects.constraints,
     llmBlock?.providers.map((p) => p.id) ?? ["local-llama"],
   );
 

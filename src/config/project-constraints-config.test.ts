@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseUserConfigFile, USER_CONFIG_VERSION } from "./config-schema.js";
 import { setConfigNoticeSink } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
-import { parseProjectConstraints } from "./project-constraints-config.js";
+import { parseProjectConstraints, projectConstraintNotices } from "./project-constraints-config.js";
 
 describe("projects.constraints parsing", () => {
   it("reads absolute folders with their allowed provider ids", () => {
@@ -68,8 +68,40 @@ describe("projects.constraints parsing", () => {
     expect(parsed.projects).toEqual({ roots: ["/data/projects"], constraints: {} });
   });
 
-  it("ignores unknown keys inside an entry (a newer build may add some)", () => {
-    expect(parseProjectConstraints({ "/w": { allowedProviders: ["a"], allowedEgress: ["x"] } }, { platform: "linux" }))
+  it("fails closed on a misspelt allowedProviders, naming the key it got", () => {
+    expect(() => parseProjectConstraints({ "/w": { allowedProvider: ["local-llama"] } }, { platform: "linux" }))
+      .toThrow(ConfigValidationError);
+    expect(() => parseProjectConstraints({ "/w": { allowedProvider: ["local-llama"] } }, { platform: "linux" }))
+      .toThrow(/did you mean "allowedProviders" \(got "allowedProvider"\)/);
+  });
+
+  it("drops an unknown key inside an entry from the parsed value", () => {
+    expect(parseProjectConstraints({ "/w": { allowedProviders: ["a"], colour: "red" } }, { platform: "linux" }))
       .toEqual({ "/w": { allowedProviders: ["a"] } });
+  });
+
+  it("warns about an unknown key inside an entry, suggesting the closest known key", () => {
+    const notices = projectConstraintNotices(
+      { "/w": { allowedProviders: ["local-llama"], allowedProvidres: ["x"], colour: "red" } },
+      ["local-llama"],
+    );
+    expect(notices).toEqual([
+      expect.stringMatching(/projects\.constraints\["\/w"\] has unknown key "allowedProvidres" \(ignored\); did you mean "allowedProviders"\?/),
+      expect.stringMatching(/projects\.constraints\["\/w"\] has unknown key "colour" \(ignored\)$/),
+    ]);
+  });
+
+  it("surfaces the unknown-key warning as a config notice when the whole file loads", () => {
+    const lines: string[] = [];
+    setConfigNoticeSink((line) => lines.push(line));
+    try {
+      parseUserConfigFile({
+        version: USER_CONFIG_VERSION,
+        projects: { constraints: { "/work/typo-notice": { allowedProviders: ["local-llama"], allowedProvidrs: [] } } },
+      });
+      expect(lines.some((l) => l.includes("\"allowedProvidrs\"") && l.includes("did you mean \"allowedProviders\""))).toBe(true);
+    } finally {
+      setConfigNoticeSink(null);
+    }
   });
 });

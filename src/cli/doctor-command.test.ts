@@ -36,6 +36,15 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "doctor-")); out = ""; });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe("atag doctor (ATO-577)", () => {
+  it("warns about an unknown key and an unconfigured provider in projects.constraints (issue #33)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama", "ghost"], allowedProvidres: [] } } };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).toMatch(/warn {2}project-constraints: .*\["\/work\/client"\] has unknown key "allowedProvidres" \(ignored\); did you mean "allowedProviders"\?/);
+    expect(out).toMatch(/warn {2}project-constraints: .*allows provider "ghost", which is not configured/);
+  });
+
   it("a valid config is ok and exits 0", async () => {
     save(USER_CONFIG_DEFAULTS);
     expect(await run([])).toBe(0);
