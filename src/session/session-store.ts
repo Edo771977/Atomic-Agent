@@ -840,7 +840,11 @@ export class SessionStore {
    * (`finishTurn`). Both keep a stored title the state does not carry;
    * only `save` is held to `statusForSave`.
    */
-  private write(state: SessionState, endsTurn: boolean): void {
+  private write(
+    state: SessionState,
+    endsTurn: boolean,
+    onlyExisting = false,
+  ): boolean {
     if (isIncognitoSession(state)) {
       this.openIncognito.add(state.id);
       this.setSecureDelete(true);
@@ -848,15 +852,18 @@ export class SessionStore {
     const archive = this.turnArchive();
     // One transaction: the archive rows the write adds and the payload
     // that counts them land together or not at all.
-    this.inWriteTransaction(() => {
+    return this.inWriteTransaction(() => {
       const stored = this.storedRow(state.id);
+      // An edit of a stored chat (rename, archive) never brings back a row
+      // deleted since it was read.
+      if (stored === undefined && onlyExisting) return false;
       // Without the archive, a state that is a whole transcript cannot
       // be split, and storing it in full over a row whose prefix lives in
       // the archive would make that prefix unreachable, and the next
       // write elsewhere would drop it. Skipped instead (ATO-1271).
       if (dropsArchivedHistory(state, stored, archive)) {
         warnArchivedWriteSkipped(state.id);
-        return;
+        return true;
       }
       const status = endsTurn
         ? state.status
@@ -865,12 +872,13 @@ export class SessionStore {
         status === state.status ? state : { ...state, status };
       if (stored === undefined) {
         this.insertStmt.run(this.serialize(next, archive));
-        return;
+        return true;
       }
       next = withStoredArchive(withStoredTitle(next, stored), stored);
       const update = endsTurn ? this.finishTurnStmt : this.updateStmt;
       update.run(this.serialize(next, archive));
-    }, undefined);
+      return true;
+    }, false);
   }
 
   /**
@@ -1016,11 +1024,9 @@ export class SessionStore {
     title: string,
     now: number = Date.now(),
   ): SessionState | null {
-    const current = this.load(id);
-    if (current === null) return null;
-    const next = withUserSessionTitle(current, title, now);
-    this.save(next);
-    return next;
+    return this.editStored(id, (current) =>
+      withUserSessionTitle(current, title, now),
+    );
   }
 
   /**
@@ -1035,11 +1041,29 @@ export class SessionStore {
     archived: boolean,
     now: number = Date.now(),
   ): SessionState | null {
-    const current = this.load(id);
-    if (current === null) return null;
-    const next = withSessionArchived(current, archived, now);
-    this.save(next);
-    return next;
+    return this.editStored(id, (current) =>
+      withSessionArchived(current, archived, now),
+    );
+  }
+
+  /**
+   * Read, change and write back one stored session in a single
+   * `BEGIN IMMEDIATE` transaction, as an update only: another process
+   * cannot write or delete the row between the read and the write, and a
+   * row that is gone (an incognito chat discarded, a delete) is not
+   * re-inserted. `null` when there is no such row.
+   */
+  private editStored(
+    id: string,
+    edit: (current: SessionState) => SessionState,
+  ): SessionState | null {
+    this.turnArchive();
+    return this.inWriteTransaction((): SessionState | null => {
+      const current = this.load(id);
+      if (current === null) return null;
+      const next = edit(current);
+      return this.write(next, false, true) ? next : null;
+    }, null);
   }
 
   load(id: string): SessionState | null {

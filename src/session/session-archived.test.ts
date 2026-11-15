@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { userTurn } from "./conversation-turn.js";
 import {
@@ -90,5 +90,26 @@ describe("session archive flag", () => {
     const kept = store.listSummaryPage({ limit: 40, excludeArchived: true, keepId: "s-30" });
     expect(kept.map((r) => r.id)).toEqual(["s-30", "s-03", "s-02", "s-01", "s-00"]);
     store.close();
+  });
+
+  it("does not re-create a row deleted between its read and its write (archive and rename)", () => {
+    for (const act of [
+      (store: SessionStore) => store.setSessionArchived("s-1", true, 5_000),
+      (store: SessionStore) => store.renameSession("s-1", "New name", 5_000),
+    ]) {
+      const { store } = fresh();
+      const load = store.load.bind(store);
+      // Another process (an incognito discard, a delete) removes the row
+      // right after this one read it.
+      vi.spyOn(store, "load").mockImplementation((id: string) => {
+        const read = load(id);
+        store.getDatabaseHandleForRetention().prepare("DELETE FROM sessions WHERE id = ?").run(id);
+        return read;
+      });
+      expect(act(store)).toBeNull();
+      vi.restoreAllMocks();
+      expect(store.load("s-1")).toBeNull();
+      store.close();
+    }
   });
 });
