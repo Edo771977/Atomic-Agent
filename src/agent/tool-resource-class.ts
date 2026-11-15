@@ -412,6 +412,9 @@ const APPROVAL_CATEGORIES_BY_TOOL: Record<string, readonly ApprovalCategory[]> =
  */
 const SOLO_REGARDLESS_OF_APPROVAL: ReadonlySet<string> = new Set([
   "fusion.delegate",
+  // Waits for a person's answer at every approval level; it has no
+  // category on purpose, so no level runs it unattended.
+  "ask_user",
 ]);
 
 /**
