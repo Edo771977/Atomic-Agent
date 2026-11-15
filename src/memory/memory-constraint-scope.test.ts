@@ -107,7 +107,7 @@ describe("memory constraint scope", () => {
       expect(under(undefined, () => lessons.recall({ query: "bluebird" }).map((l) => l.id))).not.toContain(lesson.id);
       expect(under(secret, () => lessons.recall({ query: "bluebird" }).map((l) => l.id))).toContain(lesson.id);
 
-      const proc = under(secret, () => procedures.create({ activation: "when deploying bluebird", steps: [{ description: "run blue" }, { description: "check blue" }], parentLessonIds: [lesson.id], parentMemoryIds: [1] }));
+      const proc = under(secret, () => procedures.create({ activation: "when deploying bluebird", steps: [{ description: "run blue", toolHint: null }, { description: "check blue", toolHint: null }], parentLessonIds: [lesson.id], parentMemoryIds: [1] }));
       expect(under(undefined, () => procedures.getById(proc.id))).toBeNull();
       expect(under(other, () => procedures.recall({ query: "bluebird" }).map((p) => p.id))).not.toContain(proc.id);
       expect(under(secret, () => procedures.recall({ query: "bluebird" }).map((p) => p.id))).toContain(proc.id);
