@@ -47,7 +47,7 @@ describe("verify.run local page probe request", () => {
   afterEach(async () => { await rm(work, { recursive: true, force: true }); });
 
   function gate(scoped = false) {
-    const request = vi.fn(async () => ({ approved: false, reason: "test" }));
+    const request = vi.fn(async (_req: Record<string, unknown>) => ({ approved: false, reason: "test" }));
     return { request, gate: { request, fanoutScopes: { allows: () => scoped } } as unknown as ApprovalGate };
   }
   const ctx = (): ToolContext => ({ workingDir: work, sessionId: "s1", stepIndex: 0, signal: new AbortController().signal });
