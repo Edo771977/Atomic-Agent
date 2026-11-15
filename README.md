@@ -152,6 +152,8 @@ If something isn't working:
 2. Open an issue on [GitHub](https://github.com/AtomicBot-ai/atomic-agent/issues).
 3. Or ask for help in our [Discord](https://discord.gg/DCqtG8WZX8).
 
+On Windows, traces and logs are UTF-8 without a BOM. Windows PowerShell 5.1's `Get-Content` reads such files in the ANSI code page, so accented text looks garbled (`Ã¨` for `è`) although the file is fine; read them with `Get-Content -Encoding UTF8 <file>` (PowerShell 7 reads UTF-8 by default).
+
 ## Talk to Us
 
 Building something with Atomic Agent, stuck on setup, or just want to share what you are working on? Grab a slot and talk to the team directly: **[cal.com/atomicagent/demo](https://cal.com/atomicagent/demo)**. No agenda required. Questions, feedback, feature requests, or a plain hello all count. We read every issue and every Discord message too, but sometimes a 15-minute call beats a week of comments.
