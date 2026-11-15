@@ -13,6 +13,7 @@ import {
   type DownloadJob,
 } from "./download-jobs.js";
 import { readDownloadNotify } from "./download-notify-file.js";
+import { resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
 import {
   downloadWorkerArgs,
   spawnDownloadWorker,
@@ -101,6 +102,37 @@ describe("download-spawn", () => {
       "already-running",
     );
     expect(readDownloadNotify(dataDir, jobId)).toBeNull();
+  });
+
+  it("starts the worker offline when offline mode is on live, not only from config.json (ATO-1084)", () => {
+    const spawn = vi.fn(
+      () => ({ pid: SPAWNED_PID, unref: vi.fn() }) as unknown as ChildProcess,
+    );
+    const run = () => spawnDownloadWorker({
+      dataDir,
+      kind: "chat",
+      modelId: "qwen-3.5-4b",
+      mode: "gguf-only",
+      spawn: spawn as unknown as typeof nodeSpawn,
+      execPath: "/opt/node/bin/node",
+      argv: ["/opt/node/bin/node", "/repo/dist/cli/index.js"],
+      execArgv: [],
+      sea: false,
+      env: { ATOMIC_AGENT_STATE_DIR: "/state" },
+    });
+    const envOf = (call: number) =>
+      (spawn.mock.calls[call] as unknown as [string, string[], { env: NodeJS.ProcessEnv }])[2].env;
+    try {
+      setOfflineNetwork(true);
+      run();
+      expect(envOf(0).ATOMIC_AGENT_OFFLINE).toBe("1");
+      expect(envOf(0).ATOMIC_AGENT_STATE_DIR).toBe("/state");
+    } finally {
+      resetOfflineNetworkForTests();
+    }
+    rmSync(join(dataDir, "downloads"), { recursive: true, force: true });
+    run();
+    expect(envOf(1).ATOMIC_AGENT_OFFLINE).toBeUndefined();
   });
 
   it("spawns a detached copy of this program with the worker argv, logging to the job log", () => {
