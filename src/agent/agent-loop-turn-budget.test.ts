@@ -109,10 +109,10 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     });
     await agent.runTurn(createEmptySessionState({ id: "s-effort", workingDir: "/work" }), {
       ...options(),
-      reasoningEffort: "xhigh",
-      reasoningOverride: "high",
+      reasoningEffort: "high",
+      reasoningOverride: "medium",
     });
-    expect(calls[0]!.reasoningEffort).toBe("xhigh");
+    expect(calls[0]!.reasoningEffort).toBe("high");
     expect(calls[1]!.finalReport).toBe(true);
     expect(calls[1]!.reasoningEffort).toBe("low");
     expect(calls[1]!.disableThinking).toBeUndefined();
