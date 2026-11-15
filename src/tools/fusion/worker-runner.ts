@@ -2054,6 +2054,7 @@ async function runOneTask(
         {
           origin: "fusion",
           providerId: target.providerId,
+          ...(target.pinModel === undefined ? {} : { model: target.pinModel }),
           maxSteps: stepBudget.value,
           taskMaxDurationMs: timeoutMs,
           toolFilter: workerToolFilterFor(task.agentProfile?.tools),

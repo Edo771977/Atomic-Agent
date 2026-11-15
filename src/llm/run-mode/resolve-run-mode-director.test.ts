@@ -44,6 +44,17 @@ describe("resolveRunMode with a session director", () => {
     // Escalation from the worker to the director is a different member.
     expect(rm.escalation?.providerId).toBe("cli");
     expect(rm.escalation?.model).toBe("model-d");
+    // Asked on the director's model, not the entry's default.
+    expect(rm.escalation?.pinModel).toBe("model-d");
+  });
+
+  it("pins the director's model on a judge that is the director, and nothing without a director", () => {
+    const on: UserLlmRunModeConfig = { ...fusion, fusion: { ...fusion.fusion!, judge: "on" } };
+    expect(resolveRunMode(llm("api", on), { director: member("cli:model-d") }).judge)
+      .toEqual({ providerId: "cli", model: "model-d", pinModel: "model-d" });
+    const plain = resolveRunMode(llm("api", on));
+    expect(plain.judge).toEqual({ providerId: "api", model: "model-a" });
+    expect(plain.escalation?.pinModel).toBeUndefined();
   });
 
   it("takes the session's preferred worker as the worker leg", () => {

@@ -138,6 +138,7 @@ export async function requestAdvice(input: {
   try {
     const answer = await input.complete({
       providerId: target.providerId,
+      ...(target.pinModel === undefined ? {} : { model: target.pinModel }),
       prompt: input.prompt,
       maxOutputTokens: ADVISOR_MAX_OUTPUT_TOKENS,
       signal: input.signal,

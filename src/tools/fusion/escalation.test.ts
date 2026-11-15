@@ -60,8 +60,10 @@ function harness(
   const events: AgentLoopEvent[] = [];
   const steers: string[] = [];
   const calls: string[] = [];
-  const complete: EscalationComplete = async ({ providerId }) => {
+  const models: Array<string | undefined> = [];
+  const complete: EscalationComplete = async ({ providerId, model }) => {
     calls.push(providerId);
+    models.push(model);
     return {
       content: "Stop reading a.txt; it does not exist yet. Write it with os.fs.write.",
       usage: { promptTokens: 1_000, completionTokens: 200, totalTokens: 1_200 },
@@ -87,7 +89,7 @@ function harness(
     },
     ...extra,
   };
-  return { deps, events, steers, calls };
+  return { deps, events, steers, calls, models };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -213,6 +215,49 @@ describe("advisor escalation of a stuck worker (ATO-942)", () => {
     expect(providers).toEqual(["local", "cloud"]);
     expect(row!.status).toBe("ok");
     expect(row!.notes?.join("\n")).toMatch(/re-run on big after the local worker stayed stuck/);
+  });
+});
+
+describe("an escalation target that pins a model (issue #37)", () => {
+  it("asks for the pinned model on advice and on the re-run", async () => {
+    const pinned: Array<string | undefined> = [];
+    const h = harness(async (_s, options) => {
+      if (options.providerId === "cloud") {
+        pinned.push(options.model);
+        return done();
+      }
+      for (let i = 0; i < 3; i += 1) sameStep(options.eventHook, i);
+      await flush();
+      for (let i = 3; i < 6; i += 1) sameStep(options.eventHook, i);
+      return {
+        session: createEmptySessionState({ id: "s-x", workingDir: "/repo" }),
+        reason: options.signal?.aborted ? "cancelled" : "reply",
+        stepCount: 6,
+      } as RunTurnResult;
+    });
+    await runWorkerTasks(h.deps, {
+      ...BASE,
+      tasks: TASK,
+      signal: new AbortController().signal,
+      escalation: { target: { ...TARGET, replace: true, pinModel: "big" }, pricing: PRICING },
+    });
+    expect(h.models[0]).toBe("big");
+    expect(pinned).toEqual(["big"]);
+  });
+
+  it("asks without a model when the target pins none", async () => {
+    const h = harness(async (_s, options) => {
+      for (let i = 0; i < 6; i += 1) sameStep(options.eventHook, i);
+      await flush();
+      return done();
+    });
+    await runWorkerTasks(h.deps, {
+      ...BASE,
+      tasks: TASK,
+      signal: new AbortController().signal,
+      escalation: { target: TARGET, pricing: PRICING },
+    });
+    expect(h.models).toEqual([undefined]);
   });
 });
 

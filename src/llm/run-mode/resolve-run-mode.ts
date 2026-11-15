@@ -86,7 +86,7 @@ export type ResolvedRunMode = {
    * The judge's model when `llm.runMode.fusion.judge` is `"on"` (ATO-944);
    * `null` when it is off or no provider resolves. Optional for fixtures.
    */
-  judge?: { providerId: string; model: string | null } | null;
+  judge?: { providerId: string; model: string | null; pinModel?: string } | null;
   /**
    * Models by role (ATO-943), present only when `llm.runMode.fusion.roles`
    * names at least one provider that exists. Optional for fixtures.
@@ -155,6 +155,12 @@ export type FusionEscalationTarget = {
   /** The replacement path (`escalationReplace`). */
   replace: boolean;
   maxUsd: number;
+  /**
+   * The model to ask the provider for (issue #37): set when the target is
+   * the session's director on a provider that serves more than one model,
+   * so the call runs on the director's model, not the entry's default.
+   */
+  pinModel?: string;
 };
 
 /** One role's model: the provider a task with that role is pinned to. */
@@ -253,6 +259,13 @@ export function resolveRunMode(
     stored === "fusion" && opts.director != null ? byId(opts.director.providerId) : undefined;
   const director = directorEntry === undefined ? undefined : opts.director!;
   const orchestratorModelPin = director?.model ?? fusion?.orchestratorModel;
+  // A side call (judge, escalation) on the director's own model must ask
+  // the provider for that model; a local server serves one model.
+  const directorPinFor = (entryId: string, model: string | null): { pinModel: string } | Record<string, never> =>
+    director !== undefined && directorEntry !== undefined && !isLocalKind(directorEntry) &&
+    entryId === directorEntry.id && model === director.model
+      ? { pinModel: director.model }
+      : {};
   const orchestrator =
     directorEntry ??
     byId(fusion?.orchestratorProvider) ??
@@ -356,19 +369,17 @@ export function resolveRunMode(
     byId(fusion?.judgeProvider) ??
     byId(fusion?.roles?.review) ??
     orchestrator;
+  const judgeModel =
+    judgeEntry === undefined
+      ? null
+      : ((judgeEntry.id === orchestrator?.id ? orchestratorModelPin : undefined) ??
+        judgeEntry.defaultChatModel ??
+        judgeEntry.model ??
+        null);
   const judge =
     fusion?.judge !== "on" || judgeEntry === undefined
       ? null
-      : {
-          providerId: judgeEntry.id,
-          model:
-            (judgeEntry.id === orchestrator?.id
-              ? orchestratorModelPin
-              : undefined) ??
-            judgeEntry.defaultChatModel ??
-            judgeEntry.model ??
-            null,
-        };
+      : { providerId: judgeEntry.id, model: judgeModel, ...directorPinFor(judgeEntry.id, judgeModel) };
 
   // Escalation only ever goes to a provider the operator configured, and
   // never to the worker leg itself (nothing would be gained). The
@@ -401,6 +412,7 @@ export function resolveRunMode(
           auto: fusion?.escalation === "advisor",
           replace: fusion?.escalationReplace === true,
           maxUsd: fusion?.escalationMaxUsd ?? DEFAULT_FUSION_ESCALATION_MAX_USD,
+          ...directorPinFor(escalationEntry.id, escalationModel),
         };
 
   return {
