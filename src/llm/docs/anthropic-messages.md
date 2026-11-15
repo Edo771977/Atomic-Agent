@@ -191,9 +191,12 @@ cost at the official prices. Before the first request it prices the worst
 case (every prefix written twice, every reply at its cap) and refuses
 above $0.25 unless `-- --max-usd <amount>` raises the cap (Fable 5.2's
 worst case is about $0.34); it also stops once the priced spend passes
-the cap. Without a key it prints these instructions and exits 0; in
-offline mode it refuses; the key is never printed. Exit code 1 means a
-check failed.
+the cap. Without a key it prints these instructions and exits 3
+("skipped: no key", never read as a pass); in offline mode it refuses
+(exit 2); the key is never printed. Exit code 1 means a check failed.
 
 The official price table itself is checked against Anthropic's page with
-`npm run prices:anthropic` ([scripts README](../../../scripts/README.md)).
+`npm run prices:anthropic` ([scripts README](../../../scripts/README.md)),
+from a source checkout. Once the table is over 90 days old `/usage` says
+"price list from <date>; check" and names the official pricing page, which
+a packaged install can open too.

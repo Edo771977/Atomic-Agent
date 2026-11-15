@@ -26,7 +26,10 @@ export const ANTHROPIC_OFFICIAL_PRICES_DATE = "2026-11-15";
 export const ANTHROPIC_OFFICIAL_PRICES_SOURCE = `anthropic-official ${ANTHROPIC_OFFICIAL_PRICES_DATE}`;
 export const ANTHROPIC_FIRST_PARTY_HOST = "api.anthropic.com";
 
-/** Past this age the usage report asks for `npm run prices:anthropic`. */
+/** The official page the table is copied from, named in the stale note. */
+export const ANTHROPIC_OFFICIAL_PRICES_PAGE = "https://platform.claude.com/docs/en/about-claude/pricing";
+
+/** Past this age the usage report asks to check the official pricing page. */
 export const ANTHROPIC_OFFICIAL_PRICES_STALE_DAYS = 90;
 
 /**
@@ -42,7 +45,9 @@ export function anthropicOfficialPricesStaleNote(
   const listed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00Z`) : Number.NaN;
   if (!Number.isFinite(listed)) return undefined;
   if (now - listed <= ANTHROPIC_OFFICIAL_PRICES_STALE_DAYS * 24 * 60 * 60 * 1000) return undefined;
-  return `(price list from ${date}; run npm run prices:anthropic to check)`;
+  // The page, not `npm run prices:anthropic`: a packaged install has no
+  // source checkout to run the script in.
+  return `(price list from ${date}; check ${ANTHROPIC_OFFICIAL_PRICES_PAGE})`;
 }
 
 // BEGIN GENERATED: npm run prices:anthropic -- --write (do not edit by hand)

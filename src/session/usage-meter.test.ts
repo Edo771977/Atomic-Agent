@@ -260,11 +260,12 @@ describe("formatUsageReport", () => {
     const day = 24 * 60 * 60 * 1000;
     const fresh = formatUsageReport(state, listed + 90 * day);
     expect(fresh).toContain(`prices from Anthropic's official price list of ${ANTHROPIC_OFFICIAL_PRICES_DATE})`);
-    expect(fresh).not.toContain("prices:anthropic");
+    expect(fresh).not.toContain("check https://");
     const stale = formatUsageReport(state, listed + 91 * day);
     expect(stale).toContain(
-      `(price list from ${ANTHROPIC_OFFICIAL_PRICES_DATE}; run npm run prices:anthropic to check)`,
+      `(price list from ${ANTHROPIC_OFFICIAL_PRICES_DATE}; check https://platform.claude.com/docs/en/about-claude/pricing)`,
     );
+    expect(stale).not.toContain("npm run");
   });
 
   it("says plainly when there is no limit reading", () => {
