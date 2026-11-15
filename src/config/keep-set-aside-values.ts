@@ -15,6 +15,7 @@ import {
   FUSION_WORKER_REASONING_LEVELS,
   RUN_MODE_NAMES,
 } from "./llm-run-mode-config.js";
+import { splitTeamMemberRef } from "./llm-fusion-team-config.js";
 import { keepSetAsideLocalModelValues } from "./local-models/keep-set-aside-values.js";
 import { WHILE_BUSY_SUBMIT_MODES } from "./tui-config.js";
 
@@ -67,6 +68,7 @@ const PROVIDER_REF_KEYS: ReadonlyArray<readonly [string, string?]> = [
 ];
 
 const FUSION_ROLES_KEY = "llm.runMode.fusion.roles";
+const FUSION_TEAM_KEY = "llm.runMode.fusion.team";
 
 /**
  * The write half of reading a newer build's values leniently. A
@@ -151,6 +153,15 @@ function keepSetAsideProviders(out: Tree, disk: Tree, read: UserConfigFile): Tre
     for (const [role, id] of Object.entries(roles)) {
       if (refers(id)) next = keepAt(next, disk, read, `${FUSION_ROLES_KEY}.${role}`);
     }
+  }
+  // A team with a member on a set-aside provider was read without it
+  // (issue #37): the whole block comes back unless it was changed here.
+  const team = getPath(disk, FUSION_TEAM_KEY);
+  if (isPlain(team) && ["directors", "workers", "reviewers"].some((key) => {
+    const list = team[key];
+    return Array.isArray(list) && list.some((m) => typeof m === "string" && setAside.has(splitTeamMemberRef(m)?.providerId ?? ""));
+  })) {
+    next = keepAt(next, disk, read, FUSION_TEAM_KEY);
   }
   return next;
 }

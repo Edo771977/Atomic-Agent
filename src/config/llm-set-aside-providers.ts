@@ -1,4 +1,5 @@
 import { emitConfigNoticeOnce } from "./config-primitives.js";
+import { splitTeamMemberRef } from "./llm-fusion-team-config.js";
 
 /**
  * ATO-1241 — reading `llm.providers` written by a newer build.
@@ -58,7 +59,9 @@ export function unknownProviderReason(
 /**
  * The `llm` block with every reference to a set-aside provider removed:
  * the fallback chain skips it, a fusion leg pinned to it (and that leg's
- * model label), an escalation, judge or role pin read as unpinned, an active embedding provider resolves
+ * model label), an escalation, judge or role pin read as unpinned, a
+ * team member on it is left out (a team left without a director reads
+ * as no team), an active embedding provider resolves
  * as if none were named, and an active text provider becomes `standIn`
  * (null when nothing is left to stand in, so the strict check reports
  * the original id).
@@ -90,7 +93,36 @@ export function withoutSetAsideProviderRefs(
       if (roles.length > 0) next.roles = Object.fromEntries(roles);
       else delete next.roles;
     }
+    const team = next.team;
+    if (team !== null && typeof team === "object" && !Array.isArray(team)) {
+      const kept = teamWithoutSetAside(team as Record<string, unknown>, setAside);
+      if (kept === undefined) delete next.team;
+      else next.team = kept;
+    }
     out.runMode = { ...runMode, fusion: next };
+  }
+  return out;
+}
+
+/**
+ * The raw team block without members on a set-aside provider; undefined
+ * when that leaves no director. Values that are not member strings are
+ * left for the strict parser.
+ */
+function teamWithoutSetAside(
+  team: Record<string, unknown>,
+  setAside: ReadonlySet<string>,
+): Record<string, unknown> | undefined {
+  const onSetAside = (v: unknown): boolean =>
+    typeof v === "string" && setAside.has(splitTeamMemberRef(v)?.providerId ?? "");
+  const out: Record<string, unknown> = { ...team };
+  for (const key of ["directors", "workers", "reviewers"] as const) {
+    const list = team[key];
+    if (!Array.isArray(list) || !list.some(onSetAside)) continue;
+    const kept = list.filter((v) => !onSetAside(v));
+    if (key === "directors" && kept.length === 0) return undefined;
+    if (kept.length > 0) out[key] = kept;
+    else delete out[key];
   }
   return out;
 }

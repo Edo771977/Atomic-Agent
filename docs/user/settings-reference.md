@@ -447,6 +447,10 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `llm.runMode.fusion.taskTree.enabled` | `boolean` | `unset` | Default `false`: the tree is flat, as before. |
 | `llm.runMode.fusion.taskTree.maxDepth` | `number` | `unset` | How deep the tree may grow, counting the orchestrator's own tasks as depth 1. Default 2 (one level of split); hard-capped at 3. |
 | `llm.runMode.fusion.taskTree.maxNodes` | `number` | `unset` | Every node of one fan-out, the orchestrator's tasks included. Default 24. |
+| `llm.runMode.fusion.team.directors` | `string[]` | `unset` | Models that may direct a fusion session (plan, delegate, reply), as `"<providerId>:<model>"`. At least one; each provider id must name a configured provider. The director is chosen per session; `orchestratorProvider` names the default one. |
+| `llm.runMode.fusion.team.workers` | `string[]` | `unset` | Models that may run a delegated task, as `"<providerId>:<model>"`. A task's worker must be one of these. `workerProvider` names the default when it is a member; otherwise the first reachable one. |
+| `llm.runMode.fusion.team.reviewers` | `string[]` | `unset` | Models that may judge a finished task, as `"<providerId>:<model>"`. Unset or no reachable choice: the judge is `judgeProvider`, as before. |
+| `llm.runMode.fusion.team.crossFamilyReview` | `boolean` | `unset` | Pick the first reachable reviewer whose family (Anthropic, OpenAI, local, other) differs from the worker's. `false`: the first reachable reviewer. Default `true`. |
 | `llm.openrouter.preferCacheRoutes` | `boolean` | `unset` | Steer models whose caching depends on the route toward the routes that cache — today `google/…` models to Google AI Studio, which cached 83 % of input where Vertex cached 1–4 % — unless the entry configured `providerPreferences` of its own. |
 | `llm.costTracking.enabled` | `boolean` | `unset` | Track the cost of cloud calls. Default `false`. |
 | `llm.costTracking.showInStatusBar` | `boolean` | `unset` | Add today's spend, all sessions together, to the composer readout (ATO-649): `$0.31 · today $1.20`. The session's own cost is shown either way (ATO-569). |

@@ -174,6 +174,7 @@ const LLM_FUSION_KEYS: Record<keyof UserLlmFusionConfig, true> = {
   isolation: true,
   integration: true,
   taskTree: true,
+  team: true,
 };
 
 /**
