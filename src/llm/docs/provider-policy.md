@@ -84,7 +84,7 @@ A refused call then reads `this session read files from <folder>, which is restr
 
 ## MCP sampling
 
-Sampling requests go to the local llama-server client directly. A llama-server on this machine sends nothing anywhere and always serves. One at a remote `localModels.url` is checked as `local-llama` against the request's frame, and refused while constraints exist when there is none (a sampling request arrives from the MCP transport, not a turn).
+Sampling requests go to the local llama-server client directly. A llama-server on this machine sends nothing anywhere and always serves. One at a remote `localModels.url` is refused while any constraint exists: an MCP client is shared by every session, so a sampling request belongs to no session, and the policy frame it runs in is only the one where the transport was opened (whichever turn connected the server), which is never read.
 
 ## Not covered
 
