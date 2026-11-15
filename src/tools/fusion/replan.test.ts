@@ -363,9 +363,30 @@ describe("tasks whose review passes ran out (issue #38)", () => {
     expect(block).toContain("- hud (failed): review-exhausted: needs-changes after 2 review passes");
   });
 
-  it("with no replans left is reported as exhausted, as before", () => {
-    const report = describeReplan([exhausted], () => 3, 2);
-    expect(report.reviewExhausted).toEqual([]);
-    expect(report.exhausted.map((t) => t.id)).toEqual(["hud"]);
+  it("with no replans left stays in its own bucket, without the re-delegate option", () => {
+    for (const report of [describeReplan([exhausted], () => 2, 1), describeReplan([exhausted], () => 3, 2)]) {
+      expect(report.exhausted).toEqual([]);
+      expect(report.pending).toEqual([]);
+      expect(report.reviewExhausted).toEqual([
+        expect.objectContaining({ id: "hud", replansLeft: 0, redelegate: false }),
+      ]);
+      const block = renderReplanBlock(report);
+      expect(block).toContain("REVIEW PASSES USED");
+      expect(block).not.toContain("NO REPLANS LEFT (");
+      expect(block).not.toMatch(/re-delegate/);
+      expect(block).toMatch(/fix it yourself/);
+      expect(block).toMatch(/accept it .*reasons/);
+      expect(block).toMatch(/ask the person only if you cannot proceed/i);
+      expect(block).toContain("- hud (failed): review-exhausted: needs-changes after 2 review passes");
+    }
+  });
+
+  it("with replans left keeps the re-delegate option beside one that has none", () => {
+    const other = { ...(exhausted as object), id: "map" } as never;
+    const report = describeReplan([exhausted, other], (id) => (id === "hud" ? 1 : 3), 2);
+    expect(report.reviewExhausted.map((t) => [t.id, t.redelegate])).toEqual([["hud", undefined], ["map", false]]);
+    const block = renderReplanBlock(report);
+    expect(block).toMatch(/re-delegate it[^\n]*:\n- hud /);
+    expect(block).toMatch(/do not send it again this turn[^\n]*:\n- map /i);
   });
 });

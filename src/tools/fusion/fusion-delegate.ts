@@ -2499,11 +2499,14 @@ export function buildFusionDelegateTool(
         const awaitingYes = new Set(
           resume?.needsConfirmation.map((r) => r.id) ?? [],
         );
-        const replan =
-          autoReplan > 0 &&
+        // A task whose review passes ran out goes to the director with
+        // replanning off too (issue #38): then only that bucket, with no
+        // re-delegation left to offer.
+        const fullReplan =
           stoppedBy === undefined &&
           trips.length === 0 &&
-          !ctx.signal.aborted
+          !ctx.signal.aborted &&
+          (autoReplan > 0 || results.some((r) => r.failure === "review-exhausted"))
             ? describeReplan(
                 results.filter((r) => !awaitingYes.has(r.id)),
                 (id) => turnBudget.attempts(ctx.sessionId, id),
@@ -2516,6 +2519,10 @@ export function buildFusionDelegateTool(
                   turnBudget.orchestratorTasks(ctx.sessionId) < orchestratorCap),
               )
             : undefined;
+        const replan =
+          fullReplan === undefined || autoReplan > 0
+            ? fullReplan
+            : { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: fullReplan.reviewExhausted, max: 0 };
       // How this round's families ended, judged rows included: a family
       // that closed green is no longer one a dotted id can continue.
       if (ranNow.size > 0) {

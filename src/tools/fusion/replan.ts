@@ -50,6 +50,11 @@ export interface ReplanTask {
   replansLeft: number;
   /** What the next brief should change, when the status says. */
   fix?: string;
+  /**
+   * A review-exhausted task with no replans left (issue #38): the
+   * director may fix it itself or accept it, not send it again.
+   */
+  redelegate?: false;
 }
 
 export interface ReplanReport {
@@ -62,10 +67,11 @@ export interface ReplanReport {
    */
   failedOnOrchestrator: ReplanTask[];
   /**
-   * Failed `review-exhausted` (issue #38) with replans left: a team's
-   * review still asked for changes after the last pass. The director
-   * decides (re-delegate, fix it itself, or accept with reasons); never
-   * pending, so the loop does not hold the next step to the delegate.
+   * Failed `review-exhausted` (issue #38): a team's review still asked
+   * for changes after the last pass. The director decides (re-delegate
+   * while replans are left, fix it itself, or accept with reasons);
+   * never pending, so the loop does not hold the next step to the
+   * delegate, and never merely exhausted, whatever replans are left.
    */
   reviewExhausted: ReplanTask[];
   max: number;
@@ -146,7 +152,7 @@ export function describeReplan(
     // A question asked again on the orchestrator's model is still a
     // question to answer, not a failure past what a round fixes.
     const stop = left > 0 && runs >= 2 && onOrchestrator && result.status !== "needs_input";
-    const reviewed = result.status === "failed" && result.failure === "review-exhausted" && left > 0 && !stop;
+    const reviewed = result.status === "failed" && result.failure === "review-exhausted" && !stop;
     const fix =
       left > 0 && !stop && !reviewed
         ? replanFix(
@@ -165,7 +171,7 @@ export function describeReplan(
       ...(fix === undefined ? {} : { fix }),
     };
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
-    else if (reviewed) reviewExhausted.push(task);
+    else if (reviewed) reviewExhausted.push(left > 0 ? task : { ...task, redelegate: false });
     else if (left > 0) pending.push(task);
     else exhausted.push(task);
   }
@@ -207,14 +213,26 @@ export function renderReplanBlock(report: ReplanReport): string {
       ].join("\n"),
     );
   }
-  if (report.reviewExhausted.length > 0) {
+  const redelegable = report.reviewExhausted.filter((t) => t.redelegate !== false);
+  const settle = report.reviewExhausted.filter((t) => t.redelegate === false);
+  const reviewHead =
+    "REVIEW PASSES USED — the reviewer still asks for changes on these tasks (the remaining issues are on each row's `review:` clause and in details.review). You decide; finishing the task is preferred over asking the person:";
+  if (redelegable.length > 0) {
     parts.push(
       [
-        "REVIEW PASSES USED — the reviewer still asks for changes on these tasks (the remaining issues are on each row's `review:` clause and in details.review). You decide; finishing the task is preferred over asking the person: re-delegate it with `fusion.delegate` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:",
-        ...report.reviewExhausted.map(
+        `${reviewHead} re-delegate it with \`fusion.delegate\` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:`,
+        ...redelegable.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,
         ),
+      ].join("\n"),
+    );
+  }
+  if (settle.length > 0) {
+    parts.push(
+      [
+        `${reviewHead} no replans are left, so do not send it again this turn; fix it yourself where your tools allow, or accept it as it stands and state your reasons in your reply. Ask the person only if you cannot proceed:`,
+        ...settle.map((t) => `- ${t.id} (${t.status}): ${t.why}`),
       ].join("\n"),
     );
   }

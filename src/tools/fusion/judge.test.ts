@@ -910,6 +910,18 @@ describe("review exhausted: the director decides (issue #38)", () => {
     expect(result.summary).toContain("REVIEW PASSES USED");
   });
 
+  it("hands the director the review-exhausted task with autoReplan off too, without the re-delegate option", async () => {
+    const { result, row } = await run(blocker, { autoReplan: 0 });
+    expect(row.failure).toBe("review-exhausted");
+    const replan = result.details.replan as { pending: unknown[]; exhausted: unknown[]; reviewExhausted: Array<{ id: string; redelegate?: false }> };
+    expect(replan.pending).toEqual([]);
+    expect(replan.exhausted).toEqual([]);
+    expect(replan.reviewExhausted).toEqual([expect.objectContaining({ id: "t", redelegate: false })]);
+    expect(result.summary).toContain("REVIEW PASSES USED");
+    expect(result.summary).not.toContain("NO REPLANS LEFT");
+    expect(result.summary).not.toMatch(/re-delegate it/);
+  });
+
   it("an answer that cannot be read is unverified for the orchestrator, never review-exhausted", async () => {
     const { result, row } = await run("not json");
     expect(row.status).toBe("needs_orchestrator");
