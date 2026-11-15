@@ -194,6 +194,7 @@ export {
   looksLikeDownloadWorker,
   spawnDownloadWorker,
   stopDownloadWorker,
+  stopRunningDownloadWorkers,
   type SpawnDownloadWorkerInput,
   type SpawnDownloadWorkerResult,
   type StopDownloadWorkerResult,

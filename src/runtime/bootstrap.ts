@@ -12,6 +12,7 @@ import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition
 import { createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
 import { createOfflineModeControl } from "./composition/runtime-offline-mode.js";
+import { stopRunningDownloadWorkers } from "../local-llm/index.js";
 import type { AgentRuntime, CreateAgentRuntimeOptions } from "./runtime-contract.js";
 export type { AgentRuntime, CreateAgentRuntimeOptions, MemoryEmbeddingReconnect, RuntimeEventHandlers } from "./runtime-contract.js";
 export { managedLocalLlmHealthFailureHint } from "./composition/runtime-local-profile.js";
@@ -965,6 +966,7 @@ export async function createAgentRuntime(
         swarm: swarmForShutdown,
       }),
       browser: () => browserBackend,
+      stopDownloads: () => stopRunningDownloadWorkers(getConfig().paths.localModelsDataDir),
       warn: (message, err) =>
         logger.warn(message, {
           error: err instanceof Error ? err.message : String(err),

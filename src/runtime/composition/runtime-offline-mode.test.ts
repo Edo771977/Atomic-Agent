@@ -53,6 +53,19 @@ describe("runtime.offlineMode (ATO-1084)", () => {
     expect(browser.stopLaunchedBrowser).toHaveBeenCalledTimes(1);
   });
 
+  it("stops the background model downloads, which run in their own process", async () => {
+    const stopDownloads = vi.fn(async () => {});
+    const control = createOfflineModeControl({
+      persist: () => {},
+      channels: () => ({ telegram: null, discord: null, swarm: null }),
+      stopDownloads,
+    });
+    await control.setEnabled(true);
+    expect(stopDownloads).toHaveBeenCalledTimes(1);
+    await control.setEnabled(false);
+    expect(stopDownloads).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps going when a channel fails to stop", async () => {
     const warn = vi.fn();
     const telegram = { start: vi.fn(async () => {}), stop: vi.fn(async () => { throw new Error("busy"); }) };

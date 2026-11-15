@@ -34,6 +34,11 @@ export interface OfflineModeDeps {
    * offline. A Chrome it attached to is not touched.
    */
   browser?: () => { stopLaunchedBrowser?(): Promise<boolean> } | null;
+  /**
+   * Stop the background model download workers (separate processes the
+   * dispatcher cannot see). Their jobs stay resumable.
+   */
+  stopDownloads?: () => Promise<void>;
   /** Whether the config asks for each channel, read after the write. */
   channelEnabled?: () => { telegram: boolean; discord: boolean };
   warn?: (message: string, error: unknown) => void;
@@ -51,7 +56,7 @@ export interface OfflineModeDeps {
  * (its own HTTP client) and the Discord gateway (a socket opened before
  * the switch) are stopped when it turns on, and started again when it
  * turns off if their config asks for them. A Chrome the agent launched
- * is stopped too (it relaunches offline on the next browser call). With `ATOMIC_AGENT_OFFLINE=1`
+ * and running model download workers are stopped too (it relaunches offline on the next browser call). With `ATOMIC_AGENT_OFFLINE=1`
  * the process stays offline whatever is set here; `isEnabled` says so.
  */
 export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeControl {
@@ -82,6 +87,7 @@ export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeCont
         await settle("telegram stop", telegram?.stop());
         await settle("discord stop", discord?.stop());
         await settle("swarm stop", swarm?.stopAll());
+        await settle("downloads stop", deps.stopDownloads?.());
         await settle("browser stop", deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
         try {
           persist(true);

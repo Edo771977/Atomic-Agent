@@ -20,6 +20,7 @@ Offline mode makes the agent refuse every outbound connection whose host is not 
 - Remote MCP transports (`streamable_http`, `sse`) are refused before connecting unless the URL is on this machine.
 - Subscription CLI providers (Claude Code, Codex) are separate programs that talk to their vendor's cloud; they are refused before they start.
 - The Telegram bot uses grammy's own HTTP client (node-fetch), so the bot factory refuses to start it. A live switch-on stops Telegram, Discord and swarm bots; switching off starts the ones their config enables.
+- Model downloads run in a detached worker process (`models pull-worker`), which the CLI entry starts offline when the config or environment says so. A live switch-on stops running workers (`stopRunningDownloadWorkers`); their jobs keep the partial file and can be resumed once online.
 
 ## Provider fallback while offline
 
@@ -32,7 +33,9 @@ Without an OS sandbox nothing in this process can stop another program from open
 - shell commands (`os.shell.*`), `git` and anything they start;
 - stdio MCP servers, which are child processes;
 - a Chrome the agent attached to rather than started (`browser.cdpUrl`, `browser.connect: "user-chrome"`), and Chrome's WebRTC/UDP traffic, which a proxy does not cover; only the URL gate applies there;
+- a response stream that was already open when offline mode was switched on live, such as a remote MCP server's SSE stream: new requests are refused at dispatch, but bytes keep arriving on the open stream until it closes or the server is reconnected;
 
+The LAN counts as network: only loopback is this machine, so a model server on another box of the local network is refused like any cloud host.
 
 ## Egress counter
 
