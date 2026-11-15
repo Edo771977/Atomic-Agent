@@ -20,6 +20,8 @@ import {
 } from "../../local-llm/core/core-image.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import { offlineRefusalFor } from "../../llm/offline-network.js";
+import { hasProjectConstraints, providerPolicyRefusalFor } from "../../llm/provider-policy.js";
+import { getConfig } from "../../config/index.js";
 import { coreDownloadProgress, type MediaProgressUpdate } from "./core-download-progress.js";
 
 export const IMAGE_GENERATE_TOOL = "image.generate";
@@ -252,6 +254,10 @@ export function buildImageGenerateTool(options: ImageGenerateToolOptions): ToolD
       // Core is loopback but sends the job to OpenRouter: refuse before asking.
       const offline = offlineRefusalFor("openrouter.ai", IMAGE_GENERATE_TOOL);
       if (offline) return errorResult(offline.message);
+      // ...and so does a folder whose provider constraint does not allow
+      // "openrouter" (issue #33), before approval or Core.
+      const constrained = providerPolicyRefusalFor("openrouter", IMAGE_GENERATE_TOOL, { constraintsActive: () => hasProjectConstraints(getConfig()) });
+      if (constrained) return errorResult(constrained.message);
       const key = options.openRouterKey();
       if (key === undefined) return errorResult(NO_KEY);
       const apiKey: string = key;

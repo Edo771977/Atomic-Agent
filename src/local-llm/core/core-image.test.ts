@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CoreRequestError, type CoreControlClient } from "./core-client.js";
 import { OfflineNetworkError, resetOfflineNetworkForTests, setOfflineNetwork } from "../../llm/offline-network.js";
+import { makeProviderPolicy, ProviderNotAllowedError, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import {
   CoreImageError,
   DEFAULT_OPENROUTER_IMAGE_MODEL,
@@ -122,6 +123,16 @@ describe("runCoreImageJob", () => {
 });
 
 describe("cloud media", () => {
+  it("does not hand Core the OpenRouter key in a folder that does not allow openrouter (issue #33)", async () => {
+    const call = vi.fn(async () => ({}));
+    await expect(runWithProviderPolicy(makeProviderPolicy({ key: "/work/client", allowedProviders: ["local-llama"], matchedDir: "/work/client" }), () =>
+      registerOpenRouterMedia({ call } as unknown as CoreControlClient, "sk-or-test"))).rejects.toBeInstanceOf(ProviderNotAllowedError);
+    expect(call).not.toHaveBeenCalled();
+    await runWithProviderPolicy(makeProviderPolicy({ key: "/w", allowedProviders: ["openrouter"], matchedDir: "/w" }), () =>
+      registerOpenRouterMedia({ call } as unknown as CoreControlClient, "sk-or-test"));
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
   it("does not hand Core the OpenRouter key while offline mode is on", async () => {
     setOfflineNetwork(true);
     try {

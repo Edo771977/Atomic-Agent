@@ -18,6 +18,8 @@ import {
 import { loadImageFile } from "../vision/load-image.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import { offlineRefusalFor } from "../../llm/offline-network.js";
+import { hasProjectConstraints, providerPolicyRefusalFor } from "../../llm/provider-policy.js";
+import { getConfig } from "../../config/index.js";
 import { coreDownloadProgress } from "../image/core-download-progress.js";
 import { parseVideoArgs, type VideoArgs } from "./args.js";
 import { fitVideoToModel, nominalSize } from "./fit-model.js";
@@ -137,6 +139,9 @@ export function buildVideoGenerateTool(options: VideoGenerateToolOptions): ToolD
       // Core is loopback but sends the prompt and first frame to OpenRouter: refuse before asking.
       const offline = offlineRefusalFor("openrouter.ai", VIDEO_GENERATE_TOOL);
       if (offline) return errorResult(offline.message);
+      // A folder whose provider constraint does not allow "openrouter" (issue #33).
+      const constrained = providerPolicyRefusalFor("openrouter", VIDEO_GENERATE_TOOL, { constraintsActive: () => hasProjectConstraints(getConfig()) });
+      if (constrained) return errorResult(constrained.message);
       const key = options.openRouterKey();
       if (key === undefined) return errorResult(NO_KEY);
       const apiKey: string = key;

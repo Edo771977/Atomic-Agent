@@ -176,6 +176,27 @@ export function assertProviderAllowed(
   throw new ProviderNotAllowedError({ reason: "not-allowed", providerId, policy, ...(role === undefined ? {} : { role }) });
 }
 
+/**
+ * The refusal `assertProviderAllowed` would throw, or `undefined` when the
+ * call may go ahead. For callers that answer with a tool error instead
+ * of throwing (Core-proxied media is checked against `"openrouter"`).
+ * Without `constraintsActive` a call with no frame is let through: only
+ * a frame's policy refuses (setup flows outside any session).
+ */
+export function providerPolicyRefusalFor(
+  providerId: string,
+  role: string,
+  options: { constraintsActive?: () => boolean } = {},
+): ProviderNotAllowedError | undefined {
+  try {
+    assertProviderAllowed(providerId, { constraintsActive: options.constraintsActive ?? (() => false), role });
+    return undefined;
+  } catch (err) {
+    if (err instanceof ProviderNotAllowedError) return err;
+    throw err;
+  }
+}
+
 const GUARDED = new WeakSet<object>();
 
 /**
