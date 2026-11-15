@@ -69,13 +69,13 @@ The memory consolidator's timer and the embedding backfill (startup and `memory 
 
 ## Read taint
 
-A session that reads files inside a constrained folder carries that folder's constraint from then on ([read taint](../../runtime/session-read-taint.ts)). The tool registry tells the runtime before a tool runs (`onDispatch`); the read targets are those the read scope knows (fs read, list, grep, glob, read_document, archives, git reads, `vision.describe`, `file://` pages, syntax checks) plus an `os.shell.run` command's `cwd` and its absolute paths. When a target falls under a constraint the session's policy does not already carry:
+A session that reads files inside a constrained folder carries that folder's constraint from then on ([read taint](../../runtime/session-read-taint.ts)). The tool registry tells the runtime before a tool runs (`onDispatch`); the read targets are those the read scope knows (fs read, list, grep, glob, read_document, archives, git reads, `vision.describe`, `file://` pages, syntax checks), the writes that return or move a file's content (`os.fs.edit`, `os.fs.patch`, `os.fs.restore`, `os.fs.archive.extract` of its archive, and the git mutations, push, pull and fetch of their `repo`, so the egress guard then sees the repository's constraint), plus every `os.shell.run` and `verify.run` command's `cwd`, its absolute paths and its relative paths that climb with `..`. When a target falls under a constraint the session's policy does not already carry:
 
 - the turn's frame is narrowed at once (frames hold one tightenable policy cell shared by nested role frames), so the read tool itself and the next model call must satisfy it;
 - the taint is stored in the session metadata (`providerReadTaint`), so the next turn, side calls by session id and `/resume` keep it; the session's policy is its folder's intersected with it;
 - several folders give the intersection of their lists; a Fusion worker's read taints its orchestrator's turn.
 
-A refused call then reads `this session read files from <folder>, which is restricted to: <ids>`. A read the read scope refuses still taints (fail closed). A relative shell path from a `cwd` outside the folder, or a computed one, is not detected. Memory written after the taint is scoped to the tainted policy.
+A refused call then reads `this session read files from <folder>, which is restricted to: <ids>`. A read the read scope refuses still taints (fail closed). A plain relative shell path reached by `cd` or a script, or a computed one, is not detected, nor what `skill.run_script` reads. Memory written after the taint is scoped to the tainted policy.
 
 ## Status
 
