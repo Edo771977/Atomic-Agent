@@ -135,20 +135,6 @@ export interface TaskOutcomeRecord {
   selfCheckNotice: boolean;
   escalations: number;
   judge: JudgeOutcome;
-  /**
-   * The task's structured review (issue #38): its last decision, the
-   * extra passes it got, the reviewer model's label and the issue counts
-   * by severity. Additive (records stay `v: 1`); absent on older records
-   * and on tasks no review ran for. `judgeRetried` stays `passes > 0`.
-   */
-  review?: {
-    decision: ReviewDecision;
-    passes: number;
-    reviewer: string | null;
-    blockers: number;
-    majors: number;
-    minors: number;
-  };
   syntaxDemoted: boolean;
   steps: number;
   /**

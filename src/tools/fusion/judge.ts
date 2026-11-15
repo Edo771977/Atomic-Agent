@@ -180,9 +180,6 @@ export function renderAcceptanceBlock(items: readonly AcceptanceItem[]): string 
   ].join("\n");
 }
 
-/** A per-task review's final decision (issue #38); `unverified` fails closed. */
-export type ReviewDecision = "accept" | "needs-changes" | "unverified";
-
 export interface ItemVerdict {
   id: string;
   pass: boolean;
