@@ -828,7 +828,7 @@ export function createRuntimeTurnService(
  * (the session namer) follows such a turn.
  */
 export function stoppedForMoney(stopCause: RunTurnResult["stopCause"]): boolean {
-  return stopCause === "cost_ceiling" || stopCause === "credit_exhausted";
+  return stopCause === "cost_ceiling" || stopCause === "credit_exhausted" || stopCause === "turn_budget";
 }
 
 /**

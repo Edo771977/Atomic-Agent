@@ -92,6 +92,7 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     expect(calls[1]!.maxTokens).toBe(4096);
     expect(calls[1]!.prompt).toContain("turn cap is used up");
     expect(result.reason).toBe("budget");
+    expect(result.stopCause).toBe("turn_budget");
     expect(result.session.turns.at(-1)).toMatchObject({ text: "Two of three parts are done; the third is left." });
     expect(events.some((e) => e.type === "loop_failed")).toBe(false);
     expect(events).toContainEqual({ type: "loop_completed", reason: "budget", budget: { spentUsd: 1.13, capUsd: 1 } });
@@ -124,6 +125,7 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
     const result = await agent.runTurn(createEmptySessionState({ id: "s-cap2", workingDir: "/work" }), options());
     expect(calls).toHaveLength(2);
     expect(result.reason).toBe("budget");
+    expect(result.stopCause).toBe("turn_budget");
     expect(events.some((e) => e.type === "loop_failed")).toBe(false);
     expect(events.find((e) => e.type === "turn_finished")).toMatchObject({ reason: "budget" });
   });

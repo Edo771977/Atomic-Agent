@@ -363,7 +363,9 @@ export function finalizeAgentTurn(
     stepCount: stepsTaken,
     ...(reason === "max_steps" || endedOnFinalizationStep
       ? { stopCause }
-      : {}),
+      : reason === "budget"
+        ? { stopCause: "turn_budget" as const }
+        : {}),
     ...(spendUsd !== undefined ? { spendUsd } : {}),
     undelivered: flushSteering(state.id),
   };
