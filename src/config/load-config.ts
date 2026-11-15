@@ -483,7 +483,11 @@ export function loadConfig(): AtomicAgentConfig {
       constraints: Object.fromEntries(
         Object.entries(user.projects.constraints).map(([folder, entry]) => [
           folder,
-          { allowedProviders: [...entry.allowedProviders] },
+          // allowedEgress travels too (issue #33): dropping it here made
+          // every listed class read as refused.
+          entry.allowedEgress === undefined
+            ? { allowedProviders: [...entry.allowedProviders] }
+            : { allowedProviders: [...entry.allowedProviders], allowedEgress: [...entry.allowedEgress] },
         ]),
       ),
     },
