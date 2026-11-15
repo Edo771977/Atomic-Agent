@@ -19,13 +19,78 @@ function productionSources(dir: string = SRC): string[] {
   return out;
 }
 
+const NAME = String.raw`(ATOMIC_AGENT_[A-Z0-9_]+)`;
+
+/**
+ * The ways production code looks a variable up: a member of something
+ * called `env` (`process.env.X`, `options.env.X`, `env["X"]`), a name
+ * passed to load-config's readers (`readEnv("X")`, `readInt(\n "X", …)`,
+ * `resolveAssetDir("X", …)`), or a `*_ENV` constant that names it. Plain
+ * string literals are not enough: error codes such as
+ * `ATOMIC_AGENT_PROVIDER_NOT_ALLOWED` share the prefix and are no variable.
+ */
+const ENV_LOOKUPS: readonly RegExp[] = [
+  new RegExp(String.raw`\benv\??\.${NAME}\b`, "g"),
+  new RegExp(String.raw`\benv\[\s*["'\x60]${NAME}["'\x60]\s*\]`, "g"),
+  new RegExp(String.raw`\b(?:read[A-Z]\w*|resolveAssetDir)\(\s*"${NAME}"`, "g"),
+  new RegExp(String.raw`\b[A-Z0-9_]*_ENV\s*(?::[^=]+)?=\s*"${NAME}"`, "g"),
+];
+
+/** Source text without block comments and `//` comment lines. */
+function codeOf(file: string): string {
+  return readFileSync(file, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+/** Variables the code reads from the environment. */
 function namesReadByTheCode(): Set<string> {
   const names = new Set<string>();
   for (const file of productionSources()) {
-    for (const match of readFileSync(file, "utf8").matchAll(/"(ATOMIC_AGENT_[A-Z0-9_]+)"/g)) names.add(match[1]!);
+    const code = codeOf(file);
+    for (const pattern of ENV_LOOKUPS) {
+      for (const match of code.matchAll(pattern)) names.add(match[1]!);
+    }
   }
   return names;
 }
+
+/** Every `ATOMIC_AGENT_*` name the code still mentions in a string, for the staleness check. */
+function namesMentionedByTheCode(): Set<string> {
+  const names = new Set<string>();
+  for (const file of productionSources()) {
+    for (const match of readFileSync(file, "utf8").matchAll(/["'.\x60](ATOMIC_AGENT_[A-Z0-9_]+)/g)) names.add(match[1]!);
+  }
+  return names;
+}
+
+describe("the env-variable scan", () => {
+  it("counts only environment lookups, not error codes that share the prefix", () => {
+    const read = namesReadByTheCode();
+    for (const code of [
+      "ATOMIC_AGENT_PROVIDER_NOT_ALLOWED",
+      "ATOMIC_AGENT_CHANNEL_RESTRICTED",
+      "ATOMIC_AGENT_EGRESS_NOT_ALLOWED",
+      "ATOMIC_AGENT_WRITE_OUT_NOT_ALLOWED",
+    ]) {
+      expect(read.has(code), code).toBe(false);
+    }
+  });
+
+  it("sees variables read as process.env members and through *_ENV constants", () => {
+    const read = namesReadByTheCode();
+    for (const name of [
+      "ATOMIC_AGENT_RG_PATH",
+      "ATOMIC_AGENT_TREE_SITTER_DIR",
+      "ATOMIC_AGENT_STARTER_SKILLS_DIR",
+      "ATOMIC_AGENT_OFFLINE",
+      "ATOMIC_AGENT_ALLOWED_ORIGINS",
+      "ATOMIC_AGENT_LLAMA_HEALTH_TIMEOUT_MS",
+    ]) {
+      expect(read.has(name), name).toBe(true);
+    }
+  });
+});
 
 describe("ENV_SETTINGS", () => {
   const documented = new Set(ENV_SETTINGS.map((setting) => setting.name));
@@ -40,7 +105,7 @@ describe("ENV_SETTINGS", () => {
   });
 
   it("has no entry the code no longer reads", () => {
-    const read = namesReadByTheCode();
+    const read = namesMentionedByTheCode();
     const stale = [...documented, ...INTERNAL_ENV_NAMES.keys()].filter(
       (name) => name.startsWith("ATOMIC_AGENT_") && !read.has(name),
     );

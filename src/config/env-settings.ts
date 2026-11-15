@@ -16,8 +16,12 @@ import { ENV_DEFAULTS } from "./config-schema.js";
  *
  * Defaults are taken from `ENV_DEFAULTS` wherever one exists, so this
  * table cannot quote a stale number. `env-settings.test.ts` scans `src/`
- * and fails when an `ATOMIC_AGENT_*` name is read that is neither here
- * nor in `INTERNAL_ENV_NAMES`, so a new variable cannot stay undocumented.
+ * for environment lookups (`process.env.X`, `env.X`, load-config's
+ * `readEnv("X")`-style readers, `*_ENV = "X"` constants) and fails when
+ * an `ATOMIC_AGENT_*` name is read that is neither here nor in
+ * `INTERNAL_ENV_NAMES`, so a new variable cannot stay undocumented. Error
+ * codes that share the prefix (`ATOMIC_AGENT_PROVIDER_NOT_ALLOWED`, …)
+ * are plain strings, not lookups, and are not counted.
  */
 export interface EnvSetting {
   /** Variable name, e.g. `ATOMIC_AGENT_STATE_DIR`. */
@@ -41,12 +45,22 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   // Where everything lives.
   env("ATOMIC_AGENT_STATE_DIR", ENV_DEFAULTS.STATE_DIR, "State directory: config.json, .env, sessions, memory, models and traces. Shared by the terminal agent and the desktop app."),
   env("ATOMIC_AGENT_GRAMMARS_DIR", null, "Folder with the tool-call grammars. Unset: the copy shipped next to the binary."),
+  env("ATOMIC_AGENT_TOOL_CALL_GRAMMAR", null, "Path of the tool-call grammar file (tool-call.gbnf) to use instead of the one found next to the binary."),
+  env("ATOMIC_AGENT_STARTER_SKILLS_DIR", null, "Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app."),
+  env("ATOMIC_AGENT_RG_PATH", null, "Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH."),
+  env("ATOMIC_AGENT_TREE_SITTER_DIR", null, "Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline."),
+
+  // Network.
+  env("ATOMIC_AGENT_OFFLINE", null, "Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved."),
+  env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins `serve` lets in when it runs without an API key; loopback origins are always allowed."),
+  env("ATOMIC_AGENT_SERVE_NO_PARENT_EXIT", null, "Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit)."),
 
   // Env variables that win over a config.json key.
   env("ATOMIC_AGENT_LLAMA_MAX_TOKENS", null, "Cap on tokens one local-model reply may produce, 64 to 131072. Wins over the config value when set.", "localModels.completionMaxTokens"),
   env("ATOMIC_AGENT_LLAMA_REQUEST_TIMEOUT_MS", null, "Budget of one local-model request (the idle gap for a stream), in ms. Wins over the config value when set.", "localModels.requestTimeoutMs"),
   env("ATOMIC_AGENT_SKILLS_CATALOG_BUDGET", null, "Token budget of the skills list in the prompt, 1 to 100000. Wins over the config value when set.", "skills.catalogTokenBudget"),
   env("ATOMIC_AGENT_BROWSER_CDP_URL", null, "Attach the browser tools to an already running Chrome at this DevTools URL. Wins over the config value when set.", "browser.cdpUrl"),
+  env("ATOMIC_AGENT_DOWNLOAD_CONNECTIONS", null, "Parallel connections of one model download, for this shell only. Wins over the config value when set.", "localModels.download.connections"),
 
   // Local model connection.
   env("ATOMIC_AGENT_LLAMA_API_KEY", null, "API key sent to the local model server. Unset: the managed server's own key, or none."),
@@ -58,6 +72,10 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_LLAMA_COMPLETION_RETRIES", ENV_DEFAULTS.COMPLETION_RETRIES, "Retries of a failed local completion request."),
   env("ATOMIC_AGENT_LLAMA_COMPLETION_RETRY_BACKOFF_MS", ENV_DEFAULTS.COMPLETION_RETRY_BACKOFF_MS, "Pause between local completion retries, in ms."),
   env("ATOMIC_AGENT_LLAMA_DEFAULT_SLOT", ENV_DEFAULTS.DEFAULT_SLOT_ID, "llama.cpp slot id used for the chat."),
+  env("ATOMIC_AGENT_LLAMA_TEMPERATURE", 0.2, "Sampling temperature sent to the local model server when the request sets none (evals pin it). A per-request value still wins."),
+  env("ATOMIC_AGENT_LLAMA_TOP_P", 0.95, "Top-p sent to the local model server when the request sets none. A per-request value still wins."),
+  env("ATOMIC_AGENT_LLAMA_TOP_K", 40, "Top-k sent to the local model server when the request sets none. A per-request value still wins."),
+  env("ATOMIC_AGENT_LLAMA_SEED", null, "Sampling seed sent to the local model server, for reproducible runs. Unset: no seed."),
 
   // Agent loop.
   env("ATOMIC_AGENT_STABLE_PREFIX_SALT", ENV_DEFAULTS.STABLE_PREFIX_SALT, "Salt of the prompt-prefix hash. Changing it invalidates cached prompt prefixes."),
@@ -100,6 +118,12 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_STATUS_SNAPSHOT_EVERY_STEPS", ENV_DEFAULTS.STATUS_SNAPSHOT_EVERY_STEPS, "Post a status snapshot of a long run every this many steps; 0 turns it off."),
   env("ATOMIC_AGENT_STATUS_SNAPSHOT_EVERY_MS", ENV_DEFAULTS.STATUS_SNAPSHOT_EVERY_MS, "Post a status snapshot of a long run this often, in ms; 0 turns it off."),
 
+  // Terminal UI.
+  env("ATOMIC_AGENT_TUI_SKIP_LLAMA_SETUP", null, "Set to 1 to skip the first-run setup screen (same as --skip-llama-setup)."),
+  env("ATOMIC_AGENT_TERMINAL", null, "Terminal emulator the TUI opens a new window in on Linux. Unset: $TERMINAL, then the first known terminal found."),
+  env("ATOMIC_AGENT_CONHOST_GUARD", null, "1 forces, 0 disables the fallbacks for the legacy Windows console. Unset: detected."),
+  env("ATOMIC_AGENT_NO_SYNC_OUTPUT", null, "Set to 1 to stop the TUI from wrapping frames in synchronized-output markers (for terminals that mishandle them)."),
+
   // Updates and analytics.
   env("ATOMIC_AGENT_UPDATE_CHECK_ON_STARTUP", ENV_DEFAULTS.UPDATE_CHECK_ON_STARTUP, "Check GitHub Releases for a newer version when the TUI starts."),
   env("ATOMIC_AGENT_REPO", ENV_DEFAULTS.UPDATE_REPO, "GitHub owner/repo used for update checks and self-update."),
@@ -123,6 +147,7 @@ export const INTERNAL_ENV_NAMES: ReadonlyMap<string, string> = new Map([
   ["ATOMIC_AGENT_TEAM", "marks team test runs in analytics"],
   ["ATOMIC_AGENT_SESSION_PARENT_PID", "set by the desktop app on every agent process it starts"],
   ["ATOMIC_AGENT_USER_PATH_B64", "used internally by the Windows uninstaller"],
+  ["ATOMIC_AGENT_DEBUG_ARGV", "developer switch that prints the parsed command line"],
 ]);
 
 /** The env variable that wins over `configKey`, or null. */
