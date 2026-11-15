@@ -39,6 +39,15 @@ export function parseCodePage(output: string): string | undefined {
   return numbers ? numbers[numbers.length - 1] : undefined;
 }
 
+/** The current console code page via `chcp`, or undefined when there is none to read. */
+export function readConsoleCodePage(host: Pick<ConsoleCodePageHost, "runChcp"> = defaultHost()): string | undefined {
+  try {
+    return parseCodePage(host.runChcp([]));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * On a Windows console, switch the code page to UTF-8 for the life of the
  * process and put the original back on exit. Consoles default to an OEM
