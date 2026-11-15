@@ -7,6 +7,7 @@ export {
 export {
   resolveFallbackChain,
   withoutKeylessLinks,
+  withoutOffMachineLinks,
   withoutUnavailableLinks,
   withoutUnbuiltLinks,
   DEFAULT_APPEND_LOCAL,

@@ -1,4 +1,8 @@
-import type { ResolvedLlmConfig } from "../provider/registry/provider-types.js";
+import { hostOfUrl, isLoopbackHost } from "../offline-network.js";
+import type {
+  LlmProviderConfigEntry,
+  ResolvedLlmConfig,
+} from "../provider/registry/provider-types.js";
 
 /**
  * Resolved, defaulted timing knobs for the circuit breaker. All values
@@ -267,6 +271,44 @@ export function withoutUnavailableLinks(
   onSkip?: (id: string) => void,
 ): ResolvedFallbackChain {
   return keepLinks(resolved, (id) => !unavailable(id), onSkip);
+}
+
+/**
+ * Can `entry` answer while offline mode is on (ATO-1084): a llama-server
+ * on this machine (the managed one has no `url`), or an OpenAI-compatible
+ * server whose URL is loopback (Ollama, LM Studio on their defaults).
+ * A subscription CLI talks to its vendor's cloud, and any other kind is
+ * a cloud service unless its URL says otherwise.
+ */
+export function reachableOffline(entry: LlmProviderConfigEntry): boolean {
+  if (entry.kind === "subscription-cli") return false;
+  const url = entry.baseUrl ?? entry.url;
+  if (url === undefined) return entry.kind === LOCAL_KIND;
+  const host = hostOfUrl(url);
+  return host !== null && isLoopbackHost(host);
+}
+
+/**
+ * While offline, drop the fallback links that would leave this machine:
+ * each would only be refused, one after another, before the local link
+ * the turn can actually use. The primary is kept (its refusal is the
+ * message the person needs); the links come back once the switch is off,
+ * since the chain is resolved on every turn.
+ */
+export function withoutOffMachineLinks(
+  resolved: ResolvedFallbackChain,
+  llm: ResolvedLlmConfig,
+  onSkip?: (id: string) => void,
+): ResolvedFallbackChain {
+  const byId = new Map(llm.providers.map((p) => [p.id, p]));
+  return keepLinks(
+    resolved,
+    (id) => {
+      const entry = byId.get(id);
+      return entry !== undefined && reachableOffline(entry);
+    },
+    onSkip,
+  );
 }
 
 /** Keep the primary and every later link `keep` accepts. */
