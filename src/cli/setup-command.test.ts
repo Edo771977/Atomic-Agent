@@ -362,6 +362,31 @@ describe("atomic-agent setup fusion", () => {
       expect(h.out()).not.toContain(ANTHROPIC_SECRET);
     });
 
+    it("does not ask the preset's /v1/models when a configured orchestrator is ready, even on --dry-run (#29 review)", async () => {
+      seed();
+      writeFileSync(join(stateDir, ".env"), `OPENROUTER_API_KEY=${SECRET}\nANTHROPIC_API_KEY=${ANTHROPIC_SECRET}\n`, { mode: 0o600 });
+      let asked = 0;
+      const h = harness({ listPresetModels: async () => { asked += 1; return ["claude-a"]; } });
+      expect(await setupCommand(["fusion", "--dry-run"], h.deps)).toBe(0);
+      expect(asked).toBe(0);
+      // Naming the preset is a reason to ask.
+      const named = harness({ listPresetModels: async () => { asked += 1; return ["claude-a"]; } });
+      expect(await setupCommand(["fusion", "--dry-run", "--orchestrator", "anthropic"], named.deps)).toBe(1);
+      expect(asked).toBe(1);
+      expect(named.out()).toContain("claude-a");
+    });
+
+    it("lists only chat models, dropping embedding, speech and moderation ids (#29 review)", async () => {
+      seedAnthropicKey();
+      const h = harness({
+        listPresetModels: async () => ["claude-a", "text-embedding-3-small", "tts-1-hd", "whisper-1", "omni-moderation-latest", "claude-b"],
+      });
+      expect(await setupCommand(["fusion", "--yes"], h.deps)).toBe(1);
+      expect(h.out()).toContain("claude-a, claude-b.");
+      expect(h.out()).not.toContain("embedding");
+      expect(h.out()).not.toContain("whisper");
+    });
+
     it("a terminal asks for the model from the list it serves", async () => {
       seedAnthropicKey();
       const input = Object.assign(new PassThrough(), { isTTY: true });
