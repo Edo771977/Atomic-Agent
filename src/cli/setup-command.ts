@@ -22,7 +22,8 @@ import { createSetupPrompter, type SetupPrompter, type SetupTerminal } from "./s
  */
 const HELP = [
   "Usage: atomic-agent setup fusion [--yes] [--dry-run] [--judge] [--isolation]",
-  "                                 [--orchestrator <provider-id>] [--budget <usd>]",
+  "                                 [--orchestrator <provider-id>] [--orchestrator-model <id>]",
+  "                                 [--budget <usd>]",
   "",
   "Sets up Fusion: a strong model orchestrates (a cloud provider with a key, or",
   "your signed-in Claude Code subscription) and the local model runs the workers.",
@@ -35,6 +36,9 @@ const HELP = [
   "  --isolation  Also give each worker task its own workspace (worktree)",
   "  --orchestrator <provider-id>",
   "               Orchestrate with this ready provider instead of the suggested one",
+  "  --orchestrator-model <id>",
+  "               The model for a provider added from an API key found in .env or",
+  "               the environment (e.g. ANTHROPIC_API_KEY) with no entry yet",
   "  --budget <usd>",
   "               Spend cap per fusion turn (default 1 on a per-token orchestrator):",
   "               once reached, no new delegation or worker starts and the",
@@ -74,7 +78,10 @@ function legLine(label: string, l: FusionSetupLeg | null): string {
 
 function changeLine(c: FusionSetupChange): string {
   if (c.key.startsWith("llm.providers[+")) {
-    const entry = c.to as { id: string };
+    const entry = c.to as { id: string; apiKeyEnvVar?: string; defaultChatModel?: string };
+    if (entry.apiKeyEnvVar) {
+      return `  add provider ${entry.id} (model ${entry.defaultChatModel ?? "its default"}; key read from ${entry.apiKeyEnvVar}, not stored in config.json)`;
+    }
     return `  add provider ${entry.id} (Claude Code subscription; signs in through the CLI, no key stored)`;
   }
   return `  ${c.key.padEnd(36)} ${show(c.from)} → ${show(c.to)}`;
@@ -156,6 +163,29 @@ async function pickOrchestrator(
   }
 }
 
+/**
+ * The orchestrator would be a provider found by its API key alone and
+ * setup has no model for it: list the ones it serves and ask. Null when
+ * nothing was asked or the input ended.
+ */
+async function pickModel(
+  need: { providerId: string; models: readonly string[] },
+  prompter: SetupPrompter,
+  write: (t: string) => void,
+): Promise<string | null> {
+  write([`Models ${need.providerId} serves:`, ...need.models.map((m, i) => `  ${i + 1}) ${m}`), ""].join("\n"));
+  let question = `Which model orchestrates? [1-${need.models.length}, or an id] `;
+  for (;;) {
+    const answer = await prompter.ask(question);
+    if (answer === "no-tty" || answer === null) return null;
+    const t = answer.trim();
+    const n = Number(t);
+    if (t !== "" && Number.isInteger(n) && n >= 1 && n <= need.models.length) return need.models[n - 1]!;
+    if (t !== "" && need.models.includes(t)) return t;
+    question = `Type a number from 1 to ${need.models.length}: `;
+  }
+}
+
 async function setupFusion(args: readonly string[], deps: SetupCommandDeps): Promise<number> {
   const prompter = createSetupPrompter(deps.terminal);
   try {
@@ -176,6 +206,7 @@ async function runSetupFusion(
   let judge = false;
   let isolation = false;
   let orchestrator: string | undefined;
+  let orchestratorModel: string | undefined;
   let budgetUsd: number | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -187,6 +218,11 @@ async function runSetupFusion(
       const v = args[++i];
       if (!v || v.startsWith("-")) { write(`--orchestrator needs a provider id\n\n${HELP}\n`); return 2; }
       orchestrator = v;
+    }
+    else if (a === "--orchestrator-model") {
+      const v = args[++i];
+      if (!v || v.startsWith("-")) { write(`--orchestrator-model needs a model id\n\n${HELP}\n`); return 2; }
+      orchestratorModel = v;
     }
     else if (a === "--budget") {
       const v = args[++i];
@@ -210,8 +246,21 @@ async function runSetupFusion(
     write(`${err.message}\n\nFix or move ${configPath}, then run this again. Nothing was written.\n`);
     return 1;
   }
-  const opts = { judge, isolation, ...(budgetUsd === undefined ? {} : { budgetUsd }) };
+  const opts = {
+    judge,
+    isolation,
+    ...(budgetUsd === undefined ? {} : { budgetUsd }),
+    ...(orchestratorModel === undefined ? {} : { orchestratorModel }),
+  };
   let plan = planFusionSetup(facts, { ...opts, ...(orchestrator ? { orchestrator } : {}) });
+  if (!plan.ok && plan.needsModel && plan.needsModel.models.length > 0 && !yes && !dryRun && prompter.isTerminal) {
+    const model = await pickModel(plan.needsModel, prompter, write);
+    if (model !== null) {
+      orchestrator = plan.needsModel.providerId;
+      plan = planFusionSetup(facts, { ...opts, orchestrator, orchestratorModel: model });
+    }
+    write("\n");
+  }
   if (plan.ok && plan.candidates.length > 1 && !yes && !dryRun && orchestrator === undefined && prompter.isTerminal) {
     const picked = await pickOrchestrator(plan.candidates, prompter, write);
     if (picked !== null && picked !== plan.orchestrator.providerId) {
