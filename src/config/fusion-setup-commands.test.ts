@@ -55,6 +55,26 @@ describe("applyFusionSetupInConfig", () => {
     });
   });
 
+  it("leaves a stored team untouched (issue #37)", () => {
+    const team = { directors: ["claude-cli:model-a"], workers: ["local-llama:model-b"], crossFamilyReview: false };
+    applyFusionSetupInConfig({
+      addProvider: { id: "claude-cli", kind: "subscription-cli", subscriptionCli: { cli: "claude" } },
+      activeTextProvider: "claude-cli",
+      fusion: { orchestratorProvider: "claude-cli", workerProvider: "local-llama" },
+    });
+    const first = JSON.parse(raw()) as { llm: { runMode: { fusion: Record<string, unknown> } } & Record<string, unknown> };
+    const llm = { ...first.llm, runMode: { ...first.llm.runMode, fusion: { ...first.llm.runMode.fusion, team } } };
+    writeUserConfigFileSync(getUserConfigPath(stateDir), { ...USER_CONFIG_DEFAULTS, llm: llm as never });
+    resetConfigCache();
+    applyFusionSetupInConfig({
+      activeTextProvider: "claude-cli",
+      fusion: { orchestratorProvider: "claude-cli", workerProvider: "local-llama", autoReplan: 1 },
+    });
+    const fusion = (JSON.parse(raw()) as { llm: { runMode: { fusion: Record<string, unknown> } } }).llm.runMode.fusion;
+    expect(fusion.team).toEqual(team);
+    expect(fusion.autoReplan).toBe(1);
+  });
+
   it("refuses a leg that names no configured provider and leaves the file as it was", () => {
     const before = raw();
     expect(() =>
