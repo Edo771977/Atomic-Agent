@@ -8,6 +8,7 @@ import {
   createEmptySessionState,
   createFusionWorkerSession,
   readSessionFusionDirector,
+  readSessionFusionWorker,
   withSessionFusionDirector,
   type SessionState,
 } from "../../session/index.js";
@@ -147,6 +148,21 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     const turn = service.executeTurn(session("s", withSessionFusionDirector({}, member("cloud-b:model-b"), 1)), "request");
     await expect(turn).rejects.toSatisfy(isProviderNotAllowed);
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a named worker the folder does not allow, with the provider refusal", async () => {
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], workers: ["cloud-b:model-w", "local-llama:model-l"] };
+    const sessionProviderPolicy = createSessionProviderPolicy({
+      readConfig: () => ({ projects: { roots: [], constraints: { [dir]: { allowedProviders: ["cloud-a", "local-llama"] } } } }),
+      loadSession: () => null,
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps, inference: { ...fixture.deps.inference, sessionProviderPolicy },
+    });
+    await expect(service.executeTurn(session("s"), "request", { worker: "cloud-b:model-w" })).rejects.toSatisfy(isProviderNotAllowed);
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+    const allowed = await service.executeTurn(session("t"), "request", { worker: "local-llama:model-l" });
+    expect(readSessionFusionWorker(allowed.session.metadata)?.member).toBe("local-llama:model-l");
   });
 
   it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {

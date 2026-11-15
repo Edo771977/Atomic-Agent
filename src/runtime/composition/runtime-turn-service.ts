@@ -447,6 +447,10 @@ export function createRuntimeTurnService(
       if (member === null) {
         throw new Error(`"${namedWorker}" is not a worker of the fusion team (llm.runMode.fusion.team.workers)`);
       }
+      // A worker the caller names that the folder refuses is refused out
+      // loud, as a director is, instead of being stamped and then quietly
+      // passed over (`resolveSessionWorker`).
+      assertProviderAllowed(member.providerId, { constraintsActive: () => false, role: "the fusion worker" });
       metadata = withSessionFusionWorker(metadata, member);
     }
     const policy = currentProviderPolicy();
