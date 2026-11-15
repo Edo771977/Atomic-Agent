@@ -25,6 +25,16 @@ describe("normalizeConstraintPath", () => {
     expect(normalizeConstraintPath("/Work", "linux")).toBe("/Work");
   });
 
+  it("folds case on macOS, whose default file system is case-insensitive", () => {
+    expect(normalizeConstraintPath("/Users/Me/Client/", "darwin")).toBe("/users/me/client");
+  });
+
+  it("matches a differently-cased folder on macOS but not on Linux", () => {
+    const c = cfg({ "/Users/me/Client": { allowedProviders: ["local-llama"] } });
+    expect(resolveProjectConstraint(c, "/users/ME/client/src", { platform: "darwin", realpath: noReal })?.key).toBe("/Users/me/Client");
+    expect(resolveProjectConstraint(c, "/users/ME/client/src", { platform: "linux", realpath: noReal })).toBeUndefined();
+  });
+
   it("folds case, separators, trailing slash and the \\\\?\\ prefix on Windows", () => {
     expect(normalizeConstraintPath("C:/Work/Client/", "win32")).toBe("c:\\work\\client");
     expect(normalizeConstraintPath("\\\\?\\C:\\Work\\Client", "win32")).toBe("c:\\work\\client");
