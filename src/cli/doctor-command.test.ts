@@ -36,6 +36,15 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "doctor-")); out = ""; });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe("atag doctor (ATO-577)", () => {
+  it("says per constrained folder what it allows and what is not policed (issue #33)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedEgress: ["github"] }, "/work/other": { allowedProviders: [] } } };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; not covered: shell commands (os.shell.run, verify.run, skill scripts) and the network use of stdio MCP servers");
+    expect(out).toContain("project-constraints: /work/other restricted to: no provider; egress allowed: none;");
+  });
+
   it("warns about an unknown key and an unconfigured provider in projects.constraints (issue #33)", async () => {
     const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
     tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama", "ghost"], allowedProvidres: [] } } };

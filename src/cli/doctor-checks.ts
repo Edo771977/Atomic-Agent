@@ -94,7 +94,8 @@ function checkConfig(ctx: DoctorContext): DoctorFinding[] {
 }
 
 /**
- * `projects.constraints` (issue #33): the same warnings the load prints
+ * `projects.constraints` (issue #33): one line per folder saying what it
+ * allows and what is not policed, then the same warnings the load prints
  * (an unknown key inside an entry, an allowed provider that is not
  * configured). Only for a file that parses; `checkConfig` reports the rest.
  */
@@ -110,11 +111,23 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
   }
   const raw = asObject(tree.projects)?.constraints;
   const known = parsed.llm?.providers.map((p) => p.id) ?? ["local-llama"];
-  return projectConstraintNotices(raw, known).map((line) => ({
+  // What each folder allows, and, said plainly, what the dispatch guard
+  // cannot see: programs a shell or script runs open their own sockets.
+  const coverage: DoctorFinding[] = Object.entries(parsed.projects.constraints).map(([folder, entry]) => ({
     check: "project-constraints",
-    status: "warn" as const,
-    message: line.replace(/^\[atomic-agent\] /, ""),
+    status: "ok",
+    message: `${folder} restricted to: ${entry.allowedProviders.length === 0 ? "no provider" : entry.allowedProviders.join(", ")}; ` +
+      `egress allowed: ${(entry.allowedEgress ?? []).length === 0 ? "none" : entry.allowedEgress!.join(", ")}; ` +
+      "not covered: shell commands (os.shell.run, verify.run, skill scripts) and the network use of stdio MCP servers",
   }));
+  return [
+    ...coverage,
+    ...projectConstraintNotices(raw, known).map((line) => ({
+      check: "project-constraints",
+      status: "warn" as const,
+      message: line.replace(/^\[atomic-agent\] /, ""),
+    })),
+  ];
 }
 
 /** config.json holds API keys: readable by its owner only. */
