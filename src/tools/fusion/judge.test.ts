@@ -735,3 +735,120 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     expect(before.calls).toEqual([{ providerId: TARGET.providerId, model: undefined }]);
   });
 });
+
+describe("review passes with a fusion team (issue #38)", () => {
+  const families: Record<string, "anthropic" | "openai" | "local"> = { "api-a": "anthropic", "cli-b": "openai", local: "local" };
+  const team = (over: Partial<FusionTeamContext["team"]> = {}): FusionTeamContext => ({
+    team: { directors: ["api-a:model-a"], workers: ["local:small"], reviewers: ["cli-b:model-r"], ...over },
+    fusion: { workerProvider: "local" },
+    familyOf: (m) => families[m.providerId] ?? "other",
+    reachable: () => true,
+    pinsModel: (id) => id !== "local",
+  });
+  const blocker = reviewJson("needs-changes", [{ item: "a2", severity: "blocker", file: "a.txt", why: "no score" }]);
+  type Row = {
+    status: string;
+    error?: string;
+    notes?: string[];
+    failure?: string;
+    judge?: { passes?: number; retried: boolean; review?: { decision: string } };
+  };
+  const run = async (
+    context: FusionTeamContext | undefined,
+    answers: (n: number, signal: AbortController) => string,
+    over: Partial<FusionDelegateDeps> = {},
+    runOver: Partial<ResolvedRunMode> = {},
+  ) => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-pass-"));
+    const abort = new AbortController();
+    let judged = 0;
+    const d = deps(dir, async () => {
+      judged += 1;
+      return { content: answers(judged, abort) };
+    }, { resolveRunMode: () => mode(runOver), resolveFusionTeam: () => context, ...over });
+    const result = await buildFusionDelegateTool(d).run(
+      { tasks: TASK },
+      { workingDir: dir, sessionId: "s-pass", stepIndex: 0, signal: abort.signal },
+    );
+    rmSync(dir, { recursive: true, force: true });
+    return { result, briefs: d.briefs, judged: () => judged, row: (result.details.tasks as Row[])[0]! };
+  };
+
+  it("re-runs a task the review sends back up to reviewPasses times (default 2)", async () => {
+    const { briefs, judged, row } = await run(team(), () => blocker);
+    expect(briefs).toHaveLength(3);
+    expect(judged()).toBe(3);
+    expect(row.judge?.passes).toBe(2);
+    expect(row.error).toMatch(/after 2 review passes/);
+    const one = await run(team({ reviewPasses: 1 }), () => blocker);
+    expect(one.briefs).toHaveLength(2);
+    const none = await run(team({ reviewPasses: 0 }), () => blocker);
+    expect(none.briefs).toHaveLength(1);
+  });
+
+  it("briefs each pass with the remaining issues, severity and file", async () => {
+    const { briefs } = await run(team(), (n) =>
+      n === 1
+        ? reviewJson("needs-changes", [
+            { item: "a2", severity: "blocker", file: "a.txt", why: "no score" },
+            { item: null, severity: "minor", file: null, why: "terse" },
+          ])
+        : reviewJson("needs-changes", [{ item: "a2", severity: "major", file: "a.txt", why: "score wrong" }]),
+    );
+    expect(briefs[1]).toContain("- blocker a.txt [a2]: no score");
+    expect(briefs[1]).toContain("- minor: terse");
+    expect(briefs[2]).toContain("- major a.txt [a2]: score wrong");
+    expect(briefs[2]).not.toContain("no score");
+  });
+
+  it("closes a task a later pass fixed", async () => {
+    const { briefs, row } = await run(team(), (n) => (n < 3 ? blocker : ACCEPT));
+    expect(briefs).toHaveLength(3);
+    expect(row.status).toBe("ok");
+    expect(row.notes?.join(" ")).toContain("green after 2 review passes");
+  });
+
+  it("does not pass a minor-only accept again", async () => {
+    const { briefs, row } = await run(team(), () =>
+      reviewJson("accept", [{ item: "a2", severity: "minor", file: "a.txt", why: "naming" }]),
+    );
+    expect(briefs).toHaveLength(1);
+    expect(row.status).toBe("ok");
+    expect(row.judge?.passes).toBe(0);
+  });
+
+  it("stops before a pass the turn budget no longer allows, keeping the last verdict", async () => {
+    let spent = 0;
+    const { briefs, row } = await run(
+      team(),
+      (n) => {
+        if (n === 2) spent = 10;
+        return blocker;
+      },
+      { orchestratorTurnSpendUsd: () => spent },
+      { turnBudgetUsd: 5 },
+    );
+    expect(briefs).toHaveLength(2);
+    expect(row.judge?.passes).toBe(1);
+    expect(row.notes?.join(" ")).toMatch(/review stopped: .*budget/i);
+    expect(row.failure).toBeUndefined();
+  });
+
+  it("stops before a pass once the turn is cancelled", async () => {
+    const { briefs, row } = await run(team(), (n, abort) => {
+      if (n === 2) abort.abort();
+      return blocker;
+    });
+    expect(briefs).toHaveLength(2);
+    expect(row.notes?.join(" ")).toContain("review stopped: the turn was cancelled");
+  });
+
+  it("without a team keeps the judge's one retry and its wording", async () => {
+    const { briefs, row } = await run(undefined, () => blocker);
+    expect(briefs).toHaveLength(2);
+    expect(briefs[1]).not.toContain("Remaining review issues");
+    expect(row.error).toMatch(/^judge: 1 of 2 acceptance items not met after one retry/);
+    expect(row.judge?.passes).toBeUndefined();
+    expect(row.failure).toBeUndefined();
+  });
+});

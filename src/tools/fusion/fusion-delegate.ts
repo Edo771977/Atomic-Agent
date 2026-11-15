@@ -102,6 +102,7 @@ import {
   redItems,
   renderAcceptanceBlock,
   renderRetryFindings,
+  renderReviewIssues,
   type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
@@ -1290,6 +1291,9 @@ export function buildFusionDelegateTool(
               on: reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
               passes: reviewPassesOf(teamContext.team),
             };
+      // Extra passes a task its review sends back may get: the team's, or
+      // the judge's one retry without a team, as before.
+      const reviewPassLimit = teamReview?.passes ?? 1;
       const taskMember = (taskId: string): TeamMember => {
         const leg = taskLegs.get(taskId);
         const providerId = leg?.providerId ?? workerProviderId;
@@ -1519,7 +1523,9 @@ export function buildFusionDelegateTool(
         ...writeScope,
       ];
       const keptBranches = new Map<string, KeptBranch>();
-      let retryRound = false;
+      // The review pass running (0: the first run); a gate keeps a red
+      // task's workspace while another pass may follow.
+      let reviewPass = 0;
       const releaseKept = async (): Promise<void> => {
         const sets = new Set([...keptBranches.values()].map((b) => b.set));
         keptBranches.clear();
@@ -1576,7 +1582,7 @@ export function buildFusionDelegateTool(
                     items: (id: string) => acceptance.get(id),
                     judgeable,
                     run: judgeOne,
-                    keepForRetry: !retryRound,
+                    keepForRetry: reviewPass < reviewPassLimit,
                   },
                 }
               : {}),
@@ -2319,31 +2325,60 @@ export function buildFusionDelegateTool(
             }
             return verdicts;
           };
-          const first = await judgeRows(results);
-          const red = [...first].filter(
-            ([, v]) => !v.green && v.unverified === undefined,
-          );
-          const retryIds = new Set(
-            budgetStop() === undefined && !ctx.signal.aborted
-              ? red.map(([id]) => id)
-              : [],
-          );
-          let second = new Map<string, JudgeVerdict>();
-          if (retryIds.size > 0) {
+          // Review passes (issue #38): a task its review sends back is
+          // re-run with the findings, up to `team.reviewPasses` times with a
+          // team (one retry without, as before), each pass only while the
+          // turn may go on (budget, cancellation, failure breakers). A pass
+          // is in-call, never a replan attempt.
+          const verdicts = await judgeRows(results);
+          const passes = new Map<string, number>();
+          const stopped = new Map<string, string>();
+          // A pass that came back unjudgeable (it failed or was cancelled)
+          // keeps its own status; the verdict before it stands beside it.
+          const unjudged = new Map<string, JudgeVerdict>();
+          const needsChanges = (v: JudgeVerdict): boolean => !v.green && v.unverified === undefined;
+          const passStop = (): string | undefined => {
+            const budget = budgetStop();
+            if (budget !== undefined) return budget.message;
+            if (ctx.signal.aborted) return "the turn was cancelled";
+            if (teamReview === undefined) return undefined;
+            if (runSignal.aborted) return "the turn was cancelled";
+            for (const breaker of breakers.values()) {
+              const reason = breaker.stopReason();
+              if (reason !== undefined) return reason;
+            }
+            return undefined;
+          };
+          let open = [...verdicts].filter(([, v]) => needsChanges(v)).map(([id]) => id);
+          for (let pass = 1; pass <= reviewPassLimit && open.length > 0; pass += 1) {
+            const stop = passStop();
+            if (stop !== undefined) {
+              for (const id of open) stopped.set(id, stop);
+              break;
+            }
+            const retryIds = new Set(open);
             const findings = new Map(
-              red.map(([id, verdict]) => [
-                id,
-                renderRetryFindings(acceptance.get(id) ?? [], verdict),
-              ]),
+              open.map((id) => {
+                const verdict = verdicts.get(id)!;
+                const items = acceptance.get(id) ?? [];
+                const issues = teamReview === undefined ? undefined : renderReviewIssues(verdict.review);
+                return [
+                  id,
+                  [renderRetryFindings(items, verdict), issues]
+                    .filter((part): part is string => part !== undefined)
+                    .join("\n\n"),
+                ];
+              }),
             );
             // The retry keeps the right to split: a task judged red for being
             // too big would only fail again in one piece.
             const retryTasks = parsed.tasks.filter((t) => retryIds.has(t.id));
             // Under isolation the retry works on in the workspace it was
-            // judged red in, so its first attempt is there to fix; the
-            // retry's own gate rules on it before it merges.
+            // judged red in, so its earlier attempt is there to fix; the
+            // retry's own gate rules on it before it merges, and keeps the
+            // workspace while another pass may follow.
             for (const id of retryIds) gateState.verdicts.delete(id);
-            retryRound = true;
+            reviewPass = pass;
             const retried = await expandWave(
               retryTasks,
               await runTasks(
@@ -2369,16 +2404,23 @@ export function buildFusionDelegateTool(
             results = merged.map(
               (r) => evaluated.find((x) => x.id === r.id) ?? r,
             );
-            second = await judgeRows(results.filter((r) => retryIds.has(r.id)));
+            for (const id of retryIds) passes.set(id, pass);
+            const again = await judgeRows(results.filter((r) => retryIds.has(r.id)));
+            open = [];
+            for (const id of retryIds) {
+              const verdict = again.get(id);
+              if (verdict === undefined) {
+                unjudged.set(id, verdicts.get(id)!);
+                verdicts.delete(id);
+                continue;
+              }
+              verdicts.set(id, verdict);
+              if (needsChanges(verdict)) open.push(id);
+            }
           }
           results = results.map((r) => {
-            if (retryIds.has(r.id)) {
-              const verdict = second.get(r.id);
-              // A retry that did not come back judgeable (it failed or was
-              // cancelled) keeps its own status; the first verdict stands
-              // beside it.
-              if (verdict !== undefined) return applyJudgeVerdict(r, verdict, true);
-              const before = first.get(r.id)!;
+            const before = unjudged.get(r.id);
+            if (before !== undefined) {
               return {
                 ...r,
                 notes: [
@@ -2387,8 +2429,14 @@ export function buildFusionDelegateTool(
                 ],
               };
             }
-            const verdict = first.get(r.id);
-            return verdict === undefined ? r : applyJudgeVerdict(r, verdict, false);
+            const verdict = verdicts.get(r.id);
+            if (verdict === undefined) return r;
+            const ran = passes.get(r.id) ?? 0;
+            const row = applyJudgeVerdict(r, verdict, ran > 0, teamReview === undefined ? undefined : ran);
+            const stop = stopped.get(r.id);
+            return stop === undefined || teamReview === undefined
+              ? row
+              : { ...row, notes: [...(row.notes ?? []), `review stopped: ${stop}`] };
           });
         }
         // Workspaces kept for a retry are done with, retried or not.

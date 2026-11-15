@@ -257,6 +257,44 @@ describe("merge only green tasks (isolation)", () => {
     expect(list).toHaveLength(1);
   });
 
+  it("keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const complete: EscalationComplete = async () => ({
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: "one.txt", why: "wrong" }] }),
+    });
+    const seen: string[] = [];
+    const d = deps(
+      repo,
+      async (_id, n, dir) => {
+        if (n > 1) seen.push(await readFile(join(dir, "one.txt"), "utf8"));
+        await writeFile(join(dir, "one.txt"), `attempt ${n}\n`);
+      },
+      {
+        escalationComplete: complete,
+        resolveFusionTeam: () => ({
+          team: { directors: ["cloud:big"], reviewers: ["cloud:judge"] },
+          fusion: { workerProvider: "local" },
+          familyOf: (m) => (m.providerId === "local" ? "local" : "anthropic"),
+          reachable: () => true,
+          pinsModel: (id) => id !== "local",
+        }),
+      },
+      { judge: { providerId: "cloud", model: "judge" } },
+    );
+    const result = await buildFusionDelegateTool(d).run(
+      { tasks: [{ id: "one", title: "One", instructions: "write one.txt", files: ["one.txt"] }] },
+      ctx(repo),
+    );
+    // Each pass works on in the workspace the one before it was judged in.
+    expect(seen).toEqual(["attempt 1\n", "attempt 2\n"]);
+    const row = (result.details.tasks as WorkerTaskResult[])[0]!;
+    expect(row.status).toBe("failed");
+    await expect(readFile(join(repo, "one.txt"), "utf8")).rejects.toThrow();
+    expect(await readFile(join(repo, taskPatchPath("one")), "utf8")).toContain("+attempt 3");
+    const list = (await runGitRaw(repo, ["worktree", "list"])).stdout.trim().split("\n");
+    expect(list).toHaveLength(1);
+  });
+
   it("holds a task the judge could not verify as needs_orchestrator, so its dependent is held too", async () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     const ran: string[] = [];

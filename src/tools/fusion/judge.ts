@@ -722,11 +722,28 @@ export function renderRetryFindings(
   ].join("\n");
 }
 
+/**
+ * A review's remaining issues for the next pass's brief (issue #38):
+ * severity, file and item first, then why. Undefined when it has none.
+ */
+export function renderReviewIssues(review: ReviewVerdict): string | undefined {
+  if (review.issues.length === 0) return undefined;
+  return [
+    "## Remaining review issues (severity, file, item): fix every blocker and major",
+    ...review.issues.map(
+      (issue) =>
+        `- ${issue.severity}${issue.file === null ? "" : ` ${issue.file}`}${issue.item === null ? "" : ` [${issue.item}]`}: ${issue.why.replace(/\s+/g, " ")}`,
+    ),
+  ].join("\n");
+}
+
 export interface JudgeSummary {
   green: boolean;
   total: number;
   failed: number;
   retried: boolean;
+  /** Review passes the task got with a fusion team (issue #38); absent without one. */
+  passes?: number;
   unverified?: string;
   costUsd: number | null;
   items: ItemVerdict[];
@@ -739,6 +756,8 @@ export function applyJudgeVerdict(
   result: WorkerTaskResult,
   verdict: JudgeVerdict,
   retried: boolean,
+  /** With a fusion team (issue #38): the review passes the task got. */
+  passes?: number,
 ): WorkerTaskResult {
   const red = redItems(verdict);
   const summary: JudgeSummary = {
@@ -746,12 +765,16 @@ export function applyJudgeVerdict(
     total: verdict.items.length,
     failed: red.length,
     retried,
+    ...(passes === undefined ? {} : { passes }),
     ...(verdict.unverified === undefined ? {} : { unverified: verdict.unverified }),
     costUsd: verdict.costUsd,
     items: verdict.items,
     review: verdict.review,
   };
-  const after = retried ? " after one retry" : "";
+  const after =
+    passes === undefined
+      ? retried ? " after one retry" : ""
+      : passes > 0 ? ` after ${passes} review pass${passes === 1 ? "" : "es"}` : "";
   if (verdict.unverified !== undefined) {
     return {
       ...result,
