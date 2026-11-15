@@ -12,6 +12,21 @@ import { modelParamProfile, resolveTemperature } from "./model-params.js";
 export interface DescribeImageBodyOptions {
   extraBody?: Record<string, unknown>;
   modelParams?: Record<string, unknown>;
+  /**
+   * The provider's chat wire when it is not chat completions (the
+   * Anthropic Messages API, `OpenAiProviderOptions.wire`): the body is
+   * translated last and posted to its route, and the reply translated
+   * back, exactly as for a unary turn. Image parts become native image
+   * blocks (`image_url` data URL → base64 source).
+   */
+  wire?: {
+    readonly chatPath: string;
+    toWireBody(body: Record<string, unknown>): Record<string, unknown>;
+    fromWireResponse(
+      json: Record<string, unknown>,
+      context: { url: string; label: string },
+    ): Record<string, unknown>;
+  };
 }
 
 const RESERVED_KEYS = ["model", "messages", "stream", "tools"] as const;
@@ -59,13 +74,18 @@ export async function describeImageViaOpenAi(
     ...(providerPreferences ? { provider: providerPreferences } : {}),
   };
   const body = withPassthrough(base, bodyOptions, profile);
+  const wire = bodyOptions.wire;
+  const path = wire ? wire.chatPath : `${apiPathPrefix}/chat/completions`;
   const start = Date.now();
-  const json = await openAiPostJson(
+  const sent = await openAiPostJson(
     deps,
-    `${apiPathPrefix}/chat/completions`,
-    body,
+    path,
+    wire ? wire.toWireBody(body) : body,
     request,
   );
+  const json = wire
+    ? wire.fromWireResponse(sent, { url: `${deps.baseUrl}${path}`, label: deps.label })
+    : sent;
   const message =
     (
       json.choices as Array<{ message?: Record<string, unknown> }> | undefined

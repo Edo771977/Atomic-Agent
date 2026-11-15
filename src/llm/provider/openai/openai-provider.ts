@@ -1115,6 +1115,7 @@ export class OpenAiProvider implements LlmProvider {
           ...(this.bodyOptions.modelParams
             ? { modelParams: this.bodyOptions.modelParams }
             : {}),
+          ...(this.wire ? { wire: this.wire } : {}),
         },
       );
     } catch (error) {
