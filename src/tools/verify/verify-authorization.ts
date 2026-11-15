@@ -10,6 +10,7 @@ import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyRun, verifyRunCommands } from "./verify-run-guard.js";
 import { parseVerifyRunArgs } from "./verify-run-args.js";
+import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
 
 /** No partial consent: oversized plans are refused before prompting or executing. */
@@ -138,7 +139,8 @@ export async function authorizeVerifyBatch(
     ].join("\n");
     if (Buffer.byteLength(preview) > MAX_AUTHORIZATION_BYTES) throw new Error("verification authorization preview exceeds the size limit");
     const prompt = {
-      sessionId: ctx.sessionId, tool: "verify.run", category: dangerous ? "shell_dangerous" as const : "shell" as const,
+      sessionId: ctx.sessionId, tool: "verify.run",
+      category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
       reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox`,
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
@@ -177,7 +179,7 @@ export async function authorizeVerifyBatch(
   }
   for (const { prompt, cwd } of plans) {
     ctx.signal.throwIfAborted();
-    const scoped = options.allowFanoutScope === true && prompt.category === "shell" &&
+    const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&

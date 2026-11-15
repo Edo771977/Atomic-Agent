@@ -916,6 +916,11 @@ export class ApprovalGate {
     if (grants.categories.has(request.category)) {
       return "auto-approved (session grant)";
     }
+    // A local page probe runs no command: a standing yes to shell
+    // commands covers it.
+    if (request.category === "verify_page_local" && grants.categories.has("shell")) {
+      return "auto-approved (session grant: shell)";
+    }
     if (
       request.category === "shell" &&
       request.commandShape &&

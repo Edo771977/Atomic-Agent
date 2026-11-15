@@ -51,6 +51,9 @@ const TAINT_SENSITIVE: Record<ApprovalCategory, boolean> = {
   screen_capture: false,
   local_model_restart: false,
   hook_ask: false,
+  // The probed page's own scripts run, and it may be what outside content
+  // pointed at.
+  verify_page_local: true,
   // MCP tools that are gated land here: arbitrary third-party code.
   other: true,
 };

@@ -362,7 +362,7 @@ const APPROVAL_CATEGORIES_BY_TOOL: Record<string, readonly ApprovalCategory[]> =
     "os.shell.run": ["shell", "shell_dangerous"],
     // Same rung as a shell command: it runs one, in a copy, and a
     // dangerous one asks as `shell_dangerous` too (ATO-1266).
-    "verify.run": ["shell", "shell_dangerous"],
+    "verify.run": ["shell", "shell_dangerous", "verify_page_local"],
     "os.fs.write": FS_WRITE_CATEGORIES,
     "os.fs.edit": FS_WRITE_CATEGORIES,
     "os.fs.patch": FS_WRITE_CATEGORIES,

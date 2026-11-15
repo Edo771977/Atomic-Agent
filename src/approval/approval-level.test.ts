@@ -40,6 +40,7 @@ const ALL_CATEGORIES: readonly ApprovalCategory[] = [
   "screen_capture",
   "local_model_restart",
   "hook_ask",
+  "verify_page_local",
   "other",
 ];
 

@@ -14,7 +14,7 @@ export function codingModeApprovalNote(
   request: { readonly tool: string; readonly category: ApprovalCategory },
 ): string | null {
   if (mode !== "auto") return null;
-  const what = request.tool === "verify.run" ? "verification commands" : "shell commands";
+  const what = request.tool === "verify.run" ? "verification commands or remote pages" : "shell commands";
   if (request.category === "shell") {
     return `auto mode doesn't cover ${what}; ctrl+f allows shell commands for this session (risky commands still ask)`;
   }

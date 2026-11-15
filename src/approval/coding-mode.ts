@@ -85,7 +85,7 @@ const LOOKS: Readonly<Record<CodingMode, CodingModeLook>> = {
     detail: "edits this folder freely",
     tone: "warn",
     summary:
-      "auto — file writes inside this workspace stop asking; shell commands and verifications still ask (ctrl+f at their prompt allows them for this session), as does everything else",
+      "auto — file writes inside this workspace and verify.run page probes of a project file or a loopback URL stop asking; shell commands and other verifications still ask (ctrl+f at their prompt allows them for this session), as does everything else",
   },
   bypass: {
     label: "bypass permissions",

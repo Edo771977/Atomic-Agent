@@ -137,6 +137,15 @@ export type ApprovalCategory =
    * the same way.
    */
   | "hook_ask"
+  /**
+   * A `verify.run` page probe that starts no command and stays on this
+   * machine: a project file or a loopback URL in a headless browser with
+   * its network block on (`isLocalPageProbe`). Level 2 beside workspace
+   * writes, so the `auto` coding mode covers it; a remote page or a
+   * probe that starts a server asks as `shell`. A deny or ask rule on
+   * `shell` covers it too.
+   */
+  | "verify_page_local"
   | "other";
 
 /**
@@ -145,7 +154,8 @@ export type ApprovalCategory =
  * silent at every level above N because the check is `level >= entry`.
  *
  *  - level 2 (workspace): file writes/edits/patches strictly inside the
- *    session working directory (realpath containment).
+ *    session working directory (realpath containment), and `verify.run`
+ *    page probes of a project file or a loopback URL that start nothing.
  *  - level 3 (home): file writes anywhere under the home directory,
  *    moves to Trash, archive extraction, HTTP requests (the SSRF guard
  *    is not part of the gate and stays on) that only read (GET), paid
@@ -175,6 +185,7 @@ export type ApprovalCategory =
  */
 const AUTO_APPROVE_FROM_LEVEL: Record<ApprovalCategory, ApprovalLevel> = {
   fs_write_workspace: 2,
+  verify_page_local: 2,
   fs_write_home: 3,
   fs_trash: 3,
   http: 3,
@@ -293,6 +304,7 @@ const GRANTABLE_CATEGORY: Record<ApprovalCategory, boolean> = {
   local_model_restart: false,
   // A hook that asks for a person asks every time.
   hook_ask: false,
+  verify_page_local: true,
   other: true,
 };
 
@@ -333,6 +345,7 @@ export const APPROVAL_CATEGORY_LABELS: Record<ApprovalCategory, string> = {
   screen_capture: "screen · screenshot",
   local_model_restart: "local model · restart",
   hook_ask: "hook · confirm",
+  verify_page_local: "verification · local page probe",
   other: "uncategorised",
 };
 
