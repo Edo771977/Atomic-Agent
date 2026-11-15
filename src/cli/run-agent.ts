@@ -37,6 +37,12 @@ import {
   describeAlwaysRule,
 } from "../approval/approval-rules.js";
 import { siteGrantHost } from "../approval/site-grants.js";
+import type { UserQuestionAnswer } from "../approval/user-question.js";
+import {
+  cliShowsQuestions,
+  formatCliQuestionPrompt,
+  promptCliQuestion,
+} from "./cli-user-question.js";
 import { formatSkillCatalogOmittedNote } from "../skills/index.js";
 import { createStderrSink } from "../tracing/structured-logger.js";
 import {
@@ -140,6 +146,8 @@ export function parseRunArgs(
 interface CliApprovalAnswer {
   approved: boolean;
   grant?: ApprovalGrantScope;
+  /** The answer to an `ask_user` question (`cli-user-question.ts`). */
+  answer?: UserQuestionAnswer;
 }
 
 /**
@@ -148,6 +156,7 @@ interface CliApprovalAnswer {
  * can never be granted for the session — a note naming that category.
  */
 export function formatCliApprovalPrompt(request: ApprovalRequest): string {
+  if (request.question) return formatCliQuestionPrompt(request.question);
   const grantCategory = canGrantCategory(request);
   const grantShape = canGrantShape(request);
   const lines = [
@@ -222,6 +231,9 @@ async function promptApproval(
   const grantCategory = canGrantCategory(request);
   const grantShape = canGrantShape(request);
   process.stderr.write(formatCliApprovalPrompt(request));
+  if (request.question) {
+    return promptCliQuestion(request.question, lines, (text) => process.stderr.write(text));
+  }
   const head = await lines.peek();
   if (head === null) return { approved: false };
   if (!isApprovalAnswer(head)) {
@@ -417,6 +429,8 @@ interface ChatLoopOptions {
   controller: AbortController;
   /** Stdin lines, shared with the approval prompt. */
   lines: StdinLineQueue;
+  /** Whether turns are offered `ask_user` (`cliShowsQuestions`). */
+  questions: boolean;
   /**
    * Stdin is piped, not a terminal. A piped multi-line prompt still runs
    * one turn per line, so the first time a second line becomes its own
@@ -468,6 +482,7 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<SessionState> {
       ...(opts.maxSteps === undefined ? {} : { maxSteps: opts.maxSteps }),
       signal: opts.controller.signal,
       origin: "cli",
+      questions: opts.questions,
       eventHook: collector.onEvent,
     });
     session = result.session;
@@ -604,6 +619,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
               // user's own words (see `ApprovalDecision.reason`).
               ...(answer.approved ? { reason: "cli-approved" } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
+              ...(answer.answer ? { answer: answer.answer } : {}),
             });
           })
           .catch((err: unknown) => {
@@ -661,6 +677,10 @@ export async function runAgentCommand(args: string[]): Promise<number> {
       controller,
       lines: stdinLines,
       piped: process.stdin.isTTY !== true,
+      questions: cliShowsQuestions({
+        stdinIsTTY: process.stdin.isTTY === true,
+        noApproval: parsed.noApproval,
+      }),
     });
     if (!parsed.incognito) runtime.sessionStore.save(finalSession);
     process.stderr.write(
