@@ -68,7 +68,20 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     if (session === null) return refuseAllPolicy(`(unknown session ${sessionId})`);
     return forSession({ id, ...session });
   };
-  return { constraintsActive, forWorkingDir, forSession, forSessionId };
+  /**
+   * The policy that governs `sessionId` right now: the policy frame of
+   * the turn running (which already holds a fusion worker's stamp), or,
+   * outside any frame, the session's own (`forSessionId`, fail closed).
+   * The tool dispatch guard (egress, `tools/tool-egress.ts`) reads it
+   * through this one function, so a later rule that narrows a session's
+   * policy mid-turn (a read taint) extends it here and every check
+   * follows.
+   */
+  const effectivePolicyForSession = (sessionId: string): ProviderPolicy | undefined => {
+    const frame = currentProviderPolicyFrame();
+    return frame !== undefined ? frame.policy : forSessionId(sessionId);
+  };
+  return { constraintsActive, forWorkingDir, forSession, forSessionId, effectivePolicyForSession };
 }
 
 export type SessionProviderPolicy = ReturnType<typeof createSessionProviderPolicy>;

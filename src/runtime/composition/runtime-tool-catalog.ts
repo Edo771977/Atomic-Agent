@@ -25,7 +25,7 @@ import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
-import { ToolRegistry } from "../../tools/tool-registry.js";
+import { ToolRegistry, type ToolRegistryOptions } from "../../tools/tool-registry.js";
 import { runtimeKnownSecrets } from "../runtime-known-secrets.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { finishTool } from "../../tools/finish.js";
@@ -118,11 +118,13 @@ export function createRuntimeToolRegistry(
   browserBackend: BrowserBackend,
   dangerous: DangerousToolOptions,
   outputSpill?: ToolOutputSpill,
+  dispatchGuard?: ToolRegistryOptions["dispatchGuard"],
 ) {
-
-
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
+    // A constrained folder's egress (issue #33, runtime-egress-guard.ts):
+    // refused before hooks, approval and network.
+    ...(dispatchGuard ? { dispatchGuard } : {}),
     knownSecrets: () => runtimeKnownSecrets(getConfig()),
     // Outside text read on a session holds its risky silent approvals
     // for the rest of the turn when `agent.taintReview` is on (ATO-618).

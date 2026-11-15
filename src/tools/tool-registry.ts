@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import type { CompressedToolResult } from "../compressor/result-compressor.js";
-import { fullToolResult } from "../compressor/result-compressor.js";
+import { compressToolResult, fullToolResult } from "../compressor/result-compressor.js";
 import { readArgumentAliases, withAliasNote } from "./argument-aliases.js";
 import { coerceToolArgs } from "./coerce-tool-args.js";
 import { resolveUserPath } from "./os/expand-home.js";
@@ -139,6 +139,18 @@ export interface ToolRegistryOptions {
    * (`approval/untrusted-taint.ts`, ATO-618). Absent ⇒ nobody is told.
    */
   onUntrustedOutput?: (sessionId: string, source: string) => void;
+  /**
+   * A refusal decided before a call runs, or `null` to let it run: the
+   * per-folder egress constraint (`tool-egress.ts`, issue #33). The batch
+   * scheduler asks it (`refusalBeforeDispatch`) before hooks and the
+   * approval ledger, and `invoke` asks again as a backstop, so a refused
+   * call never prompts and never sends. Absent ⇒ nothing is refused here.
+   */
+  dispatchGuard?: (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: Pick<ToolContext, "sessionId" | "workingDir">,
+  ) => Error | null;
 }
 
 export class ToolRegistry {
@@ -148,8 +160,10 @@ export class ToolRegistry {
     | undefined;
   private readonly knownSecrets: () => readonly KnownSecret[];
   private readonly onUntrustedOutput: ToolRegistryOptions["onUntrustedOutput"];
+  private readonly dispatchGuard: ToolRegistryOptions["dispatchGuard"];
 
   constructor(options: ToolRegistryOptions = {}) {
+    this.dispatchGuard = options.dispatchGuard;
     this.outputSpill = options.outputSpill;
     this.knownSecrets = options.knownSecrets ?? (() => knownSecretsFromEnv());
     this.onUntrustedOutput = options.onUntrustedOutput;
@@ -183,12 +197,36 @@ export class ToolRegistry {
     return tool;
   }
 
+  /**
+   * The error result `dispatchGuard` gives `name` with `args`, or `null`
+   * when the call may run. For the batch scheduler, before any hook or
+   * approval prompt.
+   */
+  refusalBeforeDispatch(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: Pick<ToolContext, "sessionId" | "workingDir">,
+  ): CompressedToolResult | null {
+    const refused = this.dispatchGuard?.(name, args, ctx) ?? null;
+    if (refused === null) return null;
+    const code = (refused as { code?: unknown }).code;
+    return compressToolResult({
+      tool: name,
+      status: "error",
+      output: refused.message,
+      details: { errorName: refused.name, ...(typeof code === "string" ? { code } : {}), refusedBeforeDispatch: true },
+    });
+  }
+
   async invoke(
     name: string,
     args: Record<string, unknown>,
     ctx: ToolContext,
   ): Promise<CompressedToolResult> {
     const tool = this.get(name);
+    // Backstop for callers that did not ask `refusalBeforeDispatch`.
+    const refused = this.dispatchGuard?.(name, args, ctx) ?? null;
+    if (refused !== null) throw refused;
     // An alias shape the tool reads (`argument-aliases.ts`: `os.fs.move`
     // `{paths, destination}`) is rewritten here, before any wrapper
     // (read scope) sees the call, and the result's last line says how

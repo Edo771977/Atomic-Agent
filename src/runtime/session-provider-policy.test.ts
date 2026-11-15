@@ -72,4 +72,36 @@ describe("session provider policy (issue #33)", () => {
     const unstamped = factories.createEphemeralSession({ parentSessionId: "s-1", taskId: "t2" }, tmpdir());
     expect(policy.forSession(unstamped)?.allowedProviders).toEqual([]);
   });
+
+  describe("effectivePolicyForSession (the one read the egress guard makes)", () => {
+    it("is the frame's policy while a turn runs, constrained or not", () => {
+      const { policy } = setup();
+      const turn = makeProviderPolicy({ key: "/x", allowedProviders: [], allowedEgress: ["web"], matchedDir: "/x" });
+      expect(runWithProviderPolicy(turn, () => policy.effectivePolicyForSession("s-1"))?.allowsEgress("web")).toBe(true);
+      expect(runWithProviderPolicy(undefined, () => policy.effectivePolicyForSession("s-1"))).toBeUndefined();
+    });
+
+    it("re-derives the session's folder without a frame, and refuses an unknown id", () => {
+      const { project, policy } = setup();
+      expect(policy.effectivePolicyForSession("s-1")?.key).toBe(project);
+      expect(policy.effectivePolicyForSession("s-1")?.allowsEgress("web")).toBe(false);
+      expect(policy.effectivePolicyForSession("s-gone")?.allowsEgress("web")).toBe(false);
+    });
+
+    it("carries a fusion worker's stamped egress classes", () => {
+      const { project, policy } = setup();
+      const temp = mkdtempSync(join(tmpdir(), "pc-worker-egress-"));
+      try {
+        const factories = createRuntimeSessionFactories(project, { save: () => {} }, () => null);
+        const parentPolicy = makeProviderPolicy({ key: project, allowedProviders: ["local-llama"], allowedEgress: ["github"], matchedDir: project });
+        const worker = runWithProviderPolicy(parentPolicy, () =>
+          factories.createEphemeralSession({ parentSessionId: "s-1", taskId: "t1" }, temp, true));
+        const inherited = policy.forSession(worker);
+        expect(inherited?.allowsEgress("github")).toBe(true);
+        expect(inherited?.allowsEgress("web")).toBe(false);
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    });
+  });
 });

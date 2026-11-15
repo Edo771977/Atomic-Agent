@@ -34,6 +34,8 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { createSessionProviderPolicy } from "./session-provider-policy.js";
+import { createRuntimeEgressGuard } from "./composition/runtime-egress-guard.js";
+import type { McpManager } from "../mcp/mcp-manager.js";
 import { fusionPolicyDegradation } from "./fusion-policy-degradation.js";
 import { currentProviderPolicy } from "../llm/provider-policy.js";
 import { describeLocalModelsValueSources } from "../config/load-config.js";
@@ -356,7 +358,15 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 
-  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill);
+  // Per-folder egress (issue #33): tools that would send a constrained
+  // folder's content off the machine are refused at dispatch. MCP servers
+  // are classed by the manager, which exists once the catalog connects.
+  let egressMcp: McpManager | undefined;
+  const egressGuard = createRuntimeEgressGuard({
+    effectivePolicyForSession: sessionProviderPolicy.effectivePolicyForSession,
+    mcp: () => egressMcp,
+  });
+  const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, egressGuard);
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)
@@ -477,6 +487,7 @@ export async function createAgentRuntime(
       : resolveCatalogContextWindow(),
   });
   const { mcpManager, getGrammar, effectiveToolDescriptors } = mcpCatalog;
+  egressMcp = mcpManager;
 
   if (config.vision.enabled) {
     logger.info("vision provider configured", {
