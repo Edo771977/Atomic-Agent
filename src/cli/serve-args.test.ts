@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  HELP,
   isLoopbackListenHost,
   lanUrls,
   parseArgs,
@@ -152,5 +153,12 @@ describe("lanUrls (ATO-1126)", () => {
   it("lists nothing for loopback or one named host", () => {
     expect(lanUrls("127.0.0.1", 8787, nics)).toEqual([]);
     expect(lanUrls("192.168.1.20", 8787, nics)).toEqual([]);
+  });
+});
+
+describe("serve --help endpoints", () => {
+  it("lists the chat export and resume routes", () => {
+    expect(HELP).toContain("GET  /api/sessions/{id}/export");
+    expect(HELP).toContain("POST /api/sessions/{id}/resume");
   });
 });
