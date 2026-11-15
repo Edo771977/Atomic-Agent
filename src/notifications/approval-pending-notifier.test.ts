@@ -22,7 +22,7 @@ function sender(result = "sent"): OwnerNoticeSender & { texts: string[] } {
   };
 }
 
-function setup(over: Partial<ApprovalPendingNotifierDeps> & {
+function setup(over: Partial<Omit<ApprovalPendingNotifierDeps, "settings">> & {
   settings?: Partial<ApprovalPendingNotifyConfig>;
 } = {}) {
   const telegram = sender();
