@@ -33,6 +33,31 @@ export interface FusionWorkerMeta {
    * `executeTurn` records this in place of the brief's clipped quote.
    */
   operatorRequest?: string;
+  /**
+   * The provider policy of the parent's turn at fan-out (issue #33):
+   * the folder constraint the worker must obey wherever it runs, a temp
+   * copy included. `null`: the parent's folder is unconstrained. Absent:
+   * nothing stamped it, and the runtime refuses the worker every provider
+   * while any constraint exists. Never re-derived from the worker folder.
+   */
+  providerPolicy?: WorkerProviderPolicyStamp | null;
+}
+
+/** The serialisable provider policy a worker carries (`ProviderPolicyStamp`). */
+export interface WorkerProviderPolicyStamp {
+  key: string;
+  allowedProviders: string[];
+  matchedDir: string;
+}
+
+function readPolicyStamp(raw: unknown): WorkerProviderPolicyStamp | null | undefined | "malformed" {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== "object" || Array.isArray(raw)) return "malformed";
+  const { key, allowedProviders, matchedDir } = raw as Record<string, unknown>;
+  if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)
+    || !allowedProviders.every((id) => typeof id === "string")) return "malformed";
+  return { key, allowedProviders: [...allowedProviders] as string[], matchedDir };
 }
 
 /**
@@ -64,18 +89,26 @@ export function readFusionWorkerMeta(
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
-  const { parentSessionId, taskId, operatorRequest } = raw as {
+  const { parentSessionId, taskId, operatorRequest, providerPolicy } = raw as {
     parentSessionId?: unknown;
     taskId?: unknown;
     operatorRequest?: unknown;
+    providerPolicy?: unknown;
   };
   if (typeof parentSessionId !== "string" || parentSessionId.length === 0) {
     return null;
   }
   if (typeof taskId !== "string" || taskId.length === 0) return null;
+  // A malformed policy stamp reads as a policy that allows nothing: the
+  // worker is still a worker (its save must stay skipped), and it fails
+  // closed rather than open.
+  const stamp = readPolicyStamp(providerPolicy);
+  const policy = stamp === "malformed"
+    ? { providerPolicy: { key: "(unreadable fusion worker policy)", allowedProviders: [], matchedDir: "" } }
+    : stamp === undefined ? {} : { providerPolicy: stamp };
   return typeof operatorRequest === "string"
-    ? { parentSessionId, taskId, operatorRequest }
-    : { parentSessionId, taskId };
+    ? { parentSessionId, taskId, operatorRequest, ...policy }
+    : { parentSessionId, taskId, ...policy };
 }
 
 /** Whether `id` was minted by `createFusionWorkerSession`. */

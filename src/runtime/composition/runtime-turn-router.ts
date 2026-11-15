@@ -33,6 +33,12 @@ export function routeTurnProvider(params: {
    * primary is free (llama-server, a subscription CLI) and could answer.
    */
   dailyLimitRefuses?: (providerId: string) => boolean;
+  /**
+   * Whether the session folder's provider constraint allows the provider
+   * (issue #33). A disallowed target is never a candidate; absent, every
+   * provider is allowed.
+   */
+  isAllowed?: (providerId: string) => boolean;
 }): string | undefined {
   const router = params.config.llm?.router;
   if (!router?.enabled) return undefined;
@@ -50,7 +56,8 @@ export function routeTurnProvider(params: {
       ? { pinnedProviderId: params.pinnedProviderId }
       : {}),
     providers: resolved.providers
-      .filter((p) => params.isRegistered(p.id) && params.dailyLimitRefuses?.(p.id) !== true)
+      .filter((p) => params.isRegistered(p.id) && params.dailyLimitRefuses?.(p.id) !== true
+        && params.isAllowed?.(p.id) !== false)
       .map((p) => ({
         id: p.id,
         ...(p.supportsTools !== undefined ? { supportsTools: p.supportsTools } : {}),

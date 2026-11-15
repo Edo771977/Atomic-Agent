@@ -13,6 +13,7 @@ import { LlamaServerError } from "../llm/llama-server-client.js";
 import { SubscriptionCliNotInstalledError } from "../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
 import { OfflineNetworkError } from "../llm/offline-network.js";
+import { makeProviderPolicy, noAllowedProviderError } from "../llm/provider-policy.js";
 import {
   humanizeOpenAiHttpError,
   OpenAiHttpError,
@@ -1716,6 +1717,44 @@ describe("AgentLoop end-to-end with mock LLM", () => {
     expect(result.reason).toBe("failed");
     expect(waits).toEqual([]);
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it("ends the turn at once on a folder's provider-policy refusal, naming the folder (issue #33)", async () => {
+    const registry = buildDefaultToolRegistry();
+    const waits: unknown[] = [];
+    const failures: string[] = [];
+    const loop = new AgentLoop({
+      registry,
+      slotManager: new SlotManager(2),
+      grammar: 'root ::= "ok"',
+      llmComplete: async () => {
+        throw noAllowedProviderError(
+          makeProviderPolicy({ key: "/work/client", allowedProviders: ["local-llama"], matchedDir: "/work/client" }),
+          "the main model",
+        );
+      },
+      toolDescriptors: TOOLS,
+      capabilities: CAPS,
+      skillCatalog: SKILLS,
+      onEvent: (event) => {
+        if (event.type === "provider_waiting") waits.push(event);
+        if (event.type === "loop_failed") failures.push(event.error.message);
+      },
+    });
+    const started = Date.now();
+    const result = await loop.runTurn(
+      createEmptySessionState({ id: "s-constrained", workingDir }),
+      {
+        userMessage: "hi",
+        maxSteps: 5,
+        taskMaxSteps: 5,
+        signal: new AbortController().signal,
+      },
+    );
+    expect(result.reason).toBe("failed");
+    expect(waits).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(failures[0]).toContain("folder /work/client is restricted to: local-llama; no allowed provider can serve the main model");
   });
 
   it("waits out a 503, which is exactly the kind that fixes itself", async () => {

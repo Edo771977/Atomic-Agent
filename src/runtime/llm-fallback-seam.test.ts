@@ -13,6 +13,7 @@ import {
   fakeAnswer as answer,
   fakeProvider,
 } from "../llm/provider/fake-provider.fixture.js";
+import { makeProviderPolicy, ProviderNotAllowedError, runWithProviderPolicy } from "../llm/provider-policy.js";
 import {
   createFallbackCompleter,
   createFallbackStreamer,
@@ -754,5 +755,89 @@ describe("createFallbackStreamer — abandoning the stream releases the provider
     expect(result.content).toBe("ab");
     expect(result.servedTransport).toBe("grammar");
     expect(tracked.released()).toBe(true);
+  });
+});
+
+describe("per-folder provider policy at the seam (issue #33)", () => {
+  async function drain(
+    gen: AsyncGenerator<StreamChunk, CompletionResult, void>,
+  ): Promise<CompletionResult> {
+    let next = await gen.next();
+    while (!next.done) next = await gen.next();
+    return next.value;
+  }
+  const onlyLocal = makeProviderPolicy({ key: "/work/client", allowedProviders: ["local"], matchedDir: "/work/client" });
+  const nobody = makeProviderPolicy({ key: "/work/vault", allowedProviders: [], matchedDir: "/work/vault" });
+
+  function fixture() {
+    const served: string[] = [];
+    const prepared: string[] = [];
+    const providers = new Map<string, LlmProvider>([
+      ["cloud", fakeProvider("cloud", "native_tools", async () => { served.push("cloud"); return answer("cloud"); })],
+      ["local", fakeProvider("local", "grammar", async () => { served.push("local"); return answer("local"); })],
+    ]);
+    const deps = seamDeps(providers);
+    deps.prepareLink = async (id) => { prepared.push(id); };
+    deps.providerPolicy = { constraintsActive: () => true, policyForSession: () => onlyLocal };
+    return { deps, served, prepared, providers };
+  }
+
+  it.each([false, true])("a disallowed primary is skipped for the allowed link, without a breaker or sticky override (stream=%s)", async (streaming) => {
+    const { deps, served, prepared } = fixture();
+    const params = { ...baseParams, sessionId: "s-pol" };
+    await runWithProviderPolicy(onlyLocal, async () => {
+      const result = streaming
+        ? await drain(createFallbackStreamer(deps)(params))
+        : await createFallbackCompleter(deps)(params);
+      expect(result.servedTransport).toBe("grammar");
+    });
+    expect(served).toEqual(["local"]);
+    // The refused primary is never warmed, never sent to.
+    expect(prepared).toEqual(["local"]);
+    expect(deps.fallbackChain.activeOverrideFor("s-pol")).toBeNull();
+    expect(deps.fallbackChain.pickProvider("s-pol")).toEqual({ providerId: "cloud", isProbe: false });
+  });
+
+  it("refuses with the folder, the allowed list and the role when nothing is allowed", async () => {
+    const { deps, served, prepared } = fixture();
+    const run = runWithProviderPolicy(nobody, () => createFallbackCompleter(deps)(baseParams), { role: "the main model" });
+    await expect(run).rejects.toThrow("folder /work/vault is restricted to: no provider; no allowed provider can serve the main model");
+    expect(served).toEqual([]);
+    expect(prepared).toEqual([]);
+  });
+
+  it("checks the ACTUAL provider: an id that resolves to another provider cannot slip through", async () => {
+    const { deps, served, providers } = fixture();
+    // A raced config edit: the allowed id resolves to the active (cloud) provider.
+    deps.resolveSlice = () => ({ provider: providers.get("cloud")!, transport: "native_tools" });
+    const run = runWithProviderPolicy(onlyLocal, () => createFallbackCompleter(deps)({ ...baseParams, providerId: "local" }));
+    await expect(run).rejects.toThrow(/provider "cloud" may not serve/);
+    expect(served).toEqual([]);
+  });
+
+  it("a pinned link the folder does not allow is refused before it is warmed", async () => {
+    const { deps, served, prepared } = fixture();
+    const run = runWithProviderPolicy(onlyLocal, () => createFallbackCompleter(deps)({ ...baseParams, providerId: "cloud" }));
+    await expect(run).rejects.toBeInstanceOf(ProviderNotAllowedError);
+    expect(served).toEqual([]);
+    expect(prepared).toEqual([]);
+  });
+
+  it("a background call with only a sessionId re-derives that session's policy", async () => {
+    const { deps, served } = fixture();
+    const asked: string[] = [];
+    deps.providerPolicy = { constraintsActive: () => true, policyForSession: (id) => { asked.push(id); return onlyLocal; } };
+    const result = await createFallbackCompleter(deps)({ ...baseParams, sessionId: "s-bg" });
+    expect(result.servedTransport).toBe("grammar");
+    expect(asked).toEqual(["s-bg"]);
+    expect(served).toEqual(["local"]);
+  });
+
+  it("a call with neither a frame nor a sessionId is refused while constraints exist", async () => {
+    const { deps, served } = fixture();
+    const { sessionId: _drop, ...noSession } = baseParams;
+    void _drop;
+    await expect(createFallbackCompleter(deps)(noSession as never)).rejects.toThrow(/carries no folder policy/);
+    expect(served).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import { isOfflineRefusal } from "../offline-network.js";
+import { isProviderNotAllowed } from "../provider-policy.js";
 import { LlamaServerError } from "../llama-server-client.js";
 import {
   isCreditExhausted,
@@ -151,6 +152,8 @@ export function isOutageFailure(err: unknown): boolean {
   if (isCliSetupRefusal(err)) return false;
   // And offline mode (ATO-1084): only the person turning it off lifts it.
   if (isOfflineRefusal(err)) return false;
+  // And a folder's provider constraint (issue #33): only a config edit lifts it.
+  if (isProviderNotAllowed(err)) return false;
   const status = statusOf(err);
   if (status === null) return true;
   if (status !== undefined) {

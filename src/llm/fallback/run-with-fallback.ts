@@ -14,6 +14,7 @@ import {
   type ProviderFallbackChain,
 } from "./provider-fallback-chain.js";
 import { shouldAdvance } from "./should-advance.js";
+import { currentProviderPolicy, isProviderNotAllowed, noAllowedProviderError } from "../provider-policy.js";
 
 /**
  * Drive a unit of work through the fallback chain.
@@ -101,8 +102,12 @@ export async function runWithFallback<T>(
   let currentId = pick.providerId;
   let wasProbe = pick.isProbe;
 
-  // Guard against a pathological empty chain: no provider to try.
+  // Guard against a pathological empty chain: no provider to try. Under
+  // a folder's provider constraint an empty chain means every link was
+  // filtered out: refuse before anything is sent (issue #33).
   if (!currentId) {
+    const policy = currentProviderPolicy();
+    if (policy !== undefined) throw noAllowedProviderError(policy);
     return attempt(currentId);
   }
 
@@ -158,6 +163,13 @@ export async function runWithFallback<T>(
           attachFailedAttempts(routeRefusal.error, routeRefusal.before);
           attachFailingLink(routeRefusal.error, routeRefusal.providerId);
           throw routeRefusal.error;
+        }
+        // The last link the folder allows was refused too (its id
+        // resolved to a provider the folder does not allow): no allowed
+        // provider is left for this call.
+        const policy = currentProviderPolicy();
+        if (policy !== undefined && isProviderNotAllowed(err)) {
+          throw noAllowedProviderError(policy, undefined, err);
         }
         attachFailedAttempts(err, failed);
         attachFailingLink(err, currentId);

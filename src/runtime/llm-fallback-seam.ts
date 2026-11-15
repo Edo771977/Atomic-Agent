@@ -16,8 +16,36 @@ import {
   openStreamOnLink,
   type LinkAttemptDeps,
 } from "./llm-link-attempt.js";
+import {
+  currentProviderPolicyFrame,
+  runWithProviderPolicy,
+} from "../llm/provider-policy.js";
 
-export type { ResolvedLinkSlice } from "./llm-link-attempt.js";
+export type { ResolvedLinkSlice, SeamProviderPolicy } from "./llm-link-attempt.js";
+
+/**
+ * Run one seam call under a provider-policy frame (issue #33). A caller
+ * already inside one (a turn, a scoped side call) keeps it. A background
+ * caller that only names its session gets that session's policy,
+ * re-derived from the session's folder. Anything else runs with no
+ * frame, which every guarded provider refuses while constraints exist.
+ */
+function withSessionPolicy<T>(
+  deps: FallbackSeamDeps,
+  sessionId: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  const policy = deps.providerPolicy;
+  if (
+    policy === undefined ||
+    currentProviderPolicyFrame() !== undefined ||
+    sessionId === undefined ||
+    !policy.constraintsActive()
+  ) {
+    return run();
+  }
+  return runWithProviderPolicy(policy.policyForSession(sessionId), run);
+}
 
 /**
  * Dependencies the fallback seams need, injected so the seam is testable
@@ -125,14 +153,15 @@ export function createFallbackCompleter(
       ...(params.modelModePolicy ? { servedModelMode: resolveModelMode(params.modelModePolicy, providerId) } : {}) };
   };
   return async (params) =>
-    params.providerId !== undefined
-      ? onPinnedLink(params.providerId, (id) => attempt(id, params))
-      : runWithFallback(
-          deps.fallbackChain,
-          (providerId) => attempt(providerId, params),
-          params.sessionId,
-          params.signal,
-        );
+    withSessionPolicy(deps, params.sessionId, () =>
+      params.providerId !== undefined
+        ? onPinnedLink(params.providerId, (id) => attempt(id, params))
+        : runWithFallback(
+            deps.fallbackChain,
+            (providerId) => attempt(providerId, params),
+            params.sessionId,
+            params.signal,
+          ));
 }
 
 /**
@@ -157,7 +186,7 @@ export function createFallbackStreamer(
 ) => AsyncGenerator<StreamChunk, CompletionResult, void> {
   return (params) => {
     async function* run(): AsyncGenerator<StreamChunk, CompletionResult, void> {
-      const opened =
+      const opened = await withSessionPolicy(deps, params.sessionId, async () =>
         params.providerId !== undefined
           ? await onPinnedLink(params.providerId, async (id) => ({
               providerId: id,
@@ -171,7 +200,7 @@ export function createFallbackStreamer(
               }),
               params.sessionId,
               params.signal,
-            );
+            ));
       const { primed, transport, providerId } = opened;
       // The stream is primed to its first chunk: generation is under way.
       const firstChunkAt = Date.now();

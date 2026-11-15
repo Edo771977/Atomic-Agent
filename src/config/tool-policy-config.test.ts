@@ -29,7 +29,7 @@ describe("outbound HTTP and tool configuration ownership", () => {
     const tools = createToolsDefaults();
     const vision = createVisionDefaults();
     expect(http).toStrictEqual({ enabled: true, approvalMode: "writes", hostAllowlist: null, maxResponseBytes: 1_048_576, defaultTimeoutMs: 30_000 });
-    expect(projects).toStrictEqual({ roots: [] });
+    expect(projects).toStrictEqual({ roots: [], constraints: {} });
     expect(tools).toStrictEqual({ shell: { defaultTimeoutMs: 600_000, jobMaxMs: 3_600_000, maxJobs: 3, envPassthrough: ["GITHUB_TOKEN", "NOTION_API_KEY"] }, screen: { enabled: false, point: true }, verify: { maxCopyBytes: 2 * 1024 * 1024 * 1024, maxGitObjectBytes: 2 * 1024 * 1024 * 1024 } });
     expect(vision).toStrictEqual({ enabled: true, autoDetect: true, maxImageBytes: 8 * 1024 * 1024, maxImagesPerCall: 4 });
     expect(Object.keys(http)).toEqual(["enabled", "approvalMode", "hostAllowlist", "maxResponseBytes", "defaultTimeoutMs"]);
@@ -86,7 +86,7 @@ describe("outbound HTTP and tool configuration ownership", () => {
 
   it("preserves host/root list bytes, order, duplicates and null/default versus explicit-empty behavior", () => {
     const http = { ...createHttpDefaults(), hostAllowlist: [" synthetic.invalid ", "synthetic.invalid", "synthetic.invalid"] };
-    const projects = { roots: [" synthetic root ", "same", "same"] };
+    const projects = { roots: [" synthetic root ", "same", "same"], constraints: {} };
     expect(parseHttpConfig({ hostAllowlist: null }, 25, () => http).hostAllowlist).toEqual(http.hostAllowlist);
     expect(parseHttpConfig({ hostAllowlist: null }, 25, () => http).hostAllowlist).not.toBe(http.hostAllowlist);
     expect(parseHttpConfig({ hostAllowlist: [] }, 25, () => http).hostAllowlist).toEqual([]);

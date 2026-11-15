@@ -5,6 +5,7 @@ import { TransportError } from "../reliability/llm-failures.js";
 import { isRequestSizeRejection } from "../reliability/request-size-rejection.js";
 import { findDailySpendLimitError } from "../reliability/spend-limit-error.js";
 import { isOfflineRefusal } from "../offline-network.js";
+import { isProviderNotAllowed } from "../provider-policy.js";
 
 /**
  * Fallover decision for a single thrown error.
@@ -81,6 +82,10 @@ export function shouldAdvance(err: unknown): AdvanceDecision {
   // the refused link's health, so it is never an immediate signal and
   // `advanceFrom` records no breaker failure for it.
   if (isOfflineRefusal(err)) return { advance: true, immediate: false };
+  // The folder's provider constraint refused the link before anything
+  // was sent (issue #33): another, allowed link may serve, and the
+  // refusal says nothing about this link's health.
+  if (isProviderNotAllowed(err)) return { advance: true, immediate: false };
   const category = classifyFailure(err);
   if (category !== "transport" && category !== "model") {
     return NO;

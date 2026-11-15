@@ -19,6 +19,7 @@ import {
 } from "./partition-state.js";
 import { shouldAdvance } from "./should-advance.js";
 import { isOfflineRefusal } from "../offline-network.js";
+import { currentProviderPolicy, isProviderNotAllowed } from "../provider-policy.js";
 
 /** Emitted once per state transition; wired to an `AgentLoopEvent` by bootstrap. */
 export interface ProviderSwitchNotice {
@@ -183,8 +184,10 @@ export class ProviderFallbackChain {
     const { timing } = this.resolve();
     const p = this.partition(partitionKey);
     const chain = this.chainFor(p);
-    // Neither our spend ceiling nor offline mode is the link failing.
-    if (!isSpendLimitRefusal(err) && !isOfflineRefusal(err)) {
+    // Neither our spend ceiling, offline mode nor a folder's provider
+    // constraint is the link failing.
+    const policyRefusal = isProviderNotAllowed(err);
+    if (!isSpendLimitRefusal(err) && !isOfflineRefusal(err) && !policyRefusal) {
       registerBreakerFailure(this.breaker(p, fromId), this.now(), decision.immediate, timing);
     }
 
@@ -227,7 +230,9 @@ export class ProviderFallbackChain {
         error: err,
         sessionId: partitionKey,
       });
-      this.switchAwayTo(p, chain[0]!, fromId, candidate, err);
+      // A policy refusal is not a fallover: no sticky override, no
+      // notice. The next call is refused again before anything is sent.
+      if (!policyRefusal) this.switchAwayTo(p, chain[0]!, fromId, candidate, err);
       return candidate;
     }
     return null;
@@ -378,12 +383,19 @@ export class ProviderFallbackChain {
     }
   }
 
-  /** The live chain as `p` runs it: its turn head first, when one is set. */
+  /**
+   * The live chain as `p` runs it: its turn head first, when one is set,
+   * minus every link the current folder's provider policy does not allow
+   * (issue #33) — the primary included, so the call starts on the first
+   * allowed link with no breaker, cooldown or override for the skipped
+   * ones. Read from the calling frame on every pick and advance.
+   */
   private chainFor(p: PartitionState): readonly string[] {
     const { chain } = this.resolve();
     const head = p.turnPrimaryId;
-    if (head === null) return chain;
-    return [head, ...chain.filter((id) => id !== head)];
+    const ordered = head === null ? chain : [head, ...chain.filter((id) => id !== head)];
+    const policy = currentProviderPolicy();
+    return policy === undefined ? ordered : ordered.filter((id) => policy.allows(id));
   }
 
   private partition(key: string): PartitionState {
