@@ -244,6 +244,8 @@ interface EnvKeyOffer {
   readonly id: string;
   /** The preset's default chat model, else the one the person passed; null when neither. */
   readonly model: string | null;
+  /** `model` is the person's `--orchestrator-model`, not the preset's own. */
+  readonly modelFromOption: boolean;
 }
 
 /**
@@ -258,17 +260,28 @@ function presetDefaultChatModel(preset: ProviderPreset): string | null {
 
 function envKeyOffers(facts: FusionSetupFacts, options: FusionSetupOptions): EnvKeyOffer[] {
   const taken = facts.providers.map((p) => p.id);
-  const out: EnvKeyOffer[] = [];
+  const found: { fact: FusionSetupEnvKeyFact; preset: ProviderPreset; id: string; own: string | null }[] = [];
   for (const fact of facts.envKeyPresets ?? []) {
     const preset = findProviderPreset(fact.presetId);
     if (!preset || preset.local || preset.perAccountEndpoint) continue;
     // An entry already reading this variable is the configured provider.
     if (facts.providers.some((p) => p.envVar === fact.envVar)) continue;
-    const id = freeId(preset.id, [...taken, ...out.map((o) => o.id)]);
-    const picked = options.orchestrator === undefined || options.orchestrator === id ? options.orchestratorModel : undefined;
-    out.push({ fact, preset, id, model: presetDefaultChatModel(preset) ?? picked ?? null });
+    const id = freeId(preset.id, [...taken, ...found.map((o) => o.id)]);
+    found.push({ fact, preset, id, own: presetDefaultChatModel(preset) });
   }
-  return out;
+  // One --orchestrator-model names one provider's model: it goes to the
+  // preset --orchestrator names, or, without one, to the only preset that
+  // has no model of its own — never to every such preset at once.
+  const modelless = found.filter((o) => o.own === null);
+  return found.map(({ fact, preset, id, own }) => {
+    const picked =
+      own === null &&
+      options.orchestratorModel !== undefined &&
+      (options.orchestrator === id || (options.orchestrator === undefined && modelless.length === 1))
+        ? options.orchestratorModel
+        : undefined;
+    return { fact, preset, id, model: own ?? picked ?? null, modelFromOption: picked !== undefined };
+  });
 }
 
 /** The entry the TUI's preset wizard saves for this preset: its URL, key variable and headers. */
@@ -398,6 +411,20 @@ function pickOrchestrator(
   const modelless = offers.filter((o) => o.model === null);
   const needsModel = (o: EnvKeyOffer) => ({ providerId: o.id, envVar: o.fact.envVar, models: o.fact.models ?? [] });
   const pickedModelless = pick === undefined ? undefined : modelless.find((o) => o.id === pick);
+  // Checked against what the endpoint listed, when it was asked and
+  // answered: a mistyped id would otherwise be saved and fail every turn.
+  const unlisted = offers.find(
+    (o) => o.modelFromOption && o.model !== null && o.fact.models !== null && o.fact.models.length > 0 && !o.fact.models.includes(o.model),
+  );
+  if (unlisted) {
+    return {
+      problems: [
+        `${unlisted.id} does not list the model ${unlisted.model}. It serves: ${unlisted.fact.models!.join(", ")}. ` +
+          `Re-run with --orchestrator ${unlisted.id} --orchestrator-model <one of those>.`,
+      ],
+      needsModel: needsModel(unlisted),
+    };
+  }
   if (pickedModelless) {
     return { problems: [needsModelProblem(pickedModelless)], needsModel: needsModel(pickedModelless) };
   }
