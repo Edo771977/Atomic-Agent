@@ -285,51 +285,66 @@ async function run(args: SmokeArgs, apiKey: string, pricing: Pricing, capUsd: nu
   return failures.length === 0 ? 0 : 1;
 }
 
+/** No `ANTHROPIC_API_KEY`: nothing ran. Not 0, which a wrapper would read as a pass. */
+export const SMOKE_EXIT_SKIPPED_NO_KEY = 3;
+
 const HOW_TO_SET_KEY = [
-  "ANTHROPIC_API_KEY is not set; nothing was sent.",
+  "skipped: ANTHROPIC_API_KEY is not set; nothing was sent (exit 3).",
   "Set it for this one command, then run again:",
   '  macOS/Linux:        ANTHROPIC_API_KEY="sk-ant-..." npm run smoke:anthropic',
   '  Windows PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."; npm run smoke:anthropic',
   "Options: --model <id> (default claude-haiku-5-5), --max-usd <amount> (default cap $0.25).",
 ].join("\n");
 
-async function main(): Promise<number> {
+/**
+ * The script's exit code: 0 passed (or `--help`), 1 a check failed, 2 the
+ * run was refused (arguments, offline mode, an unpriced model, the
+ * budget), 3 skipped without a key.
+ */
+export async function smokeMain(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+  out: { stdout(text: string): void; stderr(text: string): void } = {
+    stdout: (text) => process.stdout.write(text),
+    stderr: (text) => process.stderr.write(text),
+  },
+): Promise<number> {
   let args: SmokeArgs;
   try {
-    args = parseSmokeArgs(process.argv.slice(2));
+    args = parseSmokeArgs(argv);
   } catch (err) {
-    process.stderr.write(`${(err as Error).message}\nusage: npm run smoke:anthropic [-- --model <id>] [-- --max-usd <amount>]\n`);
+    out.stderr(`${(err as Error).message}\nusage: npm run smoke:anthropic [-- --model <id>] [-- --max-usd <amount>]\n`);
     return 2;
   }
   if (args.help) {
-    process.stdout.write(`${HOW_TO_SET_KEY.split("\n").slice(1).join("\n")}\n`);
+    out.stdout(`${HOW_TO_SET_KEY.split("\n").slice(1).join("\n")}\n`);
     return 0;
   }
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim() ?? "";
+  const apiKey = env.ANTHROPIC_API_KEY?.trim() ?? "";
   if (apiKey === "") {
-    process.stdout.write(`${HOW_TO_SET_KEY}\n`);
-    return 0;
+    out.stdout(`${HOW_TO_SET_KEY}\n`);
+    return SMOKE_EXIT_SKIPPED_NO_KEY;
   }
   applyOfflineModeFromConfigFile();
   if (isOfflineNetwork()) {
-    process.stderr.write("offline mode is on (ATOMIC_AGENT_OFFLINE or network.offline): the smoke test needs api.anthropic.com. Nothing was sent.\n");
+    out.stderr("offline mode is on (ATOMIC_AGENT_OFFLINE or network.offline): the smoke test needs api.anthropic.com. Nothing was sent.\n");
     return 2;
   }
   const pricing = anthropicOfficialPricing({ kind: "anthropic" }, args.model);
   if (pricing === undefined) {
-    process.stderr.write(`${args.model} is not in the official price table, so the run's cost cannot be bounded; pick a listed model.\n`);
+    out.stderr(`${args.model} is not in the official price table, so the run's cost cannot be bounded; pick a listed model.\n`);
     return 2;
   }
   const worst = worstCaseUsd(plannedCalls(args.model), pricing);
   const budget = checkBudget(worst, args.maxUsd);
   if (!budget.ok) {
-    process.stderr.write(`${budget.message}\n`);
+    out.stderr(`${budget.message}\n`);
     return 2;
   }
-  process.stdout.write(`smoke:anthropic on ${args.model}: worst case $${worst.toFixed(4)}, cap $${budget.capUsd.toFixed(2)}\n`);
+  out.stdout(`smoke:anthropic on ${args.model}: worst case $${worst.toFixed(4)}, cap $${budget.capUsd.toFixed(2)}\n`);
   return run(args, apiKey, pricing, budget.capUsd);
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = await main();
+  process.exitCode = await smokeMain(process.argv.slice(2), process.env);
 }

@@ -565,6 +565,35 @@ describe("runProviderContractProbe on the native Anthropic Messages API", () => 
     }
   });
 
+  it("probes the native wire in auto only: a prose answer is one request, not an ignored forcing", async () => {
+    const PROSE_STREAM =
+      event("message_start", {
+        type: "message_start",
+        message: { id: "msg_2", model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 0 } },
+      }) +
+      event("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) +
+      event("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Sure." } }) +
+      event("content_block_stop", { type: "content_block_stop", index: 0 }) +
+      event("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } }) +
+      event("message_stop", { type: "message_stop" });
+    const fetchImpl = vi.fn(
+      async () => new Response(PROSE_STREAM, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.status).not.toBe("forced_tool_choice_ignored");
+    expect(result.status).toBe("inconclusive_no_tool_call");
+    expect(result.toolChoiceMode).toBe("auto");
+    expect(result.requests).toBe(1);
+  });
+
+  it("reports a native tool call as the auto rung's verdict", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(NATIVE_TOOL_STREAM, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const result = await runProviderContractProbe(ANTHROPIC, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result).toMatchObject({ status: "tools_supported", toolChoiceMode: "auto", requests: 1 });
+  });
+
   it("reads a refused key from the native error body, redacted", async () => {
     const fetchImpl = vi.fn(
       async () =>

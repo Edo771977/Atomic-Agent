@@ -17,10 +17,13 @@ describe("anthropicOfficialPricesStaleNote", () => {
     expect(anthropicOfficialPricesStaleNote(listed + 90 * DAY, "2026-11-15")).toBeUndefined();
   });
 
-  it("names the date and the refresh command once the list is older", () => {
-    expect(anthropicOfficialPricesStaleNote(listed + 90 * DAY + 1, "2026-11-15")).toBe(
-      "(price list from 2026-11-15; run npm run prices:anthropic to check)",
+  it("names the date and the official pricing page once the list is older", () => {
+    const note = anthropicOfficialPricesStaleNote(listed + 90 * DAY + 1, "2026-11-15");
+    expect(note).toBe(
+      "(price list from 2026-11-15; check https://platform.claude.com/docs/en/about-claude/pricing)",
     );
+    // A packaged install has no source checkout to run an npm script in.
+    expect(note).not.toContain("npm run");
   });
 
   it("defaults to the committed table's date", () => {

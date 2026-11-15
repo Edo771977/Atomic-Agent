@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalGate } from "../../approval/approval-gate.js";
+import { ApprovalRouter } from "../../approval/approval-router.js";
 import type { ApprovalPendingNotifyConfig } from "../../config/index.js";
 import { installApprovalPendingNotifier } from "./runtime-approval-pending.js";
 
@@ -10,6 +11,7 @@ function wire(over: {
   settings?: Partial<ApprovalPendingNotifyConfig>;
   isIncognito?: (id: string) => boolean;
   anyIncognitoOpen?: () => boolean;
+  isChannelOwned?: (id: string) => boolean;
   offline?: () => boolean;
 } = {}) {
   const gate = new ApprovalGate({ emit: () => undefined });
@@ -21,6 +23,7 @@ function wire(over: {
     readSettings: () => ({ enabled: true, afterMinutes: 2, channel: "auto", ...over.settings }),
     isIncognito: over.isIncognito ?? (() => false),
     anyIncognitoOpen: over.anyIncognitoOpen ?? (() => false),
+    isChannelOwned: over.isChannelOwned ?? (() => false),
     resolveTelegram: () => telegram,
     resolveDiscord: () => null,
     logger,
@@ -37,6 +40,20 @@ function wire(over: {
 describe("installApprovalPendingNotifier", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
+
+  it("sends nothing for a session the approval router hands to a channel", async () => {
+    const router = new ApprovalRouter(() => undefined);
+    const unsubscribe = router.setForSession("s", () => undefined);
+    const { texts, connect, ask } = wire({ isChannelOwned: (id) => router.isRouted(id) });
+    connect();
+    void ask("a1");
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(texts).toEqual([]);
+    unsubscribe();
+    void ask("a2");
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    expect(texts).toHaveLength(1);
+  });
 
   it("finds a channel connected after install, at fire time", async () => {
     const { texts, connect, ask } = wire();

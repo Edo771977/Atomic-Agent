@@ -20,6 +20,8 @@ import {
   renderGeneratedBlock,
   reportCheck,
   rewriteTableFile,
+  writeRefreshedTable,
+  PRICES_EXIT_WRITE_FAILED,
 } from "./check-anthropic-prices.js";
 
 // A saved copy of https://platform.claude.com/docs/en/about-claude/pricing.md
@@ -80,6 +82,19 @@ describe("parsePricingPage on the saved official page", () => {
     });
   });
 
+  it("two long-prompt rows for one model are a problem (exit 2), not the last one kept", () => {
+    const longRow = FIXTURE.split("\n").find((line) => line.includes("Haiku 5.5 (for prompts over 100,000 tokens)"))!;
+    const second = longRow
+      .replace("over 100,000 tokens", "over 200,000 tokens")
+      .replace("$2.50 / MTok", "$3 / MTok");
+    const doubled = FIXTURE.replace(longRow, `${longRow}\n${second}`);
+    const parsed = parsePricingPage(doubled);
+    expect(parsed.problems).toEqual([
+      expect.stringMatching(/claude-haiku-5-5: .*long-prompt rows? listed twice/),
+    ]);
+    expect(reportCheck(parsed, COMMITTED).code).toBe(2);
+  });
+
   it("matches the committed table: the check exits 0", () => {
     const report = reportCheck(page, COMMITTED);
     expect(report.lines.filter((l) => /^(added|removed|changed|unknown|cannot)/.test(l))).toEqual([]);
@@ -128,6 +143,37 @@ describe("rewriteTableFile", () => {
     expect(next).toContain('"claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 22 },');
     const outside = (s: string) => s.slice(0, s.indexOf(BLOCK_BEGIN)).replace(/"\d{4}-\d{2}-\d{2}"/, "D") + s.slice(s.indexOf(BLOCK_END));
     expect(outside(next)).toBe(outside(TABLE_FILE));
+  });
+
+  it("a failed write exits with its own code, not 1 (\"the table differs\")", async () => {
+    expect(PRICES_EXIT_WRITE_FAILED).toBe(4);
+    const errors: string[] = [];
+    const code = await writeRefreshedTable(parsePricingPage(FIXTURE), "2027-03-01", {
+      path: "/nowhere/anthropic-official-prices.ts",
+      readFile: async () => TABLE_FILE,
+      writeFile: async () => {
+        throw new Error("EACCES: permission denied");
+      },
+      stdout: () => undefined,
+      stderr: (line) => errors.push(line),
+    });
+    expect(code).toBe(4);
+    expect(errors.join("")).toMatch(/cannot write .*EACCES/);
+  });
+
+  it("a successful write exits 0", async () => {
+    let written = "";
+    const code = await writeRefreshedTable(parsePricingPage(FIXTURE), "2027-03-01", {
+      path: "/t.ts",
+      readFile: async () => TABLE_FILE,
+      writeFile: async (_p, text) => {
+        written = text;
+      },
+      stdout: () => undefined,
+      stderr: () => undefined,
+    });
+    expect(code).toBe(0);
+    expect(written).toContain('"2027-03-01"');
   });
 
   it("refuses a file without its markers", () => {

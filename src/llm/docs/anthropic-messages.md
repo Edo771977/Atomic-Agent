@@ -126,10 +126,16 @@ API too:
   (no balance when the body talks billing). It costs nothing and does
   not prove the balance;
 - the contract probe: its rungs translated by `toAnthropicMessagesBody`
-  and posted to `/v1/messages` (the forced rung goes out as `auto`), the
-  native stream read through `createAnthropicSseTranslator`;
+  and posted to `/v1/messages`, the native stream read through
+  `createAnthropicSseTranslator`. It starts at the `auto` rung (a forced
+  rung would go out as `auto` too), so the verdict is that rung's;
 - `describeImage`: the shared describe body translated the same way, so
-  each image is a base64 `image` block, posted to `/v1/messages`.
+  each image is a base64 `image` block, posted to `/v1/messages`. A
+  refusal of an image's size (a 400 naming the per-image maximum, or a
+  413) is `ImageRejectedAsTooLargeError`, which names
+  `vision.maxImageBytes` and never marks the model blind. The limit is
+  not checked before sending: the API's per-image maximum is not
+  recorded here, and `vision.maxImageBytes` (8 MiB) may sit above it.
 
 ## Effort and thinking
 
@@ -185,9 +191,12 @@ cost at the official prices. Before the first request it prices the worst
 case (every prefix written twice, every reply at its cap) and refuses
 above $0.25 unless `-- --max-usd <amount>` raises the cap (Fable 5.2's
 worst case is about $0.34); it also stops once the priced spend passes
-the cap. Without a key it prints these instructions and exits 0; in
-offline mode it refuses; the key is never printed. Exit code 1 means a
-check failed.
+the cap. Without a key it prints these instructions and exits 3
+("skipped: no key", never read as a pass); in offline mode it refuses
+(exit 2); the key is never printed. Exit code 1 means a check failed.
 
 The official price table itself is checked against Anthropic's page with
-`npm run prices:anthropic` ([scripts README](../../../scripts/README.md)).
+`npm run prices:anthropic` ([scripts README](../../../scripts/README.md)),
+from a source checkout. Once the table is over 90 days old `/usage` says
+"price list from <date>; check" and names the official pricing page, which
+a packaged install can open too.

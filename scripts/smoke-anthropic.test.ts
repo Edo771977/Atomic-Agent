@@ -14,6 +14,8 @@ import {
   parseSmokeArgs,
   plannedCalls,
   redact,
+  smokeMain,
+  SMOKE_EXIT_SKIPPED_NO_KEY,
   worstCaseUsd,
 } from "./smoke-anthropic.js";
 
@@ -110,5 +112,19 @@ describe("verdicts", () => {
 
   it("never prints the key", () => {
     expect(redact("401 for key sk-ant-abc123456 at api", "sk-ant-abc123456")).toBe("401 for key [redacted] at api");
+  });
+});
+
+describe("smokeMain", () => {
+  it("exits 3 (skipped: no key) without a key, so a wrapper cannot read it as a pass", async () => {
+    const out: string[] = [];
+    const code = await smokeMain([], {}, { stdout: (t) => out.push(t), stderr: () => undefined });
+    expect(SMOKE_EXIT_SKIPPED_NO_KEY).toBe(3);
+    expect(code).toBe(3);
+    expect(out.join("")).toMatch(/skipped: ANTHROPIC_API_KEY is not set/);
+  });
+
+  it("--help still exits 0", async () => {
+    expect(await smokeMain(["--help"], {}, { stdout: () => undefined, stderr: () => undefined })).toBe(0);
   });
 });

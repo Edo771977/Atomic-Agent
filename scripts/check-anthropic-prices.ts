@@ -29,9 +29,13 @@ import {
   ANTHROPIC_FAST_MODE_MULTIPLIERS,
   ANTHROPIC_OFFICIAL_PRICE_ROWS,
   ANTHROPIC_OFFICIAL_PRICES_DATE,
+  ANTHROPIC_OFFICIAL_PRICES_PAGE,
 } from "../src/llm/provider/official-prices/anthropic-official-prices.js";
 
-export const PRICING_PAGE_URL = "https://platform.claude.com/docs/en/about-claude/pricing";
+export const PRICING_PAGE_URL = ANTHROPIC_OFFICIAL_PRICES_PAGE;
+
+/** `--write` could not save the table: not 1, which means "the table differs". */
+export const PRICES_EXIT_WRITE_FAILED = 4;
 const TABLE_PATH = fileURLToPath(
   new URL("../src/llm/provider/official-prices/anthropic-official-prices.ts", import.meta.url),
 );
@@ -207,7 +211,10 @@ export function parsePricingPage(markdown: string): ParsedPage {
     }
     if (Object.keys(rates).length !== 4) continue;
     const full = rates as Rates;
-    if (name.tier === "long") long.set(name.id, { thresholdTokens: name.thresholdTokens, ...full });
+    // Two "for prompts over" rows for one model would need a second tier
+    // the table cannot hold; keeping the last one would drop a price.
+    if (name.tier === "long" && long.has(name.id)) page.problems.push(`${name.id}: long-prompt row listed twice`);
+    else if (name.tier === "long") long.set(name.id, { thresholdTokens: name.thresholdTokens, ...full });
     else if (Object.hasOwn(page.prices, name.id)) page.problems.push(`${name.id}: listed twice`);
     else page.prices[name.id] = { ...full };
   }
@@ -461,9 +468,39 @@ async function main(): Promise<number> {
     process.stderr.write("not writing: fix the parse problems or the model-name mapping first\n");
     return 2;
   }
-  const date = new Date().toISOString().slice(0, 10);
-  await writeFile(TABLE_PATH, rewriteTableFile(await readFile(TABLE_PATH, "utf8"), page, date));
-  process.stdout.write(`wrote ${TABLE_PATH} (date ${date}); review the diff\n`);
+  return writeRefreshedTable(page, new Date().toISOString().slice(0, 10), {
+    path: TABLE_PATH,
+    readFile: (path) => readFile(path, "utf8"),
+    writeFile: (path, text) => writeFile(path, text),
+    stdout: (text) => process.stdout.write(text),
+    stderr: (text) => process.stderr.write(text),
+  });
+}
+
+/**
+ * `--write`: regenerate the table file at `io.path`. 0 when written;
+ * {@link PRICES_EXIT_WRITE_FAILED} when it could not be read, rewritten or
+ * saved, with the reason on stderr (a rejection would surface as exit 1,
+ * the "table differs" verdict).
+ */
+export async function writeRefreshedTable(
+  page: ParsedPage,
+  date: string,
+  io: {
+    path: string;
+    readFile(path: string): Promise<string>;
+    writeFile(path: string, text: string): Promise<void>;
+    stdout(text: string): void;
+    stderr(text: string): void;
+  },
+): Promise<number> {
+  try {
+    await io.writeFile(io.path, rewriteTableFile(await io.readFile(io.path), page, date));
+  } catch (err) {
+    io.stderr(`cannot write ${io.path}: ${(err as Error).message}\n`);
+    return PRICES_EXIT_WRITE_FAILED;
+  }
+  io.stdout(`wrote ${io.path} (date ${date}); review the diff\n`);
   return 0;
 }
 

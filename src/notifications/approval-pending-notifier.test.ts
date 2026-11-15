@@ -33,6 +33,7 @@ function setup(over: Partial<Omit<ApprovalPendingNotifierDeps, "settings">> & {
     settings: () => ({ enabled: true, afterMinutes: 5, channel: "auto", ...settings }),
     offline: () => false,
     isPrivate: () => false,
+    channelOwned: () => false,
     telegram: () => telegram,
     discord: () => discord,
     logger,
@@ -178,6 +179,50 @@ describe("ApprovalPendingNotifier", () => {
     await vi.advanceTimersByTimeAsync(5 * MINUTE);
     expect(discord.sendOwnerNotice).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a session a channel owns: its prompt is already in the owner's DM", async () => {
+    const { telegram, discord, ask } = setup({ channelOwned: (id) => id === "s1" });
+    void ask();
+    await vi.advanceTimersByTimeAsync(30 * MINUTE);
+    expect(telegram.sendOwnerNotice).not.toHaveBeenCalled();
+    expect(discord.sendOwnerNotice).not.toHaveBeenCalled();
+  });
+
+  it("sends at most one reminder a minute, merging the rest into a count", async () => {
+    const { telegram, ask } = setup();
+    void ask("a1");
+    void ask("a2");
+    void ask("a3");
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    expect(telegram.texts).toEqual([
+      "atomic-agent is waiting for your approval for 5 min: shell command (os.shell.run) in rocket. Answer it in the app.",
+    ]);
+    await vi.advanceTimersByTimeAsync(MINUTE - 1);
+    expect(telegram.texts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(telegram.texts).toEqual([
+      "atomic-agent is waiting for your approval for 5 min: shell command (os.shell.run) in rocket. Answer it in the app.",
+      "atomic-agent: 2 approvals are waiting for you. Answer them in the app.",
+    ]);
+    await vi.advanceTimersByTimeAsync(30 * MINUTE);
+    expect(telegram.texts).toHaveLength(2);
+  });
+
+  it("a merged reminder leaves out prompts answered while it waited", async () => {
+    const { gate, telegram, ask } = setup();
+    void ask("a1");
+    const second = ask("a2");
+    void ask("a3");
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    gate.resolve({ approvalId: "a2", approved: true });
+    await second;
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(telegram.texts).toHaveLength(2);
+    // One left: it gets its own message, not a count of one.
+    expect(telegram.texts[1]).toBe(
+      "atomic-agent is waiting for your approval for 5 min: shell command (os.shell.run) in rocket. Answer it in the app.",
+    );
   });
 
   it("dispose cancels every waiting timer", async () => {
