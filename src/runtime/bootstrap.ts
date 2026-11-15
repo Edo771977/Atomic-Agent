@@ -957,7 +957,7 @@ export async function createAgentRuntime(
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies, turnsWithoutQuestions },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
-    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill, sessionTeam },
+    inference: { providerRegistry, resolveActiveLlmSlice, resolveCurrentRunMode, resolveRouteVision, resolveActiveModelName, teamMemberReachable: providers.teamMemberReachable, fallbackChain, dailyLimitRefuses: dailySpendLimit.refuses, budgetNotices, sessionProviderPolicy, sessionReadTaint, constraintScopeBackfill, sessionTeam },
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
     emitEvent: emitAgentLoopEventFor,
@@ -1002,6 +1002,7 @@ export async function createAgentRuntime(
     declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
     currentDirector: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.director ?? null,
     currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
+    teamMemberReachable: providers.teamMemberReachable,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,
     turnBudget: fusionTurnBudget,
     sessionUsage,
@@ -1103,6 +1104,7 @@ export async function createAgentRuntime(
     discordChannel: null,
     swarm: null,
     // ATO-1084: the channels are attached below; read at call time.
+    teamMemberReachable: providers.teamMemberReachable,
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),

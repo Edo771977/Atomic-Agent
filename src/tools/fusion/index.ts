@@ -185,3 +185,5 @@ export {
 export type { FusionReport, ReportOptions } from "./outcome-report.js";
 export { FUSION_TURN_RECEIPT_TASK_ID, FusionTurnLedger, formatTurnReceipt } from "./turn-receipt.js";
 export type { FusionTurnReceipt } from "./turn-receipt.js";
+export { teamContextFromConfig } from "./team-routing.js";
+export type { FusionTeamContext } from "./team-routing.js";

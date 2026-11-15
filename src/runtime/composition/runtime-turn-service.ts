@@ -12,7 +12,8 @@ import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import { withSessionFusionDirector, withSessionFusionWorker } from "../../session/session-fusion-team.js";
 import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
-import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionState } from "../../session/index.js";
+import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
+import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
 import { pickOriginalRequest } from "../../tools/fusion/index.js";
@@ -117,6 +118,13 @@ export interface RuntimeTurnDependencies {
      * are tagged before the turn can recall them.
      */
     constraintScopeBackfill?: { ensure(): unknown };
+    /**
+     * Whether a fusion team member can answer now (issue #37): its
+     * provider is registered and a subscription CLI is not known to be
+     * missing or signed out (`liveTeamReachability`, a background-checked
+     * cache, never a probe in the turn). Absent: registered is enough.
+     */
+    teamMemberReachable?: (member: TeamMember) => boolean;
     /** True when today's spend ceiling refuses a paid link now (ATO-649); the router passes over it. */
     dailyLimitRefuses?: (providerId: string) => boolean;
     budgetNotices?: RequestBudgetNotices;
@@ -442,7 +450,8 @@ export function createRuntimeTurnService(
       metadata = withSessionFusionWorker(metadata, member);
     }
     const policy = currentProviderPolicy();
-    const reachable = (m: { providerId: string }): boolean => providerRegistry.getProvider(m.providerId) !== undefined;
+    const reachable = deps.inference.teamMemberReachable ??
+      ((m: { providerId: string }): boolean => providerRegistry.getProvider(m.providerId) !== undefined);
     const picked = sessionDirectorChoice(metadata, fusion, policy, reachable);
     // Outside the fusion mode a stamp is kept for later, but nothing is
     // picked, said or enforced: the director leads fusion only, so a
@@ -467,6 +476,28 @@ export function createRuntimeTurnService(
       session: metadata === session.metadata ? session : { ...session, metadata },
       choice: { director: choice.member, worker: resolveSessionWorker(metadata, fusion, policy) },
     };
+  };
+
+  /**
+   * The route a director's turn actually ran on (issue #37): when the
+   * director's link fell over and another link answered, that link is the
+   * route's main leg (so the next turn's `### route` note tells the model)
+   * and the person is told once, instead of the session recording the
+   * director as if it had answered.
+   */
+  const directorFallover = (
+    sessionId: string,
+    director: TeamMember,
+    route: SessionRoute,
+    resolved: ReturnType<typeof resolveLlmConfig>,
+  ): SessionRoute => {
+    const servedBy = fallbackChain.standingOverrideFor(sessionId);
+    if (servedBy === null || servedBy === director.providerId) return route;
+    const entry = resolved.providers.find((p) => p.id === servedBy);
+    const text = `fusion director ${director.ref} did not answer: this turn ran on ${servedBy}`;
+    deps.emitEvent?.(sessionId, { type: "fusion_director_notice", sessionId, member: director.ref, reason: "fell-over", text });
+    logger.warn("fusion director's link fell over", { sessionId, director: director.ref, servedBy });
+    return { ...route, main: { providerId: servedBy, model: entry?.defaultChatModel ?? entry?.model ?? null } };
   };
 
   const executeTurnInPolicy = async (
@@ -776,6 +807,7 @@ export function createRuntimeTurnService(
         // session later restores its provider/model (session-llm.ts).
         const usage = traces.readContextUsage(session.id);
         const spend = sessionUsage?.get(session.id);
+        const servedRoute = director === undefined ? turnRoute : directorFallover(session.id, director, turnRoute, llmResolved);
         const finished: SessionState = {
           ...result.session,
           ...(usage === undefined ? {} : { contextUsage: usage }),
@@ -783,7 +815,7 @@ export function createRuntimeTurnService(
           metadata: {
             ...result.session.metadata,
             [SESSION_LLM_METADATA_KEY]: llmStamp,
-            [SESSION_ROUTE_METADATA_KEY]: turnRoute,
+            [SESSION_ROUTE_METADATA_KEY]: servedRoute,
           },
         };
         // The turn's end replaces its `running` mark (`beginTurn`).

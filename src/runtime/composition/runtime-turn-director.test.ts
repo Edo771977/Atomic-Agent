@@ -36,6 +36,7 @@ function result(state: SessionState, options: RunTurnOptions): RunTurnResult {
 describe("a session's fusion director in the turn (issue #37)", () => {
   let dir: string;
   let fixture: Awaited<ReturnType<typeof makeFixture>>;
+  let cliStates: Record<string, "ready" | "signed_out" | "missing" | "unknown"> = {};
 
   async function makeFixture() {
     const config = configuration.loadConfig();
@@ -63,7 +64,9 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     vi.spyOn(configuration, "getConfig").mockImplementation(() => config);
     const logger = new StructuredLogger({ level: "debug", sinks: [] });
     const traces = createRuntimeTraces(config, {}, logger);
-    const providers = await connectRuntimeProviders(config, logger, { llama: new LlamaServerClient(), modelAlias: null }, { getLiveProfile: () => PLAIN_INSTRUCT_PROFILE, getLiveModelId: () => null });
+    const providers = await connectRuntimeProviders(config, logger, { llama: new LlamaServerClient(), modelAlias: null }, { getLiveProfile: () => PLAIN_INSTRUCT_PROFILE, getLiveModelId: () => null }, {
+      checkSubscriptionCli: async (cli) => ({ state: cliStates[cli] ?? "unknown" }),
+    });
     const rows = new Map<string, SessionState>();
     const sessionTeam = createSessionTeamChoices();
     const seen: Array<{ director: string | null; effective: string; orchestrator: string | null }> = [];
@@ -99,7 +102,7 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     return { config, providers, deps, loop, seen, setTurnPrimary, sessionTeam, service: createRuntimeTurnService(config, deps) };
   }
 
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "atomic-turn-director-")); fixture = await makeFixture(); });
+  beforeEach(async () => { cliStates = {}; dir = await mkdtemp(join(tmpdir(), "atomic-turn-director-")); fixture = await makeFixture(); });
   afterEach(async () => {
     vi.restoreAllMocks();
     for (const id of fixture.providers.providerRegistry.listIds()) await fixture.providers.providerRegistry.getProvider(id)?.close();
@@ -182,6 +185,54 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     const output = await service.executeTurn(session("s"), "request");
     expect(readSessionFusionDirector(output.session.metadata)?.member).toBe("cloud-a:model-a");
     expect(notices).toMatchObject([{ reason: "default", text: "fusion director: cloud-a:model-a (the team's default of 2 directors)" }]);
+  });
+
+  it("does not pick a director the runtime knows cannot answer (a signed-out CLI)", async () => {
+    const notices: Array<{ reason?: string; member?: string }> = [];
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      inference: { ...fixture.deps.inference, teamMemberReachable: (m) => m.providerId !== "cloud-a" },
+      emitEvent: (_id, event) => { notices.push(event as never); },
+    });
+    const output = await service.executeTurn(session("s"), "request");
+    expect(readSessionFusionDirector(output.session.metadata)?.member).toBe("cloud-b:model-b");
+    expect(notices).toMatchObject([{ reason: "only", member: "cloud-b:model-b" }]);
+  });
+
+  it("does not auto-pick a signed-out Codex CLI director once the runtime's check says so", async () => {
+    cliStates = { codex: "signed_out" };
+    fixture.config.llm = { ...fixture.config.llm!, providers: [...fixture.config.llm!.providers, { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" } as never] };
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["codex:model-c", "cloud-a:model-a"] };
+    await fixture.providers.providerRegistry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
+    // Not checked yet: not a refusal. The read starts the background check.
+    expect(fixture.providers.teamMemberReachable(member("codex:model-c"))).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fixture.providers.teamMemberReachable(member("codex:model-c"))).toBe(false);
+    const output = await fixture.service.executeTurn(session("s"), "request");
+    expect(readSessionFusionDirector(output.session.metadata)?.member).toBe("cloud-a:model-a");
+  });
+
+  it("says so and records the link that answered when the director's link fell over", async () => {
+    const notices: Array<{ reason?: string; text?: string }> = [];
+    let ran = false;
+    fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
+      ran = true;
+      return result(value, options);
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      inference: {
+        ...fixture.deps.inference,
+        fallbackChain: { standingOverrideFor: () => (ran ? "cloud-a" : null), setTurnPrimary: fixture.setTurnPrimary },
+      },
+      emitEvent: (_id, event) => { notices.push(event as never); },
+    });
+    const output = await service.executeTurn(session("s", withSessionFusionDirector({}, member("cloud-b:model-b"), 1)), "request");
+    expect(output.session.metadata?.llmRoute).toMatchObject({ main: { providerId: "cloud-a", model: "model-a" }, director: "cloud-b:model-b" });
+    expect(notices).toMatchObject([{
+      reason: "fell-over",
+      text: "fusion director cloud-b:model-b did not answer: this turn ran on cloud-a",
+    }]);
   });
 
   it("picks nothing and says nothing outside the fusion mode", async () => {

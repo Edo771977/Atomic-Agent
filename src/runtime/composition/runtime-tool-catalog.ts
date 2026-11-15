@@ -10,7 +10,7 @@ import type { LlamaServerClient } from "../../llm/llama-server-client.js";
 import { renewTransportPool } from "../../llm/transport-deadlines.js";
 import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
-import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
+import type { ResolvedRunMode, TeamMember } from "../../llm/run-mode/index.js";
 import { visionCapableAlternatives } from "../../llm/provider/model-vision.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { createRequestBudgetScope, type RequestBudgetScope } from "../request-budget.js";
@@ -50,7 +50,7 @@ import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../
 import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index.js";
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
-import { buildFusionDelegateTool, readSlotOccupancy, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -732,6 +732,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   currentDirector?: FusionDelegateDeps["currentDirector"];
   /** The calling session's preferred worker (issue #37); see `FusionDelegateDeps.currentWorker`. */
   currentWorker?: FusionDelegateDeps["currentWorker"];
+  /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
+  teamMemberReachable?: (member: TeamMember) => boolean;
   providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot" | "modelVariant">>;
   llama: Pick<
     LlamaServerClient,
@@ -780,7 +782,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentDirector, currentWorker } = input;
+    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentDirector, currentWorker, teamMemberReachable } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -1008,6 +1010,9 @@ export function registerRuntimeFusionAndReadScope(input: {
       // The session's director and preferred worker (issue #37), read
       // from the ambient turn per call.
       ...(currentDirector === undefined ? {} : { currentDirector }),
+      ...(teamMemberReachable === undefined
+        ? {}
+        : { resolveFusionTeam: () => teamContextFromConfig(getConfig(), teamMemberReachable) }),
       ...(currentWorker === undefined ? {} : { currentWorker }),
       workerSupportsSlotAffinity: (providerId) =>
         providerRegistry.getProvider(providerId)?.capabilities

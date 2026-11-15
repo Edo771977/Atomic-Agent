@@ -47,11 +47,15 @@ export interface FusionTeamRouting {
 }
 
 /**
- * The team from the live config, or undefined without one. Reachability
- * here is only "its provider is configured": a sign-in or key problem
- * surfaces on the turn itself, as it does for any leg.
+ * The team from the live config, or undefined without one. `reachable`
+ * is the runtime's (`teamMemberReachable`: registered, and a CLI not
+ * known to be signed out or missing); absent, a member is reachable when
+ * its provider is configured.
  */
-export function teamContextFromConfig(config: AtomicAgentConfig = getConfig()): FusionTeamContext | undefined {
+export function teamContextFromConfig(
+  config: AtomicAgentConfig = getConfig(),
+  reachable?: (member: TeamMember) => boolean,
+): FusionTeamContext | undefined {
   const resolved = resolveLlmConfig(config);
   const fusion = resolved.runMode?.fusion;
   const team = fusion?.team;
@@ -62,7 +66,7 @@ export function teamContextFromConfig(config: AtomicAgentConfig = getConfig()): 
     team,
     fusion,
     familyOf: teamFamilyOf(providers),
-    reachable: (member) => entryOf(member.providerId) !== undefined,
+    reachable: (member) => entryOf(member.providerId) !== undefined && (reachable?.(member) ?? true),
     pinsModel: (providerId) => {
       const entry = entryOf(providerId);
       return entry !== undefined && entry.kind !== "llama-server" && !isLocalServerUrl(entry.baseUrl ?? entry.url);

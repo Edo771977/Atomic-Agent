@@ -12,7 +12,7 @@ const runMode: UserLlmRunModeConfig = {
     team: { directors: ["cloud:model-a", "cli:model-d", "gone:model-z"], workers: ["cli:model-w"] },
   },
 };
-const usable = (providerId: string): boolean => providerId !== "gone";
+const usable = (member: { providerId: string }): boolean => member.providerId !== "gone";
 const m = (ref: string) => parseTeamMember(ref)!;
 
 describe("the TUI's fusion team picker (issue #37)", () => {
@@ -27,8 +27,14 @@ describe("the TUI's fusion team picker (issue #37)", () => {
   it("asks on the first submit only with several usable directors, fusion on, and none chosen", () => {
     expect(needsDirectorPick(runMode, {}, usable)).toBe(true);
     expect(needsDirectorPick(runMode, withSessionFusionDirector({}, m("cloud:model-a"), 1), usable)).toBe(false);
-    expect(needsDirectorPick(runMode, {}, (id) => id === "cloud")).toBe(false);
+    expect(needsDirectorPick(runMode, {}, (member) => member.providerId === "cloud")).toBe(false);
     expect(needsDirectorPick({ ...runMode, mode: "cloud" }, {}, usable)).toBe(false);
     expect(needsDirectorPick({ mode: "fusion" }, {}, usable)).toBe(false);
+  });
+
+  it("leaves out a member the runtime knows cannot answer (a signed-out CLI)", () => {
+    const signedOut = (member: { providerId: string }): boolean => member.providerId === "cloud";
+    expect(teamPickerState(runMode, {}, signedOut)?.directors).toEqual(["cloud:model-a"]);
+    expect(needsDirectorPick(runMode, {}, signedOut)).toBe(false);
   });
 });

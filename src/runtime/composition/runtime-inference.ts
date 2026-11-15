@@ -37,6 +37,19 @@ import { providerIdIsLlamaServer } from "../../llm/provider/registry/active-text
 import { createLocalLinkPreparer } from "../../llm/local-backend-gate.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionTeamChoice } from "../session-director.js";
+import { teamMembers, type TeamMember } from "../../llm/run-mode/fusion-team.js";
+import {
+  createSubscriptionCliStatusCache,
+  liveTeamReachability,
+  type SubscriptionCliStatusCache,
+} from "../../llm/run-mode/team-reachability.js";
+import {
+  checkSubscriptionCli,
+  registerBuiltInCliAdapters,
+  resolveCliAdapter,
+  type SubscriptionCliState,
+} from "../../llm/provider/subscription-cli/index.js";
+import type { SubscriptionCliName } from "../../config/llm-config.js";
 import {
   createFallbackCompleter,
   createFallbackStreamer,
@@ -52,11 +65,21 @@ type RuntimeInferenceOptions = Pick<CreateAgentRuntimeOptions, "overrides">;
  */
 const OLLAMA_RETRY_MS = 15_000;
 
+/** The same check `providers status` and `setup fusion` run, for the runtime's cache. */
+async function defaultCheckSubscriptionCli(cli: string, binPath: string | undefined): Promise<{ state: SubscriptionCliState }> {
+  registerBuiltInCliAdapters();
+  return checkSubscriptionCli(resolveCliAdapter(cli as SubscriptionCliName), binPath ? { binPath } : {});
+}
+
 export async function connectRuntimeProviders(
   config: AtomicAgentConfig,
   logger: StructuredLogger,
   local: Pick<RuntimeLocalProfile, "llama" | "modelAlias">,
   connected: Pick<RuntimeConnectedLocalProfile, "getLiveProfile" | "getLiveModelId">,
+  options: {
+    /** The subscription CLI check behind team reachability; tests inject one. */
+    checkSubscriptionCli?: (cli: string, binPath: string | undefined) => Promise<{ state: SubscriptionCliState }>;
+  } = {},
 ) {
   const { llama, modelAlias } = local;
   const { getLiveProfile, getLiveModelId } = connected;
@@ -154,12 +177,34 @@ export async function connectRuntimeProviders(
     return provider === undefined ? null : provider.capabilities.vision;
   };
 
+  /**
+   * Whether a fusion team member can answer now (issue #37), for the
+   * turn's director pick, the TUI's pickers and `fusion.delegate`. A
+   * subscription CLI's sign-in comes from a cache checked in the
+   * background (`team-reachability.ts`), never awaited by a turn; the
+   * team's CLIs are checked once at start so the first pick can use it.
+   */
+  const subscriptionCliStatus: SubscriptionCliStatusCache = createSubscriptionCliStatusCache({
+    check: options.checkSubscriptionCli ?? defaultCheckSubscriptionCli,
+  });
+  const teamMemberReachable = (member: TeamMember): boolean =>
+    liveTeamReachability({
+      providers: resolveLlmConfig(getConfig()).providers,
+      registered: (id) => providerRegistry.getProvider(id) !== undefined,
+      cache: subscriptionCliStatus,
+    })(member);
+  const startTeam = resolveLlmConfig(config).runMode?.fusion?.team;
+  for (const role of ["directors", "workers", "reviewers"] as const) {
+    for (const member of teamMembers(startTeam, role)) teamMemberReachable(member);
+  }
+
   return {
     providerRegistry,
     resolveActiveLlmSlice,
     resolveCurrentRunMode,
     resolveActiveModelName,
     resolveRouteVision,
+    teamMemberReachable,
   };
 }
 

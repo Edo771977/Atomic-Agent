@@ -71,6 +71,7 @@ import { ImportOrchestrator } from "./import/import-orchestrator.js";
 import { ProvidersOrchestrator } from "./providers/providers-orchestrator.js";
 import { FallbackOrchestrator } from "./llm-panel/fallback/fallback-orchestrator.js";
 import { RunModeOrchestrator } from "./run-mode/run-mode-orchestrator.js";
+import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import { TuiTelegramOrchestrator } from "./telegram/tui-telegram-orchestrator.js";
 import { PrivacyOrchestrator } from "./privacy/privacy-orchestrator.js";
 import { IntegrationsOrchestrator } from "./integrations/integrations-orchestrator.js";
@@ -639,11 +640,14 @@ export class ChatOrchestrator {
    * Which providers can serve this chat's team members (issue #37): the
    * registry's, minus what the chat folder's constraint refuses.
    */
-  private teamUsable(session: SessionState): (providerId: string) => boolean {
+  private teamUsable(session: SessionState): (member: TeamMember) => boolean {
     const restriction = this.runtime.providerRestrictionFor?.(session) ?? null;
-    return (id) =>
-      this.runtime.providerRegistry.getProvider(id) !== undefined &&
-      (restriction === null || restriction.allowedProviders.includes(id));
+    // The runtime's reachability: a signed-out or missing CLI cannot lead.
+    const reachable = this.runtime.teamMemberReachable ??
+      ((m: TeamMember) => this.runtime.providerRegistry.getProvider(m.providerId) !== undefined);
+    return (member) =>
+      reachable(member) &&
+      (restriction === null || restriction.allowedProviders.includes(member.providerId));
   }
 
   /** `/director`, `/worker` and the first submit (issue #37): open a team picker for the open chat. */
