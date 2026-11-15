@@ -37,6 +37,9 @@ export function renderRouteChangeNote(
   if (previous.mode !== next.mode) {
     parts.push(`Run mode: ${next.mode} (previously ${previous.mode}).`);
   }
+  if (next.director !== undefined && next.director !== previous.director) {
+    parts.push(`Fusion director: ${next.director} (previously ${previous.director ?? "none"}).`);
+  }
   if (next.worker !== null && !sameRouteLeg(previous.worker, next.worker)) {
     parts.push(
       `Fusion workers now run as ${legLabel(next.worker)} (previously ${

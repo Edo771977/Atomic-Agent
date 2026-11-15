@@ -76,6 +76,25 @@ export interface ResumePlan {
   carriedSpendUsd: number;
 }
 
+/**
+ * The director change a resume makes (issue #37): the run started under
+ * one team director and the session now has another. Null when nothing
+ * was recorded or nothing changed. A warning, never a refusal: the
+ * finished tasks stand, the new director plans the rest.
+ */
+export function resumeDirectorChange(
+  checkpoint: Pick<FusionRunCheckpoint, "director">,
+  current: string | null,
+): { from: string; to: string | null } | null {
+  if (checkpoint.director === undefined || checkpoint.director === current) return null;
+  return { from: checkpoint.director, to: current };
+}
+
+/** The line the resumed run's summary carries for {@link resumeDirectorChange}. */
+export function resumeDirectorWarning(change: { from: string; to: string | null }): string {
+  return `This run started under director ${change.from} and resumes under ${change.to ?? "no team director"}: its finished tasks stand; check that the rest of the plan still fits.`;
+}
+
 export const CARRIED_NOTE =
   "finished before the restart: reported from the run's checkpoint, not run again";
 

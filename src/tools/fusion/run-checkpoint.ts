@@ -196,6 +196,12 @@ export interface FusionRunCheckpoint {
   updatedAt: number;
   /** How many times the run was resumed. */
   resumes: number;
+  /**
+   * The session's fusion director the run last ran under
+   * (`"<providerId>:<model>"`, issue #37); absent without a team.
+   * Additive: version 1 files without it stay readable.
+   */
+  director?: string;
 }
 
 export interface FusionRunStartInput {
@@ -209,6 +215,8 @@ export interface FusionRunStartInput {
   waveCount: number;
   /** The checkpoint a resume continues: its finished tasks and spend stand. */
   resumedFrom?: FusionRunCheckpoint;
+  /** The director the run runs under now (issue #37); absent keeps a resumed run's own. */
+  director?: string;
 }
 
 export interface FusionRunStoreOptions {
@@ -260,6 +268,9 @@ export class FusionRunStore {
       ...(input.originalRequest === undefined
         ? {}
         : { originalRequest: input.originalRequest }),
+      ...((input.director ?? input.resumedFrom?.director) === undefined
+        ? {}
+        : { director: (input.director ?? input.resumedFrom?.director)! }),
       args: input.args,
       state: "running",
       owner: serializeTurnOwner(turnOwnerFor(this.probe, at)),
@@ -620,6 +631,7 @@ function readCheckpoint(file: string): FusionRunCheckpoint | null {
     (c.state !== "running" && c.state !== "interrupted") ||
     !boundedString(c.owner, CHECKPOINT_MAX_BYTES) ||
     (c.originalRequest !== undefined && !boundedString(c.originalRequest, CHECKPOINT_MAX_BYTES)) ||
+    (c.director !== undefined && !boundedString(c.director, CHECKPOINT_MAX_BYTES)) ||
     (c.merges !== undefined && (!Array.isArray(c.merges) || !c.merges.every((m) =>
       record(m) && boundedString(m.id, CHECKPOINT_MAX_BYTES) && boundedString(m.title, CHECKPOINT_MAX_BYTES) &&
       boundedString(m.instructions, CHECKPOINT_MAX_BYTES) && stringList(m.files, CHECKPOINT_MAX_BYTES, CHECKPOINT_MAX_BYTES))))

@@ -92,6 +92,8 @@ import {
   planResume,
   readResumeRequest,
   type ResumePlan,
+  resumeDirectorChange,
+  resumeDirectorWarning,
 } from "./run-resume.js";
 import {
   applyJudgeVerdict,
@@ -456,6 +458,15 @@ export function buildFusionDelegateTool(
           );
         }
         resume = planResume(resumedFrom, resumeRequest.confirm);
+      }
+      // The session's director now (issue #37): recorded in the run's
+      // checkpoint, and compared with the one a resumed run started under.
+      const directorRef = deps.currentDirector?.()?.ref ?? null;
+      const directorChange = resumedFrom === null ? null : resumeDirectorChange(resumedFrom, directorRef);
+      if (directorChange !== null) {
+        deps.logger.warn("fusion: resuming a run under a different director", {
+          sessionId: ctx.sessionId, runId: resumedFrom!.runId, from: directorChange.from, to: directorChange.to,
+        });
       }
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       const parsed = parseDelegateArgs(delegateArgs);
@@ -1247,6 +1258,7 @@ export function buildFusionDelegateTool(
       // run cut off by a crash or a quit can be resumed from where it was.
       const run: FusionRunRecorder | undefined = candidate === undefined ? deps.runCheckpoints?.start({
         ...(resume === undefined ? {} : { runId: resume.runId }),
+        ...(directorRef === null ? {} : { director: directorRef }),
         sessionId: ctx.sessionId,
         workingDir: ctx.workingDir,
         ...(originalRequest === undefined ? {} : { originalRequest }),
@@ -2358,7 +2370,7 @@ export function buildFusionDelegateTool(
                 resume.needsConfirmation.length === 0
                   ? ""
                   : `, ${resume.needsConfirmation.length} not run again until the person agrees (${resume.needsConfirmation.map((r) => r.id).join(", ")})`
-              }.`;
+              }.${directorChange === null ? "" : ` ${resumeDirectorWarning(directorChange)}`}`;
         const checkpointNote = run?.checkpointWarning === undefined ? "" :
           `\n\nThis Fusion run cannot be resumed: ${run.checkpointWarning}. Plan any remaining work again after an interruption.`;
 
@@ -2592,6 +2604,7 @@ export function buildFusionDelegateTool(
                         (r) => r.id,
                       ),
                       carriedSpendUsd: resume.carriedSpendUsd,
+                      ...(directorChange === null ? {} : { director: directorChange }),
                     },
                   }),
               ...(budgetStopped === undefined

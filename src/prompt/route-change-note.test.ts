@@ -85,3 +85,27 @@ describe("renderRouteChangeNote", () => {
     );
   });
 });
+
+describe("renderRouteChangeNote — the fusion director (issue #37)", () => {
+  const route = (director?: string) => ({
+    mode: "fusion" as const,
+    main: { providerId: "cli", model: "model-d" },
+    worker: { providerId: "cli", model: "model-w" },
+    ...(director === undefined ? {} : { director }),
+  });
+
+  it("says the director changed", () => {
+    const note = renderRouteChangeNote(route("cloud:model-a"), route("cli:model-d"), { vision: null });
+    expect(note).toContain("Fusion director: cli:model-d (previously cloud:model-a).");
+  });
+
+  it("names the first director a session gets", () => {
+    expect(renderRouteChangeNote(route(), route("cli:model-d"), { vision: null }))
+      .toContain("Fusion director: cli:model-d (previously none).");
+  });
+
+  it("is silent when nothing changed", () => {
+    expect(renderRouteChangeNote(route("cli:model-d"), route("cli:model-d"), { vision: null })).toBeNull();
+  });
+});
+

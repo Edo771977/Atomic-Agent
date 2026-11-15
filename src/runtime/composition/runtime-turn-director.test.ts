@@ -196,6 +196,12 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(notices.filter((n) => n.reason === "codex-direct-tasks")).toHaveLength(2);
   });
 
+  it("tells the model in a route note when the session's director changed", async () => {
+    const first = await fixture.service.executeTurn(session("s"), "one", { director: "cloud-a:model-a" });
+    await fixture.service.executeTurn(first.session, "two", { director: "cloud-b:model-b" });
+    expect(fixture.loop.runTurn.mock.calls[1]?.[1].routeNote).toContain("Fusion director: cloud-b:model-b (previously cloud-a:model-a).");
+  });
+
   it("without a team runs as before: no director, the configured primary", async () => {
     fixture.config.llm!.runMode!.fusion!.team = undefined as never;
     const output = await fixture.service.executeTurn(session("s"), "request");
