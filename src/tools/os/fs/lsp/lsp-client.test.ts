@@ -1,9 +1,11 @@
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { spawn } from "node:child_process";
 import {
   DIAGNOSTICS_UNVERSIONED_SETTLE_MS,
   LspConnectionClient,
+  stopLspServerProcess,
   uriKey,
 } from "./lsp-client.js";
 import {
@@ -56,6 +58,25 @@ describe("LSP server process (ATO-503)", () => {
     client.dispose();
   });
 
+  it("stops a Windows .cmd shim with taskkill /T, not just its cmd.exe", () => {
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    const fakeSpawn = ((command: string, args: readonly string[]) => {
+      calls.push({ command, args });
+      return { once: () => {}, on: () => {}, unref: () => {} };
+    }) as unknown as typeof spawn;
+    const child = { pid: 4242, exitCode: null, signalCode: null, kill: vi.fn(() => true) };
+    stopLspServerProcess(child, { platform: "win32", spawnImpl: fakeSpawn });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.command).toMatch(/taskkill/i);
+    expect(calls[0]!.args).toEqual(expect.arrayContaining(["/PID", "4242", "/T"]));
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for a server that has already exited", () => {
+    const child = { pid: 1, exitCode: 0, signalCode: null, kill: vi.fn(() => true) };
+    stopLspServerProcess(child, { platform: "linux" });
+    expect(child.kill).not.toHaveBeenCalled();
+  });
 });
 
 describe("LSP framing (ATO-503)", () => {

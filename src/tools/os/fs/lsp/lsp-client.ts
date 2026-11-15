@@ -21,6 +21,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCommandEnv } from "../../../../sandbox/command-env.js";
+import {
+  killProcessTree,
+  type KillableChild,
+  type KillProcessTreeOptions,
+} from "../../../../sandbox/kill-process-tree.js";
 import type { LspDiagnostic } from "./lsp-delta.js";
 import {
   createJsonRpcConnection,
@@ -246,9 +251,7 @@ export async function startLspClient(
   options: StartLspClientOptions,
 ): Promise<DiagnosticsClient> {
   const child = spawnServer(options);
-  const kill = (): void => {
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-  };
+  const kill = (): void => stopLspServerProcess(child);
   process.once("exit", kill);
   const forget = (): void => {
     process.removeListener("exit", kill);
@@ -290,6 +293,24 @@ export async function startLspClient(
     throw err;
   }
   return client;
+}
+
+/**
+ * Stop a server that is still running. On Windows an npm `.cmd` shim
+ * runs under `cmd.exe` (`shell: true`), and `child.kill()` would end
+ * only that wrapper and leave the node server running, so the whole
+ * tree is stopped (`killProcessTree`: `taskkill /T`, escalated to `/F`
+ * on a refusal). `options` is for tests.
+ */
+export function stopLspServerProcess(
+  child: KillableChild & {
+    readonly exitCode: number | null;
+    readonly signalCode: NodeJS.Signals | null;
+  },
+  options: Pick<KillProcessTreeOptions, "platform" | "spawnImpl"> = {},
+): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  killProcessTree(child, options);
 }
 
 function spawnServer(options: StartLspClientOptions): ChildProcess {
