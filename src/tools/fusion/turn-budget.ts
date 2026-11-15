@@ -1,4 +1,5 @@
 import type { BreakerTrip } from "./failure-breaker.js";
+import { TurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 
 /**
  * The per-turn caps of a fusion run (ATO-947): money and wall-clock time.
@@ -223,7 +224,7 @@ export class FusionTurnBudget {
     if (!Number.isFinite(upperUsd) || upperUsd < 0) throw new Error("request budget estimate is not finite");
     const committed = state.requestUsd + state.externalUsd;
     if (committed + state.heldUsd + upperUsd > cap + 1e-10) {
-      throw new Error(`turn budget cannot cover this request: ${formatUsd(upperUsd)} reserved cost would exceed the ${formatUsd(cap)} cap (${formatUsd(committed)} accounted, ${formatUsd(state.heldUsd)} held)`);
+      throw new TurnBudgetExhaustedError({ capUsd: cap, accountedUsd: committed, heldUsd: state.heldUsd, requestUsd: upperUsd });
     }
     state.heldUsd += upperUsd;
     let settled = false;

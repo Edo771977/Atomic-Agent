@@ -60,6 +60,11 @@ export {
   isDailySpendLimitError,
 } from "./spend-limit-error.js";
 export {
+  TurnBudgetExhaustedError,
+  findTurnBudgetExhaustedError,
+  turnBudgetStopLine,
+} from "./turn-budget-error.js";
+export {
   LOCAL_OUT_OF_MEMORY_CODE,
   LocalOutOfMemoryError,
   isLocalOutOfMemory,

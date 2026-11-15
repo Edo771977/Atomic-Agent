@@ -8,6 +8,7 @@ import { MODELS_DEV_SNAPSHOT_DATE } from "../llm/provider/models-dev/models-dev-
 import { modelParamProfile } from "../llm/provider/openai/model-params.js";
 import { formatUsd, type FusionTurnBudget } from "../tools/fusion/turn-budget.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
+import { TurnBudgetExhaustedError } from "../llm/reliability/turn-budget-error.js";
 import type { DailySpendBudget, DailySpendHold } from "./daily-spend-budget.js";
 import { linkSpendBilling, verifiablePricing, verifiedAdmissionPricing, type ModelPricing } from "./link-spend-billing.js";
 import { OFFLINE_ERROR_CODE } from "../llm/offline-network.js";
@@ -127,8 +128,7 @@ function releaseHolds(holds: SendHolds): void {
 }
 
 function isCapRefusal(error: unknown): boolean {
-  return error instanceof DailySpendLimitError ||
-    (error instanceof Error && error.message.startsWith("turn budget cannot cover this request"));
+  return error instanceof DailySpendLimitError || error instanceof TurnBudgetExhaustedError;
 }
 
 /**
