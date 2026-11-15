@@ -109,6 +109,22 @@ describe("chat export (ATO-1054)", () => {
     expect(chatExportFilename(chat([], { title: "x".repeat(200) }), "html")).toBe(`${"x".repeat(80)}.html`);
   });
 
+  it("never names the file after a Windows device, and cuts by characters", () => {
+    expect(chatExportFilename(chat([], { title: "CON" }), "markdown")).toBe("chat-CON.md");
+    expect(chatExportFilename(chat([], { title: "nul.txt" }), "markdown")).toBe("chat-nul.txt.md");
+    expect(chatExportFilename(chat([], { title: "com1" }), "docx")).toBe("chat-com1.docx");
+    expect(chatExportFilename(chat([], { title: "Lpt9 " }), "html")).toBe("chat-Lpt9.html");
+    expect(chatExportFilename(chat([], { title: "aux." }), "html")).toBe("chat-aux.html");
+    expect(chatExportFilename(chat([], { title: "console" }), "html")).toBe("console.html");
+    expect(chatExportFilename(chat([], { title: "COM10" }), "html")).toBe("COM10.html");
+    // No half of a surrogate pair at the cut.
+    const name = chatExportFilename(chat([], { title: `a${"\u{1F600}".repeat(100)}` }), "markdown");
+    expect(name).toBe(`a${"\u{1F600}".repeat(79)}.md`);
+    expect(chatExportTitle(chat([{ kind: "user", text: `a${"\u{1F600}".repeat(100)}`, at: 1 }]))).toBe(
+      `a${"\u{1F600}".repeat(56)}...`,
+    );
+  });
+
   it("shows raw HTML and script links as text in the HTML export", () => {
     const html = renderChatHtml(
       "# T\n\n<script>alert(1)</script>\n\n[bad](javascript:alert(1)) and [good](https://example.com)\n\n![img](https://tracker.example/p.png)",
