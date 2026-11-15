@@ -189,7 +189,9 @@ export class FanoutFailureBreaker {
     private readonly streak: number = REPEAT_FAILURE_STREAK,
   ) {}
 
-  observe(result: Pick<WorkerTaskResult, "status" | "error">): void {
+  observe(
+    result: Pick<WorkerTaskResult, "status" | "error" | "finishedWithoutReply">,
+  ): void {
     if (this.trip !== undefined) return;
     // A worker that stopped to ask a question (ATO-945) is a working
     // worker on a healthy leg, not a failure.
@@ -202,7 +204,14 @@ export class FanoutFailureBreaker {
       this.streakCount = 0;
       return;
     }
-    const failure = classifyWorkerFailure(result);
+    // A turn that failed after writing files is handed to the
+    // orchestrator (issue #29), but it is still a failure of the leg:
+    // counted by its underlying error, so a repeat trips the breaker.
+    const failure = classifyWorkerFailure(
+      result.finishedWithoutReply === true
+        ? { status: "failed", error: result.error }
+        : result,
+    );
     if (failure === undefined) return;
     if (failure.signature === this.streakSignature) {
       this.streakCount += 1;
