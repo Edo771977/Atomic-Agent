@@ -895,9 +895,22 @@ describe("review exhausted: the director decides (issue #38)", () => {
     expect(row.error).toMatch(/^review-exhausted: unverified after 0 review passes/);
   });
 
+  it("shows the director a review clause and the full review in details.review (issue #38)", async () => {
+    const { result } = await run(blocker);
+    expect(result.summary).toMatch(/review: needs-changes after 2 passes \(model-r\) — 1 blocker a\.txt: no score/);
+    expect((result.details.review as Record<string, unknown>).t).toEqual({
+      decision: "needs-changes",
+      passes: 2,
+      reviewer: "model-r",
+      issues: [{ item: "a2", severity: "blocker", file: "a.txt", why: "no score", by: "reviewer" }],
+    });
+  });
+
   it("without a team the still-red task fails as before, and is pending for the replan", async () => {
     const { result, row } = await run(blocker, {}, null);
     expect(row.failure).toBeUndefined();
+    expect(result.details.review).toBeUndefined();
+    expect(result.summary).not.toContain("review: ");
     expect((result.details.replan as { pending: Array<{ id: string }> }).pending.map((t) => t.id)).toEqual(["t"]);
   });
 });

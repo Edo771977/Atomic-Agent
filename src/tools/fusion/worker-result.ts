@@ -22,7 +22,7 @@ import {
   FUSION_WORKER_APPROVAL_MARKER,
   FUSION_WORKER_OPERATOR_ONLY_MARKER,
 } from "./worker-tool-policy.js";
-import type { JudgeSummary } from "./judge.js";
+import type { JudgeSummary, ReviewDecision, ReviewIssue } from "./judge.js";
 import { CHECK_OUTPUT_CHARS, tailClip } from "./contract-checks.js";
 import { describeChanges, FileChangeLog, type FileChange } from "./worker-changes.js";
 import { describeSyntax, type TaskSyntaxSummary } from "./syntax-pass.js";
@@ -182,6 +182,14 @@ export function delegateOutcome(
   return "partial";
 }
 
+/** A task's review as the director reads it (issue #38). */
+export interface TaskReview {
+  decision: ReviewDecision;
+  passes: number;
+  reviewer: string | null;
+  issues: ReviewIssue[];
+}
+
 export interface WorkerTaskResult {
   id: string;
   title: string;
@@ -274,6 +282,13 @@ export interface WorkerTaskResult {
    * as pending.
    */
   failure?: "review-exhausted";
+  /**
+   * A fusion team's per-task review (issue #38): the last decision, the
+   * review passes the task got, the reviewer's label and every issue.
+   * The status table's `review:` clause and `details.review[id]`; absent
+   * without a team or when no review ran.
+   */
+  review?: TaskReview;
   /**
    * The worker's turn failed or threw after it changed files, so the row
    * is `needs_orchestrator` rather than `failed` (issue #29): the files
@@ -1396,6 +1411,7 @@ function renderStatusTable(
         ? [describeChecks(r.checks, TABLE_DETAIL_CHARS, r.error)]
         : []),
       ...syntaxClause(r),
+      ...(r.review === undefined ? [] : [reviewClause(r.review)]),
       ...(r.notes ?? []).map((note) => oneLine(note, TABLE_DETAIL_CHARS)),
     ].join(" — "),
   );
@@ -1405,6 +1421,36 @@ function renderStatusTable(
     ...lines,
     ...(clock === null ? [] : [clock]),
   ].join("\n");
+}
+
+/** Issues a row's `review:` clause names; the rest are counted (all are in `details.review`). */
+export const REVIEW_CLAUSE_ISSUES = 5;
+const REVIEW_WHY_CHARS = 80;
+const REVIEW_CLAUSE_CHARS = 480;
+const REVIEW_SEVERITY_ORDER = ["blocker", "major", "minor"] as const;
+
+/**
+ * `review: needs-changes after 2 passes (<reviewer>) — 1 blocker src/a.ts:
+ * why; 2 minor …`: by severity, a count and the first issues (file, why),
+ * at most {@link REVIEW_CLAUSE_ISSUES} in all.
+ */
+export function reviewClause(review: TaskReview): string {
+  let left = REVIEW_CLAUSE_ISSUES;
+  const groups = REVIEW_SEVERITY_ORDER.flatMap((severity) => {
+    const mine = review.issues.filter((issue) => issue.severity === severity);
+    if (mine.length === 0) return [];
+    const shown = mine.slice(0, left);
+    left -= shown.length;
+    const text = shown
+      .map((issue) => {
+        const why = oneLine(issue.why, REVIEW_WHY_CHARS);
+        return issue.file === null ? why : `${issue.file}: ${why}`;
+      })
+      .join(", ");
+    return [`${mine.length} ${severity}${text.length === 0 ? "" : ` ${text}`}`];
+  });
+  const head = `review: ${review.decision}${review.passes > 0 ? ` after ${review.passes} pass${review.passes === 1 ? "" : "es"}` : ""}${review.reviewer === null ? "" : ` (${review.reviewer})`}`;
+  return oneLine(groups.length === 0 ? head : `${head} — ${groups.join("; ")}`, REVIEW_CLAUSE_CHARS);
 }
 
 function syntaxClause(r: WorkerTaskResult): string[] {

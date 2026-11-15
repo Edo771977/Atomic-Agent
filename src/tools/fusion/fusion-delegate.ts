@@ -2423,21 +2423,34 @@ export function buildFusionDelegateTool(
               if (needsChanges(verdict)) open.push(id);
             }
           }
+          // The director's view (issue #38): the review on the row, with a team.
+          const withReview = (row: WorkerTaskResult, verdict: JudgeVerdict): WorkerTaskResult =>
+            teamReview === undefined
+              ? row
+              : {
+                  ...row,
+                  review: {
+                    decision: verdict.review.decision,
+                    passes: passes.get(row.id) ?? 0,
+                    reviewer: verdict.review.reviewer,
+                    issues: verdict.review.issues,
+                  },
+                };
           results = results.map((r) => {
             const before = unjudged.get(r.id);
             if (before !== undefined) {
-              return {
+              return withReview({
                 ...r,
                 notes: [
                   ...(r.notes ?? []),
                   `judge: ${redItems(before).length} of ${before.items.length} acceptance items were not met before the retry; the retry ended ${r.status} and was not judged`,
                 ],
-              };
+              }, before);
             }
             const verdict = verdicts.get(r.id);
             if (verdict === undefined) return r;
             const ran = passes.get(r.id) ?? 0;
-            const row = applyJudgeVerdict(r, verdict, ran > 0, teamReview === undefined ? undefined : ran);
+            const row = withReview(applyJudgeVerdict(r, verdict, ran > 0, teamReview === undefined ? undefined : ran), verdict);
             if (teamReview === undefined) return row;
             const stop = stopped.get(r.id);
             if (stop !== undefined) {
@@ -2729,6 +2742,15 @@ export function buildFusionDelegateTool(
               ...(escalationSpendUsd > 0 ? { escalationSpendUsd } : {}),
               ...(judgeSpendUsd > 0 ? { judgeSpendUsd } : {}),
               ...(roleSpendUsd > 0 ? { roleSpendUsd } : {}),
+              // Every reviewed task's review in full (issue #38); the row's
+              // `review:` clause names at most five issues.
+              ...(results.some((r) => r.review !== undefined)
+                ? {
+                    review: Object.fromEntries(
+                      results.flatMap((r) => (r.review === undefined ? [] : [[r.id, r.review]])),
+                    ),
+                  }
+                : {}),
               ...(profileReports.length === 0 ? {} : { profiles: profileReports }),
               ...(merges.length === 0 ? {} : { merges }),
               ...(replan === undefined ||
