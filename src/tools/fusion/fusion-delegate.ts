@@ -99,6 +99,7 @@ import {
   redItems,
   renderAcceptanceBlock,
   renderRetryFindings,
+  type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
 import type { DelegateTask } from "./delegate-args.js";
@@ -1259,15 +1260,44 @@ export function buildFusionDelegateTool(
 
       // The judge's acceptance lists (ATO-944), built before any work so
       // every brief carries its own, read-only. Off: no list, no suffix.
+      // With a team's reviewers (issue #37) the judge of a task is the
+      // reviewer `pickReviewer` gives for the member that ran it, on that
+      // reviewer's own model; none fits: `judgeProvider`, as before.
       const judgeTarget = mode.judge ?? null;
+      const taskMember = (taskId: string): TeamMember => {
+        const leg = taskLegs.get(taskId);
+        const providerId = leg?.providerId ?? workerProviderId;
+        const model = leg === undefined || leg.isWorkerLeg ? workerModel : leg.model;
+        return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
+      };
+      const judgeTargets = new Map<string, JudgeTarget | null>();
+      const judgeTargetFor = (taskId: string): JudgeTarget | null => {
+        if (!judgeTargets.has(taskId)) {
+          const reviewer = team?.hasReviewers === true ? team.reviewerFor(taskMember(taskId)) : null;
+          judgeTargets.set(
+            taskId,
+            reviewer === null
+              ? judgeTarget
+              : {
+                  providerId: reviewer.providerId,
+                  model: reviewer.model,
+                  ...(team!.pinsModel(reviewer.providerId) ? { pinModel: reviewer.model } : {}),
+                },
+          );
+        }
+        return judgeTargets.get(taskId)!;
+      };
       const judging =
-        judgeTarget !== null && deps.escalationComplete !== undefined;
+        deps.escalationComplete !== undefined &&
+        (judgeTarget !== null || (team?.hasReviewers === true && parsed.tasks.some((t) => judgeTargetFor(t.id) !== null)));
       const acceptance = new Map(
         judging
-          ? parsed.tasks.map((t) => [
-              t.id,
-              buildAcceptanceChecklist(t, parsed.contract),
-            ])
+          ? parsed.tasks
+              .filter((t) => judgeTargetFor(t.id) !== null)
+              .map((t) => [
+                t.id,
+                buildAcceptanceChecklist(t, parsed.contract),
+              ])
           : [],
       );
       const acceptanceSuffix = judging
@@ -1402,15 +1432,13 @@ export function buildFusionDelegateTool(
       // The judge's spend counts toward the turn's cap, whether it ruled
       // in a task's workspace before the merge or after the waves.
       let judgeSpendUsd = 0;
-      const judgePricing =
-        judging && judgeTarget !== null
-          ? deps.resolveWorkerPricing?.(
-              judgeTarget.providerId,
-              judgeTarget.model ?? judgeTarget.providerId,
-            )
-          : undefined;
+      const judgePricingFor = (target: JudgeTarget) =>
+        deps.resolveWorkerPricing?.(target.providerId, target.model ?? target.providerId);
+      // The first judge that ruled, named on the spend line.
+      const judgeUsed: { target?: JudgeTarget } = {};
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
+        judgeTargetFor(r.id) !== null &&
         (r.status === "ok" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
       const judgeOne: GateJudge = async (input) => {
@@ -1424,13 +1452,15 @@ export function buildFusionDelegateTool(
             costUsd: null,
           };
         }
+        const target = judgeTargetFor(input.task.id)!;
+        judgeUsed.target ??= target;
         const verdict = await judgeTask({
           ...input,
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
-          target: judgeTarget!,
-          pricing: judgePricing,
+          target,
+          pricing: judgePricingFor(target),
           // Named for the folder's provider-policy refusal (issue #33).
           complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
           signal: runSignal,
@@ -2221,7 +2251,7 @@ export function buildFusionDelegateTool(
         // red list is re-run once with the findings, and a list still red
         // after that is a failed task, item by item. Its spend counts
         // toward the turn's cap.
-        if (judging && judgeTarget !== null) {
+        if (judging) {
           const judgeRows = async (
             rows: readonly WorkerTaskResult[],
           ): Promise<Map<string, JudgeVerdict>> => {
@@ -2574,7 +2604,7 @@ export function buildFusionDelegateTool(
                 : ""
             }${
               judgeSpendUsd > 0
-                ? `\n\nThe judge (${judgeTarget?.model ?? judgeTarget?.providerId}) cost ${formatUsd(judgeSpendUsd)} this fan-out.`
+                ? `\n\nThe judge (${judgeUsed.target?.model ?? judgeUsed.target?.providerId}) cost ${formatUsd(judgeSpendUsd)} this fan-out.`
                 : ""
             }${
               roleSpendUsd > 0

@@ -728,7 +728,7 @@ export function registerRuntimeFusionAndReadScope(input: {
   prepareLocalLink: FusionDelegateDeps["warmWorkerBackend"];
   emitAgentLoopEventFor: FusionDelegateDeps["emitEvent"];
   resolveCurrentRunMode: FusionDelegateDeps["resolveRunMode"];
-  providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot">>;
+  providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot" | "modelVariant">>;
   llama: Pick<
     LlamaServerClient,
     "measuredTokensPerSecond" | "fetchSlots" | "probeHealth"
@@ -909,10 +909,17 @@ export function registerRuntimeFusionAndReadScope(input: {
       // Escalation (ATO-942): one completion pinned to the configured
       // escalation provider — never the fallback chain, so it cannot
       // land on a model the operator did not pick for it.
-      escalationComplete: async ({ providerId, prompt, maxOutputTokens, signal, sessionId }) => {
-        const provider = providerRegistry.getProvider(providerId);
-        if (provider === undefined) {
+      escalationComplete: async ({ providerId, model, prompt, maxOutputTokens, signal, sessionId }) => {
+        const base = providerRegistry.getProvider(providerId);
+        if (base === undefined) {
           throw new Error(`escalation provider ${providerId} is not configured`);
+        }
+        // A fusion team reviewer's own model (issue #37): the provider's
+        // copy built for it, which keeps the provider id the folder's
+        // constraint below is checked against.
+        const provider = model === undefined ? base : await providerRegistry.modelVariant?.(providerId, model);
+        if (provider === undefined) {
+          throw new Error(`cannot ask llm provider "${providerId}" for model "${model}"`);
         }
         // The folder's provider constraint (issue #33), on the provider
         // actually returned, before the spend ceiling and anything sent.

@@ -452,6 +452,43 @@ describe("fusion escalation and judge calls under a folder's provider constraint
   });
 });
 
+describe("a fusion judge call on a team reviewer's own model (issue #37)", () => {
+  it("asks the provider's copy for that model, still under the folder's provider constraint", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "catalog-variant-"));
+    try {
+      const config = getConfig(); const toolRegistry = new ToolRegistry();
+      const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+      const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+      const usage = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
+      const base = { id: "cloud", complete: vi.fn(async () => ({ content: "base", usage, modelId: "big" })) };
+      const variant = { id: "cloud", complete: vi.fn(async () => ({ content: "variant", usage, modelId: "model-r" })) };
+      const modelVariant = vi.fn(async (_id: string, _model: string) => variant as never);
+      registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+        resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+        prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+        providerRegistry: { getProvider: () => base as never, modelVariant }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const },
+        slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+      const wired = builder.mock.calls.at(-1)?.[0];
+      if (!wired?.escalationComplete) throw new Error("escalation seam missing");
+      const signal = new AbortController().signal;
+      const answer = await wired.escalationComplete({ providerId: "cloud", model: "model-r", prompt: "p", maxOutputTokens: 10, signal });
+      expect(answer.content).toBe("variant");
+      expect(modelVariant).toHaveBeenCalledWith("cloud", "model-r");
+      expect(base.complete).not.toHaveBeenCalled();
+      const policy = makeProviderPolicy({ key: directory, allowedProviders: ["local"], matchedDir: directory });
+      await runWithProviderPolicy(policy, async () => {
+        await expect(runWithProviderRole("the fusion judge", () =>
+          wired.escalationComplete!({ providerId: "cloud", model: "model-r", prompt: "p", maxOutputTokens: 10, signal })))
+          .rejects.toThrow('provider "cloud" may not serve the fusion judge');
+      });
+      expect(variant.complete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("fusion escalation calls in llm.costTracking (ATO-1497)", () => {
   it("adds an escalation's cost to the session and day totals, with or without a delegating session", async () => {
     const directory = await mkdtemp(join(tmpdir(), "catalog-cost-"));
