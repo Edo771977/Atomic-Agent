@@ -85,7 +85,7 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
       if (call === 1) throw exhausted();
       return replyCall("Two of three parts are done; the third is left.");
     });
-    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap" }), options());
+    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap", workingDir: "/work" }), options());
     expect(calls).toHaveLength(2);
     expect(calls[0]!.finalReport).toBeUndefined();
     expect(calls[1]!.finalReport).toBe(true);
@@ -100,7 +100,7 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
 
   it("stops with reason budget and no further call when the final report is refused too", async () => {
     const { agent, calls, events } = loop(() => { throw exhausted(); });
-    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap2" }), options());
+    const result = await agent.runTurn(createEmptySessionState({ id: "s-cap2", workingDir: "/work" }), options());
     expect(calls).toHaveLength(2);
     expect(result.reason).toBe("budget");
     expect(events.some((e) => e.type === "loop_failed")).toBe(false);
@@ -109,7 +109,7 @@ describe("AgentLoop after the fusion turn cap refused a request (issue #29)", ()
 
   it("takes no final call when the daily limit is what refused", async () => {
     const { agent, calls } = loop(() => { throw new DailySpendLimitError({ spentUsd: 5, limitUsd: 5, providerId: "cloud" }); });
-    const result = await agent.runTurn(createEmptySessionState({ id: "s-day" }), options());
+    const result = await agent.runTurn(createEmptySessionState({ id: "s-day", workingDir: "/work" }), options());
     expect(calls).toHaveLength(1);
     expect(result.reason).toBe("failed");
   });
