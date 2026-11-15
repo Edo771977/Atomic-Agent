@@ -15,6 +15,11 @@
     "grammars/**",
     "assets/ai-models/**"
   ],
+  "allowScripts": {
+    "@sentry/cli": false,
+    "esbuild": true,
+    "fsevents": false
+  },
   "engines": {
     "node": ">=25.7.0"
   },
@@ -100,7 +105,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@mozilla/readability": "^0.6.0",
     "@types/marked": "^5.0.2",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.2.0",
     "chokidar": "^5.0.0",
     "chromium-bidi": "^15.0.0",
     "cli-highlight": "^2.1.11",

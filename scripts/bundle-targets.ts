@@ -63,3 +63,13 @@ export function currentTarget(): BundleTarget {
   }
   return match;
 }
+
+/**
+ * The better-sqlite3 native binding a bundle ships, relative to
+ * `node_modules/better-sqlite3`. Since 13.x the package is N-API and carries
+ * one prebuilt binary per platform in `prebuilds/` (no install-time build),
+ * which its loader picks when no locally compiled `build/` binary exists.
+ */
+export function betterSqlite3BindingPath(target: Pick<BundleTarget, "platform" | "arch">): string {
+  return `prebuilds/${target.platform}-${target.arch}.node`;
+}

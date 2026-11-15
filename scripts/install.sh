@@ -550,7 +550,7 @@ replace_dir "$STAGE/starter-skills" "$INSTALL_DIR/starter-skills"
 replace_dir "$STAGE/assets" "$INSTALL_DIR/assets"
 replace_dir "$STAGE/vendor" "$INSTALL_DIR/vendor"
 replace_dir "$STAGE/prebuilds" "$INSTALL_DIR/prebuilds"
-# better-sqlite3 (+ bindings + file-uri-to-path) runtime tree. The SEA
+# better-sqlite3 runtime tree (lib/ and its prebuilt binding). The SEA
 # binary's `createRequire` resolver (see src/native/load-better-sqlite3.ts)
 # looks these up under `node_modules/` next to the binary.
 replace_dir "$STAGE/node_modules" "$INSTALL_DIR/node_modules"

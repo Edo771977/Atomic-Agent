@@ -4,7 +4,7 @@
  *
  *   atomic-agent[.exe]             SEA binary (CLI: tui, run, serve, …)
  *   grammars/                      GBNF grammars the agent needs at runtime
- *   prebuilds/                     Native prebuilds (better-sqlite3) for the target
+ *   node_modules/better-sqlite3/   lib/ + the target's prebuilt N-API binding
  *   README.txt                     short usage note + requirements
  *
  * The bundle does NOT include llama-server: operators run it on their
@@ -23,7 +23,7 @@ import { join, resolve, dirname, basename } from "node:path";
 import { argv, exit, stdout, stderr } from "node:process";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
-import { BUNDLE_TARGETS, currentTarget, BundleTarget } from "./bundle-targets.js";
+import { BUNDLE_TARGETS, betterSqlite3BindingPath, currentTarget, BundleTarget } from "./bundle-targets.js";
 
 // `new URL(...).pathname` yields `/C:/...` on Windows; `fileURLToPath`
 // returns a native path so bundle staging works cross-platform.
@@ -111,7 +111,7 @@ async function copyPlaywrightCoreRuntime(stageDir: string): Promise<void> {
  * can resolve it via `createRequire` anchored at the executable's dir.
  * Only the files needed at runtime are shipped.
  */
-async function copyBetterSqlite3Runtime(stageDir: string): Promise<void> {
+async function copyBetterSqlite3Runtime(stageDir: string, target: BundleTarget): Promise<void> {
   type Spec = {
     name: string;
     // Relative paths within the source package to copy verbatim.
@@ -124,10 +124,9 @@ async function copyBetterSqlite3Runtime(stageDir: string): Promise<void> {
   const specs: Spec[] = [
     {
       name: "better-sqlite3",
-      keep: ["package.json", "lib", "build/Release/better_sqlite3.node"],
+      // N-API since 13.x: the target's prebuilt binary, no runtime deps.
+      keep: ["package.json", "lib", betterSqlite3BindingPath(target)],
     },
-    { name: "bindings", keep: ["package.json", "bindings.js"] },
-    { name: "file-uri-to-path", keep: ["package.json", "index.js"] },
   ];
 
   for (const { name, keep } of specs) {
@@ -140,7 +139,10 @@ async function copyBetterSqlite3Runtime(stageDir: string): Promise<void> {
     for (const entry of keep) {
       const from = join(srcPkg, entry);
       const to = join(destPkg, entry);
-      if (!(await pathExists(from))) continue;
+      if (!(await pathExists(from))) {
+        if (name === "better-sqlite3") throw new Error(`better-sqlite3 runtime file missing: ${from}`);
+        continue;
+      }
       await mkdir(dirname(to), { recursive: true });
       await cp(from, to, { recursive: true });
     }
@@ -266,10 +268,9 @@ async function main(): Promise<number> {
   // better-sqlite3 must live in a standard `node_modules/` layout next to
   // the SEA binary because `src/native/load-better-sqlite3.ts` uses
   // `createRequire(<execDir>/__atomic_sea_anchor__.js)` at runtime to
-  // resolve it. Ship the runtime dep chain (bindings → file-uri-to-path)
-  // with the same layout. Devdeps / docs / sources are skipped to keep the
-  // bundle slim; tests in each package are skipped too.
-  await copyBetterSqlite3Runtime(stageDir);
+  // resolve it. Only `lib/`, `package.json` and the target's prebuilt
+  // binding ship; docs / sources / other platforms' binaries are skipped.
+  await copyBetterSqlite3Runtime(stageDir, target);
 
   // playwright-core follows the same anchored-require pattern. It is
   // marked external in `scripts/bundle-sea.ts` because esbuild cannot

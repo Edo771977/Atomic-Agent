@@ -58,6 +58,7 @@ export type TraceEvent =
   | TraceDistill
   | TraceQueryRewriter
   | TraceMemoryHealthWarning
+  | TraceBudgetNotice
   | TraceError
   | TraceTruncated;
 
@@ -684,6 +685,19 @@ export interface TraceMemoryHealthWarning extends TraceEventBase {
   consecutive: number;
   setting: string;
   reason?: string;
+}
+
+/**
+ * A request-budget notice the user was shown (`budget_notice`): once per
+ * provider and reason within a turn. `text` is the hint itself, built from
+ * the provider id and budget figures; it carries no request content or key.
+ */
+export interface TraceBudgetNotice extends TraceEventBase {
+  type: "budget_notice";
+  turnIndex: number;
+  providerId: string;
+  reason: "soft" | "meter" | "clamp";
+  text: string;
 }
 
 export interface TraceError extends TraceEventBase {

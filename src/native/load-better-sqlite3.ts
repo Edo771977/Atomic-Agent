@@ -5,9 +5,9 @@
  * SEA's ESM entry point cannot resolve non-builtin specifiers via static
  * `import` (`ERR_UNKNOWN_BUILTIN_MODULE`), so we route the load through CJS
  * `createRequire` anchored at the executable's directory. The installer
- * ships `node_modules/better-sqlite3` (plus its runtime deps `bindings` and
- * `file-uri-to-path`) alongside the binary so that `createRequire` finds
- * them through the normal Node module resolution.
+ * ships `node_modules/better-sqlite3` (its `lib/` and the target's prebuilt
+ * N-API binding) alongside the binary so that `createRequire` finds it
+ * through the normal Node module resolution.
  *
  * Consumers import the named `Database` value from this module for the
  * runtime constructor. Type references like `BetterSqlite3.Database` or
@@ -40,13 +40,15 @@ function isRunningUnderSea(): boolean {
 let cached: DatabaseCtor | null = null;
 
 /**
- * The raw errors `bindings`/Node give for a missing or wrong-ABI `.node`
- * file, and the loader's own: Windows cannot load it ("The specified
- * module could not be found"), or Linux finds it built against a newer
- * glibc (`GLIBC_2.38' not found).
+ * The raw errors Node gives for a missing or unloadable `.node` file:
+ * better-sqlite3 >= 13 falls back to `build/Release/better_sqlite3.node`
+ * when no prebuilt binary matches ("Cannot find module '…better_sqlite3.node'"),
+ * Windows cannot load it ("The specified module could not be found"), Linux
+ * finds it built against a newer glibc (`GLIBC_2.38' not found), and the
+ * pre-13 `bindings`/ABI forms for a locally compiled one.
  */
 const NATIVE_BINDING_ERROR =
-  /Could not locate the bindings file|NODE_MODULE_VERSION|was compiled against|The specified module could not be found|GLIBC_[\d.]+'? not found/;
+  /Cannot find module '[^']*better_sqlite3\.node'|Could not locate the bindings file|NODE_MODULE_VERSION|was compiled against|The specified module could not be found|GLIBC_[\d.]+'? not found/;
 
 export interface LoadBetterSqlite3Deps {
   req: (id: string) => unknown;
@@ -58,8 +60,8 @@ export interface LoadBetterSqlite3Deps {
 }
 
 /**
- * Loads the module, and turns a missing or mismatched native binding (an
- * install script that never ran, e.g. npm blocking it, or a Node upgrade)
+ * Loads the module, and turns a missing or unloadable native binding (an
+ * incomplete install, an unsupported platform, or a stale local build)
  * into an error that says how to fix it. The original stays as `cause`.
  */
 export function loadBetterSqlite3Ctor(deps: LoadBetterSqlite3Deps): DatabaseCtor {
@@ -74,13 +76,14 @@ export function loadBetterSqlite3Ctor(deps: LoadBetterSqlite3Deps): DatabaseCtor
     if (deps.sea) {
       fix = "The installed files are incomplete or from another release: reinstall atomic-agent.";
     } else {
-      fix = "From source, build it for this Node: npm rebuild better-sqlite3 --foreground-scripts";
+      fix =
+        "From source, reinstall the dependencies with npm ci: better-sqlite3 ships prebuilt binaries for Windows, macOS and Linux (x64 and arm64)." +
+        " On another platform compile it: npx node-gyp rebuild --release --directory node_modules/better-sqlite3";
       if ((deps.platform ?? process.platform) === "win32") {
         fix += " (on Windows this needs Visual Studio Build Tools with the \"Desktop development with C++\" (VCTools) workload, and Python 3).";
       } else {
         fix += " (this needs a C++ toolchain and Python 3).";
       }
-      fix += " If npm blocked the package's install script, allow it and run the rebuild again.";
     }
     throw new Error(`${head} ${fix}`, { cause: err });
   }

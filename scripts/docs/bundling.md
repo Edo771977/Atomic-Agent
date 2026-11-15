@@ -141,7 +141,7 @@ manager, the TUI makes no update offer, `atomic-agent uninstall` lists data
 only, and the analytics install channel reports the package. `install.sh`
 warns when its copy shadows a package. Each package depends on the newest
 glibc any ELF in the tree requires, read with `readelf` (2.34 today, from
-`better_sqlite3.node`; the SEA binary itself needs 2.28), plus `libstdc++` and
+better-sqlite3's prebuilt `prebuilds/linux-<arch>.node`; the SEA binary itself needs 2.28), plus `libstdc++` and
 `libatomic` (the Node binary links `libatomic.so.1`, which minimal Debian and
 Fedora images lack; the first smoke on a draft caught it). The build reads
 every `NEEDED` library of those files and fails on one that
@@ -239,7 +239,7 @@ an unsigned binary with `npm run bundle:build-binary` and
 atomic-agent[.exe]            # SEA binary (CLI entry)
 grammars/tool-call.gbnf      # GBNF for structured tool-call decoding
 vendor/rg[.exe]              # pinned ripgrep for os.fs.grep (sibling of binary)
-prebuilds/…                  # better-sqlite3 native prebuilds for the target
+node_modules/better-sqlite3/  # lib/ + prebuilds/<platform>-<arch>.node for the target
 README.txt                   # short runtime note
 ```
 

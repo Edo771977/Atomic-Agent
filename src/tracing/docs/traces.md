@@ -3,7 +3,7 @@
 Status: current
 Owner: src/tracing/
 
-TraceRecorder creates per-session NDJSON events with monotonic sequence and truthful timing/provider/batch attribution. A batch creates one invocation event per result, with batch metadata where appropriate, and one inference reasoning block is not duplicated as multiple independent inferences.
+TraceRecorder creates per-session NDJSON events with monotonic sequence and truthful timing/provider/batch attribution. A batch creates one invocation event per result, with batch metadata where appropriate, and one inference reasoning block is not duplicated as multiple independent inferences. A request-budget notice the user was shown is recorded as `budget_notice` (turn index, `providerId`, `reason` `soft`/`meter`/`clamp`, and the hint `text`), so a meter or soft-bound hint can be checked from the trace.
 
 Trace payloads contain local sensitive prompt/completion/tool data, so on POSIX the sink creates the traces directory 0700 and each trace (and trim temp) 0600, and tightens ones an older build left at the umask mode; Windows keeps the folder ACL. The cap rewrites whole tail lines with a trace_truncated marker; append-only is therefore qualified by cap rotation. Complete secret redaction is not promised. Replay compares stable-prefix drift; optional inference replay does not reproduce external filesystem/browser state or model determinism.
 

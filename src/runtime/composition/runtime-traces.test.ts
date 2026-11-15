@@ -10,6 +10,9 @@ import type { TraceEvent } from "../../tracing/trace/index.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
 import { createRuntimeTraces } from "./runtime-traces.js";
+import { RequestBudgetNotices } from "../request-budget-notices.js";
+import type { RequestBudgetScope } from "../request-budget.js";
+import type { CompletionRequest } from "../../llm/provider/completion-types.js";
 import type { SentryClient } from "../../error-reporting/index.js";
 import { OpenAiHttpError } from "../../llm/provider/openai/openai-http.js";
 import { TransportError } from "../../llm/reliability/llm-failures.js";
@@ -116,6 +119,21 @@ describe("runtime trace ownership and deferred event routing", () => {
     traces.turnContext.run({ sessionId: "worker" }, () => routing.emitAgentLoopEventFor("parent", event));
     expect(calls.slice(-2)).toEqual(["hook:parent", "host:parent"]);
     expect(reporter).not.toHaveBeenCalled();
+  });
+
+  it("records a request-budget notice in the owning session's trace", () => {
+    const { traces, events, session } = fixture();
+    traces.ensureRecorder(session("budget"));
+    const routing = traces.createEventRouting({ emit: () => {} }, {}, () => null);
+    const notices = new RequestBudgetNotices(routing.emitAgentLoopEventFor);
+    const close = notices.begin("budget");
+    const text = "turn budget: no verified pricing for provider anthropic; its spend is estimated.";
+    const scope = { hint: text, hintReason: "meter", beforeSend: () => {} } as unknown as RequestBudgetScope;
+    notices.observeScope("anthropic", { sessionId: "budget" } as CompletionRequest, scope);
+    close();
+    expect(events.filter((event) => event.type === "budget_notice")).toEqual([
+      expect.objectContaining({ type: "budget_notice", sessionId: "budget", providerId: "anthropic", reason: "meter", text }),
+    ]);
   });
 
   it("keeps hook-before-usage-before-host order and does not leak usage after its separate clear", () => {

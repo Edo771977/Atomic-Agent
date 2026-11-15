@@ -158,6 +158,29 @@ describe("createTraceRecorder", () => {
     });
   });
 
+  it("records a budget notice with its provider, reason and hint text against the current turn", () => {
+    const { events, emit } = collector();
+    const rec = createTraceRecorder({ sessionId: "s-budget", emit, now });
+    rec.onAgentEvent({ type: "turn_started", turnIndex: 2 } as AgentLoopEvent);
+    rec.onAgentEvent({
+      type: "budget_notice",
+      sessionId: "s-budget",
+      providerId: "anthropic",
+      reason: "soft",
+      text: "turn budget: no verified pricing for provider anthropic; its spend is estimated.",
+    });
+    expect(events.find((e) => e.type === "budget_notice")).toEqual({
+      type: "budget_notice",
+      seq: 1,
+      sessionId: "s-budget",
+      ts: 1000,
+      turnIndex: 2,
+      providerId: "anthropic",
+      reason: "soft",
+      text: "turn budget: no verified pricing for provider anthropic; its spend is estimated.",
+    });
+  });
+
   it("records an empty-completion recovery against the current turn and step", () => {
     const { events, emit } = collector();
     const rec = createTraceRecorder({ sessionId: "s-empty", emit, now });
