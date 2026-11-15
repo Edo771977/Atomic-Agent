@@ -587,6 +587,8 @@ Channels belong to the runtime, not to the TUI: `atomic-agent serve` boots them 
 
 **Discord.** There is no pairing: put your user id (as a string) in `ownerUserIds`; an empty list refuses every message. The bot needs no privileged intents, because Discord delivers DMs and @mentions without them. Inbound files up to 50 MB go to `<stateDir>/inbox/discord/`; reply attachments are uploaded one message each, within your server's upload limit. There is no progress bubble.
 
+**Approval reminders.** Off by default. With `"notifications": { "approvalPending": { "enabled": true, "afterMinutes": 5, "channel": "auto" } }`, an approval prompt nobody has answered for `afterMinutes` (1 to 1440) sends one message per prompt to your paired Telegram owner, or to the first Discord owner (`channel`: `auto` tries Telegram first, `telegram` or `discord` uses only that one). It reads like `atomic-agent is waiting for your approval for 5 min: shell command (os.shell.run) in my-project. Answer it in the app.` and never includes the command, arguments, file contents or anything else from the prompt; for an incognito chat it says only that an approval is waiting. It goes only through a bot running in that same process (the TUI, `serve` or the desktop app), never while offline mode is on, and nothing is sent when no bot is up. It is a reminder: you answer in the app. Prompts of a turn that came from a Telegram or Discord chat already arrive there as buttons. Fusion runs' approvals (merge, contract checks, `verify.run`) count too.
+
 **Swarm.** Run extra Telegram or Discord bots beside the two above, each with its own token, owner, lockfile and sessions. Manage them in the Swarm tab (`/swarm`), which writes `swarm.units` and the token for you:
 
 ```jsonc
