@@ -402,7 +402,7 @@ describe("resuming a fusion run (ATO-617)", () => {
     it("records the director a run started under (issue #37)", async () => {
       const director = { providerId: "cloud", model: "model-a", ref: "cloud:model-a" };
       const controller = new AbortController();
-      const d = deps({ runCheckpoints: store, currentDirector: () => director }, (taskId) => {
+      const d = deps({ runCheckpoints: store, resolveRunMode: () => mode({ director }) }, (taskId) => {
         if (taskId === "t1") controller.abort();
       });
       await buildFusionDelegateTool(d).run(ORDERED, ctx({ signal: controller.signal }));
@@ -417,7 +417,7 @@ describe("resuming a fusion run (ATO-617)", () => {
       run.finish("interrupted");
       const d = deps({
         runCheckpoints: store,
-        currentDirector: () => ({ providerId: "cli", model: "model-d", ref: "cli:model-d" }),
+        resolveRunMode: () => mode({ director: { providerId: "cli", model: "model-d", ref: "cli:model-d" } }),
       });
       const result = await buildFusionDelegateTool(d).run({ resume: run.runId }, ctx());
       expect(d.ran.sort()).toEqual(["t2", "t3"]);
@@ -428,7 +428,10 @@ describe("resuming a fusion run (ATO-617)", () => {
 
     it("says nothing about the director when it is the same or was never recorded", async () => {
       const same = cutOff(["t1"]);
-      const d = deps({ runCheckpoints: store, currentDirector: () => ({ providerId: "cloud", model: "model-a", ref: "cloud:model-a" }) });
+      const d = deps({
+        runCheckpoints: store,
+        resolveRunMode: () => mode({ director: { providerId: "cloud", model: "model-a", ref: "cloud:model-a" } }),
+      });
       const result = await buildFusionDelegateTool(d).run({ resume: same.runId }, ctx());
       expect(result.summary).not.toContain("resumes under");
     });

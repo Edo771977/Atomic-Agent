@@ -130,8 +130,8 @@ export interface RuntimeTurnDependencies {
     budgetNotices?: RequestBudgetNotices;
     /**
      * The team choice of each running turn (issue #37): set here for the
-     * turn so ambient readers (the live run mode, the fusion tool's
-     * `currentDirector`) see the session's director. Absent in narrow
+     * turn so ambient readers (the live run mode `fusion.delegate` reads
+     * its director from) see the session's director. Absent in narrow
      * test rigs: the director still leads the turn, nothing ambient sees it.
      */
     sessionTeam?: SessionTeamChoices;

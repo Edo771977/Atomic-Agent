@@ -4,7 +4,6 @@ import type { UserFusionTeamConfig, UserLlmFusionConfig } from "../../config/llm
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
 import { resolveLlmConfig } from "../../llm/provider/registry/provider-types.js";
 import {
-  defaultDirector,
   defaultWorker,
   pickReviewer,
   teamFamilyOf,
@@ -37,7 +36,7 @@ export interface FusionTeamContext {
 export interface FusionTeamRouting {
   /** Task routing by member; undefined when the team lists no `workers` (the worker leg serves, as before). */
   readonly tasks: TeamTaskRouting | undefined;
-  /** The session's director, else the default one; null when none passes. */
+  /** The director leading the turn; null on a pinned turn or without one. */
   readonly director: TeamMember | null;
   /** Whether the team lists reviewers at all. */
   readonly hasReviewers: boolean;
@@ -78,7 +77,8 @@ export function teamContextFromConfig(
  * Bind the team to this call: members the folder's policy refuses or
  * that cannot answer are left out of every pick; the session's own
  * worker (`currentWorker`) wins when it is still one of the workers, and
- * the session's director (`currentDirector`) when one was chosen.
+ * the turn's director (`currentDirector`, the run mode's) names the
+ * orchestrator; none leads: null, and the run mode's orchestrator holds.
  */
 export function resolveTeamRouting(
   context: FusionTeamContext,
@@ -103,7 +103,8 @@ export function resolveTeamRouting(
   }
   return {
     tasks,
-    director: options.currentDirector?.() ?? defaultDirector(team, fusion, ok),
+    // The director that leads the turn, never a default it did not run on.
+    director: options.currentDirector?.() ?? null,
     hasReviewers: teamMembers(team, "reviewers").length > 0,
     reviewerFor: (worker) => pickReviewer(team, worker, { familyOf: context.familyOf, reachable: ok }),
     pinsModel: context.pinsModel,

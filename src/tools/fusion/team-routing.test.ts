@@ -50,8 +50,8 @@ describe("resolveTeamRouting (issue #37)", () => {
     expect(routing.hasReviewers).toBe(false);
   });
 
-  it("takes the session's director, else the default director", () => {
-    expect(resolveTeamRouting(context(), { allows: () => true }).director?.ref).toBe("api-a:model-a");
+  it("takes the turn's director, never a default the turn did not run on", () => {
+    expect(resolveTeamRouting(context(), { allows: () => true }).director).toBeNull();
     expect(resolveTeamRouting(context(), { allows: () => true, currentDirector: () => member("cli-b:model-x") }).director?.ref)
       .toBe("cli-b:model-x");
   });

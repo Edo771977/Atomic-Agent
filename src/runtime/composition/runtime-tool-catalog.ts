@@ -728,8 +728,6 @@ export function registerRuntimeFusionAndReadScope(input: {
   prepareLocalLink: FusionDelegateDeps["warmWorkerBackend"];
   emitAgentLoopEventFor: FusionDelegateDeps["emitEvent"];
   resolveCurrentRunMode: FusionDelegateDeps["resolveRunMode"];
-  /** The calling session's fusion director (issue #37); see `FusionDelegateDeps.currentDirector`. */
-  currentDirector?: FusionDelegateDeps["currentDirector"];
   /** The calling session's preferred worker (issue #37); see `FusionDelegateDeps.currentWorker`. */
   currentWorker?: FusionDelegateDeps["currentWorker"];
   /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
@@ -782,7 +780,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentDirector, currentWorker, teamMemberReachable } = input;
+    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, teamMemberReachable } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -1009,7 +1007,6 @@ export function registerRuntimeFusionAndReadScope(input: {
       resolveRunMode: resolveCurrentRunMode,
       // The session's director and preferred worker (issue #37), read
       // from the ambient turn per call.
-      ...(currentDirector === undefined ? {} : { currentDirector }),
       ...(teamMemberReachable === undefined
         ? {}
         : { resolveFusionTeam: () => teamContextFromConfig(getConfig(), teamMemberReachable) }),

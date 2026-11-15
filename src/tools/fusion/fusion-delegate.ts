@@ -186,13 +186,6 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   /** Live read — the operator can leave fusion mid-turn. */
   resolveRunMode: () => ResolvedRunMode;
   /**
-   * The director of the session whose turn is calling (issue #37,
-   * `runtime/session-director.ts`): the team member leading this fusion
-   * session, or null without a team or a director in effect. Read per
-   * call. Absent (tests, embedders): no director is known.
-   */
-  currentDirector?: () => TeamMember | null;
-  /**
    * The calling session's preferred worker (`metadata.fusionWorker`, set
    * by `--worker` or the composer), or null. A task that names no worker
    * runs on it before the team's default worker. Read per call.
@@ -470,7 +463,10 @@ export function buildFusionDelegateTool(
       }
       // The session's director now (issue #37): recorded in the run's
       // checkpoint, and compared with the one a resumed run started under.
-      const directorRef = deps.currentDirector?.()?.ref ?? null;
+      // The run mode's director, the one that actually leads this turn:
+      // none on a pinned turn or without a usable director.
+      const turnDirector = mode.director ?? null;
+      const directorRef = turnDirector?.ref ?? null;
       const directorChange = resumedFrom === null ? null : resumeDirectorChange(resumedFrom, directorRef);
       if (directorChange !== null) {
         deps.logger.warn("fusion: resuming a run under a different director", {
@@ -506,7 +502,7 @@ export function buildFusionDelegateTool(
           ? undefined
           : resolveTeamRouting(teamContext, {
               allows: currentPolicyAllows,
-              ...(deps.currentDirector === undefined ? {} : { currentDirector: deps.currentDirector }),
+              currentDirector: () => turnDirector,
               ...(deps.currentWorker === undefined ? {} : { currentWorker: deps.currentWorker }),
             });
       const teamTasks = team?.tasks;

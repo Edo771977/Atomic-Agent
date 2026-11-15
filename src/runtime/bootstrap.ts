@@ -1000,7 +1000,6 @@ export async function createAgentRuntime(
   registerRuntimeFusionAndReadScope({
     config, toolRegistry, runTurn, createEphemeralSession, resolveOriginalRequest: (id) => turnRequests.get(id),
     declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
-    currentDirector: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.director ?? null,
     currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
     teamMemberReachable: providers.teamMemberReachable,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,

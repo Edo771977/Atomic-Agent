@@ -2213,10 +2213,9 @@ describe("fusion.delegate — fusion team routing (issue #37)", () => {
     // The session's director is an API model: `model: "orchestrator"` runs on it.
     const onApi = await buildFusionDelegateTool(
       deps({
-        resolveRunMode: () => teamMode(),
+        resolveRunMode: () => teamMode({ director: member("api-d:model-o") }),
         workerSupportsSlotAffinity: () => false,
         resolveFusionTeam: () => teamContext(),
-        currentDirector: () => member("api-d:model-o"),
         cliToolsStayOn,
         runTurn,
       }),
@@ -2226,15 +2225,32 @@ describe("fusion.delegate — fusion team routing (issue #37)", () => {
     // A Codex-like director: refused as before.
     const onCli = await buildFusionDelegateTool(
       deps({
-        resolveRunMode: () => teamMode({ orchestratorProviderId: "api-d" }),
+        resolveRunMode: () => teamMode({ orchestratorProviderId: "api-d", director: member("cli-b:model-a") }),
         resolveFusionTeam: () => teamContext(),
-        currentDirector: () => member("cli-b:model-a"),
         cliToolsStayOn,
         runTurn,
       }),
     ).run({ tasks: [{ id: "h", instructions: "hard", model: "orchestrator" }] }, ctx());
     expect(onCli.status).toBe("error");
     expect(onCli.details.reason).toBe("orchestrator-target-cli-tools");
+  });
+
+  it("names the turn's actual orchestrator, not the team's default, when no director leads the turn", async () => {
+    const runTurn = vi.fn(async () => turnResult());
+    // A pinned turn (or no usable director): the run mode has no director
+    // and its orchestrator is the API model; the team's default director
+    // would be the Codex-like member and refuse the orchestrator task.
+    const result = await buildFusionDelegateTool(
+      deps({
+        resolveRunMode: () => teamMode({ orchestratorProviderId: "api-d", orchestratorModel: "model-o" }),
+        workerSupportsSlotAffinity: () => false,
+        resolveFusionTeam: () => teamContext(),
+        cliToolsStayOn: (providerId) => providerId === "cli-b",
+        runTurn,
+      }),
+    ).run({ tasks: [{ id: "h", instructions: "hard", model: "orchestrator" }] }, ctx());
+    expect(result.status).toBe("ok");
+    expect((result.details.tasks as WorkerTaskResult[])[0]).toMatchObject({ model: "model-o" });
   });
 
   it("without a team routes as before", async () => {

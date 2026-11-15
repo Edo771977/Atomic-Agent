@@ -145,8 +145,8 @@ export interface SessionTeamChoice {
 /**
  * The team choice of each turn running now, by session id. Owned by one
  * runtime: `executeTurn` sets it for the turn and releases it after, so
- * readers that only know the ambient session (the live run mode, the
- * fusion tool's `currentDirector`) see that session's director. A fusion
+ * readers that only know the ambient session (the live run mode, whose
+ * `director` `fusion.delegate` reads) see that session's director. A fusion
  * worker's session borrows its parent's for its own turn.
  */
 export interface SessionTeamChoices {

@@ -343,19 +343,20 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     } finally { await retained?.shutdown(); }
   });
 
-  it("hands the fusion tool the calling session's director and preferred worker (issue #37)", () => {
+  it("hands the fusion tool the calling session's preferred worker and team reachability (issue #37)", () => {
     const config = getConfig(); const toolRegistry = new ToolRegistry();
     const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
     const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
-    const director = { providerId: "cloud", model: "model-d", ref: "cloud:model-d" };
     const worker = { providerId: "local", model: "model-w", ref: "local:model-w" };
     registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
       resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
       prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
-      currentDirector: () => director, currentWorker: () => worker,
+      currentWorker: () => worker, teamMemberReachable: () => false,
       providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
     const wired = builder.mock.calls.at(-1)?.[0];
-    expect(wired?.currentDirector?.()).toBe(director);
+    // The director is the run mode's (`mode.director`), not a separate read.
+    expect(wired).not.toHaveProperty("currentDirector");
+    expect(wired?.resolveFusionTeam).toBeTypeOf("function");
     expect(wired?.currentWorker?.()).toBe(worker);
   });
 
