@@ -32,6 +32,7 @@ import {
   localBadRequestKind,
 } from "./local-bad-request.js";
 import { isToolSchemaErrorText } from "./tool-schema-rejection.js";
+import { OFFLINE_ERROR_CODE } from "../../offline-network.js";
 import {
   ATOMIC_CHAT_KEY_ADVICE,
   atomicChatKeyMessage,
@@ -1073,6 +1074,9 @@ function sentCredential(deps: OpenAiHttpDeps): boolean {
 function isRetryableOpenAiError(err: unknown): boolean {
   if (!(err instanceof OpenAiHttpError)) return false;
   if (err.timedOut) return false;
+  // Offline mode refused it before any byte left (ATO-1084): the same
+  // request is refused the same way until the switch is turned off.
+  if (err.code === OFFLINE_ERROR_CODE) return false;
   if (err.status === null) return true;
   // A 429 whose body says the account is out of credit is not
   // throttling: the same request fails the same way until someone tops

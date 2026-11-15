@@ -10,6 +10,7 @@ import { formatUsd, type FusionTurnBudget } from "../tools/fusion/turn-budget.js
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
 import type { DailySpendBudget, DailySpendHold } from "./daily-spend-budget.js";
 import { linkSpendBilling, verifiablePricing, verifiedAdmissionPricing, type ModelPricing } from "./link-spend-billing.js";
+import { OFFLINE_ERROR_CODE } from "../llm/offline-network.js";
 
 // Explicit rejections before generation. 529 is Anthropic's overload answer
 // returned instead of generating. 503 stays charged like 500/502/504:
@@ -19,7 +20,8 @@ const RELEASED_STATUSES = new Set([400, 401, 402, 403, 404, 405, 413, 415, 422, 
 // Failures before a connection exists (refused, unresolved, no route, no
 // usable local address): no request byte reached a server. A reset,
 // timeout or TLS/socket error can follow a delivered body and stays charged.
-const UNSENT_ERRNOS = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "EADDRNOTAVAIL"]);
+// OFFLINE_ERROR_CODE: offline mode refused the request before DNS or connect (ATO-1084).
+const UNSENT_ERRNOS = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "EADDRNOTAVAIL", OFFLINE_ERROR_CODE]);
 
 /**
  * True when the provider can add prompt input the serialized body does not

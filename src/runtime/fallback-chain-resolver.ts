@@ -2,10 +2,12 @@ import {
   lacksRequiredApiKeyIn,
   resolveFallbackChain,
   withoutKeylessLinks,
+  withoutOffMachineLinks,
   withoutUnavailableLinks,
   withoutUnbuiltLinks,
   type ResolvedFallbackChain,
 } from "../llm/fallback/index.js";
+import { isOfflineNetwork } from "../llm/offline-network.js";
 import type { ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
 
@@ -24,6 +26,8 @@ export interface FallbackChainResolverDeps {
    * Absent, no link is judged unavailable.
    */
   linkUnavailable?: (llm: ResolvedLlmConfig, id: string) => boolean;
+  /** Whether offline mode is on; read on every resolve. Default `isOfflineNetwork`. */
+  offline?: () => boolean;
   logger: Pick<StructuredLogger, "warn">;
 }
 
@@ -33,7 +37,9 @@ export interface FallbackChainResolverDeps {
  * the links that cannot serve a turn at all. That is a link the registry
  * did not build, a link with no API key for a service that wants one
  * (`lacksRequiredApiKey`), and a link the host says cannot serve here
- * (`linkUnavailable`); the primary is never dropped.
+ * (`linkUnavailable`), and while offline mode is on a link that would
+ * leave this machine (`withoutOffMachineLinks`); the primary is never
+ * dropped.
  *
  * Separate from bootstrap so the whole path from a config to the links a
  * turn walks can be driven by a test with fake providers. A dropped link
@@ -94,6 +100,11 @@ export function createFallbackChainResolver(
         },
       );
       unavailableLinks = unavailableNow;
+    }
+    // Not logged: the person turned offline mode on, and the skip ends
+    // the moment it is turned off.
+    if ((deps.offline ?? isOfflineNetwork)()) {
+      resolved = withoutOffMachineLinks(resolved, llm);
     }
     return resolved;
   };

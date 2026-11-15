@@ -4,6 +4,7 @@ import { LlamaServerError } from "../llama-server-client.js";
 import { TransportError } from "../reliability/llm-failures.js";
 import { isRequestSizeRejection } from "../reliability/request-size-rejection.js";
 import { findDailySpendLimitError } from "../reliability/spend-limit-error.js";
+import { isOfflineRefusal } from "../offline-network.js";
 
 /**
  * Fallover decision for a single thrown error.
@@ -75,6 +76,11 @@ export function shouldAdvance(err: unknown): AdvanceDecision {
   // llama-server that was not running — and from there into the outage
   // wait. Same standing as the local 400/413/422 band below.
   if (isRequestSizeRejection(err)) return NO;
+  // Offline mode refused the link before anything was sent (ATO-1084):
+  // a local link may still answer, but the refusal says nothing about
+  // the refused link's health, so it is never an immediate signal and
+  // `advanceFrom` records no breaker failure for it.
+  if (isOfflineRefusal(err)) return { advance: true, immediate: false };
   const category = classifyFailure(err);
   if (category !== "transport" && category !== "model") {
     return NO;

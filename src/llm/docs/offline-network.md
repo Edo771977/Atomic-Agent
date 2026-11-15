@@ -1,0 +1,42 @@
+# Offline mode (network kill switch)
+
+Status: current (ATO-1084)
+Owner: src/llm/ ([offline-network.ts](../offline-network.ts))
+
+Offline mode makes the agent refuse every outbound connection whose host is not this machine. `localhost`, `127.0.0.0/8` and `::1` stay reachable, so local models, the managed llama-server and Atomic Core, and local http MCP servers keep working. Everything else fails with `offline mode: <host> blocked`. It is off by default.
+
+## Turning it on
+
+- Config: `network.offline: true` (`atomic-agent config set network.offline true`). The CLI entry reads it from config.json (read-only, never writing the file) before any command runs, so commands that build no runtime (`update`, the skill and plugin hubs) are covered too; a runtime applies it again when it starts. A missing or malformed config.json counts as off.
+- Environment: `ATOMIC_AGENT_OFFLINE=1` turns it on for that process from its first request, whatever the file says, and it cannot be turned off for that process.
+- Live: `runtime.offlineMode.setEnabled(on)` applies it to the next request and persists `network.offline`. Turning it on applies first (and stops the remote channels), then saves: if config.json cannot be written the call rejects with `OfflineModePersistError` and the process stays offline. Turning it off saves first, so a failed save keeps the process offline. The HTTP server exposes it as `GET /api/offline-mode` and `POST /api/offline-mode` with `{ "enabled": true }`; both answer `{ enabled, egress }`, and a failed save answers 500.
+
+## What is enforced
+
+- Every `fetch` in the process: the global undici dispatcher installed by [transport-deadlines.ts](../transport-deadlines.ts) is composed with `offlineNetworkInterceptor`, which refuses a non-loopback origin before any DNS lookup or connection. When `HTTP_PROXY` / `HTTPS_PROXY` is set the pool is proxy-aware, so while offline loopback requests go on a separate plain pool and never reach the proxy (which would otherwise carry a local model's prompt off the machine). That covers cloud LLM providers, model and engine downloads, update checks, skill and plugin hubs, Discord's REST API, remote MCP servers, PostHog and Sentry.
+- Anonymous analytics and crash reports are not even built while offline mode is on at start (`isAnalyticsKilledByEnv`). Clients built before a live switch-on are refused by the dispatcher.
+- `os.web.fetch`, `os.http.request` and `os.web.search` run curl, which the dispatcher cannot see; each refuses with a tool error before approval, DNS or curl. `runCurl` refuses a remote URL argument as a backstop.
+- Browser tools: `browser.navigate`, `browser.tabs` new and `browser.search` refuse a remote URL, and a click or redirect that lands on a remote page clears the tab. A Chrome the agent starts while offline gets `--proxy-server=http://127.0.0.1:9`, so pages, subresources and Chrome's own background requests fail; Chrome never proxies loopback. A live switch-on stops a Chrome the agent launched earlier (`stopLaunchedBrowser`), since its open pages would keep the network; the next browser call starts it again with the dead proxy.
+- Remote MCP transports (`streamable_http`, `sse`) are refused before connecting unless the URL is on this machine.
+- Subscription CLI providers (Claude Code, Codex) are separate programs that talk to their vendor's cloud; they are refused before they start.
+- The Telegram bot uses grammy's own HTTP client (node-fetch), so the bot factory refuses to start it. A live switch-on stops Telegram, Discord and swarm bots; switching off starts the ones their config enables.
+- Model downloads run in a detached worker process (`models pull-worker`), which the CLI entry starts offline when the config or environment says so. A live switch-on stops running workers (`stopRunningDownloadWorkers`); their jobs keep the partial file and can be resumed once online.
+
+## Provider fallback while offline
+
+A cloud link that offline mode refuses throws an error whose cause chain carries `OfflineNetworkError` (code `ATOMIC_AGENT_OFFLINE`); `isOfflineRefusal` reads it. That refusal is this machine's policy, not the provider failing, so: the OpenAI-compatible client does not retry it; `shouldAdvance` advances to the next link without the immediate signal and `advanceFrom` records no breaker failure (the link is not quarantined once the switch is off, and the next turn probes the primary again); `isOutageFailure` and the agent loop's outage wait treat it as a "no", so a turn never parks waiting for it; the request budget releases the hold, as for a connection that never opened. The runtime's fallback resolver (`withoutOffMachineLinks`) also drops, while offline, every fallback link that would leave this machine (cloud kinds, subscription CLIs, an OpenAI-compatible URL that is not loopback); the primary is kept so its refusal is what the turn reports. LAN hosts count as network.
+
+## What is not enforced
+
+Without an OS sandbox nothing in this process can stop another program from opening a socket. These stay able to reach the network while offline mode is on:
+
+- shell commands (`os.shell.*`), `git` and anything they start;
+- stdio MCP servers, which are child processes;
+- a Chrome the agent attached to rather than started (`browser.cdpUrl`, `browser.connect: "user-chrome"`), and Chrome's WebRTC/UDP traffic, which a proxy does not cover; only the URL gate applies there;
+- a response stream that was already open when offline mode was switched on live, such as a remote MCP server's SSE stream: new requests are refused at dispatch, but bytes keep arriving on the open stream until it closes or the server is reconnected;
+
+The LAN counts as network: only loopback is this machine, so a model server on another box of the local network is refused like any cloud host.
+
+## Egress counter
+
+`egressSnapshot()` (and `runtime.offlineMode.egress()`) returns `{ bytesOut, requestsOut, requestsBlocked, since }` for this process. `bytesOut` counts the request path and body bytes undici sends to non-loopback hosts through the dispatcher; it does not include headers, TLS overhead or traffic from child processes. `requestsBlocked` counts every refusal above. The counters reset when offline mode turns on.

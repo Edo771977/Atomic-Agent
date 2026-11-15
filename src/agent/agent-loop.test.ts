@@ -12,6 +12,7 @@ import { TransportError } from "../llm/reliability/llm-failures.js";
 import { LlamaServerError } from "../llm/llama-server-client.js";
 import { SubscriptionCliNotInstalledError } from "../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
+import { OfflineNetworkError } from "../llm/offline-network.js";
 import {
   humanizeOpenAiHttpError,
   OpenAiHttpError,
@@ -1674,6 +1675,47 @@ describe("AgentLoop end-to-end with mock LLM", () => {
     expect(waits).toEqual([]);
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(failures[0]).toContain("Daily cloud limit reached: $5.10 of $5.00");
+  });
+
+  it("does not wait out offline mode, which only the person can lift (ATO-1084)", async () => {
+    const registry = buildDefaultToolRegistry();
+    const waits: unknown[] = [];
+    const loop = new AgentLoop({
+      registry,
+      slotManager: new SlotManager(2),
+      grammar: 'root ::= "ok"',
+      llmComplete: async () => {
+        throw new OpenAiHttpError(
+          "openai provider network error: fetch failed",
+          null,
+          "https://api.example.com/v1/chat/completions",
+          false,
+          null,
+          "cloud",
+          "ATOMIC_AGENT_OFFLINE",
+          { cause: new TypeError("fetch failed", { cause: new OfflineNetworkError("api.example.com") }) },
+        );
+      },
+      toolDescriptors: TOOLS,
+      capabilities: CAPS,
+      skillCatalog: SKILLS,
+      onEvent: (event) => {
+        if (event.type === "provider_waiting") waits.push(event);
+      },
+    });
+    const started = Date.now();
+    const result = await loop.runTurn(
+      createEmptySessionState({ id: "s-offline", workingDir }),
+      {
+        userMessage: "hi",
+        maxSteps: 5,
+        taskMaxSteps: 5,
+        signal: new AbortController().signal,
+      },
+    );
+    expect(result.reason).toBe("failed");
+    expect(waits).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   it("waits out a 503, which is exactly the kind that fixes itself", async () => {

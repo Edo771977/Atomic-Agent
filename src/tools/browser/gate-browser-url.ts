@@ -20,6 +20,49 @@ import {
   checkBrowserUrl,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
+import {
+  isOfflineNetwork,
+  offlineRefusal,
+  type OfflineNetworkError,
+} from "../../llm/offline-network.js";
+
+/** Schemes that never leave the machine; anything else is checked by host. */
+const LOCAL_SCHEMES = new Set(["about:", "file:", "data:", "blob:"]);
+
+/**
+ * Offline mode (ATO-1084): the refusal for opening `url`, or `null`.
+ * http(s) / ws(s) URLs pass only on this machine; `about:`, `file:`,
+ * `data:` and `blob:` pass; any other scheme is refused while offline,
+ * since the agent cannot tell what Chrome would fetch for it.
+ */
+export function offlineBrowserRefusal(
+  tool: string,
+  url: string,
+): OfflineNetworkError | null {
+  if (!isOfflineNetwork()) return null;
+  let protocol: string;
+  try {
+    protocol = new URL(url.trim()).protocol.toLowerCase();
+  } catch {
+    return offlineRefusal(url, tool);
+  }
+  if (LOCAL_SCHEMES.has(protocol)) return null;
+  return offlineRefusal(url.trim(), tool);
+}
+
+function offlineToolError(
+  tool: string,
+  url: string,
+  refused: OfflineNetworkError,
+  suffix = "",
+): CompressedToolResult {
+  return compressToolResult({
+    tool,
+    status: "error",
+    output: `${refused.message}${suffix}`,
+    details: { url, host: refused.host, reason: "offline_mode" },
+  });
+}
 
 /** http(s) or `about:blank`: all the user's own Chrome may be sent to. */
 export function isUserProfileUrl(url: string): boolean {
@@ -49,6 +92,8 @@ export async function gateBrowserUrl(
   url: string,
   ctx: Pick<ToolContext, "sessionId" | "signal">,
 ): Promise<CompressedToolResult | null> {
+  const offline = offlineBrowserRefusal(tool, url);
+  if (offline) return offlineToolError(tool, url, offline);
   if (policy.userProfile && !isUserProfileUrl(url)) {
     return compressToolResult({
       tool,
@@ -116,6 +161,8 @@ export async function gateBrowserUrl(
  *
  * Even without a domain/read-scope policy, an unmappable local URL is
  * refused: its filesystem target cannot be checked safely.
+ *
+ * While offline, a landed off-machine page is cleared and refused first.
  */
 export async function recheckLandedPage(
   backend: Pick<BrowserBackend, "currentUrl" | "navigate">,
@@ -124,6 +171,7 @@ export async function recheckLandedPage(
   landedUrl?: string,
   local?: LocalPageRead,
 ): Promise<CompressedToolResult | null> {
+  const offline = isOfflineNetwork();
   let url = landedUrl;
   if (url === undefined) {
     try {
@@ -131,6 +179,12 @@ export async function recheckLandedPage(
     } catch {
       return null;
     }
+  }
+  // ATO-1084: a link or redirect that left this machine while offline.
+  const refused = offline ? offlineBrowserRefusal(tool, url) : null;
+  if (refused) {
+    await backend.navigate({ url: "about:blank" }).catch(() => undefined);
+    return offlineToolError(tool, url, refused, " The action ended on that site, so the tab was cleared.");
   }
   const localFile = localPageRefusal([url], policy, local);
   if (localFile !== null) {

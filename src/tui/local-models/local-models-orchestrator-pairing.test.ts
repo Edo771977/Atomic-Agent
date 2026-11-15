@@ -369,7 +369,7 @@ describe("LocalModelsOrchestrator embedding pairing", () => {
     stubChatModelDownloaded(dataDir);
     const file = readUserConfigFileSync(getUserConfigPath(stateDir));
     writeUserConfigFileSync(getUserConfigPath(stateDir), {
-      ...file,
+      ...file!,
       llm: {
         activeTextProvider: "openrouter",
         activeEmbeddingProvider: "local-llama",
