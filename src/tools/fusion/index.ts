@@ -22,6 +22,7 @@ export {
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
   CRITERION_ID_PATTERN,
+  normalizeCriterionId,
   MAX_CHECK_CRITERIA,
   contractWarnings,
   describeProvide,

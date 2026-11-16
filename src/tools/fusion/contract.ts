@@ -36,6 +36,7 @@
  */
 
 import { renderContractInputs } from "./contract-inputs.js";
+import { CRITERION_ID_PATTERN, PROJECT_LIMITS, normalizeCriterionId } from "../../session/session-project.js";
 
 /** What a `provides` entry can name. `file` uses `name` as the path. */
 export const CONTRACT_PROVIDE_KINDS = [
@@ -110,10 +111,14 @@ export type ContractCheck = {
   criteria?: string[];
 } & Record<string, unknown>;
 
-/** A criterion id as a check names it: `c1`, `plays-well`. */
-export const CRITERION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
+/**
+ * A criterion id as a check names it: `c1`, `plays-well`. The brief's
+ * own rule (`session-project`), re-exported: one source of truth, so a
+ * check's ids always match the brief's after `normalizeCriterionId`.
+ */
+export { CRITERION_ID_PATTERN, normalizeCriterionId };
 /** The project brief holds at most 20 success criteria. */
-export const MAX_CHECK_CRITERIA = 20;
+export const MAX_CHECK_CRITERIA = PROJECT_LIMITS.successCriteria;
 
 export interface DelegateContract {
   /** Candidate mode: exact existing files frozen before workers and kept byte/type/mode-identical for final checks. */

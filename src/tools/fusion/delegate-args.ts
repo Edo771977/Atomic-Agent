@@ -53,8 +53,8 @@
 import {
   CONTRACT_PROVIDE_KINDS,
   MAX_PROVIDE_SHAPE_CHARS,
-  CRITERION_ID_PATTERN,
   MAX_CHECK_CRITERIA,
+  normalizeCriterionId,
   MAX_CONTRACT_CHECKS,
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
@@ -811,9 +811,10 @@ function readCheckCriteria(raw: unknown, label: string, problems: string[]): str
   }
   const ids: string[] = [];
   for (let i = 0; i < raw.length; i += 1) {
-    const id = typeof raw[i] === "string" ? (raw[i] as string).trim() : "";
-    if (!CRITERION_ID_PATTERN.test(id)) {
-      problems.push(`${label}[${i}] ${JSON.stringify(raw[i])} is not a criterion id (letters, digits, - and _; at most 32)`);
+    // The brief's rule (trimmed, lower-cased), so a check's ids match the brief's.
+    const id = normalizeCriterionId(raw[i]);
+    if (id === null) {
+      problems.push(`${label}[${i}] ${JSON.stringify(raw[i])} is not a criterion id (a-z, 0-9 and -; at most 32)`);
       return null;
     }
     if (ids.includes(id)) {

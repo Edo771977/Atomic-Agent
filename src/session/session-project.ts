@@ -513,7 +513,16 @@ function readGame(raw: unknown): ProjectGameBrief | undefined | null {
   return out as ProjectGameBrief;
 }
 
-/** A criterion id trimmed and lower-cased; null when it breaks {@link CRITERION_ID_PATTERN}. */
+/**
+ * A criterion id trimmed and lower-cased; null when it breaks
+ * {@link CRITERION_ID_PATTERN}. The one rule for criterion ids: the
+ * brief, milestone reports and contract checks all normalize through it,
+ * so an id a check names always matches the brief's.
+ */
+export function normalizeCriterionId(raw: unknown): string | null {
+  return cleanCriterionId(raw);
+}
+
 function cleanCriterionId(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const id = raw.trim().toLowerCase();
