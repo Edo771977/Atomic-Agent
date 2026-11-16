@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,6 +64,18 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(out.attachments).toHaveLength(PROJECT_LIMITS.attachments);
     expect(out.attachments[0]).toEqual({ path: join(shots, "board-10.jpg"), caption: "board: screenshot 10", criteria: ["c1"] });
     expect(out.attachments.every((a) => a.path.endsWith(".jpg"))).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32")("does not attach a symlink in the shots folder", () => {
+    const state = stateDir();
+    const shots = milestoneShotsDir(state, "fr-1");
+    mkdirSync(shots, { recursive: true });
+    const outside = join(state, "secret.jpg");
+    writeFileSync(outside, "x");
+    symlinkSync(outside, join(shots, "board-1.jpg"));
+    writeFileSync(join(shots, "board-2.jpg"), "x");
+    const out = readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1"], criteriaOrder: ORDER });
+    expect(out.attachments.map((a) => a.path)).toEqual([join(shots, "board-2.jpg")]);
   });
 
   it("reads nothing from a run id that could leave the folder or a malformed file", () => {

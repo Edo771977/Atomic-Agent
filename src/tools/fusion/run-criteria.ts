@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   CRITERION_FACT_STATES,
@@ -128,7 +128,8 @@ export function readMilestoneEvidence(input: {
       if (!IMAGE_EXT.test(name)) continue;
       const path = join(dir, name);
       try {
-        const info = statSync(path);
+        // A symlink could point anywhere: only regular files are attached.
+        const info = lstatSync(path);
         if (!info.isFile()) continue;
         const match = /^(.*)-(\d+)\.[^.]+$/.exec(name);
         shots.push({ path, mtime: info.mtimeMs, taskId: match?.[1] ?? name, n: match?.[2] ?? "" });

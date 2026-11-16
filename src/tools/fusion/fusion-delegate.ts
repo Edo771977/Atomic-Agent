@@ -116,6 +116,7 @@ import {
   buildAcceptanceChecklist,
   judgeTask,
   redItems,
+  hasRedFact,
   renderAcceptanceBlock,
   renderRetryFindings,
   renderReviewIssues,
@@ -534,6 +535,18 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       const parsed = parseDelegateArgs(delegateArgs);
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      // A check's criteria are the approved brief's (issue #40): an id it
+      // does not have could never be shown to the person as a fact.
+      if (ctx.project?.brief?.status === "approved") {
+        const known = criteriaById(ctx.project.brief);
+        const unknown = [...new Set((parsed.contract?.checks ?? []).flatMap((c) => (c.criteria ?? []).filter((id) => !known.has(id))))];
+        if (unknown.length > 0) {
+          return error(
+            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}`,
+            { field: "contract" },
+          );
+        }
+      }
       // The fusion project's gate (issue #39), before anything starts.
       const projectVerdict = checkProjectDispatch(ctx.project, parsed.tasks.map((t) => t.id));
       if (projectVerdict.kind === "refuse") {
@@ -1614,7 +1627,7 @@ export function buildFusionDelegateTool(
       const visionFor = async (
         input: Parameters<GateJudge>[0],
         target: JudgeTarget,
-      ): Promise<VisionJudgements | undefined> => {
+      ): Promise<{ judgements: VisionJudgements; costUsd: number | null } | undefined> => {
         const criteria = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
         if (criteria.length === 0) return undefined;
         const vj = deps.visionJudge;
@@ -1662,7 +1675,7 @@ export function buildFusionDelegateTool(
         });
         if (result.judge !== null) judgesUsed.add(result.judge);
         addJudgeSpend(result.costUsd);
-        return result.judgements;
+        return { judgements: result.judgements, costUsd: result.costUsd };
       };
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
@@ -1683,10 +1696,12 @@ export function buildFusionDelegateTool(
         }
         const target = judgeTargetFor(input.task.id)!;
         judgesUsed.add(target.model ?? target.providerId);
-        const vision = await visionFor(input, target);
-        const verdict = await judgeTask({
+        // A red fact makes the list red whatever vision says: not paid for.
+        const red = await hasRedFact(input.items, input.facts, input.workingDir);
+        const vision = red ? undefined : await visionFor(input, target);
+        const judged = await judgeTask({
           ...input,
-          ...(vision === undefined ? {} : { facts: { ...input.facts, vision } }),
+          ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
             ? {}
@@ -1697,12 +1712,14 @@ export function buildFusionDelegateTool(
           complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
           signal: runSignal,
         });
-        if (verdict.costUsd !== null && verdict.costUsd > 0) {
-          judgeSpendUsd += verdict.costUsd;
-          run?.addSpend(verdict.costUsd);
-          turnBudget.addWorkerSpend(ctx.sessionId, verdict.costUsd, deps.requestBudgetAccounting === true);
+        if (judged.costUsd !== null && judged.costUsd > 0) {
+          judgeSpendUsd += judged.costUsd;
+          run?.addSpend(judged.costUsd);
+          turnBudget.addWorkerSpend(ctx.sessionId, judged.costUsd, deps.requestBudgetAccounting === true);
         }
-        return verdict;
+        // The vision call's spend (already counted) is the judge's too, on the row.
+        const visionUsd = vision?.costUsd ?? null;
+        return visionUsd === null ? judged : { ...judged, costUsd: (judged.costUsd ?? 0) + visionUsd };
       };
       // The watch on running workers (issue #43), team runs only: every
       // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.

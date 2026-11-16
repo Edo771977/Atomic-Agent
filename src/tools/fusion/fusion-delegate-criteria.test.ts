@@ -82,11 +82,11 @@ function setup(over: Partial<FusionDelegateDeps> | ((dir: string) => Partial<Fus
     runChecks: async () => ({ ok: true, results: [{ ok: true, summary: "verify.run page: ok", screenshots: [{ path: shot, bytes: 3, width: 10, height: 10 }] }] }),
     ...(typeof over === "function" ? over(dir) : over),
   };
-  const run = (withProject = true) =>
+  const run = (withProject = true, checks: Array<Record<string, unknown>> = [{ task: "t", criteria: ["board-looks-right"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }]) =>
     buildFusionDelegateTool(d).run(
       {
         tasks: [{ id: "t", title: "t", instructions: "draw the board in index.html", files: ["index.html"] }],
-        contract: { checks: [{ task: "t", criteria: ["board-looks-right"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }] },
+        contract: { checks },
       },
       { workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal, ...(withProject ? { project: project() } : {}) },
     );
@@ -185,6 +185,48 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     const row = (result.details.tasks as Row[])[0]!;
     expect(row.status).not.toBe("ok");
     expect(row.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "unverified" })]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a check naming a criterion the approved brief does not have", async () => {
+    const runTurn = vi.fn();
+    const { dir, run } = setup({ runTurn });
+    const result = await run(true, [{ task: "t", criteria: ["no-such-thing"], kind: "command", cmd: "x" }]);
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("no-such-thing");
+    expect(runTurn).not.toHaveBeenCalled();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("counts the vision call in the judge's cost on the row", async () => {
+    const describeImage = vi.fn<VisionDescribe>(async () => ({
+      text: '[{"criterion":"board-looks-right","met":true,"why":"ok"}]',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, costUsd: 0.25 },
+    }));
+    const { dir, run } = setup({ visionJudge: { sees: () => true, route: () => null, describe: describeImage } });
+    const result = await run();
+    const row = (result.details.tasks as Array<Row & { judge?: { costUsd?: number | null } }>)[0]!;
+    expect(row.judge?.costUsd).toBeCloseTo(0.25);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("asks no vision judge when the task's facts are already red", async () => {
+    const describeImage = vi.fn<VisionDescribe>(async () => ({ text: '[{"criterion":"board-looks-right","met":true,"why":"ok"}]' }));
+    const { dir, run } = setup((d) => ({
+      visionJudge: { sees: () => true, route: () => null, describe: describeImage },
+      runChecks: async (specs: readonly Record<string, unknown>[]) => ({
+        ok: false,
+        results: specs.map((spec) => spec.kind === "page"
+          ? { ok: true, summary: "ok", screenshots: [{ path: join(d, "t-1.jpg"), bytes: 3, width: 10, height: 10 }] }
+          : { ok: false, summary: "verify.run command: exit 1", error: "exit 1" }),
+      }),
+    }));
+    const result = await run(true, [
+      { task: "t", kind: "command", cmd: "node", args: ["-e", "process.exit(1)"] },
+      { task: "t", criteria: ["board-looks-right"], judge: "vision", kind: "page", path: "index.html", screenshot: {} },
+    ]);
+    expect(describeImage).not.toHaveBeenCalled();
+    expect((result.details.tasks as Row[])[0]!.status).not.toBe("ok");
     rmSync(dir, { recursive: true, force: true });
   });
 });

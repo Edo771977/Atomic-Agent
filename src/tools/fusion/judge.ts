@@ -250,6 +250,23 @@ export interface JudgeFacts {
 }
 
 /** The facts' verdicts; `undefined` for an item only the judge can rule on. */
+/**
+ * Whether a scripted (non-criterion) item of the list is already red:
+ * the list cannot be green, so nothing is paid to judge it further.
+ */
+export async function hasRedFact(
+  items: readonly AcceptanceItem[],
+  facts: JudgeFacts,
+  workingDir: string,
+): Promise<boolean> {
+  for (const item of items) {
+    if (item.kind === "criterion") continue;
+    const verdict = await factVerdict(item, facts, workingDir);
+    if (verdict !== undefined && !verdict.pass) return true;
+  }
+  return false;
+}
+
 async function factVerdict(
   item: AcceptanceItem,
   facts: JudgeFacts,
