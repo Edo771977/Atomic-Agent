@@ -36,6 +36,12 @@ function outcomeLine(r: VerifyRunResult): string {
   return `page ran ${Math.round(r.durationMs / 100) / 10}s: ${r.errors?.length ?? 0} uncaught error(s), ${r.consoleErrors?.length ?? 0} console error(s), ${r.missingSelectors?.length ?? 0} failed selector lookup(s)`;
 }
 
+function gamesLine(g: NonNullable<VerifyRunResult["games"]>): string {
+  if (g.missingApi !== undefined) return `games: none played — ${g.missingApi}`;
+  const winners = Object.entries(g.winners).map(([w, n]) => `${w} ${n}`).join(", ");
+  return `games: ${g.finished} of ${g.n} finished, ${g.errors} error(s), median ${g.medianMs ?? "?"} ms, median ${g.medianMoves ?? "?"} moves${winners.length === 0 ? "" : `; winners: ${winners}`}`;
+}
+
 function tailBlock(label: string, tail: string | undefined, budget: number): string[] {
   if (tail === undefined || tail.trim().length === 0 || budget <= 40) return [];
   // Mask before clipping: a key cut at the clip boundary no longer
@@ -68,6 +74,7 @@ export function renderVerifyRunSummary(r: VerifyRunResult): string {
       lines.push(`probe ${name}: ${JSON.stringify(first)} → ${JSON.stringify(last)} (${samples.length} samples)`);
     }
   }
+  if (r.games !== undefined) lines.push(gamesLine(r.games));
   lines.push(...passing.map(checkLine));
   let summary = lines.join("\n");
   const remaining = VERIFY_RUN_SUMMARY_MAX_CHARS - summary.length;

@@ -118,6 +118,48 @@ describe("evaluateCheck", () => {
     expect(evaluateCheck("probe nothing decreases", PAGE).detail).toBe('no probe named "nothing"');
   });
 
+  it("game assertions over the harness's per-game results (issue #40)", () => {
+    const run = (index: number, winner: string | null, durationMs: number, moves: number, over: Partial<{ finished: boolean; errors: string[] }> = {}) => ({
+      index, seed: index + 1, finished: over.finished ?? true, winner, moves, durationMs, errors: over.errors ?? [],
+    });
+    const games = (runs: ReturnType<typeof run>[]) => ({
+      n: runs.length, played: runs.length, finished: runs.filter((r) => r.finished).length,
+      errors: runs.reduce((n, r) => n + r.errors.length, 0), medianMs: 100, medianMoves: 10,
+      winners: {}, runs,
+    });
+    const good: CheckSubject = { kind: "page", errors: [], consoleErrors: [], games: games([run(0, "X", 120, 9), run(1, "O", 90, 12), run(2, null, 300, 30)]) };
+    expect(evaluateCheck("games finish", good)).toMatchObject({ ok: true, detail: "3 of 3 games finished" });
+    expect(evaluateCheck("game errors 0", good)).toMatchObject({ ok: true });
+    expect(evaluateCheck("game duration < 500", good)).toMatchObject({ ok: true, detail: expect.stringContaining("longest 300 ms") });
+    expect(evaluateCheck("game duration < 300", good).ok).toBe(false);
+    expect(evaluateCheck("game moves < 31", good).ok).toBe(true);
+    expect(evaluateCheck("game moves < 30", good)).toMatchObject({ ok: false, detail: expect.stringContaining("game 3: 30 moves") });
+    expect(evaluateCheck("game winner in [X, O, none]", good).ok).toBe(true);
+    expect(evaluateCheck('game winner in ["X","O"]', good)).toMatchObject({ ok: false, detail: expect.stringContaining("game 3: none") });
+    expect(evaluateCheck("game winners vary", good)).toMatchObject({ ok: true });
+
+    const same: CheckSubject = { kind: "page", games: games([run(0, "X", 1, 1), run(1, "X", 1, 1), run(2, "X", 1, 1)]) };
+    expect(evaluateCheck("game winners vary", same)).toMatchObject({ ok: false, detail: expect.stringContaining("every game: X") });
+    const two: CheckSubject = { kind: "page", games: games([run(0, "X", 1, 1), run(1, "O", 1, 1)]) };
+    expect(evaluateCheck("game winners vary", two)).toMatchObject({ ok: false, detail: expect.stringContaining("at least 3") });
+
+    const bad: CheckSubject = { kind: "page", games: games([run(0, "X", 1, 5), run(1, null, 120_000, 400, { finished: false, errors: ["TypeError: board is null"] })]) };
+    expect(evaluateCheck("games finish", bad)).toMatchObject({ ok: false, detail: expect.stringContaining("1 of 2 games finished") });
+    expect(evaluateCheck("game errors 0", bad)).toMatchObject({ ok: false, detail: expect.stringContaining("TypeError: board is null") });
+    // An unfinished game never passes a duration or moves bound.
+    expect(evaluateCheck("game duration < 999999", bad).ok).toBe(false);
+    expect(evaluateCheck("game moves < 999999", bad).ok).toBe(false);
+
+    const missing: CheckSubject = { kind: "page", games: { ...games([]), n: 3, missingApi: "the page exposes no window.__game API; the brief requires it" } };
+    for (const check of ["games finish", "game errors 0", "game duration < 10", "game moves < 10", "game winner in [X]", "game winners vary"]) {
+      expect(evaluateCheck(check, missing), check).toMatchObject({ ok: false, detail: expect.stringContaining("no window.__game API") });
+    }
+    expect(evaluateCheck("games finish", PAGE)).toMatchObject({ ok: false, detail: expect.stringContaining("no games were played") });
+    for (const check of ["game duration under 5", "game moves <", "game winner X", "games end"]) {
+      expect(evaluateCheck(check, good).detail, check).toContain("unknown check");
+    }
+  });
+
   it("fails unknown syntax rather than passing it", () => {
     for (const spec of ["passes", "exit", "probe", "no", "no errors please", "probe x between 1 2"]) {
       const out = evaluateCheck(spec, PAGE);

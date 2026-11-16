@@ -14,6 +14,7 @@ import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
 import type { ProbeSample } from "./page-probe-script.js";
+import type { VerifyGameSummary } from "./page-game-harness.js";
 import { runCommandKind } from "./run-command-kind.js";
 import { type BrowserLauncher, defaultBrowserLauncher, type PageRunOutcome, runPageKind } from "./run-page-kind.js";
 import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-service-kind.js";
@@ -59,6 +60,8 @@ export interface VerifyRunResult {
   readonly requestFailures?: readonly string[];
   readonly missingSelectors?: readonly string[];
   readonly probes?: Readonly<Record<string, ProbeSample[]>>;
+  /** A page run's games (`game`), per game and summarised (`page-game-harness.ts`). */
+  readonly games?: VerifyGameSummary;
   readonly checks?: readonly CheckOutcome[];
   /** What the failure means and what to do instead (a terminal-only program, say). */
   readonly hint?: string;
@@ -182,10 +185,13 @@ function finishPage(
   args: VerifyRunArgs,
   started: number,
 ): VerifyRunResult {
-  const runOk = out.launched && out.loaded && out.errors.length === 0 && out.consoleErrors.length === 0;
+  // A game spec over a page with no `window.__game` is a failed run even
+  // without checks: the brief requires the API.
+  const runOk = out.launched && out.loaded && out.errors.length === 0 && out.consoleErrors.length === 0 && out.games?.missingApi === undefined;
+  const games = out.games === undefined ? {} : { games: out.games };
   return finish(
-    { ...common, ...extra, errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...(out.error === undefined ? {} : { error: out.error }) },
-    { kind: "page", errors: out.errors, consoleErrors: out.consoleErrors, missingSelectors: out.missingSelectors, probes: out.probes },
+    { ...common, ...extra, errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...games, ...(out.error === undefined ? {} : { error: out.error }) },
+    { kind: "page", errors: out.errors, consoleErrors: out.consoleErrors, missingSelectors: out.missingSelectors, probes: out.probes, ...games },
     args.checks, runOk, started,
   );
 }

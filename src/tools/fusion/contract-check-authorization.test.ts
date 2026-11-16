@@ -91,6 +91,12 @@ describe("contract check authorization", () => {
     expect(runner).toHaveBeenCalledOnce();
   });
 
+  it("accepts a page check's game spec as a declared field (issue #40)", async () => {
+    const { hold, runner } = setup({ tainted: true });
+    await run(hold, [{ kind: "page", path: "index.html", game: { games: 3, maxMsPerGame: 10_000 }, checks: ["games finish"] }]);
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
   it("retains input-integrity capability and passes its guard unchanged", async () => {
     const { hold, runner } = setup();
     const inputIntegrity = { paths: ["test.js"], begin: async () => async () => {} };

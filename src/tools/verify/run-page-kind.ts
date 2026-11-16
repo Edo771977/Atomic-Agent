@@ -22,6 +22,7 @@ import {
   type ProbeSample,
   sampleProbes,
 } from "./page-probe-script.js";
+import { playGames, type VerifyGameSummary } from "./page-game-harness.js";
 import type { VerifyRunArgs, VerifyScriptStep } from "./verify-run-args.js";
 
 export type BrowserLauncher = () => Promise<Browser>;
@@ -38,10 +39,14 @@ export interface PageRunOutcome {
   readonly requestFailures: readonly string[];
   readonly missingSelectors: readonly string[];
   readonly probes: Readonly<Record<string, ProbeSample[]>>;
+  /** The games played through `window.__game` (`args.game`), after the script steps. */
+  readonly games?: VerifyGameSummary;
   readonly durationMs: number;
 }
 
 const LIST_CAP = 50;
+/** Page errors kept for attributing them to games; only the count past it is lost. */
+const ERROR_FEED_CAP = 10_000;
 const STEP_TIMEOUT_MS = 5_000;
 const LOAD_TIMEOUT_MS = 30_000;
 
@@ -128,8 +133,16 @@ export async function runPageKind(
   const requestFailures: string[] = [];
   let missingSelectors: string[] = [];
   let probes: Record<string, ProbeSample[]> = {};
+  let games: VerifyGameSummary | undefined;
+  // Every uncaught error and console error, in order: a game owns the
+  // ones raised while it ran.
+  const errorFeed: string[] = [];
+  const feed = (entry: string): void => {
+    if (errorFeed.length < ERROR_FEED_CAP) errorFeed.push(entry);
+  };
   const done = (partial: Partial<PageRunOutcome> & { target: string; launched: boolean; loaded: boolean }): PageRunOutcome => ({
     errors, consoleErrors, consoleWarnings, requestFailures, missingSelectors, probes,
+    ...(games === undefined ? {} : { games }),
     durationMs: Date.now() - started,
     ...partial,
   });
@@ -168,10 +181,15 @@ export async function runPageKind(
     const page = await context.newPage();
     page.on("pageerror", (err) => {
       const message = err.message.split("\n")[0] ?? String(err);
-      push(errors, err.name.length > 0 && !message.startsWith(err.name) ? `${err.name}: ${message}` : message);
+      const text = err.name.length > 0 && !message.startsWith(err.name) ? `${err.name}: ${message}` : message;
+      push(errors, text);
+      feed(`uncaught: ${text}`);
     });
     page.on("console", (msg) => {
-      if (msg.type() === "error") push(consoleErrors, msg.text());
+      if (msg.type() === "error") {
+        push(consoleErrors, msg.text());
+        feed(`console: ${msg.text()}`);
+      }
       else if (msg.type() === "warning") push(consoleWarnings, msg.text());
     });
     page.on("requestfailed", (req) => {
@@ -191,6 +209,9 @@ export async function runPageKind(
       } catch (err) {
         push(errors, `script step ${describeStep(step)} failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       }
+    }
+    if (args.game !== undefined && !ctx.signal?.aborted) {
+      games = await playGames(page, args.game, { seen: () => errorFeed }, ctx.signal);
     }
     probes = await sampleProbes(args.probes ?? [], args.seconds, (expr) => page.evaluate(expr), ctx.signal);
     try {

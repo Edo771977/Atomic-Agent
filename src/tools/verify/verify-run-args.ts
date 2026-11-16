@@ -33,6 +33,18 @@ export interface VerifyProbe {
   readonly expr: string;
 }
 
+/**
+ * A page run that plays the page's game (issue #40): `games` games, one
+ * after another, through the fixed `window.__game` API
+ * (`page-game-harness.ts`). Each game stops when its state says `over`,
+ * after `maxMsPerGame`, or once `maxMoves` moves were made.
+ */
+export interface VerifyGameSpec {
+  readonly games: number;
+  readonly maxMsPerGame: number;
+  readonly maxMoves?: number;
+}
+
 export interface VerifyRunArgs {
   readonly kind: VerifyRunKind;
   /** Relative to the throwaway copy. */
@@ -60,6 +72,7 @@ export interface VerifyRunArgs {
   readonly script?: readonly VerifyScriptStep[];
   readonly seconds: number;
   readonly probes?: readonly VerifyProbe[];
+  readonly game?: VerifyGameSpec;
   // any kind
   readonly checks?: readonly string[];
 }
@@ -70,6 +83,10 @@ export const VERIFY_READY_DEFAULT_TIMEOUT_MS = 30_000;
 export const VERIFY_PAGE_DEFAULT_SECONDS = 5;
 export const VERIFY_PAGE_MAX_SECONDS = 120;
 export const VERIFY_STDIN_MAX_BYTES = 64 * 1024;
+export const VERIFY_GAME_MAX_GAMES = 20;
+export const VERIFY_GAME_DEFAULT_MS_PER_GAME = 30_000;
+export const VERIFY_GAME_MAX_MS_PER_GAME = 120_000;
+const MAX_GAME_MOVES = 1_000_000;
 const MAX_REQUESTS = 32;
 const MAX_SCRIPT_STEPS = 64;
 const MAX_PROBES = 16;
@@ -255,6 +272,28 @@ function parseStdin(raw: unknown, kind: string): string | undefined {
   return stdin;
 }
 
+/**
+ * A page's `game`. `games: 0` (or absent) is a strict provider's
+ * default-filled object, not a game, on any kind.
+ */
+function parseGame(raw: unknown, kind: string): VerifyGameSpec | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const g = record(raw, "game");
+  if (g.games === undefined || g.games === null || g.games === 0) return undefined;
+  if (kind !== "page") fail("`game` applies to page runs only");
+  const games = g.games;
+  if (typeof games !== "number" || !Number.isInteger(games) || games < 1 || games > VERIFY_GAME_MAX_GAMES) {
+    fail(`\`game.games\` must be an integer from 1 to ${VERIFY_GAME_MAX_GAMES}`);
+  }
+  const maxMsPerGame = g.maxMsPerGame === 0
+    ? VERIFY_GAME_DEFAULT_MS_PER_GAME
+    : clampedNumber(g.maxMsPerGame, "game.maxMsPerGame", VERIFY_GAME_DEFAULT_MS_PER_GAME, VERIFY_GAME_MAX_MS_PER_GAME);
+  const rawMoves = g.maxMoves === 0 ? undefined : g.maxMoves;
+  const maxMoves = optionalInteger(rawMoves, "game.maxMoves");
+  if (maxMoves !== undefined && (maxMoves < 1 || maxMoves > MAX_GAME_MOVES)) fail(`\`game.maxMoves\` must be an integer from 1 to ${MAX_GAME_MOVES}`);
+  return { games, maxMsPerGame, ...(maxMoves === undefined ? {} : { maxMoves }) };
+}
+
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind, "kind");
   if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page");
@@ -270,6 +309,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
       : (list(raw.checks, "checks", MAX_CHECKS).map((c, i) => requiredString(c, `checks[${i}]`))),
   };
   const stdin = parseStdin(raw.stdin, kind);
+  const game = parseGame(raw.game, kind);
   if (kind === "command") {
     return { ...base, cmd: requiredString(raw.cmd, "cmd"), args: optionalStringArray(raw.args, "args") ?? [], ...(stdin === undefined ? {} : { stdin }) };
   }
@@ -289,7 +329,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const path = optionalNonEmptyString(raw.path, "path");
   const url = optionalNonEmptyString(raw.url, "url");
   if ((path === undefined) === (url === undefined)) fail("page needs exactly one of `path` or `url`");
-  const page = { ...base, path, url, script: parseScript(raw.script) ?? [], probes: parseProbes(raw.probes) ?? [] };
+  const page = { ...base, path, url, script: parseScript(raw.script) ?? [], probes: parseProbes(raw.probes) ?? [], ...(game === undefined ? {} : { game }) };
   if (!startGiven(raw.start)) return page;
   // A page served by its own server: start it, wait until it is ready,
   // then open `url`. Without a wait the browser races the server and
