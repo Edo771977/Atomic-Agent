@@ -196,6 +196,7 @@ export function formatFusionMachineLine(
  */
 export function buildFusionGuidance(
   facts: FusionMachineFacts = NO_FUSION_MACHINE_FACTS,
+  options: { project?: boolean } = {},
 ): string {
   const machine = formatFusionMachineLine(facts);
   const roles = formatFusionRolesLine(facts);
@@ -209,10 +210,33 @@ export function buildFusionGuidance(
           LOCAL_WORKER_SEES,
         )
       : FUSION_GUIDANCE;
-  return [base, machine, roles, team]
+  return [base, options.project === true ? PROJECT_FLOW_GUIDANCE : null, machine, roles, team]
     .filter((line): line is string => line !== null)
     .join("\n");
 }
+
+/** The tool whose presence means the project tools are mounted (with the fan-out). */
+export const PROJECT_PLAN_TOOL = "project.plan";
+
+/** Live iff the project tools are in the catalog (issue #39). */
+export function isProjectActive(descriptors: readonly ToolDescriptor[]): boolean {
+  return descriptors.some((d) => d.name === PROJECT_PLAN_TOOL);
+}
+
+/**
+ * The project flow (issue #39): every job goes brief → plan →
+ * milestones, each a gate the person decides between turns. Static
+ * bytes, present exactly when the project tools are mounted (with the
+ * fan-out, so for the whole fusion session); where the project stands
+ * is the step-mutable `### project`, never here.
+ */
+export const PROJECT_FLOW_GUIDANCE = [
+  "Every job is a project with three gates the person decides between turns; after each step, reply and stop:",
+  "1. `project.brief`: what, for whom, how, checkable success criteria.",
+  "2. Once approved, `project.plan`: milestones in run order, tasks with the ids you will delegate.",
+  "3. Once approved, delegate the approved milestone's tasks (same ids and workers), review them, report with `project.milestone`.",
+  "Never delegate while a gate waits; `### project` says where it stands and what the person corrected.",
+].join("\n");
 
 /**
  * The fusion team's workers (issue #37), one line, or `null` without

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFusionGuidance,
+  PROJECT_FLOW_GUIDANCE,
   FUSION_DELEGATE_TOOL,
   FUSION_GUIDANCE,
   isFusionActive,
@@ -168,6 +169,30 @@ describe("the ### fusion prefix section", () => {
       buildFusionGuidance({ ...FACTS, tokensPerSecond: 6.4, workerMaxNewLines: 650 })
         .length,
     ).toBeLessThan(2075);
+  });
+});
+
+describe("the project flow in the ### fusion block (issue #39)", () => {
+  const withProject = [descriptor(FUSION_DELEGATE_TOOL), descriptor("project.brief"), descriptor("project.plan"), descriptor("project.milestone")];
+
+  it("teaches brief, plan, milestones, each a gate the person approves between turns", () => {
+    const prefix = prefixWith(withProject, FACTS);
+    const block = prefix.slice(prefix.indexOf("### fusion"), prefix.indexOf("### instructions"));
+    expect(block).toContain(PROJECT_FLOW_GUIDANCE);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.brief`/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/reply and stop/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.plan`/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.milestone`/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/### project/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/never delegate while a gate waits/i);
+  });
+
+  it("is static: the same bytes whatever the project's state, and absent without the project tools", () => {
+    expect(prefixWith(withProject, FACTS)).toBe(prefixWith(withProject, FACTS));
+    expect(prefixWith([descriptor(FUSION_DELEGATE_TOOL)], FACTS)).not.toContain(PROJECT_FLOW_GUIDANCE);
+    expect(buildFusionGuidance(FACTS, { project: true })).toContain(PROJECT_FLOW_GUIDANCE);
+    expect(buildFusionGuidance(FACTS)).toBe(buildFusionGuidance(FACTS, { project: false }));
+    expect(PROJECT_FLOW_GUIDANCE.length).toBeLessThan(700);
   });
 });
 
