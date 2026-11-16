@@ -15,7 +15,7 @@ A brief drafted after untrusted content carries a warning; approval still comes 
 
 ## Operations
 
-`ChatOrchestrator.decideProject` sends the verdict through `AgentRuntime.projectDecision` between turns only, then shows the view the runtime answers with (an edit's re-estimate is the runtime's). When the decision closed the gate and the director has work, [projectContinueMessage](../../session/project-continue.ts) is sent as the person's next turn. `project_gate` events of the chat on screen replace the view; another chat's wait until it is opened. Opening a chat prints `Project — last done: X · next: Y`, offers `/fusion resume` for a milestone cut off mid-run, and raises the open gate's card.
+`ChatOrchestrator.decideProject` sends the verdict through `AgentRuntime.projectDecision` between turns only, then shows the view the runtime answers with (an edit's re-estimate is the runtime's) and takes the returned `project` into the chat's own session copy, which runs and saves the next turn, so that save never puts the old gate back (the CLI's `run` loop does the same). When the decision closed the gate and the director has work, [projectContinueMessage](../../session/project-continue.ts) is sent as the person's next turn. `project_gate` events of the chat on screen replace the view; another chat's wait until it is opened. Opening a chat prints `Project — last done: X · next: Y`, offers `/fusion resume` for a milestone cut off mid-run, and raises the open gate's card.
 
 ## Checks
 

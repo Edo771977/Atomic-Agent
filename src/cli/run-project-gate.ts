@@ -1,7 +1,7 @@
 import type { AgentRuntime } from "../runtime/runtime-contract.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { formatProjectGateText, projectApprovalLine } from "../session/project-gate-text.js";
-import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectDecision, ProjectState } from "../session/session-project.js";
 
 /**
  * `run` at a fusion project gate (issue #39). An unattended run never
@@ -19,8 +19,12 @@ export type ProjectGateStep =
   | { kind: "open" }
   /** A gate waits; print `text` and stop. */
   | { kind: "stop"; text: string }
-  /** Approved: print `line`; run `message` as the next turn when not null. */
-  | { kind: "approved"; line: string; message: string | null }
+  /**
+   * Approved: print `line`; run `message` as the next turn when not null.
+   * `project` is what the runtime stored: the caller's own session copy
+   * must take it before that turn, or the turn's save puts the gate back.
+   */
+  | { kind: "approved"; line: string; message: string | null; project: ProjectState }
   /** The approval was refused (a hard cap, a stale version): print `text`. */
   | { kind: "failed"; text: string };
 
@@ -55,5 +59,5 @@ export async function settleProjectGate(
       : outcome.error.message;
     return { kind: "failed", text: `${formatProjectGateText(view)}\nNot approved: ${why}` };
   }
-  return { kind: "approved", line: projectApprovalLine(view), message: projectContinueMessage(outcome.view, decision) };
+  return { kind: "approved", line: projectApprovalLine(view), message: projectContinueMessage(outcome.view, decision), project: outcome.project };
 }

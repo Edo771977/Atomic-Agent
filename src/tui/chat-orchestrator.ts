@@ -99,7 +99,7 @@ import { turnsToMessages } from "./chat/turns-to-messages.js";
 import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
 import { projectResumeLine } from "./project/project-card-lines.js";
 import { projectContinueMessage } from "../session/project-continue.js";
-import type { ProjectDecision } from "../session/session-project.js";
+import { withProject, type ProjectDecision } from "../session/session-project.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";
 import { teamMemberByRef } from "../runtime/session-director.js";
@@ -736,6 +736,10 @@ export class ChatOrchestrator {
     }
     this.bus.emit({ type: "project_card_shown", sessionId, view: outcome.view });
     if (this.session?.id !== sessionId) return;
+    // The runtime saved the decision to the store; this chat's own copy
+    // runs (and saves) the next turn, so it must carry the decided
+    // project or that save would put the old gate back.
+    this.session = withProject(this.session, outcome.project);
     if (decision.verdict === "cancel") this.notify("project cancelled");
     const next = projectContinueMessage(outcome.view, decision);
     if (next !== null) this.sendMessage(next);

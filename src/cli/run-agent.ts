@@ -55,6 +55,7 @@ import {
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
+import { withProject } from "../session/session-project.js";
 
 interface RunArgs {
   workingDir: string;
@@ -609,6 +610,7 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
         return false;
       }
       process.stderr.write(`project: ${step.line}\n`);
+      session = withProject(session, step.project);
       if (step.message === null) return true;
       await driveTurn(step.message);
       mode = gate.auto ? "approve" : "stop";

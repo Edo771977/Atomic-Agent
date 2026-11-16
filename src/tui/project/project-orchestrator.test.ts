@@ -10,7 +10,7 @@ function fixture(runtime: Record<string, unknown>, busy: string[] = []) {
   const notify = vi.fn();
   const app = Object.assign(Object.create(ChatOrchestrator.prototype), {
     currentController: null,
-    session: { id: "s1" },
+    session: { id: "s1", status: "active" },
     runtime: { turnController: { busySessionIds: () => busy }, ...runtime },
     bus: { emit },
     sendMessage,
@@ -22,9 +22,40 @@ function fixture(runtime: Record<string, unknown>, busy: string[] = []) {
 const plan = { gate: { kind: "plan" as const }, version: 3, verdict: "approve" as const };
 
 describe("project decisions from the TUI", () => {
+  it("takes the decided project into the chat's own session copy before the next turn", async () => {
+    // B's runtime saves the decision to the store, while the TUI keeps its
+    // own copy of the session and runs (and saves) the next turn on it.
+    const view = fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "run_milestone", id: "m1" } });
+    const project = { milestones: [], gate: { kind: "none" as const }, cancelledAt: 7 };
+    const f = fixture({ projectDecision: vi.fn(() => ({ ok: true as const, project, view })) });
+    let projectAtSend: unknown;
+    f.sendMessage.mockImplementation(() => {
+      projectAtSend = (f.app as unknown as { session: { project?: unknown } }).session.project;
+    });
+    await f.app.decideProject("s1", plan);
+    expect(f.sendMessage).toHaveBeenCalled();
+    expect(projectAtSend).toBe(project);
+    expect((f.app as unknown as { session: { id: string; status: string; project?: unknown } }).session).toEqual({ id: "s1", status: "active", project });
+  });
+
+  it("a cancel is merged too, though nothing is sent", async () => {
+    const view = fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "cancelled" } });
+    const project = { milestones: [], gate: { kind: "none" as const }, cancelledAt: 9 };
+    const f = fixture({ projectDecision: vi.fn(() => ({ ok: true as const, project, view })) });
+    await f.app.decideProject("s1", { ...plan, verdict: "cancel" });
+    expect((f.app as unknown as { session: { project?: unknown } }).session.project).toBe(project);
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("a turn-running refusal says to wait", async () => {
+    const f = fixture({ projectDecision: vi.fn(() => ({ ok: false as const, error: { code: "turn-running", message: "x" } })) });
+    await f.app.decideProject("s1", plan);
+    expect(f.emit).toHaveBeenCalledWith({ type: "project_card_failed", error: expect.stringMatching(/current turn/) });
+  });
+
   it("shows the runtime's answer and continues when the gate closed on director work", async () => {
     const view: ProjectGateView = fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "run_milestone", id: "m1" } });
-    const projectDecision = vi.fn(async () => ({ ok: true as const, view }));
+    const projectDecision = vi.fn(() => ({ ok: true as const, project: { milestones: [], gate: { kind: "none" as const } }, view }));
     const f = fixture({ projectDecision });
     await f.app.decideProject("s1", plan);
     expect(projectDecision).toHaveBeenCalledWith("s1", plan);
@@ -34,7 +65,7 @@ describe("project decisions from the TUI", () => {
 
   it("an edit shows the re-estimated plan and starts nothing", async () => {
     const view = fixtureProjectGateView({ kind: "plan" }, { version: 4 });
-    const f = fixture({ projectDecision: vi.fn(async () => ({ ok: true as const, view })) });
+    const f = fixture({ projectDecision: vi.fn(() => ({ ok: true as const, project: { milestones: [], gate: { kind: "plan" as const } }, view })) });
     await f.app.decideProject("s1", { ...plan, verdict: "edit", edits: { rows: [{ taskId: "t1", worker: "prov-c:model-c" }] } });
     expect(f.emit).toHaveBeenCalledWith({ type: "project_card_shown", sessionId: "s1", view });
     expect(f.sendMessage).not.toHaveBeenCalled();
@@ -59,7 +90,7 @@ describe("project decisions from the TUI", () => {
     const f = fixture({ projectState: () => view });
     f.app.openProjectView();
     expect(f.emit).toHaveBeenCalledWith({ type: "project_card_shown", sessionId: "s1", view, full: true });
-    const g = fixture({ projectState: () => undefined });
+    const g = fixture({ projectState: () => null });
     g.app.openProjectView();
     expect(g.emit).toHaveBeenCalledWith({ type: "composer_notice", text: expect.stringMatching(/no project/) });
   });

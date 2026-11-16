@@ -44,6 +44,7 @@ describe("run at a project gate", () => {
       kind: "approved",
       line: "approved the plan (version 3): 2 tasks, $0.12 (+1 unpriced), ~1m30s",
       message: 'I approved. Continue with milestone "Base".',
+      project: { milestones: [], gate: { kind: "none" } },
     });
   });
 

@@ -23,7 +23,12 @@ const project = vi.hoisted(() => ({
   after: undefined as ProjectGateView | undefined,
   decisions: [] as ProjectDecision[],
   messages: [] as string[],
+  /** The project each turn ran with (`session.project` passed to runTurn). */
+  turnProjects: [] as unknown[],
 }));
+
+/** What the stubbed runtime stored with an approval. */
+const DECIDED = { milestones: [], gate: { kind: "none" as const }, cancelledAt: 42 };
 
 vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../runtime/bootstrap.js")>();
@@ -45,6 +50,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
       return Object.assign(runtime, {
         runTurn: async (...args: Parameters<typeof runTurn>) => {
           project.messages.push(args[1]);
+          project.turnProjects.push(args[0].project);
           const result = await runTurn(...args);
           if (project.openAfterTurn.length > 0) project.view = project.openAfterTurn.shift();
           return result;
@@ -55,7 +61,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
           project.view = project.after;
           return project.after === undefined
             ? { ok: false as const, error: { code: "over-cap" as const, message: "over today's limit", violations: [] } }
-            : { ok: true as const, project: { milestones: [], gate: { kind: "none" as const } }, view: project.after };
+            : { ok: true as const, project: DECIDED, view: project.after };
         },
       });
     },
@@ -80,7 +86,7 @@ describe("run at a fusion project gate", () => {
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
     resetConfigCache();
-    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [] });
+    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [] });
     stderr = "";
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
@@ -125,12 +131,16 @@ describe("run at a fusion project gate", () => {
     stderr = "";
     project.after = running;
     project.messages = [];
+    project.turnProjects = [];
     feed([]);
     const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve"]);
     expect(code).toBe(0);
     expect(project.decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "approve" }]);
     expect(stderr).toContain("project: approved the plan (version 3)");
     expect(project.messages).toEqual(['I approved. Continue with milestone "Base".']);
+    // The continuing turn runs on the decided project, so its save keeps
+    // the approval instead of writing the chat's older copy back.
+    expect(project.turnProjects).toEqual([DECIDED]);
     expect(stderr).toContain('"turnCount": 2');
   }, 60_000);
 
