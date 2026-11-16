@@ -520,6 +520,16 @@ function pcDraw(doc, host, model, on) {
   host.appendChild(card);
 }
 
+/**
+ * Whether the window may send a continue message now. Everything that would
+ * make submit() keep it out (or, for dictation, stop the recording instead
+ * of sending) answers no, so the message stays pending rather than lost.
+ */
+function pcCanContinue(env) {
+  return !!env && env.onScreen && !env.busy && !env.pending && env.connected && !env.opening
+    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.gating;
+}
+
 /* ---------- the controller: one card for the chat on screen ---------- */
 
 /**
@@ -629,6 +639,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
-    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX,
+    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue,
   };
 }

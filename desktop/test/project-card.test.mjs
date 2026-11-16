@@ -554,3 +554,45 @@ test('the page draws Show project in the chat header and acts on it', () => {
   assert.match(renderer, /PCARD\.hiddenOpen\(\)[^\n]*data-act="project:show"/);
   assert.match(renderer, /a === 'project:show'[^\n]*PCARD\.show\(\)/);
 });
+
+/* ---------------- the continue message and submit()'s holds ---------------- */
+
+/** renderer.js's projectCardContinue, run against stand-ins for the page's state. */
+function continueWith(over = {}) {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/function projectCardContinue\([\s\S]*?\n}\n/)[0];
+  const calls = {submit: [], voiceStop: 0};
+  const env = Object.assign({
+    S: {agentSession: 'ses-1', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
+    VOICE: {state: 'idle'}, BSW: {gating: false},
+    starterHoldsSend: () => false, openHoldsComposer: () => false,
+  }, over);
+  const submit = (text, opts) => {
+    // submit()'s own first steps: dictation is stopped, a hold keeps the message out.
+    if (env.VOICE.state === 'recording' || env.VOICE.state === 'starting') { calls.voiceStop++; return; }
+    if (env.VOICE.state === 'finishing' || env.starterHoldsSend() || env.BSW.gating) return;
+    calls.submit.push([text, opts]);
+  };
+  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'openHoldsComposer', 'submit', '$', 'autosize', 'pcCanContinue',
+    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.openHoldsComposer, submit, () => null, () => {}, C.pcCanContinue);
+  return {sent: run('ses-1', 'Go on.'), calls};
+}
+
+test('a continue message is not handed to submit() while it would not send, and dictation is left alone', () => {
+  for (const [label, over] of [
+    ['dictation recording', {VOICE: {state: 'recording'}}],
+    ['dictation starting', {VOICE: {state: 'starting'}}],
+    ['dictation finishing', {VOICE: {state: 'finishing'}}],
+    ['the starter model downloading', {starterHoldsSend: () => true}],
+    ['a backend switch gating', {BSW: {gating: true}}],
+    ['a turn running', {S: {agentSession: 'ses-1', busy: true, live: {state: 'connected'}, draft: ''}}],
+  ]) {
+    const r = continueWith(over);
+    assert.equal(r.sent, false, label + ': kept pending');
+    assert.equal(r.calls.voiceStop, 0, label + ': the recording is not stopped');
+    assert.deepEqual(r.calls.submit, [], label);
+  }
+  const ok = continueWith();
+  assert.equal(ok.sent, true);
+  assert.deepEqual(ok.calls.submit, [['Go on.', {plain: true}]]);
+});

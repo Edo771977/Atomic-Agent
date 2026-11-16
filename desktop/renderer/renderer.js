@@ -2261,8 +2261,15 @@ function projectCardFollow() {
   pcPlace(window, document.getElementById('projectcard'));
 }
 function projectCardContinue(sid, text) {
-  // Only into the chat it belongs to, between turns, on a live agent; otherwise it waits for the next look.
-  if (S.agentSession !== sid || S.busy || S.pending || S.live.state !== 'connected' || openHoldsComposer()) return false;
+  /* Only into the chat it belongs to, between turns, on a live agent, and
+     only when submit() would send it: dictation, the starter download or a
+     backend switch would keep it out (or stop the recording). Otherwise it
+     waits for the next look (project-card.js keeps it pending). */
+  if (!pcCanContinue({
+    onScreen: S.agentSession === sid, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
+    opening: openHoldsComposer(), voice: VOICE.state,
+    starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(), gating: BSW.gating,
+  })) return false;
   const e = $('#entry'), keep = S.draft;
   submit(text, {plain: true});
   // The person's own draft stays in the box.
