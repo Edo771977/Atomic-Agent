@@ -1413,6 +1413,42 @@ describe("fusion.delegate", () => {
       }
     });
 
+    it("refuses a check the folder's egress rule does not allow before the runner sees it, as a red check with the egress message (issue #40)", async () => {
+      const dir = fixture();
+      try {
+        const runChecks = vi.fn(async (specs: readonly Record<string, unknown>[]) => ({
+          ok: true,
+          results: specs.map(() => ({ ok: true, summary: "exit 0" })),
+        }));
+        const egressMessage = 'folder /secret is restricted: verify.run would send content off this machine; add "browser" to projects.constraints["/secret"].allowedEgress to allow it';
+        const asked: string[] = [];
+        const tool = buildFusionDelegateTool(
+          deps({
+            workingDir: dir,
+            runChecks,
+            contractCheckEgress: (spec, egressCtx) => {
+              asked.push(egressCtx.sessionId);
+              return spec.kind === "page" ? new Error(egressMessage) : null;
+            },
+          }),
+        );
+        const result = await tool.run({ tasks: TASKS, contract: CONTRACT }, ctx({ workingDir: dir }));
+        // No runner call ever carried the page spec.
+        for (const [specs] of runChecks.mock.calls) {
+          expect(specs.some((s) => s.kind === "page")).toBe(false);
+        }
+        expect(asked.length).toBeGreaterThan(0);
+        expect(new Set(asked)).toEqual(new Set(["s-parent"]));
+        const rows = result.details.tasks as WorkerTaskResult[];
+        expect(rows.find((r) => r.id === "t2")?.status).toBe("failed");
+        expect(rows.find((r) => r.id === "t2")?.error).toContain("add \"browser\"");
+        const report = result.details.contract as { checks: { ok: boolean; detail: string }[] };
+        expect(report.checks.filter((c) => !c.ok).map((c) => c.detail).join(" ")).toContain("allowedEgress");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it("does not accuse cancelled tasks of missing their provides", async () => {
       // Live, run2-attempt0: a 34.5-minute fan-out ended `all_failed`
       // with every task cancelled — three of them after 0 steps — and

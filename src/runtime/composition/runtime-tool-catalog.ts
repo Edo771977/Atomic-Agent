@@ -1049,6 +1049,9 @@ export function registerRuntimeFusionAndReadScope(input: {
           ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }),
         }), { supportsInputIntegrity: true as const }),
       shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
+      // The same dispatch guard as a verify.run call of the delegating
+      // session: a check the folder's egress rule refuses never runs.
+      contractCheckEgress: (spec, ctx) => toolRegistry.dispatchRefusal("verify.run", spec, ctx),
       checkCommandReads: createCommandReadCheck(runtimeReadConfinement(config, dangerous)),
       checkReadTargets: createReadTargetCheck(runtimeReadConfinement(config, dangerous)),
       // `verify.syntax`'s own checker: the delegate syntax-checks every

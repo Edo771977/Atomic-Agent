@@ -360,6 +360,28 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(wired?.currentWorker?.()).toBe(worker);
   });
 
+  it("hands the fusion tool the registry's dispatch guard for contract checks, as verify.run calls of the delegating session (issue #40)", () => {
+    const config = getConfig();
+    const seen: Array<{ tool: string; sessionId: string }> = [];
+    const toolRegistry = new ToolRegistry({
+      dispatchGuard: (tool, args, ctx) => {
+        seen.push({ tool, sessionId: ctx.sessionId });
+        return args.kind === "page" ? new Error('folder /w is restricted: add "browser"') : null;
+      },
+    });
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+      resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+      prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+      providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+    const wired = builder.mock.calls.at(-1)?.[0];
+    expect(wired?.contractCheckEgress).toBeTypeOf("function");
+    expect(wired!.contractCheckEgress!({ kind: "page", path: "index.html" }, { sessionId: "s-parent", workingDir: directory })?.message).toContain('add "browser"');
+    expect(wired!.contractCheckEgress!({ kind: "command", cmd: "node" }, { sessionId: "s-parent", workingDir: directory })).toBeNull();
+    expect(seen).toEqual([{ tool: "verify.run", sessionId: "s-parent" }, { tool: "verify.run", sessionId: "s-parent" }]);
+  });
+
   it("registers fusion after existing tools, then decorates reads with live security callbacks", async () => {
     const config = getConfig(); const toolRegistry = new ToolRegistry();
     toolRegistry.register({ name: "os.fs.read", description: "fixture", readonly: true, run: async () => externalOperation() });

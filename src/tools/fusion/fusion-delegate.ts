@@ -173,6 +173,7 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
+import { contractChecksAllowedByEgress, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -193,6 +194,13 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   approvalRequired: boolean;
   /** Shared pre-exec verification policy; installed by runtime composition. */
   shellPolicy?: ShellGuardPolicy;
+  /**
+   * The registry's dispatch guard for one contract check, asked as a
+   * `verify.run` call of the delegating session (issue #40): a refusal
+   * (the folder's egress rule) turns that check red with its message
+   * and it never runs (`contract-check-egress.ts`). Absent: no rule.
+   */
+  contractCheckEgress?: (spec: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Error | null;
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
   slotManager: Pick<SlotManager, "poolSize">;
@@ -1275,6 +1283,11 @@ export function buildFusionDelegateTool(
       // The contract's checks run what the workers wrote: after outside
       // content (`agent.taintReview`) they wait on one more yes, asked
       // once for the call, whichever batch comes first (ATO-618).
+      // The folder's egress rule, asked per check before any approval
+      // prompt and before the runner, as dispatch does for verify.run.
+      const checkEgress: ContractCheckEgressRule | undefined = deps.contractCheckEgress === undefined
+        ? undefined
+        : (spec) => deps.contractCheckEgress!(spec, { sessionId: ctx.sessionId, workingDir: ctx.workingDir });
       const checkHold = createContractCheckHold({
         runner: deps.runChecks,
         approvals: deps.approvals,
@@ -1293,7 +1306,7 @@ export function buildFusionDelegateTool(
         ...(ctx.readRoots === undefined ? {} : { readRoots: ctx.readRoots }),
         checkInputs: parsed.contract?.checkInputs ?? [],
       });
-      const heldRunChecks = checkHold.runner;
+      const heldRunChecks = withContractCheckEgress(checkHold.runner, checkEgress);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -2843,7 +2856,7 @@ export function buildFusionDelegateTool(
         // reading only the status merged nothing as if it were something.
         // Workers that were never served or timed out before a single step
         // count as nothing delivered too (ATO-234).
-        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: deps.runChecks, holdChecks: (signal) => checkHold.decide(signal) }), signal: runSignal });
+        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
         completedCandidateReport = candidateReport;
         terminalTaskCount = results.length;
         const outcome = delegateOutcome(results);
