@@ -32,6 +32,9 @@ export const criticalFiles = [
   'src/tools/verify/verify-run-args.test.ts',
   'src/tools/verify/safe-regex.test.ts',
   'src/tools/fusion/contract-check-egress.test.ts',
+  // Issue #40: run folders' criteria facts and shots (paths), and the delegate seam.
+  'src/tools/fusion/run-criteria.test.ts',
+  'src/tools/fusion/fusion-delegate-criteria.test.ts',
   'src/tools/fusion/candidate-integration.test.ts',
   'src/tools/fusion/candidate-evidence.test.ts',
   'src/tools/fusion/candidate-path-references.test.ts',
@@ -125,6 +128,9 @@ export const supplementalFiles = [
 export const deferredFiles = [
   // Needs a launchable headless Chromium; skips without one.
   'src/tools/verify/run-page-real-browser.test.ts',
+  // Pure rules (issue #40): criteria facts and the vision judge's prompt and answer.
+  'src/tools/fusion/criteria-facts.test.ts',
+  'src/tools/fusion/vision-judge.test.ts',
   'src/tools/fusion/artifact-manifest.test.ts',
   'src/tools/fusion/branch-diff.test.ts',
   'src/tools/fusion/branch-ignore-policy.test.ts',
