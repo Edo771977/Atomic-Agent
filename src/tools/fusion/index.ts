@@ -185,5 +185,24 @@ export {
 export type { FusionReport, ReportOptions } from "./outcome-report.js";
 export { FUSION_TURN_RECEIPT_TASK_ID, FusionTurnLedger, formatTurnReceipt } from "./turn-receipt.js";
 export type { FusionTurnReceipt } from "./turn-receipt.js";
+export {
+  PRESET_REASON,
+  PRESET_TASK_TOKENS,
+  acceptanceRate,
+  cheaperVariant,
+  describeViolation,
+  estimatePlan,
+  estimateRow,
+  qualityVariant,
+} from "./project-estimate.js";
+export type {
+  EstimateRowOptions,
+  MilestoneEstimate,
+  PlanConstraints,
+  PlanEstimate,
+  PlanViolation,
+  RowEstimate,
+  VariantContext,
+} from "./project-estimate.js";
 export { teamContextFromConfig } from "./team-routing.js";
 export type { FusionTeamContext } from "./team-routing.js";
