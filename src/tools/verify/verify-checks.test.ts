@@ -69,6 +69,19 @@ describe("evaluateCheck", () => {
     expect(evaluateCheck("stdout contains", COMMAND).detail).toContain("unknown check");
   });
 
+  it("stdout / stderr matches a /regex/flags literal, negated or not, with the safe regex policy (issue #40)", () => {
+    expect(evaluateCheck("stdout matches /^\\d+ passed$/m", COMMAND)).toMatchObject({ ok: true });
+    expect(evaluateCheck("stdout matches /^\\d+ PASSED$/m", COMMAND).ok).toBe(false);
+    expect(evaluateCheck("stdout matches /^\\d+ PASSED$/mi", COMMAND).ok).toBe(true);
+    expect(evaluateCheck("stdout not matches /failed: [1-9]/", COMMAND).ok).toBe(true);
+    expect(evaluateCheck("stderr not matches /Error/", COMMAND).ok).toBe(true);
+    // A pattern with spaces is read whole, not split into tokens.
+    expect(evaluateCheck("stdout matches /2 failed\\n$/", COMMAND).ok).toBe(true);
+    expect(evaluateCheck("stdout matches /(a+)+$/", COMMAND)).toMatchObject({ ok: false, detail: expect.stringContaining("refused") });
+    expect(evaluateCheck("stdout matches a+b", COMMAND)).toMatchObject({ ok: false, detail: expect.stringContaining("/pattern/flags") });
+    expect(evaluateCheck("stdout matches /x/", PAGE)).toMatchObject({ ok: false, detail: "no stdout for a page run" });
+  });
+
   it("status: every request must answer with the code", () => {
     const service: CheckSubject = { kind: "service", requests: [{ status: 200 }, { status: 200 }] };
     expect(evaluateCheck("status 200", service).ok).toBe(true);

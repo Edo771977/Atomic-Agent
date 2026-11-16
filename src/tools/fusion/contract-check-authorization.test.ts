@@ -84,6 +84,13 @@ describe("contract check authorization", () => {
     expect(preview).not.toContain("fixture-secret-value");
   });
 
+  it("accepts a command's stdin as a declared field and shows it in the approval preview (issue #40)", async () => {
+    const { hold, runner, requests } = setup({ tainted: true });
+    await run(hold, [{ kind: "command", cmd: "node", args: ["cli.js"], stdin: "move e2e4\nquit\n" }]);
+    expect(requests.map(r => r.preview).join("\n")).toContain("move e2e4");
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
   it("retains input-integrity capability and passes its guard unchanged", async () => {
     const { hold, runner } = setup();
     const inputIntegrity = { paths: ["test.js"], begin: async () => async () => {} };

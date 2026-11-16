@@ -3,6 +3,8 @@
  *
  *   exit 0 | exit != 0 | exit == 0
  *   stdout contains "x" | stdout not contains "x"     (stderr likewise)
+ *   stdout matches /re/flags | stdout not matches /re/flags
+ *                                 (stderr likewise; `safe-regex.ts` policy)
  *   status 200                    every request answered with that status
  *   no errors                     page: no uncaught errors, no console errors
  *   missing selectors 0           page: that many failed lookups
@@ -13,6 +15,8 @@
  * and the model can read back. Anything else fails as `unknown check`
  * rather than passing by accident.
  */
+
+import { compileCheckRegex, testCheckRegex } from "./safe-regex.js";
 
 export interface CheckOutcome {
   readonly check: string;
@@ -84,13 +88,30 @@ function checkExit(check: string, tokens: string[], s: CheckSubject): CheckOutco
   return outcome(check, ok, actual);
 }
 
+/** `stdout [not] matches /re/flags`: the literal is read from the raw check, spaces and all. */
+function checkStreamMatches(check: string, s: CheckSubject): CheckOutcome {
+  const m = /^(stdout|stderr)\s+(not\s+)?matches\s+(.*)$/s.exec(check);
+  if (m === null) return outcome(check, false, "unknown check: expected `stdout [not] matches /pattern/flags`");
+  const stream = m[1] as "stdout" | "stderr";
+  const negated = m[2] !== undefined;
+  const regex = compileCheckRegex(m[3]!);
+  if ("error" in regex) return outcome(check, false, `pattern refused: ${regex.error} (expected \`${stream} [not] matches /pattern/flags\`)`);
+  const text = s[stream];
+  if (text === undefined) return outcome(check, false, `no ${stream} for a ${s.kind} run`);
+  const tested = testCheckRegex(regex, text);
+  if ("error" in tested) return outcome(check, false, `pattern not evaluated: ${tested.error}`);
+  const shown = `/${regex.source}/${regex.flags}`;
+  return outcome(check, negated ? !tested.matched : tested.matched, tested.matched ? `${stream} matches ${show(shown)}` : `${stream} does not match ${show(shown)}`);
+}
+
 function checkStream(check: string, tokens: string[], s: CheckSubject): CheckOutcome {
   const stream = tokens[0] as "stdout" | "stderr";
   const negated = tokens[1] === "not";
   const verb = negated ? tokens[2] : tokens[1];
+  if (verb === "matches") return checkStreamMatches(check, s);
   const needle = negated ? tokens[3] : tokens[2];
   if (verb !== "contains" || needle === undefined) {
-    return outcome(check, false, `unknown check: expected \`${stream} [not] contains "x"\``);
+    return outcome(check, false, `unknown check: expected \`${stream} [not] contains "x"\` or \`${stream} [not] matches /pattern/flags\``);
   }
   const text = s[stream];
   if (text === undefined) return outcome(check, false, `no ${stream} for a ${s.kind} run`);

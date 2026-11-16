@@ -44,6 +44,8 @@ export interface VerifyRunArgs {
   // command
   readonly cmd?: string;
   readonly args?: readonly string[];
+  /** Fed to the command's standard input, then closed; at most 64 KB (UTF-8). Absent: an empty stdin. */
+  readonly stdin?: string;
   // service, and optionally page (a server the page is loaded from)
   readonly start?: { readonly cmd: string; readonly args?: readonly string[] };
   readonly ready?: {
@@ -67,6 +69,7 @@ export const VERIFY_RUN_MAX_TIMEOUT_MS = 900_000;
 export const VERIFY_READY_DEFAULT_TIMEOUT_MS = 30_000;
 export const VERIFY_PAGE_DEFAULT_SECONDS = 5;
 export const VERIFY_PAGE_MAX_SECONDS = 120;
+export const VERIFY_STDIN_MAX_BYTES = 64 * 1024;
 const MAX_REQUESTS = 32;
 const MAX_SCRIPT_STEPS = 64;
 const MAX_PROBES = 16;
@@ -240,6 +243,18 @@ function parseProbes(raw: unknown): VerifyProbe[] | undefined {
   });
 }
 
+/** A command's `stdin`; on another kind only a default-filled `""` is accepted (and dropped). */
+function parseStdin(raw: unknown, kind: string): string | undefined {
+  const stdin = optionalString(raw, "stdin");
+  if (stdin === undefined) return undefined;
+  if (kind !== "command") {
+    if (stdin === "") return undefined;
+    fail("`stdin` applies to command runs only");
+  }
+  if (Buffer.byteLength(stdin, "utf8") > VERIFY_STDIN_MAX_BYTES) fail("`stdin` is larger than 64 KB");
+  return stdin;
+}
+
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind, "kind");
   if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page");
@@ -254,8 +269,9 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
       ? undefined
       : (list(raw.checks, "checks", MAX_CHECKS).map((c, i) => requiredString(c, `checks[${i}]`))),
   };
+  const stdin = parseStdin(raw.stdin, kind);
   if (kind === "command") {
-    return { ...base, cmd: requiredString(raw.cmd, "cmd"), args: optionalStringArray(raw.args, "args") ?? [] };
+    return { ...base, cmd: requiredString(raw.cmd, "cmd"), args: optionalStringArray(raw.args, "args") ?? [], ...(stdin === undefined ? {} : { stdin }) };
   }
   if (kind === "service") {
     const start = record(raw.start, "start");
