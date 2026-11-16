@@ -22,6 +22,8 @@ import type { ModelProfile } from "../../llm/model-profile.js";
 import type { SlotManager } from "../../llm/slot-manager.js";
 import { createFusionFormatProbeFor } from "./fusion-format-check.js";
 import { assertProviderAllowed, hasProjectConstraints, runWithProviderRole } from "../../llm/provider-policy.js";
+import { buildFusionVisionJudge } from "./fusion-vision-judge.js";
+import type { LlmProvider } from "../../llm/index.js";
 import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
@@ -736,6 +738,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   currentWorker?: FusionDelegateDeps["currentWorker"];
   /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
   teamMemberReachable?: (member: TeamMember) => boolean;
+  /** The provider `vision.describe` routes to now: the fusion vision judge's last fallback (issue #40). */
+  resolveCurrentVisionProvider?: (providerId: string | undefined) => LlmProvider | undefined;
   providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot" | "modelVariant">>;
   llama: Pick<
     LlamaServerClient,
@@ -1058,6 +1062,17 @@ export function registerRuntimeFusionAndReadScope(input: {
       // The same dispatch guard as a verify.run call of the delegating
       // session: a check the folder's egress rule refuses never runs.
       contractCheckEgress: (spec, ctx) => toolRegistry.dispatchRefusal("verify.run", spec, ctx),
+      // Visual contract checks judged by a vision-capable team member
+      // (issue #40); off with `vision.enabled: false`, when every visual
+      // criterion stays unverified.
+      ...(!config.vision.enabled ? {} : {
+        visionJudge: buildFusionVisionJudge({
+          providerRegistry,
+          providerEntries: () => resolveLlmConfig(getConfig()).providers,
+          routeProvider: () => input.resolveCurrentVisionProvider?.(undefined),
+          assertAllowed: (id) => assertProviderAllowed(id, { constraintsActive: () => hasProjectConstraints(getConfig()) }),
+        }),
+      }),
       checkCommandReads: createCommandReadCheck(runtimeReadConfinement(config, dangerous)),
       checkReadTargets: createReadTargetCheck(runtimeReadConfinement(config, dangerous)),
       // `verify.syntax`'s own checker: the delegate syntax-checks every

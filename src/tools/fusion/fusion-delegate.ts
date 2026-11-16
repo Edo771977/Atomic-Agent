@@ -170,6 +170,8 @@ import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
+import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
+import type { VisionJudgements } from "./criteria-facts.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -202,6 +204,18 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * and it never runs (`contract-check-egress.ts`). Absent: no rule.
    */
   contractCheckEgress?: (spec: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Error | null;
+  /**
+   * The vision judge of visual contract checks (issue #40,
+   * `vision-judge.ts`): whether a member's provider and model can take
+   * images, the member `vision.describe` routes to now, and one describe
+   * call through the registry's guarded provider. Absent: every visual
+   * criterion is unverified.
+   */
+  visionJudge?: {
+    sees(member: TeamMember): boolean;
+    route(): TeamMember | null;
+    describe: VisionDescribe;
+  };
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
   slotManager: Pick<SlotManager, "poolSize">;
@@ -1580,6 +1594,70 @@ export function buildFusionDelegateTool(
       // Tasks whose last review was cut short by the budget or a cancel:
       // a stop, never a review that ran out of passes (issue #38).
       const reviewCutShort = new Set<string>();
+      // The task's visual checks judged against the criteria they name
+      // (issue #40): by the task's judge when it can see, else the next
+      // team reviewer that can, else the vision route. Its spend is the
+      // judge's; under a $ cap an unpriced judge is not asked, and the
+      // criteria stay unverified.
+      const addJudgeSpend = (usd: number | null): void => {
+        if (usd === null || usd <= 0) return;
+        judgeSpendUsd += usd;
+        run?.addSpend(usd);
+        turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
+      };
+      const visionFor = async (
+        input: Parameters<GateJudge>[0],
+        target: JudgeTarget,
+      ): Promise<VisionJudgements | undefined> => {
+        const criteria = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
+        if (criteria.length === 0) return undefined;
+        const vj = deps.visionJudge;
+        const asMember = (t: JudgeTarget): TeamMember => {
+          const model = t.pinModel ?? t.model ?? t.providerId;
+          return { providerId: t.providerId, model, ref: `${t.providerId}:${model}` };
+        };
+        const judge = vj === undefined
+          ? null
+          : pickVisionJudge({
+              taskReviewer: asMember(target),
+              reviewers: team?.reviewers ?? [],
+              sees: (m) => currentPolicyAllows(m.providerId) && vj.sees(m),
+              route: () => vj.route(),
+            });
+        const result = await judgeTaskVision({
+          taskId: input.task.id,
+          criteria,
+          contract: input.contract,
+          outcomes: input.facts.checkOutcomes,
+          workingDir: input.workingDir,
+          judge,
+          pinsModel: (providerId) => team?.pinsModel(providerId) ?? teamContext?.pinsModel(providerId) ?? true,
+          describe: vj === undefined ? undefined : (call) => runWithProviderRole("the fusion vision judge", () => vj.describe(call)),
+          admit: (member, worstPromptChars) => {
+            const stop = budgetStop();
+            if (stop !== undefined) return stop.message;
+            if (runSignal.aborted) return "the turn was cancelled";
+            if (limits.usd === undefined) return undefined;
+            const pricing = deps.resolveWorkerPricing?.(member.providerId, member.model);
+            const verified = pricing !== undefined &&
+              (deps.resolveWorkerAdmissionPricing === undefined || deps.resolveWorkerAdmissionPricing(member.providerId, member.model) !== undefined);
+            if (!verified) return `the turn's $ cap needs a priced judge and ${member.model} has no verified price`;
+            const worstUsd = worstCaseCostUsd(worstPromptChars, VISION_MAX_OUTPUT_TOKENS, pricing);
+            return turnBudget.check(ctx.sessionId, { usd: limits.usd - worstUsd }, deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0) === undefined
+              ? undefined
+              : `the call's worst case (${formatUsd(worstUsd)}) would pass the turn's $ cap with the spend so far`;
+          },
+          price: (member, usage) => {
+            if (usage === undefined) return null;
+            return completionCostUsd(usage, deps.resolveWorkerPricing?.(member.providerId, member.model)) ?? null;
+          },
+          ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
+          signal: runSignal,
+        });
+        if (result.judge !== null) judgesUsed.add(result.judge);
+        addJudgeSpend(result.costUsd);
+        return result.judgements;
+      };
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
@@ -1596,8 +1674,10 @@ export function buildFusionDelegateTool(
         }
         const target = judgeTargetFor(input.task.id)!;
         judgesUsed.add(target.model ?? target.providerId);
+        const vision = await visionFor(input, target);
         const verdict = await judgeTask({
           ...input,
+          ...(vision === undefined ? {} : { facts: { ...input.facts, vision } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
             ? {}

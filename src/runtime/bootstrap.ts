@@ -1027,6 +1027,7 @@ export async function createAgentRuntime(
     declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
     currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
     teamMemberReachable: providers.teamMemberReachable,
+    resolveCurrentVisionProvider,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,
     turnBudget: fusionTurnBudget,
     sessionUsage,
