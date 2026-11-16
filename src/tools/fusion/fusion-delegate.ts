@@ -6,7 +6,8 @@ import {
   watchMaxChecksOf,
   type TeamMember,
 } from "../../llm/run-mode/fusion-team.js";
-import { WATCH_JUDGE_MAX_OUTPUT_TOKENS, type WatchClock } from "./worker-watch.js";
+import { WATCH_JUDGE_MAX_OUTPUT_TOKENS, watchFirstTickJitterMs, type WatchClock } from "./worker-watch.js";
+import { worstCaseCostUsd } from "./escalation.js";
 import type { WorkerWatchPlan } from "./worker-runner.js";
 import {
   ApprovalDeniedError,
@@ -313,6 +314,8 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   resolveFusionTeam?: () => FusionTeamContext | undefined;
   /** The watch's timer (issue #43); tests tick it by hand. Absent, the global one. */
   watchClock?: WatchClock;
+  /** The watch's first-tick jitter source (issue #43); tests pin it. Absent, `Math.random`. */
+  watchRandom?: () => number;
 }
 
 /**
@@ -1549,6 +1552,10 @@ export function buildFusionDelegateTool(
       // Judge calls each task's watch sent, across its runs (the first and
       // every review pass): `team.watchMaxChecks` is the task's, not a run's.
       const watchJudgeCallsUsed = new Map<string, number>();
+      // The worst case of every watch judge call in flight, held against
+      // the $ cap until its real spend lands: parallel watches cannot
+      // together pass a cap each alone would respect.
+      let watchReservedUsd = 0;
       const watchFor =
         teamContext === undefined || sideComplete === undefined
           ? undefined
@@ -1576,6 +1583,7 @@ export function buildFusionDelegateTool(
               const cap = watchMaxChecksOf(teamContext.team);
               return {
                 intervalMs: minutes * 60_000,
+                firstTickJitterMs: watchFirstTickJitterMs(minutes * 60_000, deps.watchRandom),
                 maxJudgeCalls: Math.max(0, cap - (watchJudgeCallsUsed.get(taskId) ?? 0)),
                 judgeCallCap: cap,
                 judgeLabel: label,
@@ -1592,6 +1600,24 @@ export function buildFusionDelegateTool(
                   if (limits.usd !== undefined && !verified) {
                     return { kind: "skipped", reason: `the turn's $ cap needs a priced judge and ${label} has no verified price` };
                   }
+                  const worstUsd =
+                    limits.usd === undefined || pricing === undefined
+                      ? 0
+                      : worstCaseCostUsd(prompt.length, WATCH_JUDGE_MAX_OUTPUT_TOKENS, pricing);
+                  if (
+                    limits.usd !== undefined &&
+                    turnBudget.check(
+                      ctx.sessionId,
+                      { usd: limits.usd - watchReservedUsd - worstUsd },
+                      deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0,
+                    ) !== undefined
+                  ) {
+                    return {
+                      kind: "skipped",
+                      reason: `the call's worst case (${formatUsd(worstUsd)}) would pass the turn's $ cap with the spend so far`,
+                    };
+                  }
+                  watchReservedUsd += worstUsd;
                   judgesUsed.add(label);
                   watchJudgeCallsUsed.set(taskId, (watchJudgeCallsUsed.get(taskId) ?? 0) + 1);
                   try {
@@ -1615,6 +1641,8 @@ export function buildFusionDelegateTool(
                     return { kind: "answer", content: answer.content };
                   } catch (err) {
                     return { kind: "failed", reason: err instanceof Error ? err.message : String(err) };
+                  } finally {
+                    watchReservedUsd -= worstUsd;
                   }
                 },
               };

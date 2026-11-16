@@ -151,6 +151,7 @@ async function run(input: {
     escalationComplete: complete,
     resolveFusionTeam: () => input.context,
     watchClock: c.clock,
+    watchRandom: () => 0,
     ...input.over,
   } as unknown as FusionDelegateDeps;
   const pending = buildFusionDelegateTool(d).run(
@@ -250,6 +251,25 @@ describe("the watch's cost guard (issue #43)", () => {
     expect(watchCalls).toHaveLength(1);
     // 1000 in, 100 out at $3 / $15 per million.
     expect(result.details.judgeSpendUsd).toBeCloseTo(0.0045, 6);
+  });
+
+  it("spreads parallel watches: the first tick waits a bounded, per-task jitter", async () => {
+    const { clock } = await run({ context: DIRECTED, ticks: 2, over: { watchRandom: () => 0.5 } });
+    expect(clock.intervals[0]).toBe(5 * 60_000 + 30_000 / 2);
+    expect(clock.intervals[1]).toBe(5 * 60_000);
+  });
+
+  it("reserves a judge call's worst case before it is sent under a $ cap", async () => {
+    const pricing = { input: 3, output: 15 };
+    // The reply alone could cost 200 output tokens at $15 per million: $0.003.
+    const { watchCalls, rows } = await run({
+      context: DIRECTED,
+      ticks: 2,
+      runOver: { turnBudgetUsd: 0.003 },
+      over: { resolveWorkerPricing: () => pricing },
+    });
+    expect(watchCalls).toEqual([]);
+    expect(String(rows[0]!.notes)).toMatch(/watch: judge not asked: .*worst case/);
   });
 
   it("not asked once the turn's budget is reached", async () => {

@@ -612,6 +612,8 @@ export interface WorkerRunnerDeps {
  */
 export interface WorkerWatchPlan {
   intervalMs: number;
+  /** Added to the first interval only, so parallel watches do not judge at once. */
+  firstTickJitterMs?: number;
   /** Judge calls this run may still cost (the task's cap less its earlier runs'). */
   maxJudgeCalls: number;
   /** The task's whole cap (`team.watchMaxChecks`), for the note. */
@@ -1833,6 +1835,7 @@ async function runOneTask(
     if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
     return startTaskWatch({
       intervalMs: watchPlan.intervalMs,
+      ...(watchPlan.firstTickJitterMs === undefined ? {} : { firstTickJitterMs: watchPlan.firstTickJitterMs }),
       maxJudgeCalls: watchPlan.maxJudgeCalls,
       ...(watchPlan.judgeCallCap === undefined ? {} : { judgeCallCap: watchPlan.judgeCallCap }),
       judgeLabel: watchPlan.judgeLabel,

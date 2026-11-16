@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  WATCH_FIRST_TICK_JITTER_MAX_MS,
   WATCH_HINT_MAX_CHARS,
   WATCH_STREAMING_FLOOR_TOKENS,
   WATCH_TAIL_CHARS,
@@ -10,6 +11,7 @@ import {
   progressKind,
   renderWatchJudgePrompt,
   startTaskWatch,
+  watchFirstTickJitterMs,
   type WatchJudgeCall,
   type WatchProgress,
 } from "./worker-watch.js";
@@ -296,6 +298,40 @@ describe("startTaskWatch (issue #43)", () => {
       signal: controller.signal,
     });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("delays the first check by its jitter, then keeps the interval", async () => {
+    const judge = vi.fn<WatchJudgeCall>(async () => ({ kind: "failed", reason: "x" }));
+    let checks = 0;
+    const watch = startTaskWatch({
+      intervalMs: 60_000,
+      firstTickJitterMs: 10_000,
+      maxJudgeCalls: 0,
+      judgeLabel: null,
+      probe: () => {
+        checks += 1;
+        return at({ filesChanged: checks });
+      },
+      prompt: () => "p",
+      judge,
+      onHint: () => true,
+      onStuck: () => {},
+      signal: new AbortController().signal,
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(checks).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(checks).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(checks).toBe(2);
+    watch.stop();
+  });
+
+  it("the first tick's jitter is bounded by a quarter interval and the cap", () => {
+    expect(watchFirstTickJitterMs(60_000, () => 0.999)).toBeLessThan(15_000);
+    expect(watchFirstTickJitterMs(60 * 60_000, () => 0.999)).toBeLessThan(WATCH_FIRST_TICK_JITTER_MAX_MS);
+    expect(watchFirstTickJitterMs(60_000, () => 0)).toBe(0);
+    expect(watchFirstTickJitterMs(60_000, () => 0.5)).toBe(7_500);
   });
 
   it("uses an injected clock when given one", () => {

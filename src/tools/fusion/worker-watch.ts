@@ -42,6 +42,20 @@ export const WATCH_STREAMING_FLOOR_TOKENS = 50;
 /** The streamed text's tail the judge reads, at most this long. */
 export const WATCH_TAIL_CHARS = 600;
 
+/** The first check's jitter never passes this, nor a quarter of the interval. */
+export const WATCH_FIRST_TICK_JITTER_MAX_MS = 30_000;
+
+/**
+ * How much later than the interval a task's first check runs: watches
+ * started together (a wave's tasks) then do not all ask their judges in
+ * the same instant, past a $ cap none of them alone would pass.
+ */
+export function watchFirstTickJitterMs(intervalMs: number, random: () => number = Math.random): number {
+  const bound = Math.min(WATCH_FIRST_TICK_JITTER_MAX_MS, Math.floor(intervalMs / 4));
+  const r = Math.min(Math.max(random(), 0), 1);
+  return Math.min(Math.max(0, bound - 1), Math.floor(r * bound));
+}
+
 /** The output ceiling of one watch judge call: a state and a short hint. */
 export const WATCH_JUDGE_MAX_OUTPUT_TOKENS = 200;
 
@@ -246,6 +260,8 @@ const globalClock: WatchClock = {
 
 export interface TaskWatchOptions {
   intervalMs: number;
+  /** Added to the first interval only (`watchFirstTickJitterMs`); absent, none. */
+  firstTickJitterMs?: number;
   /**
    * Judge calls this run of the task may still cost: what is left of
    * `team.watchMaxChecks` after the task's earlier runs (review passes).
@@ -296,13 +312,16 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
     if (!ended.signal.aborted) ended.abort();
     options.signal.removeEventListener("abort", stop);
   };
+  let firstDelayMs = Math.max(0, options.firstTickJitterMs ?? 0);
   const arm = (): void => {
     if (ended.signal.aborted || options.signal.aborted) return;
     armed = true;
+    const delay = options.intervalMs + firstDelayMs;
+    firstDelayMs = 0;
     timer = clock.setTimeout(() => {
       armed = false;
       void tick();
-    }, options.intervalMs);
+    }, delay);
   };
   const tick = async (): Promise<void> => {
     if (judgeSignal.aborted) return;
