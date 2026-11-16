@@ -116,6 +116,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
     }
   }
   for (const v of view.violations) out.push(`  ${v.severity === "hard" ? "✕ over a hard cap:" : "! note:"} ${v.message}`);
+  for (const hint of view.hints ?? []) out.push(`  hint: ${hint}`);
   out.push(`  Allowed: ${view.allowedVerdicts.join(", ")}`);
   return out.join("\n");
 }

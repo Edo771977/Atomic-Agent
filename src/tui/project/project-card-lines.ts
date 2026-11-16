@@ -167,6 +167,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   }
 
   for (const v of view.violations) text(`${v.severity === "hard" ? "✕" : "!"} ${v.message}`, v.severity === "hard" ? "error" : "warn");
+  for (const hint of view.hints ?? []) text(`ℹ ${hint}`, "muted");
 
   if (view.milestones.length > 0 && view.gate.kind !== "brief") {
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;

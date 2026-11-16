@@ -30,6 +30,7 @@ export function fixtureProjectGateView(
       version: 3,
       draftedAfterUntrusted: false,
       totals: { costUsd: 0.12, ms: 90_000, unknownCostRows: 1 },
+      editable: true,
       rows: [
       {
         taskId: "t1", title: "Board and pieces", milestoneId: "m1",
@@ -55,6 +56,7 @@ export function fixtureProjectGateView(
     version: 3,
     allowedVerdicts: allowedProjectVerdicts(gate),
     violations: [],
+    hints: [],
     expectation: gate.kind === "none" ? { kind: "run_milestone", id: "m1" } : { kind: "await_person", gate },
     ...overrides,
   };

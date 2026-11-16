@@ -57,7 +57,11 @@ export interface ProjectCardActionInfo {
  * person types the change in the composer and the director redrafts).
  */
 export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo[] {
-  return view.allowedVerdicts.map((verdict) => {
+  // "edit rows" with nothing to choose is hidden (issue #54; the view's hint says why).
+  const verdicts = view.gate.kind === "plan" && view.plan?.editable === false
+    ? view.allowedVerdicts.filter((verdict) => verdict !== "edit")
+    : view.allowedVerdicts;
+  return verdicts.map((verdict) => {
     switch (verdict) {
       case "approve":
         return { verdict, label: "approve", key: "a" };

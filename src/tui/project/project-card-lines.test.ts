@@ -49,6 +49,15 @@ describe("project card lines", () => {
     expect(out).not.toContain("unpriced");
   });
 
+  it("shows the view's hints and hides edit rows when the plan is not editable (issue #54)", () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const view: ProjectGateView = { ...base, hints: ["only one worker available: configure llm.runMode.fusion.team to choose"], plan: { ...base.plan!, editable: false } };
+    const out = text(card(view));
+    expect(out).toContain("only one worker available: configure llm.runMode.fusion.team to choose");
+    expect(out).not.toContain("edit rows");
+    expect(out).toMatch(/a approve .* c cheaper/);
+  });
+
   it("says the approved write scope is the session folder (rows carry no file list)", () => {
     expect(text(card(fixtureProjectGateView({ kind: "plan" })))).toContain("Approving lets these tasks write in this chat's folder");
     expect(text(card(fixtureProjectGateView({ kind: "plan" }), true))).toContain("Approving lets these tasks write in this chat's folder");

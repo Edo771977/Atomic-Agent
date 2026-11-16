@@ -40,6 +40,13 @@ describe("run at a project gate", () => {
     expect(step.text).not.toContain("unpriced");
   });
 
+  it("prints the view's hints (issue #54)", async () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { hints: ["no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"] });
+    const step = await settleProjectGate(runtime(view), "sess-1", "stop");
+    if (step.kind !== "stop") throw new Error("expected a stop");
+    expect(step.text).toContain("no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed");
+  });
+
   it("a milestone gate prints its criteria facts and pictures (issue #40)", async () => {
     const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
     const step = await settleProjectGate(runtime(view), "s", "stop");

@@ -26,7 +26,7 @@ import type { ProjectPlanContext } from "../../tools/fusion/project-tools.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
-import { teamStrengthOf } from "../../llm/run-mode/fusion-team.js";
+import { teamMembers, teamStrengthOf } from "../../llm/run-mode/fusion-team.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { teamContextFromConfig } from "../../tools/fusion/team-routing.js";
@@ -59,6 +59,8 @@ export interface LiveProjectInputs {
   /** The member's tier (`teamStrengthOf`); null when it holds none. */
   strength: (member: TeamMember) => ModelTier | null;
   isLocal: (member: TeamMember) => boolean;
+  /** Whether `llm.runMode.fusion.team.reviewers` names anyone (the gate's hint, issue #54). */
+  reviewersConfigured?: boolean;
 }
 
 export interface LiveProjectInputsSource {
@@ -92,8 +94,9 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
   };
   const providerOf = (ref: string): string => (ref.includes(":") ? ref.slice(0, ref.indexOf(":")) : ref);
+  const team = teamContextFromConfig(source.config, source.reachable);
   const plan = projectPlanContextFrom({
-    team: teamContextFromConfig(source.config, source.reachable),
+    team,
     ...(fusion?.judge === undefined ? {} : { judge: fusion.judge }),
     allows: source.allows,
     workerLeg:
@@ -120,6 +123,7 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     },
     strength: teamStrengthOf(resolved.providers),
     isLocal: (member) => localProvider(member.providerId),
+    reviewersConfigured: team !== undefined && teamMembers(team.team, "reviewers").length > 0,
   };
 }
 
@@ -208,6 +212,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         workers: inputs.plan.workers.map((m) => m.ref),
         reviewers: inputs.plan.reviewers.map((m) => m.ref),
       },
+      ...(inputs.reviewersConfigured === undefined ? {} : { reviewersConfigured: inputs.reviewersConfigured }),
     });
   };
   return {
