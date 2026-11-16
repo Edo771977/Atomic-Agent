@@ -100,6 +100,8 @@ async function run(input: {
   /** Runs once the worker is running, before the ticks. */
   beforeTicks?: () => void;
   contract?: Record<string, unknown>;
+  /** The reviewer's answers in turn; then accept. */
+  reviewAnswers?: string[];
 }) {
   const dir = mkdtempSync(join(tmpdir(), "fusion-watch-"));
   const c = handClock();
@@ -109,7 +111,7 @@ async function run(input: {
     if (call.prompt.startsWith("You watch a worker")) {
       return { content: input.watchAnswer ?? '{"state":"progressing","hint":null}', usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } };
     }
-    return { content: JSON.stringify({ decision: "accept", issues: [] }) };
+    return { content: input.reviewAnswers?.shift() ?? JSON.stringify({ decision: "accept", issues: [] }) };
   };
   let minted = 0;
   const started: Array<() => Promise<void>> = [];
@@ -160,7 +162,15 @@ async function run(input: {
   );
   // Let each worker start, then drive it.
   for (let i = 0; i < 50 && started.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
-  while (started.length > 0) await started.shift()!();
+  // Drive every run of a worker, review passes too, until the call ends.
+  let settled = false;
+  void pending.finally(() => {
+    settled = true;
+  });
+  while (!settled) {
+    if (started.length > 0) await started.shift()!();
+    else await new Promise((r) => setTimeout(r, 0));
+  }
   const result = await pending;
   rmSync(dir, { recursive: true, force: true });
   const rows = result.details.tasks as Array<Record<string, unknown>>;
@@ -207,6 +217,18 @@ describe("the watch's cost guard (issue #43)", () => {
       context: { ...DIRECTED, team: { ...DIRECTED.team, watchMaxChecks: 1 } },
       ticks: 6,
     });
+    expect(watchCalls).toHaveLength(1);
+    expect(String(rows[0]!.notes)).toContain("watch: 1 judge call used; not asked again");
+  });
+
+  it("the cap is the task's, across its review passes", async () => {
+    const { watchCalls, calls, rows } = await run({
+      context: { ...REVIEWED, team: { ...REVIEWED.team, watchMaxChecks: 1, reviewPasses: 1 } },
+      ticks: 2,
+      reviewAnswers: [JSON.stringify({ decision: "needs-changes", issues: [{ item: null, severity: "blocker", file: null, why: "redo it" }] })],
+    });
+    // Two runs of the task (the first and its review pass), one judge call between them.
+    expect(calls.filter((c) => !c.prompt.startsWith("You watch a worker")).length).toBeGreaterThanOrEqual(2);
     expect(watchCalls).toHaveLength(1);
     expect(String(rows[0]!.notes)).toContain("watch: 1 judge call used; not asked again");
   });

@@ -612,7 +612,10 @@ export interface WorkerRunnerDeps {
  */
 export interface WorkerWatchPlan {
   intervalMs: number;
+  /** Judge calls this run may still cost (the task's cap less its earlier runs'). */
   maxJudgeCalls: number;
+  /** The task's whole cap (`team.watchMaxChecks`), for the note. */
+  judgeCallCap?: number;
   /** The judge's label for the row and the hint's framing; null when none is named. */
   judgeLabel: string | null;
   judge: WatchJudgeCall;
@@ -1831,6 +1834,7 @@ async function runOneTask(
     return startTaskWatch({
       intervalMs: watchPlan.intervalMs,
       maxJudgeCalls: watchPlan.maxJudgeCalls,
+      ...(watchPlan.judgeCallCap === undefined ? {} : { judgeCallCap: watchPlan.judgeCallCap }),
       judgeLabel: watchPlan.judgeLabel,
       probe: probeProgress,
       prompt: (before, now, quietIntervals) =>

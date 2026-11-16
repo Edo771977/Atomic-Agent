@@ -246,8 +246,13 @@ const globalClock: WatchClock = {
 
 export interface TaskWatchOptions {
   intervalMs: number;
-  /** Judge calls this task may cost (`team.watchMaxChecks`). */
+  /**
+   * Judge calls this run of the task may still cost: what is left of
+   * `team.watchMaxChecks` after the task's earlier runs (review passes).
+   */
   maxJudgeCalls: number;
+  /** The task's whole cap, named in the note once it is used; absent, `maxJudgeCalls`. */
+  judgeCallCap?: number;
   judgeLabel: string | null;
   probe: () => WatchProgress;
   /** The judge prompt for this check (`renderWatchJudgePrompt`). */
@@ -311,7 +316,8 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
     else if (kind !== "waiting") quiet += 1;
     if (decision === "judge") {
       if (record.judgeCalls >= options.maxJudgeCalls) {
-        note(`watch: ${record.judgeCalls} judge call${record.judgeCalls === 1 ? "" : "s"} used; not asked again`);
+        const cap = options.judgeCallCap ?? options.maxJudgeCalls;
+        note(`watch: ${cap} judge call${cap === 1 ? "" : "s"} used; not asked again`);
       } else {
         const result = await options.judge({ prompt: options.prompt(prev, now, quiet), signal: judgeSignal });
         if (judgeSignal.aborted) return;

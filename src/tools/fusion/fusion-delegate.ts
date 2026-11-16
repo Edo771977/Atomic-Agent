@@ -1546,6 +1546,9 @@ export function buildFusionDelegateTool(
       // checks the turn's budget first and needs a priced judge under a
       // $ cap; its spend counts as the judge's.
       const watchMinutesOf = new Map(parsed.tasks.map((t) => [t.id, t.watchMinutes] as const));
+      // Judge calls each task's watch sent, across its runs (the first and
+      // every review pass): `team.watchMaxChecks` is the task's, not a run's.
+      const watchJudgeCallsUsed = new Map<string, number>();
       const watchFor =
         teamContext === undefined || sideComplete === undefined
           ? undefined
@@ -1570,9 +1573,11 @@ export function buildFusionDelegateTool(
                 ...(team?.pinsModel(lead.providerId) === true ? { pinModel: lead.model } : {}),
               };
               const label = target.model ?? target.providerId;
+              const cap = watchMaxChecksOf(teamContext.team);
               return {
                 intervalMs: minutes * 60_000,
-                maxJudgeCalls: watchMaxChecksOf(teamContext.team),
+                maxJudgeCalls: Math.max(0, cap - (watchJudgeCallsUsed.get(taskId) ?? 0)),
+                judgeCallCap: cap,
                 judgeLabel: label,
                 ...(deps.watchClock === undefined ? {} : { clock: deps.watchClock }),
                 judge: async ({ prompt, signal }) => {
@@ -1588,6 +1593,7 @@ export function buildFusionDelegateTool(
                     return { kind: "skipped", reason: `the turn's $ cap needs a priced judge and ${label} has no verified price` };
                   }
                   judgesUsed.add(label);
+                  watchJudgeCallsUsed.set(taskId, (watchJudgeCallsUsed.get(taskId) ?? 0) + 1);
                   try {
                     const answer = await runWithProviderRole("the fusion watch", () =>
                       sideComplete({
