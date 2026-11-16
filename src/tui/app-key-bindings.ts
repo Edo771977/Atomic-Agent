@@ -37,6 +37,8 @@ import type { TuiState } from "./tui-state.js";
 import { handleUninstallKey } from "./uninstall/uninstall-key-bindings.js";
 import type { UninstallChoice } from "./uninstall/uninstall-state.js";
 import { handleIssueReportKey } from "./issue-report/issue-report-key-bindings.js";
+import { handleProjectCardKey } from "./project/project-card-keys.js";
+import type { ProjectGateDecision } from "../session/project-gate-view.js";
 
 /**
  * Number of **terminal rows** a single PageUp / PageDown keypress
@@ -82,6 +84,10 @@ export interface AppKeyCallbacks {
   onIssueReportSendRequested?(): void;
   /** Issue-report popup: dismissed on any step. */
   onIssueReportCloseRequested?(): void;
+  /** Project card (issue #39): the person's verdict at the chat's open gate. */
+  onProjectDecision?(sessionId: string, decision: ProjectGateDecision): void;
+  /** Project card: "revise" at the brief gate; the person types the change in the composer. */
+  onProjectReviseBrief?(): void;
   onApprovalDecision(
     approvalId: string,
     approved: boolean,
@@ -367,6 +373,20 @@ export function handleAppKey(
   // through, so the app's quit path stays reachable under it.
   if (state.issueReport && !(key.ctrl && input === "c")) {
     handleIssueReportKey(input, key, state.issueReport, ctx);
+    return true;
+  }
+  // The project card (issue #39) is modal while it is up on its own
+  // chat. Below approvals would be safer still, but the two never meet:
+  // a gate opens only between turns, an approval only inside one — and
+  // the approval branch below still wins if they ever did, since the
+  // card yields to a pending approval here. Ctrl+C keeps the app's path.
+  if (
+    state.projectCard &&
+    state.projectCard.sessionId === state.session.sessionId &&
+    !state.pendingApproval &&
+    !(key.ctrl && input === "c")
+  ) {
+    handleProjectCardKey(input, key, state.projectCard, ctx);
     return true;
   }
   // Only the visible thread's question is answerable from the

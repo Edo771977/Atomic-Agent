@@ -97,6 +97,9 @@ import {
 } from "./local-turn-gate.js";
 import { turnsToMessages } from "./chat/turns-to-messages.js";
 import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
+import { projectResumeLine } from "./project/project-card-lines.js";
+import { projectContinueMessage } from "../session/project-continue.js";
+import type { ProjectGateDecision } from "../session/project-gate-view.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";
 import { teamMemberByRef } from "../runtime/session-director.js";
@@ -689,6 +692,69 @@ export class ChatOrchestrator {
       : member === null ? "fusion worker: each task's own pick" : `fusion worker: ${member}`);
   }
 
+  /** `/plan` (issue #39): the open chat's fusion project in full, at any gate. */
+  openProjectView(): void {
+    const session = this.session;
+    const view = session ? this.runtime.projectState?.(session.id) : undefined;
+    if (!session || view === undefined) {
+      this.bus.emit({
+        type: "composer_notice",
+        text: "This chat has no project. A fusion director drafts a brief and a plan for work that needs one.",
+      });
+      return;
+    }
+    this.bus.emit({ type: "project_card_shown", sessionId: session.id, view, full: true });
+  }
+
+  /**
+   * The project card's verdict (issue #39). Between turns only, like the
+   * team pick. The card then shows the runtime's answer (an edit's
+   * re-estimate included); when the decision closed the gate and the
+   * director has work, a continuing message is sent as the person's turn.
+   */
+  async decideProject(sessionId: string, decision: ProjectGateDecision): Promise<void> {
+    const fail = (error: string): void => { this.bus.emit({ type: "project_card_failed", error }); };
+    const decide = this.runtime.projectDecision;
+    if (decide === undefined) {
+      fail("This runtime cannot take project decisions.");
+      return;
+    }
+    if (this.currentController || this.runtime.turnController?.busySessionIds?.().includes(sessionId)) {
+      fail("Wait for the current turn to finish, then decide.");
+      return;
+    }
+    let outcome: Awaited<ReturnType<typeof decide>>;
+    try {
+      outcome = await decide.call(this.runtime, sessionId, decision);
+    } catch (err) {
+      fail(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    if (!outcome.ok) {
+      fail(outcome.error.message);
+      return;
+    }
+    this.bus.emit({ type: "project_card_shown", sessionId, view: outcome.view });
+    if (this.session?.id !== sessionId) return;
+    if (decision.verdict === "cancel") this.notify("project cancelled");
+    const next = projectContinueMessage(outcome.view, decision);
+    if (next !== null) this.sendMessage(next);
+  }
+
+  /** "revise" at the brief gate: the person says what to change; the director redrafts. */
+  reviseProjectBrief(): void {
+    this.bus.emit({ type: "composer_notice", text: "Say what to change in the brief and send it: the director redrafts it for your approval." });
+  }
+
+  /** On opening a chat (issue #39): its project's resume line, and the card when a gate waits. */
+  private showProject(sessionId: string): void {
+    const view = this.runtime.projectState?.(sessionId);
+    if (view === undefined) return;
+    const line = projectResumeLine(view);
+    if (line !== null) this.bus.emit({ type: "system_message", text: line });
+    this.bus.emit({ type: "project_card_shown", sessionId, view });
+  }
+
   /**
    * The first submit of a fusion chat whose team offers several
    * directors and that has none (issue #37): the message goes back to
@@ -1144,6 +1210,8 @@ export class ChatOrchestrator {
     // differs from the active provider/model re-applies it.
     this.restoreSessionModel(loaded);
     this.showGoal(readGoalState(loaded.metadata));
+    // The fusion project (issue #39): where it stands, and an open gate's card.
+    this.showProject(loaded.id);
     // After `session_switched`, so they land in the new transcript
     // rather than the one that was just replaced.
     for (const notice of notices) this.notify(notice);

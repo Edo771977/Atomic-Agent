@@ -38,6 +38,8 @@ import type { CapabilitiesSummary, SkillCatalogEntry, ToolDescriptor } from "../
 import type { AgentLoop } from "../agent/agent-loop.js";
 import type { AgentLoopEvent, RunTurnResult } from "../agent/agent-contract.js";
 import type { GoalSpec, GoalState } from "../agent/goal/index.js";
+import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectDecisionOutcome, ProjectGateView } from "../session/project-gate-view.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
 import type { TaskRunner, TaskStore } from "../tasks/index.js";
 import type { Scheduler } from "../scheduler/index.js";
@@ -609,6 +611,16 @@ export interface AgentRuntime {
    * Optional so embedders and test doubles need not implement it.
    */
   controlGoal?(sessionId: string, verb: "pause" | "clear"): boolean;
+  /**
+   * The person's verdict at the open gate of a session's fusion project
+   * (issue #39): approve, edit, a cheaper or higher-quality variant, or
+   * cancel, against the view's `version`. Between turns only; a stale
+   * version or another gate is refused. Optional so embedders and test
+   * doubles need not implement it.
+   */
+  projectDecision?(sessionId: string, decision: ProjectDecision): Promise<ProjectDecisionOutcome>;
+  /** The session's project gate as the cards draw it; `undefined` without a project. */
+  projectState?(sessionId: string): ProjectGateView | undefined;
   /**
    * Inline counterpart to `runTurn` — runs the agent loop and
    * persists the result without acquiring the per-session lock. Use

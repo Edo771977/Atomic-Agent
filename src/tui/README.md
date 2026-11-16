@@ -30,6 +30,7 @@ This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing i
 - [Chat transcript and start page](chat/README.md)
 - [Context readout and controls](context/README.md)
 - [Coding stance and plan handoff](coding-mode/README.md)
+- [Fusion project card](project/README.md)
 - [Session selection and rail layout](session-rail/README.md)
 - [Theme chooser](theme-picker/README.md)
 - [Observation views](observe/README.md)

@@ -69,6 +69,7 @@ import {
   type IntegrationsPanelState,
 } from "./integrations/integrations-panel-state.js";
 import type { IssueReportState } from "./issue-report/issue-report-state.js";
+import type { ProjectCardState } from "./project/project-card-state.js";
 import {
   createInitialPluginsPanelState,
   type PluginsPanelState,
@@ -700,6 +701,12 @@ export interface TuiState {
   pluginsPanel: PluginsPanelState;
   /** The "Report an issue on GitHub" popup, or `null` when closed. */
   issueReport: IssueReportState | null;
+  /**
+   * The fusion project card (issue #39): the open gate of a chat's
+   * project, or the full view `/plan` asked for; `null` when put away.
+   * Drawn and answered only while its `sessionId` is the chat on screen.
+   */
+  projectCard: ProjectCardState | null;
   /** Cloud / local LLM provider registry (hot-swap active text provider). */
   providersPanel: ProvidersPanelState;
   /** Unified operator LLM panel combining provider routing and local daemon state. */
@@ -1019,6 +1026,7 @@ export function createInitialTuiState(
     swarmPanel: createInitialSwarmPanelState(),
     pluginsPanel: createInitialPluginsPanelState(),
     issueReport: null,
+    projectCard: null,
     providersPanel: createInitialProvidersPanelState(),
     llmPanel,
     fallbackPanel: createInitialFallbackPanelState(),

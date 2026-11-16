@@ -21,6 +21,7 @@ import type { IntegrationsAction } from "./integrations/integrations-actions.js"
 import type { SwarmAction } from "./swarm/swarm-actions.js";
 import type { PluginsAction } from "./plugins/plugins-actions.js";
 import type { IssueReportAction } from "./issue-report/issue-report-state.js";
+import type { ProjectCardAction } from "./project/project-card-state.js";
 import type { GoalState } from "../agent/goal/goal-types.js";
 import type { ProvidersAction } from "./providers/providers-actions.js";
 import type { LlmPanelAction } from "./llm-panel/llm-panel-actions.js";
@@ -411,6 +412,7 @@ export type TuiAction =
   | SwarmAction
   | PluginsAction
   | IssueReportAction
+  | ProjectCardAction
   | ProvidersAction
   | OnboardingAction
   | UninstallAction

@@ -1,0 +1,119 @@
+import type { Key } from "ink";
+
+import type { AppKeyContext } from "../app-key-bindings.js";
+import type { ProjectGateDecision } from "../../session/project-gate-view.js";
+import type { ProjectVerdict } from "../../session/session-project.js";
+import {
+  projectCardActions,
+  projectEditRows,
+  type ProjectCardState,
+} from "./project-card-state.js";
+
+type ProjectCardKeyContext = Pick<AppKeyContext, "dispatch" | "callbacks">;
+
+/** Lines PgUp/PgDn move the card by. */
+const SCROLL_STEP = 5;
+
+/**
+ * Keys of the project card (issue #39). Modal while the card is up: it
+ * owns every key but Ctrl+C (the caller lets that through). Esc steps
+ * back (edit/note → buttons) or puts the card away; `/plan` brings it
+ * back. Decisions go out through `callbacks.onProjectDecision`; the card
+ * waits (`pending`) until the orchestrator shows the runtime's answer.
+ */
+export function handleProjectCardKey(
+  input: string,
+  key: Key,
+  card: ProjectCardState,
+  ctx: ProjectCardKeyContext,
+): void {
+  const { dispatch, callbacks } = ctx;
+  if (key.pageDown || key.pageUp) {
+    dispatch({ type: "project_card_scrolled", delta: key.pageDown ? SCROLL_STEP : -SCROLL_STEP });
+    return;
+  }
+  if (key.escape) {
+    if (card.mode !== "actions" && !card.pending) dispatch({ type: "project_card_mode_set", mode: "actions" });
+    else dispatch({ type: "project_card_closed" });
+    return;
+  }
+  if (card.pending) return;
+
+  const send = (decision: ProjectGateDecision): void => {
+    dispatch({ type: "project_card_pending" });
+    callbacks.onProjectDecision?.(card.sessionId, decision);
+  };
+  const base = { gate: card.view.gate, version: card.view.version };
+
+  if (card.mode === "note") {
+    if (key.return) {
+      const note = card.note.trim();
+      if (note.length === 0) {
+        dispatch({ type: "project_card_failed", error: "Type the correction first." });
+        return;
+      }
+      send({ ...base, verdict: "edit", note });
+      return;
+    }
+    if (key.backspace || key.delete) {
+      dispatch({ type: "project_card_note_set", note: card.note.slice(0, -1) });
+      return;
+    }
+    if (input.length > 0 && !key.ctrl && !key.meta) {
+      // A paste arrives as one chunk; line breaks fold to spaces.
+      dispatch({ type: "project_card_note_set", note: card.note + input.replace(/[\r\n]+/g, " ") });
+    }
+    return;
+  }
+
+  if (card.mode === "edit") {
+    if (key.upArrow || key.downArrow) {
+      dispatch({ type: "project_card_row_moved", delta: key.downArrow ? 1 : -1 });
+    } else if (key.tab) {
+      dispatch({ type: "project_card_field_toggled" });
+    } else if (key.leftArrow || key.rightArrow) {
+      dispatch({ type: "project_card_pick_cycled", delta: key.rightArrow ? 1 : -1 });
+    } else if (key.return) {
+      const rows = projectEditRows(card);
+      if (rows.length === 0) {
+        dispatch({ type: "project_card_failed", error: "Nothing changed: pick another worker or reviewer with ←/→ first." });
+        return;
+      }
+      send({ ...base, verdict: "edit", edits: { rows } });
+    }
+    return;
+  }
+
+  const actions = projectCardActions(card.view);
+  if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
+    dispatch({ type: "project_card_cursor_moved", delta: key.rightArrow || key.downArrow ? 1 : -1 });
+    return;
+  }
+  const picked = key.return
+    ? actions[card.cursor]
+    : !key.ctrl && !key.meta
+      ? actions.find((a) => a.key === input.toLowerCase())
+      : undefined;
+  if (picked === undefined) return;
+  run(picked.verdict);
+
+  function run(verdict: ProjectVerdict): void {
+    if (verdict !== "edit") {
+      send({ ...base, verdict });
+      return;
+    }
+    switch (card.view.gate.kind) {
+      case "plan":
+        dispatch({ type: "project_card_mode_set", mode: "edit" });
+        return;
+      case "milestone":
+        dispatch({ type: "project_card_mode_set", mode: "note" });
+        return;
+      default:
+        // The brief: the person says what to change in the chat and the
+        // director redrafts it (a new draft opens the gate again).
+        dispatch({ type: "project_card_closed" });
+        callbacks.onProjectReviseBrief?.();
+    }
+  }
+}

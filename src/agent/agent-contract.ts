@@ -29,6 +29,7 @@ import type { ProfileClippedEvent } from "./profile-clip-warning.js";
 import type { HistoryTrimmedEvent } from "./history-trim-warning.js";
 import type { ToolDisabledEvent } from "./tool-disabled-notice.js";
 import type { ReviewStallSignal } from "./review-stall.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
 
 /**
  * See `AgentLoopDependencies.localEngineState`. `atomic_chat_app`: the link
@@ -759,6 +760,11 @@ export type AgentLoopEvent =
    * surface is showing.
    */
   | { type: "usage_updated"; sessionId: string; usage: SessionUsageState }
+  /**
+   * A session's fusion project gate opened or changed (issue #39): the
+   * whole view the cards draw, never a delta. Session scoped.
+   */
+  | { type: "project_gate"; sessionId: string; view: ProjectGateView }
   | { type: "user_message"; text: string }
   /**
    * A message the user sent mid-turn was folded into the prompt for
