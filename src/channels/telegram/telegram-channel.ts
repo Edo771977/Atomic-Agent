@@ -462,6 +462,7 @@ export class TelegramChannel {
             command: "model",
             description: "Show or switch the provider and model",
           },
+          { command: "plan", description: "The fusion project gate: /plan approve or /plan cancel" },
           { command: "cancel", description: "Cancel this chat's current turn" },
         ]);
       } catch (err) {
