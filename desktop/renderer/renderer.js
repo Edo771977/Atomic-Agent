@@ -2242,6 +2242,52 @@ function render() {
   exaKeyRestore(exaHeld);
   // ATO-568: the caret goes into a worker's Steer field that was just opened.
   if (typeof fzpAfterRender === 'function') fzpAfterRender();
+  // Issue #39: the project card follows the chat on screen (it paints itself).
+  projectCardFollow();
+}
+
+/* ---------------- Issue #39: the fusion project card ----------------
+   project-card.js owns the card; this only connects it: main's
+   agent:project frames, GET /api/project when a chat opens, the decision,
+   and the continue_message sent as the chat's next message through
+   submit(), as the plan hand-off sends its own words. */
+let PCARD = null, PCARD_GEN = -1, PCWATCH = null;
+function projectCardFollow() {
+  if (!PCARD) return;
+  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
+  const sid = S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
+  PCARD.follow(sid);
+  // A narrow window's sheet ends where the composer starts: observed, not measured on every paint.
+  if (PCWATCH) PCWATCH.sync();
+}
+function projectCardContinue(sid, text) {
+  /* Only into the chat it belongs to, between turns, on a live agent, and
+     only when submit() would send it: dictation, the starter download or a
+     backend switch would keep it out (or stop the recording). Otherwise it
+     waits for the next look (project-card.js keeps it pending). */
+  if (!pcCanContinue({
+    onScreen: S.agentSession === sid, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
+    opening: openHoldsComposer(), voice: VOICE.state,
+    starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(), gating: BSW.gating,
+  })) return false;
+  const e = $('#entry'), keep = S.draft;
+  submit(text, {plain: true});
+  // The person's own draft stays in the box.
+  if (keep && !S.draft) { S.draft = keep; if (e) { e.value = keep; autosize(e); } }
+  return true;
+}
+function projectCardStart() {
+  if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
+  PCARD = createProjectCard({
+    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body)},
+    draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) { pcDraw(document, host, model, on); pcPlace(window, host); } },
+    onContinue: projectCardContinue,
+    onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
+    onChange: () => renderToolbar(),
+  });
+  BR.onProject((frame) => PCARD.onFrame(frame));
+  PCWATCH = pcWatch(window, () => document.getElementById('projectcard'));
+  window.addEventListener('resize', () => pcPlace(window, document.getElementById('projectcard')));
 }
 
 
@@ -2280,6 +2326,8 @@ function renderToolbar() {
     + (open ? '' : sidebarToggleHTML() + searchBtnHTML())
     + (t ? '<div class="tb-title"><b title="' + esc(t) + '">' + esc(t) + '</b></div>' : '')
     + '<div class="tb-right">'
+      /* Issue #39: the project card the person hid, while its gate is still open. */
+      + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the project card again">Show project</button>' : '')
       /* ATO-1256: this chat's files in the panel beside it (chat-files.js, file-preview.js). */
       + (S.room === 'chat' ? '<button class="iconbtn' + (filesPanelOpen() ? ' on' : '') + '" data-act="toggle:files"'
         + ' aria-pressed="' + filesPanelOpen() + '"'
@@ -7018,6 +7066,7 @@ function act(a) {
   // ATO-538: below 1000px the button and ⌘ \ open or close the drawer instead
   // (sidebar-nav.js toggleSidebar); S.sidebar keeps the wide window's collapse.
   // ATO-1256: the Files button and ⌥⌘F open the panel on the chat's files, or close it.
+  if (a === 'project:show') { if (PCARD) PCARD.show(); return; }   // Issue #39 (project-card.js)
   if (a === 'toggle:files') { close(); if (S.room !== 'chat') { S.settings = null; S.room = 'chat'; render(); }
                            if (typeof filePreviewToggle === 'function') filePreviewToggle(); render(); return; }
   if (k === 'toggle')    { close();
@@ -11695,6 +11744,7 @@ if (BR) {
   if (BR.onAutoRestart) BR.onAutoRestart(autoRestartApply);
   BR.onChat(onChatEvent);
   BR.onApproval(onApprovalEvent);
+  projectCardStart();   // Issue #39 (project-card.js)
   /* B01 QA, ATO-198: the turns main is streaming are this page's from here
      (adoptLiveTurns), and only then does the agent replay the approvals still
      pending: a request then finds its chat, and is kept for it instead of

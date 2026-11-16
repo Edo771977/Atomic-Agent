@@ -113,6 +113,10 @@ contextBridge.exposeInMainWorld("atomic", {
   onApproval: (cb: (payload: unknown) => void) => on("agent:approval", cb),
   approve: (approvalId: string, decision: "allow-once" | "allow-in-chat" | "allow-always" | "deny", reason?: string) =>
     ipcRenderer.invoke("agent:approve", { approvalId, decision, reason }),
+  /** Issue #39: the fusion project card — the gate views (`{sessionId, view}`), one chat's view, a decision. */
+  onProject: (cb: (payload: unknown) => void) => on("agent:project", cb),
+  project: (sessionId: string) => ipcRenderer.invoke("agent:project", sessionId),
+  projectDecision: (decision: unknown) => ipcRenderer.invoke("agent:projectDecision", decision),
   /** B01 QA, ATO-198: the turns main streams, for a page that loads while they run. */
   liveTurns: () => ipcRenderer.invoke("agent:liveTurns"),
   /** B01 review: the agent replays the approvals still pending (asked once the page has taken the turns over). */

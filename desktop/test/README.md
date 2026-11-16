@@ -117,6 +117,28 @@ A step is one completion in the form the agent parses, a JSON array of
 `{tool, args}`. `call()`, `calls()` and `reply()` build it; a bare string is a
 reply. The step queue running out fails the scenario with the request shown.
 
+`L16-project-card-offline` is an offline live test of the fusion project card
+(issue #39). The agent is this checkout's real `atag serve` behind
+`live/project-card-agent.mjs`, which passes every request through except the
+project wire: `agent.project` on `/api/capabilities`, `project_gate` frames on
+`/api/events`, `/api/project` and `/api/project/decision`. The project moves
+only through the agent's own core from `dist/` (`applyProjectUpdate`,
+`applyProjectDecision`, `projectGateView`, `estimatePlan`,
+`projectContinueMessage`), so gates, versions and continue messages are the
+real ones; only the director's drafts are scripted, and a silent re-draft
+after the first edit makes the next approve `409 stale-version`. The chats
+and turns stay real. It walks brief → plan → milestone → correction → the
+same milestone again, and checks that each card appears at the version the
+agent pushed, that a worker pick goes out as an edit of that row, that the
+409 redraws the newer version, that each approval carries the view's
+version, and that every continue message is the chat's next request, with
+`X-Atomic-Project: 1`. `ATAG_LIVE_SHOTS=<dir>` keeps its screenshots
+(plan gate, milestone gate and the correction box, light and dark, at device
+scale 2). It proves the desktop half against the wire contract, not the
+runtime's project rules. Run as root (a container), `launch()` adds
+`--no-sandbox`, which Chromium requires there; under Linux without a display,
+use `xvfb-run -a node test/live/run-all.mjs L16`.
+
 What this tier does not prove: anything about model quality. The model says
 what the script says, so a pass means the app, the agent and the tools handle
 that answer correctly, not that a real model would give it. It also does not

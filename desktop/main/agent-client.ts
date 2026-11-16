@@ -12,6 +12,8 @@ import { LineSplitter, lineLevel } from "./agent-output.js";
 import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
+import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
+import type { ProjectDecisionBody } from "./project-ipc.js";
 import {
   pairingRequest,
   readPairingReply,
@@ -50,7 +52,7 @@ import {
  *   GET  /api/sessions              persisted sessions
  *   GET  /v1/models                 OpenAI-compatible model list
  *   POST /v1/chat/completions       the agent loop, streamed as SSE
- *   GET  /api/events                SSE stream of approval requests
+ *   GET  /api/events                SSE stream of approval requests and project_gate frames
  *   POST /api/approval/resolve      allow-once | allow-in-chat | allow-always | deny
  *
  * The server is bound to 127.0.0.1 on an ephemeral port and gated by a
@@ -67,6 +69,8 @@ import {
  * for a request whose `approval_request` frame says `canAlways: true`, and
  * a 400 leaves the card open for Allow once or Deny.
  */
+export { readProjectGateFrame, routeEventsFrame, type ProjectGateFrame } from "./project-gate.js";
+
 export type ApprovalDecision = "allow-once" | "allow-in-chat" | "allow-always" | "deny";
 export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = ["allow-once", "allow-in-chat", "allow-always", "deny"];
 
@@ -1110,11 +1114,13 @@ export class AgentClient extends EventEmitter {
           });
           if (!res.body) throw new Error("no body");
           for await (const frame of sseFrames(res.body, controller.signal)) {
-            if (frame.data === "[DONE]") continue;
+            // Issue #39: project_gate is the project card's, not an approval.
+            const routed = routeEventsFrame(frame);
+            if (!routed) continue;
             try {
-              this.emit("approval", JSON.parse(frame.data));
+              this.emit(routed.channel, routed.payload);
             } catch {
-              /* ignore malformed frame */
+              /* a listener's failure is not the stream's */
             }
           }
         } catch {
@@ -1746,6 +1752,10 @@ export class AgentClient extends EventEmitter {
              computer's screen, so only its own agent is told it can. A
              remote agent's points belong to another machine. */
           ...(this.remote ? {} : { "x-atomic-screen-overlay": "1" }),
+          /* Issue #39: the project flow (brief, plan, milestone gates) for a
+             chat whose first request asks for it, only from an agent that
+             says it has it. The agent keeps the answer per session. */
+          ...((await this.projectFlowSupported()) ? { "x-atomic-project": "1" } : {}),
         },
         // `session_id` continues the session the agent already holds, and is
         // ALWAYS sent: without one the agent derives the id from the first
@@ -1802,6 +1812,13 @@ export class AgentClient extends EventEmitter {
               category: typeof chunk.category === "string" ? chunk.category : null,
               payload: chunk,
             });
+            continue;
+          }
+          /* Issue #39: the project card's view, the same one /api/events
+             carries; the card keeps the newest version whichever came first. */
+          if (frame.event === "project_gate") {
+            const gate = readProjectGateFrame(chunk);
+            if (gate) this.emit("project", gate);
             continue;
           }
           /* ATO-408: the files the turn's reply delivers, as absolute
@@ -1904,6 +1921,111 @@ export class AgentClient extends EventEmitter {
     }
   }
 
+  /* Issue #39: whether this agent runs the project flow (`agent.project` on
+     GET /api/capabilities), read once per agent (address and token) and
+     forgotten when it restarts (stopNow) or a project route turns out to be
+     missing. A read that fails counts as "no" for `projectFlowRetryMs`, so a
+     flaky agent is not asked before every message. */
+  private projectFlow: { key: string; value: Promise<boolean>; failedAt: number | null } | null = null;
+  projectFlowRetryMs = 60_000;
+  private projectFlowSupported(): Promise<boolean> {
+    let key: string;
+    try {
+      key = `${this.base()}|${this.authToken()}`;
+    } catch {
+      return Promise.resolve(false);
+    }
+    const kept = this.projectFlow;
+    if (kept?.key === key && (kept.failedAt === null || Date.now() - kept.failedAt < this.projectFlowRetryMs)) return kept.value;
+    const entry: { key: string; value: Promise<boolean>; failedAt: number | null } = { key, value: Promise.resolve(false), failedAt: null };
+    entry.value = (async () => {
+        try {
+          const res = await fetch(`${this.base()}/api/capabilities`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const body = (await res.json()) as { agent?: { project?: unknown } };
+          return body?.agent?.project === true;
+        } catch {
+          entry.failedAt = Date.now();
+          return false;
+        }
+      })();
+    this.projectFlow = entry;
+    return entry.value;
+  }
+
+  /**
+   * Issue #39: `GET /api/project?session=` — the gate view the project card
+   * draws. `view: null` is a chat without a project; `supported: false` an
+   * agent without the route.
+   */
+  async getProject(sessionId: string): Promise<
+    { supported: false } | { supported: true; ok: true; view: unknown } | { supported: true; ok: false; status: number; error: string }
+  > {
+    try {
+      const res = await fetch(`${this.base()}/api/project?session=${encodeURIComponent(sessionId)}`, {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const text = await res.text();
+      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) {
+        this.projectFlow = null;   // the agent changed under us: ask its capabilities again
+        return { supported: false };
+      }
+      if (res.status === 404) return { supported: true, ok: true, view: null };
+      if (!res.ok) return { supported: true, ok: false, status: res.status, error: errorMessage(text, res.status) };
+      const body = JSON.parse(text) as { view?: unknown };
+      return { supported: true, ok: true, view: body.view ?? null };
+    } catch (err) {
+      return { supported: true, ok: false, status: 0, error: requestErrorText(err) };
+    }
+  }
+
+  /**
+   * Issue #39: `POST /api/project/decision`. A refusal keeps the agent's
+   * `code` (`stale-version`, `wrong-gate`, `turn-running` on 409, `over-cap`
+   * on 422) and the current view it sends, so the card redraws from it.
+   * `continueMessage` is what the window sends next in that chat for the
+   * director to go on; the agent never continues by itself.
+   */
+  async projectDecision(body: ProjectDecisionBody): Promise<
+    | { supported: false }
+    | { supported: true; ok: true; view: unknown; continueMessage: string | null }
+    | { supported: true; ok: false; status: number; code: string | null; error: string; view: unknown }
+  > {
+    try {
+      const res = await fetch(`${this.base()}/api/project/decision`, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const text = await res.text();
+      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) {
+        this.projectFlow = null;   // the agent changed under us: ask its capabilities again
+        return { supported: false };
+      }
+      let parsed: { view?: unknown; continue_message?: unknown; error?: { code?: unknown } } = {};
+      try {
+        parsed = JSON.parse(text) as typeof parsed;
+      } catch {
+        /* not JSON */
+      }
+      if (res.ok) {
+        const next = parsed.continue_message;
+        return { supported: true, ok: true, view: parsed.view ?? null, continueMessage: typeof next === "string" && next.trim() ? next : null };
+      }
+      const code = parsed.error?.code;
+      return {
+        supported: true, ok: false, status: res.status,
+        code: typeof code === "string" ? code : null,
+        error: errorMessage(text, res.status),
+        view: parsed.view ?? null,
+      };
+    } catch (err) {
+      return { supported: true, ok: false, status: 0, code: null, error: requestErrorText(err), view: null };
+    }
+  }
+
   async resolveApproval(
     approvalId: string,
     decision: ApprovalDecision,
@@ -1952,6 +2074,8 @@ export class AgentClient extends EventEmitter {
   private async stopNow(): Promise<boolean> {
     this.stopping = true;
     this.stopEpoch++;
+    // Issue #39: the next agent (an update, another build) says again whether it runs the project flow.
+    this.projectFlow = null;
     for (const controller of this.turns.values()) controller.abort();
     this.turns.clear();
     this.completions.clear();

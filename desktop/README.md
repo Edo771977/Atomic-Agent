@@ -36,6 +36,43 @@ Settings › Skills shows where the folder stands and changes an earlier
 answer (`scope: "all"`). An agent without the route shows nothing
 (`renderer/project-trust.js`).
 
+**Project card (issue #39).** A fusion project stops at three gates: the
+brief, the plan and every finished milestone. A chat asks for that flow on
+its first request with `X-Atomic-Project: 1`, which the client sends only when
+`GET /api/capabilities` reports `agent.project: true` (read once per agent);
+the agent keeps the answer for the session. Each gate arrives as a
+`project_gate` frame `{session_id, view}` on `GET /api/events` and in the chat
+stream; the client routes both by name to its own `project` event (before,
+the events copy went out as an approval and was dropped), main hands it on as
+`agent:project`, and opening a chat reads `GET /api/project?session=`. The
+card (`renderer/project-card.js`, drawn into `#projectcard`, never by
+`render()`) draws the last view the agent sent for the chat (frames in arrival
+order; a read answered after a frame is ignored; the version is the gate's
+own counter, never compared across gates) and shows the brief (with
+the warning when it was drafted after outside content), the plan rows
+(worker, reviewer, reason, measured or preset basis and samples, estimate),
+the totals, the limits the plan breaks (hard ones marked; Approve waits while
+one stands), the milestones, and under the plan the core's own note that
+approving lets the tasks write in this chat's folder. Its buttons are
+`view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
+row, chosen only among the row's `selectableWorkers` / `selectableReviewers`),
+Cheaper, Better quality and Cancel project at the plan; Approve milestone,
+Correct (a note of at most 2000 characters) and Cancel at a milestone;
+Approve, Revise in chat and Cancel at the brief. A decision goes through
+`agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
+`POST /api/project/decision` with the view's `gate` and `version`. A stale
+version or another gate (`409`) redraws the current view with a notice, a
+running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
+closes the card. When the answer carries `continue_message`, the window sends
+it as that chat's next message (the agent never goes on by itself); a chat
+not on screen, or one running a turn, gets it the next time it is shown
+between turns. Cancel project asks twice: the first press turns the button into Confirm
+cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
+opened again; while it stays open the chat header offers Show project.
+Everything is drawn with `textContent`: model text is never
+markup. Covered by `test/project-gate-routing.test.mjs`,
+`test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.
+
 Choosing another workspace restarts the agent in it, so it never happens
 under a running turn: the window keeps the picker shut while one of its chats
 is answering, and main checks again once the picker closes (a turn may have
@@ -54,8 +91,10 @@ window shows "Not while a turn is running".
 | Deleting one session | `DELETE /api/sessions/{id}` |
 | Renaming one session | `PATCH /api/sessions/{id}` |
 | One turn of the agent loop | `POST /v1/chat/completions` (SSE) |
-| Approval requests | `GET /api/events` (SSE) |
+| Approval requests and project gates | `GET /api/events` (SSE) |
 | Approval verdicts | `POST /api/approval/resolve` |
+| A chat's fusion project gate (issue #39) | `GET /api/project?session=` |
+| Project decisions | `POST /api/project/decision` |
 | Steering the turn already running | `POST /api/sessions/{id}/steer` |
 | What a turn accepted but never read | `GET` / `DELETE /api/sessions/{id}/steer` |
 | Compacting a chat's context now | `POST /api/sessions/{id}/compact` |
