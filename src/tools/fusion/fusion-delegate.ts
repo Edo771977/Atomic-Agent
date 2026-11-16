@@ -15,7 +15,7 @@ import {
 } from "../../approval/dangerous-tool.js";
 import { isAbsolute, relative, resolve as resolvePath } from "node:path";
 import { isInside } from "../../approval/fanout-scope.js";
-import { resolveFanoutScope } from "./fanout-paths.js";
+import { analyseFanoutScope } from "./fanout-paths.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
@@ -30,7 +30,9 @@ import {
 } from "../../config/llm-run-mode-config.js";
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
-import type { ToolDefinition } from "../tool-registry.js";
+import type { ToolContext, ToolDefinition } from "../tool-registry.js";
+import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
+import type { ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -430,6 +432,19 @@ export function buildFusionDelegateTool(
       "Delegate independent parts of the work to worker agents that run concurrently. You choose how many run at once with `maxWorkers`. A task that needs more room than the default can say so with `maxSteps` / `timeoutMs`; both are clamped to a multiple of the configured default and the result tells you when that happened. An optional `contract` (owners, provides, requires, checks; candidate-only immutable checkInputs) is prepended to every brief and checked after the fan-out. Give each `provides` entry a one-line `shape` (a signature, a return shape, what a field means): it is pasted into the brief of every worker that relies on it, and matching names is not matching meaning. A task may name a subagent `profile` (built-in: explore, review, research, read-only unless a user's or project's profile of the same name overrides them; or one the user defined): the worker gets that profile's instructions and tool list. Args: { tasks: [{ id, instructions, title?, deliverable?, files?, etaSeconds?, maxSteps?, timeoutMs?, role?, model?, profile? }] (1..16), maxWorkers?, contract? }. To continue a run cut off by a restart: { resume: runId, confirm?: [taskId] } and nothing else.",
     readonly: false,
     async run(rawArgs, ctx): Promise<CompressedToolResult> {
+      // The project's run of an approved milestone (issue #39), set once
+      // the fan-out is admitted and approved, recorded on the result.
+      const admitted: FanoutAdmission = { milestoneId: null, started: false };
+      const result = await runFanout(rawArgs, ctx, admitted);
+      return withMilestoneRun(result, admitted);
+    },
+  };
+
+  async function runFanout(
+    rawArgs: Record<string, unknown>,
+    ctx: ToolContext,
+    admitted: FanoutAdmission,
+  ): Promise<CompressedToolResult> {
       if (isFusionWorkerSessionId(ctx.sessionId)) {
         return error(
           "fusion.delegate is not available to a worker: do the task you were given and report back in your reply.",
@@ -491,6 +506,11 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       const parsed = parseDelegateArgs(delegateArgs);
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      // The fusion project's gate (issue #39), before anything starts.
+      const projectVerdict = checkProjectDispatch(ctx.project, parsed.tasks.map((t) => t.id));
+      if (projectVerdict.kind === "refuse") {
+        return error(`fusion.delegate did not run: ${projectVerdict.message}`, { reason: "project-gate", gate: projectVerdict.reason });
+      }
       if ((parsed.contract?.checkInputs?.length ?? 0) > 0 && mode.integration !== "candidate") {
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }
@@ -899,7 +919,8 @@ export function buildFusionDelegateTool(
       // orchestrator left as the only party able to act — so the
       // operator is asked here instead, once, with the task list and the
       // directory in front of them.
-      let writeScope = resolveFanoutScope(parsed.tasks, ctx.workingDir);
+      const analysedScope = analyseFanoutScope(parsed.tasks, ctx.workingDir);
+      let writeScope = analysedScope.scope;
       // Never into the agent's own state directory (ATO-1267).
       const intoState = scopeInsideStateDir(writeScope, deps.agentStateDir);
       if (intoState.length > 0) {
@@ -968,14 +989,32 @@ export function buildFusionDelegateTool(
         deps.approvals.hasDeclinedUnder?.(ctx.sessionId, writeScope) ?? false;
       // Nor after outside content (`agent.taintReview`): the standing yes
       // was given before the text that may now be steering the fan-out.
+      // An approved project plan (issue #39) is the person's yes to these
+      // exact tasks on these workers in this folder; anything else asks.
+      const planApproved =
+        projectVerdict.kind === "admit" &&
+        projectVerdict.unplanned.length === 0 &&
+        // A brief naming a path the scope cannot grant (unresolvable
+        // here, or a root/home directory) writes outside the folder the
+        // plan was approved for, even though the scope leaves it out.
+        !analysedScope.namesUngrantedPath &&
+        ctx.project !== undefined &&
+        planCoversFanout(
+          ctx.project,
+          parsed.tasks.map((t) => t.id),
+          (id) => {
+            const leg = taskLegs.get(id);
+            return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
+          },
+          writeScope,
+          [ctx.workingDir],
+        );
+      const turnGrantCovers =
+        deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
       const alreadyApproved =
         !declinedInScope &&
         !(deps.approvals.holdsForOutsideContent?.(ctx.sessionId, "fusion_fanout") ?? false) &&
-        (deps.approvals.fanoutScopes?.turnGrantCovers(
-          ctx.sessionId,
-          writeScope,
-        ) ??
-          false);
+        (planApproved || turnGrantCovers);
       try {
         if (!alreadyApproved) {
           // A yes from a person who was shown this fan-out is their newer
@@ -1012,7 +1051,12 @@ export function buildFusionDelegateTool(
             deps.approvals.forgetDeclinedUnder?.(ctx.sessionId, writeScope);
           }
         }
-        deps.approvals.fanoutScopes?.grantForTurn(ctx.sessionId, writeScope);
+        // The plan's yes covers its own tasks only: a fan-out it admitted
+        // without asking grants nothing for the rest of the turn.
+        if (!alreadyApproved || turnGrantCovers) {
+          deps.approvals.fanoutScopes?.grantForTurn(ctx.sessionId, writeScope);
+        }
+        if (projectVerdict.kind === "admit") admitted.milestoneId = projectVerdict.milestoneId;
 
       } catch (err) {
         // The user's own no already says what happened and what to do,
@@ -1093,6 +1137,13 @@ export function buildFusionDelegateTool(
         resumedFrom?.originalRequest ??
         deps.resolveOriginalRequest?.(ctx.sessionId);
       const originalRequest = request === undefined || candidate === undefined ? request : rebaseText(request, [candidateOriginalDir, candidateOriginalDir.replace(/\\/g, "/")], candidate.dir);
+      // The approved project brief (issue #39): every worker's brief says
+      // what is built and its success criteria, and every reviewer's
+      // judge brief the criteria. A resumed run reads the same project.
+      const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
+      const projectBrief = approvedBrief === undefined
+        ? undefined
+        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria };
       // A local worker's time limit is sized from the machine's measured
       // speed (F19); a cloud leg has no such measurement and keeps the
       // configured ceiling.
@@ -1526,6 +1577,7 @@ export function buildFusionDelegateTool(
         judgesUsed.add(target.model ?? target.providerId);
         const verdict = await judgeTask({
           ...input,
+          ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
@@ -1687,6 +1739,9 @@ export function buildFusionDelegateTool(
         briefSuffix: ((taskId: string) => string | undefined) | undefined,
         allowSplit = false,
       ): Promise<WorkerTaskResult[]> => {
+        // Workers are about to run: the milestone's work has started
+        // (issue #39), whatever the fan-out's outcome.
+        if (tasks.length > 0) admitted.started = true;
         if (mode.isolation !== "worktree") {
           return runAcrossLegs(tasks, contract, briefSuffix, undefined, allowSplit);
         }
@@ -1779,6 +1834,7 @@ export function buildFusionDelegateTool(
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
+            ...(projectBrief === undefined ? {} : { project: projectBrief }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,
@@ -1844,6 +1900,7 @@ export function buildFusionDelegateTool(
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
+            ...(projectBrief === undefined ? {} : { project: projectBrief }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,
@@ -2990,8 +3047,36 @@ export function buildFusionDelegateTool(
       } finally {
         await candidate?.cleanup();
       }
-    },
-  };
+  }
+}
+
+/** A fan-out's project admission (issue #39): the approved milestone it runs, and whether any worker started. */
+interface FanoutAdmission {
+  milestoneId: string | null;
+  started: boolean;
+}
+
+/**
+ * The project update a fan-out of an approved milestone hands back
+ * (issue #39): `milestone_run` with the run's checkpoint id (or a fresh
+ * id when nothing was checkpointed), which the step commit folds to mark
+ * the milestone in progress and remember the run. A fan-out whose workers
+ * ran is recorded even when it failed (every task failed, an interrupted
+ * run), so the milestone shows the work started and the run to resume;
+ * one refused or failed before any worker ran records nothing.
+ */
+function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
+  const milestoneId = admitted.milestoneId;
+  if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;
+  const runId = typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`;
+  const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
+  const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
+  // Keep the non-enumerable full output the result may carry.
+  for (const key of ["fullOutput", "fullOutputTruncated"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(result, key);
+    if (descriptor !== undefined) Object.defineProperty(next, key, descriptor);
+  }
+  return next;
 }
 
 /** Rebase parsed JSON strings without changing path escaping or task identities. */

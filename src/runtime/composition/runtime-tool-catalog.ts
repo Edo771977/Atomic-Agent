@@ -51,6 +51,9 @@ import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildProjectTools } from "../../tools/fusion/project-tools.js";
+import { liveProjectInputsFrom } from "./runtime-project.js";
+import { currentPolicyAllows } from "../../llm/provider-policy.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -1058,6 +1061,27 @@ export function registerRuntimeFusionAndReadScope(input: {
       logger,
     }),
   );
+  // The fusion project's director tools (issue #39). Registered with the
+  // fan-out; their descriptors come and go with it (`filter-disabled-tools`).
+  // `project.plan` assigns and estimates from the same live team, policy
+  // and outcome history the fan-out routes by.
+  for (const tool of buildProjectTools({
+    planContext: () => {
+      const mode = resolveCurrentRunMode();
+      return liveProjectInputsFrom({
+        config: getConfig(),
+        ...(teamMemberReachable === undefined ? {} : { reachable: teamMemberReachable }),
+        allows: currentPolicyAllows,
+        mode,
+        ...(currentWorker === undefined ? {} : { currentWorker: currentWorker() }),
+        tokensPerSecond: () => llama.measuredTokensPerSecond(),
+        dailyRemainingUsd: null,
+      }).plan;
+    },
+    outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
+  })) {
+    toolRegistry.register(tool);
+  }
   // Every session reads inside its working directory and the paths the
   // user named unasked, by default (`agent.readScope`,
   // `src/tools/read-scope/`); a read outside that asks through the

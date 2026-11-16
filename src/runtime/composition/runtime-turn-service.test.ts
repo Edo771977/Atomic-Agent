@@ -177,15 +177,50 @@ describe("runtime turn ownership recipes", () => {
       ["tui", { origin: "tui" as const }],
       ["telegram", { origin: "telegram" as const }],
       ["cli", {}],
-      ["declared", { origin: "http" as const, answerChannel: "desktop" as const, questions: true }],
+      ["declared", { origin: "http" as const, answerChannel: "desktop" as const, questions: true, projectGates: true }],
     ] as const) {
       expect(await optionsFor(id, extra), id).not.toHaveProperty("toolFilter");
     }
+    // A client declaring questions only keeps ask_user; the project tools are its own opt-in.
+    const questionsOnly = (await optionsFor("questions-only", { origin: "http", answerChannel: "desktop", questions: true }))?.toolFilter;
+    expect(questionsOnly?.("ask_user")).toBe(true);
     // A caller's own filter still applies on a desktop turn.
     const own = await optionsFor("own", { origin: "sidecar", toolFilter: (name) => name !== "fs.write" });
     expect(own?.toolFilter?.("fs.write")).toBe(false);
     expect(own?.toolFilter?.("ask_user")).toBe(false);
     expect(own?.toolFilter?.("fs.read")).toBe(true);
+  });
+
+  it("project gates are a per-session capability fixed by the session's first surface (issue #39)", async () => {
+    const turn = async (value: SessionState, extra: Parameters<typeof fixture.service.executeTurn>[2]) => {
+      const out = await fixture.service.executeTurn(value, "request", extra);
+      return { options: fixture.loop.runTurn.mock.calls.at(-1)?.[1], session: out.session };
+    };
+    // Surfaces that cannot decide a gate: no project tools; the fan-out stays.
+    for (const [id, extra] of [
+      ["discord", { origin: "discord" as const }],
+      ["plain-http", { origin: "http" as const }],
+      ["desktop", { origin: "sidecar" as const }],
+    ] as const) {
+      const { options, session: after } = await turn(session(id), extra);
+      expect(options?.toolFilter?.("project.plan"), id).toBe(false);
+      expect(options?.toolFilter?.("project.brief"), id).toBe(false);
+      expect(options?.toolFilter?.("fusion.delegate"), id).toBe(true);
+      expect(after.metadata?.projectGates, id).toBe(false);
+    }
+    // The TUI and a declaring client keep them.
+    const tui = await turn(session("tui"), { origin: "tui" });
+    expect(tui.options).not.toHaveProperty("toolFilter");
+    expect(tui.session.metadata?.projectGates).toBe(true);
+    const declared = await turn(session("declared"), { origin: "http", answerChannel: "desktop", questions: true, projectGates: true });
+    expect(declared.options).not.toHaveProperty("toolFilter");
+    // Fixed for the session, so the stable prefix stays: a later turn from
+    // another surface keeps the first decision either way.
+    const later = await turn(tui.session, { origin: "discord" });
+    expect(later.options?.toolFilter?.("project.plan") ?? true).toBe(true);
+    expect(later.session.metadata?.projectGates).toBe(true);
+    const plain = await turn((await turn(session("p2"), { origin: "http" })).session, { origin: "tui" });
+    expect(plain.options?.toolFilter?.("project.plan")).toBe(false);
   });
 
   it("records a desktop turn as unable to ask for the length of the turn only (ATO-489)", async () => {
@@ -442,6 +477,19 @@ describe("runtime turn ownership recipes", () => {
     expect(metered.usage).toEqual({ promptTokens: 150, completionTokens: 10 });
     const silent = await fixture.service.runTurn(session("silent"), "request");
     expect(silent.usage).toBeUndefined();
+  });
+
+  it("reports the project before and after a saved turn (issue #39)", async () => {
+    const seen: Array<[string, unknown, unknown]> = [];
+    const project = { milestones: [], gate: { kind: "brief" as const } };
+    fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) =>
+      result({ ...value, project } as SessionState, options));
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      onProjectTurnEnd: (sessionId, before, after) => { seen.push([sessionId, before, after]); },
+    });
+    await service.runTurn(session("projected"), "request");
+    expect(seen).toEqual([["projected", undefined, project]]);
   });
 
   it("a turn queued behind a running one does not reset the running turn's usage", async () => {

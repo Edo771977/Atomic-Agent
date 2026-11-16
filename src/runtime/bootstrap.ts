@@ -1,5 +1,6 @@
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
-import { createSessionTeamChoices } from "./session-director.js";
+import { createSessionTeamChoices, resolveSessionWorker } from "./session-director.js";
+import { createRuntimeProject, liveProjectInputsFrom } from "./composition/runtime-project.js";
 import type { ResolvedRunMode } from "../llm/run-mode/index.js";
 import { resolveServerTemplatePolicy } from "../llm/server-template-policy.js";
 import { createContextCompaction, logCompactionOutcome } from "./context-compaction.js";
@@ -954,6 +955,29 @@ export async function createAgentRuntime(
   const createUsageForwardingWorkerSession: typeof createWorkerSession = forwardWorkerUsage(createWorkerSession, sessionUsage);
   const previewPrompt = createRuntimePromptPreview(config, promptPreviewDeps);
 
+  // The fusion project's gate (issue #39): read and decided between turns,
+  // with estimates from the live team, prices, policy and limits.
+  const runtimeProject = createRuntimeProject({
+    loadSession: (id) => sessionStore.load(id),
+    saveSession: (session) => sessionStore.save(session),
+    isBusy: (id) => turnController.isBusy(id),
+    liveInputs: (session) => {
+      const live = getConfig();
+      const policy = sessionProviderPolicy.forSession(session);
+      const allows = (providerId: string): boolean => policy?.allows(providerId) ?? true;
+      return liveProjectInputsFrom({
+        config: live,
+        reachable: providers.teamMemberReachable,
+        allows,
+        mode: resolveCurrentRunMode(),
+        currentWorker: resolveSessionWorker(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
+        tokensPerSecond: () => llama.measuredTokensPerSecond(),
+        dailyRemainingUsd: dailySpendLimit.budget?.remainingUsd() ?? null,
+        localSlots: slotManager.observedPoolSize(),
+      });
+    },
+    emit: (sessionId, event) => emitAgentLoopEventFor(sessionId, { ...event, sessionId }),
+  });
   const { executeTurn: executeLockedTurn, steer, runTurn: runQueuedTurn, controlGoal } = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies, turnsWithoutQuestions },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
@@ -961,6 +985,7 @@ export async function createAgentRuntime(
     traces, telemetry: { observability, analyticsStateStore, turnUsageMeter, sessionUsage },
     state: turnState, lifecycle, logger,
     emitEvent: emitAgentLoopEventFor,
+    onProjectTurnEnd: runtimeProject.noteTurnEnd,
   });
   // ATO-586: an incognito chat closed mid-turn is deleted once the turn
   // has left the queue (`isBusy` is still true inside `executeTurn`).
@@ -1133,6 +1158,8 @@ export async function createAgentRuntime(
     createEphemeralSession,
     runTurn,
     controlGoal,
+    projectState: runtimeProject.projectState,
+    projectDecision: runtimeProject.projectDecision,
     executeTurn,
     previewPrompt,
     compactSession: compaction.compactSession,

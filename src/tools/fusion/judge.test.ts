@@ -278,6 +278,12 @@ describe("the structured review verdict (issue #38)", () => {
     expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null });
   });
 
+  it("gives the reviewer the project's success criteria (issue #39)", () => {
+    const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "", successCriteria: ["Runs offline", "Arrow keys steer"] });
+    expect(prompt).toContain("## The project's success criteria (the task serves these; rule on the items)\n- Runs offline\n- Arrow keys steer");
+    expect(renderJudgePrompt({ task, items, facts: [], evidence: "" })).not.toContain("success criteria");
+  });
+
   it("asks for the new JSON shape", () => {
     const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "" });
     expect(prompt).toContain('{"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}');

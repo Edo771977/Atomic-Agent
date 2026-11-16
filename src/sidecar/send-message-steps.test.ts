@@ -161,6 +161,7 @@ describe("sidecar send_message — step ceiling", () => {
    */
   const sendOne = async (
     extra: Record<string, unknown>,
+    startExtra: Record<string, unknown> = {},
   ): Promise<SidecarMessage> => {
     const before = new Map<string, unknown[]>([
       ["stdin:data", process.stdin.listeners("data").slice()],
@@ -172,6 +173,7 @@ describe("sidecar send_message — step ceiling", () => {
     try {
       const started = await request("req-start", "start_session", {
         workingDir,
+        ...startExtra,
       });
       expect(started.kind === "response" && started.ok).toBe(true);
       const sessionId =
@@ -226,6 +228,21 @@ describe("sidecar send_message — step ceiling", () => {
     expect(response.kind === "response" && response.ok).toBe(false);
     expect(turnOptions).toHaveLength(1);
     expect(turnOptions[0]).toMatchObject({ director: "cloud:model-a", worker: "cloud:model-b" });
+  }, 60_000);
+
+  // Issue #39: the project flow only for a host that declares the card
+  // when it starts the session; the runtime stamps it for the session.
+  it("runs the project flow only when start_session declares capabilities.project", async () => {
+    await sendOne({});
+    expect(turnOptions[0]!.projectGates).toBe(false);
+    turnOptions.length = 0;
+    stdout.length = 0;
+    await sendOne({}, { capabilities: { project: true } });
+    expect(turnOptions[0]!.projectGates).toBe(true);
+    turnOptions.length = 0;
+    stdout.length = 0;
+    await sendOne({}, { capabilities: { project: "yes" } });
+    expect(turnOptions[0]!.projectGates).toBe(false);
   }, 60_000);
 
   it("passes no director or worker that is not a string", async () => {

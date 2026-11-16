@@ -7,6 +7,7 @@ import type { BuildPromptInput } from "./build-prompt-types.js";
 import { formatToolForLoadedTail } from "./stable-prefix.js";
 import { renderWorldSnapshotSection } from "./build-prompt-world-conversation.js";
 import { renderTaskPolicy } from "./render-task-policy.js";
+import { renderProjectDigest } from "./project-digest.js";
 
 /** Selection is unchanged; selected content has no presentation quota. */
 export function cloudContextSections(input: BuildPromptInput): Map<string, string> {
@@ -42,6 +43,8 @@ export function cloudContextSections(input: BuildPromptInput): Map<string, strin
   add("lessons", renderLessonsSection(state.recalledLessons ?? []));
   add("procedures", renderProceduresSection(state.recalledProcedures ?? []));
   add("task-policy", renderTaskPolicy({ turns: state.turns, userMessage: input.userMessage })?.body);
+  // The fusion project (issue #39): a context update whenever it moves.
+  add("project", renderProjectDigest(state.project));
   add("route", input.routeNote);
   add("notice", input.transientNotice);
   add("current-date", input.currentDate);

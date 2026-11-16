@@ -221,6 +221,11 @@ const TOOL_RESOURCE_CLASS: Record<string, ResourceClass> = {
   // inside itself, for minutes. Batching it beside other tools would
   // stack the orchestrator's own fan-out on top of the fan-out.
   "fusion.delegate": "approval_gated",
+  // The fusion project (issue #39): like `plan.update`, they write only
+  // the session's own record; the step commit folds results in order.
+  "project.brief": "pure_read",
+  "project.plan": "pure_read",
+  "project.milestone": "pure_read",
 
   // verify.* — read-only checks. `verify.syntax` spawns nothing that
   // writes (node --check, tsc --noEmit, python compile(), bash -n), so

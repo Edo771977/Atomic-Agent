@@ -125,6 +125,11 @@ const ORCHESTRATOR: RoleSpec = {
     "os.web.fetch",
     "os.web.search",
     "fusion.delegate",
+    // The project (issue #39): the director drafts the brief, the plan
+    // and the milestone reports the person approves between turns.
+    "project.brief",
+    "project.plan",
+    "project.milestone",
     "tool.view",
     "tool.search",
     REPLY,

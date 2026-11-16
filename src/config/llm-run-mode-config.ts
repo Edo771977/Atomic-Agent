@@ -289,7 +289,25 @@ export type UserLlmFusionConfig = {
    * worker.
    */
   team?: UserFusionTeamConfig;
+  /**
+   * The project flow (issue #39): a brief and a plan are always drafted
+   * for approval; these thresholds pick how much of the plan the card
+   * shows by default. `/plan` always shows it in full.
+   */
+  project?: UserFusionProjectConfig;
 };
+
+export type UserFusionProjectConfig = {
+  /** Show the full plan when it has more tasks than this, 0 to 1000. Default 4. */
+  fullPlanAboveTasks?: number;
+  /** Show the full plan when its estimated cost is above this many US dollars, 0 to 10000. Default 1. */
+  fullPlanAboveUsd?: number;
+};
+
+/** `project.fullPlanAboveTasks` when unset. */
+export const DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_TASKS = 4;
+/** `project.fullPlanAboveUsd` when unset. */
+export const DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_USD = 1;
 
 /** Roles a fusion task can be given (ATO-943). */
 export type FusionRole = "plan" | "build" | "review" | "explore" | "utility";
@@ -772,6 +790,22 @@ function parseFusion(
   }
   if (obj.team !== undefined) {
     out.team = parseFusionTeam(obj.team, new Set(providers.map((p) => p.id)), `${field}.team`);
+  }
+  if (obj.project !== undefined) {
+    const fieldName = `${field}.project`;
+    const value = obj.project;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new ConfigValidationError(fieldName, "expected object");
+    }
+    const project = value as Record<string, unknown>;
+    out.project = {
+      ...(project.fullPlanAboveTasks === undefined
+        ? {}
+        : { fullPlanAboveTasks: parseBoundedInt(project.fullPlanAboveTasks, `${fieldName}.fullPlanAboveTasks`, 0, FUSION_MAX_TASKS_PER_TURN_MAX) }),
+      ...(project.fullPlanAboveUsd === undefined
+        ? {}
+        : { fullPlanAboveUsd: parseBoundedNumber(project.fullPlanAboveUsd, `${fieldName}.fullPlanAboveUsd`, 0, FUSION_TURN_BUDGET_USD_MAX) }),
+    };
   }
   return out;
 }

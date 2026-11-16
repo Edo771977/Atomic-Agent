@@ -29,6 +29,7 @@ import type { ProfileClippedEvent } from "./profile-clip-warning.js";
 import type { HistoryTrimmedEvent } from "./history-trim-warning.js";
 import type { ToolDisabledEvent } from "./tool-disabled-notice.js";
 import type { ReviewStallSignal } from "./review-stall.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
 
 /**
  * See `AgentLoopDependencies.localEngineState`. `atomic_chat_app`: the link
@@ -759,6 +760,14 @@ export type AgentLoopEvent =
    * surface is showing.
    */
   | { type: "usage_updated"; sessionId: string; usage: SessionUsageState }
+  /**
+   * The fusion project's gate moved (issue #39): a turn left a new brief,
+   * plan or milestone report waiting on the person, or the person decided
+   * (`runtime.projectDecision`). Carries the whole structured view a card
+   * draws (`ProjectGateView`); a consumer replaces what it holds. Scoped
+   * by `sessionId`.
+   */
+  | { type: "project_gate"; sessionId: string; view: ProjectGateView }
   | { type: "user_message"; text: string }
   /**
    * A message the user sent mid-turn was folded into the prompt for

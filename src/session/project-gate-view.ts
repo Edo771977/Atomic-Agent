@@ -1,0 +1,86 @@
+/**
+ * The structured project a surface draws its gate card from (issue #39):
+ * the TUI card and `/plan`, the CLI's printed gate, the HTTP route, the
+ * sidecar's `project_gate` event (the desktop card) and the Telegram text
+ * all render this one shape, so they cannot disagree about what is being
+ * approved. Types only, here so every surface may import them; the
+ * runtime builds the view with `projectGateView`
+ * (`tools/fusion/project-gate-view.ts`, pure) from `SessionState.project`
+ * ([session-project.ts](session-project.ts)) and the live estimates, and
+ * announces it as the `project_gate` event.
+ *
+ * Surfaces render the buttons from `allowedVerdicts`, never a fixed list,
+ * and pick a row's worker or reviewer only among its `selectableWorkers`
+ * / `selectableReviewers`. A decision is sent back as
+ * `ProjectDecision { gate, version, verdict, edits? }` with `gate` and
+ * `version` copied from this view; the milestone gate's correction is
+ * `edits.note`.
+ */
+
+import type {
+  AssignmentRow,
+  PlanDetail,
+  ProjectBrief,
+  ProjectExpectation,
+  ProjectGate,
+  ProjectMilestone,
+  ProjectPlanTotals,
+  ProjectVerdict,
+} from "./session-project.js";
+
+export interface ProjectGateView {
+  /** Payload version of this shape; bumped on an incompatible change. */
+  schema: 1;
+  sessionId: string;
+  /** What waits on the person. */
+  gate: ProjectGate;
+  /** `gateVersion`: the number a decision must carry; null when nothing can be decided. */
+  version: number | null;
+  /** The buttons the card draws. */
+  allowedVerdicts: ProjectVerdict[];
+  /** What happens next (`projectExpectation`). */
+  expectation: ProjectExpectation;
+  cancelled: boolean;
+  brief: ProjectBrief | null;
+  plan: ProjectGatePlan | null;
+  milestones: ProjectGateMilestone[];
+  /** Every limit the plan breaks, hard ones first; approve is refused while any hard one stands. */
+  violations: ProjectGateViolation[];
+}
+
+export interface ProjectGatePlan {
+  status: "draft" | "approved" | "cancelled";
+  /** The default detail; `/plan` shows full regardless. */
+  detail: PlanDetail;
+  version: number;
+  /** Drafted after outside content entered the chat: show the warning before approving. */
+  draftedAfterUntrusted: boolean;
+  rows: ProjectGateRow[];
+  /** Wave-aware totals (`estimatePlan`): cost summed, time over milestones in order. */
+  totals: ProjectPlanTotals;
+}
+
+export interface ProjectGateRow extends AssignmentRow {
+  /** Workers the person may pick for this row: team workers the folder's policy allows and that can answer. */
+  selectableWorkers: string[];
+  /** Reviewers the person may pick (null — no review — is always allowed). */
+  selectableReviewers: string[];
+}
+
+export interface ProjectGateMilestone extends ProjectMilestone {
+  /** The milestone's estimate (`estimatePlan`); null when unknown. */
+  estCostUsd: number | null;
+  estMs: number | null;
+}
+
+/** `PlanViolation.kind` (`tools/fusion/project-estimate.ts`). */
+export type ProjectGateViolationKind = "turn-budget" | "daily-limit" | "local-slots" | "folder-policy";
+
+export interface ProjectGateViolation {
+  kind: ProjectGateViolationKind;
+  severity: "hard" | "warn";
+  /** One line for the card (`describeViolation`). */
+  message: string;
+  milestoneId?: string;
+  taskId?: string;
+}

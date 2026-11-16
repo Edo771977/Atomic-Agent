@@ -171,6 +171,15 @@ export interface SessionState {
    */
   plan?: PlanSnapshot;
   /**
+   * The fusion project (issue #39): brief, approvable plan and
+   * milestones, folded by the step commit from director tools and changed
+   * by the person's decisions (`session-project.ts`). Persisted with the
+   * session so a reopened chat stops at the same gate. Absent on sessions
+   * without one and on sessions that predate the field; a malformed one
+   * is dropped on load.
+   */
+  project?: import("./session-project.js").ProjectState;
+  /**
    * What the session has spent and the account limits last seen
    * (ATO-569). Stamped by `executeTurn` beside `contextUsage`, for the
    * same reason: a reopened session shows its spend at once, and its
@@ -209,6 +218,9 @@ export interface SessionState {
    *     last turn was served on. Written only by `executeTurn` after the
    *     turn; compared at the next turn's start to tell the model when
    *     the route changed. See `session-route.ts`.
+   *   - `projectGates: boolean` — whether the session runs the fusion
+   *     project flow (issue #39). Stamped by `executeTurn` from the
+   *     session's first surface and kept after. See `session-project.ts`.
    */
   metadata: Record<string, unknown>;
   /**

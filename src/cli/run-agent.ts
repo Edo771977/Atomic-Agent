@@ -54,6 +54,8 @@ import {
   createStdinLineQueue,
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
+import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
+import { withProject } from "../session/session-project.js";
 
 interface RunArgs {
   workingDir: string;
@@ -65,6 +67,14 @@ interface RunArgs {
   director: string | null;
   /** Issue #37: `--worker`, the session's preferred fusion worker. */
   worker: string | null;
+  /** Issue #39: `--session`, continue this stored chat. */
+  session: string | null;
+  /** Issue #39: `--approve <version>`, approve the session's open project gate first. */
+  approve: boolean;
+  /** The version `--approve` names; null when bare (the run shows the gate and asks for it). */
+  approveVersion: number | null;
+  /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
+  autoApproveProject: boolean;
 }
 
 const HELP =
@@ -85,9 +95,16 @@ const HELP =
     "  --director <member>  Fusion director for this chat, one of llm.runMode.fusion.team.directors",
     "                       (\"<providerId>:<model>\"); default: the only one available, else the team's default",
     "  --worker <member>    Preferred fusion worker for this chat, one of the team's workers",
+    "  --session <id>       Continue this stored chat",
+    "  --approve <version>  Approve the chat's open fusion project gate (brief, plan or milestone)",
+    "                       at the version printed with it, then continue; needs --session",
+    "  --auto-approve-project",
+    "                       Approve every fusion project gate at its current version as it opens,",
+    "                       printing each with its version (scripts only); a failed milestone",
+    "                       stops the run (exit 3) for a person",
     "",
     "In-session:  /quit exits · /abort cancels the current turn",
-    "Exit codes:  0 replied · 1 failed · 2 usage error",
+    "Exit codes:  0 replied · 1 failed · 2 usage error · 3 waiting at a project gate (session id printed)",
   ].join("\n") + "\n";
 
 export function parseRunArgs(
@@ -99,6 +116,10 @@ export function parseRunArgs(
   let incognito = false;
   let director: string | null = null;
   let worker: string | null = null;
+  let session: string | null = null;
+  let approve = false;
+  let approveVersion: number | null = null;
+  let autoApproveProject = false;
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
     switch (flag) {
@@ -140,6 +161,24 @@ export function parseRunArgs(
       case "--incognito":
         incognito = true;
         break;
+      case "--session": {
+        const value = args[++i];
+        if (!value) return { error: "--session requires a value" };
+        session = value;
+        break;
+      }
+      case "--approve": {
+        approve = true;
+        const value = args[i + 1];
+        if (value !== undefined && /^\d+$/.test(value)) {
+          approveVersion = Number(value);
+          i += 1;
+        }
+        break;
+      }
+      case "--auto-approve-project":
+        autoApproveProject = true;
+        break;
       case "--director":
       case "--worker": {
         const value = args[++i];
@@ -154,6 +193,8 @@ export function parseRunArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  if (approve && session === null) return { error: "--approve needs --session <id>" };
+  if (session !== null && incognito) return { error: "--session and --incognito cannot be combined" };
   return {
     workingDir: workingDir ?? process.cwd(),
     maxSteps,
@@ -161,6 +202,10 @@ export function parseRunArgs(
     incognito,
     director,
     worker,
+    session,
+    approve,
+    approveVersion,
+    autoApproveProject,
   };
 }
 
@@ -464,6 +509,19 @@ interface ChatLoopOptions {
    * turn a one-line notice goes to stderr (ATO-910).
    */
   piped: boolean;
+  /**
+   * Fusion project gates (issue #39): `approveFirst` approves the
+   * session's open gate before reading stdin (`--approve`); `auto`
+   * approves every gate as it opens (`--auto-approve-project`).
+   * Otherwise the loop stops at a gate and the run exits 3.
+   */
+  projectGate?: { approveFirst: boolean; approveVersion?: number | null; auto: boolean };
+}
+
+interface ChatLoopResult {
+  session: SessionState;
+  /** Why the loop stopped early at a project gate, when it did. */
+  projectGate?: "waiting" | "refused";
 }
 
 /**
@@ -479,7 +537,7 @@ export const STDIN_LINE_PER_TURN_NOTICE =
  * just the human-readable text); everything else stays on stderr. The
  * loop ends on EOF, `/quit`, or abort.
  */
-async function runChatLoop(opts: ChatLoopOptions): Promise<SessionState> {
+async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
   let session = opts.initialSession;
 
   const collectReply = (): {
@@ -541,8 +599,55 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<SessionState> {
     }
   };
 
+  const gate = opts.projectGate ?? { approveFirst: false, auto: false };
+  let stoppedAt: ChatLoopResult["projectGate"];
+  /**
+   * After a turn (or at the start with `--approve`): approve and
+   * continue while gates open, or stop at one. False ends the loop.
+   */
+  const settleGates = async (first: "stop" | "approve" | { version: number }): Promise<boolean> => {
+    let mode = first;
+    for (;;) {
+      if (opts.controller.signal.aborted) return false;
+      const step = await settleProjectGate(opts.runtime, session.id, mode);
+      if (step.kind === "open") return true;
+      if (step.kind === "stop") {
+        process.stderr.write(`${step.text}\n`);
+        stoppedAt = "waiting";
+        return false;
+      }
+      if (step.kind === "failed") {
+        process.stderr.write(`${step.text}\n`);
+        stoppedAt = "refused";
+        return false;
+      }
+      process.stderr.write(`project: ${step.line}\n`);
+      session = withProject(session, step.project);
+      if (step.message === null) return true;
+      await driveTurn(step.message);
+      mode = gate.auto ? "approve" : "stop";
+    }
+  };
+
   let turnsStarted = 0;
   try {
+    if (gate.approveFirst) {
+      const view = opts.runtime.projectState?.(session.id) ?? null;
+      if (view === null || view.gate.kind === "none") {
+        process.stderr.write(`project: nothing waits for approval on session ${session.id}\n`);
+        stoppedAt = "refused";
+        return { session, projectGate: stoppedAt };
+      }
+      const version = gate.approveVersion ?? null;
+      if (version === null) {
+        // Approve only what the person read: show the gate and its version.
+        const shown = await settleProjectGate(opts.runtime, session.id, "stop");
+        if (shown.kind === "stop") process.stderr.write(`${shown.text}\nRepeat with the version to approve it.\n`);
+        stoppedAt = "waiting";
+        return { session, projectGate: stoppedAt };
+      }
+      if (!(await settleGates({ version }))) return { session, ...(stoppedAt ? { projectGate: stoppedAt } : {}) };
+    }
     while (true) {
       if (opts.controller.signal.aborted) break;
       if (session.status === "completed") break;
@@ -560,11 +665,12 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<SessionState> {
         process.stderr.write(`${STDIN_LINE_PER_TURN_NOTICE}\n`);
       }
       await driveTurn(trimmed);
+      if (!(await settleGates(gate.auto ? "approve" : "stop"))) break;
     }
   } finally {
     opts.lines.close();
   }
-  return session;
+  return { session, ...(stoppedAt ? { projectGate: stoppedAt } : {}) };
 }
 
 /**
@@ -690,7 +796,12 @@ export async function runAgentCommand(args: string[]): Promise<number> {
   let exitCode = 0;
   let incognitoSessionId: string | null = null;
   try {
-    const session = runtime.createSession(
+    const stored = parsed.session === null ? null : runtime.sessionStore.load(parsed.session);
+    if (parsed.session !== null && stored === null) {
+      process.stderr.write(`no stored session ${parsed.session}\n`);
+      return 1;
+    }
+    const session = stored ?? runtime.createSession(
       parsed.incognito ? { incognito: true } : undefined,
     );
     incognitoSessionId = parsed.incognito ? session.id : null;
@@ -699,7 +810,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
       output: process.stderr,
       terminal: process.stdin.isTTY === true,
     });
-    const finalSession = await runChatLoop({
+    const loop = await runChatLoop({
       runtime,
       initialSession: session,
       // Only `--max-steps` becomes a ceiling. Filling in `agent.maxSteps`
@@ -716,7 +827,9 @@ export async function runAgentCommand(args: string[]): Promise<number> {
         stdinIsTTY: process.stdin.isTTY === true,
         noApproval: parsed.noApproval,
       }),
+      projectGate: { approveFirst: parsed.approve, approveVersion: parsed.approveVersion, auto: parsed.autoApproveProject },
     });
+    const finalSession = loop.session;
     if (!parsed.incognito) runtime.sessionStore.save(finalSession);
     process.stderr.write(
       `${JSON.stringify(
@@ -735,8 +848,10 @@ export async function runAgentCommand(args: string[]): Promise<number> {
     // that is not success, and a CI job watching this exit code must not
     // read it as one. Only `completed` (and a clean EOF on an idle
     // session) count as 0.
-    if (isFailedSessionStatus(finalSession.status)) {
+    if (isFailedSessionStatus(finalSession.status) || loop.projectGate === "refused") {
       exitCode = 1;
+    } else if (loop.projectGate === "waiting") {
+      exitCode = PROJECT_GATE_EXIT;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

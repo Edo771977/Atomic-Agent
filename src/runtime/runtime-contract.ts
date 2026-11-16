@@ -38,6 +38,9 @@ import type { CapabilitiesSummary, SkillCatalogEntry, ToolDescriptor } from "../
 import type { AgentLoop } from "../agent/agent-loop.js";
 import type { AgentLoopEvent, RunTurnResult } from "../agent/agent-contract.js";
 import type { GoalSpec, GoalState } from "../agent/goal/index.js";
+import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
+import type { RuntimeProjectDecisionResult } from "./project-decision-contract.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
 import type { TaskRunner, TaskStore } from "../tasks/index.js";
 import type { Scheduler } from "../scheduler/index.js";
@@ -600,6 +603,14 @@ export interface AgentRuntime {
        * client) does not until ATO-1502, nor does any other origin.
        */
       questions?: boolean;
+      /**
+       * The client declared whether it draws fusion project gates (issue
+       * #39; HTTP `X-Atomic-Project`, the sidecar's `capabilities.project`).
+       * Absent: the TUI, the CLI and Telegram run the project flow, no
+       * other origin does. Read on the session's first turn only and
+       * stamped as `metadata.projectGates`, fixed for the session.
+       */
+      projectGates?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**
@@ -609,6 +620,25 @@ export interface AgentRuntime {
    * Optional so embedders and test doubles need not implement it.
    */
   controlGoal?(sessionId: string, verb: "pause" | "clear"): boolean;
+  /**
+   * The fusion project's gate as a surface draws it (issue #39): brief,
+   * rows with live estimates, totals, milestones, gate, version, allowed
+   * verdicts, the members each row may be given, limit violations. Null
+   * without the session or a project. Optional so embedders and test
+   * doubles need not implement it.
+   */
+  projectState?(sessionId: string): ProjectGateView | null;
+  /**
+   * The person's decision at the project's gate: approve, edit,
+   * cheaper, quality or cancel, against the `version` they saw. Between
+   * turns only (refused while a turn runs on the session); estimates,
+   * variants and hard caps are computed from the live team, prices,
+   * policy and limits. Persists the session and emits `project_gate`.
+   */
+  projectDecision?(
+    sessionId: string,
+    decision: ProjectDecision,
+  ): RuntimeProjectDecisionResult;
   /**
    * Inline counterpart to `runTurn` — runs the agent loop and
    * persists the result without acquiring the per-session lock. Use
@@ -654,6 +684,8 @@ export interface AgentRuntime {
       answerChannel?: AnswerChannel;
       /** See `runTurn`'s `questions`. */
       questions?: boolean;
+      /** See `runTurn`'s `projectGates`. */
+      projectGates?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**

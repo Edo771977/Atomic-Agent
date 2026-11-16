@@ -34,6 +34,7 @@ import {
 } from "./format-provider-outage.js";
 import { reduceMemoryHealthWarning } from "./reduce-memory-health-warning.js";
 import { formatFeedLine } from "./format-event.js";
+import { isProjectCardAction, reduceProjectCard } from "./project/project-card-state.js";
 import {
   formatFusionWorkerLine,
   fusionWorkerLineColor,
@@ -141,6 +142,10 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
   if (swarmHandled !== null) return swarmHandled;
   const pluginsHandled = reducePluginsAction(state, action);
   if (pluginsHandled !== null) return pluginsHandled;
+  if (isProjectCardAction(action)) {
+    const next = reduceProjectCard(state.projectCard, action);
+    return next === state.projectCard ? state : { ...state, projectCard: next };
+  }
   if (isIssueReportAction(action)) {
     const next = reduceIssueReport(
       state.issueReport,
@@ -1150,6 +1155,12 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       // screen.
       return event.sessionId === state.session.sessionId
         ? { ...state, sessionUsage: event.usage }
+        : state;
+    case "project_gate":
+      // Issue #39: a project gate opened or changed. Session scoped like
+      // the spend: another chat's gate waits for that chat to be opened.
+      return event.sessionId === state.session.sessionId
+        ? { ...state, projectCard: reduceProjectCard(state.projectCard, { type: "project_card_shown", sessionId: event.sessionId, view: event.view }) }
         : state;
     case "loop_detected":
       // Deliberately not rendered: the loop detector's own `### notice`

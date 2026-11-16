@@ -14,6 +14,7 @@ export type {
   SidecarEventType,
   SidecarMessage,
   SidecarResponse,
+  StartSessionCapabilities,
   StartSessionPayload,
   RunStepPayload,
   SendMessagePayload,
@@ -40,4 +41,9 @@ export type {
   LogPayload,
   MetricPayload,
   ErrorPayload,
+  ProjectGateEventPayload,
+  GetProjectPayload,
+  ProjectDecisionPayload,
+  ProjectDecisionResult,
 } from "./sidecar-events.js";
+export type { ProjectGateMilestone, ProjectGatePlan, ProjectGateRow, ProjectGateView, ProjectGateViolation } from "../session/project-gate-view.js";

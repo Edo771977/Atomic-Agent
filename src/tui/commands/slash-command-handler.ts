@@ -35,6 +35,8 @@ export interface SlashDispatchResult {
   readonly compactionVerb?: "run" | "show";
   /** `/director`, bare `/worker` (issue #37): open that fusion team picker for the open chat. */
   readonly teamPicker?: "director" | "worker";
+  /** `/plan` (issue #39): open the chat's fusion project card in full. */
+  readonly projectView?: boolean;
   /** `/goal …` (ATO-451): the orchestrator acts on the open chat's goal. */
   readonly goalCommand?: GoalCommand;
   /**
@@ -313,6 +315,8 @@ export function dispatchSlashCommand(buffer: string, skills: readonly SlashComma
       return dispatchSteerSub(parsed.args);
     case "director":
       return pureActions([], { teamPicker: "director" });
+    case "plan":
+      return pureActions([], { projectView: true });
     case "worker": {
       // Bare: this chat's preferred worker (issue #37); with a verb, a
       // running worker.

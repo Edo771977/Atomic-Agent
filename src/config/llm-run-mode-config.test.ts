@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { ConfigValidationError } from "./config-validation-error.js";
 import {
+  DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_TASKS,
+  DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_USD,
   DEFAULT_FUSION_REVIEW_STALL_STEPS,
   DEFAULT_FUSION_WORKERS,
   FUSION_REVIEW_STALL_STEPS_MAX,
@@ -30,6 +32,21 @@ describe("parseLlmRunModeConfig", () => {
   it.each([null, true, [], { enabled: "yes" }, { minSamples: 2 }, { minSamples: 1001 }, { days: 0 }, { days: 366 }])("rejects invalid measured routing %j", (measuredRouting) => {
     expect(() => parseLlmRunModeConfig({ fusion: { measuredRouting } }, providers, "llm.runMode")).toThrow(ConfigValidationError);
   });
+  it("round-trips the project thresholds (issue #39); absent stays absent", () => {
+    const raw = { fusion: { project: { fullPlanAboveTasks: 6, fullPlanAboveUsd: 2.5 } } };
+    expect(parseLlmRunModeConfig(raw, providers, "llm.runMode")).toEqual(raw);
+    expect(parseLlmRunModeConfig({ fusion: { project: {} } }, providers, "llm.runMode")).toEqual({ fusion: { project: {} } });
+    expect(parseLlmRunModeConfig({ fusion: { project: { fullPlanAboveTasks: 0, fullPlanAboveUsd: 0 } } }, providers, "llm.runMode").fusion?.project)
+      .toEqual({ fullPlanAboveTasks: 0, fullPlanAboveUsd: 0 });
+    expect(DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_TASKS).toBe(4);
+    expect(DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_USD).toBe(1);
+  });
+  it.each([null, 3, [], { fullPlanAboveTasks: -1 }, { fullPlanAboveTasks: 1.5 }, { fullPlanAboveTasks: 1001 }, { fullPlanAboveUsd: -0.1 }, { fullPlanAboveUsd: "1" }, { fullPlanAboveUsd: 10_001 }])(
+    "rejects invalid project thresholds %j",
+    (project) => {
+      expect(() => parseLlmRunModeConfig({ fusion: { project } }, providers, "llm.runMode")).toThrow(ConfigValidationError);
+    },
+  );
   it("round-trips opt-in integration while keeping existing configs unchanged", () => {
     for (const integration of ["direct", "candidate"]) expect(parseLlmRunModeConfig({ fusion: { integration } }, providers, "llm.runMode")).toEqual({ fusion: { integration } });
     expect(parseLlmRunModeConfig({ fusion: {} }, providers, "llm.runMode")).toEqual({ fusion: {} });

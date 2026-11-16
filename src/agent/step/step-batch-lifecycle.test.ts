@@ -217,6 +217,32 @@ describe("step batch lifecycle owner seams", () => {
     expect(outcome.nextSession.turns.filter((turn) => turn.kind === "assistant_tool_call").map((turn) => turn.args.path)).toEqual(["first", "second"]);
   });
 
+  it("folds a project update in order and turns a refused one into the call's error (issue #39)", async () => {
+    const { ctx, deps } = fixture();
+    const brief = { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs"] }, draftedAfterUntrusted: false };
+    const plan = { kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [], detail: "compact" };
+    for (const [name, update] of [["project.brief", brief], ["project.plan", plan]] as const) {
+      deps.registry.register({
+        name, description: "fixture", readonly: true,
+        run: async () => compressToolResult({ tool: name, status: "ok", output: "drafted", details: { projectUpdate: update } }),
+      });
+    }
+    const calls = [{ tool: "project.brief", args: {} }, { tool: "project.plan", args: {} }];
+    const prepared = prepareStepInference(ctx, deps);
+    const policy = createStepBatchPolicy(ctx, deps, () => false);
+    const admission = prepareStepDispatch(ctx, deps, { kind: "batch", calls }, result(calls), policy);
+    const batchOutcome = await executeBatch(toBatchInputs(admission.calls), deps.registry, {
+      sessionId: ctx.session.id, workingDir: ctx.session.workingDir, stepIndex: ctx.stepIndex, signal: ctx.signal,
+    });
+    const outcome = commitStepBatch({ ctx, deps, prompt: prepared.prompt, completion: result(calls), reasoning: "reasoning", admission, batchOutcome, stepDurationMs: 0, progressNote: null, trimmedBatchNotice: undefined, waveSplitNotice: undefined });
+    expect(outcome.nextSession.project).toMatchObject({ gate: { kind: "brief" }, brief: { status: "draft" } });
+    expect(outcome.toolResults.map((r) => r.status)).toEqual(["ok", "error"]);
+    expect(outcome.toolResults[1]!.summary).toMatch(/brief is not approved/);
+    expect(outcome.nextSession.latestResult).toMatchObject({ tool: "project.plan", status: "error" });
+    const results = outcome.nextSession.turns.filter((turn) => turn.kind === "tool_result");
+    expect(results.at(-1)).toMatchObject({ status: "error" });
+  });
+
   it("records the progress note before a cancelled batch raises its terminal failure", () => {
     const { ctx, deps, events } = fixture();
     const prepared = prepareStepInference(ctx, deps);

@@ -525,6 +525,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onIncognitoSessionRequested: () => orchestrator.newSession({ incognito: true }),
         onCompactionRequested: (verb) => { void orchestrator.compactContext(verb); },
         onTeamPickerRequested: (role) => { orchestrator.openTeamPicker(role); },
+        onProjectViewRequested: () => { orchestrator.openProjectView(); },
         onGoalCommand: (command) => orchestrator.goalCommand(command),
         onPromptEnhanceRequested: (draft) => { void orchestrator.enhancePrompt(draft); },
         onPromptEnhanceCancel: () => orchestrator.cancelPromptEnhance(),
@@ -792,6 +793,8 @@ export async function tuiCommand(args: string[]): Promise<number> {
           void orchestrator.issueReport.pick(level, state),
         onIssueReportSendRequested: () => void orchestrator.issueReport.send(),
         onIssueReportCloseRequested: () => orchestrator.issueReport.close(),
+        onProjectDecision: (sessionId, decision) => void orchestrator.decideProject(sessionId, decision),
+        onProjectReviseBrief: () => orchestrator.reviseProjectBrief(),
         onLocalModelsAutoRefreshStart: () =>
           orchestrator.localModels.startAutoRefresh(),
         onLocalModelsPullRequested: (id, mode) =>

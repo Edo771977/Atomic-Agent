@@ -16,7 +16,8 @@ import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SES
 import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
-import { pickOriginalRequest } from "../../tools/fusion/index.js";
+import { pickOriginalRequest, surfaceShowsProjectGates, withProjectToolVisibility } from "../../tools/fusion/index.js";
+import { PROJECT_GATES_METADATA_KEY, readProjectGatesCapability } from "../../session/session-project.js";
 import type { ToolRole } from "../../tools/tool-roles.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
 import { captureMessageSent, type AnalyticsStateStore, type LocalEngine, type TurnUsageMeter, type TurnUsageSnapshot } from "../../analytics/index.js";
@@ -153,6 +154,12 @@ export interface RuntimeTurnDependencies {
    * narrow test rigs: nothing is said.
    */
   emitEvent?: (sessionId: string, event: AgentLoopEvent) => void;
+  /**
+   * After a turn is saved: the fusion project before and after it (issue
+   * #39), so the runtime can say `project_gate` when the turn left a new
+   * gate. Absent in narrow test rigs.
+   */
+  onProjectTurnEnd?: (sessionId: string, before: SessionState["project"], after: SessionState["project"]) => void;
 }
 
 export function createRuntimeTurnService(
@@ -537,6 +544,13 @@ export function createRuntimeTurnService(
        */
       questions?: boolean;
       /**
+       * The client declared whether it draws fusion project gates (issue
+       * #39): an HTTP `X-Atomic-Project` client, a sidecar host's
+       * `capabilities.project`. Read only on the session's first turn;
+       * the answer is stamped (`metadata.projectGates`) and kept.
+       */
+      projectGates?: boolean;
+      /**
        * A fusion team director (`"<providerId>:<model>"`, issue #37) to
        * stamp on the session before the turn: the sidecar's and HTTP's
        * `director` field, `run --director`. Must be one the team lists.
@@ -770,7 +784,21 @@ export function createRuntimeTurnService(
           ...(answerChannel !== undefined ? { answerChannel } : {}),
           ...(runOptions.questions !== undefined ? { questions: runOptions.questions } : {}),
         });
-        const toolFilter = withAskUserVisibility(runOptions.toolFilter, showsQuestions);
+        // The project flow (issue #39) only where a person can decide its
+        // gates, fixed by the session's first surface: its tools and
+        // guidance are stable-prefix bytes, so a later turn from another
+        // surface keeps what the session started with.
+        const projectGates =
+          readProjectGatesCapability(session.metadata) ??
+          surfaceShowsProjectGates({
+            ...(runOptions.origin !== undefined ? { origin: runOptions.origin } : {}),
+            ...(answerChannel !== undefined ? { answerChannel } : {}),
+            ...(runOptions.projectGates !== undefined ? { projectGates: runOptions.projectGates } : {}),
+          });
+        const toolFilter = withProjectToolVisibility(
+          withAskUserVisibility(runOptions.toolFilter, showsQuestions),
+          projectGates,
+        );
         // A model that calls the hidden tool anyway gets an answer at
         // once rather than a question nobody can see (ask-user.ts).
         if (!showsQuestions) turnsWithoutQuestions?.add(session.id);
@@ -820,10 +848,13 @@ export function createRuntimeTurnService(
             ...result.session.metadata,
             [SESSION_LLM_METADATA_KEY]: llmStamp,
             [SESSION_ROUTE_METADATA_KEY]: servedRoute,
+            [PROJECT_GATES_METADATA_KEY]: projectGates,
           },
         };
         // The turn's end replaces its `running` mark (`beginTurn`).
         sessionStore.finishTurn(finished);
+        // A brief, plan or milestone report the turn left for the person.
+        deps.onProjectTurnEnd?.(session.id, session.project, finished.project);
         // Name the thread once, from its first prompt, after the first
         // turn that actually answered. Fire-and-forget on purpose: the
         // turn is already saved and already returned, and an unnamed
@@ -957,6 +988,8 @@ export function createRuntimeTurnService(
       answerChannel?: AnswerChannel;
       /** See `executeTurn`'s `questions`. */
       questions?: boolean;
+      /** See `executeTurn`'s `projectGates`. */
+      projectGates?: boolean;
       /** See `executeTurn`'s `director`. */
       director?: string;
       /** See `executeTurn`'s `worker`. */

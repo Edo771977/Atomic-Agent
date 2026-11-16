@@ -294,6 +294,11 @@ const V0_2_2_SLASH_COMMANDS = [
     description: "pick which fusion team director leads this chat (llm.runMode.fusion.team)",
   },
   {
+    name: "plan",
+    description:
+      "the fusion project's brief, plan rows with estimates and milestones in full; at an open gate, approve, edit rows, ask for a cheaper or higher-quality plan, correct a milestone or cancel",
+  },
+  {
     name: "fusion",
     description:
       "a fusion run cut off by a restart: `/fusion` lists them · `/fusion resume [id]` continues from the unfinished wave · `/fusion discard [id]` drops it · `/fusion report` shows how the workers did and what the strong side cost",

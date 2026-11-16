@@ -53,6 +53,11 @@ export const WORKER_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   // Nobody watches a worker's session, so its question would reach nobody
   // (ATO-489); the gate would refuse it anyway.
   "ask_user",
+  // The project is the director's (issue #39): a worker's brief or plan
+  // would land on its throwaway session and gate nothing.
+  "project.brief",
+  "project.plan",
+  "project.milestone",
 ]);
 
 /** `RunTurnOptions.toolFilter` for a worker turn. */

@@ -99,6 +99,14 @@ export const SCREEN_OVERLAY_HEADER = "X-Atomic-Screen-Overlay";
  * not get `ask_user`. The desktop sends it once ATO-1502 ships.
  */
 export const QUESTIONS_HEADER = "X-Atomic-Questions";
+/**
+ * Issue #39: the extensions client draws the fusion project card and
+ * decides its gates (`POST /api/project/decision`), so the session runs
+ * the project flow (brief, plan, milestones). Read on the session's first
+ * turn and fixed for the session. Without it the session has no project
+ * tools and the fan-out asks as before.
+ */
+export const PROJECT_HEADER = "X-Atomic-Project";
 const MODEL_DEFAULT = "atomic-agent";
 
 /**
@@ -170,6 +178,8 @@ interface ParsedRequest {
   reasoningOverride?: ReasoningEffort;
   /** `X-Atomic-Questions` on an extensions request (ATO-489). */
   questions: boolean;
+  /** `X-Atomic-Project` on an extensions request (issue #39). */
+  projectGates: boolean;
   /** Issue #37: `director` / `worker`, checked as member refs; the turn checks them against the team. */
   team: { director?: string; worker?: string };
 }
@@ -283,6 +293,8 @@ async function handleNonStream(
         : {}),
       // ATO-489: `ask_user` only for a client that draws its card.
       ...(env.request.questions ? { questions: true } : {}),
+      // Issue #39: the project flow only for a client that draws its gates.
+      ...(env.request.projectGates ? { projectGates: true } : {}),
       // Issue #37: the session's director / preferred worker, if named.
       ...env.request.team,
     });
@@ -465,6 +477,8 @@ async function handleStream(
         : {}),
       // ATO-489: `ask_user` only for a client that draws its card.
       ...(env.request.questions ? { questions: true } : {}),
+      // Issue #39: the project flow only for a client that draws its gates.
+      ...(env.request.projectGates ? { projectGates: true } : {}),
       // Issue #37: the session's director / preferred worker, if named.
       ...env.request.team,
     });
@@ -983,6 +997,14 @@ export function buildStreamEventHook(
        and the orchestrator's reply. Extensions-only, like every other
        atomic frame. Absent fields stay absent: a model the runtime does not
        know is not named here, for the reason the TUI line omits it. */
+    /* Issue #39: a fusion project gate opened or changed in this turn; the
+       whole view the desktop card draws. Extensions-only. */
+    if (event.type === "project_gate") {
+      if (env.request.extensionsEnabled) {
+        sse.writeEvent("project_gate", { object: "atomic.project_gate", session_id: event.sessionId, view: event.view });
+      }
+      return;
+    }
     if (event.type === "fusion_worker") {
       if (env.request.extensionsEnabled) {
         // `phase: "usage"` carries how full the worker's context is, for
@@ -1447,6 +1469,9 @@ async function parseRequestBody(
     questions:
       isExtensionsHeaderTruthy(getHeader(req, EXTENSIONS_HEADER)) &&
       isExtensionsHeaderTruthy(getHeader(req, QUESTIONS_HEADER)),
+    projectGates:
+      isExtensionsHeaderTruthy(getHeader(req, EXTENSIONS_HEADER)) &&
+      isExtensionsHeaderTruthy(getHeader(req, PROJECT_HEADER)),
     team,
   };
 }

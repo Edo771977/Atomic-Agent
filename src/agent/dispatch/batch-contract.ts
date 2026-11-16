@@ -107,6 +107,8 @@ export interface BatchExecutionContext {
   incognito?: boolean;
   /** The step's provider pin, handed to every call (`ToolContext.providerId`). */
   providerId?: string;
+  /** The session's fusion project at the step's start (`ToolContext.project`, issue #39). */
+  project?: import("../../session/session-project.js").ProjectState;
   /**
    * Fired immediately before the registry is invoked for each call.
    * Order: matches the order the executor reaches each call (within a
