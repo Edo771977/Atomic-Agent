@@ -700,3 +700,31 @@ test('Cancel project asks twice: the button turns into Confirm cancel for a few 
   assert.equal(b.textContent, 'Confirm cancel');
   assert.equal(b.tagName, 'BUTTON');
 });
+
+test('the narrow sheet follows the composer and the chat through a ResizeObserver, not a layout read per paint', () => {
+  const observed = [];
+  let fire = null;
+  class RO { constructor(cb) { fire = cb; } observe(el) { observed.push(['+', el.id])} unobserve(el) { observed.push(['-', el.id]); } }
+  let composerTop = 760;
+  const content = {id: 'content', getBoundingClientRect: () => ({left: 60, top: 52, width: 700, bottom: 900})};
+  let composer = {id: 'composer-1', getBoundingClientRect: () => ({top: composerTop})};
+  const vars = {};
+  const host = {hidden: false, classList: {toggle() {}}, style: {setProperty: (k, v) => { vars[k] = v; }}};
+  const win = {innerWidth: 800, ResizeObserver: RO,
+    document: {querySelector: (q) => (q === '#content' ? content : q === '.composerwrap' ? composer : null)}};
+  const watch = C.pcWatch(win, host);
+  watch.sync();
+  assert.deepEqual(observed, [['+', 'content'], ['+', 'composer-1']]);
+  watch.sync();
+  assert.equal(observed.length, 2, 'the same nodes are not observed again');
+  composerTop = 700;   // the person typed a second line
+  fire([]);
+  assert.equal(vars['--pc-height'], '632px', 'the sheet ends above the taller composer');
+  composer = {id: 'composer-2', getBoundingClientRect: () => ({top: composerTop})};   // a paint replaced it
+  watch.sync();
+  assert.deepEqual(observed.slice(2), [['-', 'composer-1'], ['+', 'composer-2']]);
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const follow = renderer.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
+  assert.ok(!/pcPlace\(/.test(follow), 'no forced layout on every paint');
+  assert.match(follow, /PCWATCH\.sync\(\)/);
+});

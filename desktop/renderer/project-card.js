@@ -404,6 +404,29 @@ function pcPlace(win, host) {
   host.style.setProperty('--pc-height', Math.max(120, Math.round(bottom - c.top - 16)) + 'px');
 }
 
+/**
+ * Keeps the narrow sheet placed as the composer grows (a second line, an
+ * attachment) or the chat column changes, through a ResizeObserver on
+ * #content and the composer. `sync()` is cheap (no layout read): it only
+ * notices that a paint replaced the composer node and observes the new one.
+ */
+function pcWatch(win, host) {
+  const RO = win.ResizeObserver;
+  let observer = null, content = null, composer = null;
+  const place = () => pcPlace(win, typeof host === 'function' ? host() : host);
+  return {
+    sync() {
+      if (!RO) return;
+      if (!observer) observer = new RO(place);
+      const doc = win.document;
+      const c = doc.querySelector('#content');
+      const k = doc.querySelector('.composerwrap') || doc.querySelector('#composer');
+      if (c !== content) { if (content) observer.unobserve(content); content = c; if (c) observer.observe(c); }
+      if (k !== composer) { if (composer) observer.unobserve(composer); composer = k; if (k) observer.observe(k); }
+    },
+  };
+}
+
 function pcSelect(doc, options, value, label, onChange, disabled) {
   const sel = pcEl(doc, 'select', 'pc-select');
   sel.setAttribute('aria-label', label);
@@ -696,6 +719,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
-    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue,
+    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };
 }

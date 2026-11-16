@@ -152,6 +152,15 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   await app.send('Emulation.setDeviceMetricsOverride', { width: 860, height: 760, deviceScaleFactor: 1, mobile: false });
   await sleep(500);
   await geometry(app, 'narrow window, plan gate', { narrow: true });
+  /* A taller composer (four lines typed) moves the sheet's end up with it (ResizeObserver). */
+  const composerTop = () => app.eval(`document.querySelector('.composerwrap').getBoundingClientRect().top`);
+  const before = await composerTop();
+  await app.eval(`(() => { const e = document.querySelector('#entry'); e.value = 'one\\ntwo\\nthree\\nfour'; e.dispatchEvent(new Event('input', {bubbles: true})); })()`);
+  await sleep(500);
+  check((await composerTop()) < before - 10, 'the composer grew with four lines', JSON.stringify([before, await composerTop()]));
+  await geometry(app, 'narrow window, a taller composer', { narrow: true });
+  await app.eval(`(() => { const e = document.querySelector('#entry'); e.value = ''; e.dispatchEvent(new Event('input', {bubbles: true})); })()`);
+  await sleep(300);
   await app.send('Emulation.setDeviceMetricsOverride', { width: 860, height: 760, deviceScaleFactor: 2, mobile: false });
   await sleep(300);
   await app.screenshot(join(SHOTS, 'project-card-plan-narrow-light.png'));

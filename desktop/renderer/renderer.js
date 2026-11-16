@@ -2251,14 +2251,14 @@ function render() {
    agent:project frames, GET /api/project when a chat opens, the decision,
    and the continue_message sent as the chat's next message through
    submit(), as the plan hand-off sends its own words. */
-let PCARD = null, PCARD_GEN = -1;
+let PCARD = null, PCARD_GEN = -1, PCWATCH = null;
 function projectCardFollow() {
   if (!PCARD) return;
   if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
   const sid = S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
   PCARD.follow(sid);
-  // A narrow window's sheet ends where the composer starts, and a paint can move it.
-  pcPlace(window, document.getElementById('projectcard'));
+  // A narrow window's sheet ends where the composer starts: observed, not measured on every paint.
+  if (PCWATCH) PCWATCH.sync();
 }
 function projectCardContinue(sid, text) {
   /* Only into the chat it belongs to, between turns, on a live agent, and
@@ -2286,6 +2286,7 @@ function projectCardStart() {
     onChange: () => renderToolbar(),
   });
   BR.onProject((frame) => PCARD.onFrame(frame));
+  PCWATCH = pcWatch(window, () => document.getElementById('projectcard'));
   window.addEventListener('resize', () => pcPlace(window, document.getElementById('projectcard')));
 }
 
