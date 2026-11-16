@@ -11,7 +11,7 @@ The card for a fusion project's gates (issue #39): the brief, the plan and each 
 
 Buttons come from `view.allowedVerdicts`, never a fixed list: `a` approve, `e` edit rows (plan gate: per row, ←/→ picks a worker or reviewer among the row's `selectableWorkers` / `selectableReviewers`, tab switches field, enter sends), correct (milestone gate: the person types a note, sent as `edits.note`) or revise (brief gate: the person writes the change in the composer), `c` cheaper, `q` quality, `x` cancel. Esc steps back or puts the card away; `/plan` reopens it. [Keys](project-card-keys.ts) are modal while the card is up on its own chat, below a pending approval, and leave Ctrl+C to the app.
 
-A brief drafted after untrusted content carries a warning; approval still comes only from the person. Violations from the live estimates are listed, hard ones marked; the runtime refuses approve while one stands.
+At the plan gate the card says the approved write scope is the chat's folder (plan rows carry no file list; a write outside it still asks), as the CLI and Telegram text do (`PROJECT_WRITE_SCOPE_NOTE`). A brief drafted after untrusted content carries a warning; approval still comes only from the person. Violations from the live estimates are listed, hard ones marked; the runtime refuses approve while one stands.
 
 ## Operations
 

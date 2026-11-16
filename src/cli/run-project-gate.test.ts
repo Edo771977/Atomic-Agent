@@ -25,6 +25,7 @@ describe("run at a project gate", () => {
     expect(step.text).toContain("t1 Board and pieces [m1]: worker prov-a:model-a · review prov-b:model-b · $0.12 · ~1m30s · measured (6 runs)");
     expect(step.text).toContain("t2 Level screen [m2]: worker prov-c:model-c · review none · cost unknown · time unknown · preset");
     expect(step.text).toContain("Total: 2 tasks · $0.12 (+1 unpriced)");
+    expect(step.text).toContain("Approving lets these tasks write in this chat's folder");
     expect(step.text).toContain("session: sess-1");
     expect(step.text).toContain("atomic-agent run --session sess-1 --approve");
     expect(rt.projectDecision).not.toHaveBeenCalled();

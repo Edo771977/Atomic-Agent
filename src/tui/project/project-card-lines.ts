@@ -6,6 +6,7 @@
  * buttons from the view's allowed verdicts.
  */
 
+import { PROJECT_WRITE_SCOPE_NOTE } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -146,6 +147,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       });
     }
     out.push(line(` Total: ${projectTotalsLine(view)}`, "plain", true));
+    if (view.gate.kind === "plan") text(PROJECT_WRITE_SCOPE_NOTE, "muted");
   }
 
   for (const v of view.violations) text(`${v.severity === "hard" ? "✕" : "!"} ${v.message}`, v.severity === "hard" ? "error" : "warn");

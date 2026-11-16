@@ -39,6 +39,12 @@ describe("project card lines", () => {
     expect(text(card(planWith({ detail: "full" })))).toContain("t2 Level screen");
   });
 
+  it("says the approved write scope is the session folder (rows carry no file list)", () => {
+    expect(text(card(fixtureProjectGateView({ kind: "plan" })))).toContain("Approving lets these tasks write in this chat's folder");
+    expect(text(card(fixtureProjectGateView({ kind: "plan" }), true))).toContain("Approving lets these tasks write in this chat's folder");
+    expect(text(card(fixtureProjectGateView({ kind: "brief" })))).not.toContain("write in this chat's folder");
+  });
+
   it("warns on a brief drafted after untrusted content", () => {
     const base = fixtureProjectGateView({ kind: "brief" });
     const out = text(card({ ...base, brief: { ...base.brief!, draftedAfterUntrusted: true } }));

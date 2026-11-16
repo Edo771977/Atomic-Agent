@@ -9,6 +9,13 @@
 
 import type { ProjectGateView } from "./project-gate-view.js";
 
+/**
+ * Plan rows carry no file list: what approving the plan lets the tasks
+ * write is the chat's folder (the fusion write scope). Every surface says so.
+ */
+export const PROJECT_WRITE_SCOPE_NOTE =
+  "Approving lets these tasks write in this chat's folder (the session's working directory); a write outside it still asks.";
+
 const usd = (n: number | null): string => (n === null ? "cost unknown" : n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
 
 function duration(ms: number | null): string {
@@ -66,6 +73,9 @@ export function formatProjectGateText(view: ProjectGateView): string {
       const t = view.plan.totals;
       const unpriced = t.unknownCostRows > 0 ? ` (+${t.unknownCostRows} unpriced)` : "";
       out.push(`  Total: ${rows.length} task${rows.length === 1 ? "" : "s"} · ${usd(t.costUsd)}${unpriced} · ${duration(t.ms)}`);
+      if (view.gate.kind === "plan") {
+        out.push(`  ${PROJECT_WRITE_SCOPE_NOTE}`);
+      }
     }
     if (view.milestones.length > 0) {
       out.push(`  Milestones: ${view.milestones.map((m) => `${MARK[m.state] ?? "·"} ${m.title}`).join("  ")}`);
