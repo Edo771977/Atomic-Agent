@@ -1,0 +1,85 @@
+/**
+ * Issue #39: what the window may send main about a fusion project
+ * (`agent:project`, `agent:projectDecision`). Validated here like the
+ * approval IPC: a decision is rebuilt field by field, so nothing the page
+ * adds reaches the agent, and what the route would refuse with `400`
+ * (src/session/project-decision-parse.ts) is refused before it leaves the
+ * app. Whether the gate takes it (its version, the allowed verdicts, hard
+ * caps, a running turn) stays the agent's to say.
+ */
+
+export const PROJECT_VERDICTS = ["approve", "edit", "cheaper", "quality", "cancel"] as const;
+export type ProjectVerdict = (typeof PROJECT_VERDICTS)[number];
+/** The milestone correction's bound, as the agent's `MAX_PROJECT_NOTE_CHARS`. */
+export const MAX_PROJECT_NOTE_CHARS = 2000;
+const MAX_ID_CHARS = 200;
+const MAX_ROWS = 500;
+
+export type ProjectGateRef = { kind: "brief" } | { kind: "plan" } | { kind: "none" } | { kind: "milestone"; id: string };
+
+export interface ProjectDecisionBody {
+  session: string;
+  gate: ProjectGateRef;
+  version: number;
+  verdict: ProjectVerdict;
+  edits?: {
+    rows?: Array<{ taskId: string; worker?: string; reviewer?: string | null }>;
+    note?: string;
+  };
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_CHARS && !/[\r\n]/.test(v);
+
+/** A session id for `GET /api/project`, or null. */
+export function parseProjectSessionIpc(raw: unknown): string | null {
+  return isId(raw) ? raw : null;
+}
+
+function parseGate(raw: unknown): ProjectGateRef | null {
+  if (!isObject(raw)) return null;
+  if (raw.kind === "brief" || raw.kind === "plan" || raw.kind === "none") return { kind: raw.kind };
+  if (raw.kind === "milestone" && isId(raw.id)) return { kind: "milestone", id: raw.id };
+  return null;
+}
+
+export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: ProjectDecisionBody } | { ok: false; error: string } {
+  if (!isObject(raw)) return { ok: false, error: "a decision must be an object" };
+  if (!isId(raw.session)) return { ok: false, error: "session required" };
+  const gate = parseGate(raw.gate);
+  if (!gate) return { ok: false, error: "gate must be brief, plan or a milestone with its id" };
+  if (!Number.isInteger(raw.version) || (raw.version as number) < 1) return { ok: false, error: "version must be the view's version" };
+  const verdict = PROJECT_VERDICTS.find((v) => v === raw.verdict);
+  if (!verdict) return { ok: false, error: `verdict must be one of ${PROJECT_VERDICTS.join(", ")}` };
+  const body: ProjectDecisionBody = { session: raw.session, gate, version: raw.version as number, verdict };
+  if (raw.edits !== undefined) {
+    if (!isObject(raw.edits)) return { ok: false, error: "edits must be an object" };
+    const edits: NonNullable<ProjectDecisionBody["edits"]> = {};
+    if (raw.edits.rows !== undefined) {
+      if (!Array.isArray(raw.edits.rows) || raw.edits.rows.length > MAX_ROWS) return { ok: false, error: "edits.rows must be a list of rows" };
+      const rows: NonNullable<typeof edits.rows> = [];
+      for (const row of raw.edits.rows) {
+        if (!isObject(row) || !isId(row.taskId)) return { ok: false, error: "each row needs its taskId" };
+        if (row.worker !== undefined && !isId(row.worker)) return { ok: false, error: "a row's worker must be a member id" };
+        if (row.reviewer !== undefined && row.reviewer !== null && !isId(row.reviewer)) {
+          return { ok: false, error: "a row's reviewer must be a member id or none" };
+        }
+        rows.push({
+          taskId: row.taskId,
+          ...(row.worker !== undefined ? { worker: row.worker as string } : {}),
+          ...(row.reviewer !== undefined ? { reviewer: row.reviewer as string | null } : {}),
+        });
+      }
+      edits.rows = rows;
+    }
+    if (raw.edits.note !== undefined) {
+      const note = raw.edits.note;
+      if (typeof note !== "string" || note.trim().length === 0 || note.length > MAX_PROJECT_NOTE_CHARS) {
+        return { ok: false, error: `the correction must be 1 to ${MAX_PROJECT_NOTE_CHARS} characters` };
+      }
+      edits.note = note;
+    }
+    body.edits = edits;
+  }
+  return { ok: true, body };
+}

@@ -32,6 +32,7 @@ import { promisify } from "node:util";
 
 import { wireAgentAutoRestart } from "./agent-auto-restart-wire.js";
 import { AgentClient, APPROVAL_DECISIONS, probeRemoteAgent, type ProjectTrustAnswerBody } from "./agent-client.js";
+import { parseProjectDecisionIpc, parseProjectSessionIpc } from "./project-ipc.js";
 import { wireAgentLiveIpc } from "./agent-live.js";
 import { wirePluginsIpc } from "./plugins-ipc.js";
 import { wireAttachmentIpc } from "./attachments-ipc.js";
@@ -1621,6 +1622,20 @@ function wireIpc(client: AgentClient): void {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  /* Issue #39: the fusion project card (renderer/project-card.js). The read
+     takes a session id only; a decision is rebuilt field by field
+     (project-ipc.ts) and the agent decides whether the gate takes it. */
+  ipcMain.handle("agent:project", async (_event, sessionId: unknown) => {
+    const sid = parseProjectSessionIpc(sessionId);
+    if (!sid) return { supported: true, ok: false, status: 0, error: "session required" };
+    return client.getProject(sid);
+  });
+  ipcMain.handle("agent:projectDecision", async (_event, raw: unknown) => {
+    const parsed = parseProjectDecisionIpc(raw);
+    if (!parsed.ok) return { supported: true, ok: false, status: 0, code: null, error: parsed.error, view: null };
+    return client.projectDecision(parsed.body);
   });
 
   ipcMain.handle("app:chooseWorkspace", async (_event, sessionId: unknown) => {
@@ -3363,6 +3378,7 @@ function wireIpc(client: AgentClient): void {
   });
   ipcMain.handle("app:daemonWatch", () => daemonWatchState());
   client.on("approval", (event) => send("agent:approval", event));
+  client.on("project", (event) => send("agent:project", event));
   // Analytics and error reporting: counts, enums and exit codes only.
   client.on("chat", (event) => chatTurns.observe(event));
   client.on("approval", (event) => chatTurns.approval(event));
