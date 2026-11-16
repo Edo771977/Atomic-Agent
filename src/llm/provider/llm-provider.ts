@@ -14,6 +14,7 @@ import type {
 } from "./completion-types.js";
 import type { StreamConsumer } from "./adapters/stream-consumer.js";
 import type { ToolCallAdapter } from "./adapters/tool-call-adapter.js";
+import type { CompletionUsage } from "./completion-types.js";
 
 export type {
   CompletionRequest,
@@ -96,11 +97,20 @@ export interface VisionRequest {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+  /**
+   * The model to ask (a fusion team member's pin, issue #40); absent,
+   * the provider's own. Honoured by providers that can ask for a model
+   * per request (the OpenAI-compatible family); a local server serves
+   * the model it has loaded and ignores it.
+   */
+  model?: string;
 }
 
 export interface VisionResult {
   text: string;
   durationMs: number;
+  /** Token usage as the service reported it, when it did: the caller prices the call. */
+  usage?: CompletionUsage;
 }
 
 export interface LlmProvider {

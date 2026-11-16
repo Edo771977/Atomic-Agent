@@ -667,6 +667,19 @@ describe("OpenAiProvider without defaultChatModel", () => {
       }),
     ).rejects.toThrow(/has no defaultChatModel configured/);
   });
+
+  it("describes with a pinned model even when the default model cannot see, and learns nothing about the default (issue #40)", async () => {
+    const fetchImpl = fakeFetch({ role: "assistant", content: "a board" });
+    const p = new OpenAiProvider({
+      id: "test", baseUrl: "https://example.invalid", apiKey: "", defaultChatModel: "model-a",
+      supportsVision: false, fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const out = await p.describeImage({ prompt: "describe", model: "model-b", images: [{ id: 0, bytes: new Uint8Array([1]), mimeType: "image/jpeg" }] });
+    expect(out.text).toBe("a board");
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(init.body)).model).toBe("model-b");
+    expect(p.capabilities.vision).toBe(false);
+  });
 });
 
 describe("OpenAiProvider template thinking switch", () => {

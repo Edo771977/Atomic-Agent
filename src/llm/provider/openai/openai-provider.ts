@@ -1096,10 +1096,13 @@ export class OpenAiProvider implements LlmProvider {
   }
 
   async describeImage(request: VisionRequest): Promise<VisionResult> {
-    if (!this.capabilities.vision) {
+    // A pinned model (issue #40) is asked for by name; the provider's own
+    // vision verdict is about its default model only.
+    const model = request.model ?? this.defaultChatModel;
+    const ownModel = model === this.defaultChatModel;
+    if (ownModel && !this.capabilities.vision) {
       throw new VisionUnsupportedError(this.name);
     }
-    const model = this.defaultChatModel;
     if (!model) {
       throw new Error(
         `openai-compatible provider "${this.name}" has no defaultChatModel configured`,
@@ -1130,7 +1133,10 @@ export class OpenAiProvider implements LlmProvider {
       // Only a model nobody described learns from a rejection: an
       // operator's `supportsVision` or a catalogue row is not overruled
       // by one 400, and its error goes back as the service wrote it.
+      // A pinned model's rejection goes back as written: the caller
+      // chose it from its own verdict (`resolveCloudModelVision`).
       if (
+        ownModel &&
         this.capabilities.visionSource === "assumed" &&
         error instanceof OpenAiHttpError &&
         isImageRejection(error.status, error.message)
