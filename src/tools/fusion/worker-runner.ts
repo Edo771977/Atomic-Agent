@@ -1411,6 +1411,10 @@ async function runOneTask(
   // Tool calls parsed and not yet executed in this step: a long build or
   // check run is waiting, not stalled (reset when the step finishes).
   let toolsInFlight = 0;
+  // A request is out and has not produced its first token yet (set when
+  // a step starts or finishes, cleared by the first token): slow prompt
+  // processing on a later step is waiting, not stalled.
+  let awaitingFirstToken = false;
   let currentFingerprints: string[] = [];
   let currentBusy = false;
   // Why the step half fired, when it did; carried onto the note so the
@@ -1817,6 +1821,7 @@ async function runOneTask(
     stalled: detectStall(steps) !== undefined,
     paused: selfChecking,
     toolsInFlight,
+    awaitingFirstToken,
   });
   const startWatch = (): TaskWatch | undefined => {
     if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
@@ -1880,7 +1885,9 @@ async function runOneTask(
         // request is even sent — is what ends the queue wait.
         if (event.type === "llm_event" && SERVED_EVENTS.has(event.event.type)) {
           markServed();
+          awaitingFirstToken = false;
         }
+        if (event.type === "step_started") awaitingFirstToken = true;
         if (
           event.type === "llm_event" &&
           (event.event.type === "assistant_delta" || event.event.type === "reasoning_delta")
@@ -1905,6 +1912,7 @@ async function runOneTask(
           currentFingerprints = [];
           currentBusy = false;
           toolsInFlight = 0;
+          awaitingFirstToken = true;
           stepsFinished += 1;
           const stalled = detectStall(steps);
           if (stalled !== undefined) {

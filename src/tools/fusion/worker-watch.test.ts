@@ -26,6 +26,7 @@ describe("progressKind and decideWatch (issue #43)", () => {
     expect(progressKind(at(), at({ toolsInFlight: 1 }))).toBe("waiting");
     expect(decideWatch(at(), at({ toolsInFlight: 1 }), 5)).toBe("ok");
     expect(progressKind(at(), at({ toolsInFlight: 1, steps: 3, stalled: true }))).toBe("unclear");
+    expect(progressKind(at(), at({ awaitingFirstToken: true, outputTokens: 4 }))).toBe("waiting");
   });
 
   it("clear progress costs nothing: a new file, or new steps that do not look stalled", () => {

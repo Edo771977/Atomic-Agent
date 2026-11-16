@@ -149,6 +149,8 @@ describe("the watch inside the worker runner (issue #43)", () => {
     h.delta("x".repeat(400));
     h.write("src/a.ts");
     h.step();
+    // The next request's first token: the worker is answering again.
+    h.delta("y");
     await c.tick();
     expect(prompts).toEqual([]);
     // Two quiet intervals: the judge reads the counts the probe saw.
@@ -157,7 +159,7 @@ describe("the watch inside the worker runner (issue #43)", () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("steps finished: 1 (+0)");
     expect(prompts[0]).toContain("files changed: 1 (+0)");
-    expect(prompts[0]).toMatch(/output tokens: 100 \(\+0\)/);
+    expect(prompts[0]).toMatch(/output tokens: 101 \(\+0\)/);
     expect(prompts[0]).toContain("edit src/a.ts in place");
     h.finish();
     const [row] = await run;
@@ -248,6 +250,22 @@ describe("a worker that is waiting, not stalled (issue #43)", () => {
     const [row] = await run;
     expect(row!.status).toBe("ok");
     expect(row!.watch).toMatchObject({ checks: 3, judgeCalls: 0, stopped: false });
+  });
+
+  it("does not judge while the next request waits for its first token (slow prompt processing)", async () => {
+    const h = harness();
+    const c = handClock();
+    const { calls, judge } = stuckJudge();
+    const run = runWorkerTasks(h.deps, options(h, c.clock, judge));
+    await flush();
+    h.delta("x");
+    h.step();
+    for (let i = 0; i < 3; i += 1) await c.tick();
+    expect(calls).toEqual([]);
+    h.finish();
+    const [row] = await run;
+    expect(row!.status).toBe("ok");
+    expect(row!.watch).toMatchObject({ checks: 3, judgeCalls: 0 });
   });
 });
 

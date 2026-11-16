@@ -49,13 +49,20 @@ export interface WatchProgress {
    * the task's own wall clock bounds it.
    */
   toolsInFlight?: number;
+  /**
+   * A request is out (a step started, or the last one finished) and its
+   * first token has not arrived: slow prompt processing on a later step
+   * is waiting, not stalled. The task's own wall clock bounds it.
+   */
+  awaitingFirstToken?: boolean;
 }
 
 /**
  * How `next` compares with `prev`. `waiting`: the server has not
  * answered yet (the queue watchdog's business), the runner is paused
  * on the worker's self-check, or, when no step finished and no file
- * changed, a tool call is still running. `clear`: a file changed,
+ * changed, a tool call is still running or the next request has not
+ * produced its first token. `clear`: a file changed,
  * or steps finished that do not look stalled. `unclear`: steps finished
  * but look stalled. `streaming`: tokens without a finished step.
  * `none`: nothing moved.
@@ -66,7 +73,7 @@ export function progressKind(prev: WatchProgress, next: WatchProgress): WatchPro
   if (!next.served || next.paused === true) return "waiting";
   if (next.filesChanged > prev.filesChanged) return "clear";
   if (next.steps > prev.steps) return next.stalled ? "unclear" : "clear";
-  if ((next.toolsInFlight ?? 0) > 0) return "waiting";
+  if ((next.toolsInFlight ?? 0) > 0 || next.awaitingFirstToken === true) return "waiting";
   if (next.outputTokens > prev.outputTokens) return "streaming";
   return "none";
 }
