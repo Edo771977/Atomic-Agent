@@ -192,9 +192,9 @@ describe("merge only green tasks (isolation)", () => {
     const complete: EscalationComplete = async () => {
       judged += 1;
       return {
-        content: JSON.stringify({
-          items: [{ id: "a2", pass: judged > 1, why: judged > 1 ? "fixed" : "unfinished" }],
-        }),
+        content: judged > 1
+          ? JSON.stringify({ decision: "accept", issues: [] })
+          : JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "unfinished" }] }),
       };
     };
     const firstSeenAtRetry: string[] = [];
@@ -236,7 +236,7 @@ describe("merge only green tasks (isolation)", () => {
   it("keeps a task still red after its retry out of the folder, as a patch", async () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     const complete: EscalationComplete = async () => ({
-      content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "wrong" }] }),
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "wrong" }] }),
     });
     const d = deps(
       repo,
@@ -253,6 +253,44 @@ describe("merge only green tasks (isolation)", () => {
     expect(row.error).toMatch(/^judge: 1 of 2 acceptance items not met after one retry/);
     await expect(readFile(join(repo, "one.txt"), "utf8")).rejects.toThrow();
     expect(await readFile(join(repo, taskPatchPath("one")), "utf8")).toContain("+attempt 2");
+    const list = (await runGitRaw(repo, ["worktree", "list"])).stdout.trim().split("\n");
+    expect(list).toHaveLength(1);
+  });
+
+  it("keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const complete: EscalationComplete = async () => ({
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: "one.txt", why: "wrong" }] }),
+    });
+    const seen: string[] = [];
+    const d = deps(
+      repo,
+      async (_id, n, dir) => {
+        if (n > 1) seen.push(await readFile(join(dir, "one.txt"), "utf8"));
+        await writeFile(join(dir, "one.txt"), `attempt ${n}\n`);
+      },
+      {
+        escalationComplete: complete,
+        resolveFusionTeam: () => ({
+          team: { directors: ["cloud:big"], reviewers: ["cloud:judge"] },
+          fusion: { workerProvider: "local" },
+          familyOf: (m) => (m.providerId === "local" ? "local" : "anthropic"),
+          reachable: () => true,
+          pinsModel: (id) => id !== "local",
+        }),
+      },
+      { judge: { providerId: "cloud", model: "judge" } },
+    );
+    const result = await buildFusionDelegateTool(d).run(
+      { tasks: [{ id: "one", title: "One", instructions: "write one.txt", files: ["one.txt"] }] },
+      ctx(repo),
+    );
+    // Each pass works on in the workspace the one before it was judged in.
+    expect(seen).toEqual(["attempt 1\n", "attempt 2\n"]);
+    const row = (result.details.tasks as WorkerTaskResult[])[0]!;
+    expect(row.status).toBe("failed");
+    await expect(readFile(join(repo, "one.txt"), "utf8")).rejects.toThrow();
+    expect(await readFile(join(repo, taskPatchPath("one")), "utf8")).toContain("+attempt 3");
     const list = (await runGitRaw(repo, ["worktree", "list"])).stdout.trim().split("\n");
     expect(list).toHaveLength(1);
   });
@@ -289,6 +327,92 @@ describe("merge only green tasks (isolation)", () => {
     await expect(readFile(join(repo, "core.js"), "utf8")).rejects.toThrow();
     expect(ran).toEqual(["core"]);
     expect(rows[1]!.error).toMatch(/held for the replan: it depends on core/);
+  });
+
+  it("holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const ran: string[] = [];
+    const d = deps(
+      repo,
+      async (id, _n, dir) => {
+        ran.push(id);
+        await writeFile(join(dir, `${id}.js`), "x\n");
+      },
+      {
+        // An answer outside the schema: the review leaves it unverified.
+        escalationComplete: async () => ({ content: "no json here" }),
+        resolveFusionTeam: () => ({
+          team: { directors: ["cloud:big"], reviewers: ["cloud:judge"] },
+          fusion: { workerProvider: "local" },
+          familyOf: (m) => (m.providerId === "local" ? "local" : "anthropic"),
+          reachable: () => true,
+          pinsModel: (id) => id !== "local",
+        }),
+      },
+      { judge: { providerId: "cloud", model: "judge" }, autoReplan: 1 },
+    );
+    const result = await buildFusionDelegateTool(d).run(
+      {
+        tasks: [
+          { id: "core", title: "Core", instructions: "make core.js", files: ["core.js"] },
+          { id: "ui", title: "UI", instructions: "make ui.js", files: ["ui.js"] },
+        ],
+        contract: {
+          provides: [{ task: "core", kind: "symbol", name: "x", in: "core.js" }],
+          requires: [{ task: "ui", name: "x" }],
+        },
+      },
+      ctx(repo),
+    );
+    const rows = result.details.tasks as WorkerTaskResult[];
+    expect(rows[0]!.status).toBe("needs_orchestrator");
+    expect(rows[0]!.failure).toBeUndefined();
+    expect(rows[0]!.error ?? "").not.toMatch(/review-exhausted/);
+    expect(ran).toEqual(["core"]);
+    const replan = result.details.replan as { pending: Array<{ id: string }>; reviewExhausted: unknown[] };
+    expect(replan.reviewExhausted).toEqual([]);
+    expect(replan.pending.map((t) => t.id)).toEqual(["core", "ui"]);
+  });
+
+  it("leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)", async () => {
+    const repo = await gitRepo({ "a.txt": "a\n" });
+    const d = deps(
+      repo,
+      (id, _n, dir) => writeFile(join(dir, `${id}.js`), "x\n"),
+      {
+        escalationComplete: async () => ({
+          content: JSON.stringify({ decision: "needs-changes", issues: [{ item: null, severity: "blocker", file: "core.js", why: "wrong" }] }),
+        }),
+        resolveFusionTeam: () => ({
+          team: { directors: ["cloud:big"], reviewers: ["cloud:judge"] },
+          fusion: { workerProvider: "local" },
+          familyOf: (m) => (m.providerId === "local" ? "local" : "anthropic"),
+          reachable: () => true,
+          pinsModel: (id) => id !== "local",
+        }),
+      },
+      { judge: { providerId: "cloud", model: "judge" }, autoReplan: 1 },
+    );
+    const result = await buildFusionDelegateTool(d).run(
+      {
+        tasks: [
+          { id: "core", title: "Core", instructions: "make core.js", files: ["core.js"] },
+          { id: "ui", title: "UI", instructions: "make ui.js", files: ["ui.js"] },
+        ],
+        contract: {
+          provides: [{ task: "core", kind: "symbol", name: "x", in: "core.js" }],
+          requires: [{ task: "ui", name: "x" }],
+        },
+      },
+      ctx(repo),
+    );
+    const rows = result.details.tasks as WorkerTaskResult[];
+    expect(rows[0]!.failure).toBe("review-exhausted");
+    const replan = result.details.replan as { pending: Array<{ id: string; awaitsReview?: string[] }>; reviewExhausted: Array<{ id: string }> };
+    expect(replan.reviewExhausted.map((t) => t.id)).toEqual(["core"]);
+    expect(replan.pending).toEqual([expect.objectContaining({ id: "ui", awaitsReview: ["core"] })]);
+    expect(result.summary).not.toContain("REPLAN REQUIRED");
+    expect(result.summary).toContain("HELD ON THAT REVIEW");
   });
 
   it("holds back a task whose changed file fails the syntax pass in its workspace", async () => {
@@ -544,7 +668,7 @@ describe("held-back patches and kept workspaces (isolation)", () => {
     const repo = await gitRepo({ "a.txt": "a\n" });
     let retrying = false;
     const complete: EscalationComplete = async () => ({
-      content: JSON.stringify({ items: [{ id: "a2", pass: false, why: "unfinished" }] }),
+      content: JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "unfinished" }] }),
     });
     const d = deps(
       repo,
@@ -584,7 +708,7 @@ describe("the judge reads the task's diff (isolation)", () => {
     const prompts: string[] = [];
     const complete: EscalationComplete = async (call) => {
       prompts.push(call.prompt);
-      return { content: JSON.stringify({ items: [{ id: "a2", pass: true, why: "ok" }] }) };
+      return { content: JSON.stringify({ decision: "accept", issues: [] }) };
     };
     const d = deps(
       repo,

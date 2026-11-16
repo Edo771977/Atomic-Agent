@@ -20,9 +20,12 @@ export {
   memberReachable,
   parseTeamMember,
   pickReviewer,
+  reviewEnabled,
+  reviewPassesOf,
   teamFactsFromSetup,
   teamFamilyOf,
   teamMembers,
+  teamStrengthOf,
 } from "./fusion-team.js";
 export type {
   PickReviewerOptions,

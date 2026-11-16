@@ -50,6 +50,17 @@ export interface ReplanTask {
   replansLeft: number;
   /** What the next brief should change, when the status says. */
   fix?: string;
+  /**
+   * A review-exhausted task with no replans left (issue #38): the
+   * director may fix it itself or accept it, not send it again.
+   */
+  redelegate?: false;
+  /**
+   * A pending task held only on review-exhausted tasks (issue #38): it
+   * waits for the director's decision on these, so the loop does not
+   * hold the next step to the delegate for it.
+   */
+  awaitsReview?: string[];
 }
 
 export interface ReplanReport {
@@ -61,6 +72,14 @@ export interface ReplanReport {
    * person like an exhausted task, whatever replans are left.
    */
   failedOnOrchestrator: ReplanTask[];
+  /**
+   * Failed `review-exhausted` (issue #38): a team's review still asked
+   * for changes after the last pass. The director decides (re-delegate
+   * while replans are left, fix it itself, or accept with reasons);
+   * never pending, so the loop does not hold the next step to the
+   * delegate, and never merely exhausted, whatever replans are left.
+   */
+  reviewExhausted: ReplanTask[];
   max: number;
 }
 
@@ -129,6 +148,12 @@ export function describeReplan(
   const pending: ReplanTask[] = [];
   const exhausted: ReplanTask[] = [];
   const failedOnOrchestrator: ReplanTask[] = [];
+  const reviewExhausted: ReplanTask[] = [];
+  const reviewIds = new Set(
+    results
+      .filter((r) => r.status === "failed" && r.failure === "review-exhausted")
+      .map((r) => r.id),
+  );
   for (const result of results) {
     if (!isOpenResult(result)) continue;
     const runs = attempts(result.id);
@@ -138,8 +163,9 @@ export function describeReplan(
     // A question asked again on the orchestrator's model is still a
     // question to answer, not a failure past what a round fixes.
     const stop = left > 0 && runs >= 2 && onOrchestrator && result.status !== "needs_input";
+    const reviewed = result.status === "failed" && result.failure === "review-exhausted" && !stop;
     const fix =
-      left > 0 && !stop
+      left > 0 && !stop && !reviewed
         ? replanFix(
             result.id,
             result.status,
@@ -148,18 +174,24 @@ export function describeReplan(
             orchestratorAvailable,
           )
         : undefined;
+    const awaits =
+      (result.heldOn?.length ?? 0) > 0 && result.heldOn!.every((id) => reviewIds.has(id))
+        ? [...result.heldOn!]
+        : undefined;
     const task: ReplanTask = {
       id: result.id,
       status: result.status,
       why: whyOf(result),
       replansLeft: Math.max(0, left - 1),
       ...(fix === undefined ? {} : { fix }),
+      ...(awaits === undefined ? {} : { awaitsReview: awaits }),
     };
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
+    else if (reviewed) reviewExhausted.push(left > 0 ? task : { ...task, redelegate: false });
     else if (left > 0) pending.push(task);
     else exhausted.push(task);
   }
-  return { pending, exhausted, failedOnOrchestrator, max };
+  return { pending, exhausted, failedOnOrchestrator, reviewExhausted, max };
 }
 
 /**
@@ -174,25 +206,62 @@ function whyOf(result: WorkerTaskResult): string {
 
 export function renderReplanBlock(report: ReplanReport): string {
   const parts: string[] = [];
-  if (report.pending.length > 0 && report.pending.every((t) => t.status === "needs_input")) {
+  // Held only on a review the director decides: listed with that bucket.
+  const awaiting = report.pending.filter((t) => t.awaitsReview !== undefined);
+  const pending = report.pending.filter((t) => t.awaitsReview === undefined);
+  if (pending.length > 0 && pending.every((t) => t.status === "needs_input")) {
     // Nothing failed: the loop does not hold the next step to the
     // delegate (`fusion-replan.ts`), so the planner may ask the person.
     parts.push(
       [
         `ANSWER REQUIRED — these tasks stopped to ask. Answer each question in its brief and send it again with \`fusion.delegate\` (same id), or, when only the person can answer, ask them in your reply:`,
-        ...report.pending.map(
+        ...pending.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one`,
         ),
       ].join("\n"),
     );
-  } else if (report.pending.length > 0) {
+  } else if (pending.length > 0) {
     parts.push(
       [
         `REPLAN REQUIRED — these tasks did not close. Your next step must be \`fusion.delegate\` again: rewrite each brief from the facts above (the error, the failed checks, the judge's findings), keep each task's id or split it into continuation ids (\`<id>.a\`, \`<id>.b\`, sharing its replans), and include anything held for them.`,
-        ...report.pending.map(
+        ...pending.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one${t.fix === undefined ? "" : `; fix: ${t.fix}`}`,
+        ),
+      ].join("\n"),
+    );
+  }
+  const redelegable = report.reviewExhausted.filter((t) => t.redelegate !== false);
+  const settle = report.reviewExhausted.filter((t) => t.redelegate === false);
+  const reviewHead =
+    "REVIEW PASSES USED — the reviewer still asks for changes on these tasks (the remaining issues are on each row's `review:` clause and in details.review). You decide; finishing the task is preferred over asking the person:";
+  if (redelegable.length > 0) {
+    parts.push(
+      [
+        `${reviewHead} re-delegate it with \`fusion.delegate\` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:`,
+        ...redelegable.map(
+          (t) =>
+            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,
+        ),
+      ].join("\n"),
+    );
+  }
+  if (settle.length > 0) {
+    parts.push(
+      [
+        `${reviewHead} no replans are left, so do not send it again this turn; fix it yourself where your tools allow, or accept it as it stands and state your reasons in your reply. Ask the person only if you cannot proceed:`,
+        ...settle.map((t) => `- ${t.id} (${t.status}): ${t.why}`),
+      ].join("\n"),
+    );
+  }
+  if (awaiting.length > 0) {
+    parts.push(
+      [
+        "HELD ON THAT REVIEW — these did not start: they depend on a task whose review passes ran out. After you decide on it, re-send these with `fusion.delegate` (same ids): in the same call as its re-delegation, or once you fixed or accepted it:",
+        ...awaiting.map(
+          (t) =>
+            `- ${t.id} (${t.status}): waits on ${t.awaitsReview!.join(", ")} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one`,
         ),
       ].join("\n"),
     );

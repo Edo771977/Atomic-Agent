@@ -7,10 +7,12 @@ import {
   defaultWorker,
   pickReviewer,
   teamFamilyOf,
+  teamStrengthOf,
   teamMembers,
   type TeamFamily,
   type TeamMember,
 } from "../../llm/run-mode/fusion-team.js";
+import type { ModelTier } from "../../llm/provider/presets/model-tiers.js";
 import type { TeamTaskRouting } from "./role-models.js";
 
 /**
@@ -31,6 +33,11 @@ export interface FusionTeamContext {
   readonly reachable: (member: TeamMember) => boolean;
   /** Whether a turn or completion on the provider can ask for a model of its own (not a local server). */
   readonly pinsModel: (providerId: string) => boolean;
+  /**
+   * The member's tier in the model tier table (`teamStrengthOf`, issue
+   * #38); given, a task's reviewer is never weaker than its worker.
+   */
+  readonly strength?: (member: TeamMember) => ModelTier | null;
 }
 
 export interface FusionTeamRouting {
@@ -65,6 +72,7 @@ export function teamContextFromConfig(
     team,
     fusion,
     familyOf: teamFamilyOf(providers),
+    strength: teamStrengthOf(providers),
     reachable: (member) => entryOf(member.providerId) !== undefined && (reachable?.(member) ?? true),
     pinsModel: (providerId) => {
       const entry = entryOf(providerId);
@@ -106,7 +114,12 @@ export function resolveTeamRouting(
     // The director that leads the turn, never a default it did not run on.
     director: options.currentDirector?.() ?? null,
     hasReviewers: teamMembers(team, "reviewers").length > 0,
-    reviewerFor: (worker) => pickReviewer(team, worker, { familyOf: context.familyOf, reachable: ok }),
+    reviewerFor: (worker) =>
+      pickReviewer(team, worker, {
+        familyOf: context.familyOf,
+        reachable: ok,
+        ...(context.strength === undefined ? {} : { strength: context.strength }),
+      }),
     pinsModel: context.pinsModel,
   };
 }

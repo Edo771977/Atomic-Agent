@@ -19,6 +19,8 @@ import {
   judgeOutcome,
   outcomeLogFiles,
   outcomeLogPath,
+  readReviewOutcome,
+  reviewOutcome,
   rowCostUsd,
   sessionTag,
   taskOutcomeRecord,
@@ -193,6 +195,10 @@ describe("fusion outcome records", () => {
       failureCategory(row({ status: "failed", error: "check failed", checks: { total: 2, failed: 1 } })),
     ).toBe("checks");
     expect(failureCategory(row({ status: "failed", error: "boom" }))).toBe("error");
+    // Issue #38: a team's review that ran out of passes names itself.
+    expect(
+      failureCategory(row({ status: "failed", error: "review-exhausted: needs-changes", failure: "review-exhausted", checks: { total: 1, failed: 1 } })),
+    ).toBe("review-exhausted");
   });
 
   it("reads the judge's verdict as green, red, unverified or off", () => {
@@ -201,6 +207,52 @@ describe("fusion outcome records", () => {
     expect(judgeOutcome(row({ judge }))).toBe("green");
     expect(judgeOutcome(row({ judge: { ...judge, green: false } }))).toBe("red");
     expect(judgeOutcome(row({ judge: { ...judge, unverified: "no reply" } }))).toBe("unverified");
+  });
+
+  it("records the per-task review as counts only, with passes counted as a judge retry", () => {
+    const verdict = {
+      decision: "needs-changes" as const,
+      reviewer: "/home/u/models/review-model.gguf",
+      issues: [
+        { item: "a1", severity: "blocker" as const, file: "src/secret.ts", why: "SECRET-WHY", by: "reviewer" as const },
+        { item: null, severity: "major" as const, file: null, why: "x", by: "fact" as const },
+        { item: "a2", severity: "minor" as const, file: null, why: "y", by: "reviewer" as const },
+        { item: "a3", severity: "minor" as const, file: null, why: "z", by: "reviewer" as const },
+      ],
+    };
+    const review = reviewOutcome(verdict, 2);
+    expect(review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "review-model", blockers: 1, majors: 1, minors: 2 });
+    expect(reviewOutcome({ decision: "accept", reviewer: null, issues: [] }, -1.5)).toEqual({
+      decision: "accept", passes: 0, reviewer: null, blockers: 0, majors: 0, minors: 0,
+    });
+    const record = taskOutcomeRecord(row({ checks: { total: 1, failed: 0 } }), { ...CONTEXT, review }, "s", new Date());
+    expect(record.review).toEqual(review);
+    expect(record.judgeRetried).toBe(true);
+    // A retried task is not direct check evidence, exactly as a judge retry.
+    expect(record.acceptance).toBeUndefined();
+    const text = JSON.stringify(record);
+    for (const leak of ["SECRET-WHY", "src/secret.ts", "/home/u"]) expect(text).not.toContain(leak);
+    // Accepted on the first look: no pass, no retry flag, acceptance kept.
+    const first = taskOutcomeRecord(row({ checks: { total: 1, failed: 0 } }),
+      { ...CONTEXT, review: reviewOutcome({ decision: "accept", reviewer: "r", issues: [] }, 0) }, "s", new Date());
+    expect(first).toMatchObject({ judgeRetried: false, acceptance: "checks-passed", review: { decision: "accept", passes: 0 } });
+  });
+
+  it("writes no review field while review is off", () => {
+    const record = taskOutcomeRecord(row(), CONTEXT, "s", new Date());
+    expect("review" in record).toBe(false);
+    expect(record.judgeRetried).toBe(false);
+  });
+
+  it("reads old and malformed review fields as no review", () => {
+    const base = taskOutcomeRecord(row(), CONTEXT, "s", new Date());
+    expect(readReviewOutcome(base)).toBeUndefined();
+    const good = { decision: "unverified", passes: 1, reviewer: "r", blockers: 0, majors: 0, minors: 0 };
+    expect(readReviewOutcome({ ...base, review: good } as TaskOutcomeRecord)).toEqual(good);
+    for (const bad of [null, "accept", {}, { ...good, decision: "maybe" }, { ...good, passes: -1 }, { ...good, passes: 1.5 },
+      { ...good, reviewer: 3 }, { ...good, minors: undefined }]) {
+      expect(readReviewOutcome({ ...base, review: bad } as unknown as TaskOutcomeRecord)).toBeUndefined();
+    }
   });
 
   it("prices a row only when something can price it", () => {

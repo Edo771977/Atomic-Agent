@@ -13,7 +13,9 @@ import { isRefusedResult } from "./review-stall.js";
  * part is re-planned from the facts in the same turn instead of waiting
  * for the person to type "continue". Pending tasks that are all
  * `needs_input` (a worker's question) do not hold the step: the planner
- * may answer and re-delegate, or ask the person.
+ * may answer and re-delegate, or ask the person. Nor do tasks held only
+ * on review-exhausted tasks (`awaitsReview`, issue #38): the director
+ * decides on those first.
  *
  * Bounded three ways: each task has `autoReplan` replans (counted by the
  * tool); a delegate result without pending tasks lifts the hold; and a
@@ -46,11 +48,12 @@ export function createReplanState(): ReplanState {
 interface PendingTask {
   id: string;
   status?: unknown;
+  awaitsReview?: unknown;
 }
 
 function pendingOf(result: CompressedToolResult): PendingTask[] {
   const replan = result.details.replan as
-    | { pending?: Array<{ id?: unknown; status?: unknown }> }
+    | { pending?: Array<{ id?: unknown; status?: unknown; awaitsReview?: unknown }> }
     | undefined;
   return (replan?.pending ?? []).filter(
     (t): t is PendingTask => typeof t.id === "string",
@@ -71,7 +74,12 @@ export function observeReplanStep(
       !(r.status === "error" && r.details.field === "tasks"),
   );
   if (delegated.length > 0) {
-    const pending = delegated.flatMap(pendingOf);
+    // A task held only on a review-exhausted task (issue #38) waits for
+    // the director's decision on it: fix, accept or re-delegate, so it
+    // does not hold the step to the delegate.
+    const pending = delegated
+      .flatMap(pendingOf)
+      .filter((t) => !Array.isArray(t.awaitsReview) || t.awaitsReview.length === 0);
     // Only questions (ATO-945): nothing failed, and the answer may be the
     // person's, so the planner is not held to the delegate.
     const hold = pending.some((t) => t.status !== "needs_input");

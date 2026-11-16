@@ -307,7 +307,7 @@ it("reports one candidate task run with two completed worker invocations after a
   let turns = 0, judged = 0;
   f.deps.runTurn = async session => { turns += 1; await writeFile(join(session.workingDir, "api.json"), `attempt ${turns}`); return { session, reason: "reply", stepCount: 1 }; };
   f.deps.runChecks = async specs => ({ ok: true, results: specs.map(() => ({ ok: true })) });
-  f.deps.escalationComplete = async () => ({ content: JSON.stringify({ items: [{ id: "a2", pass: ++judged > 1, why: "verdict" }] }) });
+  f.deps.escalationComplete = async () => ({ content: ++judged > 1 ? JSON.stringify({ decision: "accept", issues: [] }) : JSON.stringify({ decision: "needs-changes", issues: [{ item: "a2", severity: "blocker", file: null, why: "verdict" }] }) });
   await buildFusionDelegateTool(f.deps).run({ tasks: [{ id: "api", instructions: "work", files: ["api.json"] }], contract }, f.ctx);
   expect(turns).toBe(2); expect(append).toHaveBeenCalledTimes(1);
   const records = append.mock.calls[0]![0];

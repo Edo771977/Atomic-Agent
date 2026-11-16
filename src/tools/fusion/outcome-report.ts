@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import {
   outcomeLogFiles,
+  readReviewOutcome,
   type FailureCategory,
   type OutcomeLeg,
   type OutcomeRecord,
@@ -55,6 +56,8 @@ export interface ModelStats {
   selfChecked: number;
   /** Aggregated task runs under their configured leg, not physical provider requests or quality samples. */
   candidate: CandidateTaskRunStats;
+  /** Per-task review's last decision (issue #38); `notReviewed`: no review field, an older record or review off. */
+  review: ReviewStats;
   topFailures: Array<{ category: FailureCategory; count: number }>;
   escalated: number;
   escalationRate: number;
@@ -69,6 +72,33 @@ export interface ModelStats {
   /** Null when no task of this model was priced. */
   costUsd: number | null;
 }
+
+export interface ReviewStats {
+  reviewed: number;
+  accept: number;
+  needsChanges: number;
+  unverified: number;
+  notReviewed: number;
+  /** Median extra worker passes over the reviewed tasks; null when none was reviewed. */
+  medianPasses: number | null;
+}
+
+/** One reviewer model's reviews, over every task it reviewed. */
+export interface ReviewerStats {
+  /** The reviewer's `outcomeLabel`, or `REVIEW_WITHOUT_MODEL` when no model reviewed. */
+  reviewer: string;
+  reviews: number;
+  accept: number;
+  needsChanges: number;
+  unverified: number;
+  medianPasses: number;
+  blockers: number;
+  majors: number;
+  minors: number;
+}
+
+/** The reviewer table's row for reviews no model gave (a red fact decided, or no reviewer was reached). */
+export const REVIEW_WITHOUT_MODEL = "(automated checks only)";
 
 export interface CandidateTaskRunStats {
   taskRuns: number;
@@ -108,6 +138,8 @@ export interface FusionReport {
   workers: ModelStats[];
   orchestratorTargets: ModelStats[];
   orchestrator: OrchestratorStats[];
+  /** Per reviewer model, most reviews first; empty when no record has a review. */
+  reviewers: ReviewerStats[];
   /** Priced strong-side spend: orchestrator turns plus orchestrator-target tasks. */
   strongSpendUsd: number | null;
   /** Some strong-side requests or orchestrator-target tasks were unpriced. */
@@ -175,6 +207,52 @@ function median(values: number[]): number {
 
 const rate = (n: number, of: number): number => (of === 0 ? 0 : n / of);
 
+/** A median that keeps a half (pass counts are small integers). */
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+function reviewStats(rows: TaskOutcomeRecord[]): ReviewStats {
+  const reviews = rows.flatMap((r) => {
+    const review = readReviewOutcome(r);
+    return review === undefined ? [] : [review];
+  });
+  return {
+    reviewed: reviews.length,
+    accept: reviews.filter((r) => r.decision === "accept").length,
+    needsChanges: reviews.filter((r) => r.decision === "needs-changes").length,
+    unverified: reviews.filter((r) => r.decision === "unverified").length,
+    notReviewed: rows.length - reviews.length,
+    medianPasses: medianOf(reviews.map((r) => r.passes)),
+  };
+}
+
+function reviewerStats(rows: readonly TaskOutcomeRecord[]): ReviewerStats[] {
+  const byReviewer = new Map<string, NonNullable<ReturnType<typeof readReviewOutcome>>[]>();
+  for (const row of rows) {
+    const review = readReviewOutcome(row);
+    if (review === undefined) continue;
+    const key = review.reviewer ?? REVIEW_WITHOUT_MODEL;
+    const list = byReviewer.get(key);
+    if (list === undefined) byReviewer.set(key, [review]);
+    else list.push(review);
+  }
+  return [...byReviewer].map(([reviewer, reviews]) => ({
+    reviewer,
+    reviews: reviews.length,
+    accept: reviews.filter((r) => r.decision === "accept").length,
+    needsChanges: reviews.filter((r) => r.decision === "needs-changes").length,
+    unverified: reviews.filter((r) => r.decision === "unverified").length,
+    medianPasses: medianOf(reviews.map((r) => r.passes)) ?? 0,
+    blockers: reviews.reduce((n, r) => n + r.blockers, 0),
+    majors: reviews.reduce((n, r) => n + r.majors, 0),
+    minors: reviews.reduce((n, r) => n + r.minors, 0),
+  })).sort((a, b) => b.reviews - a.reviews || a.reviewer.localeCompare(b.reviewer));
+}
+
 function candidateStats(rows: TaskOutcomeRecord[]): CandidateTaskRunStats {
   const stats: CandidateTaskRunStats = { taskRuns: 0, knownWorkerRuns: 0, workerRunsUnverified: 0, promoted: 0, rejected: 0, unchanged: 0, unverified: 0,
     taskChecksPassed: 0, taskChecksFailed: 0, taskChecksUnverified: 0, rejectionReasons: [] };
@@ -229,6 +307,7 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
     checksNone: checks.filter((value) => value === "no-checks").length,
     selfChecked: rows.filter((r) => r.selfCheckPassed === true).length,
     candidate: candidateStats(rows),
+    review: reviewStats(rows),
     topFailures: [...failures.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 3)
@@ -344,6 +423,7 @@ export function aggregateOutcomes(
     workers,
     orchestratorTargets,
     orchestrator,
+    reviewers: reviewerStats(tasks),
     strongSpendUsd: strongParts.length === 0 ? null : strongParts.reduce((a, b) => a + b, 0),
     strongSpendPartial:
       orchestrator.some((o) => o.unpricedTurns > 0) ||
@@ -402,7 +482,7 @@ function table(header: string[], rows: string[][]): string[] {
 
 function modelRows(stats: ModelStats[]): string[] {
   return table(
-    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
+    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "reviewed accept/needs-changes/unverified", "review passes", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
     stats.map((s) => [
       s.model === s.provider ? s.model : `${s.model} (${s.provider})`,
       s.leg,
@@ -411,6 +491,8 @@ function modelRows(stats: ModelStats[]): string[] {
       pct(s.greenRate),
       String(s.greenAfterRetry),
       `${s.checksPassed}/${s.checksFailed}/${s.checksUnverified}/${s.checksNone}`,
+      s.review.reviewed === 0 ? "-" : `${s.review.accept}/${s.review.needsChanges}/${s.review.unverified}`,
+      s.review.medianPasses === null ? "-" : String(s.review.medianPasses),
       String(s.selfChecked),
       pct(s.escalationRate),
       s.selfCheckFixRate === null ? "-" : `${s.selfCheckFixed}/${s.selfCheckNotices}`,
@@ -448,6 +530,13 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
   }
   const candidates = [...report.workers, ...report.orchestratorTargets].filter(s => s.candidate.taskRuns > 0);
   if (candidates.length > 0) lines.push("", "Candidate task runs (telemetry only)", ...candidateRows(candidates));
+  if (report.reviewers.length > 0) {
+    lines.push("", "Reviewer models", ...table(
+      ["reviewer", "reviews", "accept/needs-changes/unverified", "median passes", "issues blocker/major/minor"],
+      report.reviewers.map((r) => [r.reviewer, String(r.reviews), `${r.accept}/${r.needsChanges}/${r.unverified}`,
+        String(r.medianPasses), `${r.blockers}/${r.majors}/${r.minors}`]),
+    ));
+  }
   if (report.orchestrator.length > 0) {
     lines.push(
       "",
@@ -475,9 +564,10 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
         ? "unpriced (subscription or no price known)"
         : `${formatUsdShort(report.strongSpendUsd)}${report.strongSpendPartial ? " + unpriced (subscription or no price known)" : ""}`
     }`,
-    "Reported green: status ok; reported 1st-pass: status ok on the first attempt with no judge retry or self-check notice. after retry: reported green after a replan or judge retry.",
+    "Reported green: status ok; reported 1st-pass: status ok on the first attempt with no judge retry, review pass or self-check notice. after retry: reported green after a replan, judge retry or review pass.",
     "Tokens on a local leg whose server reports no usage are its timing counts: \"in\" includes the cached part of each step's prompt.",
-    "Checks pass/fail/unverified/no-checks: consistent task-checks acceptance records; missing or contradictory evidence (a judge that could not decide, a held or conflicted merge, a candidate run, an escalation or judge retry, a declared check that never ran, an older record) is unverified; no-checks: no check was attributed to the task. Self-checked (telemetry, never acceptance): the worker's own last verify.run was a declared check of its task and passed after its last change. Replan attempts can have check evidence. The worker can modify the declared checks and their inputs; passing them does not establish semantic correctness or full integration acceptance.",
+    "Checks pass/fail/unverified/no-checks: consistent task-checks acceptance records; missing or contradictory evidence (a judge that could not decide, a held or conflicted merge, a candidate run, an escalation, a judge retry or a review pass, a declared check that never ran, an older record) is unverified; no-checks: no check was attributed to the task. Self-checked (telemetry, never acceptance): the worker's own last verify.run was a declared check of its task and passed after its last change. Replan attempts can have check evidence. The worker can modify the declared checks and their inputs; passing them does not establish semantic correctness or full integration acceptance.",
+    "Reviewed accept/needs-changes/unverified: the per-task reviewer's last decision (unverified: no valid verdict); review passes: the median of extra worker passes the review caused, reviewed tasks only; - : no review recorded (review off, or an older record). A review is a model's opinion after the automated checks, not acceptance evidence. Reviewer models: per reviewer, its decisions, median passes and the issues of its last verdicts by severity; (automated checks only): no model reviewed.",
     "Candidate task runs count aggregated task rows by final disposition, not candidate calls or individual worker invocations. Known worker runs count explicit task invocations, including judge retries; missing or invalid counts stay unknown. Invocation counts remain independent of disposition and check validity. Rows are grouped under the configured leg even when retries or escalations used other providers; cost, usage and duration remain row-reported metrics, not complete billing or physical provider performance. Final own checks count only task-attributed final reruns; call-level integration green gives no individual model credit. Candidate rows are telemetry only: promoted-only rates are conditioned on success and never train measured routing quality. Missing or malformed candidate metadata stays unverified.",
   );
   return `${lines.join("\n")}\n`;

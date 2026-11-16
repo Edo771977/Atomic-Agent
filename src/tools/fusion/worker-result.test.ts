@@ -482,6 +482,42 @@ describe("formatDelegateOutput — a replaced input (F43)", () => {
     );
   });
 
+  it("puts a compact review clause on a reviewed row, at most five issues (issue #38)", () => {
+    const issue = (severity: "blocker" | "major" | "minor", file: string | null, why: string) =>
+      ({ item: null, severity, file, why, by: "reviewer" as const });
+    const out = formatDelegateOutput(
+      [
+        row({
+          status: "failed",
+          review: {
+            decision: "needs-changes",
+            passes: 2,
+            reviewer: "cli-b:model-r",
+            issues: [
+              issue("minor", null, "terse"),
+              issue("blocker", "src/a.ts", "no score"),
+              issue("minor", "b.ts", "naming"),
+              issue("major", null, "wrong unit"),
+              issue("minor", null, "m3"),
+              issue("minor", null, "m4"),
+            ],
+          },
+        }),
+        row({ id: "t2", review: { decision: "accept", passes: 0, reviewer: null, issues: [] } }),
+        row({ id: "t3" }),
+      ],
+      4000,
+    );
+    const lines = out.split("\n");
+    expect(lines[1]).toContain(
+      "review: needs-changes after 2 passes (cli-b:model-r) — 1 blocker src/a.ts: no score; 1 major wrong unit; 4 minor terse, b.ts: naming, m3",
+    );
+    expect(lines[1]).not.toContain("m4");
+    expect(lines[2]).toContain("review: accept");
+    expect(lines[2]).not.toContain("after");
+    expect(lines[3]).not.toContain("review:");
+  });
+
   it("says nothing on the head line when no task replaced anything", () => {
     expect(formatDelegateOutput([row(), row({ id: "t2" })], 4000).split("\n")[0]).toBe("2 tasks: 2 ok");
   });
