@@ -175,7 +175,7 @@ import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
-import type { VisionJudgements } from "./criteria-facts.js";
+import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { writeRunCriteriaFacts } from "./run-criteria.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
@@ -1448,7 +1448,8 @@ export function buildFusionDelegateTool(
               .filter((t) => judgeTargetFor(t.id) !== null)
               .map((t) => [
                 t.id,
-                buildAcceptanceChecklist(t, parsed.contract, briefCriteria),
+                // Without an approved brief a criterion is still a fact, by id.
+                buildAcceptanceChecklist(t, parsed.contract, briefCriteria ?? new Map()),
               ])
           : [],
       );
@@ -1668,7 +1669,10 @@ export function buildFusionDelegateTool(
         reviewCutShort.delete(input.task.id);
         if (stop !== undefined || runSignal.aborted) {
           reviewCutShort.add(input.task.id);
+          // The checks' own criteria facts still stand (issue #40).
+          const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
+            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined) }),
             green: false,
             items: [],
             unverified:
@@ -2175,7 +2179,7 @@ export function buildFusionDelegateTool(
           o.games === undefined ? [] : [{ n: o.games.played, errors: o.games.errors, medianMs: o.games.medianMs ?? 0 }]));
         const shots = shotsOutcome(outcomes.map((o) => o.screenshots));
         return {
-          ...(r.judge?.criteria === undefined ? {} : { criteria: criteriaOutcome(r.judge.criteria) }),
+          ...(r.criteria === undefined ? {} : { criteria: criteriaOutcome(r.criteria) }),
           ...(games === undefined ? {} : { games }),
           ...(shots === 0 ? {} : { shots }),
         };
@@ -2801,13 +2805,22 @@ export function buildFusionDelegateTool(
             };
           });
         }
+        // Every task whose checks name criteria has its facts, judged or
+        // not: one not ruled green stays open for the director (issue #40).
+        {
+          const named = briefCriteria ?? new Map<string, { id: string; text: string }>();
+          const outcomesByIndex = (parsed.contract?.checks ?? []).map(
+            (_, index) => latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index),
+          );
+          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
+        }
         // The run's success-criteria facts, kept with its screenshots for
         // the milestone report (issue #40, `run-criteria.ts`).
         if (run !== undefined && deps.runCheckpoints !== undefined) {
           writeRunCriteriaFacts(
             deps.runCheckpoints.runsDir,
             { runId: run.runId, sessionId: ctx.sessionId },
-            results.flatMap((r) => (r.judge?.criteria === undefined ? [] : [{ taskId: r.id, facts: r.judge.criteria }])),
+            results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }])),
           );
         }
         // Workspaces kept for a retry are done with, retried or not.

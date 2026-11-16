@@ -651,6 +651,12 @@ function readContract(
         const judged = judge === undefined || judge === null ? spec : { judge: "vision" as const, ...spec };
         const withCriteria = criteria.length === 0 ? judged : { criteria, ...judged };
         if (task === undefined || task === null) {
+          // Criteria close with a task (`criteria-facts.ts`): a call-level
+          // check names no task they could hold open.
+          if (criteria.length > 0) {
+            problems.push(`${label}.criteria needs the \`task\` whose check it is: a criterion is a fact of the task that closes on it`);
+            continue;
+          }
           checks.push(withCriteria);
           continue;
         }

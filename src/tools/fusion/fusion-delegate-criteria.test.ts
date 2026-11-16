@@ -24,11 +24,11 @@ const logger = new StructuredLogger({ level: "error", sinks: [] });
 const NOW = 1_700_000_000_000;
 const ACCEPT = JSON.stringify({ decision: "accept", issues: [] });
 
-function mode(): ResolvedRunMode {
+function mode(judge: ResolvedRunMode["judge"] = { providerId: "cloud", model: "model-a" }): ResolvedRunMode {
   return {
     stored: "fusion", effective: "fusion", orchestratorProviderId: "cloud", orchestratorModel: "big",
     workerProviderId: "local", workerModel: "small", workers: 1, workersPinned: true, workerMaxSteps: 7,
-    workerTimeoutMs: 60_000, primaryProviderId: "cloud", degraded: null, judge: { providerId: "cloud", model: "model-a" },
+    workerTimeoutMs: 60_000, primaryProviderId: "cloud", degraded: null, judge,
   };
 }
 
@@ -82,18 +82,18 @@ function setup(over: Partial<FusionDelegateDeps> | ((dir: string) => Partial<Fus
     runChecks: async () => ({ ok: true, results: [{ ok: true, summary: "verify.run page: ok", screenshots: [{ path: shot, bytes: 3, width: 10, height: 10 }] }] }),
     ...(typeof over === "function" ? over(dir) : over),
   };
-  const run = () =>
+  const run = (withProject = true) =>
     buildFusionDelegateTool(d).run(
       {
         tasks: [{ id: "t", title: "t", instructions: "draw the board in index.html", files: ["index.html"] }],
         contract: { checks: [{ task: "t", criteria: ["board-looks-right"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }] },
       },
-      { workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal, project: project() },
+      { workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal, ...(withProject ? { project: project() } : {}) },
     );
   return { dir, run };
 }
 
-type Row = { status: string; notes?: string[]; judge?: { criteria?: Array<{ id: string; state: string }> } };
+type Row = { status: string; notes?: string[]; criteria?: Array<{ id: string; state: string }>; judge?: { criteria?: Array<{ id: string; state: string }> } };
 
 describe("fusion.delegate rules a project's visual criteria (issue #40)", () => {
   it("closes a task whose visual criterion the vision judge found met", async () => {
@@ -143,6 +143,48 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     expect(row.status).toBe("needs_orchestrator");
     expect(row.notes?.join(" ")).toContain("[board-looks-right]");
     expect(row.judge?.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "unverified" })]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does not close a task whose green visual check names a criterion when no judge runs", async () => {
+    const state = mkdtempSync(join(tmpdir(), "fusion-criteria-state-"));
+    const runsDir = join(state, "fusion-runs");
+    const { dir, run } = setup({ resolveRunMode: () => mode(null), runCheckpoints: new FusionRunStore({ dir: runsDir }) });
+    const result = await run();
+    const row = (result.details.tasks as Row[])[0]!;
+    expect(row.status).toBe("needs_orchestrator");
+    expect(row.notes?.join(" ")).toContain("[board-looks-right]");
+    expect(row.notes?.join(" ")).toContain("The director decides");
+    expect(row.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "unverified" })]);
+    const runId = result.details.runId as string;
+    expect(JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")).tasks[0]).toMatchObject({ taskId: "t", facts: [{ id: "board-looks-right", state: "unverified" }] });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
+  });
+
+  it("keeps facts by criterion id without an approved brief", async () => {
+    const { dir, run } = setup();
+    const result = await run(false);
+    const row = (result.details.tasks as Row[])[0]!;
+    expect(row.status).toBe("needs_orchestrator");
+    expect(row.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "unverified" })]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps the checks' criteria facts when the budget stops the judge", async () => {
+    let spent = 0;
+    const { dir, run } = setup((d) => ({
+      resolveRunMode: () => ({ ...mode(), turnBudgetUsd: 1 }),
+      orchestratorTurnSpendUsd: () => spent,
+      runChecks: async () => {
+        spent = 5;
+        return { ok: true, results: [{ ok: true, screenshots: [{ path: join(d, "t-1.jpg"), bytes: 3, width: 10, height: 10 }] }] };
+      },
+    }));
+    const result = await run();
+    const row = (result.details.tasks as Row[])[0]!;
+    expect(row.status).not.toBe("ok");
+    expect(row.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "unverified" })]);
     rmSync(dir, { recursive: true, force: true });
   });
 });

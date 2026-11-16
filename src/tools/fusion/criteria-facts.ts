@@ -1,6 +1,7 @@
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
+import type { WorkerTaskResult } from "./worker-result.js";
 
 /**
  * Success criteria as facts (issue #40).
@@ -106,4 +107,42 @@ export function criteriaFactsFor(
     }
     return { id: criterion.id, state, why };
   });
+}
+
+/** The director's choices for a criterion that did not close. */
+export const CRITERIA_DIRECTOR_GUIDANCE =
+  "The director decides: fix it and re-delegate, add a vision-capable reviewer, accept it with reasons, or ask the person";
+
+/**
+ * Every task whose checks name criteria gets its facts, whether or not a
+ * judge ran (`criteria`): the judge's when it ruled, else the checks'
+ * own, with no vision judgement (a visual criterion is then
+ * `unverified`). A task the judge did not rule on stays open on any
+ * criterion that is not `passed`: never green without its criteria.
+ */
+export function holdOnCriteria(
+  row: WorkerTaskResult,
+  criteria: readonly TaskCriterion[],
+  contract: DelegateContract | undefined,
+  outcomes: readonly (ContractCheckOutcome | undefined)[],
+): WorkerTaskResult {
+  if (criteria.length === 0) return row;
+  const judged = row.judge?.criteria;
+  const facts = judged ?? criteriaFactsFor(criteria, contract, outcomes, undefined);
+  const out: WorkerTaskResult = { ...row, criteria: facts };
+  if (judged !== undefined || row.status !== "ok") return out;
+  const open = facts.filter((fact) => fact.state !== "passed");
+  if (open.length === 0) return out;
+  const lines = open.map((fact) => {
+    const criterion = criteria.find((c) => c.id === fact.id)!;
+    return `${criterionLabel(criterion)} ${fact.state} — ${fact.why ?? fact.state}`;
+  });
+  return {
+    ...out,
+    status: "needs_orchestrator",
+    notes: [
+      ...(row.notes ?? []),
+      `criteria: ${open.length} success criteri${open.length === 1 ? "on" : "a"} not closed: ${lines.join("; ")}. ${CRITERIA_DIRECTOR_GUIDANCE}; the task stays open`,
+    ],
+  };
 }

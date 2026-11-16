@@ -451,6 +451,13 @@ describe("parseDelegateArgs — contract", () => {
     expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "vision" })).toContain("contract.checks[0].judge needs the `criteria` it judges");
   });
 
+  it("refuses criteria or a judge on a call-level check: only a task's checks close criteria (issue #40)", () => {
+    const bad = (check: Record<string, unknown>): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [check] } }));
+    expect(bad({ kind: "command", cmd: "x", criteria: ["c1"] })).toContain("contract.checks[0].criteria needs the `task` whose check it is");
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "vision", criteria: ["c1"] })).toContain("contract.checks[0].criteria needs the `task` whose check it is");
+  });
+
   it("carries a require that no provide satisfies through as a warning — the fan-out still runs", () => {
     // The launch-btn / btn-launch mismatch used to refuse the call. It
     // is still caught before any worker runs — as a note every worker

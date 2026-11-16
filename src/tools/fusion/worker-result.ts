@@ -24,6 +24,7 @@ import {
   FUSION_WORKER_OPERATOR_ONLY_MARKER,
 } from "./worker-tool-policy.js";
 import type { JudgeSummary, ReviewDecision, ReviewIssue } from "./judge.js";
+import type { ProjectCriterionFact } from "../../session/session-project.js";
 import { CHECK_OUTPUT_CHARS, tailClip } from "./contract-checks.js";
 import { describeChanges, FileChangeLog, type FileChange } from "./worker-changes.js";
 import { describeSyntax, type TaskSyntaxSummary } from "./syntax-pass.js";
@@ -275,6 +276,11 @@ export interface WorkerTaskResult {
   replacedInputs?: ReplacedInput[];
   /** The judge's verdict on this task's acceptance list (ATO-944), when it ran. */
   judge?: JudgeSummary;
+  /**
+   * The task's success-criteria facts (issue #40), one per criterion its
+   * checks name, whether or not a judge ran (`holdOnCriteria`).
+   */
+  criteria?: ProjectCriterionFact[];
   /**
    * Why a `failed` row failed, when a status and error alone cannot say:
    * `review-exhausted` (issue #38), a fusion team's review still asked
