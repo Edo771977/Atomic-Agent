@@ -84,6 +84,13 @@ describe("a verify_page_local yes stands for the turn in the plan's folder", () 
     expect(asked).toHaveLength(6);
   });
 
+  it("never covers a loopback URL probe, which runs whatever that server serves", async () => {
+    await tool().run(page, ctx());
+    await tool().run({ kind: "page", url: "http://127.0.0.1:5173/", probes: [{ name: "x", expr: "document.title" }] }, ctx());
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toMatchObject({ category: "verify_page_local" });
+  });
+
   it("asks again after outside content was read in the turn", async () => {
     gate.setTaintReview(() => true);
     await tool().run(page, ctx());

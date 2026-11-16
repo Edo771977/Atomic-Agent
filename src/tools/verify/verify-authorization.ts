@@ -9,7 +9,7 @@ import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-re
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
-import { parseVerifyRunArgs } from "./verify-run-args.js";
+import { parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
 
@@ -52,6 +52,20 @@ export interface VerifyAuthorizationContext extends ToolContext {
   /** Rules and displayed project paths belong to the original project, never a private copy. */
   ruleWorkdir?: string;
   checkInputs?: readonly string[];
+}
+
+/**
+ * A page probe that opens a file inside `folder` (`path` or a file: URL),
+ * starts nothing and has the network off: the only kind a turn's
+ * `verify_page_local` yes may cover. A loopback http(s) URL runs whatever
+ * that server serves now, so it always asks.
+ */
+function opensFileInside(args: VerifyRunArgs, folder: string): boolean {
+  if (args.kind !== "page" || args.start !== undefined || args.network) return false;
+  const file = args.path !== undefined ? resolve(folder, args.path) : args.url === undefined ? null : localFileOfUrl(args.url);
+  if (file === null) return false;
+  const rel = relative(resolve(folder), file);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export function resolveVerifyCwd(root: string, cwd: string | undefined): string {
@@ -189,7 +203,7 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd } of plans) {
+  for (const { prompt, cwd, logical } of plans) {
     ctx.signal.throwIfAborted();
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
@@ -201,7 +215,7 @@ export async function authorizeVerifyBatch(
     // approved plan's folder) runs unasked, unless a saved rule asks or
     // denies, or the person declined the target (the gate also refuses it
     // after outside content). Every other category keeps "Allow once".
-    const page = prompt.category === "verify_page_local";
+    const page = prompt.category === "verify_page_local" && opensFileInside(logical, cwd);
     if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) continue;

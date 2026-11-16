@@ -20,7 +20,7 @@ Owner: src/tools/verify/
 
 ## Turn grant for local page probes
 
-In a session with an approved project plan, the first `verify_page_local` approval for the session's folder stands for the rest of the turn, for the director's `verify.run` and the fan-out's contract page checks alike (`turnGrantFolder` in [verify-authorization.ts](verify-authorization.ts)); a different folder, a command or service run, outside content read in the turn, a saved ask/deny rule or a declined target asks again. See the [approval guide](../../approval/README.md).
+In a session with an approved project plan, the first `verify_page_local` approval of a page file in the session's folder (`path` or a file: URL, never a loopback http(s) URL) stands for the rest of the turn, for the director's `verify.run` and the fan-out's contract page checks alike (`turnGrantFolder` in [verify-authorization.ts](verify-authorization.ts)); a different folder, a command or service run, outside content read in the turn, a saved ask/deny rule or a declined target asks again. See the [approval guide](../../approval/README.md).
 
 ## Command input and output assertions
 
