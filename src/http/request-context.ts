@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { openaiError, type OpenAiErrorPayload } from "./openai-errors.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 import type { ApprovalBus } from "./approval-bus.js";
+import type { ProjectGateBus } from "./project-gate-bus.js";
 import type { CompletionRegistry } from "./completion-registry.js";
 import type { UndeliveredSteerStore } from "./undelivered-steers.js";
 import type { AuthThrottle } from "./auth-throttle.js";
@@ -24,6 +25,11 @@ export interface HandlerContext {
   apiKey: string | null;
   params: Record<string, string>;
   approvalBus: ApprovalBus;
+  /**
+   * Fusion project gates (issue #39) for `GET /api/events`. Absent in
+   * callers that build a context by hand.
+   */
+  projectGateBus?: ProjectGateBus;
   completionRegistry: CompletionRegistry;
   /**
    * Where a steer that the runtime accepted but never delivered ends

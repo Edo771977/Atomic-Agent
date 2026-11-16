@@ -33,6 +33,7 @@ import type { LogSink } from "../tracing/structured-logger.js";
 import type { McpServerConfig } from "../mcp/mcp-types.js";
 
 import { ApprovalBus } from "./approval-bus.js";
+import { ProjectGateBus } from "./project-gate-bus.js";
 import { CompletionRegistry } from "./completion-registry.js";
 import { createHttpServer, type HttpServerHandle } from "./http-server.js";
 import { buildRouteTable } from "./route-table.js";
@@ -226,6 +227,7 @@ export async function startTestHarness(
   });
 
   const approvalBus = new ApprovalBus();
+  const projectGateBus = new ProjectGateBus();
   const completionRegistry = new CompletionRegistry();
 
   const runtime = await createAgentRuntime({
@@ -233,7 +235,10 @@ export async function startTestHarness(
     approvalLevel: options.approvalLevel ?? 5,
     handlers: {
       logSinks: options.logSinks,
-      ...(options.onAgentEvent ? { onAgentEvent: options.onAgentEvent } : {}),
+      onAgentEvent: (event) => {
+        if (event.type === "project_gate") projectGateBus.publish(event);
+        options.onAgentEvent?.(event);
+      },
       onApprovalRequest: (request) => {
         approvalBus.publish(request);
         options.onApprovalRequest?.(request);
@@ -260,6 +265,7 @@ export async function startTestHarness(
     apiKey: options.apiKey ?? null,
     routes: buildRouteTable(),
     approvalBus,
+    projectGateBus,
     completionRegistry,
   });
 

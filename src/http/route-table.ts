@@ -1,3 +1,4 @@
+import { createGetProjectHandler, createProjectDecisionHandler } from "./route-project.js";
 import { createSessionCompactionHandler } from "./route-compaction.js";
 import { createRollbackLastTurnHandler } from "./route-rollback-last-turn.js";
 import { createResumeInterruptedTurnHandler } from "./route-resume-interrupted-turn.js";
@@ -231,6 +232,9 @@ export function buildRouteTable(): RouteDefinition[] {
     },
     // ATO-489: the answer to an `ask_user` question shown from /api/events.
     { method: "POST", path: "/api/question/answer", handler: createAnswerQuestionHandler() },
+    // Issue #39: the fusion project gate's view and the person's verdict.
+    { method: "GET", path: "/api/project", handler: createGetProjectHandler() },
+    { method: "POST", path: "/api/project/decision", handler: createProjectDecisionHandler() },
     // ATO-1141: saved "always allow" / ask / deny rules.
     { method: "GET", path: "/api/approval-rules", handler: createListApprovalRulesHandler() },
     { method: "DELETE", path: "/api/approval-rules/{id}", handler: createDeleteApprovalRuleHandler() },

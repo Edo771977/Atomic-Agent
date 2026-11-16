@@ -8,6 +8,7 @@ import type { Socket } from "node:net";
 
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 import { ApprovalBus } from "./approval-bus.js";
+import { ProjectGateBus } from "./project-gate-bus.js";
 import { CompletionRegistry } from "./completion-registry.js";
 import { openaiError } from "./openai-errors.js";
 import { UndeliveredSteerStore } from "./undelivered-steers.js";
@@ -52,6 +53,8 @@ export interface HttpServerOptions {
   apiKey: string | null;
   routes: RouteDefinition[];
   approvalBus?: ApprovalBus;
+  /** Issue #39: where the host publishes the runtime's `project_gate` events. */
+  projectGateBus?: ProjectGateBus;
   completionRegistry?: CompletionRegistry;
   undeliveredSteers?: UndeliveredSteerStore;
 }
@@ -61,6 +64,7 @@ export interface HttpServerHandle {
   host: string;
   port: number;
   approvalBus: ApprovalBus;
+  projectGateBus: ProjectGateBus;
   completionRegistry: CompletionRegistry;
   /**
    * Steers the runtime accepted but no turn ever delivered. Exposed on
@@ -134,6 +138,7 @@ export function createHttpServer(
   options: HttpServerOptions,
 ): Promise<HttpServerHandle> {
   const approvalBus = options.approvalBus ?? new ApprovalBus();
+  const projectGateBus = options.projectGateBus ?? new ProjectGateBus();
   const completionRegistry =
     options.completionRegistry ?? new CompletionRegistry();
   const undeliveredSteers =
@@ -150,6 +155,7 @@ export function createHttpServer(
         runtime: options.runtime,
         apiKey: options.apiKey,
         approvalBus,
+        projectGateBus,
         completionRegistry,
         undeliveredSteers,
         incognitoChats,
@@ -191,6 +197,7 @@ export function createHttpServer(
         host: options.host,
         port: resolvedPort,
         approvalBus,
+        projectGateBus,
         completionRegistry,
         undeliveredSteers,
         close: async () => {
