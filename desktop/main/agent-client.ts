@@ -12,6 +12,7 @@ import { LineSplitter, lineLevel } from "./agent-output.js";
 import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
+import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
 import {
   pairingRequest,
   readPairingReply,
@@ -50,7 +51,7 @@ import {
  *   GET  /api/sessions              persisted sessions
  *   GET  /v1/models                 OpenAI-compatible model list
  *   POST /v1/chat/completions       the agent loop, streamed as SSE
- *   GET  /api/events                SSE stream of approval requests
+ *   GET  /api/events                SSE stream of approval requests and project_gate frames
  *   POST /api/approval/resolve      allow-once | allow-in-chat | allow-always | deny
  *
  * The server is bound to 127.0.0.1 on an ephemeral port and gated by a
@@ -67,6 +68,8 @@ import {
  * for a request whose `approval_request` frame says `canAlways: true`, and
  * a 400 leaves the card open for Allow once or Deny.
  */
+export { readProjectGateFrame, routeEventsFrame, type ProjectGateFrame } from "./project-gate.js";
+
 export type ApprovalDecision = "allow-once" | "allow-in-chat" | "allow-always" | "deny";
 export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = ["allow-once", "allow-in-chat", "allow-always", "deny"];
 
@@ -1110,11 +1113,13 @@ export class AgentClient extends EventEmitter {
           });
           if (!res.body) throw new Error("no body");
           for await (const frame of sseFrames(res.body, controller.signal)) {
-            if (frame.data === "[DONE]") continue;
+            // Issue #39: project_gate is the project card's, not an approval.
+            const routed = routeEventsFrame(frame);
+            if (!routed) continue;
             try {
-              this.emit("approval", JSON.parse(frame.data));
+              this.emit(routed.channel, routed.payload);
             } catch {
-              /* ignore malformed frame */
+              /* a listener's failure is not the stream's */
             }
           }
         } catch {
@@ -1802,6 +1807,13 @@ export class AgentClient extends EventEmitter {
               category: typeof chunk.category === "string" ? chunk.category : null,
               payload: chunk,
             });
+            continue;
+          }
+          /* Issue #39: the project card's view, the same one /api/events
+             carries; the card keeps the newest version whichever came first. */
+          if (frame.event === "project_gate") {
+            const gate = readProjectGateFrame(chunk);
+            if (gate) this.emit("project", gate);
             continue;
           }
           /* ATO-408: the files the turn's reply delivers, as absolute
