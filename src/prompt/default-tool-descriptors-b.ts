@@ -323,6 +323,36 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     ],
   },
   {
+    // The fusion project (issue #39): mounted with fusion.delegate, so a
+    // fusion session's prefix holds all three for the whole session.
+    // Frequent: a director must reach for them before the first fan-out.
+    name: "project.brief",
+    summary:
+      "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
+    argsSchema:
+      "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: string[] /* 1..20 short checkable sentences */ }",
+    examples: [
+      '{"what":"A browser snake game","users":"Casual players on a laptop","how":"One HTML page, plain JS, no build step","game":{"rules":"Eat apples, avoid walls and yourself","loop":"Move, eat, grow, speed up","difficulty":"Speeds up every 5 apples","style":"Flat pixel art"},"successCriteria":["Opens from index.html with no server","Arrow keys steer","Score shows and resets on restart"]}',
+    ],
+  },
+  {
+    name: "project.plan",
+    summary:
+      "Draft or revise the plan for the approved brief: milestones in run order and the tasks of each. Each task gets a worker (yours to name from the ### fusion team, else the default), a reviewer and a cost/time estimate; the person approves, edits or picks a cheaper/higher-quality variant. Use the same task ids in fusion.delegate. After calling it, reply.",
+    argsSchema:
+      "{ milestones: [{ id: string, title: string, kind: 'base' | 'ui' | 'logic' | 'polish' | 'other' }] /* 1..16, in run order */, tasks: [{ id: string, title: string, milestone: string /* a milestone id */, worker?: string /* a team worker */, reviewer?: string | null /* a team reviewer; null: no review */ }] /* 1..64 */ }",
+    examples: [
+      '{"milestones":[{"id":"base","title":"Board and snake","kind":"base"},{"id":"ui","title":"Score and restart","kind":"ui"}],"tasks":[{"id":"board","title":"Canvas board and game loop","milestone":"base"},{"id":"score","title":"Score panel and restart button","milestone":"ui"}]}',
+    ],
+  },
+  {
+    name: "project.milestone",
+    summary:
+      "Report the result of the approved milestone you ran: done or failed, with a summary of what it produced against the success criteria. The person then approves (the next milestone starts), corrects or cancels; reply after calling it.",
+    argsSchema: "{ id: string, state: 'done' | 'failed', summary: string }",
+    examples: ['{"id":"base","state":"done","summary":"Board, snake and apples work; arrow keys steer; checked in the page run."}'],
+  },
+  {
     // Frequent tier: a checklist only helps when the model keeps it from
     // the first step, and a model that must `tool.view` first never
     // starts one (ATO-486). Placed after the git duplicates so their

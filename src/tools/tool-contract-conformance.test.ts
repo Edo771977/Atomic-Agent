@@ -48,6 +48,7 @@ import { registerVisionTools } from "./vision/index.js";
 import { registerImageTools } from "./image/index.js";
 import { registerVideoTools } from "./video/index.js";
 import { buildFusionDelegateTool } from "./fusion/fusion-delegate.js";
+import { buildProjectTools } from "./fusion/project-tools.js";
 import { TOOL_ROLES, descriptorsForRole, partitionByRole, roleAdmits } from "./tool-roles.js";
 import { confineReads } from "./read-scope/confine-reads.js";
 import { READ_TOOL_TARGETS } from "./read-scope/read-scope-targets.js";
@@ -305,6 +306,7 @@ beforeAll(() => {
   registerImageTools(registry, { ...dangerous, dataDir: () => directory, openRouterKey: () => undefined });
   registerVideoTools(registry, { ...dangerous, dataDir: () => directory, openRouterKey: () => undefined });
   registry.register(buildFusionDelegateTool({ ...dangerous, slotManager: { poolSize: () => 1 }, resolveRunMode: unexpected, workerSupportsSlotAffinity: () => false, warmWorkerBackend: async () => unexpected(), outputCharCap: 1000, logger: new StructuredLogger({ level: "error", sinks: [] }), runTurn: async () => unexpected(), createEphemeralSession: unexpected, emitEvent: unexpected, workingDir: directory }));
+  for (const tool of buildProjectTools({ planContext: unexpected, outsideContent: unexpected })) registry.register(tool);
   manager = new McpManager([], { toolRegistry: registry });
   for (const definition of [buildMcpResourceListTool(manager), buildMcpResourceReadTool(manager), buildMcpPromptListTool(manager), buildMcpPromptGetTool(manager)]) registry.register(definition);
 });
@@ -335,7 +337,7 @@ describe("whole built-in tool catalog conformance", () => {
       expect(names(DEFAULT_TOOL_DESCRIPTORS)).toContain(name);
       expect(resourceClassFor(name)).toBe("terminal");
     }
-    expect(DEFAULT_TOOL_DESCRIPTORS).toHaveLength(99);
+    expect(DEFAULT_TOOL_DESCRIPTORS).toHaveLength(102);
     expect(new Set(names(DEFAULT_TOOL_DESCRIPTORS)).size).toBe(DEFAULT_TOOL_DESCRIPTORS.length);
     expect(registry.list()).toHaveLength(registry.registrations.length);
     for (const definition of registry.registrations) {

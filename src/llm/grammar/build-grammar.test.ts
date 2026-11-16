@@ -1013,10 +1013,13 @@ describe("the base grammar's vocabulary", () => {
     expect(missing).toEqual([]);
   });
 
-  it("admits the plan and screen tools through the generic branch", async () => {
+  it("admits the plan, project and screen tools through the generic branch", async () => {
     const grammar = await readFile(GRAMMAR_FILE, "utf8");
     for (const name of [
       "plan.update",
+      "project.brief",
+      "project.plan",
+      "project.milestone",
       "os.screen.point",
       "os.screen.capture",
       "os.screen.click",

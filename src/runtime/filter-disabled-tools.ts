@@ -135,7 +135,8 @@ const GATED_TOOLS = {
     "tasks.cancel",
     "tasks.show",
   ],
-  fusion: ["fusion.delegate"],
+  // The project tools (issue #39) live and die with the fan-out.
+  fusion: ["fusion.delegate", "project.brief", "project.plan", "project.milestone"],
   mcp: [
     "mcp.resource.list",
     "mcp.resource.read",

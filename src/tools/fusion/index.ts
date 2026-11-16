@@ -205,5 +205,20 @@ export type {
   RowEstimate,
   VariantContext,
 } from "./project-estimate.js";
+export {
+  PROJECT_BRIEF_TOOL,
+  PROJECT_MILESTONE_TOOL,
+  PROJECT_PLAN_TOOL,
+  PROJECT_TOOL_NAMES,
+  PROJECT_UPDATE_DETAIL,
+  buildProjectTools,
+  enrichPlanRows,
+  parseProjectBriefArgs,
+  parseProjectMilestoneArgs,
+  parseProjectPlanArgs,
+} from "./project-tools.js";
+export type { ProjectPlanArgs, ProjectPlanContext, ProjectPlanTaskArgs, ProjectToolDeps } from "./project-tools.js";
+export { projectPlanContextFrom } from "./project-plan-context.js";
+export type { ProjectPlanContextInput } from "./project-plan-context.js";
 export { teamContextFromConfig } from "./team-routing.js";
 export type { FusionTeamContext } from "./team-routing.js";

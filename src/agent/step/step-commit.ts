@@ -13,6 +13,7 @@ import { evidenceMarks } from "./step-evidence.js";
 import type { SessionState } from "../../session/session-state.js";
 import { rememberConversationPackStart, recordLoadedTool, recordLatestResult, recordTurn, recordLoadedSkill, recordWorldSnapshot, recordPlan } from "../../session/session-state.js";
 import { readPlanSnapshot, samePlanItems } from "../plan/plan-snapshot.js";
+import { foldProjectUpdate } from "./project-fold.js";
 import { getConfig } from "../../config/index.js";
 import { isRareToolName, getToolDescriptorByName } from "../../prompt/tool-descriptors.js";
 import { resourceClassFor } from "../tool-resource-class.js";
@@ -138,7 +139,7 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
   }
   const stepCalls = suppressed !== null ? [...calls, suppressed.call] : calls;
   const stepResults =
-    suppressed !== null ? [...toolResults, suppressed.result] : toolResults;
+    suppressed !== null ? [...toolResults, suppressed.result] : [...toolResults];
 
   // Apply state effects in batch-index order. `recordLatestResult` is
   // called on every result (last writer wins, deterministic). World
@@ -146,7 +147,14 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
   // by index.
   let nextSession: SessionState = workSession;
   for (let i = 0; i < stepResults.length; i += 1) {
-    const result = stepResults[i]!;
+    // A director tool's project update (issue #39) is folded first: a
+    // refused one becomes this call's error everywhere below (the
+    // transcript, the latest result, the loop). The live
+    // `tool_call_executed` event already went out with the tool's own row.
+    const folded = foldProjectUpdate(nextSession, stepResults[i]!, Date.now());
+    nextSession = folded.session;
+    stepResults[i] = folded.result;
+    const result = folded.result;
     nextSession = recordLatestResult(nextSession, {
       tool: result.tool,
       status: result.status,

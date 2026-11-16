@@ -51,6 +51,11 @@ import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildProjectTools } from "../../tools/fusion/project-tools.js";
+import { projectPlanContextFrom } from "../../tools/fusion/project-plan-context.js";
+import { readRoutingHistory } from "../../tools/fusion/measured-routing.js";
+import { outcomeLogPath } from "../../tools/fusion/outcome-log.js";
+import { currentPolicyAllows } from "../../llm/provider-policy.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -1058,6 +1063,38 @@ export function registerRuntimeFusionAndReadScope(input: {
       logger,
     }),
   );
+  // The fusion project's director tools (issue #39). Registered with the
+  // fan-out; their descriptors come and go with it (`filter-disabled-tools`).
+  // `project.plan` assigns and estimates from the same live team, policy
+  // and outcome history the fan-out routes by.
+  for (const tool of buildProjectTools({
+    planContext: () => {
+      const live = getConfig();
+      const resolved = resolveLlmConfig(live);
+      const fusion = resolved.runMode?.fusion;
+      const mode = resolveCurrentRunMode();
+      const isLocal = (providerId: string): boolean => {
+        const entry = resolved.providers.find((p) => p.id === providerId);
+        return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
+      };
+      return projectPlanContextFrom({
+        team: teamContextFromConfig(live, teamMemberReachable),
+        ...(fusion?.judge === undefined ? {} : { judge: fusion.judge }),
+        allows: currentPolicyAllows,
+        workerLeg: mode.workerProviderId === null ? null : { providerId: mode.workerProviderId, model: mode.workerModel ?? mode.workerProviderId },
+        ...(currentWorker === undefined ? {} : { currentWorker: currentWorker() }),
+        records: readRoutingHistory(outcomeLogPath(config.paths.stateDir)),
+        pricing: (providerId, model) => resolveModelPricingFor(resolved, model, providerId)?.pricing,
+        isLocal,
+        tokensPerSecond: () => llama.measuredTokensPerSecond(),
+        ...(fusion?.measuredRouting === undefined ? {} : { measured: fusion.measuredRouting }),
+        ...(fusion?.project === undefined ? {} : { projectConfig: fusion.project }),
+      });
+    },
+    outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
+  })) {
+    toolRegistry.register(tool);
+  }
   // Every session reads inside its working directory and the paths the
   // user named unasked, by default (`agent.readScope`,
   // `src/tools/read-scope/`); a read outside that asks through the

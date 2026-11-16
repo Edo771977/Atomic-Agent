@@ -204,6 +204,9 @@ const FORMS: Record<string, CompactToolForm> = {
     summary: "Hand independent parts of the work to local workers; call it alone.",
     tier: RARE,
   },
+  "project.brief": { summary: "Draft the project brief for the person to approve; then reply." },
+  "project.plan": { summary: "Draft the plan (milestones, tasks) for the approved brief; then reply." },
+  "project.milestone": { summary: "Report the approved milestone's result (done|failed, summary); then reply." },
   reply: {
     summary:
       "Final answer to the user; ends the turn. If an exact answer format is required, `text` is only that. `attachments`: file paths to send.",

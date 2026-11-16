@@ -676,6 +676,74 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     ),
   ],
 
+  // ── fusion project (issue #39) ──────────────────────────────────────────
+  // The lists nest objects and carry bounds, which keeps these two off
+  // the strict path (like plan.update); the parsers check the rest.
+  [
+    "project.brief",
+    obj(
+      {
+        what: stringSchema,
+        users: stringSchema,
+        how: stringSchema,
+        game: obj(
+          { rules: stringSchema, loop: stringSchema, difficulty: stringSchema, style: stringSchema },
+          ["rules", "loop", "difficulty", "style"],
+        ),
+        successCriteria: { type: "array", minItems: 1, maxItems: 20, items: stringSchema },
+      },
+      ["what", "users", "how", "successCriteria"],
+    ),
+  ],
+  [
+    "project.plan",
+    obj(
+      {
+        milestones: {
+          type: "array",
+          minItems: 1,
+          maxItems: 16,
+          items: obj(
+            {
+              id: stringSchema,
+              title: stringSchema,
+              kind: { type: "string", enum: ["base", "ui", "logic", "polish", "other"] },
+            },
+            ["id", "title", "kind"],
+          ),
+        },
+        tasks: {
+          type: "array",
+          minItems: 1,
+          maxItems: 64,
+          items: obj(
+            {
+              id: stringSchema,
+              title: stringSchema,
+              milestone: stringSchema,
+              worker: stringSchema,
+              // null: no review for this task.
+              reviewer: { type: ["string", "null"] },
+            },
+            ["id", "title", "milestone"],
+          ),
+        },
+      },
+      ["milestones", "tasks"],
+    ),
+  ],
+  [
+    "project.milestone",
+    obj(
+      {
+        id: stringSchema,
+        state: { type: "string", enum: ["done", "failed"] },
+        summary: stringSchema,
+      },
+      ["id", "state", "summary"],
+    ),
+  ],
+
   // ── fusion fan-out ───────────────────────────────────────────────────────
   [
     "fusion.delegate",
