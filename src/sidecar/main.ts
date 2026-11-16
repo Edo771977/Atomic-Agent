@@ -22,7 +22,13 @@ import type {
   SkillInstallPayload,
   SkillUninstallPayload,
   StartSessionPayload,
+  GetProjectPayload,
+  ProjectDecisionPayload,
+  ProjectDecisionResult,
 } from "./sidecar-events.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
+import { parseProjectDecision } from "../session/project-decision-parse.js";
+import { projectContinueMessage } from "../session/project-continue.js";
 import type { SessionState } from "../session/index.js";
 import { installLocalSkill, scanApprovalFromIds, uninstallSkill } from "../skills/index.js";
 import { getAppVersion } from "../version.js";
@@ -88,6 +94,10 @@ export async function bootstrapSidecar(): Promise<{
           break;
         case "fusion_director_notice":
           if (event.sessionId === sessionId) protocol.emitEvent("fusion_director_notice", event);
+          break;
+        case "project_gate":
+          // Issue #39: the whole view for the desktop's project card.
+          if (event.sessionId === sessionId) protocol.emitEvent("project_gate", { sessionId, view: event.view });
           break;
         case "compaction_started":
         case "compaction_progress":
@@ -475,6 +485,40 @@ export async function bootstrapSidecar(): Promise<{
         ? (active.runtime.sessionStore.load(id) ?? active.session)
         : active.runtime.sessionStore.load(id);
       return session === null ? null : (active.runtime.providerRestrictionFor?.(session) ?? null);
+    },
+  );
+
+  // Issue #39: the fusion project card's view and the person's verdict.
+  router.register<GetProjectPayload, { sessionId: string; view: ProjectGateView | null }>(
+    "get_project",
+    (request) => {
+      if (!active) throw new Error("no active runtime — call start_session first");
+      const id = request.payload.sessionId;
+      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
+      return { sessionId: id, view: active.runtime.projectState?.(id) ?? null };
+    },
+  );
+
+  router.register<ProjectDecisionPayload, ProjectDecisionResult>(
+    "project_decision",
+    async (request) => {
+      if (!active) throw new Error("no active runtime — call start_session first");
+      const payload = (request.payload ?? {}) as unknown as Record<string, unknown>;
+      const id = payload.sessionId;
+      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
+      const decision = parseProjectDecision(payload);
+      if (typeof decision === "string") throw new Error(decision);
+      const { runtime } = active;
+      if (runtime.projectDecision === undefined) throw new Error("this agent takes no project decisions");
+      if (runtime.projectState?.(id) === undefined) {
+        return { ok: false, error: { code: "no-project", message: `no project on session ${id}` } };
+      }
+      const outcome = await runtime.projectDecision(id, decision);
+      if (outcome.ok) {
+        return { ok: true, view: outcome.view, continueMessage: projectContinueMessage(outcome.view, decision) };
+      }
+      const current = runtime.projectState?.(id);
+      return { ok: false, error: outcome.error, ...(current === undefined ? {} : { view: current }) };
     },
   );
 

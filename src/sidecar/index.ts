@@ -40,4 +40,9 @@ export type {
   LogPayload,
   MetricPayload,
   ErrorPayload,
+  ProjectGateEventPayload,
+  GetProjectPayload,
+  ProjectDecisionPayload,
+  ProjectDecisionResult,
 } from "./sidecar-events.js";
+export type { ProjectGateView, ProjectGateRow, ProjectGateViolation } from "../session/project-gate-view.js";

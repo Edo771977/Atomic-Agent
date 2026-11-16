@@ -19,7 +19,7 @@ describe("/api/project", () => {
       if (view === undefined) return { ok: false, error: { code: "no-project", message: "no project" } };
       if (d.version !== view.version) return { ok: false, error: { code: "stale-version", message: "the plan changed" } };
       if (!view.allowedVerdicts.includes(d.verdict)) return { ok: false, error: { code: "verdict-not-allowed", message: "not here" } };
-      const next = fixtureProjectGateView({ kind: "none" }, { version: view.version + 1 });
+      const next = fixtureProjectGateView({ kind: "none" }, { version: view.version + 1, expectation: { kind: "run_milestone", id: "m1" } });
       views.set(sessionId, next);
       return { ok: true, view: next };
     });
@@ -60,6 +60,7 @@ describe("/api/project", () => {
     const r = await post({ session: "s1", gate: { kind: "plan" }, version: 3, verdict: "approve" });
     expect(r.status).toBe(200);
     expect((r.json.view as ProjectGateView).gate).toEqual({ kind: "none" });
+    expect(r.json.continue_message).toBe('I approved. Continue with milestone "Base".');
     expect(decide).toHaveBeenCalledWith("s1", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
   });
 

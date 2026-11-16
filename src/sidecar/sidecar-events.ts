@@ -7,6 +7,8 @@
 import type { ApprovalCategory } from "../approval/approval-level.js";
 import type { RiskLevel } from "../approval/risk-review.js";
 import type { UserQuestion } from "../approval/user-question.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
+import type { ProjectEdits, ProjectGate, ProjectVerdict } from "../session/session-project.js";
 
 export type HostRequestType =
   | "start_session"
@@ -19,6 +21,8 @@ export type HostRequestType =
   | "compact_session"
   | "get_compaction"
   | "get_provider_restriction"
+  | "get_project"
+  | "project_decision"
   | "skill_install"
   | "skill_uninstall"
   | "skill_list"
@@ -27,6 +31,7 @@ export type HostRequestType =
 
 export type SidecarEventType =
   | "budget_notice"
+  | "project_gate"
   | "fusion_director_notice"
   | "compaction_started"
   | "compaction_progress"
@@ -398,3 +403,46 @@ export function isSidecarResponse(msg: SidecarMessage): msg is SidecarResponse {
 /** Context maintenance controls; neither creates a user turn. */
 export interface CompactSessionPayload { sessionId: string }
 export interface GetCompactionPayload { sessionId: string }
+
+/**
+ * `project_gate` (issue #39): a fusion project gate of the active session
+ * opened or changed — the whole view the desktop card draws, never a
+ * delta. Render the buttons from `view.allowedVerdicts` and the per-row
+ * pickers from `view.rows[].selectable`.
+ */
+export interface ProjectGateEventPayload {
+  sessionId: string;
+  view: ProjectGateView;
+}
+
+/** `get_project`: the session's current gate view (`view: null` without a project). */
+export interface GetProjectPayload {
+  sessionId: string;
+}
+
+/**
+ * `project_decision`: the person's verdict at the open gate, against
+ * the `version` of the view they saw. `edits.rows` (plan gate) picks a
+ * worker/reviewer per task among the row's `selectable`; `note` is a
+ * milestone correction (verdict `edit`).
+ */
+export interface ProjectDecisionPayload {
+  sessionId: string;
+  gate: ProjectGate;
+  version: number;
+  verdict: ProjectVerdict;
+  edits?: ProjectEdits;
+  note?: string;
+}
+
+/**
+ * The answer to `project_decision`. A refusal by the runtime (stale
+ * version, other gate, running turn, hard cap, no project) is a
+ * successful response with `ok: false`, the runtime's `error.code` and
+ * the current view; a malformed payload fails the request instead.
+ * `continueMessage`, when not null, is what the host sends next with
+ * `send_message` (the gate closed and the director has work).
+ */
+export type ProjectDecisionResult =
+  | { ok: true; view: ProjectGateView; continueMessage: string | null }
+  | { ok: false; error: { code: string; message: string }; view?: ProjectGateView };

@@ -1,5 +1,5 @@
-import type { ProjectGateDecision } from "../session/project-gate-view.js";
-import type { ProjectEdits, ProjectGate, ProjectVerdict } from "../session/session-project.js";
+import { projectContinueMessage } from "../session/project-continue.js";
+import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
@@ -13,72 +13,11 @@ import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from ".
  * Gate changes reach `GET /api/events` as `project_gate` events.
  */
 
-const VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel"];
-const MAX_NOTE_CHARS = 2000;
-
 interface DecisionBody {
   session?: unknown;
-  gate?: unknown;
-  version?: unknown;
-  verdict?: unknown;
-  edits?: unknown;
-  note?: unknown;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-function parseGate(raw: unknown): ProjectGate | null {
-  if (!isObject(raw)) return null;
-  switch (raw.kind) {
-    case "none":
-    case "brief":
-    case "plan":
-      return { kind: raw.kind };
-    case "milestone":
-      return typeof raw.id === "string" && raw.id.length > 0 ? { kind: "milestone", id: raw.id } : null;
-    default:
-      return null;
-  }
-}
-
-function parseEdits(raw: unknown): ProjectEdits | string {
-  if (!isObject(raw)) return "edits must be an object";
-  const out: ProjectEdits = {};
-  if (raw.rows !== undefined) {
-    if (!Array.isArray(raw.rows)) return "edits.rows must be an array";
-    const rows: Array<{ taskId: string; worker?: string; reviewer?: string | null }> = [];
-    for (const row of raw.rows) {
-      if (!isObject(row) || typeof row.taskId !== "string") return "each edits.rows entry needs a taskId";
-      if (row.worker !== undefined && typeof row.worker !== "string") return "edits.rows[].worker must be a string";
-      if (row.reviewer !== undefined && row.reviewer !== null && typeof row.reviewer !== "string") {
-        return "edits.rows[].reviewer must be a string or null";
-      }
-      rows.push({
-        taskId: row.taskId,
-        ...(typeof row.worker === "string" ? { worker: row.worker } : {}),
-        ...(row.reviewer !== undefined ? { reviewer: row.reviewer as string | null } : {}),
-      });
-    }
-    out.rows = rows;
-  }
-  if (raw.brief !== undefined) {
-    if (!isObject(raw.brief)) return "edits.brief must be an object";
-    const brief: Record<string, unknown> = {};
-    for (const key of ["what", "users", "how"] as const) {
-      const v = raw.brief[key];
-      if (v === undefined) continue;
-      if (typeof v !== "string") return `edits.brief.${key} must be a string`;
-      brief[key] = v;
-    }
-    if (raw.brief.successCriteria !== undefined) {
-      const c = raw.brief.successCriteria;
-      if (!Array.isArray(c) || !c.every((x) => typeof x === "string")) return "edits.brief.successCriteria must be strings";
-      brief.successCriteria = c;
-    }
-    out.brief = brief as ProjectEdits["brief"];
-  }
-  return out;
-}
 
 /** The HTTP status for a refusal code from `projectDecision`. */
 function statusFor(code: string): number {
@@ -124,9 +63,9 @@ export function createGetProjectHandler(): HttpHandler {
 
 export function createProjectDecisionHandler(): HttpHandler {
   return async (req, res, ctx) => {
-    let body: DecisionBody;
+    let body: DecisionBody & Record<string, unknown>;
     try {
-      body = await readJsonBody<DecisionBody>(req);
+      body = await readJsonBody<DecisionBody & Record<string, unknown>>(req);
     } catch (err) {
       sendError(res, 400, openaiError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`));
       return;
@@ -140,34 +79,10 @@ export function createProjectDecisionHandler(): HttpHandler {
       sendError(res, 400, openaiError("session is required"));
       return;
     }
-    const gate = parseGate(body.gate);
-    if (gate === null) {
-      sendError(res, 400, openaiError('gate must be {kind: "brief"|"plan"|"none"} or {kind: "milestone", id}'));
+    const decision = parseProjectDecision(body);
+    if (typeof decision === "string") {
+      sendError(res, 400, openaiError(decision));
       return;
-    }
-    if (!Number.isInteger(body.version) || (body.version as number) < 1) {
-      sendError(res, 400, openaiError("version must be a positive integer (the view's version)"));
-      return;
-    }
-    if (typeof body.verdict !== "string" || !(VERDICTS as readonly string[]).includes(body.verdict)) {
-      sendError(res, 400, openaiError(`verdict must be one of ${VERDICTS.join(", ")}`));
-      return;
-    }
-    const decision: ProjectGateDecision = { gate, version: body.version as number, verdict: body.verdict as ProjectVerdict };
-    if (body.edits !== undefined) {
-      const edits = parseEdits(body.edits);
-      if (typeof edits === "string") {
-        sendError(res, 400, openaiError(edits));
-        return;
-      }
-      decision.edits = edits;
-    }
-    if (body.note !== undefined) {
-      if (typeof body.note !== "string" || body.note.trim().length === 0 || body.note.length > MAX_NOTE_CHARS) {
-        sendError(res, 400, openaiError(`note must be a non-empty string of at most ${MAX_NOTE_CHARS} characters`));
-        return;
-      }
-      decision.note = body.note;
     }
     if (serveWithheld(ctx, sessionId)()) {
       sendWithheld(res);
@@ -185,7 +100,9 @@ export function createProjectDecisionHandler(): HttpHandler {
     const outcome = await decide.call(ctx.runtime, sessionId, decision);
     if (outcome.ok) {
       ctx.projectGateBus?.publish({ type: "project_gate", sessionId, view: outcome.view });
-      sendJson(res, 200, { session_id: sessionId, view: outcome.view });
+      // What the client sends as the next message when the decision closed
+      // the gate on director work (null: nothing to run).
+      sendJson(res, 200, { session_id: sessionId, view: outcome.view, continue_message: projectContinueMessage(outcome.view, decision) });
       return;
     }
     const current = ctx.runtime.projectState?.(sessionId);
