@@ -70,6 +70,13 @@ describe("estimateRow", () => {
     expect(estimateRow(member("cloud:model-a"), null, [], undefined, opts).local).toBeUndefined();
   });
 
+  it("keeps the cost of a local-address member whose prices are configured (a localhost proxy)", () => {
+    const proxy = member("local:model-p");
+    const est = estimateRow(proxy, null, [], { input: 1, output: 2 }, { ...opts, local: true });
+    expect(est.local).toBeUndefined();
+    expect(est.estCostUsd).toBeGreaterThan(0);
+  });
+
   it("uses medians of exact member+role rows once there are enough", () => {
     const records = [rec({ costUsd: 0.1, durationMs: 100 }), rec({ costUsd: 0.3, durationMs: 300 }), rec({ costUsd: 0.2, durationMs: 200 })];
     expect(estimateRow(member("cloud:model-a"), null, records, undefined, opts)).toEqual({

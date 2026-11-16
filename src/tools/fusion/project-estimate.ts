@@ -115,7 +115,8 @@ function exactRows(
  * their cost (`measured`). Otherwise `preset`: cost is `pricing` × the
  * role's {@link PRESET_TASK_TOKENS} (price-only) or unknown, time comes
  * from the local speed for the output tokens or is unknown. A local member
- * (`options.local`) costs $0 either way: priced, never "unpriced".
+ * (`options.local`) with no configured pricing costs $0 either way:
+ * priced, never "unpriced".
  */
 export function estimateRow(
   member: TeamMember,
@@ -125,7 +126,9 @@ export function estimateRow(
   options: EstimateRowOptions,
 ): RowEstimate {
   const estimate = estimateRowPriced(member, role, records, pricing, options);
-  return options.local === true ? { ...estimate, estCostUsd: 0, priceOnly: false, local: true } : estimate;
+  // A local server with no prices costs nothing; one with configured
+  // prices (a localhost proxy to a paid model) keeps its cost.
+  return options.local === true && pricing === undefined ? { ...estimate, estCostUsd: 0, priceOnly: false, local: true } : estimate;
 }
 
 function estimateRowPriced(
