@@ -48,6 +48,9 @@ export const criticalFiles = [
   'src/tools/fusion/contract-check-authorization.test.ts',
   'src/tools/verify/verify-authorization.test.ts',
   'src/tools/verify/verify-page-local.test.ts',
+  // Issue #53 (copy root below a broad folder) and the page-probe turn grant.
+  'src/tools/verify/verify-copy-root.test.ts',
+  'src/tools/verify/verify-turn-grant.test.ts',
   'src/tools/fusion/candidate-check-inputs.test.ts',
   'src/tools/verify/rebase-verify-workspace.test.ts',
   'src/tools/verify/rebase-verify-workspace-literals.test.ts',
