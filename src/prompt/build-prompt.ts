@@ -39,6 +39,7 @@ import {
   decideCompactPrompt,
 } from "./compact-prompt.js";
 import { buildSessionSectionParts } from "./session-tail-sections.js";
+import { renderProjectDigest } from "./project-digest.js";
 import { renderLoadedToolsSection } from "./render-loaded-tools.js";
 import { partitionByRole } from "../tools/tool-roles.js";
 import { renderTaskPolicy } from "./render-task-policy.js";
@@ -502,6 +503,12 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   }
   if (loadedToolsRendered.body !== null) {
     tailAfter.push("### loaded-tools", loadedToolsRendered.body, ``);
+  }
+  // The fusion project (issue #39): a director tool or the person's
+  // decision changes it between steps, so it is tail, never prefix.
+  const projectDigest = renderProjectDigest(input.session.project);
+  if (projectDigest !== null) {
+    tailAfter.push(`### project`, projectDigest, ``);
   }
   if (taskPolicy !== null) {
     tailAfter.push(`### task-policy`, taskPolicy.body, ``);

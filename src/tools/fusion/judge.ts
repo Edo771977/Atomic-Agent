@@ -419,6 +419,8 @@ export function renderJudgePrompt(input: {
   items: readonly AcceptanceItem[];
   facts: readonly ItemVerdict[];
   evidence: string;
+  /** The fusion project's success criteria (issue #39): context for the ruling, not items. */
+  successCriteria?: readonly string[];
 }): string {
   const judged = input.items.filter(
     (item) => !input.facts.some((fact) => fact.id === item.id),
@@ -429,6 +431,9 @@ export function renderJudgePrompt(input: {
     "## Task",
     input.task.instructions.slice(0, 4_000),
     "",
+    ...(input.successCriteria === undefined || input.successCriteria.length === 0
+      ? []
+      : ["## The project's success criteria (the task serves these; rule on the items)", ...input.successCriteria.map((c) => `- ${c}`), ""]),
     "## Items to rule on",
     ...judged.map((item) => `- ${item.id}: ${item.text}`),
     "",
@@ -574,6 +579,8 @@ export async function judgeTask(input: {
   pricing: WorkerPricing | undefined;
   complete: EscalationComplete;
   signal: AbortSignal;
+  /** The fusion project's success criteria (issue #39), for the judge brief. */
+  successCriteria?: readonly string[];
 }): Promise<JudgeVerdict> {
   const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
   const factVerdicts: ItemVerdict[] = [];
@@ -628,6 +635,7 @@ export async function judgeTask(input: {
         items: input.items,
         facts: factVerdicts,
         evidence,
+        ...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
       }),
       maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
       signal: input.signal,

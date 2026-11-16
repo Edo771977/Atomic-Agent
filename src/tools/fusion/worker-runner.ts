@@ -706,6 +706,8 @@ export interface RunWorkerTasksOptions {
    * the parent turn has none to give.
    */
   originalRequest?: string;
+  /** The fusion project's approved brief (issue #39), in every worker's brief. */
+  project?: import("./worker-prompt.js").WorkerProjectBrief;
   /**
    * The fan-out's contract, rendered into every brief above the task
    * (`renderWorkerBrief`). Checked after the fan-out by the caller.
@@ -1226,6 +1228,7 @@ async function runOneTask(
       ? {}
       : { originalRequest: options.originalRequest }),
     ...(options.contract === undefined ? {} : { contract: options.contract }),
+    ...(options.project === undefined ? {} : { project: options.project }),
     localLeg: options.localLeg === true,
   })}${suffix === undefined ? "" : `\n\n${suffix}`}`;
   const declaredFiles = task.files?.length ?? 0;

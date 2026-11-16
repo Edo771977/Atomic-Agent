@@ -1131,6 +1131,13 @@ export function buildFusionDelegateTool(
         resumedFrom?.originalRequest ??
         deps.resolveOriginalRequest?.(ctx.sessionId);
       const originalRequest = request === undefined || candidate === undefined ? request : rebaseText(request, [candidateOriginalDir, candidateOriginalDir.replace(/\\/g, "/")], candidate.dir);
+      // The approved project brief (issue #39): every worker's brief says
+      // what is built and its success criteria, and every reviewer's
+      // judge brief the criteria. A resumed run reads the same project.
+      const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
+      const projectBrief = approvedBrief === undefined
+        ? undefined
+        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria };
       // A local worker's time limit is sized from the machine's measured
       // speed (F19); a cloud leg has no such measurement and keeps the
       // configured ceiling.
@@ -1564,6 +1571,7 @@ export function buildFusionDelegateTool(
         judgesUsed.add(target.model ?? target.providerId);
         const verdict = await judgeTask({
           ...input,
+          ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
@@ -1817,6 +1825,7 @@ export function buildFusionDelegateTool(
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
+            ...(projectBrief === undefined ? {} : { project: projectBrief }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,
@@ -1882,6 +1891,7 @@ export function buildFusionDelegateTool(
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
+            ...(projectBrief === undefined ? {} : { project: projectBrief }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,

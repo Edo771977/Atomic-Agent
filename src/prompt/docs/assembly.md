@@ -18,7 +18,7 @@ The actual flat assembly in `build-prompt.ts` is:
 1. Optional memory-index, session-facts, recalled; world.
 2. Optional request when the original user request was packed out of view.
 3. Optional context summary, then fresh conversation.
-4. Optional route, profile, lessons, procedures, loaded-skills, loaded-tools, task-policy, notice.
+4. Optional route, profile, lessons, procedures, loaded-skills, loaded-tools, project (the fusion project's digest, issue #39: `project-digest.ts`; a cloud context update on the cloud path), task-policy, notice.
 5. Respond anchor and profile-specific generation framing.
 
 Empty optional sections are omitted. Notice composition and structured messages share this contract. Sections changed by a step follow conversation; moving them above it can invalidate already read transcript context. The turn's memory snapshot is fetched before stepping.

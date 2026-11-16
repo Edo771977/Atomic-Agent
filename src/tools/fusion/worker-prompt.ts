@@ -256,6 +256,12 @@ export const WORKER_REPLY_RULE = [
  * Every line but the quote's own markers goes through
  * `neutraliseRequestMarkers`, so those are the only markers in it.
  */
+/** What a worker is told of the fusion project (issue #39): the approved brief's `what` and success criteria. */
+export interface WorkerProjectBrief {
+  what: string;
+  successCriteria: readonly string[];
+}
+
 export function renderWorkerBrief(
   task: DelegateTask,
   options: {
@@ -263,6 +269,11 @@ export function renderWorkerBrief(
     originalRequest?: string;
     contract?: DelegateContract;
     localLeg?: boolean;
+    /**
+     * The fusion project's approved brief (issue #39): what is built and
+     * how it is judged, so a worker's part fits the whole. Absent: no block.
+     */
+    project?: WorkerProjectBrief;
   },
 ): string {
   const request = options.originalRequest?.trim() ?? "";
@@ -278,6 +289,12 @@ export function renderWorkerBrief(
   }
   if (task.deliverable) {
     lines.push(``, `DELIVERABLE: ${task.deliverable}`);
+  }
+  if (options.project !== undefined) {
+    lines.push(``, `PROJECT: ${options.project.what}`);
+    if (options.project.successCriteria.length > 0) {
+      lines.push(`SUCCESS CRITERIA (your task serves these):`, ...options.project.successCriteria.map((c) => `- ${c}`));
+    }
   }
   if (options.contract) {
     lines.push(``, ...quoteContract(options.contract, task.id));

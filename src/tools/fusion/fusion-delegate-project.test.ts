@@ -130,6 +130,14 @@ describe("fusion.delegate with a project (issue #39)", () => {
     expect(after).toMatchObject({ ok: true, project: { milestones: [{ state: "in_progress", runIds: [runId] }, { state: "planned" }] } });
   });
 
+  it("every worker's brief carries the approved brief and its success criteria", async () => {
+    const d = deps();
+    await buildFusionDelegateTool(d).run({ tasks: [task("board")] }, ctx(running()));
+    const message = (d.runTurn as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
+    expect(message).toContain("PROJECT: A game");
+    expect(message).toContain("- Runs offline");
+  });
+
   it("a task outside the plan, another worker or a write outside the folder still asks", async () => {
     for (const tasks of [
       [task("board"), task("extra")],

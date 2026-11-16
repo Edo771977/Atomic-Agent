@@ -115,6 +115,23 @@ describe("renderWorkerBrief", () => {
   });
 });
 
+describe("renderWorkerBrief — the project (issue #39)", () => {
+  it("states what the project builds and its success criteria after the task", () => {
+    const brief = renderWorkerBrief(TASK, {
+      workingDir: "/repo",
+      project: { what: "A browser snake game", successCriteria: ["Arrow keys steer", "Score resets on restart"] },
+    });
+    expect(brief).toContain("PROJECT: A browser snake game");
+    expect(brief).toContain("SUCCESS CRITERIA (your task serves these):\n- Arrow keys steer\n- Score resets on restart");
+    expect(brief.indexOf("PROJECT:")).toBeGreaterThan(brief.indexOf("TASK t1"));
+    expect(brief.indexOf("PROJECT:")).toBeLessThan(brief.indexOf("RULES:"));
+  });
+
+  it("without a project the brief is unchanged", () => {
+    expect(renderWorkerBrief(TASK, { workingDir: "/repo" })).not.toContain("PROJECT:");
+  });
+});
+
 describe("renderWorkerBrief — siblings and browser code (ATO-919)", () => {
   it("tells the worker not to re-read a sibling's file that does not exist yet", () => {
     const brief = renderWorkerBrief(TASK, { workingDir: "/repo" });

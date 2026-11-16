@@ -917,6 +917,30 @@ describe("buildPrompt", () => {
     expect(noticeIdx).toBeGreaterThan(conversationIdx);
   });
 
+  it("renders ### project after the conversation; the stable prefix stays byte-identical across gate changes (issue #39)", () => {
+    const brief = {
+      version: 1, what: "A snake game", users: "Kids", how: "HTML", successCriteria: ["Runs offline"],
+      status: "draft" as const, draftedAfterUntrusted: false,
+    };
+    const fusionTools = [...TOOLS, { name: "fusion.delegate", summary: "Delegate.", argsSchema: "{ tasks: [] }" }];
+    const build = (project?: SessionState["project"]) => buildPrompt({
+      session: mkSession(project === undefined ? {} : { project }),
+      toolDescriptors: fusionTools,
+      capabilities: CAPS,
+      skillCatalog: SKILLS,
+    });
+    const none = build();
+    const atBrief = build({ brief, milestones: [], gate: { kind: "brief" } });
+    const approved = build({ brief: { ...brief, status: "approved", approvedAt: 5 }, milestones: [], gate: { kind: "none" } });
+    expect(none.tail).not.toContain("### project");
+    expect(atBrief.tail).toContain("### project\nbrief: draft v1 — A snake game");
+    expect(approved.tail).toContain("brief: approved v1");
+    expect(atBrief.tail.indexOf("### project")).toBeGreaterThan(atBrief.tail.indexOf("### conversation"));
+    expect(atBrief.stablePrefix).toBe(none.stablePrefix);
+    expect(approved.stablePrefix).toBe(none.stablePrefix);
+    expect(atBrief.stablePrefix).not.toContain("A snake game");
+  });
+
   it("renders a task policy for code and debug work without changing the stable prefix", () => {
     const base = buildPrompt({
       session: mkSession(),
