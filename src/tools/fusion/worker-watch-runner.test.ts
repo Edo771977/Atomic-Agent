@@ -367,6 +367,63 @@ describe("text the worker read cannot steer the watch (issue #43)", () => {
   });
 });
 
+describe("the watch and the escalation (issue #43)", () => {
+  const TARGET = { providerId: "big-cloud", model: "big", auto: true, replace: false, maxUsd: 1 };
+  const advisor = async () => ({ content: "write src/a.ts now", usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 } });
+  const stall = (h: ReturnType<typeof harness>) => {
+    for (let i = 0; i < 3; i += 1) {
+      h.read(1);
+      h.step();
+    }
+  };
+
+  it("sends no watch hint in an interval the advisor already steered", async () => {
+    const h = harness();
+    const c = handClock();
+    let calls = 0;
+    const run = runWorkerTasks({ ...h.deps, escalationComplete: advisor }, options(h, c.clock, async () => {
+      calls += 1;
+      return { kind: "answer", content: '{"state":"looping","hint":"stop re-reading"}' };
+    }, { escalation: { target: TARGET, pricing: { input: 1, output: 1 } } }));
+    await flush();
+    stall(h);
+    await flush();
+    stall(h);
+    expect(h.steered).toHaveLength(1);
+    await c.tick();
+    expect(calls).toBe(1);
+    expect(h.steered).toHaveLength(1);
+    h.finish();
+    const [row] = await run;
+    expect(row!.watch).toMatchObject({ judgeCalls: 1, hints: 0 });
+    expect(String(row!.notes)).toContain("watch: hint not sent: the advisor steered the worker in this interval");
+  });
+
+  it("watches the escalation model's re-run too, and stops it when stuck", async () => {
+    const h = harness();
+    const c = handClock();
+    const run = runWorkerTasks({ ...h.deps, escalationComplete: advisor }, options(h, c.clock, async () => ({
+      kind: "answer",
+      content: '{"state":"stuck","hint":null}',
+    }), { escalation: { target: { ...TARGET, replace: true }, pricing: { input: 1, output: 1 } } }));
+    await flush();
+    stall(h);
+    await flush();
+    stall(h);
+    // The local turn was replaced; the re-run starts with its own watch.
+    for (let i = 0; i < 10; i += 1) await flush();
+    expect(c.live()).toBe(true);
+    h.delta("x");
+    await c.tick();
+    await c.tick();
+    const [row] = await run;
+    expect(row!.status).toBe("failed");
+    expect(row!.failure).toBe("stuck");
+    expect(row!.watch).toMatchObject({ judgeCalls: 1, stopped: true });
+    expect(c.live()).toBe(false);
+  });
+});
+
 describe("the watch and the worker's self-check (issue #43)", () => {
   it("does not judge while the worker's own checks run after its reply", async () => {
     const h = harness();

@@ -66,8 +66,9 @@ import {
 } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
 import {
-  WATCH_TAIL_CHARS,
+  WatchProbeTracker,
   formatWatchSteer,
+  mergeWatchRecords,
   renderWatchJudgePrompt,
   startTaskWatch,
   type TaskWatch,
@@ -1410,19 +1411,9 @@ async function runOneTask(
   // What each completed step produced (F46): the current step's results
   // accumulate here and are folded into `steps` when it finishes.
   const steps: WorkerStepOutcome[] = [];
-  // The watch's probe (issue #43): output tokens of completed requests,
-  // and the streamed text of the request in flight (~4 chars a token).
-  let completedOutputTokens = 0;
-  let streamedChars = 0;
-  // The end of the streamed text, for the judge of a trickling stream.
-  let streamedTail = "";
-  // Tool calls parsed and not yet executed in this step: a long build or
-  // check run is waiting, not stalled (reset when the step finishes).
-  let toolsInFlight = 0;
-  // A request is out and has not produced its first token yet (set when
-  // a step starts or finishes, cleared by the first token): slow prompt
-  // processing on a later step is waiting, not stalled.
-  let awaitingFirstToken = false;
+  // The watch's probe (issue #43): steps, tokens, the streamed tail, tool
+  // calls in flight and a request awaiting its first token.
+  const watchProbe = new WatchProbeTracker(SERVED_EVENTS);
   let currentFingerprints: string[] = [];
   let currentBusy = false;
   // Why the step half fired, when it did; carried onto the note so the
@@ -1530,6 +1521,9 @@ async function runOneTask(
   // Escalations that reached the worker: an advisor hint or the re-run.
   // Counted for the outcome log (`outcome-log.ts`), never read back.
   let escalationsUsed = 0;
+  // The advisor steered the worker since the watch's last check: that
+  // check sends no hint of its own (issue #43).
+  let advisorSteeredSinceCheck = false;
   const escalationNotes: string[] = [];
   const target = options.escalation?.target;
   const targetLabel = target?.model ?? target?.providerId ?? "";
@@ -1592,6 +1586,7 @@ async function runOneTask(
     const steered =
       deps.steerWorker?.(session.id, formatAdvisorSteer(targetLabel, outcome.hint)) ??
       false;
+    if (steered) advisorSteeredSinceCheck = true;
     const line = `escalated to ${targetLabel} as advisor (${describeTrigger(trigger)}): ${formatCost(outcome.costUsd)}${steered ? "" : " — the worker's turn had ended, so the hint was not used"}`;
     escalationsUsed += 1;
     escalationNotes.push(line);
@@ -1821,47 +1816,55 @@ async function runOneTask(
   const watchPlan = options.watch?.(task.id);
   let watch: TaskWatch | undefined;
   const watchNotes: string[] = [];
-  const probeProgress = (): WatchProgress => ({
-    steps: stepsFinished,
-    outputTokens: completedOutputTokens + Math.ceil(streamedChars / 4),
-    filesChanged: collector.changedFileCount(),
-    served: servedAt !== null,
-    stalled: detectStall(steps) !== undefined,
-    paused: selfChecking,
-    toolsInFlight,
-    awaitingFirstToken,
-  });
-  const startWatch = (): TaskWatch | undefined => {
+  // The re-run on the escalation model gets a watch of its own, with
+  // what is left of the task's judge calls.
+  let rerunWatch: TaskWatch | undefined;
+  const probeProgress = (): WatchProgress =>
+    watchProbe.progress({
+      filesChanged: collector.changedFileCount(),
+      served: servedAt !== null,
+      stalled: detectStall(steps) !== undefined,
+      paused: selfChecking,
+    });
+  const startWatch = (run: {
+    sessionId: string;
+    probe: () => WatchProgress;
+    streamedTail: () => string;
+    findings: () => string;
+    judgeCallsUsed: number;
+    signal: AbortSignal;
+  }): TaskWatch | undefined => {
     if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
     return startTaskWatch({
       intervalMs: watchPlan.intervalMs,
       ...(watchPlan.firstTickJitterMs === undefined ? {} : { firstTickJitterMs: watchPlan.firstTickJitterMs }),
-      maxJudgeCalls: watchPlan.maxJudgeCalls,
-      ...(watchPlan.judgeCallCap === undefined ? {} : { judgeCallCap: watchPlan.judgeCallCap }),
+      maxJudgeCalls: Math.max(0, watchPlan.maxJudgeCalls - run.judgeCallsUsed),
+      judgeCallCap: watchPlan.judgeCallCap ?? watchPlan.maxJudgeCalls,
       judgeLabel: watchPlan.judgeLabel,
-      probe: probeProgress,
+      probe: run.probe,
       prompt: (before, now, quietIntervals) =>
         renderWatchJudgePrompt({
           brief,
-          findings: collector.findings(),
+          findings: run.findings(),
           before,
           now,
           intervalMinutes: Math.max(1, Math.round(watchPlan.intervalMs / 60_000)),
           quietIntervals,
-          streamedTail,
+          streamedTail: run.streamedTail(),
         }),
       judge: watchPlan.judge,
       onHint: (state, hint) =>
-        deps.steerWorker?.(session.id, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
+        deps.steerWorker?.(run.sessionId, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
       onStuck: () => stopByWatch.abort(new Error("stopped by the watch: stuck")),
-      onNote: (note) => watchNotes.push(note),
-      signal: AbortSignal.any([
-        options.signal,
-        timeLimit,
-        handBack.signal,
-        stopByPerson.signal,
-        replaceAbort.signal,
-      ]),
+      takeOtherSteer: () => {
+        const steered = advisorSteeredSinceCheck;
+        advisorSteeredSinceCheck = false;
+        return steered;
+      },
+      onNote: (note) => {
+        if (!watchNotes.includes(note)) watchNotes.push(note);
+      },
+      signal: run.signal,
       ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
     });
   };
@@ -1896,20 +1899,12 @@ async function runOneTask(
         // request is even sent — is what ends the queue wait.
         if (event.type === "llm_event" && SERVED_EVENTS.has(event.event.type)) {
           markServed();
-          awaitingFirstToken = false;
         }
-        if (event.type === "step_started") awaitingFirstToken = true;
-        if (
-          event.type === "llm_event" &&
-          (event.event.type === "assistant_delta" || event.event.type === "reasoning_delta")
-        ) {
-          // Counted defensively: the watch's probe must never take the
-          // event hook (and with it the worker) down.
-          const text: unknown = event.event.text;
-          if (typeof text === "string") {
-            streamedChars += text.length;
-            streamedTail = (streamedTail + text).slice(-WATCH_TAIL_CHARS);
-          }
+        try {
+          watchProbe.observe(event);
+        } catch {
+          // The watch's probe never takes the event hook (and with it
+          // the worker) down.
         }
         // Backstop for a provider that emits none of the above: by the
         // time a step has finished, tokens demonstrably arrived.
@@ -1925,8 +1920,6 @@ async function runOneTask(
           });
           currentFingerprints = [];
           currentBusy = false;
-          toolsInFlight = 0;
-          awaitingFirstToken = true;
           stepsFinished += 1;
           const stalled = detectStall(steps);
           if (stalled !== undefined) {
@@ -1941,7 +1934,6 @@ async function runOneTask(
           // `tool_call_parsed` fires before execution, which is what
           // "is being triggered" means — and it fires once per call in
           // a batched step, so the dedupe above earns its keep.
-          toolsInFlight += 1;
           announceStart();
           announceTool(event.event.call.tool);
           checkRuns.parsedCall(
@@ -1982,8 +1974,6 @@ async function runOneTask(
             completion.usage?.completionTokens ??
             completion.timing?.predictedTokens ??
             0;
-          completedOutputTokens += spent;
-          streamedChars = 0;
           if (
             timeFittedCap !== undefined &&
             firstCutTokens === undefined &&
@@ -2005,7 +1995,6 @@ async function runOneTask(
           event.event.type === "tool_call_executed"
         ) {
           const result = event.event.result;
-          toolsInFlight = Math.max(0, toolsInFlight - 1);
           if (result.status === "ok" && WRITE_TOOLS.has(result.tool)) {
             wroteSomething = true;
           }
@@ -2024,7 +2013,20 @@ async function runOneTask(
         collector.observe(event);
       },
     });
-    watch = startWatch();
+    watch = startWatch({
+      sessionId: session.id,
+      probe: probeProgress,
+      streamedTail: () => watchProbe.streamedTail(),
+      findings: () => collector.findings(),
+      judgeCallsUsed: 0,
+      signal: AbortSignal.any([
+        options.signal,
+        timeLimit,
+        handBack.signal,
+        stopByPerson.signal,
+        replaceAbort.signal,
+      ]),
+    });
     let turn = await deps.runTurn(
       session,
       brief,
@@ -2180,6 +2182,23 @@ async function runOneTask(
     // (ATO-1319).
     const localUsage = result.usage;
     const localTokens = result.localTokens;
+    // The re-run's own watch probe: its stream, its files, its steps.
+    const rerunProbe = new WatchProbeTracker(SERVED_EVENTS);
+    const rerunSteps: WorkerStepOutcome[] = [];
+    let rerunFingerprints: string[] = [];
+    let rerunBusy = false;
+    rerunWatch = startWatch({
+      sessionId: replaceSession.id,
+      probe: () =>
+        rerunProbe.progress({
+          filesChanged: replaceCollector.changedFileCount(),
+          stalled: detectStall(rerunSteps) !== undefined,
+        }),
+      streamedTail: () => rerunProbe.streamedTail(),
+      findings: () => replaceCollector.findings(),
+      judgeCallsUsed: watch?.record().judgeCalls ?? 0,
+      signal: AbortSignal.any([options.signal, stopByPerson.signal, capAbort.signal]),
+    });
     try {
       const turn = await deps.runTurn(
         replaceSession,
@@ -2195,11 +2214,27 @@ async function runOneTask(
           signal: AbortSignal.any([
             options.signal,
             stopByPerson.signal,
+            stopByWatch.signal,
             capAbort.signal,
           ]),
           eventHook: (event) => {
             markNoteRead(replaceSession.id, event);
             replaceCollector.observe(event);
+            try {
+              rerunProbe.observe(event);
+              if (event.type === "llm_event" && event.event.type === "tool_call_executed") {
+                const executed = event.event.result;
+                rerunFingerprints.push(fingerprintToolOutcome(executed.tool, executed));
+                if (executed.status === "ok" && !READ_ONLY_TOOLS.has(executed.tool)) rerunBusy = true;
+              }
+              if (event.type === "step_finished") {
+                rerunSteps.push({ fingerprint: rerunFingerprints.join("\n"), busy: rerunBusy });
+                rerunFingerprints = [];
+                rerunBusy = false;
+              }
+            } catch {
+              // The watch's probe never takes the re-run down.
+            }
             // The re-run's side effects reach the checkpoint as they
             // start, like the local worker's do (ATO-1316): a crash in
             // the middle of the re-run must not offer the task as safe
@@ -2264,6 +2299,7 @@ async function runOneTask(
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
+      rerunWatch?.stop();
       replaceSettled = true;
       clearTimeout(replaceTimer);
       clearTimeout(replaceGraceTimer);
@@ -2292,8 +2328,9 @@ async function runOneTask(
   // Stopped by the watch (issue #43): a failure the director decides on
   // (`describeReplan`'s own bucket), never a cancellation. What the
   // worker changed stays where the isolation rules keep a failed task's.
+  const watchRecord = mergeWatchRecords(watch?.record(), rerunWatch?.record());
   if (stopByWatch.signal.aborted) {
-    const record = watch?.record();
+    const record = watchRecord;
     const checks = record?.checks ?? 0;
     const { finishedWithoutReply: _unvouched, ...rest } = result;
     result = {
@@ -2365,8 +2402,8 @@ async function runOneTask(
     result = { ...result, selfCheckPassed: true };
   }
   if (escalationsUsed > 0) result = { ...result, escalations: escalationsUsed };
-  if (watch !== undefined) {
-    result = { ...result, watch: watch.record() };
+  if (watchRecord !== undefined) {
+    result = { ...result, watch: watchRecord };
     if (watchNotes.length > 0) result = { ...result, notes: [...(result.notes ?? []), ...watchNotes] };
   }
 

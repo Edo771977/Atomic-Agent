@@ -128,6 +128,85 @@ export function decideWatch(
   return quietIntervals + 1 >= WATCH_QUIET_INTERVALS ? "judge" : "ok";
 }
 
+/** The slice of an agent-loop event the probe reads; anything else is ignored. */
+export interface WatchObservedEvent {
+  type: string;
+  event?: unknown;
+}
+
+/**
+ * What the watch's probe counts from one worker turn's event stream:
+ * steps finished, output tokens (completions' counts, plus streamed
+ * text not yet completed at ~4 chars a token), the streamed tail, tool
+ * calls in flight and whether a request still awaits its first token.
+ * Read defensively: a malformed event never throws into the worker.
+ */
+export class WatchProbeTracker {
+  private stepCount = 0;
+  private completedTokens = 0;
+  private streamedChars = 0;
+  private tail = "";
+  private inFlight = 0;
+  private awaiting = false;
+  private servedOnce = false;
+
+  constructor(private readonly servedEvents: ReadonlySet<string>) {}
+
+  observe(event: WatchObservedEvent): void {
+    if (event.type === "step_started") this.awaiting = true;
+    if (event.type === "step_finished") {
+      this.stepCount += 1;
+      this.inFlight = 0;
+      this.awaiting = true;
+      this.servedOnce = true;
+      return;
+    }
+    if (event.type !== "llm_event" || typeof event.event !== "object" || event.event === null) return;
+    const inner = event.event as { type?: unknown; text?: unknown; completion?: unknown };
+    if (typeof inner.type !== "string") return;
+    if (this.servedEvents.has(inner.type)) {
+      this.servedOnce = true;
+      this.awaiting = false;
+    }
+    if (inner.type === "assistant_delta" || inner.type === "reasoning_delta") {
+      if (typeof inner.text === "string") {
+        this.streamedChars += inner.text.length;
+        this.tail = (this.tail + inner.text).slice(-WATCH_TAIL_CHARS);
+      }
+    } else if (inner.type === "tool_call_parsed") {
+      this.inFlight += 1;
+    } else if (inner.type === "tool_call_executed") {
+      this.inFlight = Math.max(0, this.inFlight - 1);
+    } else if (inner.type === "llm_completed") {
+      const completion = inner.completion as
+        | { usage?: { completionTokens?: unknown }; timing?: { predictedTokens?: unknown } }
+        | undefined;
+      const spent = completion?.usage?.completionTokens ?? completion?.timing?.predictedTokens ?? 0;
+      if (typeof spent === "number" && Number.isFinite(spent)) this.completedTokens += Math.max(0, spent);
+      this.streamedChars = 0;
+    }
+  }
+
+  /** The end of the streamed text, for the judge of a trickling stream. */
+  streamedTail(): string {
+    return this.tail;
+  }
+
+  /** The counts now; what the tracker cannot see comes from the caller. */
+  progress(extra: { filesChanged: number; stalled: boolean; served?: boolean; paused?: boolean }): WatchProgress {
+    return {
+      steps: this.stepCount,
+      outputTokens: this.completedTokens + Math.ceil(this.streamedChars / 4),
+      filesChanged: extra.filesChanged,
+      served: extra.served ?? this.servedOnce,
+      stalled: extra.stalled,
+      ...(extra.paused === undefined ? {} : { paused: extra.paused }),
+      toolsInFlight: this.inFlight,
+      awaitingFirstToken: this.awaiting,
+    };
+  }
+}
+
 /** A judge's readable answer. */
 export interface WatchAnswer {
   state: WatchState;
@@ -246,6 +325,19 @@ export interface WatchRecord {
   judge: string | null;
 }
 
+/** Two runs' records as one (a task's local attempt and its re-run). */
+export function mergeWatchRecords(a: WatchRecord | undefined, b: WatchRecord | undefined): WatchRecord | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return {
+    checks: a.checks + b.checks,
+    judgeCalls: a.judgeCalls + b.judgeCalls,
+    hints: a.hints + b.hints,
+    stopped: a.stopped || b.stopped,
+    judge: b.judge ?? a.judge,
+  };
+}
+
 /** A timer the watch can be driven by; the global one by default. */
 export interface WatchClock {
   setTimeout(fn: () => void, ms: number): unknown;
@@ -272,6 +364,8 @@ export interface TaskWatchOptions {
   maxJudgeCalls: number;
   /** The task's whole cap, named in the note once it is used; absent, `maxJudgeCalls`. */
   judgeCallCap?: number;
+  /** How long one judge call may take (`WATCH_JUDGE_TIMEOUT_MS` when absent). */
+  judgeTimeoutMs?: number;
   judgeLabel: string | null;
   probe: () => WatchProgress;
   /** The judge prompt for this check (`renderWatchJudgePrompt`). */
@@ -281,6 +375,12 @@ export interface TaskWatchOptions {
   onHint: (state: WatchState, hint: string) => boolean;
   /** Stop the task as stuck. Called at most once. */
   onStuck: () => void;
+  /**
+   * Whether another path (the advisor) steered the worker since the last
+   * check; read, and reset by the caller, once per check. True: this
+   * check sends no hint, so two voices do not steer the same stall.
+   */
+  takeOtherSteer?: () => boolean;
   /** A fact for the row, each distinct one once. */
   onNote?: (note: string) => void;
   /** The task's and the turn's; aborting it ends the watch. */
@@ -352,6 +452,7 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
     }
   };
   const check = async (): Promise<"stopped" | "go-on"> => {
+    const otherSteer = options.takeOtherSteer?.() === true;
     const now = options.probe();
     const prev = before ?? { steps: 0, outputTokens: 0, filesChanged: 0, served: now.served, stalled: false };
     before = now;
@@ -388,7 +489,8 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
       return "stopped";
     }
     if ((answer?.state === "looping" || answer?.state === "off-track") && answer.hint !== null) {
-      if (options.onHint(answer.state, answer.hint)) record.hints += 1;
+      if (otherSteer) note("watch: hint not sent: the advisor steered the worker in this interval");
+      else if (options.onHint(answer.state, answer.hint)) record.hints += 1;
     }
     return "go-on";
   };
