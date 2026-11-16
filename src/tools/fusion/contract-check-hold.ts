@@ -7,7 +7,8 @@ import type { ContractCheck } from "./contract.js";
 import { CONTRACT_CHECKS_HELD, ContractChecksHeldError, type ContractCheckRunner } from "./contract-checks.js";
 
 export type ContractCheckHoldGate = Partial<Pick<ApprovalGate,
-  "holdsForOutsideContent" | "outsideContentSources" | "request" | "ruleDecisionFor" | "hasDeclinedTarget"
+  "holdsForOutsideContent" | "outsideContentSources" | "request" | "ruleDecisionFor" | "hasDeclinedTarget" |
+  "grantVerifyPageForTurn" | "verifyPageGrantedForTurn"
 >>;
 export interface ContractCheckHold {
   decide(signal: AbortSignal, batch?: readonly Record<string, unknown>[]): Promise<string | undefined>;
@@ -15,9 +16,11 @@ export interface ContractCheckHold {
 }
 
 /**
- * Every batch is a new complete verification plan. No decision is cached:
- * children, retries, resumed checks, changed env/cwd and later taint all reach
- * the real gate. Serialize questions, never park a worker-owned prompt, and
+ * Every batch is a new complete verification plan. No decision is cached
+ * here: children, retries, resumed checks, changed env/cwd and later taint
+ * all reach the real gate. The one standing answer is the gate's own: a
+ * `verify_page_local` yes for the approved plan's folder stands for the
+ * turn (`turnGrantFolder`), never after outside content. Serialize questions, never park a worker-owned prompt, and
  * approve every check in a batch before invoking even its first executor.
  */
 export function createContractCheckHold(options: {
@@ -37,6 +40,8 @@ export function createContractCheckHold(options: {
   knownSecrets?: readonly KnownSecret[];
   readRoots?: readonly string[];
   checkInputs?: readonly string[];
+  /** The approved project plan's folder: a local page check approved there stands for the turn. */
+  turnGrantFolder?: string;
 }): ContractCheckHold {
   let tail = Promise.resolve();
   const authorize = (batch: readonly Record<string, unknown>[], workingDir: string, signal: AbortSignal, checkInputs?: readonly string[]) => {
@@ -50,6 +55,7 @@ export function createContractCheckHold(options: {
         ...(options.checkCommandReads === undefined ? {} : { checkCommandReads: options.checkCommandReads }),
         ...(options.checkReadTargets === undefined ? {} : { checkReadTargets: options.checkReadTargets }),
         ...(options.knownSecrets === undefined ? {} : { knownSecrets: options.knownSecrets }),
+        ...(options.turnGrantFolder === undefined ? {} : { turnGrantFolder: options.turnGrantFolder }),
       }, {
         sessionId: options.sessionId, workingDir, ruleWorkdir: options.workingDir,
         stepIndex: 0, signal: combined,

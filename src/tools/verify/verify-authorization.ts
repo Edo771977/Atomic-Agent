@@ -40,6 +40,13 @@ export interface VerifyAuthorizationOptions extends DangerousToolOptions {
   knownSecrets?: readonly KnownSecret[];
   /** Interactive checks may use a worker's approved scope; contract checks have their own preflight. */
   allowFanoutScope?: boolean;
+  /**
+   * The folder the session's approved project plan covers. A
+   * `verify_page_local` yes for that exact folder then stands for the rest
+   * of the turn (`ApprovalGate.grantVerifyPageForTurn`); absent: every
+   * probe asks as before.
+   */
+  turnGrantFolder?: string;
 }
 export interface VerifyAuthorizationContext extends ToolContext {
   /** Rules and displayed project paths belong to the original project, never a private copy. */
@@ -189,7 +196,20 @@ export async function authorizeVerifyBatch(
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "");
-    if (!scoped) await requireApproval(options, prompt, ctx.signal);
+    if (scoped) continue;
+    // A local page probe of a folder already approved this turn (in the
+    // approved plan's folder) runs unasked, unless a saved rule asks or
+    // denies, or the person declined the target (the gate also refuses it
+    // after outside content). Every other category keeps "Allow once".
+    const page = prompt.category === "verify_page_local";
+    if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
+      !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
+      !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) continue;
+    await requireApproval(options, prompt, ctx.signal);
+    if (page && options.approvalRequired && options.turnGrantFolder !== undefined &&
+      relative(resolve(options.turnGrantFolder), resolve(cwd)) === "") {
+      options.approvals.grantVerifyPageForTurn?.(ctx.sessionId, cwd);
+    }
   }
   ctx.signal.throwIfAborted();
   return snapshot;

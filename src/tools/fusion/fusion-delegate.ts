@@ -1350,6 +1350,7 @@ export function buildFusionDelegateTool(
         ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
         ...(ctx.readRoots === undefined ? {} : { readRoots: ctx.readRoots }),
         checkInputs: parsed.contract?.checkInputs ?? [],
+        ...(ctx.project?.plan?.status === "approved" ? { turnGrantFolder: candidateOriginalDir } : {}),
       });
       // The run the checks belong to, once its checkpoint exists: a page
       // check's screenshots are kept with it (issue #40). Read per call.

@@ -76,12 +76,15 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       catch { return { tool: VERIFY_RUN_TOOL, status: "error", summary: "verification authorization credentials are unavailable", details: {}, truncated: false }; }
       // Never ask to copy a root or the home folder (issue #53).
       const copyRoot = verifyCopyRoot(rawArgs, args, ctx.workingDir);
+      // The approved project plan covers the session's folder: a local
+      // page probe approved there stands for the turn.
+      const turnGrantFolder = ctx.project?.plan?.status === "approved" ? ctx.workingDir : undefined;
       if (!copyRoot.ok) {
         return { tool: VERIFY_RUN_TOOL, status: "error", summary: copyRoot.message, details: { error: copyRoot.message, reason: "workdir-too-broad", description: maskVerificationSecrets(description, knownSecrets) }, truncated: false };
       }
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       try {
-        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true }, ctx);
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }) }, ctx);
         args = parseVerifyRunArgs(approved[0]!);
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard

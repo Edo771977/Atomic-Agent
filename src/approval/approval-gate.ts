@@ -422,6 +422,8 @@ export class ApprovalGate {
    * is held for what the parent read, and the parent for what it reads.
    */
   private readonly taintParentBySession = new Map<string, string>();
+  /** Folders a `verify_page_local` probe was approved for in the session's current turn. */
+  private readonly verifyPageFoldersBySession = new Map<string, Set<string>>();
   /** Approval ids re-entering `request` after the taint check: no silent approval. */
   private readonly taintHeld = new Set<string>();
   /** `agent.taintReview`, read live; off until bootstrap wires it. */
@@ -567,9 +569,41 @@ export class ApprovalGate {
     return this.taintSourcesOf(sessionId);
   }
 
-  /** Forget the outside content of `sessionId`'s last turn; called when a turn starts. */
+  /**
+   * Forget the outside content of `sessionId`'s last turn, and the
+   * folders its local page probes were approved for in that turn
+   * (`grantVerifyPageForTurn`); called when a turn starts.
+   */
   clearUntrustedContent(sessionId: string): void {
     this.taint.clear(sessionId);
+    this.verifyPageFoldersBySession.delete(sessionId);
+  }
+
+  /**
+   * Remember that the person approved a `verify_page_local` probe of
+   * `folder` this turn (issue: double verify prompt). The caller records
+   * it only for a folder the session's approved project plan covers. It
+   * stands until the session's next turn starts, for that category and
+   * that exact folder only, never a parent or another category.
+   */
+  grantVerifyPageForTurn(sessionId: string, folder: string): void {
+    const folders = this.verifyPageFoldersBySession.get(sessionId) ?? new Set<string>();
+    folders.add(resolvePath(folder));
+    this.verifyPageFoldersBySession.set(sessionId, folders);
+  }
+
+  /**
+   * Whether a `verify_page_local` probe of `folder` on `sessionId` is
+   * covered by this turn's yes: one given on the session or, for a Fusion
+   * worker, on its orchestrator (`followTaint`). Never after outside
+   * content was read in the turn (the hold asks); the caller still checks
+   * saved rules and declined targets.
+   */
+  verifyPageGrantedForTurn(sessionId: string, folder: string): boolean {
+    if (this.holdsForOutsideContent(sessionId, "verify_page_local")) return false;
+    const target = resolvePath(folder);
+    return [sessionId, ...this.taintAncestors(sessionId)].some((id) =>
+      [...(this.verifyPageFoldersBySession.get(id) ?? [])].some((granted) => relative(granted, target) === ""));
   }
 
   /** Remove the session's policy so its requests prompt again. */
