@@ -611,9 +611,12 @@ export class ApprovalGate {
     const folders = (request.affectedResources ?? []).map((path) => resolvePath(path));
     const granted = folders.filter((folder) => offers.some((offer) => relative(offer, folder) === ""));
     if (granted.length === 0) return;
-    const set = this.verifyPageFoldersBySession.get(request.sessionId) ?? new Set<string>();
+    // Kept on the top orchestrator, whose turn start and session reset
+    // drop it: a worker's entry would outlive the fan-out.
+    const owner = this.taintAncestors(request.sessionId).at(-1) ?? request.sessionId;
+    const set = this.verifyPageFoldersBySession.get(owner) ?? new Set<string>();
     for (const folder of granted) set.add(folder);
-    this.verifyPageFoldersBySession.set(request.sessionId, set);
+    this.verifyPageFoldersBySession.set(owner, set);
   }
 
   /**
@@ -667,12 +670,16 @@ export class ApprovalGate {
       this.declinedBySession.clear();
       this.declinedParentBySession.clear();
       this.taintParentBySession.clear();
+      this.verifyPageFoldersBySession.clear();
+      this.verifyPageOffersBySession.clear();
       return;
     }
     this.grantsBySession.delete(sessionId);
     this.declinedBySession.delete(sessionId);
     this.declinedParentBySession.delete(sessionId);
     this.taintParentBySession.delete(sessionId);
+    this.verifyPageFoldersBySession.delete(sessionId);
+    this.verifyPageOffersBySession.delete(sessionId);
   }
 
   /**
