@@ -610,6 +610,25 @@ export interface AgentRuntime {
    */
   controlGoal?(sessionId: string, verb: "pause" | "clear"): boolean;
   /**
+   * The fusion project's gate as a surface draws it (issue #39): brief,
+   * rows with live estimates, totals, milestones, gate, version, allowed
+   * verdicts, the members each row may be given, limit violations. Null
+   * without the session or a project. Optional so embedders and test
+   * doubles need not implement it.
+   */
+  projectState?(sessionId: string): import("../tools/fusion/project-gate-view.js").ProjectGateView | null;
+  /**
+   * The person's decision at the project's gate: approve, edit,
+   * cheaper, quality or cancel, against the `version` they saw. Between
+   * turns only (refused while a turn runs on the session); estimates,
+   * variants and hard caps are computed from the live team, prices,
+   * policy and limits. Persists the session and emits `project_gate`.
+   */
+  projectDecision?(
+    sessionId: string,
+    decision: import("../session/session-project.js").ProjectDecision,
+  ): import("./project-decision-contract.js").RuntimeProjectDecisionResult;
+  /**
    * Inline counterpart to `runTurn` — runs the agent loop and
    * persists the result without acquiring the per-session lock. Use
    * this only from a `run` callback already passed to

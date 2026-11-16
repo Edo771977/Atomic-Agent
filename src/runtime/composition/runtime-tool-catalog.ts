@@ -52,9 +52,7 @@ import { captureImageGenerated, captureVideoGenerated } from "../../analytics/an
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
-import { projectPlanContextFrom } from "../../tools/fusion/project-plan-context.js";
-import { readRoutingHistory } from "../../tools/fusion/measured-routing.js";
-import { outcomeLogPath } from "../../tools/fusion/outcome-log.js";
+import { liveProjectInputsFrom } from "./runtime-project.js";
 import { currentPolicyAllows } from "../../llm/provider-policy.js";
 import {
   confineReads,
@@ -1069,27 +1067,16 @@ export function registerRuntimeFusionAndReadScope(input: {
   // and outcome history the fan-out routes by.
   for (const tool of buildProjectTools({
     planContext: () => {
-      const live = getConfig();
-      const resolved = resolveLlmConfig(live);
-      const fusion = resolved.runMode?.fusion;
       const mode = resolveCurrentRunMode();
-      const isLocal = (providerId: string): boolean => {
-        const entry = resolved.providers.find((p) => p.id === providerId);
-        return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
-      };
-      return projectPlanContextFrom({
-        team: teamContextFromConfig(live, teamMemberReachable),
-        ...(fusion?.judge === undefined ? {} : { judge: fusion.judge }),
+      return liveProjectInputsFrom({
+        config: getConfig(),
+        ...(teamMemberReachable === undefined ? {} : { reachable: teamMemberReachable }),
         allows: currentPolicyAllows,
-        workerLeg: mode.workerProviderId === null ? null : { providerId: mode.workerProviderId, model: mode.workerModel ?? mode.workerProviderId },
+        mode,
         ...(currentWorker === undefined ? {} : { currentWorker: currentWorker() }),
-        records: readRoutingHistory(outcomeLogPath(config.paths.stateDir)),
-        pricing: (providerId, model) => resolveModelPricingFor(resolved, model, providerId)?.pricing,
-        isLocal,
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
-        ...(fusion?.measuredRouting === undefined ? {} : { measured: fusion.measuredRouting }),
-        ...(fusion?.project === undefined ? {} : { projectConfig: fusion.project }),
-      });
+        dailyRemainingUsd: null,
+      }).plan;
     },
     outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
   })) {

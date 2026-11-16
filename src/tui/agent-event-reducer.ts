@@ -1151,6 +1151,10 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       return event.sessionId === state.session.sessionId
         ? { ...state, sessionUsage: event.usage }
         : state;
+    case "project_gate":
+      // Issue #39: the project card renders from its own view of the
+      // gate; the reducer's chat state does not hold it.
+      return state;
     case "loop_detected":
       // Deliberately not rendered: the loop detector's own `### notice`
       // changes what the model does, and the operator sees the effect

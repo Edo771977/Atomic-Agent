@@ -153,6 +153,12 @@ export interface RuntimeTurnDependencies {
    * narrow test rigs: nothing is said.
    */
   emitEvent?: (sessionId: string, event: AgentLoopEvent) => void;
+  /**
+   * After a turn is saved: the fusion project before and after it (issue
+   * #39), so the runtime can say `project_gate` when the turn left a new
+   * gate. Absent in narrow test rigs.
+   */
+  onProjectTurnEnd?: (sessionId: string, before: SessionState["project"], after: SessionState["project"]) => void;
 }
 
 export function createRuntimeTurnService(
@@ -824,6 +830,8 @@ export function createRuntimeTurnService(
         };
         // The turn's end replaces its `running` mark (`beginTurn`).
         sessionStore.finishTurn(finished);
+        // A brief, plan or milestone report the turn left for the person.
+        deps.onProjectTurnEnd?.(session.id, session.project, finished.project);
         // Name the thread once, from its first prompt, after the first
         // turn that actually answered. Fire-and-forget on purpose: the
         // turn is already saved and already returned, and an unnamed

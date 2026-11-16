@@ -444,6 +444,19 @@ describe("runtime turn ownership recipes", () => {
     expect(silent.usage).toBeUndefined();
   });
 
+  it("reports the project before and after a saved turn (issue #39)", async () => {
+    const seen: Array<[string, unknown, unknown]> = [];
+    const project = { milestones: [], gate: { kind: "brief" as const } };
+    fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) =>
+      result({ ...value, project } as SessionState, options));
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      onProjectTurnEnd: (sessionId, before, after) => { seen.push([sessionId, before, after]); },
+    });
+    await service.runTurn(session("projected"), "request");
+    expect(seen).toEqual([["projected", undefined, project]]);
+  });
+
   it("a turn queued behind a running one does not reset the running turn's usage", async () => {
     const meter = fixture.deps.telemetry.turnUsageMeter;
     const gate = deferred<void>();
