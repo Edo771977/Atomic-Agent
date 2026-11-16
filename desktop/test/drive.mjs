@@ -608,6 +608,9 @@ export async function launch(o) {
        switches, e.g. `--fake-ram=8` to make the local-model
        recommendation face a machine this Mac is not. */
     ...(o.args || []),
+    /* Chromium refuses to start as root with its sandbox on (containers,
+       CI images): the driven run then has to go without it. */
+    ...(process.platform === 'linux' && process.getuid?.() === 0 ? ['--no-sandbox'] : []),
   ], {
     cwd: DESKTOP_DIR,
     detached: true,
