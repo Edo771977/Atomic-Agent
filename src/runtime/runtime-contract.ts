@@ -38,6 +38,9 @@ import type { CapabilitiesSummary, SkillCatalogEntry, ToolDescriptor } from "../
 import type { AgentLoop } from "../agent/agent-loop.js";
 import type { AgentLoopEvent, RunTurnResult } from "../agent/agent-contract.js";
 import type { GoalSpec, GoalState } from "../agent/goal/index.js";
+import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
+import type { RuntimeProjectDecisionResult } from "./project-decision-contract.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
 import type { TaskRunner, TaskStore } from "../tasks/index.js";
 import type { Scheduler } from "../scheduler/index.js";
@@ -616,7 +619,7 @@ export interface AgentRuntime {
    * without the session or a project. Optional so embedders and test
    * doubles need not implement it.
    */
-  projectState?(sessionId: string): import("../tools/fusion/project-gate-view.js").ProjectGateView | null;
+  projectState?(sessionId: string): ProjectGateView | null;
   /**
    * The person's decision at the project's gate: approve, edit,
    * cheaper, quality or cancel, against the `version` they saw. Between
@@ -626,8 +629,8 @@ export interface AgentRuntime {
    */
   projectDecision?(
     sessionId: string,
-    decision: import("../session/session-project.js").ProjectDecision,
-  ): import("./project-decision-contract.js").RuntimeProjectDecisionResult;
+    decision: ProjectDecision,
+  ): RuntimeProjectDecisionResult;
   /**
    * Inline counterpart to `runTurn` — runs the agent loop and
    * persists the result without acquiring the per-session lock. Use

@@ -667,6 +667,18 @@ export const MENU: readonly MenuNode[] = [
   },
   {
     kind: "action",
+    id: "run.plan",
+    label: "Show this chat's fusion project plan",
+    group: "run",
+    slash: {
+      name: "plan",
+      description:
+        "the fusion project's brief, plan rows with estimates and milestones in full; at an open gate, approve, edit rows, ask for a cheaper or higher-quality plan, correct a milestone or cancel",
+      rank: 46.8,
+    },
+  },
+  {
+    kind: "action",
     id: "run.fusion-resume",
     label: "Resume or discard an unfinished fusion run",
     group: "run",

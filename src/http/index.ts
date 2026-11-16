@@ -1,4 +1,5 @@
 export { ApprovalBus } from "./approval-bus.js";
+export { ProjectGateBus } from "./project-gate-bus.js";
 export type { ApprovalListener } from "./approval-bus.js";
 
 export { CompletionRegistry } from "./completion-registry.js";

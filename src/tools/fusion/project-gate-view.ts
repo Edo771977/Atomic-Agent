@@ -2,79 +2,23 @@ import {
   allowedProjectVerdicts,
   gateVersion,
   projectExpectation,
-  type AssignmentRow,
-  type PlanDetail,
-  type ProjectBrief,
-  type ProjectExpectation,
-  type ProjectGate,
-  type ProjectMilestone,
-  type ProjectPlanTotals,
   type ProjectState,
-  type ProjectVerdict,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
+import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 
 /**
- * The structured project a surface draws its gate card from (issue #39):
- * the TUI card and `/plan`, the CLI's printed gate, the HTTP route and
- * the sidecar's `project_gate` event all render this one shape, so they
- * cannot disagree about what is being approved. Built by
- * {@link projectGateView}, pure; the runtime fills the live parts
- * (estimates from the current team, prices and limits; the members the
- * person may pick per row).
- *
- * A decision is sent back as `ProjectDecision { gate, version, verdict,
- * edits? }` with `gate` and `version` copied from this view.
+ * Builds the {@link ProjectGateView} every surface draws (issue #39). The
+ * types live in `session/project-gate-view.ts` so surfaces can import
+ * them; this file only fills them, pure.
  */
-export interface ProjectGateView {
-  /** Payload version of this shape; bumped on an incompatible change. */
-  schema: 1;
-  sessionId: string;
-  /** What waits on the person. */
-  gate: ProjectGate;
-  /** `gateVersion`: the number a decision must carry; null when nothing can be decided. */
-  version: number | null;
-  /** The buttons the card draws. */
-  allowedVerdicts: ProjectVerdict[];
-  /** What happens next (`projectExpectation`). */
-  expectation: ProjectExpectation;
-  cancelled: boolean;
-  brief: ProjectBrief | null;
-  plan: {
-    status: "draft" | "approved" | "cancelled";
-    /** The default detail; `/plan` shows full regardless. */
-    detail: PlanDetail;
-    version: number;
-    rows: ProjectGateRow[];
-    /** Wave-aware totals (`estimatePlan`): cost summed, time over milestones in order. */
-    totals: ProjectPlanTotals;
-  } | null;
-  milestones: ProjectGateMilestone[];
-  /** Every limit the plan breaks, hard ones first; approve is refused while any hard one stands. */
-  violations: ProjectGateViolation[];
-}
 
-export interface ProjectGateRow extends AssignmentRow {
-  /** Workers the person may pick for this row: team workers the folder's policy allows and that can answer. */
-  selectableWorkers: string[];
-  /** Reviewers the person may pick (null — no review — is always allowed). */
-  selectableReviewers: string[];
-}
-
-export interface ProjectGateMilestone extends ProjectMilestone {
-  /** The milestone's estimate (`estimatePlan`); null when unknown. */
-  estCostUsd: number | null;
-  estMs: number | null;
-}
-
-export interface ProjectGateViolation {
-  kind: PlanViolation["kind"];
-  severity: "hard" | "warn";
-  /** One line for the card (`describeViolation`). */
-  message: string;
-  milestoneId?: string;
-  taskId?: string;
-}
+// The view's violation kinds must stay the estimator's.
+type _SameKinds = [PlanViolation["kind"]] extends [ProjectGateViolationKind]
+  ? [ProjectGateViolationKind] extends [PlanViolation["kind"]] ? true : never
+  : never;
+const _sameKinds: _SameKinds = true;
+void _sameKinds;
 
 export interface ProjectGateViewInput {
   sessionId: string;

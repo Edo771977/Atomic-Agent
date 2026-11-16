@@ -1,0 +1,59 @@
+import type { AgentRuntime } from "../runtime/runtime-contract.js";
+import { projectContinueMessage } from "../session/project-continue.js";
+import { formatProjectGateText, projectApprovalLine } from "../session/project-gate-text.js";
+import type { ProjectDecision } from "../session/session-project.js";
+
+/**
+ * `run` at a fusion project gate (issue #39). An unattended run never
+ * approves on its own: after a turn that left a gate open it prints the
+ * gate and exits {@link PROJECT_GATE_EXIT} with the session id, and
+ * `run --session <id> --approve` approves that gate. Only the explicit
+ * `--auto-approve-project` approves every gate as it opens, printing each.
+ */
+
+/** `run`'s exit code for "stopped at a project gate; nothing failed". */
+export const PROJECT_GATE_EXIT = 3;
+
+export type ProjectGateStep =
+  /** No project, or nothing waits on the person: carry on. */
+  | { kind: "open" }
+  /** A gate waits; print `text` and stop. */
+  | { kind: "stop"; text: string }
+  /** Approved: print `line`; run `message` as the next turn when not null. */
+  | { kind: "approved"; line: string; message: string | null }
+  /** The approval was refused (a hard cap, a stale version): print `text`. */
+  | { kind: "failed"; text: string };
+
+type GateRuntime = Pick<AgentRuntime, "projectState" | "projectDecision">;
+
+export async function settleProjectGate(
+  runtime: GateRuntime,
+  sessionId: string,
+  mode: "stop" | "approve",
+): Promise<ProjectGateStep> {
+  const view = runtime.projectState?.(sessionId) ?? null;
+  if (view === null || view.gate.kind === "none") return { kind: "open" };
+  if (mode === "stop") {
+    return {
+      kind: "stop",
+      text: [
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        `Approve with: atomic-agent run --session ${sessionId} --approve`,
+        "Or continue the chat with --session to ask the director for changes.",
+      ].join("\n"),
+    };
+  }
+  if (runtime.projectDecision === undefined || view.version === null || !view.allowedVerdicts.includes("approve")) {
+    return { kind: "failed", text: `${formatProjectGateText(view)}\nThis gate cannot be approved here.` };
+  }
+  const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
+  const outcome = runtime.projectDecision(sessionId, decision);
+  if (!outcome.ok) {
+    const why = outcome.error.code === "turn-running"
+      ? `another turn is running on session ${sessionId}; approve again when it finishes`
+      : outcome.error.message;
+    return { kind: "failed", text: `${formatProjectGateText(view)}\nNot approved: ${why}` };
+  }
+  return { kind: "approved", line: projectApprovalLine(view), message: projectContinueMessage(outcome.view, decision) };
+}

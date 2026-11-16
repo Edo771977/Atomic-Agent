@@ -14,6 +14,7 @@ import {
 
 import {
   ApprovalBus,
+  ProjectGateBus,
   buildRouteTable,
   CompletionRegistry,
   createHttpServer,
@@ -48,6 +49,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   }
 
   const approvalBus = new ApprovalBus();
+  const projectGateBus = new ProjectGateBus();
   const completionRegistry = new CompletionRegistry();
 
   let runtime: AgentRuntime | null = null;
@@ -83,6 +85,10 @@ export async function serveCommand(args: string[]): Promise<number> {
         // factory's parameter makes that a compile error now, and
         // `serve-command.test.ts` reads what is passed here.
         logSinks: [createStderrSink()],
+        // Issue #39: fusion project gates reach GET /api/events.
+        onAgentEvent: (event) => {
+          if (event.type === "project_gate") projectGateBus.publish(event);
+        },
         onApprovalRequest: (request) => {
           // ATO-1111: drop mirrored prompts whose turn was aborted, so a
           // window that never reconnects /api/events does not keep them.
@@ -99,6 +105,7 @@ export async function serveCommand(args: string[]): Promise<number> {
       apiKey: parsed.apiKey,
       routes: buildRouteTable(),
       approvalBus,
+      projectGateBus,
       completionRegistry,
     });
     const authNote = parsed.apiKey ? "auth=bearer" : "auth=none";

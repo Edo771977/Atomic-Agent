@@ -29,6 +29,8 @@ import {
 import { CodingModeChip } from "./coding-mode/coding-mode-chip.js";
 import { CodingModePopup } from "./coding-mode/coding-mode-popup.js";
 import { IssueReportPopup } from "./issue-report/issue-report-popup.js";
+import { ProjectCardPopup } from "./project/project-card-popup.js";
+import type { ProjectDecision } from "../session/session-project.js";
 import type { IssueReportLevel } from "./issue-report/report-levels.js";
 import { OnboardingScreen } from "./onboarding/onboarding-screen.js";
 import { TerminalTooSmall } from "./components/terminal-too-small.js";
@@ -414,6 +416,8 @@ export interface TuiAppCallbacks {
   onComposerTeamMemberChosen?(role: "director" | "worker", member: string | null): void;
   /** `/director`, `/worker` (issue #37): open the team picker for the open chat. */
   onTeamPickerRequested?(role: "director" | "worker"): void;
+  /** `/plan` (issue #39): show the open chat's fusion project in full. */
+  onProjectViewRequested?(): void;
   onLocalModelsEngineRequested?(engine: "atomic-core" | "llama-server"): void;
   onLocalModelsSetActiveRequested?(
     modelId: import("../local-llm/index.js").LocalModelId,
@@ -752,6 +756,10 @@ export interface TuiAppCallbacks {
   onIssueReportSendRequested?(): void;
   /** The popup was dismissed; the orchestrator drops its prepared report. */
   onIssueReportCloseRequested?(): void;
+  /** Project card (issue #39): the person's verdict at the open chat's gate. */
+  onProjectDecision?(sessionId: string, decision: ProjectDecision): void;
+  /** Project card: "revise" at the brief gate. */
+  onProjectReviseBrief?(): void;
   /** Telegram tab: refresh state mirror (token presence, owner, etc.). */
   onTelegramRefreshRequested?(): void;
   /**
@@ -2476,6 +2484,18 @@ export function TuiApp({
                       }
                       onActivate={(mode) =>
                         dispatch({ type: "coding_mode_cycled", mode })
+                      }
+                    />
+                  ) : null}
+                  {state.projectCard &&
+                  state.projectCard.sessionId === state.session.sessionId ? (
+                    <ProjectCardPopup
+                      card={state.projectCard}
+                      availableRows={switchPaneRows}
+                      availableColumns={
+                        terminalSize.columns -
+                        4 -
+                        (sidebarVisible ? sidebarWidth : 0)
                       }
                     />
                   ) : null}

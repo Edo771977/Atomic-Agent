@@ -1,4 +1,5 @@
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
+import { projectGateNotice, runProjectCommand } from "./project-command.js";
 import {
   buildStatusSnapshot,
   createSnapshotCadence,
@@ -288,6 +289,7 @@ function helpText(ctx: InboundContext): string {
     "  /switch <session-id> — point this chat at an existing session\n" +
     "  /new — rotate this chat to a fresh session (current one is archived)\n" +
     "  /model — show the provider and model in use; /model <provider> [model-id] switches\n" +
+    "  /plan — the fusion project gate waiting on you; /plan approve or /plan cancel decides it\n" +
     "  /cancel — abort this chat's current turn if one is running"
   );
 }
@@ -759,6 +761,22 @@ async function handleSlashCommand(
       );
       return;
     }
+    case "/plan": {
+      // Issue #39: the fusion project gate's text fallback.
+      const sessionId = ctx.sessionPointer.get(ref.key).current;
+      if (sessionId && channelSendWithheld(ctx.runtime, sessionId)()) {
+        await sendText(ctx, ref.target, CHANNEL_RESTRICTED_NOTICE);
+        return;
+      }
+      const out = await runProjectCommand(rest, {
+        runtime: ctx.runtime,
+        sessionId: sessionId ?? null,
+        busy: ctx.inflight.has(ref.key),
+      });
+      await sendText(ctx, ref.target, out.text);
+      if (out.continueWith !== null) await dispatchToRuntime(out.continueWith, ref, ctx);
+      return;
+    }
     case "/cancel": {
       const controller = ctx.inflight.get(ref.key);
       if (!controller) {
@@ -1040,6 +1058,12 @@ async function dispatchToRuntime(
     await sendText(ctx, ref.target, formatFailure(failure));
   } else {
     await sendText(ctx, ref.target, "(no reply)");
+  }
+  // Issue #39: a turn that left a fusion project gate open says so, with
+  // the text verdicts; the gate waits for the owner's /plan approve.
+  if (!controller.signal.aborted) {
+    const gateNotice = projectGateNotice(ctx.runtime, session.id);
+    if (gateNotice !== null) await sendText(ctx, ref.target, gateNotice);
   }
   // Count one outbound message per logical agent reply (not per
   // sendMessage chunk). Status-only confirmations from slash

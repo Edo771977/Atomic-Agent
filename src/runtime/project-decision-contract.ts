@@ -1,5 +1,5 @@
 import type { ProjectDecisionError, ProjectState } from "../session/session-project.js";
-import type { ProjectGateView } from "../tools/fusion/project-gate-view.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
 
 /**
  * What `runtime.projectDecision` returns (issue #39): the project's own

@@ -19,7 +19,8 @@ import {
   type PlanEstimate,
   type VariantContext,
 } from "../../tools/fusion/project-estimate.js";
-import { projectGateChanged, projectGateView, type ProjectGateView } from "../../tools/fusion/project-gate-view.js";
+import type { ProjectGateView } from "../../session/project-gate-view.js";
+import { projectGateChanged, projectGateView } from "../../tools/fusion/project-gate-view.js";
 import type { ProjectPlanContext } from "../../tools/fusion/project-tools.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";

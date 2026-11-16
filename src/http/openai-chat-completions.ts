@@ -983,6 +983,14 @@ export function buildStreamEventHook(
        and the orchestrator's reply. Extensions-only, like every other
        atomic frame. Absent fields stay absent: a model the runtime does not
        know is not named here, for the reason the TUI line omits it. */
+    /* Issue #39: a fusion project gate opened or changed in this turn; the
+       whole view the desktop card draws. Extensions-only. */
+    if (event.type === "project_gate") {
+      if (env.request.extensionsEnabled) {
+        sse.writeEvent("project_gate", { object: "atomic.project_gate", session_id: event.sessionId, view: event.view });
+      }
+      return;
+    }
     if (event.type === "fusion_worker") {
       if (env.request.extensionsEnabled) {
         // `phase: "usage"` carries how full the worker's context is, for

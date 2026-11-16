@@ -3,7 +3,8 @@ import {
   type ApprovalGate,
   type ApprovalRequest,
 } from "../approval/approval-gate.js";
-import { approvalForServe } from "./serve-egress.js";
+import { approvalForServe, serveWithheld } from "./serve-egress.js";
+import type { ProjectGateEvent } from "./project-gate-bus.js";
 import { describeAlwaysRule } from "../approval/approval-rules.js";
 
 import { openaiError } from "./openai-errors.js";
@@ -213,9 +214,19 @@ export function createApprovalEventsHandler(): HttpHandler {
         approvalEventPayload(approvalForServe(ctx, request), ctx.runtime.approvals),
       );
     });
+    // Issue #39: fusion project gates, the open ones replayed so a
+    // reloaded window draws its card again. A session whose content may
+    // not leave over this server gets no frame.
+    const writeGate = (event: ProjectGateEvent): void => {
+      if (serveWithheld(ctx, event.sessionId)()) return;
+      sse.writeEvent("project_gate", { session_id: event.sessionId, view: event.view });
+    };
+    for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);
+    const unsubscribeGates = ctx.projectGateBus?.subscribe(writeGate);
     await new Promise<void>((resolvePromise) => {
       req.on("close", () => {
         unsubscribe();
+        unsubscribeGates?.();
         sse.close();
         resolvePromise();
       });
