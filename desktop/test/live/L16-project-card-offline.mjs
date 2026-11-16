@@ -60,6 +60,22 @@ async function until(app, test, label, timeout = 20000) {
 const cardText = (app) => app.eval(`(() => { const h = document.querySelector('#projectcard'); return h && !h.hidden ? h.innerText : null; })()`);
 const cardVersion = (app) => app.eval(`(document.querySelector('#projectcard:not([hidden]) .pc-ver') || {}).textContent || null`);
 
+/* Where the card is against the chat: a column beside it when wide, a sheet above the composer when narrow. */
+async function geometry(app, label, { narrow = false } = {}) {
+  const g = await app.eval(`(() => {
+    const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return {l: b.left, t: b.top, r: b.right, b: b.bottom}; };
+    return {card: r('#projectcard'), bar: r('#projectcard .pc-actions'), composer: r('.composerwrap'), list: r('#scroller'),
+      vw: innerWidth, vh: innerHeight, narrow: document.querySelector('#projectcard').classList.contains('pc-narrow'),
+      barClipped: [...document.querySelectorAll('#projectcard .pc-actions button')].some((b) => { const x = b.getBoundingClientRect(); const c = document.querySelector('#projectcard .pc-card').getBoundingClientRect(); return x.bottom > c.bottom + 0.5 || x.top < c.top - 0.5; })};
+  })()`);
+  const meets = (a, b) => !!a && !!b && a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+  check(g.narrow === narrow, `${label}: the card is ${narrow ? 'a sheet' : 'a column'}`, JSON.stringify(g));
+  check(!meets(g.card, g.composer), `${label}: the card does not cover the composer`, JSON.stringify([g.card, g.composer]));
+  if (!narrow) check(!meets(g.card, g.list), `${label}: the card does not cover the message list`, JSON.stringify([g.card, g.list]));
+  check(g.bar && g.bar.b <= g.card.b + 0.5 && g.bar.t >= g.card.t && g.bar.b <= g.vh, `${label}: the action bar is inside the card and on screen`, JSON.stringify([g.bar, g.card, g.vh]));
+  check(!g.barClipped, `${label}: every action button is fully visible`);
+}
+
 async function shots(app, dir, name) {
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1470, height: 923, deviceScaleFactor: 2, mobile: false });
   for (const scheme of ['light', 'dark']) {
@@ -96,6 +112,17 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   const buttons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
   check(JSON.stringify(buttons) === JSON.stringify(['Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel project']),
     'the buttons are the view\'s verdicts', JSON.stringify(buttons));
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 1470, height: 923, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  await geometry(app, 'wide window, plan gate');
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 860, height: 760, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  await geometry(app, 'narrow window, plan gate', { narrow: true });
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 860, height: 760, deviceScaleFactor: 2, mobile: false });
+  await sleep(300);
+  await app.screenshot(join(SHOTS, 'project-card-plan-narrow-light.png'));
+  await app.send('Emulation.clearDeviceMetricsOverride', {});
+  await sleep(400);
   await shots(app, SHOTS, 'project-card-plan');
 
   // ---- an edit: another worker for t2 ---------------------------------------------
@@ -143,6 +170,10 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   check(ms.includes('The board renders with all 32 pieces'), 'the milestone card shows the result');
   const msButtons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
   check(JSON.stringify(msButtons) === JSON.stringify(['Approve milestone', 'Correct…', 'Cancel project']), 'the milestone buttons', JSON.stringify(msButtons));
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 1470, height: 923, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  await geometry(app, 'wide window, milestone gate');
+  await app.send('Emulation.clearDeviceMetricsOverride', {});
   await shots(app, SHOTS, 'project-card-milestone');
   await app.clickText('Correct…', { scope: '#projectcard' });
   await app.waitFor(`!!document.querySelector('#projectcard textarea')`, 'the correction box');

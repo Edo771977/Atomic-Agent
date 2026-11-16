@@ -36,6 +36,8 @@
       <div id="main">
         <aside id="sidebar"></aside>
         <section id="content"></section>
+        <!-- Issue #39: the fusion project card, a column beside the chat (project-card.js draws it, render() never does). -->
+        <aside id="projectcard" hidden></aside>
         <!-- ATO-1053: a file previewed beside the chat (file-preview.js draws it, render() never does). -->
         <aside id="fpreview" hidden></aside>
         <aside id="inspector"></aside>
@@ -48,8 +50,6 @@
       <div id="overlays"></div>
       <!-- ATO-1113: the Run overnight dialog and its runs card (overnight.js draws it, render() never does). -->
       <div id="overnight"></div>
-      <!-- Issue #39: the fusion project card (project-card.js draws it, render() never does). -->
-      <div id="projectcard" hidden></div>
       <div id="toasts"></div>
     </div>
   </div>

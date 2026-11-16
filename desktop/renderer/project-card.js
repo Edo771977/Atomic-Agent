@@ -354,6 +354,46 @@ function pcButton(doc, label, cls, onClick, disabled, title) {
   return b;
 }
 
+/**
+ * A team member ref (`provider:model`): the provider and the model each stay
+ * whole and a line may break only after the colon; the full ref is the title.
+ */
+function pcRef(doc, ref) {
+  const el = pcEl(doc, 'span', 'pc-ref');
+  el.title = ref;
+  const at = ref.indexOf(':');
+  if (at <= 0) { el.appendChild(pcEl(doc, 'span', 'pc-ref-part', ref)); return el; }
+  el.appendChild(pcEl(doc, 'span', 'pc-ref-part', ref.slice(0, at + 1)));
+  el.appendChild(doc.createElement('wbr'));
+  el.appendChild(pcEl(doc, 'span', 'pc-ref-part', ref.slice(at + 1)));
+  return el;
+}
+
+/**
+ * Where the card sits. Wide: a column of its own beside the chat (#main is a
+ * flex row; the chat column narrows), nothing to measure. Narrow (the
+ * `--narrow` class, below PC_NARROW_PX): a sheet over the message list,
+ * between the chat's top and the composer's top, so it never covers the
+ * composer. Called after each paint and on resize.
+ */
+const PC_NARROW_PX = 1000;
+function pcPlace(win, host) {
+  if (!host || host.hidden) return;
+  const narrow = win.innerWidth < PC_NARROW_PX;
+  host.classList.toggle('pc-narrow', narrow);
+  if (!narrow) return;
+  const doc = win.document;
+  const content = doc.querySelector('#content');
+  const composer = doc.querySelector('.composerwrap') || doc.querySelector('#composer');
+  if (!content) return;
+  const c = content.getBoundingClientRect();
+  const bottom = composer ? composer.getBoundingClientRect().top : c.bottom;
+  host.style.setProperty('--pc-left', Math.round(c.left + 8) + 'px');
+  host.style.setProperty('--pc-width', Math.max(0, Math.round(c.width - 16)) + 'px');
+  host.style.setProperty('--pc-top', Math.round(c.top + 8) + 'px');
+  host.style.setProperty('--pc-height', Math.max(120, Math.round(bottom - c.top - 16)) + 'px');
+}
+
 function pcSelect(doc, options, value, label, onChange, disabled) {
   const sel = pcEl(doc, 'select', 'pc-select');
   sel.setAttribute('aria-label', label);
@@ -384,7 +424,10 @@ function pcDraw(doc, host, model, on) {
   head.appendChild(pcEl(doc, 'span', 'pc-ver', 'v' + model.version));
   head.appendChild(pcButton(doc, 'Hide', 'btn btn-g xs', () => on({type: 'hide'}), false, 'Put the card away; reopening the chat shows it again'));
   card.appendChild(head);
-  for (const w of model.warnings) card.appendChild(pcEl(doc, 'p', 'pc-warn', w));
+  /* Only the body scrolls: the head and the action bar stay in view. */
+  const body = pcEl(doc, 'div', 'pc-body');
+  card.appendChild(body);
+  for (const w of model.warnings) body.appendChild(pcEl(doc, 'p', 'pc-warn', w));
   if (model.brief.length || model.criteria.length) {
     const b = pcEl(doc, 'dl', 'pc-brief');
     for (const line of model.brief) {
@@ -399,7 +442,7 @@ function pcDraw(doc, host, model, on) {
       dd.appendChild(ul);
       b.appendChild(dd);
     }
-    card.appendChild(b);
+    body.appendChild(b);
   }
   if (model.rows.length) {
     const list = pcEl(doc, 'ol', 'pc-rows');
@@ -417,21 +460,24 @@ function pcDraw(doc, host, model, on) {
         who.appendChild(pcEl(doc, 'span', 'pc-lbl', 'review'));
         who.appendChild(pcSelect(doc, r.reviewers, r.reviewer, 'Reviewer for ' + r.taskId, (value) => on({type: 'reviewer', taskId: r.taskId, value}), model.busy));
       } else {
-        who.appendChild(pcEl(doc, 'span', null, 'worker ' + r.worker + ' · review ' + (r.reviewer === null ? 'none' : r.reviewer)));
+        // Each label stays with its ref; the pair wraps as one.
+        const pair = (label, node) => { const p = pcEl(doc, 'span', 'pc-pair'); p.appendChild(pcEl(doc, 'span', 'pc-lbl', label)); p.appendChild(node); return p; };
+        who.appendChild(pair('worker ', pcRef(doc, r.worker)));
+        who.appendChild(pair(' · review ', r.reviewer === null ? pcEl(doc, 'span', 'pc-ref', 'none') : pcRef(doc, r.reviewer)));
       }
       li.appendChild(who);
       li.appendChild(pcEl(doc, 'div', 'pc-meta', r.estimate + ' · ' + r.basis));
       if (r.reason) li.appendChild(pcEl(doc, 'div', 'pc-reason', r.reason));
       list.appendChild(li);
     }
-    card.appendChild(list);
+    body.appendChild(list);
   }
-  if (model.totals) card.appendChild(pcEl(doc, 'div', 'pc-total', 'Total: ' + model.totals));
-  if (model.scopeNote) card.appendChild(pcEl(doc, 'p', 'pc-scope', model.scopeNote));
+  if (model.totals) body.appendChild(pcEl(doc, 'div', 'pc-total', 'Total: ' + model.totals));
+  if (model.scopeNote) body.appendChild(pcEl(doc, 'p', 'pc-scope', model.scopeNote));
   if (model.violations.length) {
     const ul = pcEl(doc, 'ul', 'pc-violations');
     for (const v of model.violations) ul.appendChild(pcEl(doc, 'li', v.hard ? 'pc-hard' : 'pc-soft', (v.hard ? '✕ Over a hard limit: ' : '! ') + v.text));
-    card.appendChild(ul);
+    body.appendChild(ul);
   }
   if (model.milestones.length) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
@@ -440,12 +486,12 @@ function pcDraw(doc, host, model, on) {
         m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
       ul.appendChild(li);
     }
-    card.appendChild(ul);
+    body.appendChild(ul);
   }
-  if (model.summary) card.appendChild(pcEl(doc, 'p', 'pc-summary', model.summary));
-  for (const c of model.corrections) card.appendChild(pcEl(doc, 'p', 'pc-correction', 'Earlier correction: ' + c));
-  if (model.notice) card.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
-  if (model.error) card.appendChild(pcEl(doc, 'p', 'pc-error', model.error));
+  if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', model.summary));
+  for (const c of model.corrections) body.appendChild(pcEl(doc, 'p', 'pc-correction', 'Earlier correction: ' + c));
+  if (model.notice) body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
+  if (model.error) body.appendChild(pcEl(doc, 'p', 'pc-error', model.error));
   const bar = pcEl(doc, 'div', 'pc-actions');
   if (model.mode === 'correct') {
     const ta = pcEl(doc, 'textarea', 'pc-note');
@@ -457,8 +503,8 @@ function pcDraw(doc, host, model, on) {
     const count = pcEl(doc, 'div', 'pc-count', model.note.length + ' / ' + model.noteMax);
     // The text stays in its own box between paints; only the counter follows it.
     ta.addEventListener('input', () => { count.textContent = ta.value.length + ' / ' + model.noteMax; on({type: 'note', note: ta.value}); });
-    card.appendChild(ta);
-    card.appendChild(count);
+    body.appendChild(ta);
+    body.appendChild(count);
     bar.appendChild(pcButton(doc, 'Send correction', 'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy));
     bar.appendChild(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy));
   } else if (model.mode === 'edit') {
@@ -571,6 +617,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
-    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard,
+    pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX,
   };
 }

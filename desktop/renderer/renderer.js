@@ -2257,6 +2257,8 @@ function projectCardFollow() {
   if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
   const sid = S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
   PCARD.follow(sid);
+  // A narrow window's sheet ends where the composer starts, and a paint can move it.
+  pcPlace(window, document.getElementById('projectcard'));
 }
 function projectCardContinue(sid, text) {
   // Only into the chat it belongs to, between turns, on a live agent; otherwise it waits for the next look.
@@ -2271,11 +2273,12 @@ function projectCardStart() {
   if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
   PCARD = createProjectCard({
     api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body)},
-    draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) pcDraw(document, host, model, on); },
+    draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) { pcDraw(document, host, model, on); pcPlace(window, host); } },
     onContinue: projectCardContinue,
     onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
   });
   BR.onProject((frame) => PCARD.onFrame(frame));
+  window.addEventListener('resize', () => pcPlace(window, document.getElementById('projectcard')));
 }
 
 

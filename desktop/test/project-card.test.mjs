@@ -413,9 +413,53 @@ test('Hide puts the card away for that version only', () => {
 test('index.html loads project-card.js before renderer.js, and the page draws it into its own layer', () => {
   const index = readFileSync(new URL('../renderer/index.html', import.meta.url), 'utf8');
   assert.ok(index.indexOf('project-card.js') > 0 && index.indexOf('project-card.js') < index.indexOf('renderer.js'));
-  assert.match(index, /<div id="projectcard" hidden><\/div>/);
+  // A column of its own in #main, after the chat, not a layer over it.
+  assert.match(index, /<section id="content"><\/section>\s*<!--[^>]*-->\s*<aside id="projectcard" hidden><\/aside>/);
   assert.match(index, /project-card\.css/);
   const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(renderer, /BR\.onProject\(/);
   assert.match(renderer, /createProjectCard\(/);
+});
+
+test('only the body scrolls: the head and the action bar are the card\'s own children, the bar last', () => {
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  for (const model of [C.pcModel(C.pcInitial(plan())), C.pcModel(C.pcReduce(C.pcInitial(milestone()), {type: 'correct'}))]) {
+    C.pcDraw(doc, host, model, () => {});
+    const card = host.children[0];
+    assert.deepEqual(card.children.map((c) => c.className), ['pc-head', 'pc-body', 'pc-actions']);
+    const [, body, bar] = card.children;
+    assert.equal(body.findAll((e) => e.tagName === 'BUTTON').length, 0, 'no button scrolls away with the body');
+    assert.ok(bar.children.length >= 2);
+  }
+  const css = readFileSync(new URL('../renderer/css/project-card.css', import.meta.url), 'utf8');
+  assert.match(css, /\.pc-body\{[^}]*flex:1;[^}]*overflow-y:auto/);
+  assert.match(css, /\.pc-actions\{[^}]*flex:none/);
+});
+
+test('a member ref keeps provider and model whole, breaks only after the colon, and carries the full ref as its title', () => {
+  const doc = fakeDoc();
+  const ref = C.pcRef(doc, 'openrouter:reviewer-quick');
+  assert.equal(ref.title, 'openrouter:reviewer-quick');
+  assert.deepEqual(ref.children.map((c) => [c.tagName, c.textContent]), [['SPAN', 'openrouter:'], ['WBR', ''], ['SPAN', 'reviewer-quick']]);
+  assert.deepEqual(C.pcRef(doc, 'plain').children.map((c) => c.textContent), ['plain']);
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, C.pcModel(C.pcInitial(plan())), () => {});
+  assert.ok(host.textContent.includes('worker openrouter:w-a · review openrouter:r-a'));
+  assert.ok(host.textContent.includes('review none'));
+});
+
+test('a narrow window puts the card between the chat\'s top and the composer\'s top; a wide one leaves it to the column', () => {
+  const vars = {}, classes = new Set();
+  const host = {hidden: false, classList: {toggle: (c, on) => (on ? classes.add(c) : classes.delete(c))}, style: {setProperty: (k, v) => { vars[k] = v; }}};
+  const rect = (r) => ({getBoundingClientRect: () => r});
+  const win = (w) => ({innerWidth: w, document: {querySelector: (q) => (q === '#content' ? rect({left: 60, top: 52, width: 700, bottom: 900})
+    : q === '.composerwrap' ? rect({top: 760}) : null)}});
+  C.pcPlace(win(1400), host);
+  assert.equal(classes.has('pc-narrow'), false);
+  assert.deepEqual(vars, {});
+  C.pcPlace(win(C.PC_NARROW_PX - 1), host);
+  assert.equal(classes.has('pc-narrow'), true);
+  assert.deepEqual(vars, {'--pc-left': '68px', '--pc-width': '684px', '--pc-top': '60px', '--pc-height': '692px'});
+  assert.ok(52 + 8 + 692 <= 760, 'the sheet ends above the composer');
 });
