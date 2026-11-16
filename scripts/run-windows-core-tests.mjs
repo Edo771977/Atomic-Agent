@@ -143,6 +143,7 @@ export const deferredFiles = [
   'src/tools/fusion/project-estimate.test.ts',
   'src/tools/fusion/project-gate-view.test.ts',
   'src/tools/fusion/project-plan-context.test.ts',
+  'src/tools/fusion/project-surface.test.ts',
   'src/tools/fusion/project-tools.test.ts',
   'src/tools/fusion/replan.test.ts',
   'src/tools/fusion/role-models.test.ts',
