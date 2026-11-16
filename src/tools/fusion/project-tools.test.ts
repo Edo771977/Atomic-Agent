@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { homedir } from "node:os";
+import { parse, resolve } from "node:path";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { ProjectState, ProjectUpdate } from "../../session/session-project.js";
@@ -291,5 +293,23 @@ describe("project.milestone", () => {
     expect(parseProjectMilestoneArgs({ id: "base", state: "reviewed", summary: "x" })).toMatchObject({ ok: false });
     expect(parseProjectMilestoneArgs({ id: "base", state: "approved", summary: "x" })).toMatchObject({ ok: false });
     expect(parseProjectMilestoneArgs({ id: "base", state: "done" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("project tools in a folder too broad for a project (issue #53)", () => {
+  it("refuse to draft a brief or a plan from the home folder or a root, saying how to choose a folder", async () => {
+    const t = tools();
+    for (const workingDir of [homedir(), parse(resolve(homedir())).root]) {
+      const at = { ...ctx, workingDir } as ToolContext;
+      for (const result of [
+        await t.brief.run(briefArgs, at),
+        await t.plan.run({ milestones: [{ id: "m1", title: "Build", kind: "build", tasks: [{ id: "t1", title: "x" }] }] }, at),
+      ]) {
+        expect(result.status).toBe("error");
+        expect(result.summary).toContain("too broad");
+        expect(result.summary).toContain("workspace chip");
+        expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
+      }
+    }
   });
 });

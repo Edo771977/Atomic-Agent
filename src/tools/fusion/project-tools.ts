@@ -18,6 +18,7 @@ import {
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor } from "./project-estimate.js";
+import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
 
@@ -340,6 +341,20 @@ function refuse(tool: string, problems: string[]): CompressedToolResult {
   return compressToolResult({ tool, status: "error", output: `${tool}: ${problems.join("; ")}.`, details: { field: "args" } });
 }
 
+/**
+ * A project works in a project folder (issue #53): refuse before a brief
+ * or plan is drafted from a root or the home folder, which fusion.delegate
+ * would refuse anyway once the person had approved it.
+ */
+function refuseBroadWorkdir(tool: string, workingDir: string): CompressedToolResult | null {
+  if (!isTooBroadScope(workingDir)) return null;
+  return compressToolResult({
+    tool, status: "error",
+    output: tooBroadWorkdirMessage(workingDir, `${tool} did not run: a project`),
+    details: { reason: "workdir-too-broad", workingDir },
+  });
+}
+
 function accepted(tool: string, output: string, update: ProjectUpdate): CompressedToolResult {
   return compressToolResult(
     { tool, status: "ok", output, details: { [PROJECT_UPDATE_DETAIL]: update } },
@@ -358,6 +373,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the project brief (what, for whom, how, success criteria) for the person to approve.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_BRIEF_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectBriefArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_BRIEF_TOOL, parsed.problems);
       const update: ProjectUpdate = { kind: "brief", brief: parsed.brief, draftedAfterUntrusted: deps.outsideContent(ctx.sessionId) };
@@ -373,6 +390,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the plan (milestones and tasks) for the approved brief; each task gets a worker, a reviewer and an estimate.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_PLAN_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectPlanArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_PLAN_TOOL, parsed.problems);
       const context = deps.planContext();

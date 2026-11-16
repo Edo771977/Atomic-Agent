@@ -6,9 +6,9 @@ import {
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, parse, resolve } from "node:path";
 
 import type { RunTurnResult } from "../../agent/agent-loop.js";
 import { resetConfigCache } from "../../config/index.js";
@@ -2770,5 +2770,22 @@ describe("fusion.delegate subagent profiles (ATO-566)", () => {
     expect(resolveAgentProfiles).not.toHaveBeenCalled();
     expect(filter?.("os.fs.write")).toBe(true);
     expect(result.details).not.toHaveProperty("profiles");
+  });
+});
+
+describe("fusion.delegate in a folder too broad for a project (issue #53)", () => {
+  it.each([
+    ["the home folder", () => homedir()],
+    ["the filesystem or drive root", () => parse(resolve(homedir())).root],
+  ])("refuses to start a fan-out in %s and says how to choose a project folder", async (_label, dir) => {
+    const runTurn = vi.fn(async () => turnResult());
+    const tool = buildFusionDelegateTool(deps({ runTurn }));
+    const result = await tool.run({ tasks: TASKS }, ctx({ workingDir: dir() }));
+    expect(result.status).toBe("error");
+    expect(result.details).toMatchObject({ reason: "workdir-too-broad" });
+    expect(result.summary).toContain("too broad");
+    expect(result.summary).toContain("workspace chip");
+    expect(result.summary).toContain("--cwd");
+    expect(runTurn).not.toHaveBeenCalled();
   });
 });

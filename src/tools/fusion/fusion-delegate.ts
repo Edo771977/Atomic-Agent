@@ -170,6 +170,7 @@ import { measuredTaskLegs, readRoutingHistory } from "./measured-routing.js";
 import { collectTaskArtifactManifests } from "./artifact-manifest-tasks.js";
 import { createCandidateIntegration, type CandidateIntegration, type CandidateIntegrationReport } from "./candidate-integration.js";
 import { rebaseVerifyWorkspaceValue } from "../verify/rebase-verify-workspace.js";
+import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import { withCandidateOutcome } from "./candidate-outcomes.js";
 import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
@@ -492,6 +493,14 @@ export function buildFusionDelegateTool(
           `fusion.delegate needs run mode "fusion" with a local worker provider; the run mode is "${mode.effective}". Do the work yourself.`,
           { reason: "not-fusion", effective: mode.effective },
         );
+      }
+      // A fan-out works in a project folder (issue #53): from a drive or
+      // filesystem root or the home folder, every worker scope, copy and
+      // merge would cover the person's whole disk or home.
+      if (isTooBroadScope(ctx.workingDir)) {
+        return error(tooBroadWorkdirMessage(ctx.workingDir, "fusion.delegate did not run: a fan-out"), {
+          reason: "workdir-too-broad", workingDir: ctx.workingDir,
+        });
       }
       // A resume (ATO-617) replays the cut-off run's own arguments: the
       // finished tasks are reported from its checkpoint, the rest run.
