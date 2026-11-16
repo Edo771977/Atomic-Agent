@@ -133,6 +133,7 @@ export const deferredFiles = [
   'src/tools/fusion/failure-breaker.test.ts',
   'src/tools/fusion/fusion-delegate.integration.test.ts',
   'src/tools/fusion/fusion-delegate.outcome-log.test.ts',
+  'src/tools/fusion/fusion-delegate.watch.test.ts',
   'src/tools/fusion/judge.test.ts',
   'src/tools/fusion/local-grammar-smoke.test.ts',
   'src/tools/fusion/local-leg-health.test.ts',
