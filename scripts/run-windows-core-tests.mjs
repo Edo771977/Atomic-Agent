@@ -29,6 +29,9 @@ export const criticalFiles = [
   'src/tools/verify/verify-isolation.test.ts',
   'src/tools/verify/verify-checks.test.ts',
   'src/tools/verify/verify-run-summary.test.ts',
+  'src/tools/verify/verify-run-args.test.ts',
+  'src/tools/verify/safe-regex.test.ts',
+  'src/tools/fusion/contract-check-egress.test.ts',
   'src/tools/fusion/candidate-integration.test.ts',
   'src/tools/fusion/candidate-evidence.test.ts',
   'src/tools/fusion/candidate-path-references.test.ts',
@@ -120,6 +123,8 @@ export const supplementalFiles = [
  * file in those directories fails scopeDrift until it is added to one list.
  */
 export const deferredFiles = [
+  // Needs a launchable headless Chromium; skips without one.
+  'src/tools/verify/run-page-real-browser.test.ts',
   'src/tools/fusion/artifact-manifest.test.ts',
   'src/tools/fusion/branch-diff.test.ts',
   'src/tools/fusion/branch-ignore-policy.test.ts',
