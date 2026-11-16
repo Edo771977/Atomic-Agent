@@ -14,6 +14,10 @@ Owner: src/tools/verify/
 - [run-page-kind.ts](run-page-kind.ts), [page-game-harness.ts](page-game-harness.ts), [page-screenshots.ts](page-screenshots.ts): the headless page run, its game harness and its screenshots.
 - [safe-regex.ts](safe-regex.ts): the regex policy of `matches` checks.
 
+## Copy root
+
+[verify-copy-root.ts](verify-copy-root.ts) picks the folder the throwaway copy is made from (issue #53). In an ordinary project folder that is the session's folder, as before. When the session's folder is a drive or filesystem root, the home folder or its parent (`isTooBroadScope`), `verify.run` never asks to copy it: the copy is rooted at the smallest folder holding what the run needs (an opened page's folder; the `cwd` of a command, a service or a started page), widened to the nearest git root below the session's folder. The call's `cwd` and `path` are rewritten relative to that root, so the approval prompt, its `affectedResources` and the copy all name the narrowed folder. When the run needs the broad folder itself, it is refused up front (`reason: "workdir-too-broad"`) with the message that asks for a project folder, and nothing is sent to approval. Fusion contract checks run in their task's workspace and are unaffected.
+
 ## Command input and output assertions
 
 `stdin` (command runs only, at most 64 KB UTF-8) is written to the process and closed. Without it stdin is empty. When the command reads its script from stdin, `stdin` is that script: for a shell (`sh`, `bash -s`) it is guarded, egress-checked and read-checked as the command line it is, and it removes the call's grant shape; for another interpreter (`python3`, `node`, `pwsh -`) the call asks as `commandUnreadable`, like a script piped into it. Data to a command that runs its own script is left as is. `stdout|stderr [not] matches /re/flags` tests the full captured output (up to 1 MB), under a fixed policy:
