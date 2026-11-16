@@ -11,7 +11,7 @@
    `agent:project` {sessionId, view}. GET /api/project?session= reads one
    chat's view when the chat is opened.
 
-   The card draws only the newest version of a chat's gate, and only the
+   The card draws the last view the agent sent for a chat, and only the
    buttons in view.allowedVerdicts. A plan row's worker and reviewer are
    picked only among the row's selectableWorkers / selectableReviewers. A
    decision goes back as {session, gate, version, verdict, edits?} with
@@ -56,34 +56,31 @@ function pcOpen(view) {
     && pcList(view.allowedVerdicts).length > 0 && !view.cancelled);
 }
 
-/* ---------- the newest view per chat ---------- */
+/* ---------- the last view per chat ---------- */
 
-/** Keeps one view per chat: never an older version than the one drawn or closed. */
+/**
+ * One view per chat, in the order the agent's frames arrive. The view's
+ * `version` is the current gate's own counter (the brief's at the brief, the
+ * plan's at the plan and milestones; session-project.ts gateVersion), not a
+ * project-wide clock, so views are never compared across versions: the last
+ * one the agent sent is the state. A stale answer is the agent's to refuse
+ * (409 stale-version on the decision).
+ */
 function pcStore() {
   const views = new Map();
-  const closed = new Map();   // sid → the version a closed gate had
   return {
     get: (sid) => views.get(sid) || null,
     /** A `{sessionId, view}` frame or read. Answers whether what the chat's card draws changed. */
     put(sid, view) {
       if (!sid || !view || typeof view !== 'object' || view.schema !== 1) return false;
       const prev = views.get(sid) || null;
-      const v = pcNum(view.version);
-      if (!pcOpen(view)) {
-        if (!prev) return false;
-        if (v !== null && prev.version > v) return false;   // a late copy of an older state
-        closed.set(sid, Math.max(prev.version, v || 0));
-        views.delete(sid);
-        return true;
-      }
-      if (prev && prev.version > v) return false;
-      if (closed.has(sid) && v <= closed.get(sid)) return false;
-      if (prev && prev.version === v && JSON.stringify(prev) === JSON.stringify(view)) return false;
+      if (!pcOpen(view)) return views.delete(sid);
+      if (prev && JSON.stringify(prev) === JSON.stringify(view)) return false;
       views.set(sid, view);
       return true;
     },
     drop(sid) { return views.delete(sid); },
-    clear() { views.clear(); closed.clear(); },
+    clear() { views.clear(); },
   };
 }
 
@@ -535,6 +532,7 @@ function createProjectCard(opts) {
   const store = pcStore();
   const pending = new Map();   // sid → continue message not sent yet
   const hidden = new Set();    // sid:version the person put away
+  const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
   let sid = null, state = pcInitial(null), serial = 0;
   const key = () => sid + ':' + (state.view ? state.view.version : '');
   function paint() {
@@ -587,6 +585,7 @@ function createProjectCard(opts) {
     /** A `{sessionId, view}` frame from main. */
     onFrame(frame) {
       if (!frame || typeof frame !== 'object') return;
+      frames.set(frame.sessionId, (frames.get(frame.sessionId) || 0) + 1);
       const changed = store.put(frame.sessionId, frame.view);
       if (changed && frame.sessionId === sid) { setView(store.get(sid)); paint(); }
     },
@@ -599,9 +598,10 @@ function createProjectCard(opts) {
       paint();
       flush();
       if (!sid) return;
-      const mine = serial, asked = sid;
+      const mine = serial, asked = sid, seen = frames.get(asked) || 0;
       Promise.resolve().then(() => opts.api.read(asked)).then((res) => {
         if (mine !== serial || !res || res.supported === false || !res.ok) return;
+        if ((frames.get(asked) || 0) !== seen) return;   // a frame came after the read went out: it is newer
         const changed = res.view ? store.put(asked, res.view) : store.drop(asked);
         if (changed) { setView(store.get(asked)); paint(); }
       }).catch(() => undefined);

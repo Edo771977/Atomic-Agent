@@ -121,13 +121,18 @@ reply. The step queue running out fails the scenario with the request shown.
 (issue #39). The agent is this checkout's real `atag serve` behind
 `live/project-card-agent.mjs`, which passes every request through except the
 project wire: `agent.project` on `/api/capabilities`, `project_gate` frames on
-`/api/events`, `/api/project` and `/api/project/decision` (an edit
-re-estimates; a version that moved is `409 stale-version` with the current
-view). The chats and turns stay real. It checks that the card appears after
-the first turn, that a worker pick goes out as an edit of that row, that the
-409 redraws the newer version, that the approval carries the view's version,
-and that the continue message is the chat's next request, with
-`X-Atomic-Project: 1` on both. `ATAG_LIVE_SHOTS=<dir>` keeps its screenshots
+`/api/events`, `/api/project` and `/api/project/decision`. The project moves
+only through the agent's own core from `dist/` (`applyProjectUpdate`,
+`applyProjectDecision`, `projectGateView`, `estimatePlan`,
+`projectContinueMessage`), so gates, versions and continue messages are the
+real ones; only the director's drafts are scripted, and a silent re-draft
+after the first edit makes the next approve `409 stale-version`. The chats
+and turns stay real. It walks brief → plan → milestone → correction → the
+same milestone again, and checks that each card appears at the version the
+agent pushed, that a worker pick goes out as an edit of that row, that the
+409 redraws the newer version, that each approval carries the view's
+version, and that every continue message is the chat's next request, with
+`X-Atomic-Project: 1`. `ATAG_LIVE_SHOTS=<dir>` keeps its screenshots
 (plan gate, milestone gate and the correction box, light and dark, at device
 scale 2). It proves the desktop half against the wire contract, not the
 runtime's project rules. Run as root (a container), `launch()` adds

@@ -15,15 +15,14 @@
  *                                the chat's session id
  *
  * So the window, its chats and the turns are real (the scripted model
- * answers them), and only the project the turns would have drafted is
- * scripted: after the chat's first turn the plan gate opens (version 3);
- * after the turn that the approval's continue_message starts, milestone
- * m1's review gate opens. A decision moves the gate as projectDecision
- * would: a version that is not the current one is `409 stale-version`
- * with the current view, an edit re-estimates the rows and, to exercise
- * that refusal, the plan is re-estimated once more in the background
- * (version 5) without a frame. Every request it answers or watches is a
- * JSON line in $PCO_LOG.
+ * answers them), and the project moves only through the agent's own core
+ * (built dist: applyProjectUpdate, applyProjectDecision, projectGateView,
+ * estimatePlan, projectContinueMessage). Only what the director would have
+ * written is scripted, by what the project expects after each turn: the
+ * brief after the first, the plan after the brief's approval, a milestone
+ * report after each continue. To exercise `409 stale-version`, the first
+ * edit of the plan is followed by a silent re-draft (a version bump with no
+ * frame). Every request it answers or watches is a JSON line in $PCO_LOG.
  *
  * Usage (from the shim L16 writes): node project-card-agent.mjs --pco-base=<run dir> <atag args…>
  */
@@ -32,6 +31,8 @@ import { spawn } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { createServer as netServer } from 'node:net';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const AGENT = process.env.PCO_AGENT_ENTRY;
 const LOG = process.env.PCO_LOG;
@@ -42,66 +43,54 @@ const NODE_FLAGS = ['--enable-source-maps', ...(BASE ? [`--diagnostic-dir=${BASE
 
 const log = (entry) => { if (LOG) appendFileSync(LOG, JSON.stringify({ at: Date.now(), ...entry }) + '\n'); };
 
-if (args[0] !== 'serve') {
-  const child = spawn(process.execPath, [...NODE_FLAGS, AGENT, ...args], { stdio: 'inherit' });
-  child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
-} else {
-  await serve();
-}
 
 /* ------------------------------------------------------------- the views -- */
+/* The project is the agent's own: its state moves only through the built
+   core (applyProjectUpdate, applyProjectDecision), and the view, the gate's
+   version and continue_message are the core's (projectGateView,
+   estimatePlan, projectContinueMessage). Only what the director would have
+   written (the brief, the plan, a milestone's report) is scripted here. */
+
+const DIST = join(dirname(AGENT), '..');
+const core = async (rel) => import(pathToFileURL(join(DIST, rel)).href);
+const P = await core('session/session-project.js');
+const { projectGateView } = await core('tools/fusion/project-gate-view.js');
+const { estimatePlan } = await core('tools/fusion/project-estimate.js');
+const { projectContinueMessage } = await core('session/project-continue.js');
 
 const MILESTONES = [
   { id: 'm1', title: 'Board and pieces', kind: 'base' },
   { id: 'm2', title: 'Rules and moves', kind: 'logic' },
 ];
-const MEMBERS = {
+const SELECTABLE = {
   workers: ['openrouter:worker-fast', 'openrouter:worker-careful', 'local:worker-small'],
   reviewers: ['openrouter:reviewer-strict', 'openrouter:reviewer-quick'],
 };
-const START_ROWS = [
-  { taskId: 't1', title: 'Draw the board and the pieces', milestoneId: 'm1', worker: 'openrouter:worker-fast', reviewer: 'openrouter:reviewer-quick',
-    reason: 'passed 4 of the last 5 layout tasks at the lowest cost', basis: 'measured', samples: 5, estCostUsd: 0.08, estMs: 140_000 },
+const BRIEF = { what: 'A chess game for two players on one computer', users: 'two people sharing a laptop', how: 'a single web page, no server',
+  successCriteria: ['only legal moves are accepted', 'check and checkmate are announced'] };
+const ROWS = [
+  { taskId: 't1', title: 'Draw the board and the pieces', milestoneId: 'm1', worker: 'local:worker-small', reviewer: 'openrouter:reviewer-quick',
+    reason: 'passed 4 of the last 5 layout tasks at the lowest cost', basis: 'measured', samples: 5, estCostUsd: 0, estMs: 140_000 },
   { taskId: 't2', title: 'Move pieces by drag and drop', milestoneId: 'm1', worker: 'local:worker-small', reviewer: null,
     reason: 'no runs measured yet; the preset puts small UI tasks on the local worker', basis: 'preset', samples: 0, estCostUsd: 0, estMs: 210_000 },
   { taskId: 't3', title: 'Legal moves, check and checkmate', milestoneId: 'm2', worker: 'openrouter:worker-careful', reviewer: 'openrouter:reviewer-strict',
     reason: 'rule engines failed twice on the fast worker; the careful one passed 3 of 3', basis: 'measured', samples: 3, estCostUsd: 0.41, estMs: 420_000 },
 ];
-const COST = { 'openrouter:worker-fast': 0.08, 'openrouter:worker-careful': 0.41, 'local:worker-small': 0 };
+const SUMMARIES = ['The board renders with all 32 pieces; dragging snaps a piece to the nearest square.',
+  'The board renders with bigger squares; dragging snaps a piece to the nearest square.'];
+/* One local slot: two local tasks in m1 is the estimator's own warning. */
+const estimate = (project) => (project?.plan ? estimatePlan(project.plan.rows, { isLocal: (w) => w.startsWith('local:'), localSlots: 1 }) : null);
 
-const project = { sessionId: null, gate: { kind: 'none' }, version: 2, rows: structuredClone(START_ROWS), states: { m1: 'planned', m2: 'planned' },
-  summary: null, cancelled: false, expectation: { kind: 'draft_plan' } };
-
-function totals(rows) {
-  let cost = 0, ms = 0;
-  for (const r of rows) { cost += r.estCostUsd ?? 0; ms += r.estMs ?? 0; }
-  return { costUsd: Math.round(cost * 100) / 100, ms, unknownCostRows: rows.filter((r) => r.estCostUsd === null).length };
-}
-
-function view() {
-  const open = project.gate.kind !== 'none' && !project.cancelled;
-  const rows = project.rows.map((r) => ({ ...r, selectableWorkers: MEMBERS.workers, selectableReviewers: MEMBERS.reviewers }));
-  const t = totals(project.rows);
-  return {
-    schema: 1, sessionId: project.sessionId, gate: project.gate, version: open ? project.version : null,
-    allowedVerdicts: project.cancelled ? [] : project.gate.kind === 'plan' ? ['approve', 'edit', 'cheaper', 'quality', 'cancel']
-      : project.gate.kind === 'milestone' ? ['approve', 'edit', 'cancel'] : ['cancel'],
-    expectation: open ? { kind: 'await_person', gate: project.gate } : project.expectation,
-    cancelled: project.cancelled,
-    brief: { version: 1, what: 'A chess game for two players on one computer', users: 'two people sharing a laptop', how: 'a single web page, no server',
-      successCriteria: ['only legal moves are accepted', 'check and checkmate are announced'], status: 'approved', draftedAfterUntrusted: false },
-    plan: { status: project.gate.kind === 'plan' ? 'draft' : 'approved', detail: 'full', version: project.version, draftedAfterUntrusted: true, rows, totals: t },
-    milestones: MILESTONES.map((m) => {
-      const mine = project.rows.filter((r) => r.milestoneId === m.id);
-      const mt = totals(mine);
-      return { ...m, state: project.states[m.id], runIds: project.states[m.id] === 'planned' ? [] : [`run-${m.id}`],
-        ...(m.id === 'm1' && project.summary ? { summary: project.summary } : {}), updatedAt: Date.now(), estCostUsd: mt.costUsd, estMs: mt.ms };
-    }),
-    violations: project.gate.kind === 'plan'
-      ? [{ kind: 'local-slots', severity: 'warn', message: 'Two tasks want the local worker at once; the second waits for the first', taskId: 't2' }]
-      : [],
-  };
-}
+let project;
+let sessionId = null;
+let now = Date.now();
+let reports = 0;
+const view = () => projectGateView({ sessionId, project, estimate: estimate(project), selectable: SELECTABLE });
+const update = (u) => {
+  const r = P.applyProjectUpdate(project, u, now++);
+  if (!r.ok) throw new Error(`stand-in update refused: ${r.error.message}`);
+  project = r.project;
+};
 
 /* ------------------------------------------------------------ the server -- */
 
@@ -129,23 +118,28 @@ async function serve() {
   log({ type: 'serve', outer, inner });
 
   const streams = new Set();
+  const open = () => project !== undefined && project.gate.kind !== 'none' && project.cancelledAt === undefined;
   const push = () => {
-    if (!project.sessionId) return;
-    const frame = `event: project_gate\ndata: ${JSON.stringify({ session_id: project.sessionId, view: view() })}\n\n`;
+    if (!sessionId || project === undefined) return;
+    const v = view();
+    const frame = `event: project_gate\ndata: ${JSON.stringify({ session_id: sessionId, view: v })}\n\n`;
     for (const res of streams) res.write(frame);
-    log({ type: 'pushed', gate: project.gate, version: view().version });
+    log({ type: 'pushed', gate: v.gate, version: v.version });
   };
-  let turns = 0;
+  /* What the director would have written in the turn that just ended, by
+     what the project expects next (projectExpectation). */
   const turnEnded = () => {
-    turns += 1;
-    if (turns === 1) { project.gate = { kind: 'plan' }; project.version = 3; push(); }
-    else if (project.expectation.kind === 'run_milestone' && project.states.m1 === 'approved') {
-      project.states.m1 = 'done';
-      project.summary = 'The board renders with all 32 pieces; dragging snaps a piece to the nearest square.';
-      project.gate = { kind: 'milestone', id: 'm1' };
-      project.version += 1;
-      push();
-    }
+    if (!sessionId) return;
+    const next = P.projectExpectation(project);
+    if (project === undefined) update({ kind: 'brief', brief: BRIEF, draftedAfterUntrusted: false });
+    else if (next.kind === 'draft_plan' && project.plan === undefined) {
+      update({ kind: 'plan', milestones: MILESTONES, rows: ROWS, detail: 'full', draftedAfterUntrusted: true });
+    } else if (next.kind === 'run_milestone') {
+      update({ kind: 'milestone_run', id: next.id, runId: `run-${next.id}-${reports}` });
+      update({ kind: 'milestone', id: next.id, state: 'done', summary: SUMMARIES[Math.min(reports, SUMMARIES.length - 1)] });
+      reports += 1;
+    } else return;
+    push();
   };
 
   const authed = (req) => !token || req.headers.authorization === `Bearer ${token}`;
@@ -164,43 +158,30 @@ async function serve() {
     if (body !== undefined) up.end(body); else req.pipe(up);
   };
 
+  let reestimated = false;
   const decide = (body) => {
+    if (project === undefined || body.session !== sessionId) return { status: 404, body: { error: { message: `no project on session ${body.session}` } } };
+    const est = estimate(project);
+    const r = P.applyProjectDecision(project, { gate: body.gate, version: body.version, verdict: body.verdict, ...(body.edits ? { edits: body.edits } : {}) },
+      { now: now++, hardViolations: est?.hardViolations ?? [] });
+    if (!r.ok) {
+      const status = { 'no-project': 404, 'wrong-gate': 409, 'stale-version': 409, 'over-cap': 422, 'needs-estimates': 422 }[r.error.code] ?? 400;
+      return { status, body: { error: { message: r.error.message, type: 'invalid_request_error', code: r.error.code }, view: view() } };
+    }
+    project = r.project;
     const v = view();
-    const err = (status, code, message) => ({ status, body: { error: { message, type: 'invalid_request_error', code }, view: v } });
-    if (body.session !== project.sessionId) return { status: 404, body: { error: { message: `no project on session ${body.session}` } } };
-    if (JSON.stringify(body.gate) !== JSON.stringify(project.gate)) return err(409, 'wrong-gate', 'that gate is not the one waiting');
-    if (body.version !== v.version) return err(409, 'stale-version', `the gate is at version ${v.version}, not ${body.version}`);
-    if (!v.allowedVerdicts.includes(body.verdict)) return err(400, 'verdict-not-allowed', `this gate takes ${v.allowedVerdicts.join(', ')}`);
-    if (body.verdict === 'cancel') {
-      project.cancelled = true; project.gate = { kind: 'none' }; project.expectation = { kind: 'cancelled' };
-      return { status: 200, body: { session_id: project.sessionId, view: view(), continue_message: null } };
+    const answer = { status: 200, body: { session_id: sessionId, view: v, continue_message: projectContinueMessage(v, body) } };
+    if (body.verdict === 'edit' && body.gate.kind === 'plan' && !reestimated) {
+      /* The director re-drafted the plan before the person answered (a plan
+         update bumps its version). No frame: the next approve of the version
+         on screen is stale, which is the 409 path. */
+      reestimated = true;
+      setTimeout(() => {
+        update({ kind: 'plan', milestones: MILESTONES, rows: project.plan.rows, detail: 'full', draftedAfterUntrusted: true });
+        log({ type: 're-estimated', version: view().version });
+      }, 50);
     }
-    if (project.gate.kind === 'plan') {
-      if (body.verdict === 'approve') {
-        project.states.m1 = 'approved'; project.gate = { kind: 'none' }; project.expectation = { kind: 'run_milestone', id: 'm1' };
-        return { status: 200, body: { session_id: project.sessionId, view: view(), continue_message: `I approved. Continue with milestone "${MILESTONES[0].title}".` } };
-      }
-      for (const e of body.edits?.rows ?? []) {
-        const row = project.rows.find((r) => r.taskId === e.taskId);
-        if (!row) return err(400, 'invalid', `no task ${e.taskId}`);
-        if (e.worker !== undefined) { row.worker = e.worker; row.estCostUsd = COST[e.worker] ?? null; row.basis = 'preset'; row.samples = 0; row.reason = 'picked by you'; }
-        if (e.reviewer !== undefined) { row.reviewer = e.reviewer; row.reviewerByPerson = true; }
-      }
-      project.version += 1;
-      const answer = { status: 200, body: { session_id: project.sessionId, view: view(), continue_message: null } };
-      // The live estimates moved again before the person answered: the next approve of this version is stale.
-      setTimeout(() => { project.version += 1; project.rows[0].estMs += 20_000; log({ type: 're-estimated', version: project.version }); }, 50);
-      return answer;
-    }
-    if (project.gate.kind === 'milestone') {
-      if (body.verdict === 'approve') {
-        project.states.m1 = 'reviewed'; project.states.m2 = 'approved'; project.gate = { kind: 'none' }; project.expectation = { kind: 'run_milestone', id: 'm2' };
-        return { status: 200, body: { session_id: project.sessionId, view: view(), continue_message: `I approved. Continue with milestone "${MILESTONES[1].title}".` } };
-      }
-      project.states.m1 = 'approved'; project.gate = { kind: 'none' }; project.expectation = { kind: 'run_milestone', id: 'm1' };
-      return { status: 200, body: { session_id: project.sessionId, view: view(), continue_message: `Redo milestone "${MILESTONES[0].title}". My correction: ${body.edits?.note ?? ''}` } };
-    }
-    return err(409, 'wrong-gate', 'nothing waits');
+    return answer;
   };
 
   const server = createServer(async (req, res) => {
@@ -228,7 +209,7 @@ async function serve() {
       streams.add(res);
       log({ type: 'events-open', streams: streams.size });
       // The open gate is replayed on connect, as the agent's bus does.
-      if (project.sessionId && view().version !== null) res.write(`event: project_gate\ndata: ${JSON.stringify({ session_id: project.sessionId, view: view() })}\n\n`);
+      if (sessionId && open()) res.write(`event: project_gate\ndata: ${JSON.stringify({ session_id: sessionId, view: view() })}\n\n`);
       const beat = setInterval(() => res.write(': keepalive\n\n'), 15000);
       res.on('close', () => { clearInterval(beat); streams.delete(res); });
       return;
@@ -237,7 +218,7 @@ async function serve() {
       if (!authed(req)) return json(res, 401, { error: { message: 'unauthorized' } });
       const sid = url.searchParams.get('session');
       log({ type: 'project-read', session: sid });
-      if (!sid || sid !== project.sessionId) return json(res, 404, { error: { message: `no project on session ${sid}` } });
+      if (!sid || sid !== sessionId || project === undefined) return json(res, 404, { error: { message: `no project on session ${sid}` } });
       return json(res, 200, { session_id: sid, view: view() });
     }
     if (url.pathname === '/api/project/decision' && req.method === 'POST') {
@@ -247,7 +228,7 @@ async function serve() {
       try { body = JSON.parse(raw); } catch { return json(res, 400, { error: { message: 'Invalid JSON' } }); }
       const out = decide(body);
       log({ type: 'decision', body, status: out.status, code: out.body.error?.code ?? null, version: out.body.view?.version ?? null,
-        continue_message: out.body.continue_message ?? null });
+        continue_message: out.body.continue_message ?? null, gate: out.body.view?.gate ?? null });
       json(res, out.status, out.body);
       if (out.status === 200) push();
       return;
@@ -266,15 +247,25 @@ async function serve() {
           res.write(c);
           buf += c;
           const m = buf.match(/event: session_id\ndata: (\{[^\n]*\})/);
-          if (m && !project.sessionId) {
-            try { project.sessionId = JSON.parse(m[1]).session_id; log({ type: 'session', session: project.sessionId }); } catch { /* not yet whole */ }
+          if (m && !sessionId) {
+            try { sessionId = JSON.parse(m[1]).session_id; log({ type: 'session', session: sessionId }); } catch { /* not yet whole */ }
           }
           if (buf.length > 65536) buf = buf.slice(-4096);
         });
-        ur.on('end', () => { res.end(); turnEnded(); });
+        ur.on('end', () => {
+          res.end();
+          try { turnEnded(); } catch (e) { log({ type: 'stand-in-error', message: String(e && e.stack || e) }); }
+        });
       });
     }
     return pass(req, res);
   });
   server.listen(outer, '127.0.0.1');
+}
+
+if (args[0] !== 'serve') {
+  const child = spawn(process.execPath, [...NODE_FLAGS, AGENT, ...args], { stdio: 'inherit' });
+  child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+} else {
+  await serve();
 }

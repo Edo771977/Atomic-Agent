@@ -41,6 +41,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const WRAPPER = join(HERE, 'project-card-agent.mjs');
 const AGENT_ENTRY = join(REPO_DIR, 'dist', 'cli', 'index.js');
 const TURN = { timeout: 90000, startGrace: 30000, quiet: 2500, approve: 'auto' };
+const BRIEF_REPLY = 'The brief is drafted. It waits for your approval.';
+const THIRD_REPLY = 'Milestone "Board and pieces" is done again, with bigger squares.';
+const NOTE = 'Make the squares bigger.';
 const FIRST_REPLY = 'The plan is drafted: three tasks over two milestones. It waits for your approval.';
 const SECOND_REPLY = 'Milestone "Board and pieces" is done. It waits for your review.';
 const CONTINUE = 'I approved. Continue with milestone "Board and pieces".';
@@ -94,21 +97,52 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   const log = () => entries(LOG);
   const decisions = () => log().filter((e) => e.type === 'decision');
   const chats = () => log().filter((e) => e.type === 'chat');
-  model.script([reply(FIRST_REPLY), reply(SECOND_REPLY)]);
+  const pushed = () => log().filter((e) => e.type === 'pushed');
+  const lastPushed = () => pushed().at(-1);
+  model.script([reply(BRIEF_REPLY), reply(FIRST_REPLY), reply(SECOND_REPLY), reply(THIRD_REPLY)]);
+  /* Waits for the card at the version the agent last pushed for `kind`: the
+     numbers are the agent's own (gateVersion), never assumed here. */
+  const cardAt = async (kind, label) => {
+    const p = await until(app, async () => { const e = lastPushed(); return e && e.gate.kind === kind ? e : null; }, `the agent's ${label}`);
+    await until(app, async () => (await cardVersion(app)) === `v${p.version}`, `the ${label} card at v${p.version}`);
+    return p.version;
+  };
+  const turn = async (want, label) => {
+    const done = await waitTurn(app, TURN);
+    check(done.reply === want, `${label} finished`, JSON.stringify(done.reply.slice(0, 200)));
+  };
+  const nextChat = async (n, text, label) => {
+    await until(app, async () => chats().length === n, label, 30000);
+    const c = chats()[n - 1];
+    check(c.text === text, `${label}: the agent's continue message`, JSON.stringify(c.text));
+    const projectSession = log().find((e) => e.type === 'session')?.session;
+    check(!!projectSession && c.session === projectSession, `${label}: into the project's own chat`, JSON.stringify([projectSession, c.session]));
+    check(c.project === '1', `${label}: X-Atomic-Project: 1`);
+  };
 
-  // ---- the plan gate -----------------------------------------------------------
+  // ---- the brief gate ----------------------------------------------------------
   await ask(app, 'Build a chess game for two players on one computer.');
-  const first = await waitTurn(app, TURN);
-  check(first.reply === FIRST_REPLY, 'the first turn finished', JSON.stringify(first.reply.slice(0, 200)));
+  await turn(BRIEF_REPLY, 'the first turn');
   check(chats()[0]?.project === '1', 'the chat asked for the project flow (X-Atomic-Project: 1)', JSON.stringify(chats()[0]));
   check(chats()[0]?.extensions === '1', 'with X-Atomic-Extensions: 1');
-  await until(app, async () => (await cardVersion(app)) === 'v3', 'the plan card at version 3');
+  const briefV = await cardAt('brief', 'brief');
+  check(/The project brief waits for your approval/.test(await cardText(app)), 'the card names the brief gate');
+  app.repliesBefore = (await app.replies()).length;
+  await app.clickText('Approve', { scope: '#projectcard .pc-actions' });
+  await until(app, async () => decisions().length === 1, 'the brief approval');
+  check(decisions()[0].status === 200 && decisions()[0].body.version === briefV, `the brief approval carried v${briefV}`, JSON.stringify(decisions()[0]));
+  await nextChat(2, decisions()[0].continue_message, 'after the brief');
+  await turn(FIRST_REPLY, 'the plan turn');
+
+  // ---- the plan gate (its own counter, from 1 again) --------------------------------
+  const planV = await cardAt('plan', 'plan');
   const plan = await cardText(app);
   check(/The project plan waits for your approval/.test(plan), 'the card names the plan gate', plan.slice(0, 200));
   for (const want of ['Draw the board and the pieces', 'Move pieces by drag and drop', 'Legal moves, check and checkmate',
-    'measured (5 runs)', 'preset', 'Two tasks want the local worker', 'outside content', "this chat's folder", 'Board and pieces', 'Rules and moves']) {
+    'measured (5 runs)', 'preset', 'local', 'outside content', "this chat's folder", 'Board and pieces', 'Rules and moves']) {
     check(plan.includes(want), `the plan card shows "${want}"`);
   }
+  check(await app.eval(`!!document.querySelector('#projectcard .pc-soft')`), 'the estimator\'s warning is drawn');
   const buttons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
   check(JSON.stringify(buttons) === JSON.stringify(['Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel project']),
     'the buttons are the view\'s verdicts', JSON.stringify(buttons));
@@ -134,39 +168,37 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
     sel.value = String(i); sel.dispatchEvent(new Event('change'));
   })()`);
   await app.clickText('Re-estimate 1 change', { scope: '#projectcard' });
-  await until(app, async () => (await cardVersion(app)) === 'v4', 'the re-estimated plan (version 4)');
-  const edit = decisions()[0];
-  check(edit && edit.body.verdict === 'edit' && edit.body.version === 3 && edit.status === 200, 'the pick went as an edit of version 3', JSON.stringify(edit));
+  await until(app, async () => decisions().length === 2, 'the edit');
+  const edit = decisions()[1];
+  check(edit.body.verdict === 'edit' && edit.body.version === planV && edit.status === 200, `the pick went as an edit of v${planV}`, JSON.stringify(edit));
   check(JSON.stringify(edit.body.edits) === JSON.stringify({ rows: [{ taskId: 't2', worker: 'openrouter:worker-fast' }] }),
-    'only the changed row was sent', JSON.stringify(edit?.body.edits));
-  await until(app, async () => log().some((e) => e.type === 're-estimated'), 'the background re-estimate');
+    'only the changed row was sent', JSON.stringify(edit.body.edits));
+  await until(app, async () => (await cardVersion(app)) === `v${edit.version}`, `the re-estimated plan (v${edit.version})`);
+  await until(app, async () => log().some((e) => e.type === 're-estimated'), 'the silent re-draft');
+  const newer = log().find((e) => e.type === 're-estimated').version;
 
   // ---- approve a version that moved: 409, the card shows the newer one -----------------
   await app.clickText('Approve', { scope: '#projectcard .pc-actions' });
-  await until(app, async () => (await cardVersion(app)) === 'v5', 'the card at the newer version 5');
-  const stale = decisions()[1];
-  check(stale && stale.status === 409 && stale.code === 'stale-version' && stale.body.version === 4, 'approving version 4 was refused as stale', JSON.stringify(stale));
+  await until(app, async () => (await cardVersion(app)) === `v${newer}`, `the card at the newer v${newer}`);
+  const stale = decisions()[2];
+  check(stale.status === 409 && stale.code === 'stale-version' && stale.body.version === edit.version, `approving v${edit.version} was refused as stale`, JSON.stringify(stale));
   check(/changed before your answer landed/.test(await cardText(app)), 'the card says the project changed');
-  check(chats().length === 1, 'a refused approval sends nothing to the chat', `${chats().length} chat requests`);
+  check(chats().length === 2, 'a refused approval sends nothing to the chat', `${chats().length} chat requests`);
 
   // ---- approve the current version: the chat goes on ------------------------------------
   app.repliesBefore = (await app.replies()).length;
   await app.clickText('Approve', { scope: '#projectcard .pc-actions' });
-  await until(app, async () => decisions().length === 3, 'the second approval');
-  const ok = decisions()[2];
-  check(ok.status === 200 && ok.body.version === 5 && ok.body.verdict === 'approve', 'the approval carried version 5', JSON.stringify(ok));
-  await until(app, async () => chats().length === 2, 'the continue message as the next chat request', 30000);
-  const next = chats()[1];
-  check(next.text === CONTINUE, 'the next chat request is the agent\'s continue message', JSON.stringify(next.text));
-  const projectSession = log().find((e) => e.type === 'session')?.session;
-  check(!!projectSession && next.session === projectSession, 'into the project\'s own chat', JSON.stringify([projectSession, next.session]));
-  check(next.project === '1', 'X-Atomic-Project on the continued chat too');
-  const second = await waitTurn(app, TURN);
-  check(second.reply === SECOND_REPLY, 'the continued turn finished', JSON.stringify(second.reply.slice(0, 200)));
+  await until(app, async () => decisions().length === 4, 'the second approval');
+  const ok = decisions()[3];
+  check(ok.status === 200 && ok.body.version === newer && ok.body.verdict === 'approve', `the approval carried v${newer}`, JSON.stringify(ok));
+  check(ok.continue_message === CONTINUE, 'the agent\'s continue message names the milestone', JSON.stringify(ok.continue_message));
+  await nextChat(3, CONTINUE, 'after the plan');
+  await turn(SECOND_REPLY, 'the milestone turn');
 
   // ---- the milestone gate --------------------------------------------------------------
-  await until(app, async () => /Milestone “Board and pieces” is done/.test((await cardText(app)) || ''), 'the milestone card');
+  const msV = await cardAt('milestone', 'milestone');
   const ms = await cardText(app);
+  check(/Milestone “Board and pieces” is done/.test(ms), 'the milestone card');
   check(ms.includes('The board renders with all 32 pieces'), 'the milestone card shows the result');
   const msButtons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
   check(JSON.stringify(msButtons) === JSON.stringify(['Approve milestone', 'Correct…', 'Cancel project']), 'the milestone buttons', JSON.stringify(msButtons));
@@ -178,7 +210,21 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   await app.clickText('Correct…', { scope: '#projectcard' });
   await app.waitFor(`!!document.querySelector('#projectcard textarea')`, 'the correction box');
   check(await app.eval(`document.querySelector('#projectcard textarea').maxLength === 2000`), 'the correction is bounded at 2000 characters');
+  await app.clickSel('#projectcard textarea');
+  await app.type(NOTE, { perChar: 1 });
   await shots(app, SHOTS, 'project-card-milestone-correct');
+
+  // ---- the correction: the same milestone's review comes back ------------------------------
+  app.repliesBefore = (await app.replies()).length;
+  await app.clickText('Send correction', { scope: '#projectcard' });
+  await until(app, async () => decisions().length === 5, 'the correction');
+  const fix = decisions()[4];
+  check(fix.status === 200 && fix.body.version === msV && JSON.stringify(fix.body.edits) === JSON.stringify({ note: NOTE }), 'the correction carried the note', JSON.stringify(fix));
+  await nextChat(4, fix.continue_message, 'after the correction');
+  check(/My correction: Make the squares bigger/.test(chats()[3].text), 'the redo names the correction', JSON.stringify(chats()[3].text));
+  await turn(THIRD_REPLY, 'the redo turn');
+  await cardAt('milestone', 'milestone again');
+  check((await cardText(app)).includes('bigger squares'), 'the reopened milestone card shows the new result');
 }, {
   setup: ({ base }) => {
     const shim = join(base, 'atag-project-card.sh');

@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { loadCore } from './core-ts.mjs';
 
 const require = createRequire(import.meta.url);
 const C = require('../renderer/project-card.js');
@@ -62,17 +63,16 @@ test('the write-scope note and the untrusted warnings are the core\'s sentences'
 
 /* ---------------- newest version only ---------------- */
 
-test('the store keeps only the newest version, and a closed gate is not reopened by a late copy', () => {
+test('the store takes views in arrival order; versions are per gate, not a project-wide clock', () => {
   const st = C.pcStore();
   assert.equal(st.put('ses-1', plan({version: 3})), true);
   assert.equal(st.put('ses-1', plan({version: 3})), false, 'the same view again changes nothing');
-  assert.equal(st.put('ses-1', plan({version: 2})), false, 'an older version is dropped');
-  assert.equal(st.get('ses-1').version, 3);
-  assert.equal(st.put('ses-1', plan({version: 4})), true);
-  assert.equal(st.put('ses-1', closed()), true, 'the gate closed');
+  assert.equal(st.put('ses-1', plan({version: 2})), true, 'the agent said so last: no cross-version guessing');
+  assert.equal(st.get('ses-1').version, 2);
+  assert.equal(st.put('ses-1', closed(2)), true, 'the gate closed');
   assert.equal(st.get('ses-1'), null);
-  assert.equal(st.put('ses-1', plan({version: 4})), false, 'a replay of the closed gate');
-  assert.equal(st.put('ses-1', milestone({version: 5})), true);
+  assert.equal(st.put('ses-1', plan({version: 1})), true, 'a new gate at a lower number opens');
+  assert.equal(st.put('ses-1', milestone({version: 1})), true);
   assert.equal(st.put('other', plan({schema: 2})), false);
   assert.equal(st.put('', plan()), false);
   assert.equal(st.put('ses-1', plan({version: 6, cancelled: true, allowedVerdicts: []})), true, 'a cancelled project closes the card');
@@ -326,9 +326,9 @@ test('the controller draws the chat on screen, newest version, and reads the vie
   assert.deepEqual(c.reads, ['ses-1']);
   assert.equal(c.last().model.version, 3, 'the read was newer');
   c.card.onFrame({sessionId: 'ses-1', view: plan({version: 2})});
-  assert.equal(c.last().model.version, 3, 'an older frame is not drawn');
+  assert.equal(c.last().model.version, 2, 'a frame after the read is what the agent says now');
   c.card.onFrame({sessionId: 'other', view: plan({version: 9})});
-  assert.equal(c.last().model.version, 3);
+  assert.equal(c.last().model.version, 2, 'another chat\'s frame is not drawn here');
   c.card.follow('ses-1');
   assert.deepEqual(c.reads, ['ses-1'], 'the same chat is not read again');
   c.card.follow(null);
@@ -462,4 +462,63 @@ test('a narrow window puts the card between the chat\'s top and the composer\'s 
   assert.equal(classes.has('pc-narrow'), true);
   assert.deepEqual(vars, {'--pc-left': '68px', '--pc-width': '684px', '--pc-top': '60px', '--pc-height': '692px'});
   assert.ok(52 + 8 + 692 <= 760, 'the sheet ends above the composer');
+});
+
+/* ---------------- the agent's own gate sequence ---------------- */
+
+const CORE = loadCore(new URL('../../src/session/session-project.ts', import.meta.url));
+
+/** The views a real project goes through (session-project.ts), shaped as projectGateView shapes them. */
+function coreSequence() {
+  let now = 1000, p;
+  const views = [];
+  const take = (r) => { assert.ok(r.ok, JSON.stringify(r.error)); p = r.project; views.push(coreView(p)); };
+  const at = () => ({gate: p.gate, version: CORE.gateVersion(p)});
+  const row = (taskId, milestoneId) => ({taskId, title: 'Task ' + taskId, milestoneId, worker: 'openrouter:w-a', reviewer: null,
+    reason: 'preset', basis: 'preset', samples: 0, estCostUsd: 0.1, estMs: 1000});
+  take(CORE.applyProjectUpdate(undefined, {kind: 'brief', brief: {what: 'A chess game', users: 'two players', how: 'a web page', successCriteria: ['legal moves']}, draftedAfterUntrusted: false}, now++));
+  take(CORE.applyProjectDecision(p, {...at(), verdict: 'approve'}, {now: now++}));
+  take(CORE.applyProjectUpdate(p, {kind: 'plan', milestones: [{id: 'm1', title: 'Base', kind: 'base'}, {id: 'm2', title: 'Logic', kind: 'logic'}],
+    rows: [row('t1', 'm1'), row('t2', 'm2')], detail: 'full'}, now++));
+  take(CORE.applyProjectDecision(p, {...at(), verdict: 'approve'}, {now: now++}));
+  take(CORE.applyProjectUpdate(p, {kind: 'milestone', id: 'm1', state: 'done', summary: 'The board renders.'}, now++));
+  take(CORE.applyProjectDecision(p, {...at(), verdict: 'edit', edits: {note: 'Bigger squares'}}, {now: now++}));
+  take(CORE.applyProjectUpdate(p, {kind: 'milestone', id: 'm1', state: 'done', summary: 'The board renders bigger.'}, now++));
+  return views;
+}
+function coreView(p) {
+  return {
+    schema: 1, sessionId: 'ses-1', gate: p.gate, version: CORE.gateVersion(p),
+    allowedVerdicts: p.cancelledAt !== undefined ? [] : CORE.allowedProjectVerdicts(p.gate),
+    expectation: CORE.projectExpectation(p), cancelled: p.cancelledAt !== undefined, brief: p.brief ?? null,
+    plan: p.plan ? {status: p.plan.status, detail: p.plan.detail, version: p.plan.version, draftedAfterUntrusted: p.plan.draftedAfterUntrusted,
+      rows: p.plan.rows.map((r) => ({...r, selectableWorkers: ['openrouter:w-a'], selectableReviewers: []})), totals: p.plan.totals} : null,
+    milestones: p.milestones.map((m) => ({...m, estCostUsd: null, estMs: null})), violations: [],
+  };
+}
+
+test('the agent\'s real sequence brief → none → plan → none → milestone → none → milestone draws every gate', () => {
+  const views = coreSequence();
+  assert.deepEqual(views.map((v) => v.gate.kind + ' v' + v.version),
+    ['brief v1', 'none v1', 'plan v1', 'none v1', 'milestone v2', 'none v2', 'milestone v3']);
+  const c = controller();
+  c.card.follow('ses-1');
+  const drawn = [];
+  for (const view of views) {
+    c.card.onFrame({sessionId: 'ses-1', view});
+    drawn.push(c.last().model ? c.last().model.gate + ' v' + c.last().model.version : null);
+  }
+  assert.deepEqual(drawn, ['brief v1', null, 'plan v1', null, 'milestone v2', null, 'milestone v3']);
+});
+
+test('a GET /api/project answer sent before a frame arrived does not overwrite that frame', async () => {
+  const views = coreSequence();
+  let answer;
+  const c = controller({read: () => new Promise((r) => { answer = r; })});
+  c.card.follow('ses-1');
+  await tick();
+  c.card.onFrame({sessionId: 'ses-1', view: views[2]});   // the plan, after the read went out
+  answer({supported: true, ok: true, view: views[0]});      // the read saw the brief
+  await tick(); await tick();
+  assert.equal(c.last().model.gate, 'plan');
 });

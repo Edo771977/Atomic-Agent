@@ -46,7 +46,9 @@ stream; the client routes both by name to its own `project` event (before,
 the events copy went out as an approval and was dropped), main hands it on as
 `agent:project`, and opening a chat reads `GET /api/project?session=`. The
 card (`renderer/project-card.js`, drawn into `#projectcard`, never by
-`render()`) keeps only the newest version per chat and shows the brief (with
+`render()`) draws the last view the agent sent for the chat (frames in arrival
+order; a read answered after a frame is ignored; the version is the gate's
+own counter, never compared across gates) and shows the brief (with
 the warning when it was drafted after outside content), the plan rows
 (worker, reviewer, reason, measured or preset basis and samples, estimate),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
