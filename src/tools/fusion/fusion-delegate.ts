@@ -1639,7 +1639,7 @@ export function buildFusionDelegateTool(
           judge,
           pinsModel: (providerId) => team?.pinsModel(providerId) ?? teamContext?.pinsModel(providerId) ?? true,
           describe: vj === undefined ? undefined : (call) => runWithProviderRole("the fusion vision judge", () => vj.describe(call)),
-          admit: (member, worstPromptChars) => {
+          admit: (member, worstPromptChars, spentUsd) => {
             const stop = budgetStop();
             if (stop !== undefined) return stop.message;
             if (runSignal.aborted) return "the turn was cancelled";
@@ -1649,7 +1649,7 @@ export function buildFusionDelegateTool(
               (deps.resolveWorkerAdmissionPricing === undefined || deps.resolveWorkerAdmissionPricing(member.providerId, member.model) !== undefined);
             if (!verified) return `the turn's $ cap needs a priced judge and ${member.model} has no verified price`;
             const worstUsd = worstCaseCostUsd(worstPromptChars, VISION_MAX_OUTPUT_TOKENS, pricing);
-            return turnBudget.check(ctx.sessionId, { usd: limits.usd - worstUsd }, deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0) === undefined
+            return turnBudget.check(ctx.sessionId, { usd: limits.usd - worstUsd - spentUsd }, deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0) === undefined
               ? undefined
               : `the call's worst case (${formatUsd(worstUsd)}) would pass the turn's $ cap with the spend so far`;
           },
