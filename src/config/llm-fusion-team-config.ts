@@ -58,7 +58,8 @@ export type UserFusionTeamConfig = {
   watchEveryMinutes?: number;
   /**
    * At most this many judge calls per watched task when its progress is
-   * unclear, counted against the turn's budget: 1 to 10. Default 3.
+   * unclear, across all its runs (review passes and an escalation
+   * re-run), counted against the turn's budget: 1 to 10. Default 3.
    */
   watchMaxChecks?: number;
 };
