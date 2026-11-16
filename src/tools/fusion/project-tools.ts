@@ -417,11 +417,24 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
         const evidence = deps.milestoneEvidence(milestone, order);
+        // A milestone closes only when its tests AND criteria pass: the
+        // person never sees "done" over a red or unverified criterion.
+        const open = evidence.facts.filter((f) => f.state !== "passed");
+        if (open.length > 0) {
+          return refuse(PROJECT_MILESTONE_TOOL, [
+            `milestone ${report.id} cannot be reported done: ${open.map((f) => `${f.id} ${f.state}${f.why === undefined ? "" : ` (${f.why})`}`).join(", ")}. Fix it and re-delegate, or report "failed" with the reasons`,
+          ]);
+        }
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
           lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
         }
-        if (evidence.uncovered.length > 0) lines.push(`Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`);
+        if (evidence.uncovered.length > 0) {
+          // On the report itself, so the person sees it at the gate.
+          const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;
+          report = { ...report, summary: `${report.summary}\n${warning}` };
+          lines.push(warning);
+        }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);

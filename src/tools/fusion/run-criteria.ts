@@ -76,7 +76,7 @@ function readRunTasks(runsDir: string, runId: string): RunTaskCriteria[] {
 }
 
 export interface MilestoneEvidence {
-  /** One per criterion its runs' checks name, in `criteriaOrder`; the worst state across its tasks. */
+  /** One per criterion its runs' checks name, in `criteriaOrder`: its newest run's, the worst of that run's tasks. */
   facts: ProjectCriterionFact[];
   /** The runs' screenshots, newest first, at most {@link PROJECT_LIMITS}.attachments. */
   attachments: ProjectMilestoneAttachment[];
@@ -86,8 +86,9 @@ export interface MilestoneEvidence {
 
 /**
  * The facts and screenshots of a milestone's runs (oldest first): a
- * task's newest run stands for it; a criterion takes the worst state of
- * the tasks naming it (failed, then unverified, then passed).
+ * criterion's newest run that names it stands for it; within that run
+ * it takes the worst state of the tasks naming it (failed, then
+ * unverified, then passed).
  */
 export function readMilestoneEvidence(input: {
   runsDir: string;
@@ -95,16 +96,21 @@ export function readMilestoneEvidence(input: {
   runIds: readonly string[];
   criteriaOrder: readonly string[];
 }): MilestoneEvidence {
+  // A criterion's newest run stands for it, whichever task carried it
+  // there (a fix may come under another task id); within one run, the
+  // worst of its tasks.
   const byTask = new Map<string, readonly ProjectCriterionFact[]>();
-  for (const runId of input.runIds) {
-    for (const task of readRunTasks(input.runsDir, runId)) byTask.set(task.taskId, task.facts);
-  }
   const worst = new Map<string, ProjectCriterionFact>();
-  for (const facts of byTask.values()) {
-    for (const fact of facts) {
-      const known = worst.get(fact.id);
-      if (known === undefined || RANK[fact.state] > RANK[known.state]) worst.set(fact.id, fact);
+  for (const runId of input.runIds) {
+    const inRun = new Map<string, ProjectCriterionFact>();
+    for (const task of readRunTasks(input.runsDir, runId)) {
+      byTask.set(task.taskId, task.facts);
+      for (const fact of task.facts) {
+        const known = inRun.get(fact.id);
+        if (known === undefined || RANK[fact.state] > RANK[known.state]) inRun.set(fact.id, fact);
+      }
     }
+    for (const [id, fact] of inRun) worst.set(id, fact);
   }
   const facts = input.criteriaOrder.flatMap((id) => (worst.has(id) ? [worst.get(id)!] : []));
   const uncovered = input.criteriaOrder.filter((id) => !worst.has(id));

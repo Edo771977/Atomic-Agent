@@ -31,6 +31,24 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(out.uncovered).toEqual(["c3"]);
   });
 
+  it("takes the newest run's fact per criterion, whichever task carried it (worst within one run)", () => {
+    const state = stateDir();
+    // An older run's task red on c1; a newer run fixed c1 under another task id.
+    writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [
+      { taskId: "board", facts: [{ id: "c1", state: "failed", why: "old" }] },
+    ]);
+    writeRunCriteriaFacts(runsOf(state), { runId: "fr-2", sessionId: "s" }, [
+      { taskId: "board-fix", facts: [{ id: "c1", state: "passed", why: "fixed" }] },
+      { taskId: "rules", facts: [{ id: "c2", state: "passed", why: "ok" }] },
+      { taskId: "rules-ui", facts: [{ id: "c2", state: "unverified", why: "no vision judge" }] },
+    ]);
+    const out = readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1", "fr-2"], criteriaOrder: ORDER });
+    expect(out.facts).toEqual([
+      { id: "c1", state: "passed", why: "fixed" },
+      { id: "c2", state: "unverified", why: "no vision judge" },
+    ]);
+  });
+
   it("offers the runs' screenshots as attachments, newest first, at most the cap, captioned and tied to the task's criteria", () => {
     const state = stateDir();
     writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [{ taskId: "board", facts: [{ id: "c1", state: "passed", why: "ok" }] }]);

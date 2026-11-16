@@ -249,7 +249,7 @@ describe("project.milestone", () => {
   it("a done report carries its runs' criteria facts and, when it names none, their screenshots (issue #40)", async () => {
     const shots = [{ path: "/state/fusion-runs/r1/shots/board-2.jpg", caption: "board: screenshot 2", criteria: ["c1"] }];
     const evidence = vi.fn<NonNullable<ProjectToolDeps["milestoneEvidence"]>>(() => ({
-      facts: [{ id: "c1", state: "failed", why: "check 1 failed: exit 1" }],
+      facts: [{ id: "c1", state: "passed", why: "every check naming it passed" }],
       attachments: shots,
       uncovered: ["c2"],
     }));
@@ -257,10 +257,10 @@ describe("project.milestone", () => {
     const result = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project });
     expect(evidence).toHaveBeenCalledWith(expect.objectContaining({ id: "base", runIds: ["r1"] }), ["c1", "c2"]);
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({
-      kind: "milestone", id: "base", state: "done", summary: "Board drawn",
-      criteriaFacts: [{ id: "c1", state: "failed", why: "check 1 failed: exit 1" }], attachments: shots,
+      kind: "milestone", id: "base", state: "done", summary: "Board drawn\nWarning: not covered by a check: c2.",
+      criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed" }], attachments: shots,
     });
-    expect(result.summary).toContain("c1 failed");
+    expect(result.summary).toContain("c1 passed");
     expect(result.summary).toContain("not covered by a check: c2");
     // Named attachments win; a failed report carries no facts.
     const named = [{ path: "/state/fusion-runs/r1/shots/board-1.jpg", caption: "mine" }];
@@ -270,6 +270,21 @@ describe("project.milestone", () => {
     expect(failed.details[PROJECT_UPDATE_DETAIL]).not.toHaveProperty("criteriaFacts");
     // The model cannot pass facts itself.
     expect(parseProjectMilestoneArgs({ id: "base", state: "done", summary: "x", criteriaFacts: [] })).toMatchObject({ ok: false });
+  });
+
+  it("refuses a done report while a criterion its checks name is failed or unverified (issue #40)", async () => {
+    const project = { milestones: [{ id: "base", runIds: ["r1"] }], brief: { successCriteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Looks right" }] } } as unknown as ProjectState;
+    for (const state of ["failed", "unverified"] as const) {
+      const evidence = () => ({ facts: [{ id: "c1", state: "passed" as const }, { id: "c2", state, why: "no vision judge" }], attachments: [], uncovered: [] });
+      const result = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project });
+      expect(result.status).toBe("error");
+      expect(result.summary).toContain(`c2 ${state}`);
+      expect(result.summary).toMatch(/Fix it and re-delegate, or report "failed" with the reasons/);
+      expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
+    }
+    const evidence = () => ({ facts: [{ id: "c2", state: "failed" as const }], attachments: [], uncovered: [] });
+    const failed = await tools({ evidence }).milestone.run({ id: "base", state: "failed", summary: "c2 does not render" }, { ...ctx, project });
+    expect(failed.status).toBe("ok");
   });
 
   it("the model cannot approve or review", async () => {
