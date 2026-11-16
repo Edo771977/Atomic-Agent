@@ -134,6 +134,24 @@ describe("runVerify — page games under a real browser", () => {
     expect(out.ok).toBe(false);
   }, 60_000);
 
+  it("stops a running game when the run is cancelled, even inside a step that never ends", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "hang.html"), `<html><body><script>
+      window.__game = { start() {}, step() { return new Promise(() => {}); }, state() { return { over: false, winner: null, moves: 0 }; } };
+    </script></body></html>`);
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = runVerify({ kind: "page", path: "hang.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 60_000 }, checks: ["games finish"] }, ctx({ signal: controller.signal }));
+    // Into the game: the page has loaded and the harness is waiting on step().
+    await new Promise((r) => setTimeout(r, 1_500));
+    const aborted = Date.now();
+    controller.abort();
+    const out = await pending;
+    expect(Date.now() - aborted).toBeLessThan(1_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(out.ok).toBe(false);
+  }, 60_000);
+
   it("fails with a clear reason when the page exposes no window.__game", async (test) => {
     if (launch === undefined) return test.skip();
     await writeFile(join(work, "plain.html"), "<html><body>no game here</body></html>");

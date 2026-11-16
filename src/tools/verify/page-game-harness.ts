@@ -182,14 +182,22 @@ export async function playGames(
         `(${GAME_DRIVER_SOURCE})(${JSON.stringify({ seed, maxMs: spec.maxMsPerGame, maxMoves: spec.maxMoves ?? null })})`,
       ) as Promise<InPageGame>;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
       const giveUp = new Promise<InPageGame>((resolve) => {
         timer = setTimeout(() => {
           stuck = true;
           resolve({ errors: [`the game did not return within ${spec.maxMsPerGame + GAME_RETURN_SLACK_MS} ms (a step that never ends?)`], timedOut: true });
         }, spec.maxMsPerGame + GAME_RETURN_SLACK_MS);
+        // A cancel does not wait for the page.
+        onAbort = () => {
+          stuck = true;
+          resolve({ errors: ["the run was cancelled during the game"] });
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
       });
       result = await Promise.race([play, giveUp]);
       clearTimeout(timer);
+      if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
       play.catch(() => {});
     } catch (err) {
       result = { errors: [`the harness failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`] };

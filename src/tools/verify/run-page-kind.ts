@@ -185,6 +185,14 @@ export async function runPageKind(
     push(errors, `run exceeded timeoutMs (${args.timeoutMs})`);
     void browser.close().catch(() => {});
   }, args.timeoutMs);
+  // A cancel closes the browser: whatever the page is doing (a game step
+  // that never ends, a probe) stops with it.
+  const onAbort = (): void => {
+    push(errors, "the run was cancelled");
+    void browser.close().catch(() => {});
+  };
+  if (ctx.signal?.aborted) onAbort();
+  else ctx.signal?.addEventListener("abort", onAbort, { once: true });
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     if (!args.network) {
@@ -259,6 +267,7 @@ export async function runPageKind(
     return done({ target, launched: true, loaded: false, error: err instanceof Error ? err.message.split("\n")[0] : String(err) });
   } finally {
     clearTimeout(deadline);
+    ctx.signal?.removeEventListener("abort", onAbort);
     await browser.close().catch(() => {});
   }
 }

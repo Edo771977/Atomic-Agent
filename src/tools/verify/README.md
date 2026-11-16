@@ -34,7 +34,7 @@ window.__game = {
 };
 ```
 
-Game `i` starts with `{ seed: i + 1, mode: "auto" }`. Then `step()` is called until `state().over`, `maxMsPerGame` or `maxMoves`. For each game the harness records `finished`, `winner` (`null` means a draw), `moves`, `durationMs` and `errors`. Errors include a throw from the API, a `state().error`, and every uncaught page error or console error raised during that game. A page without the API fails the run: "the page exposes no window.__game API; the brief requires it". Games run after the script steps and before the probes. `games: 0` counts as no game (a default-filled object).
+Game `i` starts with `{ seed: i + 1, mode: "auto" }`. Then `step()` is called until `state().over`, `maxMsPerGame` or `maxMoves`. For each game the harness records `finished`, `winner` (`null` means a draw), `moves`, `durationMs` and `errors`. Errors include a throw from the API, a `state().error`, and every uncaught page error or console error raised during that game. A page without the API fails the run: "the page exposes no window.__game API; the brief requires it". Games run after the script steps and before the probes. A cancel closes the browser and ends a running game at once, even inside a `step()` that never returns. `games: 0` counts as no game (a default-filled object).
 
 Assertions:
 
