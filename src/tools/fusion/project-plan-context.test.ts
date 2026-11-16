@@ -4,7 +4,7 @@ import type { FusionTeamContext } from "./team-routing.js";
 import { PROJECT_ESTIMATE_MIN_SAMPLES, projectPlanContextFrom } from "./project-plan-context.js";
 
 const team: FusionTeamContext = {
-  team: { workers: ["local:model-a", "cloud:model-b", "banned:model-c"], reviewers: ["cloud:model-r"] },
+  team: { directors: ["cloud:model-d"], workers: ["local:model-a", "cloud:model-b", "banned:model-c"], reviewers: ["cloud:model-r"] },
   fusion: { workerProvider: "local", workerModel: "model-a" },
   familyOf: (m) => (m.providerId === "local" ? "local" : "other"),
   reachable: () => true,
