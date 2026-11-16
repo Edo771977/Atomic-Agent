@@ -603,6 +603,14 @@ export interface AgentRuntime {
        * client) does not until ATO-1502, nor does any other origin.
        */
       questions?: boolean;
+      /**
+       * The client declared whether it draws fusion project gates (issue
+       * #39; HTTP `X-Atomic-Project`, the sidecar's `capabilities.project`).
+       * Absent: the TUI, the CLI and Telegram run the project flow, no
+       * other origin does. Read on the session's first turn only and
+       * stamped as `metadata.projectGates`, fixed for the session.
+       */
+      projectGates?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**
@@ -676,6 +684,8 @@ export interface AgentRuntime {
       answerChannel?: AnswerChannel;
       /** See `runTurn`'s `questions`. */
       questions?: boolean;
+      /** See `runTurn`'s `projectGates`. */
+      projectGates?: boolean;
     },
   ): Promise<RunTurnResult>;
   /**

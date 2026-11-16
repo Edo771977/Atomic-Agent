@@ -118,6 +118,10 @@ export function createCapabilitiesHandler(): HttpHandler {
         // client gets `ask_user` in its turns only when its chat request
         // sends `X-Atomic-Questions: 1` (with `X-Atomic-Extensions`).
         questions: true,
+        // Issue #39: project_gate frames and POST /api/project/decision.
+        // A chat runs the project flow only when its first request sends
+        // `X-Atomic-Project: 1` (with `X-Atomic-Extensions`).
+        project: true,
       },
       tools: runtime.toolRegistry
         .list()

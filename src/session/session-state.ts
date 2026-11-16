@@ -218,6 +218,9 @@ export interface SessionState {
    *     last turn was served on. Written only by `executeTurn` after the
    *     turn; compared at the next turn's start to tell the model when
    *     the route changed. See `session-route.ts`.
+   *   - `projectGates: boolean` — whether the session runs the fusion
+   *     project flow (issue #39). Stamped by `executeTurn` from the
+   *     session's first surface and kept after. See `session-project.ts`.
    */
   metadata: Record<string, unknown>;
   /**

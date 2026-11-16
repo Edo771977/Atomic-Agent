@@ -46,6 +46,12 @@ interface ActiveSession {
    */
   controller: AbortController;
   eventSink: (event: AgentLoopEvent) => void;
+  /**
+   * Issue #39: the host declared `capabilities.project` on
+   * `start_session` (it draws the project card), so the session runs the
+   * project flow. False until the desktop card ships.
+   */
+  projectGates: boolean;
 }
 
 /**
@@ -334,6 +340,7 @@ export async function bootstrapSidecar(): Promise<{
         session,
         controller,
         eventSink: forwardAgentEvent(session.id),
+        projectGates: request.payload.capabilities?.project === true,
       };
       protocol.emitEvent("session_started", {
         sessionId: session.id,
@@ -389,6 +396,8 @@ export async function bootstrapSidecar(): Promise<{
           signal,
           // The desktop app: picks the reply's `### answer-style`.
           origin: "sidecar",
+          // Issue #39: stamped on the session's first turn, kept after.
+          projectGates: active.projectGates,
         });
       },
     });

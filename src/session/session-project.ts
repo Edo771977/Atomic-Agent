@@ -169,6 +169,19 @@ export const PROJECT_LIMITS = {
   corrections: 8,
 } as const;
 
+/**
+ * `metadata.projectGates`: whether this session runs the project flow
+ * (issue #39), stamped by the runtime from the session's first surface
+ * and never changed after, so the stable prefix stays put.
+ */
+export const PROJECT_GATES_METADATA_KEY = "projectGates";
+
+/** The session's stamped capability; undefined before its first turn. */
+export function readProjectGatesCapability(metadata: Record<string, unknown> | undefined): boolean | undefined {
+  const value = metadata?.[PROJECT_GATES_METADATA_KEY];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 // ---------------------------------------------------------------- updates
 
 /** The brief fields the director writes (`project.brief`). */

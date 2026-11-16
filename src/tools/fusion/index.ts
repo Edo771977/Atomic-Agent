@@ -218,6 +218,7 @@ export {
   parseProjectPlanArgs,
 } from "./project-tools.js";
 export type { ProjectPlanArgs, ProjectPlanContext, ProjectPlanTaskArgs, ProjectToolDeps } from "./project-tools.js";
+export { surfaceShowsProjectGates, withProjectToolVisibility } from "./project-surface.js";
 export { projectPlanContextFrom } from "./project-plan-context.js";
 export type { ProjectPlanContextInput } from "./project-plan-context.js";
 export { teamContextFromConfig } from "./team-routing.js";

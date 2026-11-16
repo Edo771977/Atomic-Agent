@@ -14,6 +14,7 @@ export type {
   SidecarEventType,
   SidecarMessage,
   SidecarResponse,
+  StartSessionCapabilities,
   StartSessionPayload,
   RunStepPayload,
   SendMessagePayload,

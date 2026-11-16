@@ -99,6 +99,22 @@ export type SidecarMessage = HostRequest | SidecarEvent | SidecarResponse;
 export interface StartSessionPayload {
   workingDir: string;
   metadata?: Record<string, unknown>;
+  /** What the host draws; see {@link StartSessionCapabilities}. */
+  capabilities?: StartSessionCapabilities;
+}
+
+/**
+ * The host's surface, declared once per session on `start_session`.
+ * Fixed for the session: it shapes the session's stable prompt prefix.
+ */
+export interface StartSessionCapabilities {
+  /**
+   * Issue #39: the host draws the fusion project card (`project_gate`)
+   * and answers it with `project_decision`, so the session runs the
+   * project flow (brief, plan, milestones). Absent or not `true`: no
+   * project tools, and the fan-out asks for approval as before.
+   */
+  project?: boolean;
 }
 
 export interface RunStepPayload {
