@@ -8,7 +8,7 @@ import { CONTRACT_CHECKS_HELD, ContractChecksHeldError, type ContractCheckRunner
 
 export type ContractCheckHoldGate = Partial<Pick<ApprovalGate,
   "holdsForOutsideContent" | "outsideContentSources" | "request" | "ruleDecisionFor" | "hasDeclinedTarget" |
-  "grantVerifyPageForTurn" | "verifyPageGrantedForTurn"
+  "offerVerifyPageTurnGrant" | "verifyPageGrantedForTurn"
 >>;
 export interface ContractCheckHold {
   decide(signal: AbortSignal, batch?: readonly Record<string, unknown>[]): Promise<string | undefined>;

@@ -422,8 +422,10 @@ export class ApprovalGate {
    * is held for what the parent read, and the parent for what it reads.
    */
   private readonly taintParentBySession = new Map<string, string>();
-  /** Folders a `verify_page_local` probe was approved for in the session's current turn. */
+  /** Folders a person approved a `verify_page_local` probe of in the session's current turn. */
   private readonly verifyPageFoldersBySession = new Map<string, Set<string>>();
+  /** Folders a pending `verify_page_local` request may record a turn grant for (`offerVerifyPageTurnGrant`). */
+  private readonly verifyPageOffersBySession = new Map<string, string[]>();
   /** Approval ids re-entering `request` after the taint check: no silent approval. */
   private readonly taintHeld = new Set<string>();
   /** `agent.taintReview`, read live; off until bootstrap wires it. */
@@ -572,7 +574,7 @@ export class ApprovalGate {
   /**
    * Forget the outside content of `sessionId`'s last turn, and the
    * folders its local page probes were approved for in that turn
-   * (`grantVerifyPageForTurn`); called when a turn starts.
+   * (`offerVerifyPageTurnGrant`); called when a turn starts.
    */
   clearUntrustedContent(sessionId: string): void {
     this.taint.clear(sessionId);
@@ -580,16 +582,38 @@ export class ApprovalGate {
   }
 
   /**
-   * Remember that the person approved a `verify_page_local` probe of
-   * `folder` this turn (issue: double verify prompt). The caller records
-   * it only for a folder the session's approved project plan covers. It
-   * stands until the session's next turn starts, for that category and
-   * that exact folder only, never a parent or another category.
+   * Offer a turn grant for the `verify_page_local` request about to be
+   * made for `folder` (a folder the session's approved project plan
+   * covers). It is recorded only if a person approves that pending
+   * request (`resolve`): a level, a session grant, an allow rule or the
+   * risk reviewer approving it quietly records nothing. The grant stands
+   * until the session's next turn starts, for that category and that
+   * exact folder only. Call the returned function once the request
+   * settled to withdraw the offer.
    */
-  grantVerifyPageForTurn(sessionId: string, folder: string): void {
-    const folders = this.verifyPageFoldersBySession.get(sessionId) ?? new Set<string>();
-    folders.add(resolvePath(folder));
-    this.verifyPageFoldersBySession.set(sessionId, folders);
+  offerVerifyPageTurnGrant(sessionId: string, folder: string): () => void {
+    const offer = resolvePath(folder);
+    const offers = this.verifyPageOffersBySession.get(sessionId) ?? [];
+    offers.push(offer);
+    this.verifyPageOffersBySession.set(sessionId, offers);
+    return () => {
+      const now = this.verifyPageOffersBySession.get(sessionId) ?? [];
+      const at = now.indexOf(offer);
+      if (at >= 0) now.splice(at, 1);
+      if (now.length === 0) this.verifyPageOffersBySession.delete(sessionId);
+    };
+  }
+
+  /** A person approved `request`: record the turn grant it was offered, if any. */
+  private recordVerifyPageTurnGrant(request: ApprovalRequest): void {
+    if (request.category !== "verify_page_local") return;
+    const offers = this.verifyPageOffersBySession.get(request.sessionId) ?? [];
+    const folders = (request.affectedResources ?? []).map((path) => resolvePath(path));
+    const granted = folders.filter((folder) => offers.some((offer) => relative(offer, folder) === ""));
+    if (granted.length === 0) return;
+    const set = this.verifyPageFoldersBySession.get(request.sessionId) ?? new Set<string>();
+    for (const folder of granted) set.add(folder);
+    this.verifyPageFoldersBySession.set(request.sessionId, set);
   }
 
   /**
@@ -1230,6 +1254,9 @@ export class ApprovalGate {
     });
     if (decision.approved && decision.grant) {
       this.recordGrant(entry.request, decision.grant);
+    }
+    if (decision.approved && decision.automatic !== true) {
+      this.recordVerifyPageTurnGrant(entry.request);
     }
     // Only a person's no: a timeout or a dropped prompt is nobody's
     // decision, and must not stop the model asking again.

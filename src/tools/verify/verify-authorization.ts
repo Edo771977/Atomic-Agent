@@ -219,10 +219,15 @@ export async function authorizeVerifyBatch(
     if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) continue;
-    await requireApproval(options, prompt, ctx.signal);
-    if (page && options.approvalRequired && options.turnGrantFolder !== undefined &&
-      relative(resolve(options.turnGrantFolder), resolve(cwd)) === "") {
-      options.approvals.grantVerifyPageForTurn?.(ctx.sessionId, cwd);
+    // The gate records the turn grant only if a person approves this request.
+    const withdraw = page && options.approvalRequired && options.turnGrantFolder !== undefined &&
+      relative(resolve(options.turnGrantFolder), resolve(cwd)) === ""
+      ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
+      : undefined;
+    try {
+      await requireApproval(options, prompt, ctx.signal);
+    } finally {
+      withdraw?.();
     }
   }
   ctx.signal.throwIfAborted();

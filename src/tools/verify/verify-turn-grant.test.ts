@@ -84,6 +84,15 @@ describe("a verify_page_local yes stands for the turn in the plan's folder", () 
     expect(asked).toHaveLength(6);
   });
 
+  it("is recorded only when a person answered, not when the level approved quietly", async () => {
+    gate.setLevel(2);
+    await tool().run(page, ctx());
+    expect(asked).toHaveLength(0);
+    gate.setLevel(1);
+    await tool().run(page, ctx());
+    expect(asked).toHaveLength(1);
+  });
+
   it("never covers a loopback URL probe, which runs whatever that server serves", async () => {
     await tool().run(page, ctx());
     await tool().run({ kind: "page", url: "http://127.0.0.1:5173/", probes: [{ name: "x", expr: "document.title" }] }, ctx());
