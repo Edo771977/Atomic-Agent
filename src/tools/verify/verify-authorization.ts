@@ -8,7 +8,7 @@ import { formatShellPreview, needsShellInterpretation, shellGrantShape } from ".
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
-import { guardVerifyRun, verifyRunCommands } from "./verify-run-guard.js";
+import { guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
 import { parseVerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
@@ -121,10 +121,12 @@ export async function authorizeVerifyBatch(
     const cwd = resolveVerifyCwd(project, logical.cwd);
     const commands = verifyRunCommands(logical);
     const commandSegments = commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
-    const commandUnreadable = commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
+    const stdinScript = verifyRunStdinScript(logical);
+    const commandUnreadable = stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
     const targetPaths = commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
     const dangerous = guard.dangerous.length > 0;
-    const first = commands.length === 1 ? commands[0] : undefined;
+    // A script fed on stdin is not what a grant for the program approved.
+    const first = commands.length === 1 && stdinScript === null ? commands[0] : undefined;
     const shape = first === undefined || dangerous ? undefined : shellGrantShape(first.cmd, [first.cmd, ...first.args].join(" "), needsShellInterpretation(first.cmd, first.args));
     const commandArgv = first === undefined ? undefined : shellCommandArgv(first.cmd, first.args, needsShellInterpretation(first.cmd, first.args), shape);
     const env = Object.fromEntries(Object.entries(logical.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => [name, isSecretEnvName(name) ? `[redacted:env:${name}]` : value]));

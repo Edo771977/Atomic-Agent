@@ -50,7 +50,7 @@ export {
   describeVerifyRun,
 } from "./verify-run.js";
 export type { VerifyRunToolOptions } from "./verify-run.js";
-export { guardVerifyCommand, guardVerifyRun, verifyRunCommands } from "./verify-run-guard.js";
+export { guardVerifyCommand, guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
 export type { VerifyGuardResult, VerifyGuardedCommand } from "./verify-run-guard.js";
 export { runVerify, runChecks } from "./run-verify.js";
 export type { VerifyRunResult, VerifyRunContext, VerifyRunConfig } from "./run-verify.js";

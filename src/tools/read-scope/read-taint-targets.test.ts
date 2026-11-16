@@ -13,6 +13,13 @@ describe("readTaintTargets", () => {
       .toContain("/work/secret/s.js");
   });
 
+  it("reads a stdin script fed to a shell, not stdin data to a plain command", () => {
+    expect(readTaintTargets("verify.run", { kind: "command", cmd: "sh", stdin: "cat /work/secret/plan.md" }, wd))
+      .toContain("/work/secret/plan.md");
+    expect(readTaintTargets("verify.run", { kind: "command", cmd: "cat", stdin: "/work/secret/plan.md" }, wd))
+      .not.toContain("/work/secret/plan.md");
+  });
+
   it("resolves a climbing relative shell path against the cwd", () => {
     expect(readTaintTargets("os.shell.run", { cmd: "cat ../secret/plan.md" }, wd)).toContain("/work/secret/plan.md");
   });

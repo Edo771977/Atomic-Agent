@@ -16,7 +16,7 @@ Owner: src/tools/verify/
 
 ## Command input and output assertions
 
-`stdin` (command runs only, at most 64 KB UTF-8) is written to the process and closed. Without it stdin is empty. `stdout|stderr [not] matches /re/flags` tests the full captured output (up to 1 MB), under a fixed policy:
+`stdin` (command runs only, at most 64 KB UTF-8) is written to the process and closed. Without it stdin is empty. When the command reads its script from stdin, `stdin` is that script: for a shell (`sh`, `bash -s`) it is guarded, egress-checked and read-checked as the command line it is, and it removes the call's grant shape; for another interpreter (`python3`, `node`, `pwsh -`) the call asks as `commandUnreadable`, like a script piped into it. Data to a command that runs its own script is left as is. `stdout|stderr [not] matches /re/flags` tests the full captured output (up to 1 MB), under a fixed policy:
 
 - The pattern is a `/source/flags` literal, at most 256 chars. Only the flags `i`, `m`, `s` and `u` are allowed.
 - Backreferences are refused, and so is a group repeated by an unbounded quantifier whose body itself repeats or alternates (`(a+)+`, `(\w*)*`, `(a|aa)*`). Escapes and character classes are skipped, and `?` is bounded.
