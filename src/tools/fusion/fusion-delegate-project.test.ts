@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { ApprovalGate, type ApprovalRequest } from "../../approval/approval-gate.js";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
@@ -93,7 +93,9 @@ const plan: ProjectUpdate = {
   detail: "compact",
 };
 const running = () => approve(up(approve(up(undefined, brief)), plan));
-const task = (id: string) => ({ id, title: id, instructions: `Write /repo/src/${id}.js` });
+// A native path, so the brief names a file the scope can grant on every
+// platform (a Unix-absolute path cannot be resolved under Windows).
+const task = (id: string) => ({ id, title: id, instructions: `Write ${join(REPO, "src", `${id}.js`)}` });
 
 describe("fusion.delegate with a project (issue #39)", () => {
   it("refuses before the plan is approved, with guidance, and runs no worker", async () => {
