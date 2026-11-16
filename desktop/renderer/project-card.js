@@ -342,6 +342,9 @@ function pcEl(doc, tag, cls, text) {
   return el;
 }
 
+/** Marks a control by what it does, so a repaint can put the focus back on its successor. */
+function pcFocusKey(el, key) { el.setAttribute('data-pc-focus', key); return el; }
+
 function pcButton(doc, label, cls, onClick, disabled, title) {
   const b = pcEl(doc, 'button', cls, label);
   b.type = 'button';
@@ -411,6 +414,13 @@ function pcSelect(doc, options, value, label, onChange, disabled) {
  * | {type: 'worker'|'reviewer', taskId, value} | {type: 'note', note}.
  */
 function pcDraw(doc, host, model, on) {
+  /* Accessibility: what had the focus is found again after the paint, by
+     what it does; a correction box being typed in is kept as it is (the
+     same node: its text and caret), never rebuilt under the person. */
+  const active = doc.activeElement && host.contains && host.contains(doc.activeElement) ? doc.activeElement : null;
+  const focusKey = active && active.getAttribute ? active.getAttribute('data-pc-focus') : null;
+  const keepNote = focusKey === 'note' ? active : null;
+  const caret = keepNote ? [keepNote.selectionStart, keepNote.selectionEnd] : null;
   while (host.firstChild) host.removeChild(host.firstChild);
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
@@ -419,7 +429,7 @@ function pcDraw(doc, host, model, on) {
   const head = pcEl(doc, 'div', 'pc-head');
   head.appendChild(pcEl(doc, 'div', 'pc-title', model.headline));
   head.appendChild(pcEl(doc, 'span', 'pc-ver', 'v' + model.version));
-  head.appendChild(pcButton(doc, 'Hide', 'btn btn-g xs', () => on({type: 'hide'}), false, 'Put the card away; reopening the chat shows it again'));
+  head.appendChild(pcFocusKey(pcButton(doc, 'Hide', 'btn btn-g xs', () => on({type: 'hide'}), false, 'Put the card away; reopening the chat shows it again'), 'hide'));
   card.appendChild(head);
   /* Only the body scrolls: the head and the action bar stay in view. */
   const body = pcEl(doc, 'div', 'pc-body');
@@ -453,9 +463,9 @@ function pcDraw(doc, host, model, on) {
       const who = pcEl(doc, 'div', 'pc-who');
       if (model.mode === 'edit') {
         who.appendChild(pcEl(doc, 'span', 'pc-lbl', 'worker'));
-        who.appendChild(pcSelect(doc, r.workers, r.worker, 'Worker for ' + r.taskId, (value) => on({type: 'worker', taskId: r.taskId, value}), model.busy));
+        who.appendChild(pcFocusKey(pcSelect(doc, r.workers, r.worker, 'Worker for ' + r.taskId, (value) => on({type: 'worker', taskId: r.taskId, value}), model.busy), 'worker:' + r.taskId));
         who.appendChild(pcEl(doc, 'span', 'pc-lbl', 'review'));
-        who.appendChild(pcSelect(doc, r.reviewers, r.reviewer, 'Reviewer for ' + r.taskId, (value) => on({type: 'reviewer', taskId: r.taskId, value}), model.busy));
+        who.appendChild(pcFocusKey(pcSelect(doc, r.reviewers, r.reviewer, 'Reviewer for ' + r.taskId, (value) => on({type: 'reviewer', taskId: r.taskId, value}), model.busy), 'reviewer:' + r.taskId));
       } else {
         // Each label stays with its ref; the pair wraps as one.
         const pair = (label, node) => { const p = pcEl(doc, 'span', 'pc-pair'); p.appendChild(pcEl(doc, 'span', 'pc-lbl', label)); p.appendChild(node); return p; };
@@ -487,37 +497,61 @@ function pcDraw(doc, host, model, on) {
   }
   if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', model.summary));
   for (const c of model.corrections) body.appendChild(pcEl(doc, 'p', 'pc-correction', 'Earlier correction: ' + c));
-  if (model.notice) body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
-  if (model.error) body.appendChild(pcEl(doc, 'p', 'pc-error', model.error));
+  if (model.notice) {
+    const n = body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
+    n.setAttribute('role', 'status'); n.setAttribute('aria-live', 'polite');
+  }
+  if (model.error) body.appendChild(pcEl(doc, 'p', 'pc-error', model.error)).setAttribute('role', 'alert');
   const bar = pcEl(doc, 'div', 'pc-actions');
   if (model.mode === 'correct') {
-    const ta = pcEl(doc, 'textarea', 'pc-note');
-    ta.maxLength = model.noteMax;
-    ta.placeholder = 'What should the milestone do differently?';
-    ta.setAttribute('aria-label', 'Your correction');
-    ta.value = model.note;
-    if (model.busy) ta.disabled = true;
-    const count = pcEl(doc, 'div', 'pc-count', model.note.length + ' / ' + model.noteMax);
-    // The text stays in its own box between paints; only the counter follows it.
-    ta.addEventListener('input', () => { count.textContent = ta.value.length + ' / ' + model.noteMax; on({type: 'note', note: ta.value}); });
+    let ta = keepNote;
+    if (!ta) {
+      ta = pcFocusKey(pcEl(doc, 'textarea', 'pc-note'), 'note');
+      ta.maxLength = model.noteMax;
+      ta.placeholder = 'What should the milestone do differently?';
+      ta.setAttribute('aria-label', 'Your correction');
+      ta.value = model.note;
+      // The text stays in its own box between paints; only the counter follows it.
+      ta.addEventListener('input', () => { if (ta._pcCount) ta._pcCount.textContent = ta.value.length + ' / ' + model.noteMax; on({type: 'note', note: ta.value}); });
+    }
+    ta.disabled = !!model.busy;
+    const count = pcEl(doc, 'div', 'pc-count', ta.value.length + ' / ' + model.noteMax);
+    ta._pcCount = count;
     body.appendChild(ta);
     body.appendChild(count);
-    bar.appendChild(pcButton(doc, 'Send correction', 'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy));
-    bar.appendChild(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy));
+    bar.appendChild(pcFocusKey(pcButton(doc, 'Send correction', 'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy), 'send-correction'));
+    bar.appendChild(pcFocusKey(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy), 'back'));
   } else if (model.mode === 'edit') {
-    bar.appendChild(pcButton(doc, model.changedRows ? 'Re-estimate ' + model.changedRows + ' change' + (model.changedRows === 1 ? '' : 's') : 'Re-estimate',
-      'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy || !model.changedRows));
-    bar.appendChild(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy));
+    bar.appendChild(pcFocusKey(pcButton(doc, model.changedRows ? 'Re-estimate ' + model.changedRows + ' change' + (model.changedRows === 1 ? '' : 's') : 'Re-estimate',
+      'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy || !model.changedRows), 're-estimate'));
+    bar.appendChild(pcFocusKey(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy), 'back'));
   } else {
     for (const a of model.actions) {
       const cls = 'btn sm ' + (a.primary ? 'btn-p' : a.danger ? 'btn-g pc-danger' : 'btn-s');
       const act = a.open ? {type: a.open} : a.revise ? {type: 'revise'} : {type: 'verdict', verdict: a.verdict};
-      bar.appendChild(pcButton(doc, a.label, cls, () => on(act), a.disabled, a.why));
+      bar.appendChild(pcFocusKey(pcButton(doc, a.label, cls, () => on(act), a.disabled, a.why), 'verdict:' + a.verdict));
     }
   }
   if (model.busy) bar.appendChild(pcEl(doc, 'span', 'pc-busy', 'Sending…'));
   card.appendChild(bar);
   host.appendChild(card);
+  if (keepNote) {
+    keepNote.focus();
+    if (caret && keepNote.setSelectionRange && caret[0] !== undefined) keepNote.setSelectionRange(caret[0], caret[1]);
+  } else if (focusKey) {
+    const next = pcFind(card, (e) => e.getAttribute && e.getAttribute('data-pc-focus') === focusKey);
+    if (next) next.focus();
+  }
+}
+
+/** The first element under `root` that `test` accepts (children only, so it works on any DOM). */
+function pcFind(root, test) {
+  for (const c of root.children || []) {
+    if (test(c)) return c;
+    const hit = pcFind(c, test);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**

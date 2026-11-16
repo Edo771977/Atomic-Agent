@@ -222,6 +222,7 @@ test('refusals: stale and wrong gate redraw the current view, a running turn and
 /** Just enough DOM to build the card in Node: no innerHTML anywhere. */
 function fakeDoc() {
   const all = [];
+  const doc = {activeElement: null};
   class El {
     constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.listeners = {}; this._text = ''; this.className = ''; this.hidden = false; this.disabled = false; all.push(this); }
     appendChild(c) { this.children.push(c); c.parentNode = this; return c; }
@@ -231,11 +232,15 @@ function fakeDoc() {
     get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
     set innerHTML(_v) { throw new Error('innerHTML used'); }
     setAttribute(k, v) { this.attrs[k] = String(v); }
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+    focus() { doc.activeElement = this; }
+    contains(x) { for (let n = x; n; n = n.parentNode) if (n === this) return true; return false; }
+    setSelectionRange(a, b) { this.selectionStart = a; this.selectionEnd = b; }
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
     fire(type) { for (const fn of this.listeners[type] || []) fn({target: this}); }
     findAll(pred) { const out = []; const walk = (e) => { if (pred(e)) out.push(e); e.children.forEach(walk); }; walk(this); return out; }
   }
-  return {createElement: (t) => new El(t), all};
+  return Object.assign(doc, {createElement: (t) => new El(t), all});
 }
 
 test('the card is built from text nodes and listeners; model text is never markup', () => {
@@ -595,4 +600,57 @@ test('a continue message is not handed to submit() while it would not send, and 
   const ok = continueWith();
   assert.equal(ok.sent, true);
   assert.deepEqual(ok.calls.submit, [['Go on.', {plain: true}]]);
+});
+
+/* ---------------- focus and announcements ---------------- */
+
+const byFocus = (host, key) => host.findAll((e) => e.getAttribute && e.getAttribute('data-pc-focus') === key)[0];
+
+test('a repaint keeps the focus on the same control: a button, a row\'s select', () => {
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  const draw = (state) => C.pcDraw(doc, host, C.pcModel(state), () => {});
+  draw(C.pcInitial(plan()));
+  byFocus(host, 'verdict:cheaper').focus();
+  const before = doc.activeElement;
+  draw(C.pcInitial(plan()));
+  assert.notEqual(doc.activeElement, before, 'a new node');
+  assert.equal(doc.activeElement.getAttribute('data-pc-focus'), 'verdict:cheaper');
+  assert.equal(doc.activeElement.textContent, 'Cheaper');
+  const edit = C.pcReduce(C.pcInitial(plan()), {type: 'edit'});
+  draw(edit);
+  byFocus(host, 'worker:t2').focus();
+  draw(C.pcReduce(edit, {type: 'worker', taskId: 't2', worker: 'openrouter:w-b'}));
+  assert.equal(doc.activeElement.getAttribute('data-pc-focus'), 'worker:t2');
+  assert.ok(host.contains(doc.activeElement));
+});
+
+test('the correction box being typed in is not replaced by a repaint: same node, text and caret', () => {
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  const state = C.pcReduce(C.pcInitial(milestone()), {type: 'correct'});
+  C.pcDraw(doc, host, C.pcModel(state), () => {});
+  const ta = byFocus(host, 'note');
+  ta.focus(); ta.value = 'Bigger squ'; ta.setSelectionRange(4, 4);
+  // A frame repaints before the input event reached the state.
+  C.pcDraw(doc, host, C.pcModel(state), () => {});
+  const now = byFocus(host, 'note');
+  assert.equal(now, ta, 'the same textarea');
+  assert.equal(now.value, 'Bigger squ');
+  assert.equal(doc.activeElement, ta);
+  assert.deepEqual([now.selectionStart, now.selectionEnd], [4, 4]);
+  assert.equal(host.findAll((e) => e.className === 'pc-count')[0].textContent, '10 / 2000');
+});
+
+test('notices and errors are announced', () => {
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  let s = C.pcReduce(C.pcInitial(plan()), {type: 'notice', notice: 'The project changed.'});
+  C.pcDraw(doc, host, C.pcModel(s), () => {});
+  const notice = host.findAll((e) => e.className === 'pc-notice')[0];
+  assert.equal(notice.attrs.role, 'status');
+  assert.equal(notice.attrs['aria-live'], 'polite');
+  s = C.pcReduce(s, {type: 'failed', error: 'A turn is running.'});
+  C.pcDraw(doc, host, C.pcModel(s), () => {});
+  assert.equal(host.findAll((e) => e.className === 'pc-error')[0].attrs.role, 'alert');
 });
