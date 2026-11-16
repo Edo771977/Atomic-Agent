@@ -83,9 +83,9 @@ describe("Telegram project gate", () => {
     await say("build a puzzle game");
     expect(sent.at(-2)).toBe("drafted");
     expect(sent.at(-1)).toContain("The project plan waits for your approval");
-    expect(sent.at(-1)).toContain("/plan approve");
+    expect(sent.at(-1)).toContain("/plan approve 3");
 
-    await say("/plan approve");
+    await say("/plan approve 3");
     expect(decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "approve" }]);
     expect(sent).toContain("Approved the plan (version 3): 2 tasks, $0.12 (+1 unpriced), ~1m30s.");
     expect(messages).toEqual(["build a puzzle game", 'I approved. Continue with milestone "Base".']);

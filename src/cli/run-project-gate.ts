@@ -1,14 +1,16 @@
 import type { AgentRuntime } from "../runtime/runtime-contract.js";
 import { projectContinueMessage } from "../session/project-continue.js";
-import { formatProjectGateText, projectApprovalLine } from "../session/project-gate-text.js";
+import { formatProjectGateText, projectApprovalLine, staleApprovalReason } from "../session/project-gate-text.js";
 import type { ProjectDecision, ProjectState } from "../session/session-project.js";
 
 /**
  * `run` at a fusion project gate (issue #39). An unattended run never
  * approves on its own: after a turn that left a gate open it prints the
  * gate and exits {@link PROJECT_GATE_EXIT} with the session id, and
- * `run --session <id> --approve` approves that gate. Only the explicit
- * `--auto-approve-project` approves every gate as it opens, printing each.
+ * `run --session <id> --approve <version>` approves that gate only at the
+ * version the person read (a stale one is refused). Only the explicit
+ * `--auto-approve-project` approves every gate at its current version as
+ * it opens, printing each.
  */
 
 /** `run`'s exit code for "stopped at a project gate; nothing failed". */
@@ -30,10 +32,15 @@ export type ProjectGateStep =
 
 type GateRuntime = Pick<AgentRuntime, "projectState" | "projectDecision">;
 
+/**
+ * `mode`: `stop` prints the gate; `approve` approves its current version
+ * (`--auto-approve-project` only); `{ version }` approves only that
+ * version (`--approve <version>`).
+ */
 export async function settleProjectGate(
   runtime: GateRuntime,
   sessionId: string,
-  mode: "stop" | "approve",
+  mode: "stop" | "approve" | { version: number },
 ): Promise<ProjectGateStep> {
   const view = runtime.projectState?.(sessionId) ?? null;
   if (view === null || view.gate.kind === "none") return { kind: "open" };
@@ -43,13 +50,17 @@ export async function settleProjectGate(
       text: [
         formatProjectGateText(view),
         `session: ${sessionId}`,
-        `Approve with: atomic-agent run --session ${sessionId} --approve`,
+        `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
         "Or continue the chat with --session to ask the director for changes.",
       ].join("\n"),
     };
   }
   if (runtime.projectDecision === undefined || view.version === null || !view.allowedVerdicts.includes("approve")) {
     return { kind: "failed", text: `${formatProjectGateText(view)}\nThis gate cannot be approved here.` };
+  }
+  if (typeof mode === "object") {
+    const stale = staleApprovalReason(view, mode.version);
+    if (stale !== null) return { kind: "failed", text: `${formatProjectGateText(view)}\nnot approved: ${stale}` };
   }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
   const outcome = runtime.projectDecision(sessionId, decision);

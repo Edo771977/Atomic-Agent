@@ -108,3 +108,15 @@ export function projectApprovalLine(view: ProjectGateView): string {
       return "nothing to approve";
   }
 }
+
+/**
+ * Why an approval for `version` is refused when the gate moved on, e.g.
+ * "the plan changed since version 2; current is 3"; null when `version`
+ * is the gate's current one. Text surfaces (Telegram `/plan approve <v>`,
+ * CLI `--approve <v>`) approve only the version the person read.
+ */
+export function staleApprovalReason(view: ProjectGateView, version: number): string | null {
+  if (view.version === version) return null;
+  const what = view.gate.kind === "brief" ? "the brief" : view.gate.kind === "milestone" ? "the milestone's result" : "the plan";
+  return `${what} changed since version ${version}; current is ${view.version ?? "none"}`;
+}

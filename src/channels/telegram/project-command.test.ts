@@ -21,13 +21,25 @@ describe("Telegram /plan (issue #39)", () => {
   it("bare /plan shows the open gate and the two text verdicts", async () => {
     const out = await runProjectCommand([], { runtime: runtime(fixtureProjectGateView({ kind: "plan" })), sessionId: "s", busy: false });
     expect(out.text).toContain("The project plan waits for your approval (version 3).");
-    expect(out.text).toContain("/plan approve");
+    expect(out.text).toContain("/plan approve 3");
     expect(out.continueWith).toBeNull();
   });
 
-  it("/plan approve approves at the version shown and hands back the continuing message", async () => {
+  it("/plan approve needs the version shown: bare shows the gate and asks again, a stale one is refused", async () => {
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }), running);
-    const out = await runProjectCommand(["approve"], { runtime: rt, sessionId: "s", busy: false });
+    const bare = await runProjectCommand(["approve"], { runtime: rt, sessionId: "s", busy: false });
+    expect(bare.text).toContain("The project plan waits for your approval (version 3).");
+    expect(bare.text).toContain("/plan approve 3");
+    expect(bare.continueWith).toBeNull();
+    const stale = await runProjectCommand(["approve", "2"], { runtime: rt, sessionId: "s", busy: false });
+    expect(stale.text).toBe("Not approved: the plan changed since version 2; current is 3. Reply /plan to see it.");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    expect((await runProjectCommand(["approve", "x"], { runtime: rt, sessionId: "s", busy: false })).text).toMatch(/Usage: \/plan/);
+  });
+
+  it("/plan approve <version> approves at the version shown and hands back the continuing message", async () => {
+    const rt = runtime(fixtureProjectGateView({ kind: "plan" }), running);
+    const out = await runProjectCommand(["approve", "3"], { runtime: rt, sessionId: "s", busy: false });
     expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
     expect(out.text).toMatch(/^Approved the plan/);
     expect(out.continueWith).toBe('I approved. Continue with milestone "Base".');
@@ -42,7 +54,7 @@ describe("Telegram /plan (issue #39)", () => {
   });
 
   it("says why an approval was refused", async () => {
-    const out = await runProjectCommand(["approve"], { runtime: runtime(fixtureProjectGateView({ kind: "plan" })), sessionId: "s", busy: false });
+    const out = await runProjectCommand(["approve", "3"], { runtime: runtime(fixtureProjectGateView({ kind: "plan" })), sessionId: "s", busy: false });
     expect(out.text).toContain("Not approved: over today's limit");
   });
 
@@ -55,7 +67,7 @@ describe("Telegram /plan (issue #39)", () => {
   });
 
   it("the after-turn notice appears only for an open gate", () => {
-    expect(projectGateNotice(runtime(fixtureProjectGateView({ kind: "plan" })), "s")).toContain("/plan approve");
+    expect(projectGateNotice(runtime(fixtureProjectGateView({ kind: "plan" })), "s")).toContain("/plan approve 3");
     expect(projectGateNotice(runtime(fixtureProjectGateView({ kind: "none" })), "s")).toBeNull();
     expect(projectGateNotice({}, "s")).toBeNull();
   });

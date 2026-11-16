@@ -27,7 +27,7 @@ describe("run at a project gate", () => {
     expect(step.text).toContain("Total: 2 tasks · $0.12 (+1 unpriced)");
     expect(step.text).toContain("Approving lets these tasks write in this chat's folder");
     expect(step.text).toContain("session: sess-1");
-    expect(step.text).toContain("atomic-agent run --session sess-1 --approve");
+    expect(step.text).toContain("atomic-agent run --session sess-1 --approve 3");
     expect(rt.projectDecision).not.toHaveBeenCalled();
   });
 
@@ -39,7 +39,7 @@ describe("run at a project gate", () => {
   it("approves the current gate at the version shown and returns the continuing message", async () => {
     const after = fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "run_milestone", id: "m1" } });
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }), after);
-    const step = await settleProjectGate(rt, "s", "approve");
+    const step = await settleProjectGate(rt, "s", { version: 3 });
     expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
     expect(step).toEqual({
       kind: "approved",
@@ -47,6 +47,23 @@ describe("run at a project gate", () => {
       message: 'I approved. Continue with milestone "Base".',
       project: { milestones: [], gate: { kind: "none" } },
     });
+  });
+
+  it("--approve <version> refuses a gate that changed since that version", async () => {
+    const rt = runtime(fixtureProjectGateView({ kind: "plan" }), fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "s", { version: 2 });
+    expect(step.kind).toBe("failed");
+    if (step.kind === "failed") {
+      expect(step.text).toContain("not approved: the plan changed since version 2; current is 3");
+      expect(step.text).toContain("The project plan waits for your approval (version 3).");
+    }
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("--auto-approve-project approves the current version", async () => {
+    const rt = runtime(fixtureProjectGateView({ kind: "plan" }), fixtureProjectGateView({ kind: "none" }));
+    expect((await settleProjectGate(rt, "s", "approve")).kind).toBe("approved");
+    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
   });
 
   it("a refused approval (over a hard cap) fails with the reason and the summary", async () => {
@@ -62,7 +79,9 @@ describe("run at a project gate", () => {
 
 describe("run flags for project gates", () => {
   it("parses --session, --approve and --auto-approve-project", () => {
-    expect(parseRunArgs(["--session", "abc", "--approve"])).toMatchObject({ session: "abc", approve: true, autoApproveProject: false });
+    expect(parseRunArgs(["--session", "abc", "--approve", "3"])).toMatchObject({ session: "abc", approve: true, approveVersion: 3, autoApproveProject: false });
+    expect(parseRunArgs(["--session", "abc", "--approve"])).toMatchObject({ approve: true, approveVersion: null });
+    expect(parseRunArgs(["--approve", "--session", "abc"])).toMatchObject({ approve: true, approveVersion: null, session: "abc" });
     expect(parseRunArgs(["--auto-approve-project"])).toMatchObject({ autoApproveProject: true, session: null });
   });
 

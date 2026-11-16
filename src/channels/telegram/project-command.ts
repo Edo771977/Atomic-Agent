@@ -1,7 +1,9 @@
 /**
  * `/plan` for Telegram (issue #39): the text fallback for a fusion
- * project gate. Bare `/plan` shows the open gate; `/plan approve` and
- * `/plan cancel` decide it at the version shown. The other verdicts
+ * project gate. Bare `/plan` shows the open gate; `/plan approve <v>`
+ * approves it only at the version the person read (bare `/plan approve`
+ * shows the gate and asks again with its version; a stale one is
+ * refused) and `/plan cancel` cancels. The other verdicts
  * (edit rows, cheaper, quality, a milestone correction) need the card
  * of the terminal or the desktop app; a chat reply to the director can
  * still ask for changes, which redrafts and opens the gate again.
@@ -12,12 +14,14 @@
 
 import type { AgentRuntime } from "../../runtime/runtime-contract.js";
 import { projectContinueMessage } from "../../session/project-continue.js";
-import { formatProjectGateText, projectApprovalLine } from "../../session/project-gate-text.js";
+import { formatProjectGateText, projectApprovalLine, staleApprovalReason } from "../../session/project-gate-text.js";
+import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectDecision } from "../../session/session-project.js";
 
 type ProjectRuntime = Pick<AgentRuntime, "projectState" | "projectDecision">;
 
-const VERDICT_HINT = "Reply /plan approve or /plan cancel. To change it, tell me what to change; edit rows, cheaper and quality are in the terminal or the desktop app.";
+const verdictHint = (view: ProjectGateView): string =>
+  `Reply /plan approve ${view.version ?? ""} or /plan cancel. To change it, tell me what to change; edit rows, cheaper and quality are in the terminal or the desktop app.`;
 
 export interface ProjectCommandResult {
   text: string;
@@ -29,7 +33,7 @@ export interface ProjectCommandResult {
 export function projectGateNotice(runtime: ProjectRuntime, sessionId: string): string | null {
   const view = runtime.projectState?.(sessionId) ?? null;
   if (view === null || view.gate.kind === "none") return null;
-  return `${formatProjectGateText(view)}\n${VERDICT_HINT}`;
+  return `${formatProjectGateText(view)}\n${verdictHint(view)}`;
 }
 
 export async function runProjectCommand(
@@ -38,18 +42,27 @@ export async function runProjectCommand(
 ): Promise<ProjectCommandResult> {
   const say = (text: string): ProjectCommandResult => ({ text, continueWith: null });
   const verb = (args[0] ?? "").toLowerCase();
-  if (verb !== "" && verb !== "approve" && verb !== "cancel") {
-    return say("Usage: /plan shows the project gate · /plan approve · /plan cancel");
-  }
+  const usage = say("Usage: /plan shows the project gate · /plan approve <version> · /plan cancel");
+  if (verb !== "" && verb !== "approve" && verb !== "cancel") return usage;
+  const rawVersion = args[1];
+  if (rawVersion !== undefined && (verb !== "approve" || !/^\d+$/.test(rawVersion))) return usage;
+  const version = rawVersion === undefined ? null : Number(rawVersion);
   const view = deps.sessionId === null ? null : (deps.runtime.projectState?.(deps.sessionId) ?? null);
   if (deps.sessionId === null || view === null) return say("This chat has no project.");
   if (verb === "") {
-    return say(view.gate.kind === "none" ? formatProjectGateText(view) : `${formatProjectGateText(view)}\n${VERDICT_HINT}`);
+    return say(view.gate.kind === "none" ? formatProjectGateText(view) : `${formatProjectGateText(view)}\n${verdictHint(view)}`);
   }
   if (deps.busy) return say("Wait for the current turn to finish, then decide.");
   if (view.gate.kind === "none" && verb === "approve") return say("Nothing waits for your approval.");
   if (deps.runtime.projectDecision === undefined) return say("This agent takes no project decisions.");
   if (view.version === null) return say("Nothing waits for your decision.");
+  if (verb === "approve") {
+    // Only the version the person read: an approval typed from an older
+    // message must not approve a brief or plan that changed since.
+    if (version === null) return say(`${formatProjectGateText(view)}\nTo approve this version, reply /plan approve ${view.version}.`);
+    const stale = staleApprovalReason(view, version);
+    if (stale !== null) return say(`Not approved: ${stale}. Reply /plan to see it.`);
+  }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: verb };
   const outcome = deps.runtime.projectDecision(deps.sessionId, decision);
   if (!outcome.ok) {

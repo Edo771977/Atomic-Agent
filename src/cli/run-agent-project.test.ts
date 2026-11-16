@@ -120,7 +120,36 @@ describe("run at a fusion project gate", () => {
     expect(stderr).toContain("The project plan waits for your approval");
     const id = sessionIdIn(stderr);
     expect(id).not.toBe("");
-    expect(stderr).toContain(`atomic-agent run --session ${id} --approve`);
+    expect(stderr).toContain(`atomic-agent run --session ${id} --approve 3`);
+  }, 60_000);
+
+  it("--approve without a version shows the gate and asks to repeat it with the version, exiting 3", async () => {
+    project.openAfterTurn = [planGate];
+    feed(["build the game\n"]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval"])).toBe(3);
+    const id = sessionIdIn(stderr);
+    stderr = "";
+    project.after = running;
+    project.messages = [];
+    feed([]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve"])).toBe(3);
+    expect(project.decisions).toEqual([]);
+    expect(project.messages).toEqual([]);
+    expect(stderr).toContain("The project plan waits for your approval (version 3).");
+    expect(stderr).toContain(`atomic-agent run --session ${id} --approve 3`);
+  }, 60_000);
+
+  it("--approve with a stale version is refused with the current one, exiting 1", async () => {
+    project.openAfterTurn = [planGate];
+    feed(["build the game\n"]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval"])).toBe(3);
+    const id = sessionIdIn(stderr);
+    stderr = "";
+    project.after = running;
+    feed([]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve", "2"])).toBe(1);
+    expect(project.decisions).toEqual([]);
+    expect(stderr).toContain("not approved: the plan changed since version 2; current is 3");
   }, 60_000);
 
   it("--session X --approve approves the open gate and continues the stored chat", async () => {
@@ -133,7 +162,7 @@ describe("run at a fusion project gate", () => {
     project.messages = [];
     project.turnProjects = [];
     feed([]);
-    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve", "3"]);
     expect(code).toBe(0);
     expect(project.decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "approve" }]);
     expect(stderr).toContain("project: approved the plan (version 3)");
@@ -150,7 +179,7 @@ describe("run at a fusion project gate", () => {
     const id = /"sessionId": "([^"]+)"/.exec(stderr)?.[1] ?? "";
     stderr = "";
     feed([]);
-    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve"])).toBe(1);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval", "--session", id, "--approve", "1"])).toBe(1);
     expect(stderr).toContain(`nothing waits for approval on session ${id}`);
   }, 60_000);
 

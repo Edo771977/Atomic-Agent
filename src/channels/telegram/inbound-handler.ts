@@ -289,7 +289,7 @@ function helpText(ctx: InboundContext): string {
     "  /switch <session-id> — point this chat at an existing session\n" +
     "  /new — rotate this chat to a fresh session (current one is archived)\n" +
     "  /model — show the provider and model in use; /model <provider> [model-id] switches\n" +
-    "  /plan — the fusion project gate waiting on you; /plan approve or /plan cancel decides it\n" +
+    "  /plan — the fusion project gate waiting on you; /plan approve <version> or /plan cancel decides it\n" +
     "  /cancel — abort this chat's current turn if one is running"
   );
 }
