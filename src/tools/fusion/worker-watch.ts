@@ -56,6 +56,9 @@ export function watchFirstTickJitterMs(intervalMs: number, random: () => number 
   return Math.min(Math.max(0, bound - 1), Math.floor(r * bound));
 }
 
+/** A judge call that has not answered by then is aborted and read as progressing. */
+export const WATCH_JUDGE_TIMEOUT_MS = 60_000;
+
 /** The output ceiling of one watch judge call: a state and a short hint. */
 export const WATCH_JUDGE_MAX_OUTPUT_TOKENS = 200;
 
@@ -323,8 +326,32 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
       void tick();
     }, delay);
   };
-  const tick = async (): Promise<void> => {
-    if (judgeSignal.aborted) return;
+  // One judge call, bounded by its own timeout: a judge that never
+  // answers is read as progressing, and the watch goes on.
+  const askJudge = async (prompt: string): Promise<WatchJudgeResult> => {
+    const timeoutMs = options.judgeTimeoutMs ?? WATCH_JUDGE_TIMEOUT_MS;
+    const timedOut = new AbortController();
+    const signal = AbortSignal.any([judgeSignal, timedOut.signal]);
+    const timer = setTimeout(() => timedOut.abort(new Error("watch judge timeout")), timeoutMs);
+    (timer as { unref?: () => void }).unref?.();
+    let onAbort: (() => void) | undefined;
+    try {
+      return await Promise.race([
+        options.judge({ prompt, signal }),
+        new Promise<WatchJudgeResult>((resolve) => {
+          onAbort = () => resolve({ kind: "failed", reason: "aborted" });
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+      if (timedOut.signal.aborted && !judgeSignal.aborted) {
+        note(`watch: the judge did not answer within ${Math.round(timeoutMs / 1000)} s; read as progressing`);
+      }
+    }
+  };
+  const check = async (): Promise<"stopped" | "go-on"> => {
     const now = options.probe();
     const prev = before ?? { steps: 0, outputTokens: 0, filesChanged: 0, served: now.served, stalled: false };
     before = now;
@@ -333,36 +360,46 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
     const decision = decideWatch(prev, now, quiet);
     if (kind === "clear") quiet = 0;
     else if (kind !== "waiting") quiet += 1;
-    if (decision === "judge") {
-      if (record.judgeCalls >= options.maxJudgeCalls) {
-        const cap = options.judgeCallCap ?? options.maxJudgeCalls;
-        note(`watch: ${cap} judge call${cap === 1 ? "" : "s"} used; not asked again`);
-      } else {
-        const result = await options.judge({ prompt: options.prompt(prev, now, quiet), signal: judgeSignal });
-        if (judgeSignal.aborted) return;
-        if (result.kind === "skipped") {
-          note(`watch: judge not asked: ${result.reason}`);
-        } else {
-          record.judgeCalls += 1;
-          // The next call needs two more quiet intervals or stalled steps.
-          const answer = result.kind === "answer" ? parseWatchAnswer(result.content) : null;
-          // Stuck stops work only when the counts agree; a judge steered
-          // by what the worker read cannot stop a worker that moves.
-          const counted = kind === "none" && quiet >= WATCH_QUIET_INTERVALS;
-          if (answer?.state === "stuck" && !counted) answer.state = "looping";
-          // A judge that answered, readable or not, resets the count.
-          quiet = 0;
-          if (answer?.state === "stuck") {
-            record.stopped = true;
-            stop();
-            options.onStuck();
-            return;
-          }
-          if ((answer?.state === "looping" || answer?.state === "off-track") && answer.hint !== null) {
-            if (options.onHint(answer.state, answer.hint)) record.hints += 1;
-          }
-        }
-      }
+    if (decision !== "judge") return "go-on";
+    if (record.judgeCalls >= options.maxJudgeCalls) {
+      const cap = options.judgeCallCap ?? options.maxJudgeCalls;
+      note(`watch: ${cap} judge call${cap === 1 ? "" : "s"} used; not asked again`);
+      return "go-on";
+    }
+    const result = await askJudge(options.prompt(prev, now, quiet));
+    if (judgeSignal.aborted) return "stopped";
+    if (result.kind === "skipped") {
+      note(`watch: judge not asked: ${result.reason}`);
+      return "go-on";
+    }
+    record.judgeCalls += 1;
+    const answer = result.kind === "answer" ? parseWatchAnswer(result.content) : null;
+    // Stuck stops work only when the counts agree; a judge steered by
+    // what the worker read cannot stop a worker that moves.
+    const counted = kind === "none" && quiet >= WATCH_QUIET_INTERVALS;
+    if (answer?.state === "stuck" && !counted) answer.state = "looping";
+    // A judge that answered, readable or not, resets the count: the
+    // next call needs two more quiet intervals or stalled steps.
+    quiet = 0;
+    if (answer?.state === "stuck") {
+      record.stopped = true;
+      stop();
+      options.onStuck();
+      return "stopped";
+    }
+    if ((answer?.state === "looping" || answer?.state === "off-track") && answer.hint !== null) {
+      if (options.onHint(answer.state, answer.hint)) record.hints += 1;
+    }
+    return "go-on";
+  };
+  const tick = async (): Promise<void> => {
+    if (judgeSignal.aborted) return;
+    try {
+      if ((await check()) === "stopped") return;
+    } catch (err) {
+      // A check that throws (a probe, a prompt, a hint's delivery) never
+      // ends the watch, nor reaches the worker.
+      note(`watch: a check failed (${err instanceof Error ? err.message : String(err)}); the watch goes on`);
     }
     arm();
   };

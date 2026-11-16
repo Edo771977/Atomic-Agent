@@ -334,6 +334,66 @@ describe("startTaskWatch (issue #43)", () => {
     expect(watchFirstTickJitterMs(60_000, () => 0.5)).toBe(7_500);
   });
 
+  it("a check that throws is noted and the watch keeps its timer", async () => {
+    let calls = 0;
+    const notes: string[] = [];
+    const watch = startTaskWatch({
+      intervalMs: 60_000,
+      maxJudgeCalls: 1,
+      judgeLabel: null,
+      probe: () => {
+        calls += 1;
+        if (calls === 1) throw new Error("probe broke");
+        return at({ filesChanged: calls });
+      },
+      prompt: () => "p",
+      judge: async () => ({ kind: "failed", reason: "x" }),
+      onHint: () => true,
+      onStuck: () => {},
+      onNote: (n) => notes.push(n),
+      signal: new AbortController().signal,
+    });
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(calls).toBe(2);
+    expect(notes).toEqual(["watch: a check failed (probe broke); the watch goes on"]);
+    watch.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a judge that does not answer in time is aborted and read as progressing", async () => {
+    let seen: AbortSignal | undefined;
+    const notes: string[] = [];
+    const onStuck = vi.fn();
+    const watch = startTaskWatch({
+      intervalMs: 60_000,
+      judgeTimeoutMs: 30_000,
+      maxJudgeCalls: 3,
+      judgeLabel: "model-r",
+      probe: () => at(),
+      prompt: () => "p",
+      judge: ({ signal }) => {
+        seen = signal;
+        return new Promise(() => {});
+      },
+      onHint: () => true,
+      onStuck,
+      onNote: (n) => notes.push(n),
+      signal: new AbortController().signal,
+    });
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(seen?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(seen?.aborted).toBe(true);
+    expect(notes).toEqual(["watch: the judge did not answer within 30 s; read as progressing"]);
+    expect(watch.record()).toMatchObject({ judgeCalls: 1, stopped: false });
+    // The watch is armed again.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(watch.record().checks).toBe(3);
+    expect(onStuck).not.toHaveBeenCalled();
+    watch.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("uses an injected clock when given one", () => {
     const calls: number[] = [];
     const watch = startTaskWatch({
