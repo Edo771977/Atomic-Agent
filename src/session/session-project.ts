@@ -27,6 +27,25 @@ export interface ProjectGameBrief {
   style: string;
 }
 
+/**
+ * One success criterion (issue #40). `id` names it to contract checks
+ * (`criteria: [ids]`), the judge's facts and the milestone card: unique
+ * in the brief, at most {@link PROJECT_LIMITS}.criterionId characters of
+ * `[a-z0-9-]`. A criterion written as plain text (an older store, or a
+ * draft that gives none) gets the first free `c<n>`, `n` its position
+ * from 1, so an all-text list reads back as `c1..cN`.
+ */
+export interface ProjectCriterion {
+  id: string;
+  text: string;
+}
+
+/** What a draft or the person's edit may give for a criterion: text alone, or text with its id. */
+export type ProjectCriterionInput = string | ProjectCriterion;
+
+/** A criterion id's shape ({@link ProjectCriterion}). */
+export const CRITERION_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+
 export interface ProjectBrief {
   /** 1 on the first draft; +1 on every edit by the model or the person. */
   version: number;
@@ -34,7 +53,7 @@ export interface ProjectBrief {
   users: string;
   how: string;
   game?: ProjectGameBrief;
-  successCriteria: string[];
+  successCriteria: ProjectCriterion[];
   status: "draft" | "approved";
   /** Epoch ms of the person's approval; absent on a draft. */
   approvedAt?: number;
@@ -166,7 +185,7 @@ export interface ProjectState {
  *  - `text` 2000: what/users/how, a summary — a paragraph, not a spec.
  *  - `shortText` 300: a success criterion, a game field, a reason.
  *  - `title` 160: a task or milestone title, as `PLAN_STEP_MAX_CHARS`.
- *  - `id` 64 and `memberRef` 256: identifiers.
+ *  - `id` 64, `criterionId` 32 and `memberRef` 256: identifiers.
  *  - `successCriteria` 20, `milestones` 16, `rows` 64 (the task tree's
  *    node ceiling), `runIds` 32 per milestone (the newest are kept).
  *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
@@ -179,6 +198,7 @@ export const PROJECT_LIMITS = {
   id: 64,
   memberRef: 256,
   successCriteria: 20,
+  criterionId: 32,
   milestones: 16,
   rows: 64,
   runIds: 32,
@@ -207,7 +227,13 @@ export interface ProjectBriefDraft {
   users: string;
   how: string;
   game?: ProjectGameBrief;
-  successCriteria: string[];
+  /** Ids are given or assigned ({@link ProjectCriterion}). */
+  successCriteria: ReadonlyArray<ProjectCriterionInput>;
+}
+
+/** A brief's criteria by id, in brief order; empty without a brief. */
+export function criteriaById(brief: Pick<ProjectBrief, "successCriteria"> | null | undefined): Map<string, ProjectCriterion> {
+  return new Map((brief?.successCriteria ?? []).map((c) => [c.id, c]));
 }
 
 /**
@@ -431,20 +457,79 @@ function readGame(raw: unknown): ProjectGameBrief | undefined | null {
   return out as ProjectGameBrief;
 }
 
-function cleanCriteria(raw: unknown, mode: "strict" | "lenient"): string[] | null {
-  if (!Array.isArray(raw)) return null;
-  if (mode === "strict" && raw.length > PROJECT_LIMITS.successCriteria) return null;
-  const out: string[] = [];
-  for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
-    if (typeof item !== "string") return null;
-    const text = clip(item, PROJECT_LIMITS.shortText);
-    if (text.length > 0) out.push(text);
-  }
-  return out;
+/** A criterion id trimmed and lower-cased; null when it breaks {@link CRITERION_ID_PATTERN}. */
+function cleanCriterionId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const id = raw.trim().toLowerCase();
+  return CRITERION_ID_PATTERN.test(id) ? id : null;
 }
 
-/** A draft's fields cleaned, or an error message. */
-function cleanBriefDraft(draft: ProjectBriefDraft): ProjectBriefDraft | string {
+/**
+ * Criteria cleaned, ids given or assigned ({@link ProjectCriterion}).
+ * `strict` (a draft): over the cap, a malformed entry, a bad or repeated
+ * id is the error message. `lenient` (a stored brief): the list is cut,
+ * a bad or repeated id gets a fresh `c<n>`, a malformed entry is null
+ * (the project is dropped, as any malformed store). Text that clips to
+ * nothing is skipped. Plain text matching one of `previous` (the brief
+ * being revised) keeps that criterion's id.
+ */
+function cleanCriteria(
+  raw: unknown,
+  mode: "strict" | "lenient",
+  previous: readonly ProjectCriterion[] = [],
+): ProjectCriterion[] | string | null {
+  if (!Array.isArray(raw)) return mode === "strict" ? "brief.successCriteria must be a list" : null;
+  if (mode === "strict" && raw.length > PROJECT_LIMITS.successCriteria) {
+    return `brief.successCriteria: at most ${PROJECT_LIMITS.successCriteria} criteria`;
+  }
+  const items: Array<{ text: string; id: string | null }> = [];
+  const taken = new Set<string>();
+  for (const [i, item] of raw.slice(0, PROJECT_LIMITS.successCriteria).entries()) {
+    let text: string;
+    let id: string | null = null;
+    if (typeof item === "string") text = item;
+    else if (isObject(item) && typeof item.text === "string") {
+      text = item.text;
+      id = cleanCriterionId(item.id);
+      if (id === null || taken.has(id)) {
+        if (mode === "strict") {
+          return id === null
+            ? `brief.successCriteria ${i + 1}: id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`
+            : `brief.successCriteria: id ${id} is used twice`;
+        }
+        id = null;
+      }
+    } else {
+      return mode === "strict" ? `brief.successCriteria ${i + 1} must be text or { id, text }` : null;
+    }
+    const clipped = clip(text, PROJECT_LIMITS.shortText);
+    if (clipped.length === 0) continue;
+    if (id !== null) taken.add(id);
+    items.push({ text: clipped, id });
+  }
+  // Text alone: the id it had in the brief being revised, else the first free c<n>.
+  for (const item of items) {
+    if (item.id !== null) continue;
+    const kept = previous.find((c) => c.text === item.text && !taken.has(c.id));
+    if (kept !== undefined) {
+      item.id = kept.id;
+      taken.add(kept.id);
+    }
+  }
+  return items.map((item, i) => {
+    if (item.id !== null) return { id: item.id, text: item.text };
+    let n = i + 1;
+    while (taken.has(`c${n}`)) n += 1;
+    taken.add(`c${n}`);
+    return { id: `c${n}`, text: item.text };
+  });
+}
+
+/** A brief's fields as stored: criteria carry their ids. */
+type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria"> & { successCriteria: ProjectCriterion[] };
+
+/** A draft's fields cleaned, or an error message; `previous` is the brief being revised. */
+function cleanBriefDraft(draft: ProjectBriefDraft, previous: readonly ProjectCriterion[] = []): CleanBriefDraft | string {
   for (const f of ["what", "users", "how"] as const) {
     if (typeof draft[f] !== "string") return `brief.${f} must be text`;
   }
@@ -452,9 +537,9 @@ function cleanBriefDraft(draft: ProjectBriefDraft): ProjectBriefDraft | string {
   if (what.length === 0) return "brief.what must say what is being built";
   const game = readGame(draft.game);
   if (game === null) return "brief.game must be { rules, loop, difficulty, style } as text";
-  const criteria = cleanCriteria(draft.successCriteria, "strict");
-  if (criteria === null) {
-    return `brief.successCriteria must be a list of at most ${PROJECT_LIMITS.successCriteria} short sentences`;
+  const criteria = cleanCriteria(draft.successCriteria, "strict", previous);
+  if (criteria === null || typeof criteria === "string") {
+    return criteria ?? `brief.successCriteria must be a list of at most ${PROJECT_LIMITS.successCriteria} short sentences`;
   }
   if (criteria.length === 0) return "brief.successCriteria needs at least one criterion";
   return {
@@ -547,7 +632,7 @@ function readBrief(raw: unknown): ProjectBrief | null {
   if (typeof raw.what !== "string" || typeof raw.users !== "string" || typeof raw.how !== "string") return null;
   const game = readGame(raw.game);
   const criteria = cleanCriteria(raw.successCriteria, "lenient");
-  if (game === null || criteria === null) return null;
+  if (game === null || criteria === null || typeof criteria === "string") return null;
   return {
     version: raw.version,
     what: clipText(raw.what, PROJECT_LIMITS.text),
@@ -653,10 +738,10 @@ function briefUpdate(
   update: Extract<ProjectUpdate, { kind: "brief" }>,
   now: number,
 ): ProjectUpdateResult {
-  const draft = cleanBriefDraft(update.brief);
-  if (typeof draft === "string") return invalid(draft);
   // After a cancel, a new brief is a new project.
   const base: ProjectState | undefined = project?.cancelledAt !== undefined ? undefined : project;
+  const draft = cleanBriefDraft(update.brief, base?.brief?.successCriteria);
+  if (typeof draft === "string") return invalid(draft);
   const brief: ProjectBrief = {
     version: nextVersion(project, base?.brief?.version),
     ...draft,
@@ -978,7 +1063,7 @@ export function applyProjectDecision(
       successCriteria: project.brief!.successCriteria,
       ...(decision.edits?.brief ?? {}),
     };
-    const draft = cleanBriefDraft(merged);
+    const draft = cleanBriefDraft(merged, project.brief!.successCriteria);
     if (typeof draft === "string") return refuse({ code: "invalid", message: draft });
     return {
       ok: true,

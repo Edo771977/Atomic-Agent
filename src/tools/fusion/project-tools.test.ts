@@ -107,6 +107,16 @@ describe("project.brief", () => {
     expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
   });
 
+  it("takes criteria as text or { id, text }; refuses a bad or repeated id", () => {
+    const successCriteria = ["Runs offline", { id: "keys", text: "Arrow keys steer" }];
+    expect(parseProjectBriefArgs({ ...briefArgs, successCriteria })).toMatchObject({ ok: true, brief: { successCriteria } });
+    for (const bad of [[{ id: "Not ok", text: "x" }], [{ id: "a", text: "x" }, { id: "a", text: "y" }], [{ id: "a" }], [{ text: " " }], ["x".repeat(3), 4]]) {
+      const parsed = parseProjectBriefArgs({ ...briefArgs, successCriteria: bad });
+      expect(parsed).toMatchObject({ ok: false });
+      expect(JSON.stringify(parsed)).toMatch(/successCriteria/);
+    }
+  });
+
   it("accepts the optional game block and refuses a partial one", () => {
     const game = { rules: "eat apples", loop: "move, eat, grow", difficulty: "speeds up", style: "pixel" };
     expect(parseProjectBriefArgs({ ...briefArgs, game })).toMatchObject({ ok: true, brief: { game } });

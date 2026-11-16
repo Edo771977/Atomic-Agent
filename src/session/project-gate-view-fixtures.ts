@@ -20,6 +20,7 @@ export function fixtureProjectGateView(
       users: "Casual players",
       how: "A web page with a canvas",
       successCriteria: ["Runs in a browser", "Ten levels"],
+      criteria: [{ id: "c1", text: "Runs in a browser" }, { id: "c2", text: "Ten levels" }],
       status: gate.kind === "brief" ? "draft" : "approved",
       draftedAfterUntrusted: false,
     },

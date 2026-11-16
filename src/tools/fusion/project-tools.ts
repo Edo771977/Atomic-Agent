@@ -2,12 +2,14 @@ import { compressToolResult, type CompressedToolResult } from "../../compressor/
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
+  CRITERION_ID_PATTERN,
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   planTotals,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectCriterionInput,
   type ProjectGameBrief,
   type ProjectUpdate,
 } from "../../session/session-project.js";
@@ -85,6 +87,29 @@ function unknownKeys(raw: Record<string, unknown>, allowed: readonly string[], w
 
 // ------------------------------------------------------------------ brief
 
+/** Each criterion is a sentence, or `{ id, text }` with a unique `[a-z0-9-]` id of at most 32 characters. */
+function criteriaProblems(criteria: readonly unknown[]): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const [i, c] of criteria.entries()) {
+    if (nonEmpty(c)) continue;
+    if (!isObject(c) || !nonEmpty(c.text) || typeof c.id !== "string") {
+      problems.push(`\`successCriteria\` ${i + 1} must be a short checkable sentence, or { id, text }`);
+      continue;
+    }
+    const extra = Object.keys(c).filter((k) => k !== "id" && k !== "text");
+    if (extra.length > 0) problems.push(`\`successCriteria\` ${i + 1}: unknown key \`${extra[0]}\``);
+    const id = c.id.trim().toLowerCase();
+    if (!CRITERION_ID_PATTERN.test(id)) {
+      problems.push(`\`successCriteria\` ${i + 1}: id ${JSON.stringify(c.id)} must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);
+    } else if (seen.has(id)) {
+      problems.push(`\`successCriteria\`: id ${id} is used twice`);
+    }
+    seen.add(id);
+  }
+  return problems;
+}
+
 export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ brief: ProjectBriefDraft }> {
   const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria"], "project.brief");
   if (!nonEmpty(raw.what)) problems.push("`what` must say what is being built");
@@ -102,10 +127,12 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
     }
   }
   const criteria = raw.successCriteria;
-  if (!Array.isArray(criteria) || criteria.length === 0 || !criteria.every(nonEmpty)) {
+  if (!Array.isArray(criteria) || criteria.length === 0) {
     problems.push("`successCriteria` must be a list of short checkable sentences (at least one)");
   } else if (criteria.length > PROJECT_LIMITS.successCriteria) {
     problems.push(`\`successCriteria\`: at most ${PROJECT_LIMITS.successCriteria}`);
+  } else {
+    problems.push(...criteriaProblems(criteria));
   }
   if (problems.length > 0) return { ok: false, problems };
   return {
@@ -115,7 +142,7 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
       users: raw.users as string,
       how: raw.how as string,
       ...(game === undefined ? {} : { game }),
-      successCriteria: criteria as string[],
+      successCriteria: criteria as ProjectCriterionInput[],
     },
   };
 }

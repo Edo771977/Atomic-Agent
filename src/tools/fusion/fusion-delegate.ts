@@ -1143,7 +1143,7 @@ export function buildFusionDelegateTool(
       const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
       const projectBrief = approvedBrief === undefined
         ? undefined
-        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria };
+        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text) };
       // A local worker's time limit is sized from the machine's measured
       // speed (F19); a cloud leg has no such measurement and keeps the
       // configured ceiling.

@@ -77,6 +77,16 @@ describe("/api/project", () => {
     expect(decide).toHaveBeenLastCalledWith("s1", expect.objectContaining({ edits: { rows: [{ taskId: "t1", worker: "prov-c:model-c", reviewer: null }] } }));
   });
 
+  it("POST passes a brief edit's criteria, as text or with ids, through", async () => {
+    views.set("s1", fixtureProjectGateView({ kind: "brief" }, { version: 2 }));
+    const criteria = ["Runs offline", { id: "keys", text: "Arrow keys steer" }];
+    const r = await post({ session: "s1", gate: { kind: "brief" }, version: 2, verdict: "edit", edits: { brief: { successCriteria: criteria } } });
+    expect(r.status).toBe(200);
+    expect(decide).toHaveBeenLastCalledWith("s1", expect.objectContaining({ edits: { brief: { successCriteria: criteria } } }));
+    const bad = await post({ session: "s1", gate: { kind: "brief" }, version: 2, verdict: "edit", edits: { brief: { successCriteria: [{ id: "x" }] } } });
+    expect(bad.status).toBe(400);
+  });
+
   it("POST on a stale version is 409 with the current view", async () => {
     const r = await post({ session: "s1", gate: { kind: "plan" }, version: 2, verdict: "approve" });
     expect(r.status).toBe(409);

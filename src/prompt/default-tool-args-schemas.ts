@@ -690,7 +690,13 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
           { rules: stringSchema, loop: stringSchema, difficulty: stringSchema, style: stringSchema },
           ["rules", "loop", "difficulty", "style"],
         ),
-        successCriteria: { type: "array", minItems: 1, maxItems: 20, items: stringSchema },
+        // A sentence, or { id, text } so contract checks can name it (issue #40).
+        successCriteria: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          items: { anyOf: [stringSchema, obj({ id: stringSchema, text: stringSchema }, ["id", "text"])] },
+        },
       },
       ["what", "users", "how", "successCriteria"],
     ),

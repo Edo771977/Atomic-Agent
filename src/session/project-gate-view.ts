@@ -21,6 +21,7 @@ import type {
   AssignmentRow,
   PlanDetail,
   ProjectBrief,
+  ProjectCriterion,
   ProjectExpectation,
   ProjectGate,
   ProjectMilestone,
@@ -41,11 +42,21 @@ export interface ProjectGateView {
   /** What happens next (`projectExpectation`). */
   expectation: ProjectExpectation;
   cancelled: boolean;
-  brief: ProjectBrief | null;
+  brief: ProjectGateBrief | null;
   plan: ProjectGatePlan | null;
   milestones: ProjectGateMilestone[];
   /** Every limit the plan breaks, hard ones first; approve is refused while any hard one stands. */
   violations: ProjectGateViolation[];
+}
+
+/**
+ * The brief as the card shows it. `successCriteria` stays the criteria's
+ * texts (what surfaces before issue #40 read); `criteria` carries each
+ * with its id, the name contract checks and facts use.
+ */
+export interface ProjectGateBrief extends Omit<ProjectBrief, "successCriteria"> {
+  successCriteria: string[];
+  criteria: ProjectCriterion[];
 }
 
 export interface ProjectGatePlan {

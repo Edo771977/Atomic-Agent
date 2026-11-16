@@ -330,9 +330,9 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     summary:
       "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
     argsSchema:
-      "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: string[] /* 1..20 short checkable sentences */ }",
+      "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: ({ id: string /* a-z 0-9 -, max 32, unique */, text: string } | string)[] /* 1..20 short checkable sentences; a plain one gets id c<n>, n its position. Contract checks name the ids they verify */ }",
     examples: [
-      '{"what":"A browser snake game","users":"Casual players on a laptop","how":"One HTML page, plain JS, no build step","game":{"rules":"Eat apples, avoid walls and yourself","loop":"Move, eat, grow, speed up","difficulty":"Speeds up every 5 apples","style":"Flat pixel art"},"successCriteria":["Opens from index.html with no server","Arrow keys steer","Score shows and resets on restart"]}',
+      '{"what":"A browser snake game","users":"Casual players on a laptop","how":"One HTML page, plain JS, no build step","game":{"rules":"Eat apples, avoid walls and yourself","loop":"Move, eat, grow, speed up","difficulty":"Speeds up every 5 apples","style":"Flat pixel art"},"successCriteria":[{"id":"offline","text":"Opens from index.html with no server"},{"id":"keys","text":"Arrow keys steer"},{"id":"score","text":"Score shows and resets on restart"}]}',
     ],
   },
   {

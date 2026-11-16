@@ -5,6 +5,7 @@ import {
   allowedProjectVerdicts,
   applyProjectDecision,
   applyProjectUpdate,
+  criteriaById,
   gateVersion,
   normalizeProject,
   planTotals,
@@ -12,6 +13,7 @@ import {
   readProject,
   withProject,
   type AssignmentRow,
+  type ProjectCriterion,
   type ProjectState,
   type ProjectUpdate,
 } from "./session-project.js";
@@ -81,7 +83,10 @@ describe("applyProjectUpdate: brief", () => {
   it("creates a draft brief at version 1 and opens the brief gate", () => {
     const p = update(undefined, briefUpdate);
     expect(p.brief).toMatchObject({ version: 1, status: "draft", draftedAfterUntrusted: false });
-    expect(p.brief?.successCriteria).toEqual(["Runs in the browser", "Has three levels"]);
+    expect(p.brief?.successCriteria).toEqual([
+      { id: "c1", text: "Runs in the browser" },
+      { id: "c2", text: "Has three levels" },
+    ]);
     expect(p.gate).toEqual({ kind: "brief" });
     expect(p.milestones).toEqual([]);
   });
@@ -353,7 +358,7 @@ describe("applyProjectDecision", () => {
   it("a person's brief edit keeps it a draft and bumps the version", () => {
     const p = update(undefined, briefUpdate);
     const e = ok(applyProjectDecision(p, { gate: p.gate, version: 1, verdict: "edit", edits: { brief: { users: "Kids", successCriteria: ["Fun"] } } }, { now: NOW })).project;
-    expect(e.brief).toMatchObject({ version: 2, status: "draft", users: "Kids", successCriteria: ["Fun"], what: "A small puzzle game" });
+    expect(e.brief).toMatchObject({ version: 2, status: "draft", users: "Kids", successCriteria: [{ id: "c1", text: "Fun" }], what: "A small puzzle game" });
     expect(e.gate).toEqual({ kind: "brief" });
   });
 
@@ -465,6 +470,73 @@ describe("normalizeProject", () => {
     const n = normalizeProject(p)!;
     expect(n.brief!.what.length).toBe(PROJECT_LIMITS.text);
     expect(n.brief!.successCriteria).toHaveLength(PROJECT_LIMITS.successCriteria);
+  });
+});
+
+describe("success criteria ids", () => {
+  const withCriteria = (successCriteria: ReadonlyArray<string | ProjectCriterion>): ProjectUpdate => ({
+    ...briefUpdate,
+    brief: { ...briefUpdate.brief, successCriteria },
+  });
+
+  it("keeps given ids and gives plain strings the first free c<n>", () => {
+    const p = update(undefined, withCriteria([{ id: "c2", text: "Runs offline" }, "Arrow keys steer", { id: "score-reset", text: "Score resets" }]));
+    expect(p.brief!.successCriteria).toEqual([
+      { id: "c2", text: "Runs offline" },
+      { id: "c3", text: "Arrow keys steer" },
+      { id: "score-reset", text: "Score resets" },
+    ]);
+  });
+
+  it("lower-cases and trims an id; refuses a malformed, over-long or repeated one", () => {
+    expect(update(undefined, withCriteria([{ id: " Plays-Well ", text: "x" }])).brief!.successCriteria[0]!.id).toBe("plays-well");
+    for (const bad of [[{ id: "a b", text: "x" }], [{ id: "a_b", text: "x" }], [{ id: "x".repeat(33), text: "x" }], [{ id: "", text: "x" }],
+      [{ id: "a", text: "x" }, { id: "A", text: "y" }], [{ id: "a", text: 3 }], [7]]) {
+      expect(applyProjectUpdate(undefined, withCriteria(bad as never), NOW)).toMatchObject({ ok: false, error: { code: "invalid" } });
+    }
+  });
+
+  it("a revision in plain strings keeps the id of a criterion whose text is unchanged", () => {
+    const first = update(undefined, withCriteria([{ id: "offline", text: "Runs offline" }, { id: "keys", text: "Arrow keys steer" }]));
+    const again = update(first, withCriteria(["Arrow keys steer", "Has sound"]));
+    expect(again.brief!.successCriteria).toEqual([{ id: "keys", text: "Arrow keys steer" }, { id: "c2", text: "Has sound" }]);
+  });
+
+  it("an older stored brief with plain strings reads back with ids c1..cN and round-trips", () => {
+    const stored = JSON.parse(JSON.stringify(update(undefined, briefUpdate))) as Record<string, any>;
+    stored.brief.successCriteria = ["Runs in the browser", "Has three levels", "  "];
+    const read = normalizeProject(stored)!;
+    expect(read.brief!.successCriteria).toEqual([
+      { id: "c1", text: "Runs in the browser" },
+      { id: "c2", text: "Has three levels" },
+    ]);
+    expect(normalizeProject(JSON.parse(JSON.stringify(read)))).toEqual(read);
+  });
+
+  it("a stored list keeps the caps and repairs a bad or repeated id instead of dropping the project", () => {
+    const stored = JSON.parse(JSON.stringify(update(undefined, briefUpdate))) as Record<string, any>;
+    stored.brief.successCriteria = [
+      { id: "a", text: "y".repeat(PROJECT_LIMITS.shortText + 20) },
+      { id: "a", text: "two" },
+      { id: "Bad Id", text: "three" },
+      ...Array.from({ length: PROJECT_LIMITS.successCriteria }, (_, i) => `more ${i}`),
+    ];
+    const read = normalizeProject(stored)!;
+    const list = read.brief!.successCriteria;
+    expect(list).toHaveLength(PROJECT_LIMITS.successCriteria);
+    expect(list[0]!.text.length).toBe(PROJECT_LIMITS.shortText);
+    expect(new Set(list.map((c) => c.id)).size).toBe(list.length);
+    expect(list.every((c) => /^[a-z0-9-]{1,32}$/.test(c.id))).toBe(true);
+    expect(list[1]).toEqual({ id: "c2", text: "two" });
+    expect(normalizeProject({ ...stored, brief: { ...stored.brief, successCriteria: [{ id: "a" }] } })).toBeUndefined();
+  });
+
+  it("criteriaById maps ids to criteria; empty without a brief", () => {
+    const p = update(undefined, briefUpdate);
+    const map = criteriaById(p.brief);
+    expect([...map.keys()]).toEqual(["c1", "c2"]);
+    expect(map.get("c2")).toEqual({ id: "c2", text: "Has three levels" });
+    expect(criteriaById(undefined).size).toBe(0);
   });
 });
 

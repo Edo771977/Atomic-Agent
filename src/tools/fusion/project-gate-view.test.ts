@@ -33,6 +33,13 @@ describe("projectGateView (issue #39)", () => {
     });
   });
 
+  it("the brief keeps its criteria texts for older surfaces and carries the ids beside them", () => {
+    const project = up(undefined, { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs", { id: "keys", text: "Keys steer" }] }, draftedAfterUntrusted: false });
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.brief!.successCriteria).toEqual(["Runs", "Keys steer"]);
+    expect(view.brief!.criteria).toEqual([{ id: "c1", text: "Runs" }, { id: "keys", text: "Keys steer" }]);
+  });
+
   it("a plan gate carries the plan's taint flag", () => {
     const approvedBrief = applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW });
     if (!approvedBrief.ok) throw new Error("x");

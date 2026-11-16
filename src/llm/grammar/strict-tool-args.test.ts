@@ -160,6 +160,8 @@ describe("strict tool args (ATO-633): the generic branch", () => {
       ["verify.run", { cmd: "ls" }, false],
       ["plan.update", { items: [{ step: "a", status: "done" }] }, true],
       ["project.brief", { what: "a", users: "b", how: "c", successCriteria: ["d"] }, true],
+      ["project.brief", { what: "a", users: "b", how: "c", successCriteria: [{ id: "d", text: "e" }, "f"] }, true],
+      ["project.brief", { what: "a", users: "b", how: "c", successCriteria: [{ id: "d" }] }, false],
       ["project.brief", { what: "a", users: "b", how: "c", successCriteria: [] }, false],
       ["project.brief", { what: "a", users: "b", how: "c" }, false],
       ["project.plan", { milestones: [{ id: "m", title: "M", kind: "base" }], tasks: [{ id: "t", title: "T", milestone: "m", reviewer: null }] }, true],
