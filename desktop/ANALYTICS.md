@@ -1,0 +1,222 @@
+# Desktop analytics and error reports
+
+What the desktop shell sends, how it is gated, and what it never sends. The
+code is in `main/analytics/` (events), `main/sentry/` (error reports),
+`renderer/analytics-acts.js` and `renderer/analytics.js` (the window's half),
+and `preload/preload.ts` (`window.atomic.track` / `window.atomic.reportError`).
+
+## The switch
+
+- `analytics.enabled` in the desktop state dir's `config.json` (default true).
+- If the desktop config does not set it, but the terminal agent's
+  `~/.atomic-agent/config.json` says `analytics.enabled: false`, the desktop
+  treats analytics as off and tells the agent it spawns the same.
+- A config file that exists but cannot be parsed counts as off.
+- `DO_NOT_TRACK=1` (also `true` / `yes` / `on`) in the environment turns
+  analytics and crash reports off whatever the config says, and the agent
+  the desktop spawns gets `ATOMIC_AGENT_ANALYTICS=off`.
+- Settings › Privacy applies live, no restart. Turning it off: the config
+  write happens first; only if it succeeded is `analytics_disabled` sent and
+  flushed (2 s at most), and then sending stops and the queue is dropped. A
+  failed write changes nothing and sends nothing.
+- With analytics off, the analytics code reads no config files.
+- Test and dev runs send nothing and write nothing to the real home: VITEST,
+  `NODE_ENV=test|development`, `--dev`, `--smoke*`, `--first-run-probe`,
+  `--models`, `--remote-debugging-port*`, `--fake-ram=*`, `--fake-update=*`,
+  `ATOMIC_DESKTOP_ANALYTICS=off`, and any unpackaged build (unless
+  `ATOMIC_DESKTOP_ANALYTICS=on`). `ATOMIC_DESKTOP_ANALYTICS_LOG=1` echoes
+  each event to stderr.
+
+## Identity
+
+- One install id per machine, shared with the terminal agent:
+  `$ATOMIC_AGENT_INSTALL_ID_FILE`, else `~/.atomic-agent-install-id` (one
+  UUID line, written atomically).
+- Resolved once at startup, before the agent is spawned, in this order: the
+  shared file; the `installId` in `~/.atomic-agent/analytics.json` (skipped
+  when the terminal config opted out); the desktop state dir's
+  `analytics.json`; a new UUID. The shared file is written only when
+  analytics is on and the run is not a test or dev run.
+- Once-flags live in `<desktop state dir>/desktop-analytics.json`
+  (`installedAt`, `modelConfiguredSent`, `sessionOpen`). On a desktop that
+  existed before this file (an upgrade) it starts with
+  `modelConfiguredSent: true` and `installedAt: null`, so no fake first setup
+  is reported and `days_since_install` is omitted.
+
+## Environment passed to the agent
+
+`agentEnv()` (`main/state-dir.ts`) adds:
+
+| Variable | Value |
+|---|---|
+| `ATOMIC_AGENT_SURFACE` | `desktop` |
+| `ATOMIC_AGENT_INSTALL_CHANNEL` | `dmg` / `exe` / `appimage` / `deb` |
+| `ATOMIC_AGENT_DESKTOP_VERSION` | the app version, when known |
+| `ATOMIC_AGENT_ANALYTICS` | `off` on a test or dev run, when the terminal opt-out is inherited, or under `DO_NOT_TRACK=1` |
+| `ATOMIC_AGENT_INSTALL_ID_FILE` | `<desktop state dir>/install-id` on a test or dev run; otherwise inherited unchanged |
+
+## Global properties (every event)
+
+`surface: desktop`, `platform`, `arch`, `arm64_translation`, `desktop_version`,
+`install_channel`, `run_mode` (`local` / `cloud` / `fusion`, when known).
+`arm64_translation` is `true` when an x64 build runs translated on ARM
+hardware (Windows on ARM emulation, or Rosetta on a Mac): `arch` then says
+`x64`, and this is how ARM machines still on the x64 build are counted
+(ATO-252). The transport adds
+`$ip: 0.0.0.0`, `$geoip_disable: true`, `$lib: atomic-agent-desktop`.
+
+## Event catalogue
+
+`main/analytics/catalog.ts` is the one allowlist; value lists are in
+`catalog-values.ts`. Unknown events and properties are dropped; an enum value
+outside its list becomes `other` (or the property's fallback) or is dropped;
+strings are at most 64 characters of `[a-zA-Z0-9_.:-]`. The renderer may only
+send `ui` events.
+
+| Group | Main process | Renderer |
+|---|---|---|
+| Lifecycle | `app_opened`, `app_ready`, `agent_start_failed`, `agent_restarted` (manual / switch / auto / setup_finished / workspace_change / import / telegram / other), `window_crashed`, `app_closed`, `debug_report_saved`, `analytics_disabled` | |
+| Setup | `provider_key_checked` (ok / rejected / unreachable / payment_required), `model_configured` | `onboarding_step`, `onboarding_skipped`, `model_picked`, `provider_setup_started`, `provider_setup_failed` (… / catalog_empty / server_unreachable / certificate / timed_out / key_rejected / provider_error / list_failed; `provider_preset`), `custom_endpoint_tested` |
+| Models and backend | `model_download_started`, `model_download_finished`, `hf_lookup`, `llama_runtime_updated`, `local_backend_started`, `local_backend_supervised`, `local_backend_crashed`, `engine_recovery_shown`, `backend_switched`, `model_switched`, `fusion_configured` | |
+| Chat | `chat_turn_ui` (outcome completed / stopped_early (step or time limit, no progress, out of credit) / failed / cancelled; `error_category`, `http_status` on a failure) | `message_action`, `approval_answered`, `approval_closed` (stopped / expired / replaced / not_waiting), `coding_mode_changed`, `plan_handoff`, `attachment_added` (image / document; size bucket; button / drop / paste) |
+| Features | `voice_used`, `voice_setup`, `task_created`, `task_action`, `overnight_started` (has_budget, hours, notify_telegram), `skill_installed`, `skill_action`, `telegram_setup` (enable / token_saved / token_cleared / owner_cleared), `composio_setup` (key_saved / key_removed / key_checked / enable / disable; ok / unverified / rejected / error), `import_run`, `workspace_chosen` | `ui_action`, `slash_command_used`, `settings_pane_viewed`, `session_action`, `mcp_server_added`, `mcp_server_action` |
+| App updates | `update_available` (auto / manual), `update_accepted`, `update_dismissed` (not_now / cancel / later), `update_skipped`, `update_installed` | |
+
+Notes on specific properties:
+
+- `ui_action.action`: the act's verb plus allowlisted tails only
+  (`renderer/analytics-acts.js`); main accepts camelCase segments, at most
+  three, and refuses any segment that looks like an id (a UUID, a hex run
+  containing digits, four or more digits, or a bare number other than the
+  Fusion worker count in `runmode:workers:1`..`8`). Capped at 200 per app
+  session.
+- `model_picked.host_ram_gb`: `"8"` (12 GB or less), `"16"` (24 or less),
+  `"32"` (48 or less), `"64"`, or null. `model_id` is a curated catalogue id,
+  else `custom`.
+- `update_*.version` / `from_version`: an app version (`0.6.7`,
+  `1.0.0-beta.2`), else dropped. `update_installed` is sent on the first
+  start of the new version, from what the old one wrote to
+  `userData/updates.json` just before it quit to install.
+- `quant`: an upper-cased GGUF tag (`Q4_K_M`, `IQ3_XXS`, `F16`, `BF16`,
+  `MXFP4`), else `unknown`. `locale`: `en` or `en-US` shaped, else dropped.
+- `app_opened.prev_session_end` (ATO-1030, cold launches): `clean`, or why the last
+  session did not quit cleanly: `os_shutdown` (Windows `session-end`, macOS/Linux
+  `powerMonitor` shutdown), `crashed` (a crashed process or an uncaught error was
+  seen first), `killed` (nothing seen: Force Quit, End task, power loss, a frozen
+  window closed by force).
+- `backend_switched`: only for an explicit switch (`cli:switchBackend`,
+  `cli:enterFusion`) or when the effective run mode actually changed.
+- `model_switched` (ATO-1021): every switch that moved the running agent,
+  `live` when it took the route through `POST /api/llm/active`, `restart` when
+  `atag serve` was restarted for it; `ms` from the click to the answer.
+- `model_configured` and `analytics_disabled` are runtime events in the
+  agent's schema; the shell sends them because the bundled agent does not
+  under `atag serve`. `model_configured.provider` is `llama.cpp` for the
+  managed local backend, a preset id for cloud, `custom` for a custom
+  endpoint; `kind` is local / cloud / custom. Once per desktop state dir.
+- `engine` on `llama_runtime_updated`, `local_backend_started` and
+  `engine_recovery_shown`: the managed local engine, `atomic-core` (Atomic Chat
+  Core, the default, also when the config names none) or `llama-server`;
+  null without a readable config. `engine_recovery_shown.stage` is download /
+  verify / backend / blocked / start, read from the agent's own failure text
+  (main/engine-failure.ts); it fires when the recovery card goes up, and
+  `via` says what put it up: launch / swap / update (the start after a
+  llama.cpp update) / start (the window's Start) / switch / setup (the
+  first-run engine install) / settings (Settings' engine update) / other.
+  The failure itself is the agent's own `local_engine_failed`, sent by the
+  `models` command that failed (src/analytics); the desktop no longer sends
+  an event of that name, so one failure is never counted twice.
+- `local_backend_supervised` (ATO-773): the engine watchdog
+  (`main/daemon-supervisor.ts`) acted on the managed local server. `kind` is
+  restarting / restarted / restart_failed / gave_up (its `clear` is not
+  sent); `quick_deaths` its crash-loop count; `after_ms` how long a restart
+  took (restarted only); `engine` as above; `fault` (restart_failed and
+  gave_up only) a code for the server log's failure line: oom / port_in_use /
+  load_failed / missing_lib / crash / unknown, or null when the log names
+  none. The line itself, the restart's error text and its reason are never
+  sent.
+- `local_backend_started.reason` (ATO-278): why the start failed, on
+  `result: start_failed` only (null otherwise), as a code: oom / port_in_use /
+  load_failed / missing_lib / crash (read from the one line that names a
+  failure in the start's error text, its stderr tail, or the server log's
+  current run, after the last launch marker), timeout (the app's own time
+  limit on `models start`, nothing else), exited_after_ready (the server came
+  up, then stopped answering while the start waited on it), or other. The
+  error text, the stderr and the log line are never sent.
+- `local_backend_crashed` (ATO-278): the managed local server the app had
+  brought up died mid-session, as the engine watchdog saw it. Sent once per
+  death, as the watchdog's recovery begins, and not again while a restart of
+  it keeps failing (those are `local_backend_supervised`); never for a server
+  that had not come up since its last start (a failed start after Studio
+  hands the memory back). `reason` is the
+  same code list as above, from the server log's failure line (other when it
+  names none); `model_id` as on `local_backend_started`; `up_ms` how long the
+  server had been up; `engine` as above. Only seen while the watchdog runs:
+  `localModels.managed.autoRestart` on and a route that needs the server.
+- `model_download_started.trigger`: `onboarding` (the first-run wizard),
+  `settings` (Settings' model list), `selector` (the composer's picker),
+  `first_run` (the starter model), `spotlight` (the chat's "New: <name>" card,
+  Download and switch), or `other`.
+- `llama_runtime_updated.trigger`: `setup` (the first-run runtime phase),
+  `settings` (Settings' engine install or update, and Download again), or
+  `launch` (the launch installing Atomic Core's backend before it starts the
+  model, when Core is the engine and its backend is not on disk yet).
+
+Transport: PostHog `/batch/` over `fetch`, batched in memory, flushed every
+10 s; at quit up to five batches of 100, bounded at 2 s in total (also when
+no agent is running).
+
+## Error reports (Sentry)
+
+- A hand-built envelope per error (`main/sentry/`), no SDK and no Electron
+  crashReporter: minidumps carry process memory (chat text, keys) and
+  absolute module paths, so none are produced or uploaded.
+- Caught: main-process uncaught exceptions and rejections, renderer
+  `error` / `unhandledrejection`, `render-process-gone`, `child-process-gone`,
+  `unresponsive`, `did-fail-load` (main frame, error code only),
+  `preload-error`, and the agent exiting unexpectedly (tags only:
+  `kind`, `exit_code`, `reason` (the signal), `last_error`, `uptime`, and on
+  Windows `sentinel_alive`). `last_error` is one word for the agent's last
+  error lines (`main/sentry/exit-reason.ts`): oom / port_in_use /
+  econnrefused / sqlite / telegram_conflict / permission / missing_file /
+  other, or none when it said nothing in the 30 s before it exited (older
+  lines do not count); the lines themselves are never sent.
+  `uptime` is lt_10s / lt_1m / lt_10m / lt_1h / gte_1h. `sentinel_alive` is
+  yes / no: a dead sentinel means the agent closed itself on `--parent-pid`,
+  not a crash (ATO-763). `exit_status` is a word for a known exit code:
+  insufficient_resources (Windows 0xC000009A), no_memory, stack_overflow,
+  killed_from_outside, access_violation, or memory_guard (exit 86: the
+  agent's memory guard closed it cleanly before the system ran out,
+  ATO-1111). `free_mem` buckets the machine's free memory at the exit.
+  From the agent's last `[atomic-agent] memory …` sample (written every ten
+  minutes): `agent_rss` (lt_512m … gte_8g), `agent_heap` (heap share of its
+  ceiling) and `agent_mem_share` (RSS share of the machine), both lt_25 /
+  lt_50 / lt_75 / lt_90 / gte_90, and `agent_mem_verdict` (ok / warn /
+  exit). A growing agent shows a high `agent_heap`; a small machine shows a
+  modest `agent_rss` with a high `agent_mem_share`.
+- Scrubbing: the message is dropped (no message type is allowlisted); the
+  type is kept only when it matches `SomethingError` / `SomethingException`
+  or is one of the shell's own names, else `Error`; a renderer value that is
+  not an `Error` is `NonError`. The stack's `Name: message` header is cut off
+  before frames are read; each frame keeps file basename, line, column and
+  function only; at most 30 frames.
+- Every event: `platform: node`, `sdk.settings.infer_ip: never`,
+  `user: {id: <install id>, ip_address: null}`, tags `surface`, `component`,
+  `desktop_version`, `install_channel`, `run_mode`, `platform`, `arch`, plus
+  `kind` / `reason` / `exit_code` enums. `RenderProcessGone` also carries
+  `recovered` (`yes`: main reloaded the page; `no`: it crashed more than
+  twice in a minute and the person was asked instead, ATO-765). At most 30 reports per session,
+  3 per signature.
+- An unexpected agent exit also carries `auto_restart_attempt`: 0 when the
+  agent that ended was not started by an automatic restart, else which of
+  the three attempts started it (ATO-767, `main/agent-auto-restart.ts`).
+- DSN: `ATOMIC_DESKTOP_SENTRY_DSN`, else the agent's. Same switch as
+  analytics.
+
+## Never sent
+
+Message or prompt text, error messages, stderr, file paths, URLs (custom
+endpoints, Hugging Face repo or file names), API keys, tokens or headers,
+session / task / memory ids, MCP server names, skill names, chat titles,
+voice transcripts, slash command arguments, process argv or environment, the
+IP address (`$ip` is `0.0.0.0`, GeoIP is off).

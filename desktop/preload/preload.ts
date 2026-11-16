@@ -1,0 +1,532 @@
+import { contextBridge, ipcRenderer, webUtils } from "electron";
+
+/**
+ * The whole surface the renderer gets. No `ipcRenderer`, no `require`,
+ * no Node globals — every call is a named method with a fixed channel,
+ * and every subscription hands back an unsubscribe.
+ */
+type Unsubscribe = () => void;
+
+function on(channel: string, cb: (payload: unknown) => void): Unsubscribe {
+  const listener = (_event: unknown, payload: unknown) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+/* Backlog 03 — what the window put on screen at boot, for `--first-run-probe`
+   (main.ts firstRunProbe) and only for it: main adds the argument to that
+   launch alone, so a normal one runs no frame loop.
+
+   A fresh install showed the chat window for half a second before the
+   wizard, then a title card that waited for a click. Both are facts about
+   FRAMES, which no read of the DOM taken afterwards can see. So every
+   animation frame from the first is classified by what it shows, and each
+   change of view is kept with its wall-clock time and frame number. It lives
+   here rather than in renderer.js so that it is watching before the page's
+   own script has run, and reads only the DOM, never the renderer's state. */
+type BootView = { view: "blank" | "chat" | "intro" | "wizard"; at: number; frame: number };
+const BOOT_PAINT: { views: BootView[]; frames: number; input: { type: string; at: number } | null; done: boolean } =
+  { views: [], frames: 0, input: null, done: false };
+
+function bootView(): BootView["view"] {
+  const ob = document.getElementById("onboarding");
+  if (ob) return ob.classList.contains("ob-intro-layer") ? "intro" : "wizard";
+  const drawn = (id: string) => (document.getElementById(id)?.childElementCount ?? 0) > 0;
+  return drawn("content") || drawn("sidebar") ? "chat" : "blank";
+}
+
+if (process.argv.includes("--atomic-boot-probe")) {
+  const frame = () => {
+    BOOT_PAINT.frames += 1;
+    const view = bootView();
+    const last = BOOT_PAINT.views[BOOT_PAINT.views.length - 1];
+    if (!last || last.view !== view) BOOT_PAINT.views.push({ view, at: Date.now(), frame: BOOT_PAINT.frames });
+    // Done once the wizard is past its title card, or after 15 s of frames.
+    if (view === "wizard" || Date.now() - BOOT_PAINT.views[0]!.at > 15_000) { BOOT_PAINT.done = true; return; }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  // The probe presses nothing; an input here would mean the card did not leave by itself.
+  for (const type of ["keydown", "mousedown", "wheel", "paste"]) {
+    document.addEventListener(type, () => { BOOT_PAINT.input ??= { type, at: Date.now() }; }, true);
+  }
+}
+
+/* The platform as a class on <body> (`platform-darwin`, `platform-win32`,
+   `platform-linux`), so the stylesheet can give the window chrome of each
+   its room: macOS insets traffic lights at the left of the toolbar, Windows
+   overlays its controls at the right, Linux draws a normal frame. Set before
+   the first paint the renderer makes. */
+window.addEventListener("DOMContentLoaded", () => {
+  document.body.classList.add(`platform-${process.platform}`);
+});
+
+/** Main's answer (platform.ts voiceSupported); macOS-only if it cannot say. */
+function voiceSupportedNow(): boolean {
+  try {
+    return ipcRenderer.sendSync("app:voiceSupported") === true;
+  } catch {
+    return process.platform === "darwin";
+  }
+}
+
+contextBridge.exposeInMainWorld("atomic", {
+  /** Process supervision. */
+  status: () => ipcRenderer.invoke("agent:status"),
+  start: () => ipcRenderer.invoke("agent:start"),
+  /** ATO-274: `reason` is "setup_finished" when setup closing asks, "telegram" from the Telegram tab (ATO-900); analytics only. */
+  restart: (reason?: "setup_finished" | "telegram") => ipcRenderer.invoke("agent:restart", reason),
+  onStatus: (cb: (payload: unknown) => void) => on("agent:status", cb),
+  onLog: (cb: (payload: unknown) => void) => on("agent:log", cb),
+  /** ATO-767: the automatic restarts after an unexpected exit (agent-auto-restart.ts). */
+  onAutoRestart: (cb: (payload: unknown) => void) => on("agent:autoRestart", cb),
+
+  /** Read-only resources, each `{ok, data}` or `{ok:false, error}`. */
+  capabilities: () => ipcRenderer.invoke("agent:capabilities"),
+  config: () => ipcRenderer.invoke("agent:config"),
+  // ATO-32: {ok, data: {tiers: {<key>: [{tier, label, model}]}}}; ok:false on a core without the route.
+  modelTiers: () => ipcRenderer.invoke("agent:modelTiers"),
+  skills: (sessionId?: string | null) => ipcRenderer.invoke("agent:skills", sessionId),
+  /** ATO-1250: GET/POST /api/project-trust — {supported:false} against an agent without the route. */
+  projectTrust: (sessionId?: string | null) => ipcRenderer.invoke("agent:projectTrust", sessionId),
+  projectTrustAnswer: (body: unknown) => ipcRenderer.invoke("agent:projectTrustAnswer", body),
+  /** ATO-1144: the saved approval rules, and removing one of the global file's. */
+  approvalRules: (sessionId?: string | null) => ipcRenderer.invoke("agent:approvalRules", sessionId),
+  approvalRuleDelete: (id: string) => ipcRenderer.invoke("agent:approvalRuleDelete", id),
+  tasks: () => ipcRenderer.invoke("agent:tasks"),
+  sessions: () => ipcRenderer.invoke("agent:sessions"),
+  models: () => ipcRenderer.invoke("agent:models"),
+  session: (id: string) => ipcRenderer.invoke("agent:session", id),
+  // item 6: DELETE /api/sessions/{id} — the sidebar's delete is a real one
+  deleteSession: (id: string) => ipcRenderer.invoke("agent:deleteSession", id),
+  // ATO-455: PATCH /api/sessions/{id} — rename a chat
+  renameSession: (id: string, title: string) => ipcRenderer.invoke("agent:renameSession", id, title),
+  codingMode: (mode?: string) => ipcRenderer.invoke("agent:codingMode", mode),
+
+  /** One turn of the agent loop, streamed back over `onChat`. */
+  chat: (messages: Array<{ role: string; content: string }>, sessionId?: string) =>
+    ipcRenderer.invoke("agent:chat", { messages, sessionId }),
+  cancel: (turnId: string) => ipcRenderer.invoke("agent:cancel", turnId),
+  onChat: (cb: (payload: unknown) => void) => on("agent:chat", cb),
+
+  /** Approvals raised by gated tools. */
+  onApproval: (cb: (payload: unknown) => void) => on("agent:approval", cb),
+  approve: (approvalId: string, decision: "allow-once" | "allow-in-chat" | "allow-always" | "deny", reason?: string) =>
+    ipcRenderer.invoke("agent:approve", { approvalId, decision, reason }),
+  /** B01 QA, ATO-198: the turns main streams, for a page that loads while they run. */
+  liveTurns: () => ipcRenderer.invoke("agent:liveTurns"),
+  /** B01 review: the agent replays the approvals still pending (asked once the page has taken the turns over). */
+  replayApprovals: () => ipcRenderer.invoke("agent:replayApprovals"),
+
+  /** Setup wizard: real config writes and the real model catalogue. */
+  configGet: () => ipcRenderer.invoke("cli:configGet"),
+  /** `via` (settings | slash) only matters for analytics.enabled: it is what `analytics_disabled` says. */
+  configSet: (key: string, value: string, via?: string) =>
+    ipcRenderer.invoke("cli:configSet", via === undefined ? { key, value } : { key, value, via }),
+  modelsList: () => ipcRenderer.invoke("cli:modelsList"),
+  chatModelsList: () => ipcRenderer.invoke("cli:chatModelsList"),
+  modelsUse: (id: string) => ipcRenderer.invoke("cli:modelsUse", id),
+  /** `opts.trigger` (onboarding | settings | selector) only labels the download for analytics. */
+  modelsPull: (id: string, opts?: { trigger?: string; mmproj?: boolean }) =>
+    opts === undefined ? ipcRenderer.invoke("cli:modelsPull", id) : ipcRenderer.invoke("cli:modelsPull", id, opts),
+  cancelPull: () => ipcRenderer.invoke("cli:cancelPull"),
+  onPull: (cb: (payload: unknown) => void) => on("cli:pull", cb),
+  modelsSearch: (query: string, provider?: string, limit?: number) =>
+    ipcRenderer.invoke("cli:modelsSearch", { query, provider, limit }),
+  upsertProvider: (entry: Record<string, unknown>) => ipcRenderer.invoke("cli:upsertProvider", entry),
+  setProviderModel: (id: string, model: string) =>
+    ipcRenderer.invoke("cli:setProviderModel", { id, model }),
+  providerModels: (id: string, kind: string, live?: boolean) => ipcRenderer.invoke("cli:providerModels", { id, kind, live: live === true }),
+  // r6 cloud item 2: a real one-token completion, the only check that can fail.
+  verifyProviderKey: (entry: Record<string, unknown>, model: string) =>
+    ipcRenderer.invoke("cli:verifyProviderKey", { entry, model }),
+  // ATO-161: an empty key field — a saved key or a variable behind it? Yes or no.
+  providerKeyPresent: (entry: { id?: string; kind: string; apiKeyEnvVar?: string; baseUrl?: string }) =>
+    ipcRenderer.invoke("cli:providerKeyPresent", entry),
+  // ATO-756: {ok, status: {cli, installed, binPath, signedIn, apiKeyLogin?}} — never a token.
+  subscriptionStatus: (cli: "claude" | "codex") => ipcRenderer.invoke("cli:subscriptionStatus", cli),
+  removeProvider: (id: string) => ipcRenderer.invoke("cli:removeProvider", id),
+  modelsStart: () => ipcRenderer.invoke("cli:modelsStart"),
+  traceUsage: (stateDir: string, sessionId: string) =>
+    ipcRenderer.invoke("cli:traceUsage", { stateDir, sessionId }),
+  // item 4: per-call tool durations from the trace
+  traceTools: (stateDir: string, sessionId: string) =>
+    ipcRenderer.invoke("cli:traceTools", { stateDir, sessionId }),
+  hostRam: () => ipcRenderer.invoke("app:hostRam"),
+  modelSpotlightIds: () => ipcRenderer.invoke("app:modelSpotlightIds"),
+  keyEnv: () => ipcRenderer.invoke("app:keyEnv"),
+  // ATO-507: free space on the models disk, {freeBytes, totalBytes, path} | null
+  diskSpace: () => ipcRenderer.invoke("app:diskSpace"),
+  // ATO-577 / ATO-579: Settings › Diagnostics' Doctor and Data rows.
+  doctorRun: (fix: boolean) => ipcRenderer.invoke("doctor:run", fix === true),
+  dataBackup: () => ipcRenderer.invoke("data:backup"),
+  dataRestore: () => ipcRenderer.invoke("data:restore"),
+  dataMove: () => ipcRenderer.invoke("data:move"),
+  dataReset: () => ipcRenderer.invoke("data:reset"),
+
+  /** Shell affordances. */
+  // ATO-731: the chat on screen moves to the folder picked (sessionId), without restarting the agent.
+  chooseWorkspace: (sessionId?: string | null) => ipcRenderer.invoke("app:chooseWorkspace", sessionId ?? null),
+  openPath: (path: string) => ipcRenderer.invoke("app:openPath", path),
+  // Chat review Д23: `fromReply` for a chip from a reply's text, which main checks again.
+  fileMenu: (path: string, fromReply?: boolean) => ipcRenderer.invoke("app:fileMenu", path, fromReply === true),
+  // item 5: existence check for the files a turn wrote (fs.stat only)
+  statPaths: (paths: string[]) => ipcRenderer.invoke("app:statPaths", paths),
+  // Chat review Д23: which paths a reply names are files in the home folder, and opening one
+  replyPaths: (paths: string[]) => ipcRenderer.invoke("app:replyPaths", paths),
+  openReplyPath: (path: string) => ipcRenderer.invoke("app:openReplyPath", path),
+  // ATO-1053: the preview panel reads a file through main (file-preview.ts), never the disk itself.
+  filePreview: (path: string) => ipcRenderer.invoke("app:filePreview", path),
+  filePreviewAction: (path: string, action: "open" | "reveal") => ipcRenderer.invoke("app:filePreviewAction", path, action),
+  // Studio's "From chat" clip: Show in Finder / Save As… for a reply's file in the home folder.
+  // {ok:true[, path]} | {ok:false, reason:'missing'|'outside'|'not-a-file'|'canceled'|'failed'}
+  replyReveal: (path: string) => ipcRenderer.invoke("app:replyReveal", path),
+  replySaveAs: (path: string) => ipcRenderer.invoke("app:replySaveAs", path),
+  // ATO-408: a picture file as a data: URL (CSP allows only data: images), and the
+  // image viewer's Save As… / Reveal. Shared with ATO-404–406 (the person's attachments):
+  // {ok:true, dataUrl} | {ok:false, reason:'missing'|'too-large'|'outside'}
+  imageDataUrl: (path: string) => ipcRenderer.invoke("app:imageDataUrl", path),
+  imageSaveAs: (path: string) => ipcRenderer.invoke("app:imageSaveAs", path),
+  imageReveal: (path: string) => ipcRenderer.invoke("app:imageReveal", path),
+  /** Studio (Images + Video), main/studio-ipc.ts. Every call answers
+   *  {ok:true, data} | {ok:false, error:{code, message, details?}};
+   *  shapes in renderer/studio/CONTRACT.md. */
+  studio: {
+    catalog: (kind: "image" | "video") => ipcRenderer.invoke("studio:catalog", kind),
+    generateImage: (req: unknown) => ipcRenderer.invoke("studio:generateImage", req),
+    generateVideo: (req: unknown) => ipcRenderer.invoke("studio:generateVideo", req),
+    estimateVideo: (req: unknown) => ipcRenderer.invoke("studio:estimateVideo", req),
+    job: (kind: "image" | "video", id: string) => ipcRenderer.invoke("studio:job", kind, id),
+    activeJobs: () => ipcRenderer.invoke("studio:activeJobs"),
+    cancel: (kind: "image" | "video", id: string) => ipcRenderer.invoke("studio:cancel", kind, id),
+    gallery: (kind: "image" | "video", opts?: { offset?: number; limit?: number; includeArchived?: boolean }) =>
+      ipcRenderer.invoke("studio:gallery", kind, opts ?? {}),
+    galleryDelete: (kind: "image" | "video", ids: string[]) => ipcRenderer.invoke("studio:galleryDelete", kind, ids),
+    pin: (kind: "image" | "video", id: string, on: boolean) => ipcRenderer.invoke("studio:pin", kind, id, on === true),
+    setPoster: (id: string, bytes: Uint8Array) => ipcRenderer.invoke("studio:setPoster", id, bytes),
+    outputDir: (kind: "image" | "video") => ipcRenderer.invoke("studio:outputDir", kind),
+    chooseOutputDir: (kind: "image" | "video") => ipcRenderer.invoke("studio:chooseOutputDir", kind),
+    setOutputDir: (kind: "image" | "video", path: string | null) => ipcRenderer.invoke("studio:setOutputDir", kind, path),
+    price: (modelId: string, params: unknown) => ipcRenderer.invoke("studio:price", modelId, params),
+    pickImages: (multiple?: boolean) => ipcRenderer.invoke("studio:pickImages", multiple === true),
+    preview: (path: string) => ipcRenderer.invoke("studio:preview", path),
+    revealInFinder: (path: string) => ipcRenderer.invoke("studio:reveal", path),
+    saveAs: (path: string) => ipcRenderer.invoke("studio:saveAs", path),
+    /** Every change of a generation this window started (progress, done, failed, stopped). */
+    onJob: (cb: (job: unknown) => void) => on("studio:job", cb),
+    /* Local models: ids are `<family>:<quant>` from catalog(kind).local.models[].local.quants[].id. */
+    localDownload: (id: string, opts?: { workflow?: string }) => ipcRenderer.invoke("studio:localDownload", id, opts ?? {}),
+    localCancel: (id: string) => ipcRenderer.invoke("studio:localCancel", id),
+    localDelete: (id: string) => ipcRenderer.invoke("studio:localDelete", id),
+    localLoad: (id: string, opts?: { workflow?: string }) => ipcRenderer.invoke("studio:localLoad", id, opts ?? {}),
+    localEngine: () => ipcRenderer.invoke("studio:localEngine"),
+    localPrepare: () => ipcRenderer.invoke("studio:localPrepare"),
+    localState: () => ipcRenderer.invoke("studio:localState"),
+    /** Download progress, the image engine install, model loads: one LocalEvent per change. */
+    onLocal: (cb: (event: unknown) => void) => on("studio:local", cb),
+    /* The local chat model and local generations on one memory (main/studio-gpu-share.ts):
+       whether chat is paused for Studio, the generation running, how many are queued, chat turns held. */
+    gpuShare: () => ipcRenderer.invoke("studio:gpuShare"),
+    /* ATO-809: Improve prompt (main/studio-improve-prompt.ts): whether a chat model can rewrite, and one rewrite. */
+    improveReady: () => ipcRenderer.invoke("studio:improveReady"),
+    improvePrompt: (kind: "image" | "video", prompt: string) => ipcRenderer.invoke("studio:improvePrompt", kind, prompt),
+    onGpuShare: (cb: (state: unknown) => void) => on("studio:gpuShare", cb),
+  },
+  /** ATO-404/405: composer attachments (main/attachments-ipc.ts). */
+  attachPick: (kind: "images" | "files") => ipcRenderer.invoke("attachments:pick", kind),
+  attachReadPicked: (path: string) => ipcRenderer.invoke("attachments:readPicked", path),
+  attachSave: (source: { path?: string; bytes?: Uint8Array; name?: string }) => ipcRenderer.invoke("attachments:save", source),
+  attachDiscard: (path: string) => ipcRenderer.invoke("attachments:discard", path),
+  attachCheck: (path: string) => ipcRenderer.invoke("attachments:check", path),
+  attachOpen: (path: string) => ipcRenderer.invoke("attachments:open", path),
+  /** ATO-532: other apps' windows for the composer's window picker, and one of them captured (main/window-snapshot-ipc.ts). */
+  snapshotWindows: () => ipcRenderer.invoke("snapshot:windows"),
+  snapshotCapture: (id: string) => ipcRenderer.invoke("snapshot:capture", id),
+  /** A dropped File's path on disk ("" for one that has none); the sandboxed window cannot read it itself. */
+  pathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return "";
+    }
+  },
+  micStatus: () => ipcRenderer.invoke("app:micStatus"),
+  micRequest: () => ipcRenderer.invoke("app:micRequest"),
+  resetMicPermission: () => ipcRenderer.invoke("app:resetMicPermission"),
+  openMicSettings: () => ipcRenderer.invoke("app:openMicSettings"),
+  openExternal: (url: string) => ipcRenderer.invoke("app:openExternal", url),
+  /** 13: the page's ground colour (#rrggbb), for the window's own background. */
+  windowGround: (color: string) => ipcRenderer.invoke("app:windowGround", color),
+  // item 6: the sidebar's own pin/read state (Electron userData/prefs.json). ATO-165: the
+  // chat row's menu is drawn in the window now (renderer chatMenuHTML), so no native menu here.
+  prefsGet: () => ipcRenderer.invoke("app:prefsGet"),
+  // ATO-1127: the agent on another computer.
+  remoteGet: () => ipcRenderer.invoke("app:remoteGet"),
+  remoteSet: (remote: { url: string; token: string }) => ipcRenderer.invoke("app:remoteSet", remote),
+  remoteClear: () => ipcRenderer.invoke("app:remoteClear"),
+  // ATO-1030: hardware acceleration, as this run has it and as the next launch will.
+  gpuGet: () => ipcRenderer.invoke("app:gpuGet"),
+  gpuSet: (on: boolean) => ipcRenderer.invoke("app:gpuSet", on),
+  prefsSet: (prefs: { pinned: string[]; seen: Record<string, number> }) =>
+    ipcRenderer.invoke("app:prefsSet", prefs),
+  // ATO-1034: chat folders (~/.atomic-agent/chat-folders.json, main/chat-folders.ts).
+  foldersGet: () => ipcRenderer.invoke("app:foldersGet"),
+  foldersSet: (value: unknown) => ipcRenderer.invoke("app:foldersSet", value),
+  onMenu: (cb: (command: unknown) => void) => on("app:menu", cb),
+  // ATO-1042: the starter model main fetches on a first launch (downloading, ready, failed).
+  onStarterModel: (cb: (ev: unknown) => void) => on("app:starterModel", cb),
+  starterGet: () => ipcRenderer.invoke("app:starterGet"),
+  // ATO-1044: the best model for this computer, downloading behind the starter, then the ask.
+  onUpgradeModel: (cb: (ev: unknown) => void) => on("app:upgradeModel", cb),
+  upgradeGet: () => ipcRenderer.invoke("app:upgradeGet"),
+  upgradeSwitch: () => ipcRenderer.invoke("app:upgradeSwitch"),
+  upgradeLater: () => ipcRenderer.invoke("app:upgradeLater"),
+
+  /** Item 7 (settings surface): tasks, health, schedule preview. */
+  task: (id: string) => ipcRenderer.invoke("agent:task", id),
+  cancelTask: (id: string) => ipcRenderer.invoke("agent:cancelTask", id),
+  runTask: (id: string) => ipcRenderer.invoke("agent:runTask", id),
+  health: () => ipcRenderer.invoke("agent:health"),
+  /** ATO-134: whether the agent runs a turn this window does not stream (a scheduled task, Telegram), for a switch to wait on. */
+  agentBusyAnywhere: () => ipcRenderer.invoke("agent:busyAnywhere"),
+  /** Agent 0.6.6 live routes (main/agent-live.ts): a deep-merge config patch and per-server MCP control. */
+  configPatch: (patch: Record<string, unknown>) => ipcRenderer.invoke("agent:configPatch", patch),
+  mcpServer: (name: string, op: "restart" | "enable" | "disable") => ipcRenderer.invoke("agent:mcpServer", { name, op }),
+  /** ATO-859: Telegram pairing on the running agent; a start's answer carries the one-time code for the screen only. */
+  telegramPairing: (op: "start" | "status" | "cancel", replaceOwner?: boolean) =>
+    ipcRenderer.invoke("agent:telegramPairing", { op, replaceOwner: replaceOwner === true }),
+  // ATO-758: the live channel's state and another poller of the same bot.
+  telegramChannel: () => ipcRenderer.invoke("agent:telegramChannel"),
+  taskCreate: (input: { message: string; kind: string; expression: string; tz?: string }) =>
+    ipcRenderer.invoke("cli:taskCreate", input),
+  taskPreview: (form: Record<string, string>, now?: number) =>
+    ipcRenderer.invoke("app:taskPreview", { form, now }),
+  /** ATO-1113: "Run overnight": pick its folder (the chat's own does not change), then start the task. */
+  overnightPickFolder: (current?: string) => ipcRenderer.invoke("overnight:pickFolder", current),
+  overnightStart: (input: { message: string; folder: string; maxCostUsd: number | null; hours: number; notifyTelegram: boolean }) =>
+    ipcRenderer.invoke("overnight:start", input),
+  quit: () => ipcRenderer.invoke("app:quit"),
+  skillList: (sessionId?: string | null) => ipcRenderer.invoke("cli:skillList", sessionId),
+  configGetKey: (key: string) => ipcRenderer.invoke("cli:configGetKey", key),
+
+  /** Item 7 part B: the Skills, Memory and MCP tabs. */
+  skill: (name: string, sessionId?: string | null) => ipcRenderer.invoke("agent:skill", name, sessionId),
+  uninstallSkill: (name: string, source?: string) => ipcRenderer.invoke("agent:uninstallSkill", { name, source }),
+  configSetPath: (key: string, value: unknown) => ipcRenderer.invoke("cli:configSetPath", { key, value }),
+  skillShow: (name: string) => ipcRenderer.invoke("cli:skillShow", name),
+  skillSetDisabled: (name: string, disabled: boolean, scope?: "global" | "workspace", sessionId?: string | null) =>
+    ipcRenderer.invoke("cli:skillSetDisabled", { name, disabled, scope, sessionId }),
+  skillProjectEnabled: (enabled: boolean, sessionId?: string | null) =>
+    ipcRenderer.invoke("cli:skillProjectEnabled", { enabled, sessionId }),
+  /** ATO-954: Settings › Plugins (main/plugins-ipc.ts). */
+  pluginList: () => ipcRenderer.invoke("cli:pluginList"),
+  pluginSet: (name: string, op: "enable" | "disable" | "allow-code" | "deny-code", part?: string) =>
+    ipcRenderer.invoke("cli:pluginSet", { name, op, part }),
+  pluginRemove: (name: string) => ipcRenderer.invoke("cli:pluginRemove", name),
+  skillBrowse: (query?: string) => ipcRenderer.invoke("cli:skillBrowse", query ?? ""),
+  /** Д45: the hub's last answer for the query, kept by main; `{ok:false}` when there is none. */
+  skillBrowseCached: (query?: string) => ipcRenderer.invoke("cli:skillBrowseCached", query ?? ""),
+  // PR #916: confirmCaution approves a caution verdict only (`--yes`); acknowledgeRisk is the dangerous override.
+  skillInstall: (identifier: string, acknowledgeRisk?: boolean, confirmCaution?: boolean) =>
+    ipcRenderer.invoke("cli:skillInstall", { identifier, acknowledgeRisk: !!acknowledgeRisk, confirmCaution: !!confirmCaution }),
+  clawhubSkillDetail: (apiBase: string, slug: string, owner?: string | null) =>
+    ipcRenderer.invoke("app:clawhubSkillDetail", { apiBase, slug, owner: owner ?? null }),
+  memoryQuery: (stateDir: string, name: string, params?: unknown[]) =>
+    ipcRenderer.invoke("app:memoryQuery", { stateDir, name, params: params ?? [] }),
+
+  /** Item 7 part C: the LLM, Telegram and Import tabs. */
+  modelsEngine: (action: string) => ipcRenderer.invoke("cli:modelsEngine", action),
+  modelsStatus: () => ipcRenderer.invoke("cli:modelsStatus"),
+  modelsListEmbeddings: () => ipcRenderer.invoke("cli:modelsListEmbeddings"),
+  modelsStop: () => ipcRenderer.invoke("cli:modelsStop"),
+  // ATO-119: `stop` lets main stop a server that has the model loaded before it deletes.
+  modelsRemove: (id: string, opts?: { stop?: boolean }) => ipcRenderer.invoke("cli:modelsRemove", id, opts ?? {}),
+  // An embedding model's files (no `atag models` verb removes one).
+  modelsRemoveEmbedding: (id: string, opts?: { stop?: boolean }) => ipcRenderer.invoke("cli:modelsRemoveEmbedding", id, opts ?? {}),
+  // ATO-125: what the managed servers really run, asked on their ports.
+  modelsServed: () => ipcRenderer.invoke("cli:modelsServed"),
+  modelsPullEmbedding: (id: string) => ipcRenderer.invoke("cli:modelsPullEmbedding", id),
+  modelsUseEmbedding: (idOrDisable: string) => ipcRenderer.invoke("cli:modelsUseEmbedding", idOrDisable),
+  modelsUpdate: () => ipcRenderer.invoke("cli:modelsUpdate"),
+  /** ATO-135: the chats' queued messages, kept in main across a closed window (not across a quit). */
+  queuesKeep: (snapshot: Record<string, string[]>) => ipcRenderer.send("app:queuesKeep", snapshot),
+  queuesTake: (): unknown => ipcRenderer.sendSync("app:queuesTake"),
+  /** ATO-130: Settings' llama.cpp update waiting for its turn behind a model start, or running. */
+  onCoreUpdate: (cb: (payload: unknown) => void) => on("core:update", cb),
+  /** The local engine (Atomic Chat Core) failed to download or start: {stage, why, detail, at}, or null once it works again. */
+  onEngineFailure: (cb: (payload: unknown) => void) => on("engine:failure", cb),
+  /** The engine failure main keeps, for a window opened after it happened. */
+  engineFailure: () => ipcRenderer.invoke("engine:failure"),
+  /** ATO-374: the agent moved the local model to the CPU build because the GPU build could not load it: {at}, or null once a start runs without the switch. */
+  onEngineCpuFallback: (cb: (payload: unknown) => void) => on("engine:cpuFallback", cb),
+  /** The CPU switch main keeps, for a window opened after it happened. */
+  engineCpuFallback: () => ipcRenderer.invoke("engine:cpuFallback"),
+  /** The launch installing Atomic Core's backend before the model starts: {running}. Its progress comes as `cli:pull` frames (kind runtime). */
+  onEngineLaunchInstall: (cb: (payload: unknown) => void) => on("engine:launchInstall", cb),
+  engineLaunchInstall: () => ipcRenderer.invoke("engine:launchInstall"),
+  onUpdatePhase: (cb: (payload: unknown) => void) => on("cli:updatePhase", cb),
+  modelsDevices: () => ipcRenderer.invoke("cli:modelsDevices"),
+  modelsUseDevice: (id: string) => ipcRenderer.invoke("cli:modelsUseDevice", id),
+  configUnset: (key: string) => ipcRenderer.invoke("cli:configUnset", key),
+  importRun: (input: Record<string, unknown>) => ipcRenderer.invoke("cli:importRun", input),
+  importDefaults: () => ipcRenderer.invoke("app:importDefaults"),
+  // ATO-1156: `atag handoff` — fresh Claude Code / Codex sessions, and continue one in a new chat.
+  handoffList: (agent: string) => ipcRenderer.invoke("cli:handoffList", agent),
+  handoffStart: (agent: string, id: string) => ipcRenderer.invoke("cli:handoffStart", agent, id),
+  llamaLogTail: (dataDir: string | null) => ipcRenderer.invoke("app:llamaLogTail", dataDir),
+  llamaProbe: (url: string) => ipcRenderer.invoke("app:llamaProbe", url),
+  dotenvKeys: (stateDir: string) => ipcRenderer.invoke("app:dotenvKeys", stateDir),
+  envPresent: (names: string[]) => ipcRenderer.invoke("app:envPresent", names),
+  dotenvSet: (stateDir: string, key: string, value: string | null) =>
+    ipcRenderer.invoke("app:dotenvSet", { stateDir, key, value }),
+  /** Settings › Connections › Composio (main/composio-key.ts): the key goes in once and never comes back out. */
+  composioSaveKey: (stateDir: string, value: string) => ipcRenderer.invoke("composio:saveKey", { stateDir, value }),
+  composioRemoveKey: (stateDir: string) => ipcRenderer.invoke("composio:removeKey", stateDir),
+  composioCheck: (stateDir: string) => ipcRenderer.invoke("composio:check", stateDir),
+
+  platform: process.platform,
+  /** Windows: repaint the overlaid window controls for the page's theme. */
+  setChromeTheme: (dark: boolean) => ipcRenderer.invoke("app:chromeTheme", dark),
+  build: () => ipcRenderer.invoke("app:build"),
+  /** `kind` (dump | report) only labels the bundle for analytics. */
+  debugBundle: (kind?: "dump" | "report") =>
+    kind === undefined ? ipcRenderer.invoke("app:debugBundle") : ipcRenderer.invoke("app:debugBundle", kind),
+  unverified: () => ipcRenderer.invoke("app:unverified"),
+  unverifiedSet: (id: string, on: boolean) => ipcRenderer.invoke("app:unverifiedSet", { id, on }),
+
+  /** Item 2 (voice input): on-device dictation.
+   *  `voiceAudio` is the only `ipcRenderer.send` on this bridge and the only
+   *  binary payload — it fires ten times a second while recording and there
+   *  is nothing to answer. The chunk crosses as a Uint8Array (main checks
+   *  for exactly that; it is NOT a Buffer on the other side). */
+  /** False where there is no speech helper (Windows, Linux): the composer
+   *  then draws no microphone at all rather than a disabled one. */
+  voiceSupported: voiceSupportedNow(),
+  voiceProbe: () => ipcRenderer.invoke("voice:probe"),
+  voiceStart: (locales: string[]) => ipcRenderer.invoke("voice:start", locales),
+  voiceAudio: (chunk: Uint8Array) => ipcRenderer.send("voice:audio", chunk),
+  voiceStop: () => ipcRenderer.invoke("voice:stop"),
+  voiceCancel: () => ipcRenderer.invoke("voice:cancel"),
+  voiceInstall: (locale: string) => ipcRenderer.invoke("voice:install", locale),
+  voiceSetLocales: (locales: string[]) => ipcRenderer.invoke("voice:setLocales", locales),
+  onVoice: (cb: (payload: unknown) => void) => on("app:voice", cb),
+
+  /** Lane B — backend switch: whole-file config writes + agent restart, main-process side. */
+  switchBackend: (kind: "cloud" | "local") => ipcRenderer.invoke("cli:switchBackend", kind),
+  activateProvider: (id: string, opts?: { background?: boolean }) => ipcRenderer.invoke("cli:activateProvider", id, opts),
+  selectCloudModel: (id: string, model: string, opts?: { background?: boolean }) => ipcRenderer.invoke("cli:selectCloudModel", { id, model, background: opts?.background === true }),
+  selectLocalModel: (id: string) => ipcRenderer.invoke("cli:selectLocalModel", id),
+  /** Run mode — Fusion: RunModeOrchestrator's writes (enter / swap / workers / worker model), each a whole-file write + agent restart. */
+  enterFusion: (pins?: { orchestratorProvider?: string; workerProvider?: string }) =>
+    ipcRenderer.invoke("cli:enterFusion", pins ?? {}),
+  swapFusionLegs: () => ipcRenderer.invoke("cli:swapFusionLegs"),
+  /** How a daemon a swap started in the background, without waiting, came up (item 11). */
+  onDaemon: (cb: (payload: unknown) => void) => on("cli:daemon", cb),
+  /** ATO-123: the local model server brought back after it stopped — each notice (restarting, back, failed, gave up), and the state now. */
+  onDaemonWatch: (cb: (payload: unknown) => void) => on("app:daemonWatch", cb),
+  daemonWatch: () => ipcRenderer.invoke("app:daemonWatch"),
+  fusionWorkers: (workers: number) => ipcRenderer.invoke("cli:fusionWorkers", workers),
+  composerEngine: (engine: string, leg?: string) => ipcRenderer.invoke("cli:composerEngine", engine, leg),
+  fusionModel: (leg: string, model: string) => ipcRenderer.invoke("cli:fusionModel", leg, model),
+  fusionWorkerModel: (id: string) => ipcRenderer.invoke("cli:fusionWorkerModel", id),
+  useManagedMode: () => ipcRenderer.invoke("cli:useManagedMode"),
+  setExternalLlamaUrl: (url: string) => ipcRenderer.invoke("cli:setExternalLlamaUrl", url),
+  providersReady: () => ipcRenderer.invoke("cli:providersReady"),
+
+  /** Lane B — context before the first message (item 3): the projection's sources. */
+  traceBaseline: (stateDir: string, model: string | null, workingDir: string | null) =>
+    ipcRenderer.invoke("cli:traceBaseline", { stateDir, model, workingDir }),
+  modelWindow: (providerId: string, kind: string, model: string) =>
+    ipcRenderer.invoke("cli:modelWindow", { providerId, kind, model }),
+  llamaProps: (url: string, apiKey?: string) => ipcRenderer.invoke("agent:llamaProps", { url, apiKey }),
+  contextPreview: (sessionId: string | null, message: string) =>
+    ipcRenderer.invoke("agent:contextPreview", { sessionId, message }),
+  /** ATO-259: summarize the chat's older history now (POST /api/sessions/{id}/compact). */
+  compactSession: (sessionId: string) => ipcRenderer.invoke("agent:compactSession", { sessionId }),
+
+  /** Item 7A — add a model from Hugging Face (the port lives in main/huggingface.ts). */
+  hfResolve: (ref: string) => ipcRenderer.invoke("cli:hfResolve", ref),
+  hfCancel: () => ipcRenderer.invoke("cli:hfCancel"),
+  /** The Hugging Face mirror (main/hf-mirror.ts): where lookups and downloads go, and its save. */
+  hfMirror: () => ipcRenderer.invoke("cli:hfMirror"),
+  hfMirrorSet: (value: string) => ipcRenderer.invoke("cli:hfMirrorSet", value),
+  hfDef: (repo: unknown, index: number) => ipcRenderer.invoke("cli:hfDef", { repo, index }),
+  hfAdd: (repo: unknown, index: number) => ipcRenderer.invoke("cli:hfAdd", { repo, index }),
+  hfProjector: (id: string, mmprojUrl: string, mmprojFilename: string, name?: string) =>
+    ipcRenderer.invoke("cli:hfProjector", { id, mmprojUrl, mmprojFilename, name }),
+
+  /** r5 item 9 — the desktop's own state directory, and the TUI import offer.
+   *  `tuiSetupPresent` reports env var NAMES only; `importFromTui` copies only
+   *  the flags that are ticked and never touches the source. */
+  firstRun: () => ipcRenderer.invoke("app:firstRun"),
+  /** ATO-416: {title, text, log} once after the desktop's data moved into the shared directory, else null. */
+  stateMergeNotice: () => ipcRenderer.invoke("app:stateMergeNotice"),
+  /** Backlog 03 — `firstRun().fresh`, handed over with the window rather than
+   *  asked for, so the renderer can open the wizard before its first paint. */
+  freshAtBoot: process.argv.includes("--atomic-fresh-state"),
+  /** Backlog 03 — the boot frames above; empty unless main armed the probe. */
+  bootPaint: () => BOOT_PAINT,
+  tuiSetupPresent: () => ipcRenderer.invoke("app:tuiSetupPresent"),
+  importFromTui: (opts: Record<string, boolean>) => ipcRenderer.invoke("app:importFromTui", opts),
+  /** r5 item 7 — setup wizard: the streamed runtime phase, the custom-endpoint
+   *  whole-file write, and the first-run import scan. */
+  // `fresh`: the recovery card's Download again (main forgets the active Core's install record first).
+  modelsUpdateStream: (via?: "setup" | "settings", opts?: { fresh?: boolean }) => ipcRenderer.invoke("cli:modelsUpdateStream", via, opts),
+  setExternalLlamaUrls: (chatUrl: string, embeddingUrl?: string) =>
+    ipcRenderer.invoke("cli:setExternalLlamaUrls", { chatUrl, embeddingUrl: embeddingUrl ?? "" }),
+  detectImportAgents: () => ipcRenderer.invoke("app:detectImportAgents"),
+
+  /** Item 7C — mid-turn steering (POST/GET/DELETE /api/sessions/{id}/steer). */
+  steer: (sessionId: string, text: string) => ipcRenderer.invoke("agent:steer", { sessionId, text }),
+  undeliveredSteers: (sessionId: string) => ipcRenderer.invoke("agent:undeliveredSteers", sessionId),
+  ackSteers: (sessionId: string, through: number, discarded: number) =>
+    ipcRenderer.invoke("agent:ackSteers", { sessionId, through, discarded }),
+  /** ATO-568 — one Fusion worker's Stop / Steer, and what the agent supports (404 on an older agent). */
+  fusionWorkersList: (sessionId: string) => ipcRenderer.invoke("agent:fusionWorkers", sessionId),
+  fusionWorkerStop: (sessionId: string, taskId: string) =>
+    ipcRenderer.invoke("agent:fusionWorkerStop", { sessionId, taskId }),
+  fusionWorkerSteer: (sessionId: string, taskId: string, text: string) =>
+    ipcRenderer.invoke("agent:fusionWorkerSteer", { sessionId, taskId, text }),
+
+  /** ATO-229 — app updates (main/updater.ts). Nothing downloads or installs
+   *  except through updateDownload / updateInstall, each a click. Every call
+   *  answers the updater's state; `onUpdateState` gets every change. */
+  updateState: () => ipcRenderer.invoke("updates:get"),
+  updateCheck: () => ipcRenderer.invoke("updates:check"),
+  updateDownload: () => ipcRenderer.invoke("updates:download"),
+  updateCancel: () => ipcRenderer.invoke("updates:cancel"),
+  updateInstall: () => ipcRenderer.invoke("updates:install"),
+  updateLater: () => ipcRenderer.invoke("updates:later"),
+  updateDismiss: () => ipcRenderer.invoke("updates:dismiss"),
+  updateSkip: () => ipcRenderer.invoke("updates:skip"),
+  updateSetAuto: (on: boolean) => ipcRenderer.invoke("updates:setAuto", on === true),
+  // ATO-575: read beta builds too.
+  updateSetBeta: (on: boolean) => ipcRenderer.invoke("updates:setBeta", on === true),
+  onUpdateState: (cb: (payload: unknown) => void) => on("updates:state", cb),
+
+  /** Analytics (desktop/ANALYTICS.md): fire and forget. Main re-validates
+   *  every event against its allowlist and drops anything it does not know;
+   *  nothing is sent while analytics is off. */
+  track: (event: string, props?: Record<string, unknown>) => {
+    if (typeof event !== "string") return;
+    try {
+      ipcRenderer.send("analytics:track", { event, props: props && typeof props === "object" ? props : {} });
+    } catch {
+      /* a value that cannot cross the bridge is dropped, never thrown at the caller */
+    }
+  },
+  /** A renderer error for the crash report. Main scrubs it (no message, basenames only). */
+  reportError: (payload: { kind: "error" | "unhandledrejection"; name: string; message: string; stack: string }) => {
+    if (!payload || typeof payload !== "object") return;
+    try {
+      ipcRenderer.send("errors:report", {
+        kind: payload.kind,
+        name: String(payload.name ?? ""),
+        message: String(payload.message ?? ""),
+        stack: typeof payload.stack === "string" ? payload.stack.slice(0, 20_000) : "",
+      });
+    } catch {
+      /* never thrown at the caller */
+    }
+  },
+});

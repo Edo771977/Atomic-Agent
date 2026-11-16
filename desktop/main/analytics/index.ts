@@ -1,0 +1,80 @@
+/**
+ * Desktop analytics (desktop/ANALYTICS.md).
+ * main.ts reaches everything through this barrel as `A.*`, one line per hook.
+ */
+
+export {
+  analyticsConfigWrite,
+  analyticsEnabled,
+  currentRunMode,
+  flushAnalytics,
+  globalProps,
+  initAnalytics,
+  installId,
+  isTestRun,
+  onAnalyticsEnabledChange,
+  refreshRunMode,
+  sendingAllowed,
+  track,
+  trackFromRenderer,
+} from "./core.js";
+export { agentAnalyticsEnv, desktopVersion, installChannelFor } from "./environment.js";
+export { restartTriggerFromWindow, type RestartTrigger } from "./catalog-values.js";
+export {
+  agentRestarting,
+  agentStartFailed,
+  agentStatus,
+  appClosing,
+  appOpened,
+  beginSession,
+  launchBackendSettled,
+  noteOrphanReaped,
+  noteSessionTrouble,
+  turnEnded,
+  windowCrashed,
+  windowShown,
+} from "./lifecycle.js";
+export { ChatTurnTracker, type TurnSummary } from "./chat-turns.js";
+export {
+  configureDownloads,
+  downloadCancelRequested,
+  downloadFinished,
+  downloadProgress,
+  downloadRefusedBusy,
+  downloadStarted,
+  hfLookupDone,
+  runtimeUpdated,
+} from "./downloads.js";
+export {
+  configureSetup,
+  localBackendCrashed,
+  localBackendStarted,
+  localBackendSupervised,
+  engineRecoveryShown,
+  maybeModelConfigured,
+  providerKeyChecked,
+  readServerFaultWith,
+  shouldReportSwitch,
+  switchBegin,
+  switchEnd,
+} from "./setup.js";
+export {
+  agentImportDone,
+  composioConfigWrite,
+  composioStep,
+  debugReportSaved,
+  overnightStarted,
+  skillAction,
+  skillInstalled,
+  taskAction,
+  taskCreated,
+  telegramConfigWrite,
+  telegramStep,
+  tuiImportDone,
+  voiceEnded,
+  voiceFrame,
+  voiceInstalled,
+  voiceProbed,
+  voiceStarted,
+  workspaceChosen,
+} from "./features.js";
