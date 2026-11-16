@@ -281,6 +281,7 @@ export async function executeBatch(
           : {}),
         ...(ctx.incognito === true ? { incognito: true } : {}),
         ...(ctx.providerId !== undefined ? { providerId: ctx.providerId } : {}),
+        ...(ctx.project !== undefined ? { project: ctx.project } : {}),
         ...(ctx.tracker ? { fileVersions: ctx.tracker.fileVersions } : {}),
       }));
     } catch (err) {

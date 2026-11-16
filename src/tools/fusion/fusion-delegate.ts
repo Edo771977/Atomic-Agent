@@ -30,7 +30,9 @@ import {
 } from "../../config/llm-run-mode-config.js";
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
-import type { ToolDefinition } from "../tool-registry.js";
+import type { ToolContext, ToolDefinition } from "../tool-registry.js";
+import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
+import type { ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -430,6 +432,19 @@ export function buildFusionDelegateTool(
       "Delegate independent parts of the work to worker agents that run concurrently. You choose how many run at once with `maxWorkers`. A task that needs more room than the default can say so with `maxSteps` / `timeoutMs`; both are clamped to a multiple of the configured default and the result tells you when that happened. An optional `contract` (owners, provides, requires, checks; candidate-only immutable checkInputs) is prepended to every brief and checked after the fan-out. Give each `provides` entry a one-line `shape` (a signature, a return shape, what a field means): it is pasted into the brief of every worker that relies on it, and matching names is not matching meaning. A task may name a subagent `profile` (built-in: explore, review, research, read-only unless a user's or project's profile of the same name overrides them; or one the user defined): the worker gets that profile's instructions and tool list. Args: { tasks: [{ id, instructions, title?, deliverable?, files?, etaSeconds?, maxSteps?, timeoutMs?, role?, model?, profile? }] (1..16), maxWorkers?, contract? }. To continue a run cut off by a restart: { resume: runId, confirm?: [taskId] } and nothing else.",
     readonly: false,
     async run(rawArgs, ctx): Promise<CompressedToolResult> {
+      // The project's run of an approved milestone (issue #39), set once
+      // the fan-out is admitted and approved, recorded on the result.
+      const admitted: { milestoneId: string | null } = { milestoneId: null };
+      const result = await runFanout(rawArgs, ctx, admitted);
+      return withMilestoneRun(result, admitted.milestoneId);
+    },
+  };
+
+  async function runFanout(
+    rawArgs: Record<string, unknown>,
+    ctx: ToolContext,
+    admitted: { milestoneId: string | null },
+  ): Promise<CompressedToolResult> {
       if (isFusionWorkerSessionId(ctx.sessionId)) {
         return error(
           "fusion.delegate is not available to a worker: do the task you were given and report back in your reply.",
@@ -491,6 +506,11 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       const parsed = parseDelegateArgs(delegateArgs);
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      // The fusion project's gate (issue #39), before anything starts.
+      const projectVerdict = checkProjectDispatch(ctx.project, parsed.tasks.map((t) => t.id));
+      if (projectVerdict.kind === "refuse") {
+        return error(`fusion.delegate did not run: ${projectVerdict.message}`, { reason: "project-gate", gate: projectVerdict.reason });
+      }
       if ((parsed.contract?.checkInputs?.length ?? 0) > 0 && mode.integration !== "candidate") {
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }
@@ -968,14 +988,31 @@ export function buildFusionDelegateTool(
         deps.approvals.hasDeclinedUnder?.(ctx.sessionId, writeScope) ?? false;
       // Nor after outside content (`agent.taintReview`): the standing yes
       // was given before the text that may now be steering the fan-out.
+      // An approved project plan (issue #39) is the person's yes to these
+      // exact tasks on these workers in this folder; anything else asks.
+      const planApproved =
+        projectVerdict.kind === "admit" &&
+        projectVerdict.unplanned.length === 0 &&
+        ctx.project?.plan !== undefined &&
+        planCoversFanout(
+          ctx.project.plan.rows,
+          parsed.tasks.map((t) => t.id),
+          (id) => {
+            const leg = taskLegs.get(id);
+            return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
+          },
+          writeScope,
+          [ctx.workingDir],
+        );
       const alreadyApproved =
         !declinedInScope &&
         !(deps.approvals.holdsForOutsideContent?.(ctx.sessionId, "fusion_fanout") ?? false) &&
-        (deps.approvals.fanoutScopes?.turnGrantCovers(
-          ctx.sessionId,
-          writeScope,
-        ) ??
-          false);
+        (planApproved ||
+          (deps.approvals.fanoutScopes?.turnGrantCovers(
+            ctx.sessionId,
+            writeScope,
+          ) ??
+            false));
       try {
         if (!alreadyApproved) {
           // A yes from a person who was shown this fan-out is their newer
@@ -1013,6 +1050,7 @@ export function buildFusionDelegateTool(
           }
         }
         deps.approvals.fanoutScopes?.grantForTurn(ctx.sessionId, writeScope);
+        if (projectVerdict.kind === "admit") admitted.milestoneId = projectVerdict.milestoneId;
 
       } catch (err) {
         // The user's own no already says what happened and what to do,
@@ -2990,8 +3028,27 @@ export function buildFusionDelegateTool(
       } finally {
         await candidate?.cleanup();
       }
-    },
-  };
+  }
+}
+
+/**
+ * The project update a fan-out of an approved milestone hands back
+ * (issue #39): `milestone_run` with the run's checkpoint id (or a fresh
+ * id when nothing was checkpointed), which the step commit folds to mark
+ * the milestone in progress and remember the run. An errored fan-out
+ * records nothing.
+ */
+function withMilestoneRun(result: CompressedToolResult, milestoneId: string | null): CompressedToolResult {
+  if (milestoneId === null || result.status !== "ok") return result;
+  const runId = typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`;
+  const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
+  const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
+  // Keep the non-enumerable full output the result may carry.
+  for (const key of ["fullOutput", "fullOutputTruncated"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(result, key);
+    if (descriptor !== undefined) Object.defineProperty(next, key, descriptor);
+  }
+  return next;
 }
 
 /** Rebase parsed JSON strings without changing path escaping or task identities. */

@@ -281,6 +281,8 @@ async function executeStepInner(
     // A pinned step (fusion worker) runs its model-calling tools on the
     // same provider as its completions — `vision.describe` reads this.
     ...(deps.providerId !== undefined ? { providerId: deps.providerId } : {}),
+    // The fusion project's gate is enforced at dispatch (issue #39).
+    ...(ctx.session.project !== undefined ? { project: ctx.session.project } : {}),
     ...(deps.tracker ? { tracker: deps.tracker } : {}),
     ...(ctx.terminalOnly ? { terminalOnly: true } : {}),
     ...(ctx.toolSet !== undefined ? { toolSet: ctx.toolSet } : {}),

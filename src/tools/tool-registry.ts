@@ -77,6 +77,12 @@ export interface ToolContext {
    * since (`fs-read-freshness.ts`, ATO-659). Absent ⇒ no notice.
    */
   fileVersions?: FileReadVersions;
+  /**
+   * The session's fusion project as this step started (issue #39,
+   * `SessionState.project`): `fusion.delegate` enforces its gate at
+   * dispatch. Absent: the session has none.
+   */
+  project?: import("../session/session-project.js").ProjectState;
 }
 
 export interface ToolDefinition {
