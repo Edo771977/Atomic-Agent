@@ -74,6 +74,7 @@ export type FailureCategory =
   | "checks"
   | "judge-red"
   | "review-exhausted"
+  | "stuck"
   | "not-started"
   | "error";
 
@@ -90,6 +91,19 @@ export interface ReviewOutcome {
   blockers: number;
   majors: number;
   minors: number;
+}
+
+/**
+ * The periodic watch on a task (issue #43) as counts: checks made, judge
+ * calls, hints delivered, whether it stopped the task, and the judge's
+ * `outcomeLabel` (null: none named). Never a hint's text.
+ */
+export interface WatchOutcome {
+  checks: number;
+  judgeCalls: number;
+  hints: number;
+  stopped: boolean;
+  judge: string | null;
 }
 
 export interface TaskOutcomeRecord {
@@ -133,6 +147,8 @@ export interface TaskOutcomeRecord {
   judgeRetried: boolean;
   /** Absent when no per-task review ran, and on older records (`readReviewOutcome`). */
   review?: ReviewOutcome;
+  /** Absent when no watch ran, and on older records (`readWatchOutcome`). */
+  watch?: WatchOutcome;
   selfCheckNotice: boolean;
   escalations: number;
   judge: JudgeOutcome;
@@ -239,6 +255,7 @@ export function failureCategory(
   if (row.status !== "failed") return row.status;
   if ((row.error ?? "").startsWith("not started:")) return "not-started";
   if (row.failure === "review-exhausted") return "review-exhausted";
+  if (row.failure === "stuck") return "stuck";
   const cls = classifyWorkerFailure(row);
   if (cls?.blocker === true) {
     return cls.signature.slice("blocker:".length) as FailureCategory;
@@ -313,6 +330,36 @@ export function readReviewOutcome(row: TaskOutcomeRecord): ReviewOutcome | undef
   };
 }
 
+const wholeCount = (value: unknown): number => (Number.isFinite(value) ? Math.max(0, Math.floor(value as number)) : 0);
+
+/** A row's watch as the record's counts; the judge label made safe to write. */
+export function watchOutcome(watch: {
+  checks: number;
+  judgeCalls: number;
+  hints: number;
+  stopped: boolean;
+  judge: string | null;
+}): WatchOutcome {
+  return {
+    checks: wholeCount(watch.checks),
+    judgeCalls: wholeCount(watch.judgeCalls),
+    hints: wholeCount(watch.hints),
+    stopped: watch.stopped === true,
+    judge: watch.judge === null ? null : outcomeLabel(watch.judge),
+  };
+}
+
+/** A record's watch, or undefined when it has none (no watch, an older record) or one this reader cannot trust. */
+export function readWatchOutcome(row: TaskOutcomeRecord): WatchOutcome | undefined {
+  const watch: unknown = (row as { watch?: unknown }).watch;
+  if (typeof watch !== "object" || watch === null) return undefined;
+  const w = watch as Record<string, unknown>;
+  const whole = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+  if (!whole(w.checks) || !whole(w.judgeCalls) || !whole(w.hints) || typeof w.stopped !== "boolean" ||
+    !(w.judge === null || typeof w.judge === "string")) return undefined;
+  return { checks: w.checks, judgeCalls: w.judgeCalls, hints: w.hints, stopped: w.stopped, judge: w.judge };
+}
+
 /** USD kept to a millionth of a dollar: sums of floats stay readable in the file. */
 export function roundUsd(usd: number): number;
 export function roundUsd(usd: number | null): number | null;
@@ -375,6 +422,7 @@ export function taskOutcomeRecord(
     attempt: Math.max(1, context.attempt),
     judgeRetried: retried,
     ...(context.review === undefined ? {} : { review: context.review }),
+    ...(row.watch === undefined ? {} : { watch: watchOutcome(row.watch) }),
     selfCheckNotice: row.selfCheckNotice === true,
     escalations: row.escalations ?? 0,
     judge: judgeOutcome(row),

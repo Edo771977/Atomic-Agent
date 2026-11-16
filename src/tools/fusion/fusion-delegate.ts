@@ -1,5 +1,14 @@
 import type { ApprovalGate } from "../../approval/approval-gate.js";
-import { reviewEnabled, reviewPassesOf, type TeamMember } from "../../llm/run-mode/fusion-team.js";
+import {
+  reviewEnabled,
+  reviewPassesOf,
+  watchEveryMinutesOf,
+  watchMaxChecksOf,
+  type TeamMember,
+} from "../../llm/run-mode/fusion-team.js";
+import { WATCH_JUDGE_MAX_OUTPUT_TOKENS, watchFirstTickJitterMs, type WatchClock } from "./worker-watch.js";
+import { worstCaseCostUsd } from "./escalation.js";
+import type { WorkerWatchPlan } from "./worker-runner.js";
 import {
   ApprovalDeniedError,
   requireApproval,
@@ -303,6 +312,10 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * a function returning undefined: no team, routing as before.
    */
   resolveFusionTeam?: () => FusionTeamContext | undefined;
+  /** The watch's timer (issue #43); tests tick it by hand. Absent, the global one. */
+  watchClock?: WatchClock;
+  /** The watch's first-tick jitter source (issue #43); tests pin it. Absent, `Math.random`. */
+  watchRandom?: () => number;
 }
 
 /**
@@ -1529,6 +1542,115 @@ export function buildFusionDelegateTool(
         }
         return verdict;
       };
+      // The watch on running workers (issue #43), team runs only: every
+      // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.
+      // The judge is the task's reviewer (the same pick, policy and model
+      // pin as its review; none with `team.review: "off"`), else the
+      // director on its own model. Each call
+      // checks the turn's budget first and needs a priced judge under a
+      // $ cap; its spend counts as the judge's.
+      const watchMinutesOf = new Map(parsed.tasks.map((t) => [t.id, t.watchMinutes] as const));
+      // Judge calls each task's watch sent, across its runs (the first and
+      // every review pass): `team.watchMaxChecks` is the task's, not a run's.
+      const watchJudgeCallsUsed = new Map<string, number>();
+      // The worst case of every watch judge call in flight, held against
+      // the $ cap until its real spend lands: parallel watches cannot
+      // together pass a cap each alone would respect.
+      let watchReservedUsd = 0;
+      const watchFor =
+        teamContext === undefined || sideComplete === undefined
+          ? undefined
+          : (taskId: string): WorkerWatchPlan | undefined => {
+              const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
+              if (minutes <= 0) return undefined;
+              // `team.review: "off"` turns the reviewers off for the watch
+              // too, as `judgeTargetFor` does for the review.
+              const reviewer =
+                team?.hasReviewers === true && teamReview?.on !== false ? team.reviewerFor(taskMember(taskId)) : null;
+              const lead: TeamMember | null =
+                reviewer ??
+                director ??
+                (mode.orchestratorProviderId === null
+                  ? null
+                  : {
+                      providerId: mode.orchestratorProviderId,
+                      model: mode.orchestratorModel ?? mode.orchestratorProviderId,
+                      ref: `${mode.orchestratorProviderId}:${mode.orchestratorModel ?? mode.orchestratorProviderId}`,
+                    });
+              if (lead === null) return undefined;
+              const target: JudgeTarget = {
+                providerId: lead.providerId,
+                model: lead.model,
+                ...(team?.pinsModel(lead.providerId) === true ? { pinModel: lead.model } : {}),
+              };
+              const label = target.model ?? target.providerId;
+              const cap = watchMaxChecksOf(teamContext.team);
+              return {
+                intervalMs: minutes * 60_000,
+                firstTickJitterMs: watchFirstTickJitterMs(minutes * 60_000, deps.watchRandom),
+                maxJudgeCalls: Math.max(0, cap - (watchJudgeCallsUsed.get(taskId) ?? 0)),
+                judgeCallCap: cap,
+                judgeLabel: label,
+                ...(deps.watchClock === undefined ? {} : { clock: deps.watchClock }),
+                judge: async ({ prompt, signal }) => {
+                  const stop = budgetStop();
+                  if (stop !== undefined) return { kind: "skipped", reason: stop.message };
+                  if (runSignal.aborted) return { kind: "skipped", reason: "the turn was cancelled" };
+                  const pricing = judgePricingFor(target);
+                  const verified =
+                    pricing !== undefined &&
+                    (deps.resolveWorkerAdmissionPricing === undefined ||
+                      deps.resolveWorkerAdmissionPricing(target.providerId, label) !== undefined);
+                  if (limits.usd !== undefined && !verified) {
+                    return { kind: "skipped", reason: `the turn's $ cap needs a priced judge and ${label} has no verified price` };
+                  }
+                  const worstUsd =
+                    limits.usd === undefined || pricing === undefined
+                      ? 0
+                      : worstCaseCostUsd(prompt.length, WATCH_JUDGE_MAX_OUTPUT_TOKENS, pricing);
+                  if (
+                    limits.usd !== undefined &&
+                    turnBudget.check(
+                      ctx.sessionId,
+                      { usd: limits.usd - watchReservedUsd - worstUsd },
+                      deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0,
+                    ) !== undefined
+                  ) {
+                    return {
+                      kind: "skipped",
+                      reason: `the call's worst case (${formatUsd(worstUsd)}) would pass the turn's $ cap with the spend so far`,
+                    };
+                  }
+                  watchReservedUsd += worstUsd;
+                  judgesUsed.add(label);
+                  watchJudgeCallsUsed.set(taskId, (watchJudgeCallsUsed.get(taskId) ?? 0) + 1);
+                  try {
+                    const answer = await runWithProviderRole("the fusion watch", () =>
+                      sideComplete({
+                        providerId: target.providerId,
+                        ...(target.pinModel === undefined ? {} : { model: target.pinModel }),
+                        prompt,
+                        maxOutputTokens: WATCH_JUDGE_MAX_OUTPUT_TOKENS,
+                        signal: AbortSignal.any([signal, runSignal]),
+                      }),
+                    );
+                    const costUsd = answer.usage === undefined ? undefined : completionCostUsd(answer.usage, pricing);
+                    if (costUsd !== undefined && costUsd > 0) {
+                      judgeSpendUsd += costUsd;
+                      run?.addSpend(costUsd);
+                      turnBudget.addWorkerSpend(ctx.sessionId, costUsd, deps.requestBudgetAccounting === true);
+                      const after = budgetStop();
+                      if (after !== undefined) stopForBudget(after);
+                    }
+                    return { kind: "answer", content: answer.content };
+                  } catch (err) {
+                    return { kind: "failed", reason: err instanceof Error ? err.message : String(err) };
+                  } finally {
+                    watchReservedUsd -= worstUsd;
+                  }
+                },
+              };
+            };
       // Merge only green tasks: under isolation a task's own checks and
       // the judge rule inside its workspace before its merge, and a red
       // one is kept as a patch (`merge-gate.ts`). A judged-red task's
@@ -1679,6 +1801,7 @@ export function buildFusionDelegateTool(
             signal: runSignal,
             ...guardOptionsFor(workerProviderId, workerPricing),
             ...escalationOptions,
+            ...(watchFor === undefined ? {} : { watch: watchFor }),
             ...(briefSuffix === undefined ? {} : { briefSuffix }),
             ...(workerPricing === undefined ? {} : { workerPricing }),
             ...(taskWorkspace === undefined ? {} : { taskWorkspace }),
@@ -1743,6 +1866,7 @@ export function buildFusionDelegateTool(
             writeScope,
             signal: runSignal,
             ...guardOptionsFor(leg.providerId, pricing),
+            ...(watchFor === undefined ? {} : { watch: watchFor }),
             // An orchestrator task already runs on the strongest model
             // the session holds: whichever escalation provider is
             // configured, it can only be the same or a weaker one.
@@ -2514,14 +2638,14 @@ export function buildFusionDelegateTool(
         const awaitingYes = new Set(
           resume?.needsConfirmation.map((r) => r.id) ?? [],
         );
-        // A task whose review passes ran out goes to the director with
-        // replanning off too (issue #38): then only that bucket, with no
-        // re-delegation left to offer.
+        // A task whose review passes ran out, or the watch stopped as
+        // stuck, goes to the director with replanning off too (issues
+        // #38, #43): then only those buckets, with no re-delegation left.
         const fullReplan =
           stoppedBy === undefined &&
           trips.length === 0 &&
           !ctx.signal.aborted &&
-          (autoReplan > 0 || results.some((r) => r.failure === "review-exhausted"))
+          (autoReplan > 0 || results.some((r) => r.failure === "review-exhausted" || r.failure === "stuck"))
             ? describeReplan(
                 results.filter((r) => !awaitingYes.has(r.id)),
                 (id) => turnBudget.attempts(ctx.sessionId, id),
@@ -2537,7 +2661,7 @@ export function buildFusionDelegateTool(
         const replan =
           fullReplan === undefined || autoReplan > 0
             ? fullReplan
-            : { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: fullReplan.reviewExhausted, max: 0 };
+            : { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: fullReplan.reviewExhausted, stuck: fullReplan.stuck, max: 0 };
       // How this round's families ended, judged rows included: a family
       // that closed green is no longer one a dotted id can continue.
       if (ranNow.size > 0) {
@@ -2783,13 +2907,23 @@ export function buildFusionDelegateTool(
                     ),
                   }
                 : {}),
+              // Every watched task's counts (issue #43); the row's `watch:`
+              // clause shows only hints and a stop.
+              ...(results.some((r) => r.watch !== undefined)
+                ? {
+                    watch: Object.fromEntries(
+                      results.flatMap((r) => (r.watch === undefined ? [] : [[r.id, r.watch]])),
+                    ),
+                  }
+                : {}),
               ...(profileReports.length === 0 ? {} : { profiles: profileReports }),
               ...(merges.length === 0 ? {} : { merges }),
               ...(replan === undefined ||
             (replan.pending.length === 0 &&
               replan.exhausted.length === 0 &&
               replan.failedOnOrchestrator.length === 0 &&
-              replan.reviewExhausted.length === 0)
+              replan.reviewExhausted.length === 0 &&
+              replan.stuck.length === 0)
                 ? {}
                 : { replan }),
               ...(treeReport === undefined ? {} : { taskTree: treeReport }),

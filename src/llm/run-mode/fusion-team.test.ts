@@ -13,6 +13,8 @@ import {
   pickReviewer,
   reviewEnabled,
   reviewPassesOf,
+  watchEveryMinutesOf,
+  watchMaxChecksOf,
   teamFactsFromSetup,
   teamFamilyOf,
   teamStrengthOf,
@@ -289,5 +291,20 @@ describe("pickReviewer with strength (issue #38)", () => {
     expect(of(m("claude-cli:not-a-tier"))).toBeNull();
     expect(of(m("local-llama:anything"))).toBeNull();
     expect(of(m("missing:anything"))).toBeNull();
+  });
+});
+
+describe("watchEveryMinutesOf and watchMaxChecksOf (issue #43)", () => {
+  const base: UserFusionTeamConfig = { directors: ["anthropic:model-a"] };
+  it("watch every 5 minutes, at most 3 judge calls, by default", () => {
+    expect(watchEveryMinutesOf(base)).toBe(5);
+    expect(watchMaxChecksOf(base)).toBe(3);
+  });
+  it("keeps an explicit 0 (watch off) and an explicit cap", () => {
+    expect(watchEveryMinutesOf({ ...base, watchEveryMinutes: 0 })).toBe(0);
+    expect(watchMaxChecksOf({ ...base, watchMaxChecks: 7 })).toBe(7);
+  });
+  it("no team: no watch", () => {
+    expect(watchEveryMinutesOf(undefined)).toBe(0);
   });
 });

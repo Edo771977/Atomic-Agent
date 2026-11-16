@@ -174,3 +174,11 @@ it("teaches protected checkInputs through schema, parser and worker contract", (
   expect(parseDelegateArgs(wire)).toMatchObject({ ok: true, contract: { checkInputs: ["checks/{literal}/verify.mjs"] } });
   expect(getToolDescriptorByName("fusion.delegate")?.argsSchema).toContain("checkInputs?");
 });
+
+it("teaches a task's watchMinutes through descriptor, schema and parser (issue #43)", () => {
+  expect(taskProps.watchMinutes).toMatchObject({ type: "integer", minimum: 0 });
+  expect(descriptor.argsSchema).toContain("watchMinutes?");
+  const wire = { tasks: [{ id: "a", instructions: "work", watchMinutes: 10 }] };
+  expect(violations(wire, schema)).toEqual([]);
+  expect(parseDelegateArgs(wire)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 10 }] });
+});

@@ -20,6 +20,8 @@ import {
   outcomeLogFiles,
   outcomeLogPath,
   readReviewOutcome,
+  readWatchOutcome,
+  watchOutcome,
   reviewOutcome,
   rowCostUsd,
   sessionTag,
@@ -236,6 +238,26 @@ describe("fusion outcome records", () => {
     const first = taskOutcomeRecord(row({ checks: { total: 1, failed: 0 } }),
       { ...CONTEXT, review: reviewOutcome({ decision: "accept", reviewer: "r", issues: [] }, 0) }, "s", new Date());
     expect(first).toMatchObject({ judgeRetried: false, acceptance: "checks-passed", review: { decision: "accept", passes: 0 } });
+  });
+
+  it("records the watch as counts with a safe judge label, and stuck as its own failure (issue #43)", () => {
+    const watch = { checks: 4, judgeCalls: 2, hints: 1, stopped: true, judge: "/home/u/models/judge-model.gguf" };
+    expect(watchOutcome(watch)).toEqual({ checks: 4, judgeCalls: 2, hints: 1, stopped: true, judge: "judge-model" });
+    const record = taskOutcomeRecord(row({ status: "failed", failure: "stuck", error: "stuck: SECRET", watch }), CONTEXT, "s", new Date());
+    expect(record.watch).toEqual({ checks: 4, judgeCalls: 2, hints: 1, stopped: true, judge: "judge-model" });
+    expect(record.failure).toBe("stuck");
+    expect(JSON.stringify(record)).not.toContain("SECRET");
+    expect("watch" in taskOutcomeRecord(row(), CONTEXT, "s", new Date())).toBe(false);
+  });
+
+  it("reads old and malformed watch fields as no watch", () => {
+    const base = taskOutcomeRecord(row(), CONTEXT, "s", new Date());
+    expect(readWatchOutcome(base)).toBeUndefined();
+    const good = { checks: 3, judgeCalls: 1, hints: 0, stopped: false, judge: null };
+    expect(readWatchOutcome({ ...base, watch: good } as TaskOutcomeRecord)).toEqual(good);
+    for (const bad of [null, 3, {}, { ...good, checks: -1 }, { ...good, hints: 1.5 }, { ...good, stopped: "no" }, { ...good, judge: 4 }]) {
+      expect(readWatchOutcome({ ...base, watch: bad } as unknown as TaskOutcomeRecord)).toBeUndefined();
+    }
   });
 
   it("writes no review field while review is off", () => {

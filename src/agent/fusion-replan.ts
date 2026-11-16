@@ -14,7 +14,8 @@ import { isRefusedResult } from "./review-stall.js";
  * for the person to type "continue". Pending tasks that are all
  * `needs_input` (a worker's question) do not hold the step: the planner
  * may answer and re-delegate, or ask the person. Nor do tasks held only
- * on review-exhausted tasks (`awaitsReview`, issue #38): the director
+ * on tasks handed to the director (`awaitsReview`): review-exhausted
+ * (issue #38) or stopped as stuck by the watch (issue #43); the director
  * decides on those first.
  *
  * Bounded three ways: each task has `autoReplan` replans (counted by the
@@ -74,9 +75,9 @@ export function observeReplanStep(
       !(r.status === "error" && r.details.field === "tasks"),
   );
   if (delegated.length > 0) {
-    // A task held only on a review-exhausted task (issue #38) waits for
-    // the director's decision on it: fix, accept or re-delegate, so it
-    // does not hold the step to the delegate.
+    // A task held only on a review-exhausted or stuck task (issues #38,
+    // #43) waits for the director's decision on it: fix, accept or
+    // re-delegate, so it does not hold the step to the delegate.
     const pending = delegated
       .flatMap(pendingOf)
       .filter((t) => !Array.isArray(t.awaitsReview) || t.awaitsReview.length === 0);

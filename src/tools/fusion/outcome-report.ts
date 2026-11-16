@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   outcomeLogFiles,
   readReviewOutcome,
+  readWatchOutcome,
   type FailureCategory,
   type OutcomeLeg,
   type OutcomeRecord,
@@ -58,6 +59,8 @@ export interface ModelStats {
   candidate: CandidateTaskRunStats;
   /** Per-task review's last decision (issue #38); `notReviewed`: no review field, an older record or review off. */
   review: ReviewStats;
+  /** The watch on running tasks (issue #43); `watched`: records with a watch field. */
+  watch: WatchStats;
   topFailures: Array<{ category: FailureCategory; count: number }>;
   escalated: number;
   escalationRate: number;
@@ -71,6 +74,13 @@ export interface ModelStats {
   tokensOut: number;
   /** Null when no task of this model was priced. */
   costUsd: number | null;
+}
+
+export interface WatchStats {
+  watched: number;
+  judgeCalls: number;
+  hints: number;
+  stopped: number;
 }
 
 export interface ReviewStats {
@@ -215,6 +225,19 @@ function medianOf(values: number[]): number | null {
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
+function watchStats(rows: readonly TaskOutcomeRecord[]): WatchStats {
+  const watches = rows.flatMap((r) => {
+    const watch = readWatchOutcome(r);
+    return watch === undefined ? [] : [watch];
+  });
+  return {
+    watched: watches.length,
+    judgeCalls: watches.reduce((n, w) => n + w.judgeCalls, 0),
+    hints: watches.reduce((n, w) => n + w.hints, 0),
+    stopped: watches.filter((w) => w.stopped).length,
+  };
+}
+
 function reviewStats(rows: TaskOutcomeRecord[]): ReviewStats {
   const reviews = rows.flatMap((r) => {
     const review = readReviewOutcome(r);
@@ -308,6 +331,7 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
     selfChecked: rows.filter((r) => r.selfCheckPassed === true).length,
     candidate: candidateStats(rows),
     review: reviewStats(rows),
+    watch: watchStats(rows),
     topFailures: [...failures.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 3)
@@ -482,7 +506,7 @@ function table(header: string[], rows: string[][]): string[] {
 
 function modelRows(stats: ModelStats[]): string[] {
   return table(
-    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "reviewed accept/needs-changes/unverified", "review passes", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
+    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "reviewed accept/needs-changes/unverified", "review passes", "watch hints/stops", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
     stats.map((s) => [
       s.model === s.provider ? s.model : `${s.model} (${s.provider})`,
       s.leg,
@@ -493,6 +517,7 @@ function modelRows(stats: ModelStats[]): string[] {
       `${s.checksPassed}/${s.checksFailed}/${s.checksUnverified}/${s.checksNone}`,
       s.review.reviewed === 0 ? "-" : `${s.review.accept}/${s.review.needsChanges}/${s.review.unverified}`,
       s.review.medianPasses === null ? "-" : String(s.review.medianPasses),
+      s.watch.watched === 0 ? "-" : `${s.watch.hints}/${s.watch.stopped}`,
       String(s.selfChecked),
       pct(s.escalationRate),
       s.selfCheckFixRate === null ? "-" : `${s.selfCheckFixed}/${s.selfCheckNotices}`,

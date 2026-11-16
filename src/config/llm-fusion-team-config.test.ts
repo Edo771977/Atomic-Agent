@@ -91,6 +91,33 @@ describe("llm.runMode.fusion.team", () => {
     });
   });
 
+  it("reads watchEveryMinutes and watchMaxChecks (issue #43)", () => {
+    const team = { directors: ["anthropic:model-a"], watchEveryMinutes: 0, watchMaxChecks: 1 };
+    expect(parse(team).fusion!.team).toEqual(team);
+    expect(parse({ directors: ["anthropic:model-a"], watchEveryMinutes: 60, watchMaxChecks: 10 }).fusion!.team)
+      .toEqual({ directors: ["anthropic:model-a"], watchEveryMinutes: 60, watchMaxChecks: 10 });
+  });
+
+  it.each([
+    [{ directors: ["anthropic:model-a"], watchEveryMinutes: -1 }, /team\.watchEveryMinutes: expected an integer from 0 to 60/],
+    [{ directors: ["anthropic:model-a"], watchEveryMinutes: 61 }, /team\.watchEveryMinutes: expected an integer from 0 to 60/],
+    [{ directors: ["anthropic:model-a"], watchEveryMinutes: 2.5 }, /team\.watchEveryMinutes: expected an integer from 0 to 60/],
+    [{ directors: ["anthropic:model-a"], watchEveryMinutes: "5" }, /team\.watchEveryMinutes: expected an integer from 0 to 60/],
+    [{ directors: ["anthropic:model-a"], watchMaxChecks: 0 }, /team\.watchMaxChecks: expected an integer from 1 to 10/],
+    [{ directors: ["anthropic:model-a"], watchMaxChecks: 11 }, /team\.watchMaxChecks: expected an integer from 1 to 10/],
+  ])("rejects watch settings %j", (team, message) => {
+    expect(() => parse(team)).toThrow(message);
+  });
+
+  it("keeps the watch settings when a provider's members are dropped", () => {
+    const runMode = parse({ directors: ["anthropic:model-a"], workers: ["codex-cli:model-c"], watchEveryMinutes: 2, watchMaxChecks: 4 });
+    expect(scrubRunModeProviderPins(runMode, "codex-cli")!.fusion!.team).toEqual({
+      directors: ["anthropic:model-a"],
+      watchEveryMinutes: 2,
+      watchMaxChecks: 4,
+    });
+  });
+
   it("lets one member sit in several lists", () => {
     const team = { directors: ["anthropic:model-a"], reviewers: ["anthropic:model-a"] };
     expect(parse(team).fusion!.team).toEqual(team);

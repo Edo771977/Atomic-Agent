@@ -65,6 +65,17 @@ import {
   type LocalLegHealth,
 } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
+import {
+  WatchProbeTracker,
+  formatWatchSteer,
+  mergeWatchRecords,
+  renderWatchJudgePrompt,
+  startTaskWatch,
+  type TaskWatch,
+  type WatchClock,
+  type WatchJudgeCall,
+  type WatchProgress,
+} from "./worker-watch.js";
 import type { ContractCheckRunner } from "./contract-checks.js";
 import {
   knownSecretsFromEnv,
@@ -596,6 +607,25 @@ export interface WorkerRunnerDeps {
   knownSecrets?: () => readonly KnownSecret[];
 }
 
+/**
+ * The periodic watch on one running task (issue #43): how often, how
+ * many judge calls it may cost, who judges and how to ask them.
+ */
+export interface WorkerWatchPlan {
+  intervalMs: number;
+  /** Added to the first interval only, so parallel watches do not judge at once. */
+  firstTickJitterMs?: number;
+  /** Judge calls this run may still cost (the task's cap less its earlier runs'). */
+  maxJudgeCalls: number;
+  /** The task's whole cap (`team.watchMaxChecks`), for the note. */
+  judgeCallCap?: number;
+  /** The judge's label for the row and the hint's framing; null when none is named. */
+  judgeLabel: string | null;
+  judge: WatchJudgeCall;
+  /** Tests drive the timer by hand; absent, the global one. */
+  clock?: WatchClock;
+}
+
 /** Escalations one worker may get, automatic and manual together. */
 export const MAX_ESCALATIONS_PER_WORKER = 2;
 
@@ -738,6 +768,11 @@ export interface RunWorkerTasksOptions {
   onWorkerTool?: (taskId: string, tool: string) => void;
   /** Each task's row as soon as it is final, before the fan-out returns (ATO-617). */
   onTaskFinished?: (result: WorkerTaskResult) => void;
+  /**
+   * The watch on a running task (issue #43), fusion team runs only.
+   * Absent, or `undefined` for a task: no watch, no timer.
+   */
+  watch?: (taskId: string) => WorkerWatchPlan | undefined;
 }
 
 /**
@@ -1376,6 +1411,9 @@ async function runOneTask(
   // What each completed step produced (F46): the current step's results
   // accumulate here and are folded into `steps` when it finishes.
   const steps: WorkerStepOutcome[] = [];
+  // The watch's probe (issue #43): steps, tokens, the streamed tail, tool
+  // calls in flight and a request awaiting its first token.
+  const watchProbe = new WatchProbeTracker(SERVED_EVENTS);
   let currentFingerprints: string[] = [];
   let currentBusy = false;
   // Why the step half fired, when it did; carried onto the note so the
@@ -1395,6 +1433,8 @@ async function runOneTask(
   // Set while the worker fixes what its self-check found: those steps
   // were granted on top of the hand-back rule, not measured against it.
   let inSelfCheckGrace = false;
+  // Set while the self-check runs the task's checks (the watch pauses).
+  let selfChecking = false;
   // The worker's own `verify.run` passes, so the self-check does not
   // run a check a third time that the worker already saw pass.
   const checkRuns = new WorkerCheckRuns(READ_ONLY_TOOLS);
@@ -1472,12 +1512,18 @@ async function runOneTask(
   // `escalationReplace` — the re-run of the task on the stronger model.
   const stopByPerson = new AbortController();
   const replaceAbort = new AbortController();
+  // The watch judged the worker stuck (issue #43): the task stops and
+  // goes to the director as `failure: "stuck"`.
+  const stopByWatch = new AbortController();
   let escalations = 0;
   let escalating = false;
   let replaceRequested = false;
   // Escalations that reached the worker: an advisor hint or the re-run.
   // Counted for the outcome log (`outcome-log.ts`), never read back.
   let escalationsUsed = 0;
+  // The advisor steered the worker since the watch's last check: that
+  // check sends no hint of its own (issue #43).
+  let advisorSteeredSinceCheck = false;
   const escalationNotes: string[] = [];
   const target = options.escalation?.target;
   const targetLabel = target?.model ?? target?.providerId ?? "";
@@ -1540,6 +1586,7 @@ async function runOneTask(
     const steered =
       deps.steerWorker?.(session.id, formatAdvisorSteer(targetLabel, outcome.hint)) ??
       false;
+    if (steered) advisorSteeredSinceCheck = true;
     const line = `escalated to ${targetLabel} as advisor (${describeTrigger(trigger)}): ${formatCost(outcome.costUsd)}${steered ? "" : " — the worker's turn had ended, so the hint was not used"}`;
     escalationsUsed += 1;
     escalationNotes.push(line);
@@ -1655,6 +1702,7 @@ async function runOneTask(
       options.signal.aborted ||
       timeLimit.aborted ||
       stopByPerson.signal.aborted ||
+      stopByWatch.signal.aborted ||
       replaceAbort.signal.aborted ||
       handBack.signal.aborted;
     if (stopped()) return first;
@@ -1684,6 +1732,8 @@ async function runOneTask(
       servedAt === null ? timeoutMs : timeoutMs - (Date.now() - servedAt);
     if (remainingMs < SELF_CHECK_MIN_REMAINING_MS) return first;
     const knownSecrets = deps.knownSecrets?.() ?? knownSecretsFromEnv();
+    // The checks run, not the worker: the watch does not count that time.
+    selfChecking = true;
     const finding = await runSelfCheck({
       task,
       ...(options.contract === undefined ? {} : { contract: options.contract }),
@@ -1696,6 +1746,7 @@ async function runOneTask(
         options.signal,
         timeLimit,
         stopByPerson.signal,
+        stopByWatch.signal,
         replaceAbort.signal,
       ]),
       timeCapMs: Math.min(SELF_CHECK_MAX_MS, remainingMs),
@@ -1706,6 +1757,8 @@ async function runOneTask(
         options.concurrentTaskIds ?? options.tasks.map((t) => t.id),
       ),
       alreadyPassed: (check) => checkRuns.passedSinceLastChange(check),
+    }).finally(() => {
+      selfChecking = false;
     });
     if (finding.checksCapped === true) {
       // Said on the row, not only in the log: a check that always runs
@@ -1759,6 +1812,63 @@ async function runOneTask(
     }
     return { ...grace, stepCount: first.stepCount + grace.stepCount };
   };
+  // The watch (issue #43): armed with the worker's turn, stopped with it.
+  const watchPlan = options.watch?.(task.id);
+  let watch: TaskWatch | undefined;
+  const watchNotes: string[] = [];
+  // The re-run on the escalation model gets a watch of its own, with
+  // what is left of the task's judge calls.
+  let rerunWatch: TaskWatch | undefined;
+  const probeProgress = (): WatchProgress =>
+    watchProbe.progress({
+      filesChanged: collector.changedFileCount(),
+      served: servedAt !== null,
+      stalled: detectStall(steps) !== undefined,
+      paused: selfChecking,
+    });
+  const startWatch = (run: {
+    sessionId: string;
+    probe: () => WatchProgress;
+    streamedTail: () => string;
+    findings: () => string;
+    judgeCallsUsed: number;
+    signal: AbortSignal;
+  }): TaskWatch | undefined => {
+    if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
+    return startTaskWatch({
+      intervalMs: watchPlan.intervalMs,
+      ...(watchPlan.firstTickJitterMs === undefined ? {} : { firstTickJitterMs: watchPlan.firstTickJitterMs }),
+      maxJudgeCalls: Math.max(0, watchPlan.maxJudgeCalls - run.judgeCallsUsed),
+      judgeCallCap: watchPlan.judgeCallCap ?? watchPlan.maxJudgeCalls,
+      judgeLabel: watchPlan.judgeLabel,
+      probe: run.probe,
+      prompt: (before, now, quietIntervals, context) =>
+        renderWatchJudgePrompt({
+          ...(context?.firstTokenWaitMinutes === undefined ? {} : { firstTokenWaitMinutes: context.firstTokenWaitMinutes }),
+          brief,
+          findings: run.findings(),
+          before,
+          now,
+          intervalMinutes: Math.max(1, Math.round(watchPlan.intervalMs / 60_000)),
+          quietIntervals,
+          streamedTail: run.streamedTail(),
+        }),
+      judge: watchPlan.judge,
+      onHint: (state, hint) =>
+        deps.steerWorker?.(run.sessionId, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
+      onStuck: () => stopByWatch.abort(new Error("stopped by the watch: stuck")),
+      takeOtherSteer: () => {
+        const steered = advisorSteeredSinceCheck;
+        advisorSteeredSinceCheck = false;
+        return steered;
+      },
+      onNote: (note) => {
+        if (!watchNotes.includes(note)) watchNotes.push(note);
+      },
+      signal: run.signal,
+      ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
+    });
+  };
   let result: WorkerTaskResult;
   try {
     const workerTurnOptions = (
@@ -1782,6 +1892,7 @@ async function runOneTask(
         timeLimit,
         handBack.signal,
         stopByPerson.signal,
+        stopByWatch.signal,
         replaceAbort.signal,
       ]),
       eventHook: (event) => {
@@ -1789,6 +1900,12 @@ async function runOneTask(
         // request is even sent — is what ends the queue wait.
         if (event.type === "llm_event" && SERVED_EVENTS.has(event.event.type)) {
           markServed();
+        }
+        try {
+          watchProbe.observe(event);
+        } catch {
+          // The watch's probe never takes the event hook (and with it
+          // the worker) down.
         }
         // Backstop for a provider that emits none of the above: by the
         // time a step has finished, tokens demonstrably arrived.
@@ -1897,6 +2014,20 @@ async function runOneTask(
         collector.observe(event);
       },
     });
+    watch = startWatch({
+      sessionId: session.id,
+      probe: probeProgress,
+      streamedTail: () => watchProbe.streamedTail(),
+      findings: () => collector.findings(),
+      judgeCallsUsed: 0,
+      signal: AbortSignal.any([
+        options.signal,
+        timeLimit,
+        handBack.signal,
+        stopByPerson.signal,
+        replaceAbort.signal,
+      ]),
+    });
     let turn = await deps.runTurn(
       session,
       brief,
@@ -1932,7 +2063,7 @@ async function runOneTask(
     const aborted =
       !timedOut &&
       !queuedOutcome &&
-      (options.signal.aborted || stoppedByHandBack || isAbortError(error));
+      (options.signal.aborted || stoppedByHandBack || stopByWatch.signal.aborted || isAbortError(error));
     result = collector.finish({
       id: task.id,
       title: task.title,
@@ -1949,6 +2080,7 @@ async function runOneTask(
         : { error: error instanceof Error ? error.message : String(error) }),
     });
   } finally {
+    watch?.stop();
     settled = true;
     clearTimeout(permitGraceTimer);
     unregisterLive?.();
@@ -1965,6 +2097,7 @@ async function runOneTask(
   const localCut =
     replaceRequested ||
     stopByPerson.signal.aborted ||
+    stopByWatch.signal.aborted ||
     timedOutOutcome ||
     queuedOutcome ||
     stoppedByHandBack ||
@@ -1979,7 +2112,9 @@ async function runOneTask(
           ? "replaced by the escalation model"
           : stopByPerson.signal.aborted
             ? "stopped by the person"
-            : "cancelled";
+            : stopByWatch.signal.aborted
+              ? "stopped by the watch"
+              : "cancelled";
 
   // The advisor's hint did not help and the operator allowed the
   // replacement path (`escalationReplace`): the task runs again on the
@@ -1992,7 +2127,8 @@ async function runOneTask(
     pricing !== undefined &&
     options.escalation?.estimateOnly !== true &&
     !options.signal.aborted &&
-    !stopByPerson.signal.aborted;
+    !stopByPerson.signal.aborted &&
+    !stopByWatch.signal.aborted;
   // The local attempt's grace gave its permit to another task: the re-run
   // waits for one like any queued task rather than exceed the ceiling.
   if (replaceAllowed && permitReleasedByGrace && permitControl !== undefined) {
@@ -2047,6 +2183,23 @@ async function runOneTask(
     // (ATO-1319).
     const localUsage = result.usage;
     const localTokens = result.localTokens;
+    // The re-run's own watch probe: its stream, its files, its steps.
+    const rerunProbe = new WatchProbeTracker(SERVED_EVENTS);
+    const rerunSteps: WorkerStepOutcome[] = [];
+    let rerunFingerprints: string[] = [];
+    let rerunBusy = false;
+    rerunWatch = startWatch({
+      sessionId: replaceSession.id,
+      probe: () =>
+        rerunProbe.progress({
+          filesChanged: replaceCollector.changedFileCount(),
+          stalled: detectStall(rerunSteps) !== undefined,
+        }),
+      streamedTail: () => rerunProbe.streamedTail(),
+      findings: () => replaceCollector.findings(),
+      judgeCallsUsed: watch?.record().judgeCalls ?? 0,
+      signal: AbortSignal.any([options.signal, stopByPerson.signal, capAbort.signal]),
+    });
     try {
       const turn = await deps.runTurn(
         replaceSession,
@@ -2062,11 +2215,27 @@ async function runOneTask(
           signal: AbortSignal.any([
             options.signal,
             stopByPerson.signal,
+            stopByWatch.signal,
             capAbort.signal,
           ]),
           eventHook: (event) => {
             markNoteRead(replaceSession.id, event);
             replaceCollector.observe(event);
+            try {
+              rerunProbe.observe(event);
+              if (event.type === "llm_event" && event.event.type === "tool_call_executed") {
+                const executed = event.event.result;
+                rerunFingerprints.push(fingerprintToolOutcome(executed.tool, executed));
+                if (executed.status === "ok" && !READ_ONLY_TOOLS.has(executed.tool)) rerunBusy = true;
+              }
+              if (event.type === "step_finished") {
+                rerunSteps.push({ fingerprint: rerunFingerprints.join("\n"), busy: rerunBusy });
+                rerunFingerprints = [];
+                rerunBusy = false;
+              }
+            } catch {
+              // The watch's probe never takes the re-run down.
+            }
             // The re-run's side effects reach the checkpoint as they
             // start, like the local worker's do (ATO-1316): a crash in
             // the middle of the re-run must not offer the task as safe
@@ -2131,6 +2300,7 @@ async function runOneTask(
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
+      rerunWatch?.stop();
       replaceSettled = true;
       clearTimeout(replaceTimer);
       clearTimeout(replaceGraceTimer);
@@ -2155,6 +2325,21 @@ async function runOneTask(
   }
   if (stopByPerson.signal.aborted) {
     escalationNotes.push("stopped by the person");
+  }
+  // Stopped by the watch (issue #43): a failure the director decides on
+  // (`describeReplan`'s own bucket), never a cancellation. What the
+  // worker changed stays where the isolation rules keep a failed task's.
+  const watchRecord = mergeWatchRecords(watch?.record(), rerunWatch?.record());
+  if (stopByWatch.signal.aborted) {
+    const record = watchRecord;
+    const checks = record?.checks ?? 0;
+    const { finishedWithoutReply: _unvouched, ...rest } = result;
+    result = {
+      ...rest,
+      status: "failed",
+      failure: "stuck",
+      error: `stuck: the watch (${watchPlan?.judgeLabel ?? "its judge"}) judged the worker stuck after ${checks} check${checks === 1 ? "" : "s"} and stopped it`,
+    };
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on
@@ -2218,6 +2403,10 @@ async function runOneTask(
     result = { ...result, selfCheckPassed: true };
   }
   if (escalationsUsed > 0) result = { ...result, escalations: escalationsUsed };
+  if (watchRecord !== undefined) {
+    result = { ...result, watch: watchRecord };
+    if (watchNotes.length > 0) result = { ...result, notes: [...(result.notes ?? []), ...watchNotes] };
+  }
 
   // A budget the orchestrator asked for and did not get is something it
   // has to know: it planned the task against the bigger number.

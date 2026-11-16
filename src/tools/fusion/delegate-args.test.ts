@@ -695,3 +695,29 @@ describe("parseDelegateArgs profile (ATO-566)", () => {
     expect(bad.error).toContain("tasks[0].profile must be a non-empty string");
   });
 });
+
+describe("parseDelegateArgs watchMinutes (issue #43)", () => {
+  const one = (watchMinutes: unknown) =>
+    parseDelegateArgs({ tasks: [{ id: "a", instructions: "work", watchMinutes }] });
+  it("keeps a task's own watch interval, clamped to 1..60, and 0 as off", () => {
+    expect(one(10)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 10 }] });
+    expect(one(0)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 0 }] });
+    expect(one(0.4)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 1 }] });
+    expect(one(2.6)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 3 }] });
+    expect(one(240)).toMatchObject({ ok: true, tasks: [{ watchMinutes: 60 }] });
+    expect(one("15")).toMatchObject({ ok: true, tasks: [{ watchMinutes: 15 }] });
+  });
+  it("leaves it out when absent or null", () => {
+    const parsed = one(undefined);
+    expect(parsed.ok && "watchMinutes" in parsed.tasks[0]!).toBe(false);
+    const nul = one(null);
+    expect(nul.ok && "watchMinutes" in nul.tasks[0]!).toBe(false);
+  });
+  it("refuses a negative or non-numeric interval, naming the field", () => {
+    for (const bad of [-1, "soon", true, Number.NaN]) {
+      const parsed = one(bad);
+      expect(parsed.ok).toBe(false);
+      expect(!parsed.ok && parsed.error).toContain("tasks[0].watchMinutes");
+    }
+  });
+});

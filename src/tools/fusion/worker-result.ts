@@ -1,3 +1,4 @@
+import type { WatchRecord } from "./worker-watch.js";
 import type { FusionRole } from "../../config/llm-run-mode-config.js";
 import type { CompletionUsage } from "../../llm/provider/completion-types.js";
 import type { ResolvedModel } from "../../llm/provider/model-resolver.js";
@@ -279,13 +280,14 @@ export interface WorkerTaskResult {
    * `review-exhausted` (issue #38), a fusion team's review still asked
    * for changes after the last review pass; the
    * director decides (`describeReplan`'s own bucket), it is not re-run
-   * as pending.
+   * as pending. `stuck` (issue #43): the watch's judge found the worker
+   * stuck and stopped it; handed to the director the same way.
    */
-  failure?: "review-exhausted";
+  failure?: "review-exhausted" | "stuck";
   /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
-   * tasks, which waits for the director's decision (issue #38).
+   * or stuck tasks, which waits for the director's decision (issue #38).
    */
   heldOn?: string[];
   /**
@@ -295,6 +297,12 @@ export interface WorkerTaskResult {
    * without a team or when no review ran.
    */
   review?: TaskReview;
+  /**
+   * The periodic watch on this worker (issue #43), when one ran: checks
+   * made, judge calls, hints delivered, whether it stopped the task, and
+   * the judge's label. Counts only.
+   */
+  watch?: WatchRecord;
   /**
    * The worker's turn failed or threw after it changed files, so the row
    * is `needs_orchestrator` rather than `failed` (issue #29): the files
@@ -555,6 +563,11 @@ export class WorkerRunCollector {
         : []),
     ];
     return parts.join("; ");
+  }
+
+  /** How many files the worker's file tools changed so far (the watch's probe, issue #43). */
+  changedFileCount(): number {
+    return this.changes.list().length;
   }
 
   /** The worker loop's own account of why it stopped working, if any. */
@@ -1418,6 +1431,7 @@ function renderStatusTable(
         : []),
       ...syntaxClause(r),
       ...(r.review === undefined ? [] : [reviewClause(r.review)]),
+      ...watchClause(r.watch),
       ...(r.notes ?? []).map((note) => oneLine(note, TABLE_DETAIL_CHARS)),
     ].join(" — "),
   );
@@ -1427,6 +1441,22 @@ function renderStatusTable(
     ...lines,
     ...(clock === null ? [] : [clock]),
   ].join("\n");
+}
+
+/**
+ * `watch: 2 hints from <judge> after 4 checks` or `watch: stopped as stuck
+ * by <judge> after 4 checks` (issue #43); nothing when the watch only
+ * looked. The counts are in `details.watch`.
+ */
+export function watchClause(watch: WatchRecord | undefined): string[] {
+  if (watch === undefined || (watch.hints === 0 && !watch.stopped)) return [];
+  const by = watch.judge === null ? "" : ` ${watch.stopped ? "by" : "from"} ${watch.judge}`;
+  const after = ` after ${watch.checks} check${watch.checks === 1 ? "" : "s"}`;
+  const hints = watch.hints > 0 ? `${watch.hints} hint${watch.hints === 1 ? "" : "s"}` : "";
+  const text = watch.stopped
+    ? `watch: ${hints.length > 0 ? `${hints}, then ` : ""}stopped as stuck${by}${after}`
+    : `watch: ${hints}${by}${after}`;
+  return [oneLine(text, TABLE_DETAIL_CHARS)];
 }
 
 /** Issues a row's `review:` clause names; the rest are counted (all are in `details.review`). */

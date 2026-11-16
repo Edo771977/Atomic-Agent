@@ -1,4 +1,9 @@
-import { DEFAULT_FUSION_TEAM_REVIEW_PASSES, splitTeamMemberRef } from "../../config/llm-fusion-team-config.js";
+import {
+  DEFAULT_FUSION_TEAM_REVIEW_PASSES,
+  DEFAULT_FUSION_TEAM_WATCH_EVERY_MINUTES,
+  DEFAULT_FUSION_TEAM_WATCH_MAX_CHECKS,
+  splitTeamMemberRef,
+} from "../../config/llm-fusion-team-config.js";
 import {
   LOCAL_PROVIDER_KIND,
   type UserFusionTeamConfig,
@@ -325,4 +330,19 @@ export function reviewEnabled(
 /** The extra passes a task whose review asks for changes may get: `team.reviewPasses`, default 2. */
 export function reviewPassesOf(team: UserFusionTeamConfig | undefined): 0 | 1 | 2 {
   return team?.reviewPasses ?? DEFAULT_FUSION_TEAM_REVIEW_PASSES;
+}
+
+/**
+ * Minutes between a running task's progress checks (issue #43):
+ * `team.watchEveryMinutes`, default 5; 0 is off. No team: 0, the watch
+ * is a team feature.
+ */
+export function watchEveryMinutesOf(team: UserFusionTeamConfig | undefined): number {
+  if (team === undefined) return 0;
+  return team.watchEveryMinutes ?? DEFAULT_FUSION_TEAM_WATCH_EVERY_MINUTES;
+}
+
+/** Judge calls one watched task may cost: `team.watchMaxChecks`, default 3. */
+export function watchMaxChecksOf(team: UserFusionTeamConfig | undefined): number {
+  return team?.watchMaxChecks ?? DEFAULT_FUSION_TEAM_WATCH_MAX_CHECKS;
 }

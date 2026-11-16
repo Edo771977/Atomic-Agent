@@ -294,6 +294,26 @@ describe("fusion report", () => {
     expect(old).toMatch(/small \(local-llama\)\s+local\s+1\s.*\s-\s+-\s/);
   });
 
+  it("reports watch hints and stops per model; old records show - (issue #43)", () => {
+    const watch = (hints: number, stopped: boolean) => ({ checks: 3, judgeCalls: 1, hints, stopped, judge: "rev-a" });
+    const report = aggregateOutcomes([
+      task({ watch: watch(2, false) }),
+      task({ watch: watch(0, true), status: "failed", failure: "stuck" }),
+      task({ watch: watch(0, false) }),
+      task(),
+      { ...task(), watch: { checks: "x" } } as unknown as TaskOutcomeRecord,
+      task({ model: "mid", provider: "openrouter", leg: "cloud" }),
+    ]);
+    const small = report.workers.find((w) => w.model === "small")!;
+    expect(small.watch).toEqual({ watched: 3, judgeCalls: 3, hints: 2, stopped: 1 });
+    expect(report.workers.find((w) => w.model === "mid")!.watch).toEqual({ watched: 0, judgeCalls: 0, hints: 0, stopped: 0 });
+    const text = formatFusionReport(report);
+    expect(text).toContain("watch hints/stops");
+    expect(text).toMatch(/small \(local-llama\)\s+local\s+5\s.*\s2\/1\s/);
+    expect(text).toMatch(/mid \(openrouter\)\s+cloud\s+1\s.*\s-\s+\S+\s+-/);
+    expect(text).toContain("stuck 1");
+  });
+
   it("says so when nothing is recorded", () => {
     expect(formatFusionReport(aggregateOutcomes([], {}))).toContain("Nothing recorded yet");
   });
