@@ -18,6 +18,7 @@ import {
   type PlanConstraints,
   type PlanEstimate,
   type VariantContext,
+  withRowEstimate,
 } from "../../tools/fusion/project-estimate.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import { projectGateChanged, projectGateView } from "../../tools/fusion/project-gate-view.js";
@@ -172,6 +173,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       days: ctx.days,
       ...(ctx.now === undefined ? {} : { now: ctx.now }),
       tokensPerSecond: ctx.tokensPerSecond(member),
+      local: ctx.isLocal?.(member) ?? false,
     });
   const variant: VariantContext = {
     members: ctx.workers,
@@ -189,7 +191,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       const member = parseTeamMember(row.worker);
       if (member === null) return row;
       const est = estimate(member);
-      return { ...row, reason: `edited by the person; ${est.reason}`, basis: est.basis, samples: est.samples, estCostUsd: est.estCostUsd, estMs: est.estMs };
+      return withRowEstimate(row, est, `edited by the person; ${est.reason}`);
     });
   };
 }

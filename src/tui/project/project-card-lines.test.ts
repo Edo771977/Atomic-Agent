@@ -41,6 +41,14 @@ describe("project card lines", () => {
     expect(text(card(planWith({ detail: "full" })))).toContain("t2 Level screen");
   });
 
+  it("shows a local row as $0.00 (local), not unpriced (issue #54)", () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);
+    const out = text(card({ ...base, plan: { ...base.plan!, rows, totals: { ...base.plan!.totals, unknownCostRows: 0 } } }, true));
+    expect(out).toContain("worker model-c · review no review · $0.00 (local) · time unknown");
+    expect(out).not.toContain("unpriced");
+  });
+
   it("says the approved write scope is the session folder (rows carry no file list)", () => {
     expect(text(card(fixtureProjectGateView({ kind: "plan" })))).toContain("Approving lets these tasks write in this chat's folder");
     expect(text(card(fixtureProjectGateView({ kind: "plan" }), true))).toContain("Approving lets these tasks write in this chat's folder");

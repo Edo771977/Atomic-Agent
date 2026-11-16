@@ -92,7 +92,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
     for (const r of rows) {
       const basis = r.basis === "measured" ? `measured (${r.samples} runs)` : "preset";
       out.push(
-        `  ${r.taskId} ${r.title} [${r.milestoneId}]: worker ${r.worker} · review ${r.reviewer ?? "none"} · ${usd(r.estCostUsd)} · ${duration(r.estMs)} · ${basis}`,
+        `  ${r.taskId} ${r.title} [${r.milestoneId}]: worker ${r.worker} · review ${r.reviewer ?? "none"} · ${r.local === true ? "$0.00 (local)" : usd(r.estCostUsd)} · ${duration(r.estMs)} · ${basis}`,
       );
     }
     if (view.plan !== null && rows.length > 0) {

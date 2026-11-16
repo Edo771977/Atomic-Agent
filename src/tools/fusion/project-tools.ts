@@ -66,6 +66,8 @@ export interface ProjectPlanContext {
   pricing: (member: TeamMember) => WorkerPricing | undefined;
   /** A local member's measured speed; null for a cloud one or before any measurement. */
   tokensPerSecond: (member: TeamMember) => number | null;
+  /** Whether the member runs on a local server: its tasks are priced at $0 (issue #54). Absent: none is. */
+  isLocal?: (member: TeamMember) => boolean;
   /** `measuredRouting.minSamples` / `.days`. */
   minSamples: number;
   days: number;
@@ -275,6 +277,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       days: context.days,
       ...(context.now === undefined ? {} : { now: context.now }),
       tokensPerSecond: context.tokensPerSecond(worker),
+      local: context.isLocal?.(worker) ?? false,
     });
     rows.push({
       taskId: task.id,
@@ -287,6 +290,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       samples: est.samples,
       estCostUsd: est.estCostUsd,
       estMs: est.estMs,
+      ...(est.local === true ? { local: true as const } : {}),
     });
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
@@ -363,6 +367,7 @@ function accepted(tool: string, output: string, update: ProjectUpdate): Compress
 }
 
 const usd = (n: number | null): string => (n === null ? "cost unknown" : `~$${n.toFixed(2)}`);
+const rowUsd = (row: AssignmentRow): string => (row.local === true ? "$0.00 (local)" : usd(row.estCostUsd));
 const secs = (ms: number | null): string => (ms === null ? "time unknown" : `~${Math.max(1, Math.round(ms / 1000))}s`);
 
 const AWAIT_PERSON = "Now reply to the person: they approve, edit or cancel it between turns. Do not delegate until it is approved.";
@@ -406,7 +411,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           `${m.id} (${m.kind}): ${m.title}`,
           ...rows
             .filter((r) => r.milestoneId === m.id)
-            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${usd(r.estCostUsd)}, ${secs(r.estMs)}`),
+            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
         AWAIT_PERSON,

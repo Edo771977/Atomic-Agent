@@ -56,6 +56,8 @@ export interface RowEstimate {
   /** The cost is price × {@link PRESET_TASK_TOKENS}, not measured spend. */
   priceOnly: boolean;
   reason: string;
+  /** A local member: priced at $0, shown as "$0.00 (local)" (issue #54). */
+  local?: true;
 }
 
 export interface EstimateRowOptions {
@@ -66,6 +68,8 @@ export interface EstimateRowOptions {
   now?: number;
   /** The local leg's measured speed (`localTokensPerSecond`); absent or null for a cloud member. */
   tokensPerSecond?: number | null;
+  /** The member runs on a local server: its tasks cost nothing (issue #54). */
+  local?: boolean;
 }
 
 function median(values: number[]): number | null {
@@ -110,9 +114,21 @@ function exactRows(
  * medians of their work time and, only when every row was priced, of
  * their cost (`measured`). Otherwise `preset`: cost is `pricing` × the
  * role's {@link PRESET_TASK_TOKENS} (price-only) or unknown, time comes
- * from the local speed for the output tokens or is unknown.
+ * from the local speed for the output tokens or is unknown. A local member
+ * (`options.local`) costs $0 either way: priced, never "unpriced".
  */
 export function estimateRow(
+  member: TeamMember,
+  role: string | null,
+  records: readonly OutcomeRecord[],
+  pricing: WorkerPricing | undefined,
+  options: EstimateRowOptions,
+): RowEstimate {
+  const estimate = estimateRowPriced(member, role, records, pricing, options);
+  return options.local === true ? { ...estimate, estCostUsd: 0, priceOnly: false, local: true } : estimate;
+}
+
+function estimateRowPriced(
   member: TeamMember,
   role: string | null,
   records: readonly OutcomeRecord[],
@@ -405,18 +421,23 @@ function reassignedReviewer(row: AssignmentRow, worker: TeamMember, ctx: Variant
   return (ctx.reviewers ?? []).find((m) => m.ref !== worker.ref)?.ref ?? null;
 }
 
-function reassign(row: AssignmentRow, worker: TeamMember, est: RowEstimate, why: string, ctx: VariantContext): AssignmentRow {
-  const reviewer = reassignedReviewer(row, worker, ctx);
+/** `row` carrying `est`'s figures and local mark (a non-local estimate drops the mark). */
+export function withRowEstimate(row: AssignmentRow, est: RowEstimate, reason: string): AssignmentRow {
+  const { local: _local, ...rest } = row;
   return {
-    ...row,
-    worker: worker.ref,
-    reviewer,
-    reason: `${why} (${est.reason})`,
+    ...rest,
+    reason,
     basis: est.basis,
     samples: est.samples,
     estCostUsd: est.estCostUsd,
     estMs: est.estMs,
+    ...(est.local === true ? { local: true as const } : {}),
   };
+}
+
+function reassign(row: AssignmentRow, worker: TeamMember, est: RowEstimate, why: string, ctx: VariantContext): AssignmentRow {
+  const reviewer = reassignedReviewer(row, worker, ctx);
+  return withRowEstimate({ ...row, worker: worker.ref, reviewer }, est, `${why} (${est.reason})`);
 }
 
 /**

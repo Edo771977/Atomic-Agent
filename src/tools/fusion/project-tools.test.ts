@@ -53,6 +53,7 @@ function planContext(extra: Partial<ProjectPlanContext> = {}): ProjectPlanContex
     records: [taskRow("cloud", "model-b", 0.2, 4000), taskRow("cloud", "model-b", 0.4, 6000)],
     pricing: (member) => (member.providerId === "cloud" ? { input: 1, output: 2 } : undefined),
     tokensPerSecond: (member) => (member.providerId === "local" ? 20 : null),
+    isLocal: (member) => member.providerId === "local",
     minSamples: 2,
     days: 30,
     now: NOW,
@@ -148,7 +149,8 @@ describe("project.plan", () => {
     expect(update.milestones).toEqual(planArgs.milestones);
     expect(update.detail).toBe("compact");
     const [board, score] = update.rows;
-    // Default worker, no history: preset; local speed gives a time, no price.
+    // Default worker, no history: preset; local speed gives a time, and a
+    // local worker costs nothing (issue #54): priced at $0, not unpriced.
     expect(board).toMatchObject({
       taskId: "board",
       milestoneId: "base",
@@ -156,8 +158,12 @@ describe("project.plan", () => {
       reviewer: "cloud:model-r",
       basis: "preset",
       samples: 0,
-      estCostUsd: null,
+      estCostUsd: 0,
+      local: true,
     });
+    expect(score!.local).toBeUndefined();
+    expect(result.summary).toContain("board: local:model-a, review cloud:model-r; $0.00 (local)");
+    expect(result.summary).not.toContain("unpriced");
     expect(board!.reason).toContain(PRESET_REASON);
     expect(board!.estMs).toBeGreaterThan(0);
     // Named worker with two priced runs: measured medians.

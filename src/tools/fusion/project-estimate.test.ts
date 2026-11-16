@@ -58,6 +58,18 @@ function rec(over: Partial<TaskOutcomeRecord> = {}): TaskOutcomeRecord {
 const opts = { minSamples: 3, days: 30, now: NOW };
 
 describe("estimateRow", () => {
+  it("prices a local member at $0 (issue #54), with history or without", () => {
+    const local = member("local:model-l");
+    expect(estimateRow(local, null, [], undefined, { ...opts, local: true, tokensPerSecond: 20 })).toMatchObject({
+      basis: "preset", estCostUsd: 0, local: true, priceOnly: false,
+    });
+    const unpriced = [1, 2, 3].map(() => rec({ provider: "local", model: "model-l", costUsd: null }));
+    expect(estimateRow(local, null, unpriced, undefined, { ...opts, local: true })).toMatchObject({
+      basis: "measured", estCostUsd: 0, local: true,
+    });
+    expect(estimateRow(member("cloud:model-a"), null, [], undefined, opts).local).toBeUndefined();
+  });
+
   it("uses medians of exact member+role rows once there are enough", () => {
     const records = [rec({ costUsd: 0.1, durationMs: 100 }), rec({ costUsd: 0.3, durationMs: 300 }), rec({ costUsd: 0.2, durationMs: 200 })];
     expect(estimateRow(member("cloud:model-a"), null, records, undefined, opts)).toEqual({
