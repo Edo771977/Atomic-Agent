@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
+import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
 import { settleProjectGate } from "./run-project-gate.js";
@@ -29,6 +29,13 @@ describe("run at a project gate", () => {
     expect(step.text).toContain("session: sess-1");
     expect(step.text).toContain("atomic-agent run --session sess-1 --approve 3");
     expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("a milestone gate prints its criteria facts and pictures (issue #40)", async () => {
+    const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
+    const step = await settleProjectGate(runtime(view), "s", "stop");
+    expect(step.kind === "stop" && step.text).toContain("Criteria:\n    ✓ c1 passed: Runs in a browser");
+    expect(step.kind === "stop" && step.text).toContain(`Picture: The board at start [c1] — ${FIXTURE_SHOT_PATH}`);
   });
 
   it("the printed plan warns when it was drafted after outside content", async () => {

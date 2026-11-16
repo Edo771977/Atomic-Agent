@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
+import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectDecision } from "../../session/session-project.js";
 import { projectGateNotice, runProjectCommand } from "./project-command.js";
@@ -23,6 +23,13 @@ describe("Telegram /plan (issue #39)", () => {
     expect(out.text).toContain("The project plan waits for your approval (version 3).");
     expect(out.text).toContain("/plan approve 3");
     expect(out.continueWith).toBeNull();
+  });
+
+  it("a milestone gate lists its criteria facts and pictures (issue #40)", async () => {
+    const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }));
+    const out = await runProjectCommand([], { runtime: runtime(view), sessionId: "s", busy: false });
+    expect(out.text).toContain("  Criteria:\n    ✓ c1 passed: Runs in a browser\n    ? c2 unverified: Ten levels (no vision-capable reviewer)");
+    expect(out.text).toContain(`  Picture: The board at start [c1] — ${FIXTURE_SHOT_PATH}`);
   });
 
   it("/plan approve needs the version shown: bare shows the gate and asks again, a stale one is refused", async () => {
