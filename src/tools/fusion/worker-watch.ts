@@ -43,12 +43,19 @@ export interface WatchProgress {
   stalled: boolean;
   /** The runner, not the worker, is busy (the worker's self-check runs its checks). */
   paused?: boolean;
+  /**
+   * Tool calls parsed and not yet executed in the current step. A long
+   * one (a build, `verify.run`, `shell.exec`) is waiting, not stalled;
+   * the task's own wall clock bounds it.
+   */
+  toolsInFlight?: number;
 }
 
 /**
  * How `next` compares with `prev`. `waiting`: the server has not
- * answered yet (the queue watchdog's business), or the runner is paused
- * on the worker's self-check. `clear`: a file changed,
+ * answered yet (the queue watchdog's business), the runner is paused
+ * on the worker's self-check, or, when no step finished and no file
+ * changed, a tool call is still running. `clear`: a file changed,
  * or steps finished that do not look stalled. `unclear`: steps finished
  * but look stalled. `streaming`: tokens without a finished step.
  * `none`: nothing moved.
@@ -59,6 +66,7 @@ export function progressKind(prev: WatchProgress, next: WatchProgress): WatchPro
   if (!next.served || next.paused === true) return "waiting";
   if (next.filesChanged > prev.filesChanged) return "clear";
   if (next.steps > prev.steps) return next.stalled ? "unclear" : "clear";
+  if ((next.toolsInFlight ?? 0) > 0) return "waiting";
   if (next.outputTokens > prev.outputTokens) return "streaming";
   return "none";
 }

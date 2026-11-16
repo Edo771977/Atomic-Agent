@@ -22,6 +22,12 @@ const at = (over: Partial<WatchProgress> = {}): WatchProgress => ({
 });
 
 describe("progressKind and decideWatch (issue #43)", () => {
+  it("a tool call still running is waiting, unless steps finished or files changed", () => {
+    expect(progressKind(at(), at({ toolsInFlight: 1 }))).toBe("waiting");
+    expect(decideWatch(at(), at({ toolsInFlight: 1 }), 5)).toBe("ok");
+    expect(progressKind(at(), at({ toolsInFlight: 1, steps: 3, stalled: true }))).toBe("unclear");
+  });
+
   it("clear progress costs nothing: a new file, or new steps that do not look stalled", () => {
     expect(progressKind(at(), at({ filesChanged: 1 }))).toBe("clear");
     expect(progressKind(at(), at({ steps: 2, outputTokens: 300 }))).toBe("clear");

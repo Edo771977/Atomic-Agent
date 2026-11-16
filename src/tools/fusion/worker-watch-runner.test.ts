@@ -99,6 +99,14 @@ function harness() {
         result: { tool: "os.fs.write", status: "ok", summary: `wrote ${path}`, details: { path, existed: true } },
       })),
     say: (text: string) => emit?.(llm({ type: "assistant_reply", text })),
+    parsed: (tool: string) =>
+      emit?.(llm({ type: "tool_call_parsed", batchIndex: 0, call: { tool, args: {} } })),
+    executed: (tool: string) =>
+      emit?.(llm({
+        type: "tool_call_executed",
+        batchIndex: 0,
+        result: { tool, status: "ok", summary: `${tool} ran`, details: {} },
+      })),
     finish: () => finish?.(),
   };
 }
@@ -211,6 +219,35 @@ describe("the watch inside the worker runner (issue #43)", () => {
     turn.abort();
     await run2;
     expect(c2.live()).toBe(false);
+  });
+});
+
+describe("a worker that is waiting, not stalled (issue #43)", () => {
+  const stuckJudge = () => {
+    const calls: string[] = [];
+    const judge: WatchJudgeCall = async ({ prompt }) => {
+      calls.push(prompt);
+      return { kind: "answer", content: '{"state":"stuck","hint":null}' };
+    };
+    return { calls, judge };
+  };
+
+  it("does not judge while one long tool call runs (a build, the checks, a shell command)", async () => {
+    const h = harness();
+    const c = handClock();
+    const { calls, judge } = stuckJudge();
+    const run = runWorkerTasks(h.deps, options(h, c.clock, judge));
+    await flush();
+    h.delta("x");
+    h.parsed("shell.exec");
+    for (let i = 0; i < 3; i += 1) await c.tick();
+    expect(calls).toEqual([]);
+    // The call came back: quiet intervals count again from here.
+    h.executed("shell.exec");
+    h.finish();
+    const [row] = await run;
+    expect(row!.status).toBe("ok");
+    expect(row!.watch).toMatchObject({ checks: 3, judgeCalls: 0, stopped: false });
   });
 });
 

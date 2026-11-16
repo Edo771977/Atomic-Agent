@@ -1408,6 +1408,9 @@ async function runOneTask(
   // and the streamed text of the request in flight (~4 chars a token).
   let completedOutputTokens = 0;
   let streamedChars = 0;
+  // Tool calls parsed and not yet executed in this step: a long build or
+  // check run is waiting, not stalled (reset when the step finishes).
+  let toolsInFlight = 0;
   let currentFingerprints: string[] = [];
   let currentBusy = false;
   // Why the step half fired, when it did; carried onto the note so the
@@ -1813,6 +1816,7 @@ async function runOneTask(
     served: servedAt !== null,
     stalled: detectStall(steps) !== undefined,
     paused: selfChecking,
+    toolsInFlight,
   });
   const startWatch = (): TaskWatch | undefined => {
     if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
@@ -1900,6 +1904,7 @@ async function runOneTask(
           });
           currentFingerprints = [];
           currentBusy = false;
+          toolsInFlight = 0;
           stepsFinished += 1;
           const stalled = detectStall(steps);
           if (stalled !== undefined) {
@@ -1914,6 +1919,7 @@ async function runOneTask(
           // `tool_call_parsed` fires before execution, which is what
           // "is being triggered" means — and it fires once per call in
           // a batched step, so the dedupe above earns its keep.
+          toolsInFlight += 1;
           announceStart();
           announceTool(event.event.call.tool);
           checkRuns.parsedCall(
@@ -1977,6 +1983,7 @@ async function runOneTask(
           event.event.type === "tool_call_executed"
         ) {
           const result = event.event.result;
+          toolsInFlight = Math.max(0, toolsInFlight - 1);
           if (result.status === "ok" && WRITE_TOOLS.has(result.tool)) {
             wroteSomething = true;
           }
