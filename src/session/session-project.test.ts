@@ -173,6 +173,7 @@ describe("applyProjectUpdate: plan", () => {
     expect(approve(clean).plan!.approvedWithUntrustedWarning).toBeUndefined();
     expect(normalizeProject(JSON.parse(JSON.stringify(approved)))!.plan).toMatchObject({ draftedAfterUntrusted: true, approvedWithUntrustedWarning: true });
     // A person's edit keeps the flag; the re-approval shows it again.
+    // (The edited reviewer is marked as the person's, kept by variants.)
     const edited = ok(applyProjectDecision(tainted, { gate: { kind: "plan" }, version: tainted.plan!.version, verdict: "edit", edits: { rows: [{ taskId: "t1", reviewer: null }] } }, { now: NOW })).project;
     expect(edited.plan!.draftedAfterUntrusted).toBe(true);
   });
@@ -363,8 +364,13 @@ describe("applyProjectDecision", () => {
       { gate: p.gate, version: 1, verdict: "edit", edits: { rows: [{ taskId: "t1", worker: "cloud:model-c", reviewer: null }] } },
       { now: NOW, replan: (rows) => rows.map((r) => (r.taskId === "t1" ? { ...r, estCostUsd: 2, basis: "measured" as const } : r)) },
     )).project;
-    expect(e.plan!.rows[0]).toMatchObject({ worker: "cloud:model-c", reviewer: null, estCostUsd: 2, basis: "measured" });
+    expect(e.plan!.rows[0]).toMatchObject({ worker: "cloud:model-c", reviewer: null, reviewerByPerson: true, estCostUsd: 2, basis: "measured" });
+    expect(e.plan!.rows[1]!.reviewerByPerson).toBeUndefined();
     expect(e.plan).toMatchObject({ version: 2, status: "draft", totals: { costUsd: 2.1 } });
+    // Stored and read back; a director's new plan starts without it.
+    expect(normalizeProject(JSON.parse(JSON.stringify(e)))!.plan!.rows[0]!.reviewerByPerson).toBe(true);
+    const sneaky = { ...planUpdate, rows: [{ ...row("t1", "m1"), reviewerByPerson: true }, row("t2", "m2")] } as ProjectUpdate;
+    expect(update(approve(update(undefined, briefUpdate)), sneaky).plan!.rows[0]!.reviewerByPerson).toBeUndefined();
   });
 
   it("a row edit without a hook clears the edited row's estimate", () => {

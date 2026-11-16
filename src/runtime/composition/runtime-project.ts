@@ -180,6 +180,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
     estimate: (member) => estimate(member),
     acceptance: (member) => acceptanceRate(ctx.records, member, { days: ctx.days, ...(ctx.now === undefined ? {} : { now: ctx.now }) }),
     reviewerFor: (worker) => (ctx.reviewOn ? ctx.reviewerFor(worker) : null),
+    reviewers: ctx.reviewers,
   };
   return (rows, verdict) => {
     if (verdict === "cheaper") return cheaperVariant(rows, variant);

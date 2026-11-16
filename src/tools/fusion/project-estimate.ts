@@ -360,6 +360,8 @@ export interface VariantContext {
   acceptance?: (member: TeamMember) => number | null;
   /** The reviewer of a task the member works (`FusionTeamRouting.reviewerFor`); absent: the row's reviewer is kept unless it is the new worker. */
   reviewerFor?: (worker: TeamMember) => TeamMember | null;
+  /** The team's reviewers in config order: the next one stands in when a row's reviewer would be lost. */
+  reviewers?: readonly TeamMember[];
 }
 
 /** Local below any cloud member; a cloud member by tier; null: a cloud member without a tier. */
@@ -382,13 +384,29 @@ function notWeaker(candidate: TeamMember, current: TeamMember, ctx: VariantConte
   return c !== null && w !== null && c >= w;
 }
 
-function reassign(row: AssignmentRow, worker: TeamMember, est: RowEstimate, why: string, ctx: VariantContext): AssignmentRow {
-  const reviewer =
+/**
+ * The reviewer of a row moved to `worker`. A reviewer the person picked
+ * (`reviewerByPerson`, their "no review" included) stays unless it is now
+ * the worker. Otherwise the routed one (`reviewerFor`); and a row that had
+ * a review never loses it: the old reviewer stays when it is not the
+ * worker, else the team's next reviewer. Null only when nobody is left.
+ */
+function reassignedReviewer(row: AssignmentRow, worker: TeamMember, ctx: VariantContext): string | null {
+  if (row.reviewerByPerson === true && row.reviewer !== worker.ref) return row.reviewer;
+  const routed =
     ctx.reviewerFor !== undefined
       ? (ctx.reviewerFor(worker)?.ref ?? null)
       : row.reviewer === worker.ref
         ? null
         : row.reviewer;
+  if (routed !== null && routed !== worker.ref) return routed;
+  if (row.reviewer === null) return null;
+  if (row.reviewer !== worker.ref) return row.reviewer;
+  return (ctx.reviewers ?? []).find((m) => m.ref !== worker.ref)?.ref ?? null;
+}
+
+function reassign(row: AssignmentRow, worker: TeamMember, est: RowEstimate, why: string, ctx: VariantContext): AssignmentRow {
+  const reviewer = reassignedReviewer(row, worker, ctx);
   return {
     ...row,
     worker: worker.ref,

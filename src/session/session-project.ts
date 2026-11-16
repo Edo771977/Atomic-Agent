@@ -85,6 +85,11 @@ export interface AssignmentRow {
   worker: string;
   /** Member ref of the reviewer; null: no per-task review. */
   reviewer: string | null;
+  /**
+   * The person picked this reviewer (or "no review") at the plan gate;
+   * the cheaper and quality variants keep it. Never from the director.
+   */
+  reviewerByPerson?: true;
   /** Why this worker, in a few words ("insufficient data, chosen from the preset"). */
   reason: string;
   basis: EstimateBasis;
@@ -498,6 +503,7 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     samples: raw.samples,
     estCostUsd: raw.estCostUsd,
     estMs: raw.estMs,
+    ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
   };
 }
 
@@ -727,6 +733,8 @@ function planUpdate(
       return invalid(named ? `task ${i + 1} names milestone ${String(r.milestoneId)}, which the plan does not list` : `task ${i + 1} is malformed`);
     }
     if (rows.some((x) => x.taskId === read.taskId)) return invalid(`task id ${read.taskId} is used twice`);
+    // The director's plan: no row carries a person's pick.
+    delete read.reviewerByPerson;
     rows.push(read);
   }
   const plan: ProjectPlan = {
@@ -841,6 +849,7 @@ function editRows(
       const ref = edit.reviewer === null ? null : cleanRef(edit.reviewer);
       if (edit.reviewer !== null && ref === null) return `task ${row.taskId}: reviewer must be "<providerId>:<model>" or null`;
       row.reviewer = ref;
+      row.reviewerByPerson = true;
     }
     touched.add(row.taskId);
   }

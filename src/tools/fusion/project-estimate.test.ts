@@ -252,9 +252,27 @@ describe("variants", () => {
     expect(out[0]).toMatchObject({ worker: "cloud:best", reviewer: "cloud:mid" });
   });
 
-  it("without reviewerFor, a reviewer equal to the new worker is dropped", () => {
-    const out = qualityVariant([row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:best" })], ctx(all));
-    expect(out[0]).toMatchObject({ worker: "cloud:best", reviewer: null });
+  it("a reviewer equal to the new worker is replaced by the next reviewer, never dropped to none", () => {
+    const reviewers = ["cloud:best", "cloud:mid"].map(member);
+    const out = qualityVariant([row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:best" })], ctx(all, { reviewers }));
+    expect(out[0]).toMatchObject({ worker: "cloud:best", reviewer: "cloud:mid" });
+    // reviewerFor finding nobody does not drop an existing review either.
+    const none = qualityVariant([row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:mid2" })], ctx(all, { reviewers, reviewerFor: () => null }));
+    expect(none[0]).toMatchObject({ worker: "cloud:best", reviewer: "cloud:mid2" });
+    // With no other reviewer on the team, there is nobody left to review.
+    expect(qualityVariant([row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:best" })], ctx(all))[0]).toMatchObject({ reviewer: null });
+  });
+
+  it("a reviewer the person picked is kept by cheaper and quality (unless it becomes the worker)", () => {
+    const reviewers = ["cloud:best", "cloud:mid", "cloud:mystery"].map(member);
+    const reviewerFor = () => member("cloud:mid");
+    const edited = row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:mystery", reviewerByPerson: true });
+    expect(qualityVariant([edited], ctx(all, { reviewers, reviewerFor }))[0]).toMatchObject({ worker: "cloud:best", reviewer: "cloud:mystery", reviewerByPerson: true });
+    const mine = row("a", "m1", { worker: "cloud:mid", estCostUsd: 0.5, reviewer: "cloud:mid2", reviewerByPerson: true });
+    expect(cheaperVariant([mine], ctx(all, { reviewers, reviewerFor }))[0]).toMatchObject({ worker: "cloud:mid2", reviewer: "cloud:mid" });
+    // The person's "no review" stays too.
+    const off = row("a", "m1", { worker: "cloud:cheap", reviewer: null, reviewerByPerson: true });
+    expect(qualityVariant([off], ctx(all, { reviewers, reviewerFor }))[0]).toMatchObject({ reviewer: null });
   });
 });
 
