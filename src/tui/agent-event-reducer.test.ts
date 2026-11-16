@@ -5,6 +5,7 @@ import { LocalOutOfMemoryError } from "../llm/index.js";
 import { TransportError } from "../llm/reliability/llm-failures.js";
 import { DailySpendLimitError } from "../llm/reliability/spend-limit-error.js";
 import type { BuiltPrompt } from "../prompt/build-prompt-types.js";
+import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
 import { reduceTuiState, type TuiAction } from "./agent-event-reducer.js";
 import { providerRow } from "./composer-switch/composer-switch-fixtures.js";
 import {
@@ -2825,5 +2826,28 @@ describe("reduceTuiState session usage (ATO-569)", () => {
     const last = state.messages[state.messages.length - 1];
     expect(last?.role).toBe("system");
     expect(last?.text).toContain("$0.31 over 1 priced call");
+  });
+});
+
+describe("reduceTuiState project_gate (issue #39)", () => {
+  const view = (gate: Parameters<typeof fixtureProjectGateView>[0], version = 3) =>
+    fixtureProjectGateView(gate, { sessionId: "s1", version });
+
+  it("opens the project card for the chat on screen and ignores another chat's gate", () => {
+    const base = createInitialTuiState(fakeSession({ sessionId: "s1" }));
+    const other = apply(base, [{ type: "agent_event", event: { type: "project_gate", sessionId: "other", view: view({ kind: "plan" }) } }]);
+    expect(other.projectCard).toBeNull();
+    const opened = apply(base, [{ type: "agent_event", event: { type: "project_gate", sessionId: "s1", view: view({ kind: "plan" }) } }]);
+    expect(opened.projectCard).toMatchObject({ sessionId: "s1", mode: "actions", pending: false, view: { gate: { kind: "plan" }, version: 3 } });
+  });
+
+  it("refreshes an open card with the newer view, keeping /plan's full view", () => {
+    const state = apply(createInitialTuiState(fakeSession({ sessionId: "s1" })), [
+      { type: "project_card_shown", sessionId: "s1", view: view({ kind: "plan" }), full: true },
+      { type: "agent_event", event: { type: "project_gate", sessionId: "s1", view: view({ kind: "milestone", id: "m1" }, 4) } },
+    ]);
+    expect(state.projectCard?.view.gate).toEqual({ kind: "milestone", id: "m1" });
+    expect(state.projectCard?.view.version).toBe(4);
+    expect(state.projectCard?.full).toBe(true);
   });
 });
