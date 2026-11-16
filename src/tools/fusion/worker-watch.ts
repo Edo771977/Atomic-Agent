@@ -41,11 +41,14 @@ export interface WatchProgress {
   served: boolean;
   /** The recent steps look stalled (`detectStall`). */
   stalled: boolean;
+  /** The runner, not the worker, is busy (the worker's self-check runs its checks). */
+  paused?: boolean;
 }
 
 /**
  * How `next` compares with `prev`. `waiting`: the server has not
- * answered yet (the queue watchdog's business). `clear`: a file changed,
+ * answered yet (the queue watchdog's business), or the runner is paused
+ * on the worker's self-check. `clear`: a file changed,
  * or steps finished that do not look stalled. `unclear`: steps finished
  * but look stalled. `streaming`: tokens without a finished step.
  * `none`: nothing moved.
@@ -53,7 +56,7 @@ export interface WatchProgress {
 export type WatchProgressKind = "waiting" | "clear" | "unclear" | "streaming" | "none";
 
 export function progressKind(prev: WatchProgress, next: WatchProgress): WatchProgressKind {
-  if (!next.served) return "waiting";
+  if (!next.served || next.paused === true) return "waiting";
   if (next.filesChanged > prev.filesChanged) return "clear";
   if (next.steps > prev.steps) return next.stalled ? "unclear" : "clear";
   if (next.outputTokens > prev.outputTokens) return "streaming";

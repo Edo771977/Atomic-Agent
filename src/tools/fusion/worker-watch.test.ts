@@ -47,6 +47,11 @@ describe("progressKind and decideWatch (issue #43)", () => {
     expect(progressKind(at({ served: false }), at({ served: false }))).toBe("waiting");
     expect(decideWatch(at({ served: false }), at({ served: false }), 9)).toBe("ok");
   });
+
+  it("nor one whose runner is busy with its self-check", () => {
+    expect(progressKind(at(), at({ paused: true }))).toBe("waiting");
+    expect(decideWatch(at(), at({ paused: true, steps: 3, stalled: true }), 9)).toBe("ok");
+  });
 });
 
 describe("parseWatchAnswer (issue #43)", () => {

@@ -1427,6 +1427,8 @@ async function runOneTask(
   // Set while the worker fixes what its self-check found: those steps
   // were granted on top of the hand-back rule, not measured against it.
   let inSelfCheckGrace = false;
+  // Set while the self-check runs the task's checks (the watch pauses).
+  let selfChecking = false;
   // The worker's own `verify.run` passes, so the self-check does not
   // run a check a third time that the worker already saw pass.
   const checkRuns = new WorkerCheckRuns(READ_ONLY_TOOLS);
@@ -1720,6 +1722,8 @@ async function runOneTask(
       servedAt === null ? timeoutMs : timeoutMs - (Date.now() - servedAt);
     if (remainingMs < SELF_CHECK_MIN_REMAINING_MS) return first;
     const knownSecrets = deps.knownSecrets?.() ?? knownSecretsFromEnv();
+    // The checks run, not the worker: the watch does not count that time.
+    selfChecking = true;
     const finding = await runSelfCheck({
       task,
       ...(options.contract === undefined ? {} : { contract: options.contract }),
@@ -1743,6 +1747,8 @@ async function runOneTask(
         options.concurrentTaskIds ?? options.tasks.map((t) => t.id),
       ),
       alreadyPassed: (check) => checkRuns.passedSinceLastChange(check),
+    }).finally(() => {
+      selfChecking = false;
     });
     if (finding.checksCapped === true) {
       // Said on the row, not only in the log: a check that always runs
@@ -1806,6 +1812,7 @@ async function runOneTask(
     filesChanged: collector.changedFileCount(),
     served: servedAt !== null,
     stalled: detectStall(steps) !== undefined,
+    paused: selfChecking,
   });
   const startWatch = (): TaskWatch | undefined => {
     if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;

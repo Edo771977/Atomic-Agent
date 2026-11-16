@@ -98,6 +98,7 @@ function harness() {
         batchIndex: 0,
         result: { tool: "os.fs.write", status: "ok", summary: `wrote ${path}`, details: { path, existed: true } },
       })),
+    say: (text: string) => emit?.(llm({ type: "assistant_reply", text })),
     finish: () => finish?.(),
   };
 }
@@ -105,7 +106,7 @@ function harness() {
 const TASK: DelegateTask = { id: "t1", title: "T1", instructions: "edit src/a.ts in place" };
 
 function options(
-  h: ReturnType<typeof harness>,
+  _h: ReturnType<typeof harness>,
   clock: WatchClock,
   judge: WatchJudgeCall,
   extra: Partial<RunWorkerTasksOptions> = {},
@@ -247,5 +248,35 @@ describe("what the watch does with the judge's answer (issue #43)", () => {
     expect(row!.error).toMatch(/^stuck: the watch \(model-r\) judged the worker stuck/);
     expect(row!.watch).toMatchObject({ judgeCalls: 1, stopped: true });
     expect(c.live()).toBe(false);
+  });
+});
+
+describe("the watch and the worker's self-check (issue #43)", () => {
+  it("does not judge while the worker's own checks run after its reply", async () => {
+    const h = harness();
+    const c = handClock();
+    let release: (() => void) | undefined;
+    const runChecks = (async (specs: readonly Record<string, unknown>[]) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { ok: true, results: specs.map(() => ({ ok: true, summary: "verify.run command: ok" })) };
+    }) as unknown as NonNullable<WorkerRunnerDeps["runChecks"]>;
+    let calls = 0;
+    const run = runWorkerTasks({ ...h.deps, runChecks }, options(h, c.clock, async () => {
+      calls += 1;
+      return { kind: "answer", content: '{"state":"stuck","hint":null}' };
+    }, { contract: { checks: [{ task: "t1", kind: "command", cmd: "node", args: ["t.js"] }] } }));
+    await flush();
+    h.delta("x");
+    h.say("done");
+    h.finish();
+    for (let i = 0; i < 10 && release === undefined; i += 1) await flush();
+    expect(release).toBeDefined();
+    for (let i = 0; i < 3; i += 1) await c.tick();
+    expect(calls).toBe(0);
+    release!();
+    const [row] = await run;
+    expect(row!.status).toBe("ok");
   });
 });

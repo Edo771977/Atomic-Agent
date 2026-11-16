@@ -107,7 +107,7 @@ async function run(input: {
   const complete: EscalationComplete = async (call) => {
     calls.push({ providerId: call.providerId, ...(call.model === undefined ? {} : { model: call.model }), prompt: call.prompt });
     if (call.prompt.startsWith("You watch a worker")) {
-      return { content: input.watchAnswer ?? '{"state":"progressing","hint":null}', usage: { promptTokens: 1000, completionTokens: 100 } };
+      return { content: input.watchAnswer ?? '{"state":"progressing","hint":null}', usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } };
     }
     return { content: JSON.stringify({ decision: "accept", issues: [] }) };
   };
