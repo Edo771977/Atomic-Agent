@@ -5,18 +5,24 @@ import {
   allowedProjectVerdicts,
   applyProjectDecision,
   applyProjectUpdate,
+  criteriaById,
   gateVersion,
+  milestoneShotsDir,
+  validateMilestoneAttachments,
+  withMilestoneCriteriaFacts,
   normalizeProject,
   planTotals,
   projectExpectation,
   readProject,
   withProject,
   type AssignmentRow,
+  type ProjectCriterion,
   type ProjectState,
   type ProjectUpdate,
 } from "./session-project.js";
 import { createEmptySessionState } from "./session-state.js";
 import { normalizeSessionState } from "./normalize-session-state.js";
+import { join, resolve } from "node:path";
 
 const NOW = 1_700_000_000_000;
 
@@ -81,7 +87,10 @@ describe("applyProjectUpdate: brief", () => {
   it("creates a draft brief at version 1 and opens the brief gate", () => {
     const p = update(undefined, briefUpdate);
     expect(p.brief).toMatchObject({ version: 1, status: "draft", draftedAfterUntrusted: false });
-    expect(p.brief?.successCriteria).toEqual(["Runs in the browser", "Has three levels"]);
+    expect(p.brief?.successCriteria).toEqual([
+      { id: "c1", text: "Runs in the browser" },
+      { id: "c2", text: "Has three levels" },
+    ]);
     expect(p.gate).toEqual({ kind: "brief" });
     expect(p.milestones).toEqual([]);
   });
@@ -353,7 +362,7 @@ describe("applyProjectDecision", () => {
   it("a person's brief edit keeps it a draft and bumps the version", () => {
     const p = update(undefined, briefUpdate);
     const e = ok(applyProjectDecision(p, { gate: p.gate, version: 1, verdict: "edit", edits: { brief: { users: "Kids", successCriteria: ["Fun"] } } }, { now: NOW })).project;
-    expect(e.brief).toMatchObject({ version: 2, status: "draft", users: "Kids", successCriteria: ["Fun"], what: "A small puzzle game" });
+    expect(e.brief).toMatchObject({ version: 2, status: "draft", users: "Kids", successCriteria: [{ id: "c1", text: "Fun" }], what: "A small puzzle game" });
     expect(e.gate).toEqual({ kind: "brief" });
   });
 
@@ -465,6 +474,147 @@ describe("normalizeProject", () => {
     const n = normalizeProject(p)!;
     expect(n.brief!.what.length).toBe(PROJECT_LIMITS.text);
     expect(n.brief!.successCriteria).toHaveLength(PROJECT_LIMITS.successCriteria);
+  });
+});
+
+describe("success criteria ids", () => {
+  const withCriteria = (successCriteria: ReadonlyArray<string | ProjectCriterion>): ProjectUpdate => ({
+    ...briefUpdate,
+    brief: { ...briefUpdate.brief, successCriteria },
+  });
+
+  it("keeps given ids and gives plain strings the first free c<n>", () => {
+    const p = update(undefined, withCriteria([{ id: "c2", text: "Runs offline" }, "Arrow keys steer", { id: "score-reset", text: "Score resets" }]));
+    expect(p.brief!.successCriteria).toEqual([
+      { id: "c2", text: "Runs offline" },
+      { id: "c3", text: "Arrow keys steer" },
+      { id: "score-reset", text: "Score resets" },
+    ]);
+  });
+
+  it("lower-cases and trims an id; refuses a malformed, over-long or repeated one", () => {
+    expect(update(undefined, withCriteria([{ id: " Plays-Well ", text: "x" }])).brief!.successCriteria[0]!.id).toBe("plays-well");
+    for (const bad of [[{ id: "a b", text: "x" }], [{ id: "a_b", text: "x" }], [{ id: "x".repeat(33), text: "x" }], [{ id: "", text: "x" }],
+      [{ id: "a", text: "x" }, { id: "A", text: "y" }], [{ id: "a", text: 3 }], [7]]) {
+      expect(applyProjectUpdate(undefined, withCriteria(bad as never), NOW)).toMatchObject({ ok: false, error: { code: "invalid" } });
+    }
+  });
+
+  it("a revision in plain strings keeps the id of a criterion whose text is unchanged", () => {
+    const first = update(undefined, withCriteria([{ id: "offline", text: "Runs offline" }, { id: "keys", text: "Arrow keys steer" }]));
+    const again = update(first, withCriteria(["Arrow keys steer", "Has sound"]));
+    expect(again.brief!.successCriteria).toEqual([{ id: "keys", text: "Arrow keys steer" }, { id: "c2", text: "Has sound" }]);
+  });
+
+  it("an older stored brief with plain strings reads back with ids c1..cN and round-trips", () => {
+    const stored = JSON.parse(JSON.stringify(update(undefined, briefUpdate))) as Record<string, any>;
+    stored.brief.successCriteria = ["Runs in the browser", "Has three levels", "  "];
+    const read = normalizeProject(stored)!;
+    expect(read.brief!.successCriteria).toEqual([
+      { id: "c1", text: "Runs in the browser" },
+      { id: "c2", text: "Has three levels" },
+    ]);
+    expect(normalizeProject(JSON.parse(JSON.stringify(read)))).toEqual(read);
+  });
+
+  it("a stored list keeps the caps and repairs a bad or repeated id instead of dropping the project", () => {
+    const stored = JSON.parse(JSON.stringify(update(undefined, briefUpdate))) as Record<string, any>;
+    stored.brief.successCriteria = [
+      { id: "a", text: "y".repeat(PROJECT_LIMITS.shortText + 20) },
+      { id: "a", text: "two" },
+      { id: "Bad Id", text: "three" },
+      ...Array.from({ length: PROJECT_LIMITS.successCriteria }, (_, i) => `more ${i}`),
+    ];
+    const read = normalizeProject(stored)!;
+    const list = read.brief!.successCriteria;
+    expect(list).toHaveLength(PROJECT_LIMITS.successCriteria);
+    expect(list[0]!.text.length).toBe(PROJECT_LIMITS.shortText);
+    expect(new Set(list.map((c) => c.id)).size).toBe(list.length);
+    expect(list.every((c) => /^[a-z0-9-]{1,32}$/.test(c.id))).toBe(true);
+    expect(list[1]).toEqual({ id: "c2", text: "two" });
+    expect(normalizeProject({ ...stored, brief: { ...stored.brief, successCriteria: [{ id: "a" }] } })).toBeUndefined();
+  });
+
+  it("criteriaById maps ids to criteria; empty without a brief", () => {
+    const p = update(undefined, briefUpdate);
+    const map = criteriaById(p.brief);
+    expect([...map.keys()]).toEqual(["c1", "c2"]);
+    expect(map.get("c2")).toEqual({ id: "c2", text: "Has three levels" });
+    expect(criteriaById(undefined).size).toBe(0);
+  });
+});
+
+describe("milestone attachments (issue #40)", () => {
+  const STATE = resolve("/state-dir");
+  const shot = (runId: string, file = "t1-1.jpg") => join(STATE, "fusion-runs", runId, "shots", file);
+  const ran = (): ProjectState => update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+  const report = (attachments: unknown[]): ProjectUpdate =>
+    ({ kind: "milestone", id: "m1", state: "done", summary: "Board renders", attachments }) as ProjectUpdate;
+
+  it("the shots folder of a run is <stateDir>/fusion-runs/<runId>/shots", () => {
+    expect(milestoneShotsDir(STATE, "run-1")).toBe(join(STATE, "fusion-runs", "run-1", "shots"));
+  });
+
+  it("accepts a screenshot of a run recorded on the milestone, caption and criteria cleaned", () => {
+    const m = ran().milestones[0]!;
+    const checked = validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1"), caption: "  The board\n at start ", criteria: ["c1", "c1"] }], criterionIds: new Set(["c1"]) });
+    expect(checked).toEqual({ ok: true, attachments: [{ path: shot("run-1"), caption: "The board at start", criteria: ["c1"] }] });
+  });
+
+  it.each([
+    ["another run's shot", () => shot("run-9")],
+    ["a path out of the shots folder", () => join(STATE, "fusion-runs", "run-1", "shots", "..", "run.json")],
+    ["a file in a subfolder", () => join(STATE, "fusion-runs", "run-1", "shots", "sub", "a.jpg")],
+    ["a relative path", () => "fusion-runs/run-1/shots/t1-1.jpg"],
+    ["a non-image", () => shot("run-1", "t1-1.txt")],
+    ["the folder itself", () => milestoneShotsDir(STATE, "run-1")],
+  ])("refuses %s", (_label, path) => {
+    const m = ran().milestones[0]!;
+    const checked = validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: path(), caption: "x" }] });
+    expect(checked.ok).toBe(false);
+  });
+
+  it("refuses more than the cap, a missing caption, an unknown criterion and a run id that is not one", () => {
+    const m = ran().milestones[0]!;
+    const many = Array.from({ length: PROJECT_LIMITS.attachments + 1 }, (_, i) => ({ path: shot("run-1", `t-${i}.jpg`), caption: "x" }));
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: many }).ok).toBe(false);
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1") }] }).ok).toBe(false);
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1"), caption: "x", criteria: ["zz"] }], criterionIds: new Set(["c1"]) }).ok).toBe(false);
+    const odd = { ...m, runIds: [".."] };
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: odd, attachments: [{ path: join(STATE, "fusion-runs", "shots", "a.jpg"), caption: "x" }] }).ok).toBe(false);
+  });
+
+  it("a report stores checked attachments; without a state dir, or with a bad one, it is refused", () => {
+    const p = ran();
+    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board", criteria: ["c1"] }]), NOW, { stateDir: STATE })).project;
+    expect(done.milestones[0]!.attachments).toEqual([{ path: shot("run-1"), caption: "Board", criteria: ["c1"] }]);
+    expect(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW)).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(applyProjectUpdate(p, report([{ path: shot("run-9"), caption: "Board" }]), NOW, { stateDir: STATE })).toMatchObject({ ok: false, error: { code: "invalid" } });
+    // A new report without attachments drops the old result's.
+    const again = update(done, { kind: "milestone", id: "m1", state: "failed", summary: "Broke" });
+    expect(again.milestones[0]!.attachments).toBeUndefined();
+  });
+
+  it("stored attachments and criteria facts read back, malformed entries dropped, caps kept", () => {
+    const p = ran();
+    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW, { stateDir: STATE })).project;
+    const withFacts = withMilestoneCriteriaFacts(done, "m1", [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }], NOW);
+    const raw = JSON.parse(JSON.stringify(withFacts)) as Record<string, any>;
+    expect(normalizeProject(raw)).toEqual(withFacts);
+    raw.milestones[0].attachments.push({ path: 3 }, ...Array.from({ length: 10 }, (_, i) => ({ path: shot("run-1", `x${i}.jpg`), caption: "c" })));
+    raw.milestones[0].criteriaFacts.push({ id: "c3", state: "maybe" });
+    const read = normalizeProject(raw)!;
+    expect(read.milestones[0]!.attachments).toHaveLength(PROJECT_LIMITS.attachments);
+    expect(read.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }]);
+  });
+
+  it("withMilestoneCriteriaFacts sets one milestone's facts; unknown milestone or bad facts leave the project", () => {
+    const p = ran();
+    expect(withMilestoneCriteriaFacts(p, "zz", [{ id: "c1", state: "passed" }], NOW)).toBe(p);
+    const set = withMilestoneCriteriaFacts(p, "m1", [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never], NOW);
+    expect(set.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "failed", why: `${"x".repeat(PROJECT_LIMITS.shortText - 1)}…` }]);
+    expect(set.gate).toEqual(p.gate);
+    expect(set.plan!.version).toBe(p.plan!.version);
   });
 });
 

@@ -2,12 +2,15 @@ import { compressToolResult, type CompressedToolResult } from "../../compressor/
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
+  CRITERION_ID_PATTERN,
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   planTotals,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectCriterionInput,
+  type ProjectMilestoneAttachment,
   type ProjectGameBrief,
   type ProjectUpdate,
 } from "../../session/session-project.js";
@@ -85,6 +88,29 @@ function unknownKeys(raw: Record<string, unknown>, allowed: readonly string[], w
 
 // ------------------------------------------------------------------ brief
 
+/** Each criterion is a sentence, or `{ id, text }` with a unique `[a-z0-9-]` id of at most 32 characters. */
+function criteriaProblems(criteria: readonly unknown[]): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const [i, c] of criteria.entries()) {
+    if (nonEmpty(c)) continue;
+    if (!isObject(c) || !nonEmpty(c.text) || typeof c.id !== "string") {
+      problems.push(`\`successCriteria\` ${i + 1} must be a short checkable sentence, or { id, text }`);
+      continue;
+    }
+    const extra = Object.keys(c).filter((k) => k !== "id" && k !== "text");
+    if (extra.length > 0) problems.push(`\`successCriteria\` ${i + 1}: unknown key \`${extra[0]}\``);
+    const id = c.id.trim().toLowerCase();
+    if (!CRITERION_ID_PATTERN.test(id)) {
+      problems.push(`\`successCriteria\` ${i + 1}: id ${JSON.stringify(c.id)} must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);
+    } else if (seen.has(id)) {
+      problems.push(`\`successCriteria\`: id ${id} is used twice`);
+    }
+    seen.add(id);
+  }
+  return problems;
+}
+
 export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ brief: ProjectBriefDraft }> {
   const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria"], "project.brief");
   if (!nonEmpty(raw.what)) problems.push("`what` must say what is being built");
@@ -102,10 +128,12 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
     }
   }
   const criteria = raw.successCriteria;
-  if (!Array.isArray(criteria) || criteria.length === 0 || !criteria.every(nonEmpty)) {
+  if (!Array.isArray(criteria) || criteria.length === 0) {
     problems.push("`successCriteria` must be a list of short checkable sentences (at least one)");
   } else if (criteria.length > PROJECT_LIMITS.successCriteria) {
     problems.push(`\`successCriteria\`: at most ${PROJECT_LIMITS.successCriteria}`);
+  } else {
+    problems.push(...criteriaProblems(criteria));
   }
   if (problems.length > 0) return { ok: false, problems };
   return {
@@ -115,7 +143,7 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
       users: raw.users as string,
       how: raw.how as string,
       ...(game === undefined ? {} : { game }),
-      successCriteria: criteria as string[],
+      successCriteria: criteria as ProjectCriterionInput[],
     },
   };
 }
@@ -257,13 +285,44 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
 // -------------------------------------------------------------- milestone
 
 export function parseProjectMilestoneArgs(raw: Record<string, unknown>): Parsed<{ report: Extract<ProjectUpdate, { kind: "milestone" }> }> {
-  const problems: string[] = unknownKeys(raw, ["id", "state", "summary"], "project.milestone");
+  const problems: string[] = unknownKeys(raw, ["id", "state", "summary", "attachments"], "project.milestone");
   const id = cleanId(raw.id);
   if (id === null) problems.push("`id` must name a milestone of the plan");
   if (raw.state !== "done" && raw.state !== "failed") problems.push('`state` must be "done" or "failed" (the person approves)');
   if (!nonEmpty(raw.summary)) problems.push("`summary` must say what the milestone produced and what is still wrong");
+  // Shape only: whether a path lies in a run's shots folder is checked
+  // against the milestone's runs when the report is folded.
+  let attachments: ProjectMilestoneAttachment[] | undefined;
+  if (raw.attachments !== undefined) {
+    if (!Array.isArray(raw.attachments) || raw.attachments.length > PROJECT_LIMITS.attachments) {
+      problems.push(`\`attachments\` must list at most ${PROJECT_LIMITS.attachments} { path, caption, criteria? }`);
+    } else {
+      attachments = [];
+      for (const [i, a] of raw.attachments.entries()) {
+        if (!isObject(a) || !nonEmpty(a.path) || !nonEmpty(a.caption)) {
+          problems.push(`attachment ${i + 1} needs a \`path\` (a screenshot of this milestone's runs) and a \`caption\``);
+          continue;
+        }
+        problems.push(...unknownKeys(a, ["path", "caption", "criteria"], `attachment ${i + 1}`));
+        if (a.criteria !== undefined && (!Array.isArray(a.criteria) || !a.criteria.every(nonEmpty))) {
+          problems.push(`attachment ${i + 1}: \`criteria\` must list success criterion ids`);
+          continue;
+        }
+        attachments.push({ path: a.path, caption: a.caption, ...(a.criteria === undefined ? {} : { criteria: a.criteria as string[] }) });
+      }
+    }
+  }
   if (problems.length > 0) return { ok: false, problems };
-  return { ok: true, report: { kind: "milestone", id: id!, state: raw.state as "done" | "failed", summary: raw.summary as string } };
+  return {
+    ok: true,
+    report: {
+      kind: "milestone",
+      id: id!,
+      state: raw.state as "done" | "failed",
+      summary: raw.summary as string,
+      ...(attachments === undefined ? {} : { attachments }),
+    },
+  };
 }
 
 // ------------------------------------------------------------------ tools

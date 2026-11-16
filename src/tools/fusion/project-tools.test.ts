@@ -107,6 +107,16 @@ describe("project.brief", () => {
     expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
   });
 
+  it("takes criteria as text or { id, text }; refuses a bad or repeated id", () => {
+    const successCriteria = ["Runs offline", { id: "keys", text: "Arrow keys steer" }];
+    expect(parseProjectBriefArgs({ ...briefArgs, successCriteria })).toMatchObject({ ok: true, brief: { successCriteria } });
+    for (const bad of [[{ id: "Not ok", text: "x" }], [{ id: "a", text: "x" }, { id: "a", text: "y" }], [{ id: "a" }], [{ text: " " }], ["x".repeat(3), 4]]) {
+      const parsed = parseProjectBriefArgs({ ...briefArgs, successCriteria: bad });
+      expect(parsed).toMatchObject({ ok: false });
+      expect(JSON.stringify(parsed)).toMatch(/successCriteria/);
+    }
+  });
+
   it("accepts the optional game block and refuses a partial one", () => {
     const game = { rules: "eat apples", loop: "move, eat, grow", difficulty: "speeds up", style: "pixel" };
     expect(parseProjectBriefArgs({ ...briefArgs, game })).toMatchObject({ ok: true, brief: { game } });
@@ -223,6 +233,15 @@ describe("project.milestone", () => {
     expect(result.status).toBe("ok");
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({ kind: "milestone", id: "base", state: "done", summary: "Board drawn, snake moves" });
     expect(result.summary).toMatch(/reply/i);
+  });
+
+  it("passes attachments through for the fold to check against the milestone's runs (issue #40)", async () => {
+    const attachments = [{ path: "/state/fusion-runs/r1/shots/t1-1.jpg", caption: "The board", criteria: ["c1"] }];
+    const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn", attachments }, ctx);
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({ kind: "milestone", id: "base", state: "done", summary: "Board drawn", attachments });
+    for (const bad of [[{ path: "/a.jpg" }], "x", [{ path: 3, caption: "c" }], [{ path: "/a.jpg", caption: "c", criteria: "c1" }], Array.from({ length: 9 }, () => ({ path: "/a.jpg", caption: "c" }))]) {
+      expect(parseProjectMilestoneArgs({ id: "base", state: "done", summary: "x", attachments: bad })).toMatchObject({ ok: false });
+    }
   });
 
   it("the model cannot approve or review", async () => {

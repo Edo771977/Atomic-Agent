@@ -690,7 +690,13 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
           { rules: stringSchema, loop: stringSchema, difficulty: stringSchema, style: stringSchema },
           ["rules", "loop", "difficulty", "style"],
         ),
-        successCriteria: { type: "array", minItems: 1, maxItems: 20, items: stringSchema },
+        // A sentence, or { id, text } so contract checks can name it (issue #40).
+        successCriteria: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          items: { anyOf: [stringSchema, obj({ id: stringSchema, text: stringSchema }, ["id", "text"])] },
+        },
       },
       ["what", "users", "how", "successCriteria"],
     ),
@@ -739,6 +745,15 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
         id: stringSchema,
         state: { type: "string", enum: ["done", "failed"] },
         summary: stringSchema,
+        // Screenshots of this milestone's runs (issue #40); checked when folded.
+        attachments: {
+          type: "array",
+          maxItems: 8,
+          items: obj(
+            { path: stringSchema, caption: stringSchema, criteria: { type: "array", items: stringSchema } },
+            ["path", "caption"],
+          ),
+        },
       },
       ["id", "state", "summary"],
     ),

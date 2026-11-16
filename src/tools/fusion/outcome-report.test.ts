@@ -314,6 +314,28 @@ describe("fusion report", () => {
     expect(text).toContain("stuck 1");
   });
 
+  it("reports criteria per model and a games line; old records show - (issue #40)", () => {
+    const report = aggregateOutcomes([
+      task({ criteria: { passed: 2, failed: 1, unverified: 0 }, games: { n: 5, errors: 1, medianMs: 2000 }, shots: 2 }),
+      task({ criteria: { passed: 1, failed: 0, unverified: 1 }, games: { n: 3, errors: 0, medianMs: 4000 }, shots: 1 }),
+      { ...task(), criteria: { passed: "x" }, games: 3, shots: -2 } as unknown as TaskOutcomeRecord,
+      task({ model: "mid", provider: "openrouter", leg: "cloud" }),
+    ]);
+    const small = report.workers.find((w) => w.model === "small")!;
+    expect(small.criteria).toEqual({ recorded: 2, passed: 3, failed: 1, unverified: 1 });
+    expect(small.games).toEqual({ recorded: 2, n: 8, errors: 1, medianMs: 3000 });
+    expect(small.shots).toBe(3);
+    const mid = report.workers.find((w) => w.model === "mid")!;
+    expect(mid.criteria).toEqual({ recorded: 0, passed: 0, failed: 0, unverified: 0 });
+    expect(mid.games).toEqual({ recorded: 0, n: 0, errors: 0, medianMs: null });
+    const text = formatFusionReport(report);
+    expect(text).toContain("criteria pass/fail/unverified");
+    expect(text).toMatch(/small \(local-llama\)\s+local\s+3\s.*\s3\/1\/1\s/);
+    expect(text).toMatch(/mid \(openrouter\)\s+cloud\s+1\s.*\s0\/0\/1\/0\s+-\s/);
+    expect(text).toContain("Games: small (local-llama) 8 games, errors 1, median 3s");
+    expect(text).not.toMatch(/Games: mid/);
+  });
+
   it("says so when nothing is recorded", () => {
     expect(formatFusionReport(aggregateOutcomes([], {}))).toContain("Nothing recorded yet");
   });

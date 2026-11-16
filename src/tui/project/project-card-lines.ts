@@ -6,7 +6,9 @@
  * buttons from the view's allowed verdicts.
  */
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE } from "../../session/project-gate-text.js";
+import { pathToFileURL } from "node:url";
+
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -23,6 +25,8 @@ export interface ProjectCardSegment {
   tone?: ProjectLineTone;
   inverse?: boolean;
   bold?: boolean;
+  /** A file or web URL the popup draws the text as (OSC 8): a picture's path. */
+  link?: string;
 }
 
 export interface ProjectCardLine {
@@ -67,6 +71,15 @@ function wrap(text: string, width: number): string[] {
     out.push(cur);
   }
   return out;
+}
+
+/** A path as a file URL; undefined when it cannot be one. */
+function fileLink(path: string): string | undefined {
+  try {
+    return pathToFileURL(path).href;
+  } catch {
+    return undefined;
+  }
 }
 
 const MILESTONE_MARK: Record<ProjectMilestone["state"], string> = {
@@ -161,6 +174,16 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     for (const m of shown) {
       text(`${MILESTONE_MARK[m.state]} ${m.title} (${m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
+      if (full || m.id === gateId) {
+        // Evidence of the result (issue #40): never a claim the view does not carry.
+        for (const f of m.criteriaFacts ?? []) {
+          text(criterionFactLine(f, brief?.criteria), f.state === "passed" ? "ok" : f.state === "failed" ? "error" : "warn", 4);
+        }
+        for (const a of m.attachments ?? []) {
+          text(`▣ ${attachmentLabel(a)}`, "plain", 4);
+          out.push({ segments: [{ text: "      " }, { text: a.path, tone: "muted", link: fileLink(a.path) }] });
+        }
+      }
     }
     if (!full) text(`${view.milestones.length} milestone${view.milestones.length === 1 ? "" : "s"} · /plan shows the full plan`, "muted");
   }

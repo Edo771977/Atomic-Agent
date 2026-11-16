@@ -328,11 +328,11 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     // Frequent: a director must reach for them before the first fan-out.
     name: "project.brief",
     summary:
-      "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
+      "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. A game must expose `window.__game` so it can be played automatically: start({ seed, mode: \"auto\" }) sets up a computer-vs-computer game, step() advances one move, state() → { over, winner, moves, error? }; say so in `how`. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
     argsSchema:
-      "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: string[] /* 1..20 short checkable sentences */ }",
+      "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: ({ id: string /* a-z 0-9 -, max 32, unique */, text: string } | string)[] /* 1..20 short checkable sentences; a plain one gets id c<n>, n its position. Contract checks name the ids they verify */ }",
     examples: [
-      '{"what":"A browser snake game","users":"Casual players on a laptop","how":"One HTML page, plain JS, no build step","game":{"rules":"Eat apples, avoid walls and yourself","loop":"Move, eat, grow, speed up","difficulty":"Speeds up every 5 apples","style":"Flat pixel art"},"successCriteria":["Opens from index.html with no server","Arrow keys steer","Score shows and resets on restart"]}',
+      '{"what":"A browser snake game","users":"Casual players on a laptop","how":"One HTML page, plain JS, no build step","game":{"rules":"Eat apples, avoid walls and yourself","loop":"Move, eat, grow, speed up","difficulty":"Speeds up every 5 apples","style":"Flat pixel art"},"successCriteria":[{"id":"offline","text":"Opens from index.html with no server"},{"id":"keys","text":"Arrow keys steer"},{"id":"score","text":"Score shows and resets on restart"}]}',
     ],
   },
   {
@@ -349,7 +349,8 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     name: "project.milestone",
     summary:
       "Report the result of the approved milestone you ran: done or failed, with a summary of what it produced against the success criteria. The person then approves (the next milestone starts), corrects or cancels; reply after calling it.",
-    argsSchema: "{ id: string, state: 'done' | 'failed', summary: string }",
+    argsSchema:
+      "{ id: string, state: 'done' | 'failed', summary: string, attachments?: [{ path: string /* a screenshot a check of this milestone's runs saved, as its result names it */, caption: string, criteria?: string[] /* the criterion ids it shows */ }] /* up to 8 */ }",
     examples: ['{"id":"base","state":"done","summary":"Board, snake and apples work; arrow keys steer; checked in the page run."}'],
   },
   {

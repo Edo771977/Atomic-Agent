@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
+import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import type { ProjectDecision } from "../session/session-project.js";
 import { buildStreamEventHook } from "./openai-chat-completions.js";
@@ -54,6 +54,16 @@ describe("/api/project", () => {
     expect(json.view.allowedVerdicts).toContain("cheaper");
   });
 
+  it("GET carries a milestone's attachments and criteria facts (issue #40)", async () => {
+    views.set("s1", withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" })));
+    const json = (await (await fetch(`${harness.baseUrl}/api/project?session=s1`)).json()) as { view: ProjectGateView };
+    expect(json.view.milestones[0]).toMatchObject({
+      attachments: [{ path: FIXTURE_SHOT_PATH, caption: "The board at start", criteria: ["c1"] }],
+      criteriaFacts: [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision-capable reviewer" }],
+    });
+    expect(json.view.brief!.criteria).toEqual([{ id: "c1", text: "Runs in a browser" }, { id: "c2", text: "Ten levels" }]);
+  });
+
   it("GET without a project is 404; without ?session= is 400", async () => {
     expect((await fetch(`${harness.baseUrl}/api/project?session=nope`)).status).toBe(404);
     expect((await fetch(`${harness.baseUrl}/api/project`)).status).toBe(400);
@@ -75,6 +85,16 @@ describe("/api/project", () => {
     views.set("s1", fixtureProjectGateView({ kind: "plan" }));
     await post({ session: "s1", gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { rows: [{ taskId: "t1", worker: "prov-c:model-c", reviewer: null }] } });
     expect(decide).toHaveBeenLastCalledWith("s1", expect.objectContaining({ edits: { rows: [{ taskId: "t1", worker: "prov-c:model-c", reviewer: null }] } }));
+  });
+
+  it("POST passes a brief edit's criteria, as text or with ids, through", async () => {
+    views.set("s1", fixtureProjectGateView({ kind: "brief" }, { version: 2 }));
+    const criteria = ["Runs offline", { id: "keys", text: "Arrow keys steer" }];
+    const r = await post({ session: "s1", gate: { kind: "brief" }, version: 2, verdict: "edit", edits: { brief: { successCriteria: criteria } } });
+    expect(r.status).toBe(200);
+    expect(decide).toHaveBeenLastCalledWith("s1", expect.objectContaining({ edits: { brief: { successCriteria: criteria } } }));
+    const bad = await post({ session: "s1", gate: { kind: "brief" }, version: 2, verdict: "edit", edits: { brief: { successCriteria: [{ id: "x" }] } } });
+    expect(bad.status).toBe(400);
   });
 
   it("POST on a stale version is 409 with the current view", async () => {

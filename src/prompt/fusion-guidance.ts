@@ -236,6 +236,7 @@ export const PROJECT_FLOW_GUIDANCE = [
   "2. Once approved, `project.plan`: milestones in run order, tasks with the ids you will delegate.",
   "3. Once approved, delegate the approved milestone's tasks (same ids and workers), review them, report with `project.milestone`.",
   "Never delegate while a gate waits; `### project` says where it stands and what the person corrected.",
+  "Map each success criterion to contract checks naming it (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`).",
 ].join("\n");
 
 /**
