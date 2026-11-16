@@ -1,0 +1,257 @@
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import type { AtomicAgentConfig } from "../../config/index.js";
+import { defaultBrowserLauncher, type BrowserLauncher } from "./run-page-kind.js";
+import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
+import { BROWSER_SHOT_MAX_BYTES, BROWSER_SHOT_MAX_SIDE } from "../browser/screenshot-geometry.js";
+
+/**
+ * The game harness under a real headless Chromium (issue #40). The host's
+ * browser first, else a Playwright-managed headless shell or Chromium
+ * from the browsers directory; skipped where none launches.
+ */
+function managedExecutables(): string[] {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache", "ms-playwright");
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  for (const dir of readdirSync(root).sort().reverse()) {
+    for (const rel of [["chrome-headless-shell-linux64", "chrome-headless-shell"], ["chrome-linux64", "chrome"], ["chrome-linux", "chrome"]]) {
+      const path = join(root, dir, ...rel);
+      if (existsSync(path)) out.push(path);
+    }
+  }
+  return out;
+}
+
+function config(executablePath: string | null): Pick<AtomicAgentConfig, "browser"> {
+  return {
+    browser: {
+      enabled: true, channel: "chrome", headless: true, cdpUrl: null, connect: "agent", userChromeDataDir: null,
+      executablePath, noSandbox: false, launchTimeoutMs: 20_000, blockedDomains: [], allowedDomains: [],
+    },
+  };
+}
+
+let launch: BrowserLauncher | undefined;
+let work: string;
+
+beforeAll(async () => {
+  for (const executable of [null, ...managedExecutables()]) {
+    const candidate = defaultBrowserLauncher(config(executable));
+    try {
+      await (await candidate()).close();
+      launch = candidate;
+      return;
+    } catch {
+      // next candidate
+    }
+  }
+}, 60_000);
+
+beforeEach(async () => {
+  work = await mkdtemp(join(tmpdir(), "atag-verify-game-"));
+});
+
+afterEach(async () => {
+  await rm(work, { recursive: true, force: true });
+});
+
+function ctx(over: Partial<VerifyRunContext> = {}): VerifyRunContext {
+  return { workingDir: work, config: config(null), ...(launch === undefined ? {} : { launchBrowser: launch }), ...over };
+}
+
+const posix = process.platform !== "win32";
+const isJpeg = (path: string): boolean => {
+  const head = readFileSync(path).subarray(0, 3);
+  return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+};
+
+/** A stub game: a counter race whose winner follows the seed. */
+const STUB_GAME = `<html><body><script>
+  let s = null;
+  window.__game = {
+    start(opts) { s = { seed: opts.seed, mode: opts.mode, moves: 0, over: false, winner: null }; window.__lastOpts = opts; },
+    step() {
+      s.moves += 1;
+      if (s.seed === 2 && s.moves === 3) console.error("illegal move by O");
+      if (s.moves >= 4 + s.seed) { s.over = true; s.winner = s.seed % 3 === 0 ? null : (s.seed % 2 ? "X" : "O"); }
+    },
+    state() { return { over: s.over, winner: s.winner, moves: s.moves }; },
+  };
+</script></body></html>`;
+
+describe("runVerify — page games under a real browser", () => {
+  it("plays N games through window.__game in the page and reports duration, winner, moves and errors per game", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "game.html"), STUB_GAME);
+    const out = await runVerify({
+      kind: "page", path: "game.html", seconds: 0.1,
+      game: { games: 4, maxMsPerGame: 5_000 },
+      checks: ["games finish", "game moves < 10", "game winner in [X, O, none]", "game winners vary", "game duration < 5000", "game errors 0"],
+    }, ctx());
+    expect(out.games).toMatchObject({ n: 4, played: 4, finished: 4, errors: 1, winners: { X: 1, O: 2, none: 1 } });
+    expect(out.games!.runs.map((r) => [r.seed, r.winner, r.moves, r.finished])).toEqual([
+      [1, "X", 5, true], [2, "O", 6, true], [3, null, 7, true], [4, "O", 8, true],
+    ]);
+    // A console error during game 2 counts against game 2 only.
+    expect(out.games!.runs[1]!.errors).toEqual(["console: illegal move by O"]);
+    expect(out.games!.runs[0]!.errors).toEqual([]);
+    expect(out.games!.medianMoves).toBe(6.5);
+    expect(typeof out.games!.medianMs).toBe("number");
+    expect(out.checks!.map((c) => [c.check, c.ok])).toEqual([
+      ["games finish", true], ["game moves < 10", true], ["game winner in [X, O, none]", true],
+      ["game winners vary", true], ["game duration < 5000", true], ["game errors 0", false],
+    ]);
+    expect(out.summary).toContain("games: 4 of 4 finished");
+  }, 60_000);
+
+  it("stops a game at maxMoves or maxMsPerGame and counts an uncaught error thrown by step", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "endless.html"), `<html><body><script>
+      let m = 0, seed = 0;
+      window.__game = {
+        start(o) { m = 0; seed = o.seed; },
+        async step() { m += 1; if (seed === 2 && m === 2) throw new Error("board is null"); await new Promise(r => setTimeout(r, 1)); },
+        state() { return { over: false, winner: null, moves: m }; },
+      };
+    </script></body></html>`);
+    const out = await runVerify({
+      kind: "page", path: "endless.html", seconds: 0.1,
+      game: { games: 3, maxMsPerGame: 400, maxMoves: 50 },
+      checks: ["games finish"],
+    }, ctx());
+    const [first, second, third] = out.games!.runs;
+    expect(first).toMatchObject({ finished: false, moves: 50, movesCapped: true });
+    expect(second).toMatchObject({ finished: false });
+    expect(second!.errors.join(" ")).toContain("board is null");
+    expect(third).toMatchObject({ finished: false });
+    expect(out.games!.finished).toBe(0);
+    expect(out.checks![0]).toMatchObject({ ok: false, detail: expect.stringContaining("0 of 3 games finished") });
+    expect(out.ok).toBe(false);
+  }, 60_000);
+
+  it("stops a running game when the run is cancelled, even inside a step that never ends", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "hang.html"), `<html><body><script>
+      window.__game = { start() {}, step() { return new Promise(() => {}); }, state() { return { over: false, winner: null, moves: 0 }; } };
+    </script></body></html>`);
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = runVerify({ kind: "page", path: "hang.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 60_000 }, checks: ["games finish"] }, ctx({ signal: controller.signal }));
+    // Into the game: the page has loaded and the harness is waiting on step().
+    await new Promise((r) => setTimeout(r, 1_500));
+    const aborted = Date.now();
+    controller.abort();
+    const out = await pending;
+    expect(Date.now() - aborted).toBeLessThan(1_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(out.ok).toBe(false);
+  }, 60_000);
+
+  it("clips a page's long error, console and winner text in the page, whatever the page did to String.prototype.slice", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "loud.html"), `<html><body><script>
+      const big = "x".repeat(100000);
+      let n = 0, seed = 0;
+      window.__game = {
+        start(o) { n = 0; seed = o.seed; String.prototype.slice = function () { return String(this); }; },
+        step() { n += 1; console.error(big); if (seed === 2) throw new Error(big); },
+        state() { return { over: n >= 2, winner: n >= 2 ? big : null, moves: n }; },
+      };
+    </script></body></html>`);
+    const out = await runVerify({ kind: "page", path: "loud.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 5_000 } }, ctx());
+    const [first, second] = out.games!.runs;
+    expect(first!.winner!.length).toBeLessThanOrEqual(40);
+    expect(first!.errors.length).toBeGreaterThan(0);
+    for (const run of [first!, second!]) for (const e of run.errors) expect(e.length).toBeLessThanOrEqual(320);
+    expect(second!.errors.join(" ")).toContain("step() threw");
+  }, 60_000);
+
+  it("fails with a clear reason when the page exposes no window.__game", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "plain.html"), "<html><body>no game here</body></html>");
+    const out = await runVerify({
+      kind: "page", path: "plain.html", seconds: 0.1,
+      game: { games: 2, maxMsPerGame: 1_000 },
+      checks: ["games finish", "no errors"],
+    }, ctx());
+    expect(out.ok).toBe(false);
+    expect(out.games?.missingApi).toContain("the page exposes no window.__game API; the brief requires it");
+    expect(out.checks![0]).toMatchObject({ ok: false, detail: expect.stringContaining("no window.__game API") });
+    // The page itself had no errors; the run fails for the missing API.
+    expect(out.checks![1]).toMatchObject({ ok: true });
+    expect(out.summary).toContain("no window.__game API");
+  }, 60_000);
+
+  it("passes {seed, mode: 'auto'} to start", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "game.html"), STUB_GAME.replace("</script>", "window.addEventListener('load', () => {});</script>"));
+    const out = await runVerify({
+      kind: "page", path: "game.html", seconds: 0.3,
+      game: { games: 1, maxMsPerGame: 2_000 },
+      probes: [{ name: "opts", expr: "JSON.stringify(window.__lastOpts)" }],
+    }, ctx());
+    expect(out.probes!.opts!.at(-1)![1]).toBe(JSON.stringify({ seed: 1, mode: "auto" }));
+  }, 60_000);
+});
+
+describe("runVerify — page screenshots under a real browser (issue #40)", () => {
+  let shots: string;
+  beforeEach(async () => {
+    shots = join(await mkdtemp(join(tmpdir(), "atag-verify-shots-")), "run", "shots");
+  });
+
+  it("takes one capped JPEG at the end of the run, stored where the caller says, owner-only", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "index.html"), "<html><body style='background:#36c'><h1>Board</h1></body></html>");
+    const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "t1" } }));
+    expect(out.ok).toBe(true);
+    expect(out.screenshots).toEqual([{ path: join(shots, "t1-1.jpg"), bytes: expect.any(Number), width: 1280, height: 720 }]);
+    const [shot] = out.screenshots!;
+    expect(shot!.bytes).toBeLessThanOrEqual(BROWSER_SHOT_MAX_BYTES);
+    expect(statSync(shot!.path).size).toBe(shot!.bytes);
+    expect(isJpeg(shot!.path)).toBe(true);
+    if (posix) {
+      expect(statSync(shot!.path).mode & 0o777).toBe(0o600);
+      expect(statSync(shots).mode & 0o777).toBe(0o700);
+    }
+    expect(out.summary).toContain(join(shots, "t1-1.jpg"));
+    // A second run for the same task numbers on.
+    const again = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "t1" } }));
+    expect(again.screenshots?.[0]?.path).toBe(join(shots, "t1-2.jpg"));
+  }, 60_000);
+
+  it("caps a full-page shot of a tall page at the long-side limit", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "tall.html"), "<html><body style='margin:0'><div style='height:3000px;background:linear-gradient(#f00,#00f)'></div></body></html>");
+    const out = await runVerify({ kind: "page", path: "tall.html", seconds: 0.1, screenshot: { fullPage: true } }, ctx({ screenshots: { dir: shots, prefix: "tall" } }));
+    const [shot] = out.screenshots!;
+    expect(Math.max(shot!.width, shot!.height)).toBeLessThanOrEqual(BROWSER_SHOT_MAX_SIDE);
+    expect(shot!.height).toBeGreaterThan(shot!.width);
+  }, 60_000);
+
+  it("takes a shot at the end of each game, at most four per run", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "game.html"), STUB_GAME);
+    const out = await runVerify({ kind: "page", path: "game.html", seconds: 0.1, game: { games: 6, maxMsPerGame: 2_000 }, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "g" } }));
+    expect(out.screenshots?.map((s) => [s.path, s.game])).toEqual([1, 2, 3, 4].map((n) => [join(shots, `g-${n}.jpg`), n - 1]));
+  }, 60_000);
+
+  it("falls back to the temp screenshot folder without a durable target, and runChecks picks a target per spec", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "index.html"), "<html><body>x</body></html>");
+    const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx());
+    expect(out.screenshots?.[0]?.path.startsWith(join(tmpdir(), "atomic-agent-browser-shots"))).toBe(true);
+    expect(existsSync(out.screenshots![0]!.path)).toBe(true);
+    await rm(out.screenshots![0]!.path, { force: true });
+    const both = await runChecks(
+      [{ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, { kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }],
+      ctx({ screenshotTargetFor: (i) => ({ dir: shots, prefix: i === 0 ? "a" : "b" }) }),
+    );
+    expect(both.results.map((r) => r.screenshots?.[0]?.path)).toEqual([join(shots, "a-1.jpg"), join(shots, "b-1.jpg")]);
+  }, 60_000);
+});

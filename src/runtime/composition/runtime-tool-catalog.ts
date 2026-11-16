@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
@@ -21,6 +22,9 @@ import type { ModelProfile } from "../../llm/model-profile.js";
 import type { SlotManager } from "../../llm/slot-manager.js";
 import { createFusionFormatProbeFor } from "./fusion-format-check.js";
 import { assertProviderAllowed, hasProjectConstraints, runWithProviderRole } from "../../llm/provider-policy.js";
+import { buildFusionVisionJudge } from "./fusion-vision-judge.js";
+import { readMilestoneEvidence } from "../../tools/fusion/run-criteria.js";
+import type { LlmProvider } from "../../llm/index.js";
 import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
@@ -50,7 +54,7 @@ import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../
 import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index.js";
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
-import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
 import { currentPolicyAllows } from "../../llm/provider-policy.js";
@@ -735,6 +739,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   currentWorker?: FusionDelegateDeps["currentWorker"];
   /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
   teamMemberReachable?: (member: TeamMember) => boolean;
+  /** The provider `vision.describe` routes to now: the fusion vision judge's last fallback (issue #40). */
+  resolveCurrentVisionProvider?: (providerId: string | undefined) => LlmProvider | undefined;
   providerRegistry: Pick<ProviderRegistry, "getProvider"> & Partial<Pick<ProviderRegistry, "getLoadedEntrySnapshot" | "modelVariant">>;
   llama: Pick<
     LlamaServerClient,
@@ -1045,10 +1051,29 @@ export function registerRuntimeFusionAndReadScope(input: {
           workingDir: ctx.workingDir,
           signal: ctx.signal,
           config,
+          // A fusion run's page-check screenshots are kept with the run,
+          // under `<stateDir>/fusion-runs/<runId>/shots` (issue #40).
+          ...(ctx.run === undefined ? {} : {
+            screenshotTargetFor: (index: number) => fusionRunShotTarget(join(config.paths.stateDir, FUSION_RUNS_DIR_NAME), ctx.run!, ctx.checkTasks?.[index]),
+          }),
           shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
           ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }),
         }), { supportsInputIntegrity: true as const }),
       shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
+      // The same dispatch guard as a verify.run call of the delegating
+      // session: a check the folder's egress rule refuses never runs.
+      contractCheckEgress: (spec, ctx) => toolRegistry.dispatchRefusal("verify.run", spec, ctx),
+      // Visual contract checks judged by a vision-capable team member
+      // (issue #40); off with `vision.enabled: false`, when every visual
+      // criterion stays unverified.
+      ...(!config.vision.enabled ? {} : {
+        visionJudge: buildFusionVisionJudge({
+          providerRegistry,
+          providerEntries: () => resolveLlmConfig(getConfig()).providers,
+          routeProvider: () => input.resolveCurrentVisionProvider?.(undefined),
+          assertAllowed: (id) => assertProviderAllowed(id, { constraintsActive: () => hasProjectConstraints(getConfig()) }),
+        }),
+      }),
       checkCommandReads: createCommandReadCheck(runtimeReadConfinement(config, dangerous)),
       checkReadTargets: createReadTargetCheck(runtimeReadConfinement(config, dangerous)),
       // `verify.syntax`'s own checker: the delegate syntax-checks every
@@ -1079,6 +1104,15 @@ export function registerRuntimeFusionAndReadScope(input: {
       }).plan;
     },
     outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
+    // A done milestone's criteria facts and screenshots, from its runs'
+    // folders under `<stateDir>/fusion-runs` (issue #40).
+    milestoneEvidence: (milestone, criteriaOrder) =>
+      readMilestoneEvidence({
+        runsDir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME),
+        stateDir: config.paths.stateDir,
+        runIds: milestone.runIds,
+        criteriaOrder,
+      }),
   })) {
     toolRegistry.register(tool);
   }

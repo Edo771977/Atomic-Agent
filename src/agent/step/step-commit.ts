@@ -151,7 +151,7 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
     // refused one becomes this call's error everywhere below (the
     // transcript, the latest result, the loop). The live
     // `tool_call_executed` event already went out with the tool's own row.
-    const folded = foldProjectUpdate(nextSession, stepResults[i]!, Date.now());
+    const folded = foldProjectUpdate(nextSession, stepResults[i]!, Date.now(), { stateDir: getConfig().paths.stateDir });
     nextSession = folded.session;
     stepResults[i] = folded.result;
     const result = folded.result;

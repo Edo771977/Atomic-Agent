@@ -1,5 +1,5 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
-import { applyProjectUpdate, withProject, type ProjectUpdate } from "../../session/session-project.js";
+import { applyProjectUpdate, withProject, type ProjectUpdate, type ProjectUpdateOptions } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
 
 /** Key of a project update in a result's `details` (`tools/fusion/project-tools.ts`). */
@@ -34,6 +34,8 @@ export function foldProjectUpdate(
   session: SessionState,
   result: CompressedToolResult,
   now: number,
+  /** `stateDir`: where a milestone report's attachments must lie (issue #40). */
+  options: ProjectUpdateOptions = {},
 ): { session: SessionState; result: CompressedToolResult } {
   const details = result.details as Record<string, unknown> | undefined;
   if (details === undefined || !(PROJECT_UPDATE_DETAIL in details)) return { session, result };
@@ -51,7 +53,7 @@ export function foldProjectUpdate(
   }
   const applied =
     typeof raw === "object" && raw !== null && typeof (raw as { kind?: unknown }).kind === "string"
-      ? applyProjectUpdate(session.project, raw as ProjectUpdate, now)
+      ? applyProjectUpdate(session.project, raw as ProjectUpdate, now, options)
       : { ok: false as const, error: { code: "invalid" as const, message: "the project update was malformed" } };
   if (applied.ok) return { session: withProject(session, applied.project), result };
   const rest = { ...details };

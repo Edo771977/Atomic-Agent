@@ -36,6 +36,7 @@
  */
 
 import { renderContractInputs } from "./contract-inputs.js";
+import { CRITERION_ID_PATTERN, PROJECT_LIMITS, normalizeCriterionId } from "../../session/session-project.js";
 
 /** What a `provides` entry can name. `file` uses `name` as the path. */
 export const CONTRACT_PROVIDE_KINDS = [
@@ -100,7 +101,31 @@ export interface ContractRequire {
  * One `verify.run` spec, plus the task it is attributed to. The spec's
  * own keys are owned by the verify tool and pass through untouched.
  */
-export type ContractCheck = { task?: string } & Record<string, unknown>;
+export type ContractCheck = {
+  task?: string;
+  /**
+   * The project's success-criterion ids this check verifies (issue #40):
+   * the judge maps each criterion to its checks. Not a `verify.run`
+   * argument; stripped before the runner, like `task`.
+   */
+  criteria?: string[];
+  /**
+   * `"vision"`: the check's screenshots are judged against its
+   * `criteria` by a vision-capable model (`vision-judge.ts`). Needs a
+   * page check with a `screenshot` and at least one criterion. Not a
+   * `verify.run` argument; stripped before the runner.
+   */
+  judge?: "vision";
+} & Record<string, unknown>;
+
+/**
+ * A criterion id as a check names it: `c1`, `plays-well`. The brief's
+ * own rule (`session-project`), re-exported: one source of truth, so a
+ * check's ids always match the brief's after `normalizeCriterionId`.
+ */
+export { CRITERION_ID_PATTERN, normalizeCriterionId };
+/** The project brief holds at most 20 success criteria. */
+export const MAX_CHECK_CRITERIA = PROJECT_LIMITS.successCriteria;
 
 export interface DelegateContract {
   /** Candidate mode: exact existing files frozen before workers and kept byte/type/mode-identical for final checks. */

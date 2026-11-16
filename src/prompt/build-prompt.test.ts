@@ -919,7 +919,7 @@ describe("buildPrompt", () => {
 
   it("renders ### project after the conversation; the stable prefix stays byte-identical across gate changes (issue #39)", () => {
     const brief = {
-      version: 1, what: "A snake game", users: "Kids", how: "HTML", successCriteria: ["Runs offline"],
+      version: 1, what: "A snake game", users: "Kids", how: "HTML", successCriteria: [{ id: "c1", text: "Runs offline" }],
       status: "draft" as const, draftedAfterUntrusted: false,
     };
     const fusionTools = [...TOOLS, { name: "fusion.delegate", summary: "Delegate.", argsSchema: "{ tasks: [] }" }];

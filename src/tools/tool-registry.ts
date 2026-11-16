@@ -214,6 +214,20 @@ export class ToolRegistry {
   }
 
   /**
+   * The refusal `dispatchGuard` gives `name` with `args`, or `null` when
+   * the call may run. For a caller that runs a tool's work outside the
+   * registry under the same rule (contract checks are `verify.run`
+   * calls the fan-out runs directly, issue #40).
+   */
+  dispatchRefusal(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: Pick<ToolContext, "sessionId" | "workingDir">,
+  ): Error | null {
+    return this.dispatchGuard?.(name, args, ctx) ?? null;
+  }
+
+  /**
    * The error result `dispatchGuard` gives `name` with `args`, or `null`
    * when the call may run. For the batch scheduler, before any hook or
    * approval prompt.
@@ -223,7 +237,7 @@ export class ToolRegistry {
     args: Record<string, unknown>,
     ctx: Pick<ToolContext, "sessionId" | "workingDir">,
   ): CompressedToolResult | null {
-    const refused = this.dispatchGuard?.(name, args, ctx) ?? null;
+    const refused = this.dispatchRefusal(name, args, ctx);
     if (refused === null) return null;
     const code = (refused as { code?: unknown }).code;
     return compressToolResult({

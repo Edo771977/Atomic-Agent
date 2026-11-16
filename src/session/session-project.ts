@@ -18,6 +18,8 @@
  * strings, as written in `llm.runMode.fusion.team`.
  */
 
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -27,6 +29,25 @@ export interface ProjectGameBrief {
   style: string;
 }
 
+/**
+ * One success criterion (issue #40). `id` names it to contract checks
+ * (`criteria: [ids]`), the judge's facts and the milestone card: unique
+ * in the brief, at most {@link PROJECT_LIMITS}.criterionId characters of
+ * `[a-z0-9-]`. A criterion written as plain text (an older store, or a
+ * draft that gives none) gets the first free `c<n>`, `n` its position
+ * from 1, so an all-text list reads back as `c1..cN`.
+ */
+export interface ProjectCriterion {
+  id: string;
+  text: string;
+}
+
+/** What a draft or the person's edit may give for a criterion: text alone, or text with its id. */
+export type ProjectCriterionInput = string | ProjectCriterion;
+
+/** A criterion id's shape ({@link ProjectCriterion}). */
+export const CRITERION_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+
 export interface ProjectBrief {
   /** 1 on the first draft; +1 on every edit by the model or the person. */
   version: number;
@@ -34,7 +55,7 @@ export interface ProjectBrief {
   users: string;
   how: string;
   game?: ProjectGameBrief;
-  successCriteria: string[];
+  successCriteria: ProjectCriterion[];
   status: "draft" | "approved";
   /** Epoch ms of the person's approval; absent on a draft. */
   approvedAt?: number;
@@ -61,6 +82,36 @@ export interface MilestoneCorrection {
   at: number;
 }
 
+/**
+ * A picture of a milestone's result (issue #40): a screenshot a verify
+ * run of that milestone stored under `<stateDir>/fusion-runs/<runId>/shots/`
+ * ({@link validateMilestoneAttachments}). Surfaces show the caption and
+ * the path; a renderer reads the file through its own safe file read.
+ */
+export interface ProjectMilestoneAttachment {
+  /** Absolute, normalized; directly inside a recorded run's shots folder. */
+  path: string;
+  caption: string;
+  /** Ids of the brief's success criteria the picture shows. */
+  criteria?: string[];
+}
+
+export type CriterionFactState = "passed" | "failed" | "unverified";
+
+/**
+ * Where one success criterion stands after a milestone's runs: from its
+ * contract checks and the vision judgement (issue #40). Written by the
+ * runtime ({@link withMilestoneCriteriaFacts}), never by the model.
+ */
+export interface ProjectCriterionFact {
+  id: string;
+  state: CriterionFactState;
+  /** One line, e.g. the failing check or why it could not be judged. */
+  why?: string;
+}
+
+export const CRITERION_FACT_STATES: readonly CriterionFactState[] = ["passed", "failed", "unverified"];
+
 export interface ProjectMilestone {
   id: string;
   title: string;
@@ -72,6 +123,10 @@ export interface ProjectMilestone {
   summary?: string;
   /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
   corrections?: MilestoneCorrection[];
+  /** Pictures of the reported result ({@link PROJECT_LIMITS}.attachments); a new report replaces them. */
+  attachments?: ProjectMilestoneAttachment[];
+  /** Per success criterion, the facts of its runs (the runtime's; one per id, brief order). */
+  criteriaFacts?: ProjectCriterionFact[];
   updatedAt: number;
 }
 
@@ -166,11 +221,13 @@ export interface ProjectState {
  *  - `text` 2000: what/users/how, a summary — a paragraph, not a spec.
  *  - `shortText` 300: a success criterion, a game field, a reason.
  *  - `title` 160: a task or milestone title, as `PLAN_STEP_MAX_CHARS`.
- *  - `id` 64 and `memberRef` 256: identifiers.
+ *  - `id` 64, `criterionId` 32 and `memberRef` 256: identifiers.
  *  - `successCriteria` 20, `milestones` 16, `rows` 64 (the task tree's
  *    node ceiling), `runIds` 32 per milestone (the newest are kept).
  *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
  *    are kept): the person's notes at a milestone gate.
+ *  - `attachments` 8 per milestone, `attachmentPath` 1024: the result's
+ *    pictures (a caption is `shortText`). Criteria facts: one per criterion.
  */
 export const PROJECT_LIMITS = {
   text: 2000,
@@ -179,11 +236,14 @@ export const PROJECT_LIMITS = {
   id: 64,
   memberRef: 256,
   successCriteria: 20,
+  criterionId: 32,
   milestones: 16,
   rows: 64,
   runIds: 32,
   correctionNote: 2000,
   corrections: 8,
+  attachments: 8,
+  attachmentPath: 1024,
 } as const;
 
 /**
@@ -207,7 +267,13 @@ export interface ProjectBriefDraft {
   users: string;
   how: string;
   game?: ProjectGameBrief;
-  successCriteria: string[];
+  /** Ids are given or assigned ({@link ProjectCriterion}). */
+  successCriteria: ReadonlyArray<ProjectCriterionInput>;
+}
+
+/** A brief's criteria by id, in brief order; empty without a brief. */
+export function criteriaById(brief: Pick<ProjectBrief, "successCriteria"> | null | undefined): Map<string, ProjectCriterion> {
+  return new Map((brief?.successCriteria ?? []).map((c) => [c.id, c]));
 }
 
 /**
@@ -230,8 +296,30 @@ export type ProjectUpdate =
       /** Drafted after outside content (the tool reads the approval gate's taint). */
       draftedAfterUntrusted?: boolean;
     }
-  | { kind: "milestone"; id: string; state: "done" | "failed"; summary: string }
+  | {
+      kind: "milestone";
+      id: string;
+      state: "done" | "failed";
+      summary: string;
+      /** Checked by {@link validateMilestoneAttachments} when folded. */
+      attachments?: ReadonlyArray<ProjectMilestoneAttachment>;
+      /**
+       * The milestone's criteria facts, from its runs (issue #40): set by
+       * the runtime's `project.milestone` (its arguments cannot carry
+       * them), cleaned when folded; a report without them clears them.
+       */
+      criteriaFacts?: ReadonlyArray<ProjectCriterionFact>;
+    }
   | { kind: "milestone_run"; id: string; runId: string };
+
+export interface ProjectUpdateOptions {
+  /**
+   * The state dir a report's attachments must lie under
+   * ({@link validateMilestoneAttachments}); absent: a report with
+   * attachments is refused.
+   */
+  stateDir?: string;
+}
 
 export type ProjectUpdateErrorCode =
   | "invalid"
@@ -431,20 +519,88 @@ function readGame(raw: unknown): ProjectGameBrief | undefined | null {
   return out as ProjectGameBrief;
 }
 
-function cleanCriteria(raw: unknown, mode: "strict" | "lenient"): string[] | null {
-  if (!Array.isArray(raw)) return null;
-  if (mode === "strict" && raw.length > PROJECT_LIMITS.successCriteria) return null;
-  const out: string[] = [];
-  for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
-    if (typeof item !== "string") return null;
-    const text = clip(item, PROJECT_LIMITS.shortText);
-    if (text.length > 0) out.push(text);
-  }
-  return out;
+/**
+ * A criterion id trimmed and lower-cased; null when it breaks
+ * {@link CRITERION_ID_PATTERN}. The one rule for criterion ids: the
+ * brief, milestone reports and contract checks all normalize through it,
+ * so an id a check names always matches the brief's.
+ */
+export function normalizeCriterionId(raw: unknown): string | null {
+  return cleanCriterionId(raw);
 }
 
-/** A draft's fields cleaned, or an error message. */
-function cleanBriefDraft(draft: ProjectBriefDraft): ProjectBriefDraft | string {
+function cleanCriterionId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const id = raw.trim().toLowerCase();
+  return CRITERION_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * Criteria cleaned, ids given or assigned ({@link ProjectCriterion}).
+ * `strict` (a draft): over the cap, a malformed entry, a bad or repeated
+ * id is the error message. `lenient` (a stored brief): the list is cut,
+ * a bad or repeated id gets a fresh `c<n>`, a malformed entry is null
+ * (the project is dropped, as any malformed store). Text that clips to
+ * nothing is skipped. Plain text matching one of `previous` (the brief
+ * being revised) keeps that criterion's id.
+ */
+function cleanCriteria(
+  raw: unknown,
+  mode: "strict" | "lenient",
+  previous: readonly ProjectCriterion[] = [],
+): ProjectCriterion[] | string | null {
+  if (!Array.isArray(raw)) return mode === "strict" ? "brief.successCriteria must be a list" : null;
+  if (mode === "strict" && raw.length > PROJECT_LIMITS.successCriteria) {
+    return `brief.successCriteria: at most ${PROJECT_LIMITS.successCriteria} criteria`;
+  }
+  const items: Array<{ text: string; id: string | null }> = [];
+  const taken = new Set<string>();
+  for (const [i, item] of raw.slice(0, PROJECT_LIMITS.successCriteria).entries()) {
+    let text: string;
+    let id: string | null = null;
+    if (typeof item === "string") text = item;
+    else if (isObject(item) && typeof item.text === "string") {
+      text = item.text;
+      id = cleanCriterionId(item.id);
+      if (id === null || taken.has(id)) {
+        if (mode === "strict") {
+          return id === null
+            ? `brief.successCriteria ${i + 1}: id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`
+            : `brief.successCriteria: id ${id} is used twice`;
+        }
+        id = null;
+      }
+    } else {
+      return mode === "strict" ? `brief.successCriteria ${i + 1} must be text or { id, text }` : null;
+    }
+    const clipped = clip(text, PROJECT_LIMITS.shortText);
+    if (clipped.length === 0) continue;
+    if (id !== null) taken.add(id);
+    items.push({ text: clipped, id });
+  }
+  // Text alone: the id it had in the brief being revised, else the first free c<n>.
+  for (const item of items) {
+    if (item.id !== null) continue;
+    const kept = previous.find((c) => c.text === item.text && !taken.has(c.id));
+    if (kept !== undefined) {
+      item.id = kept.id;
+      taken.add(kept.id);
+    }
+  }
+  return items.map((item, i) => {
+    if (item.id !== null) return { id: item.id, text: item.text };
+    let n = i + 1;
+    while (taken.has(`c${n}`)) n += 1;
+    taken.add(`c${n}`);
+    return { id: `c${n}`, text: item.text };
+  });
+}
+
+/** A brief's fields as stored: criteria carry their ids. */
+type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria"> & { successCriteria: ProjectCriterion[] };
+
+/** A draft's fields cleaned, or an error message; `previous` is the brief being revised. */
+function cleanBriefDraft(draft: ProjectBriefDraft, previous: readonly ProjectCriterion[] = []): CleanBriefDraft | string {
   for (const f of ["what", "users", "how"] as const) {
     if (typeof draft[f] !== "string") return `brief.${f} must be text`;
   }
@@ -452,9 +608,9 @@ function cleanBriefDraft(draft: ProjectBriefDraft): ProjectBriefDraft | string {
   if (what.length === 0) return "brief.what must say what is being built";
   const game = readGame(draft.game);
   if (game === null) return "brief.game must be { rules, loop, difficulty, style } as text";
-  const criteria = cleanCriteria(draft.successCriteria, "strict");
-  if (criteria === null) {
-    return `brief.successCriteria must be a list of at most ${PROJECT_LIMITS.successCriteria} short sentences`;
+  const criteria = cleanCriteria(draft.successCriteria, "strict", previous);
+  if (criteria === null || typeof criteria === "string") {
+    return criteria ?? `brief.successCriteria must be a list of at most ${PROJECT_LIMITS.successCriteria} short sentences`;
   }
   if (criteria.length === 0) return "brief.successCriteria needs at least one criterion";
   return {
@@ -507,6 +663,161 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   };
 }
 
+// ------------------------------------------------------------ attachments
+
+/** `<stateDir>/fusion-runs`: the run checkpoints' folder (`FUSION_RUNS_DIR_NAME`). */
+export const PROJECT_RUNS_DIR_NAME = "fusion-runs";
+/** A run's screenshots folder name, under its run folder. */
+export const PROJECT_SHOTS_DIR_NAME = "shots";
+/** A run id's shape (`FusionRunStore.isValidRunId`). */
+const RUN_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
+const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([".jpg", ".jpeg", ".png"]);
+
+/** `<stateDir>/fusion-runs/<runId>/shots`, where a run's screenshots are stored. */
+export function milestoneShotsDir(stateDir: string, runId: string): string {
+  return join(resolve(stateDir), PROJECT_RUNS_DIR_NAME, runId, PROJECT_SHOTS_DIR_NAME);
+}
+
+/** A list of criterion ids: unique, each of {@link CRITERION_ID_PATTERN}; null when malformed. */
+function cleanIdList(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
+    const id = cleanCriterionId(item);
+    if (id === null) return null;
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+export type AttachmentCheck =
+  | { ok: true; attachments: ProjectMilestoneAttachment[] }
+  | { ok: false; problems: string[] };
+
+/**
+ * The attachments of a milestone report checked, pure (no file is read):
+ * each `path` is absolute, an image (`.jpg`, `.jpeg`, `.png`) and
+ * directly inside `<stateDir>/fusion-runs/<runId>/shots/` of a run the
+ * milestone recorded (`runIds`); a `caption` is required; `criteria`
+ * name the brief's criteria (`criterionIds`, when given). At most
+ * {@link PROJECT_LIMITS}.attachments; a repeated path is kept once.
+ * Anything else refuses the whole list. A symlink inside the folder is
+ * not resolved here: a surface reads the file with its own safe read.
+ */
+export function validateMilestoneAttachments(input: {
+  stateDir: string;
+  milestone: Pick<ProjectMilestone, "id" | "runIds">;
+  attachments: readonly unknown[];
+  criterionIds?: ReadonlySet<string>;
+}): AttachmentCheck {
+  const problems: string[] = [];
+  if (input.attachments.length > PROJECT_LIMITS.attachments) {
+    return { ok: false, problems: [`at most ${PROJECT_LIMITS.attachments} attachments`] };
+  }
+  const roots = input.milestone.runIds.filter((r) => RUN_ID_SHAPE.test(r)).map((r) => milestoneShotsDir(input.stateDir, r));
+  const out: ProjectMilestoneAttachment[] = [];
+  for (const [i, raw] of input.attachments.entries()) {
+    const where = `attachment ${i + 1}`;
+    if (!isObject(raw) || typeof raw.path !== "string") {
+      problems.push(`${where} needs a path`);
+      continue;
+    }
+    const path = raw.path.trim();
+    if (path.length === 0 || path.length > PROJECT_LIMITS.attachmentPath || path.includes("\0") || !isAbsolute(path)) {
+      problems.push(`${where}: the path must be absolute`);
+      continue;
+    }
+    const resolved = resolve(path);
+    if (!IMAGE_EXTENSIONS.has(extname(resolved).toLowerCase())) {
+      problems.push(`${where}: only a .jpg, .jpeg or .png screenshot can be attached`);
+      continue;
+    }
+    const inside = roots.some((root) => {
+      const rel = relative(root, resolved);
+      return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel) && !rel.includes(sep) && !rel.includes("/");
+    });
+    if (!inside) {
+      problems.push(`${where}: the path must be a screenshot in the shots folder of a run of milestone ${input.milestone.id} (<stateDir>/${PROJECT_RUNS_DIR_NAME}/<runId>/${PROJECT_SHOTS_DIR_NAME}/)`);
+      continue;
+    }
+    const caption = typeof raw.caption === "string" ? clip(raw.caption, PROJECT_LIMITS.shortText) : "";
+    if (caption.length === 0) {
+      problems.push(`${where} needs a caption`);
+      continue;
+    }
+    let criteria: string[] | undefined;
+    if (raw.criteria !== undefined) {
+      const ids = cleanIdList(raw.criteria);
+      if (ids === null) {
+        problems.push(`${where}: criteria must be criterion ids`);
+        continue;
+      }
+      const unknown = input.criterionIds === undefined ? [] : ids.filter((id) => !input.criterionIds!.has(id));
+      if (unknown.length > 0) {
+        problems.push(`${where}: the brief has no criterion ${unknown.join(", ")}`);
+        continue;
+      }
+      if (ids.length > 0) criteria = ids;
+    }
+    if (out.some((a) => a.path === resolved)) continue;
+    out.push({ path: resolved, caption, ...(criteria === undefined ? {} : { criteria }) });
+  }
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, attachments: out };
+}
+
+/** Stored attachments read back: shape only (they were checked when reported); malformed ones dropped. */
+function readStoredAttachments(raw: readonly unknown[]): ProjectMilestoneAttachment[] {
+  const out: ProjectMilestoneAttachment[] = [];
+  for (const a of raw) {
+    if (out.length >= PROJECT_LIMITS.attachments) break;
+    if (!isObject(a) || typeof a.path !== "string" || typeof a.caption !== "string") continue;
+    if (a.path.length === 0 || a.path.length > PROJECT_LIMITS.attachmentPath || a.path.includes("\0") || !isAbsolute(a.path)) continue;
+    const caption = clip(a.caption, PROJECT_LIMITS.shortText);
+    if (caption.length === 0) continue;
+    const criteria = a.criteria === undefined ? [] : cleanIdList(a.criteria);
+    if (criteria === null) continue;
+    out.push({ path: a.path, caption, ...(criteria.length === 0 ? {} : { criteria }) });
+  }
+  return out;
+}
+
+/** Facts cleaned: known states, valid ids, the first per id, `why` clipped; malformed entries dropped. */
+function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
+  const out: ProjectCriterionFact[] = [];
+  for (const f of raw) {
+    if (out.length >= PROJECT_LIMITS.successCriteria) break;
+    if (!isObject(f)) continue;
+    const id = cleanCriterionId(f.id);
+    if (id === null || out.some((x) => x.id === id)) continue;
+    if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
+    const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
+    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }) });
+  }
+  return out;
+}
+
+/**
+ * Set one milestone's criteria facts (the runtime's, issue #40). Pure;
+ * the gate and versions do not move (facts are evidence, not a draft).
+ * The same project back for an unknown milestone; an empty list clears.
+ */
+export function withMilestoneCriteriaFacts(
+  project: ProjectState,
+  milestoneId: string,
+  facts: readonly ProjectCriterionFact[],
+  now: number,
+): ProjectState {
+  const index = project.milestones.findIndex((m) => m.id === milestoneId);
+  if (index < 0) return project;
+  const clean = cleanCriteriaFacts(facts);
+  const milestones = [...project.milestones];
+  const current = { ...milestones[index]!, updatedAt: now };
+  if (clean.length === 0) delete current.criteriaFacts;
+  else current.criteriaFacts = clean;
+  milestones[index] = current;
+  return { ...project, milestones };
+}
+
 function readMilestone(raw: unknown): ProjectMilestone | null {
   if (!isObject(raw)) return null;
   const id = cleanId(raw.id);
@@ -526,6 +837,9 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
       if (note.length > 0) corrections.push({ note, at: c.at });
     }
   }
+  // Pictures and facts are extras: a malformed entry is dropped, not the project.
+  const attachments = Array.isArray(raw.attachments) ? readStoredAttachments(raw.attachments) : [];
+  const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   return {
     id,
     title: clip(raw.title, PROJECT_LIMITS.title),
@@ -534,6 +848,8 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
+    ...(attachments.length === 0 ? {} : { attachments }),
+    ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     updatedAt: raw.updatedAt,
   };
 }
@@ -547,7 +863,7 @@ function readBrief(raw: unknown): ProjectBrief | null {
   if (typeof raw.what !== "string" || typeof raw.users !== "string" || typeof raw.how !== "string") return null;
   const game = readGame(raw.game);
   const criteria = cleanCriteria(raw.successCriteria, "lenient");
-  if (game === null || criteria === null) return null;
+  if (game === null || criteria === null || typeof criteria === "string") return null;
   return {
     version: raw.version,
     what: clipText(raw.what, PROJECT_LIMITS.text),
@@ -653,10 +969,10 @@ function briefUpdate(
   update: Extract<ProjectUpdate, { kind: "brief" }>,
   now: number,
 ): ProjectUpdateResult {
-  const draft = cleanBriefDraft(update.brief);
-  if (typeof draft === "string") return invalid(draft);
   // After a cancel, a new brief is a new project.
   const base: ProjectState | undefined = project?.cancelledAt !== undefined ? undefined : project;
+  const draft = cleanBriefDraft(update.brief, base?.brief?.successCriteria);
+  if (typeof draft === "string") return invalid(draft);
   const brief: ProjectBrief = {
     version: nextVersion(project, base?.brief?.version),
     ...draft,
@@ -752,6 +1068,7 @@ function milestoneUpdate(
   project: ProjectState | undefined,
   update: Extract<ProjectUpdate, { kind: "milestone" | "milestone_run" }>,
   now: number,
+  options: ProjectUpdateOptions,
 ): ProjectUpdateResult {
   if (project?.cancelledAt !== undefined) {
     return { ok: false, error: { code: "cancelled", message: "The person cancelled this project." } };
@@ -782,7 +1099,28 @@ function milestoneUpdate(
   if (update.state !== "done" && update.state !== "failed") return invalid("state must be done or failed");
   const summary = typeof update.summary === "string" ? clipText(update.summary, PROJECT_LIMITS.text) : "";
   if (summary.length === 0) return invalid("the report needs a summary of the result");
-  milestones[index] = { ...current, state: update.state, summary, updatedAt: now };
+  let attachments: ProjectMilestoneAttachment[] = [];
+  if (update.attachments !== undefined) {
+    if (!Array.isArray(update.attachments)) return invalid("attachments must be a list");
+    if (update.attachments.length > 0) {
+      if (options.stateDir === undefined) return invalid("attachments cannot be checked here; report without them");
+      const checked = validateMilestoneAttachments({
+        stateDir: options.stateDir,
+        milestone: current,
+        attachments: update.attachments,
+        criterionIds: new Set(criteriaById(project.brief).keys()),
+      });
+      if (!checked.ok) return invalid(checked.problems.join("; "));
+      attachments = checked.attachments;
+    }
+  }
+  // A new report describes a new result: the old pictures go with it.
+  const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
+  delete reported.attachments;
+  delete reported.criteriaFacts;
+  const facts = Array.isArray(update.criteriaFacts) ? cleanCriteriaFacts(update.criteriaFacts) : [];
+  if (facts.length > 0) reported.criteriaFacts = facts;
+  milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,
     project: {
@@ -803,6 +1141,7 @@ export function applyProjectUpdate(
   project: ProjectState | undefined,
   update: ProjectUpdate,
   now: number,
+  options: ProjectUpdateOptions = {},
 ): ProjectUpdateResult {
   switch (update.kind) {
     case "brief":
@@ -811,7 +1150,7 @@ export function applyProjectUpdate(
       return planUpdate(project, update, now);
     case "milestone":
     case "milestone_run":
-      return milestoneUpdate(project, update, now);
+      return milestoneUpdate(project, update, now, options);
     default:
       return invalid("unknown project update");
   }
@@ -978,7 +1317,7 @@ export function applyProjectDecision(
       successCriteria: project.brief!.successCriteria,
       ...(decision.edits?.brief ?? {}),
     };
-    const draft = cleanBriefDraft(merged);
+    const draft = cleanBriefDraft(merged, project.brief!.successCriteria);
     if (typeof draft === "string") return refuse({ code: "invalid", message: draft });
     return {
       ok: true,

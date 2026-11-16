@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
-import type { ProjectUpdate } from "../../session/session-project.js";
+import type { ProjectState, ProjectUpdate } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { PRESET_REASON } from "./project-estimate.js";
@@ -16,6 +16,7 @@ import {
   parseProjectMilestoneArgs,
   parseProjectPlanArgs,
   type ProjectPlanContext,
+  type ProjectToolDeps,
 } from "./project-tools.js";
 
 const ctx = { workingDir: "/tmp", sessionId: "s1", stepIndex: 0 } as unknown as ToolContext;
@@ -57,10 +58,11 @@ function planContext(extra: Partial<ProjectPlanContext> = {}): ProjectPlanContex
   };
 }
 
-function tools(options: { tainted?: boolean; context?: ProjectPlanContext } = {}) {
+function tools(options: { tainted?: boolean; context?: ProjectPlanContext; evidence?: ProjectToolDeps["milestoneEvidence"] } = {}) {
   const [brief, plan, milestone] = buildProjectTools({
     planContext: () => options.context ?? planContext(),
     outsideContent: () => options.tainted === true,
+    ...(options.evidence === undefined ? {} : { milestoneEvidence: options.evidence }),
   });
   return { brief: brief!, plan: plan!, milestone: milestone! };
 }
@@ -105,6 +107,16 @@ describe("project.brief", () => {
     expect(result.summary).toMatch(/what/);
     expect(result.summary).toMatch(/successCriteria/);
     expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
+  });
+
+  it("takes criteria as text or { id, text }; refuses a bad or repeated id", () => {
+    const successCriteria = ["Runs offline", { id: "keys", text: "Arrow keys steer" }];
+    expect(parseProjectBriefArgs({ ...briefArgs, successCriteria })).toMatchObject({ ok: true, brief: { successCriteria } });
+    for (const bad of [[{ id: "Not ok", text: "x" }], [{ id: "a", text: "x" }, { id: "a", text: "y" }], [{ id: "a" }], [{ text: " " }], ["x".repeat(3), 4]]) {
+      const parsed = parseProjectBriefArgs({ ...briefArgs, successCriteria: bad });
+      expect(parsed).toMatchObject({ ok: false });
+      expect(JSON.stringify(parsed)).toMatch(/successCriteria/);
+    }
   });
 
   it("accepts the optional game block and refuses a partial one", () => {
@@ -223,6 +235,56 @@ describe("project.milestone", () => {
     expect(result.status).toBe("ok");
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({ kind: "milestone", id: "base", state: "done", summary: "Board drawn, snake moves" });
     expect(result.summary).toMatch(/reply/i);
+  });
+
+  it("passes attachments through for the fold to check against the milestone's runs (issue #40)", async () => {
+    const attachments = [{ path: "/state/fusion-runs/r1/shots/t1-1.jpg", caption: "The board", criteria: ["c1"] }];
+    const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn", attachments }, ctx);
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({ kind: "milestone", id: "base", state: "done", summary: "Board drawn", attachments });
+    for (const bad of [[{ path: "/a.jpg" }], "x", [{ path: 3, caption: "c" }], [{ path: "/a.jpg", caption: "c", criteria: "c1" }], Array.from({ length: 9 }, () => ({ path: "/a.jpg", caption: "c" }))]) {
+      expect(parseProjectMilestoneArgs({ id: "base", state: "done", summary: "x", attachments: bad })).toMatchObject({ ok: false });
+    }
+  });
+
+  it("a done report carries its runs' criteria facts and, when it names none, their screenshots (issue #40)", async () => {
+    const shots = [{ path: "/state/fusion-runs/r1/shots/board-2.jpg", caption: "board: screenshot 2", criteria: ["c1"] }];
+    const evidence = vi.fn<NonNullable<ProjectToolDeps["milestoneEvidence"]>>(() => ({
+      facts: [{ id: "c1", state: "passed", why: "every check naming it passed" }],
+      attachments: shots,
+      uncovered: ["c2"],
+    }));
+    const project = { milestones: [{ id: "base", runIds: ["r1"] }], brief: { successCriteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Arrow keys steer" }] } } as unknown as ProjectState;
+    const result = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project });
+    expect(evidence).toHaveBeenCalledWith(expect.objectContaining({ id: "base", runIds: ["r1"] }), ["c1", "c2"]);
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({
+      kind: "milestone", id: "base", state: "done", summary: "Board drawn\nWarning: not covered by a check: c2.",
+      criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed" }], attachments: shots,
+    });
+    expect(result.summary).toContain("c1 passed");
+    expect(result.summary).toContain("not covered by a check: c2");
+    // Named attachments win; a failed report carries no facts.
+    const named = [{ path: "/state/fusion-runs/r1/shots/board-1.jpg", caption: "mine" }];
+    const own = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "x", attachments: named }, { ...ctx, project });
+    expect((own.details[PROJECT_UPDATE_DETAIL] as { attachments: unknown }).attachments).toEqual(named);
+    const failed = await tools({ evidence }).milestone.run({ id: "base", state: "failed", summary: "x" }, { ...ctx, project });
+    expect(failed.details[PROJECT_UPDATE_DETAIL]).not.toHaveProperty("criteriaFacts");
+    // The model cannot pass facts itself.
+    expect(parseProjectMilestoneArgs({ id: "base", state: "done", summary: "x", criteriaFacts: [] })).toMatchObject({ ok: false });
+  });
+
+  it("refuses a done report while a criterion its checks name is failed or unverified (issue #40)", async () => {
+    const project = { milestones: [{ id: "base", runIds: ["r1"] }], brief: { successCriteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Looks right" }] } } as unknown as ProjectState;
+    for (const state of ["failed", "unverified"] as const) {
+      const evidence = () => ({ facts: [{ id: "c1", state: "passed" as const }, { id: "c2", state, why: "no vision judge" }], attachments: [], uncovered: [] });
+      const result = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project });
+      expect(result.status).toBe("error");
+      expect(result.summary).toContain(`c2 ${state}`);
+      expect(result.summary).toMatch(/Fix it and re-delegate, or report "failed" with the reasons/);
+      expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
+    }
+    const evidence = () => ({ facts: [{ id: "c2", state: "failed" as const }], attachments: [], uncovered: [] });
+    const failed = await tools({ evidence }).milestone.run({ id: "base", state: "failed", summary: "c2 does not render" }, { ...ctx, project });
+    expect(failed.status).toBe("ok");
   });
 
   it("the model cannot approve or review", async () => {

@@ -1,7 +1,7 @@
 import type { VisionRequest, VisionResult } from "../llm-provider.js";
 import type { OpenAiHttpDeps } from "./openai-http.js";
 import { openAiPostJson } from "./openai-http.js";
-import { normaliseMessageContent } from "./openai-normalise-response.js";
+import { normaliseMessageContent, normaliseOpenAiUsage } from "./openai-normalise-response.js";
 import { modelParamProfile, resolveTemperature } from "./model-params.js";
 
 /**
@@ -55,10 +55,13 @@ export async function describeImageViaOpenAi(
   // reasoning models get no temperature and `max_completion_tokens`,
   // the newer Claude models get no temperature, Kimi K3.1 gets its one
   // allowed temperature.
-  const profile = modelParamProfile(defaultChatModel);
+  // A pinned model (a fusion team member's, issue #40) wins over the
+  // provider's default; its own parameter rules apply.
+  const model = request.model ?? defaultChatModel;
+  const profile = modelParamProfile(model);
   const temperature = resolveTemperature(profile, request.temperature, 0.1);
   const base: Record<string, unknown> = {
-    model: defaultChatModel,
+    model,
     messages: [{ role: "user", content: userContent }],
     // Reasoning models (Qwen3.8, DeepSeek-R1) spend completion tokens on
     // their think channel before any visible description. The old 512
@@ -98,7 +101,10 @@ export async function describeImageViaOpenAi(
   if (text.length === 0 && typeof message.reasoning_content === "string") {
     text = message.reasoning_content.trim();
   }
-  return { text, durationMs: Date.now() - start };
+  const usage = json.usage === undefined || json.usage === null
+    ? undefined
+    : normaliseOpenAiUsage(json.usage as Record<string, unknown>);
+  return { text, durationMs: Date.now() - start, ...(usage === undefined ? {} : { usage }) };
 }
 
 function withPassthrough(

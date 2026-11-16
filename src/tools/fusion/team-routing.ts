@@ -47,6 +47,8 @@ export interface FusionTeamRouting {
   readonly director: TeamMember | null;
   /** Whether the team lists reviewers at all. */
   readonly hasReviewers: boolean;
+  /** The reviewers the folder's policy allows and that can answer, in team order (the vision judge's fallbacks, issue #40). */
+  readonly reviewers?: readonly TeamMember[];
   /** The reviewer of a task `worker` ran; null: `judgeProvider`, as before. */
   reviewerFor(worker: TeamMember): TeamMember | null;
   readonly pinsModel: (providerId: string) => boolean;
@@ -114,6 +116,7 @@ export function resolveTeamRouting(
     // The director that leads the turn, never a default it did not run on.
     director: options.currentDirector?.() ?? null,
     hasReviewers: teamMembers(team, "reviewers").length > 0,
+    reviewers: teamMembers(team, "reviewers").filter(ok),
     reviewerFor: (worker) =>
       pickReviewer(team, worker, {
         familyOf: context.familyOf,

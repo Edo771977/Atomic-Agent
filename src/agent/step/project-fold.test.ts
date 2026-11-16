@@ -4,6 +4,7 @@ import { compressToolResult } from "../../compressor/result-compressor.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import type { ProjectUpdate } from "../../session/session-project.js";
 import { foldProjectUpdate } from "./project-fold.js";
+import { join, resolve } from "node:path";
 
 const NOW = 1_700_000_000_000;
 
@@ -79,5 +80,22 @@ describe("foldProjectUpdate (issue #39)", () => {
     // A refused run update on a failed call leaves both alone.
     const unknown = result("fusion.delegate", { kind: "milestone_run", id: "nope", runId: "run-2" }, "error");
     expect(foldProjectUpdate(project, unknown, NOW)).toEqual({ session: project, result: unknown });
+  });
+
+  it("checks a report's attachments against the state dir it is given (issue #40)", () => {
+    let project = foldProjectUpdate(session, result("project.brief", brief), NOW).session;
+    project = { ...project, project: { ...project.project!, brief: { ...project.project!.brief!, status: "approved" }, gate: { kind: "none" },
+      plan: { rows: [], totals: { costUsd: null, ms: null, unknownCostRows: 0 }, detail: "compact", status: "approved", version: 1, draftedAfterUntrusted: false },
+      milestones: [{ id: "m1", title: "Base", kind: "base", state: "in_progress", runIds: ["run-1"], updatedAt: NOW }] } };
+    const stateDir = resolve("/state");
+    const shot = join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.jpg");
+    const report = { kind: "milestone", id: "m1", state: "done", summary: "Board", attachments: [{ path: shot, caption: "Board" }] };
+    const folded = foldProjectUpdate(project, result("project.milestone", report), NOW, { stateDir });
+    expect(folded.result.status).toBe("ok");
+    expect(folded.session.project?.milestones[0]?.attachments).toEqual([{ path: shot, caption: "Board" }]);
+    const outside = { ...report, attachments: [{ path: join(stateDir, "secret.jpg"), caption: "x" }] };
+    const refused = foldProjectUpdate(project, result("project.milestone", outside), NOW, { stateDir });
+    expect(refused.result.status).toBe("error");
+    expect(refused.result.summary).toMatch(/shots/);
   });
 });

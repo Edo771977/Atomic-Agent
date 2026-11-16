@@ -51,7 +51,10 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate),
     expectation: projectExpectation(project),
     cancelled: project.cancelledAt !== undefined,
-    brief: project.brief ?? null,
+    brief:
+      project.brief === undefined
+        ? null
+        : { ...project.brief, successCriteria: project.brief.successCriteria.map((c) => c.text), criteria: project.brief.successCriteria.map((c) => ({ ...c })) },
     plan:
       plan === undefined
         ? null

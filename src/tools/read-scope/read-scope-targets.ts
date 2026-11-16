@@ -7,6 +7,9 @@
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
+import { needsShellInterpretation } from "../os/shell/shell-interpretation.js";
+
 export type ReadTargetsOf = (args: Record<string, unknown>) => string[];
 
 function nonEmpty(value: unknown): string | undefined {
@@ -213,11 +216,20 @@ export function verifyRunShellCalls(
   args: Record<string, unknown>,
 ): Record<string, unknown>[] {
   const calls: Record<string, unknown>[] = [];
-  if (typeof args.cmd === "string") calls.push({ cmd: args.cmd, args: args.args, ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) });
+  const scope = { ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) };
+  if (typeof args.cmd === "string") {
+    calls.push({ cmd: args.cmd, args: args.args, ...scope });
+    // A script a shell reads from `stdin` runs as that command line.
+    const cmdArgs = Array.isArray(args.args) ? args.args.filter((a): a is string => typeof a === "string") : [];
+    const stdin = typeof args.stdin === "string" ? args.stdin : undefined;
+    for (const line of stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), stdin)?.lines ?? []) {
+      calls.push({ cmd: line, ...scope });
+    }
+  }
   const start = args.start;
   if (typeof start === "object" && start !== null) {
     const { cmd, args: startArgs } = start as Record<string, unknown>;
-    if (typeof cmd === "string") calls.push({ cmd, args: startArgs, ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) });
+    if (typeof cmd === "string") calls.push({ cmd, args: startArgs, ...scope });
   }
   return calls;
 }

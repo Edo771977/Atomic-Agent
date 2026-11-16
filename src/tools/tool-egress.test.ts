@@ -7,6 +7,7 @@ import {
   EgressNotAllowedError,
   createEgressGuard,
   egressTargetOf,
+  shellNetworkUseOf,
 } from "./tool-egress.js";
 import { ToolRegistry, type ToolContext } from "./tool-registry.js";
 
@@ -110,6 +111,11 @@ describe("egress guard", () => {
     const guard = createEgressGuard({ policyForSession: () => constrained(["mcp:docs"]), mcpEgress });
     expect(guard("mcp.docs.search", {}, { sessionId: "s1" })).toBeNull();
     expect(guard("mcp.remote.search", {}, { sessionId: "s1" })).toBeInstanceOf(EgressNotAllowedError);
+  });
+
+  it("sees a network client in a stdin script fed to a shell", () => {
+    expect(shellNetworkUseOf("verify.run", { kind: "command", cmd: "sh", stdin: "curl https://x.example" })).not.toBeNull();
+    expect(shellNetworkUseOf("verify.run", { kind: "command", cmd: "cat", stdin: "curl https://x.example" })).toBeNull();
   });
 
   it("refuses a shell or verify.run network client unless its class is listed (best effort)", () => {

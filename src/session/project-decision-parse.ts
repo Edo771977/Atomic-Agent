@@ -58,7 +58,8 @@ function parseEdits(raw: unknown): ProjectEdits | string {
     }
     if (raw.brief.successCriteria !== undefined) {
       const c = raw.brief.successCriteria;
-      if (!Array.isArray(c) || !c.every((x) => typeof x === "string")) return "edits.brief.successCriteria must be strings";
+      const item = (x: unknown): boolean => typeof x === "string" || (isObject(x) && typeof x.id === "string" && typeof x.text === "string");
+      if (!Array.isArray(c) || !c.every(item)) return "edits.brief.successCriteria must be strings or { id, text }";
       brief.successCriteria = c;
     }
     out.brief = brief as ProjectEdits["brief"];

@@ -32,7 +32,7 @@ import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
-import type { ProjectUpdate } from "../../session/session-project.js";
+import { criteriaById, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -95,6 +95,10 @@ import {
   rowCostUsd,
   reviewOutcome,
   taskOutcomeRecord,
+  criteriaOutcome,
+  gamesOutcome,
+  shotsOutcome,
+  type TaskOutcomeContext,
   type FusionOutcomeSink,
   type MergeOutcome,
   type OutcomeLeg,
@@ -112,6 +116,7 @@ import {
   buildAcceptanceChecklist,
   judgeTask,
   redItems,
+  hasRedFact,
   renderAcceptanceBlock,
   renderRetryFindings,
   renderReviewIssues,
@@ -170,9 +175,14 @@ import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
+import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
+import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
+import { writeRunCriteriaFacts } from "./run-criteria.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
+import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
+import type { ContractCheckRun } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -193,6 +203,25 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   approvalRequired: boolean;
   /** Shared pre-exec verification policy; installed by runtime composition. */
   shellPolicy?: ShellGuardPolicy;
+  /**
+   * The registry's dispatch guard for one contract check, asked as a
+   * `verify.run` call of the delegating session (issue #40): a refusal
+   * (the folder's egress rule) turns that check red with its message
+   * and it never runs (`contract-check-egress.ts`). Absent: no rule.
+   */
+  contractCheckEgress?: (spec: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Error | null;
+  /**
+   * The vision judge of visual contract checks (issue #40,
+   * `vision-judge.ts`): whether a member's provider and model can take
+   * images, the member `vision.describe` routes to now, and one describe
+   * call through the registry's guarded provider. Absent: every visual
+   * criterion is unverified.
+   */
+  visionJudge?: {
+    sees(member: TeamMember): boolean;
+    route(): TeamMember | null;
+    describe: VisionDescribe;
+  };
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
   slotManager: Pick<SlotManager, "poolSize">;
@@ -506,6 +535,18 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       const parsed = parseDelegateArgs(delegateArgs);
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      // A check's criteria are the approved brief's (issue #40): an id it
+      // does not have could never be shown to the person as a fact.
+      if (ctx.project?.brief?.status === "approved") {
+        const known = criteriaById(ctx.project.brief);
+        const unknown = [...new Set((parsed.contract?.checks ?? []).flatMap((c) => (c.criteria ?? []).filter((id) => !known.has(id))))];
+        if (unknown.length > 0) {
+          return error(
+            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}`,
+            { field: "contract" },
+          );
+        }
+      }
       // The fusion project's gate (issue #39), before anything starts.
       const projectVerdict = checkProjectDispatch(ctx.project, parsed.tasks.map((t) => t.id));
       if (projectVerdict.kind === "refuse") {
@@ -1143,7 +1184,10 @@ export function buildFusionDelegateTool(
       const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
       const projectBrief = approvedBrief === undefined
         ? undefined
-        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria };
+        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text) };
+      // The criteria a task's checks name are acceptance items, ruled by
+      // facts and the vision judge (issue #40).
+      const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
       // A local worker's time limit is sized from the machine's measured
       // speed (F19); a cloud leg has no such measurement and keeps the
       // configured ceiling.
@@ -1275,6 +1319,11 @@ export function buildFusionDelegateTool(
       // The contract's checks run what the workers wrote: after outside
       // content (`agent.taintReview`) they wait on one more yes, asked
       // once for the call, whichever batch comes first (ATO-618).
+      // The folder's egress rule, asked per check before any approval
+      // prompt and before the runner, as dispatch does for verify.run.
+      const checkEgress: ContractCheckEgressRule | undefined = deps.contractCheckEgress === undefined
+        ? undefined
+        : (spec) => deps.contractCheckEgress!(spec, { sessionId: ctx.sessionId, workingDir: ctx.workingDir });
       const checkHold = createContractCheckHold({
         runner: deps.runChecks,
         approvals: deps.approvals,
@@ -1293,7 +1342,10 @@ export function buildFusionDelegateTool(
         ...(ctx.readRoots === undefined ? {} : { readRoots: ctx.readRoots }),
         checkInputs: parsed.contract?.checkInputs ?? [],
       });
-      const heldRunChecks = checkHold.runner;
+      // The run the checks belong to, once its checkpoint exists: a page
+      // check's screenshots are kept with it (issue #40). Read per call.
+      let checkRun: ContractCheckRun | undefined;
+      const heldRunChecks = withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -1409,7 +1461,8 @@ export function buildFusionDelegateTool(
               .filter((t) => judgeTargetFor(t.id) !== null)
               .map((t) => [
                 t.id,
-                buildAcceptanceChecklist(t, parsed.contract),
+                // Without an approved brief a criterion is still a fact, by id.
+                buildAcceptanceChecklist(t, parsed.contract, briefCriteria ?? new Map()),
               ])
           : [],
       );
@@ -1434,6 +1487,7 @@ export function buildFusionDelegateTool(
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
       }) : undefined;
+      if (run !== undefined) checkRun = { runId: run.runId, sessionId: ctx.sessionId };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
         pricing: typeof workerPricing,
@@ -1559,12 +1613,79 @@ export function buildFusionDelegateTool(
       // Tasks whose last review was cut short by the budget or a cancel:
       // a stop, never a review that ran out of passes (issue #38).
       const reviewCutShort = new Set<string>();
+      // The task's visual checks judged against the criteria they name
+      // (issue #40): by the task's judge when it can see, else the next
+      // team reviewer that can, else the vision route. Its spend is the
+      // judge's; under a $ cap an unpriced judge is not asked, and the
+      // criteria stay unverified.
+      const addJudgeSpend = (usd: number | null): void => {
+        if (usd === null || usd <= 0) return;
+        judgeSpendUsd += usd;
+        run?.addSpend(usd);
+        turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
+      };
+      const visionFor = async (
+        input: Parameters<GateJudge>[0],
+        target: JudgeTarget,
+      ): Promise<{ judgements: VisionJudgements; costUsd: number | null } | undefined> => {
+        const criteria = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
+        if (criteria.length === 0) return undefined;
+        const vj = deps.visionJudge;
+        const asMember = (t: JudgeTarget): TeamMember => {
+          const model = t.pinModel ?? t.model ?? t.providerId;
+          return { providerId: t.providerId, model, ref: `${t.providerId}:${model}` };
+        };
+        const judge = vj === undefined
+          ? null
+          : pickVisionJudge({
+              taskReviewer: asMember(target),
+              reviewers: team?.reviewers ?? [],
+              sees: (m) => currentPolicyAllows(m.providerId) && vj.sees(m),
+              route: () => vj.route(),
+            });
+        const result = await judgeTaskVision({
+          taskId: input.task.id,
+          criteria,
+          contract: input.contract,
+          outcomes: input.facts.checkOutcomes,
+          workingDir: input.workingDir,
+          judge,
+          pinsModel: (providerId) => team?.pinsModel(providerId) ?? teamContext?.pinsModel(providerId) ?? true,
+          describe: vj === undefined ? undefined : (call) => runWithProviderRole("the fusion vision judge", () => vj.describe(call)),
+          admit: (member, worstPromptChars, spentUsd) => {
+            const stop = budgetStop();
+            if (stop !== undefined) return stop.message;
+            if (runSignal.aborted) return "the turn was cancelled";
+            if (limits.usd === undefined) return undefined;
+            const pricing = deps.resolveWorkerPricing?.(member.providerId, member.model);
+            const verified = pricing !== undefined &&
+              (deps.resolveWorkerAdmissionPricing === undefined || deps.resolveWorkerAdmissionPricing(member.providerId, member.model) !== undefined);
+            if (!verified) return `the turn's $ cap needs a priced judge and ${member.model} has no verified price`;
+            const worstUsd = worstCaseCostUsd(worstPromptChars, VISION_MAX_OUTPUT_TOKENS, pricing);
+            return turnBudget.check(ctx.sessionId, { usd: limits.usd - worstUsd - spentUsd }, deps.orchestratorTurnSpendUsd?.(ctx.sessionId) ?? 0) === undefined
+              ? undefined
+              : `the call's worst case (${formatUsd(worstUsd)}) would pass the turn's $ cap with the spend so far`;
+          },
+          price: (member, usage) => {
+            if (usage === undefined) return null;
+            return completionCostUsd(usage, deps.resolveWorkerPricing?.(member.providerId, member.model)) ?? null;
+          },
+          ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
+          signal: runSignal,
+        });
+        if (result.judge !== null) judgesUsed.add(result.judge);
+        addJudgeSpend(result.costUsd);
+        return { judgements: result.judgements, costUsd: result.costUsd };
+      };
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
         if (stop !== undefined || runSignal.aborted) {
           reviewCutShort.add(input.task.id);
+          // The checks' own criteria facts still stand (issue #40).
+          const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
+            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined) }),
             green: false,
             items: [],
             unverified:
@@ -1575,8 +1696,12 @@ export function buildFusionDelegateTool(
         }
         const target = judgeTargetFor(input.task.id)!;
         judgesUsed.add(target.model ?? target.providerId);
-        const verdict = await judgeTask({
+        // A red fact makes the list red whatever vision says: not paid for.
+        const red = await hasRedFact(input.items, input.facts, input.workingDir);
+        const vision = red ? undefined : await visionFor(input, target);
+        const judged = await judgeTask({
           ...input,
+          ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
             ? {}
@@ -1587,12 +1712,14 @@ export function buildFusionDelegateTool(
           complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
           signal: runSignal,
         });
-        if (verdict.costUsd !== null && verdict.costUsd > 0) {
-          judgeSpendUsd += verdict.costUsd;
-          run?.addSpend(verdict.costUsd);
-          turnBudget.addWorkerSpend(ctx.sessionId, verdict.costUsd, deps.requestBudgetAccounting === true);
+        if (judged.costUsd !== null && judged.costUsd > 0) {
+          judgeSpendUsd += judged.costUsd;
+          run?.addSpend(judged.costUsd);
+          turnBudget.addWorkerSpend(ctx.sessionId, judged.costUsd, deps.requestBudgetAccounting === true);
         }
-        return verdict;
+        // The vision call's spend (already counted) is the judge's too, on the row.
+        const visionUsd = vision?.costUsd ?? null;
+        return visionUsd === null ? judged : { ...judged, costUsd: (judged.costUsd ?? 0) + visionUsd };
       };
       // The watch on running workers (issue #43), team runs only: every
       // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.
@@ -1708,6 +1835,9 @@ export function buildFusionDelegateTool(
       // one is kept as a patch (`merge-gate.ts`). A judged-red task's
       // workspace is kept for its retry, and removed after the judge.
       const gateState = new MergeGateState();
+      // The newest outcome of each contract check, by index, wherever it
+      // ran (a gate's workspace or the folder): the outcome row's counts.
+      const latestCheckOutcomes = new Map<number, ContractCheckOutcome>();
       // The session's read scope, for the syntax pass (gate and after).
       const syntaxRoots = [
         ctx.workingDir,
@@ -2055,6 +2185,22 @@ export function buildFusionDelegateTool(
         return expanded;
       };
 
+      // Issue #40 counts on the task's outcome row: its criteria facts by
+      // state, its game checks summed, its screenshots.
+      const qualityOutcomeOf = (r: WorkerTaskResult): Pick<TaskOutcomeContext, "criteria" | "games" | "shots"> => {
+        const outcomes = (parsed.contract?.checks ?? []).flatMap((check, index) => {
+          const outcome = check.task === r.id ? (latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index)) : undefined;
+          return outcome === undefined ? [] : [outcome];
+        });
+        const games = gamesOutcome(outcomes.flatMap((o) =>
+          o.games === undefined ? [] : [{ n: o.games.played, errors: o.games.errors, medianMs: o.games.medianMs ?? 0 }]));
+        const shots = shotsOutcome(outcomes.map((o) => o.screenshots));
+        return {
+          ...(r.criteria === undefined ? {} : { criteria: criteriaOutcome(r.criteria) }),
+          ...(games === undefined ? {} : { games }),
+          ...(shots === 0 ? {} : { shots }),
+        };
+      };
       const outcomeRowsFor = (ran: readonly WorkerTaskResult[], now: Date) => ran.map((r) => {
             const leg = taskLegs.get(r.id);
             const providerId = leg?.providerId ?? workerProviderId;
@@ -2094,6 +2240,7 @@ export function buildFusionDelegateTool(
                     : r.judge?.review !== undefined
                       ? { review: reviewOutcome(r.judge.review, r.judge.passes ?? (r.judge.retried ? 1 : 0)) }
                       : {}),
+                  ...qualityOutcomeOf(r),
                 },
                 ctx.sessionId,
                 now,
@@ -2439,6 +2586,7 @@ export function buildFusionDelegateTool(
             const outcome = byIndex.get(i);
             return outcome === undefined ? [] : [outcome];
           });
+          for (const [index, outcome] of byIndex) latestCheckOutcomes.set(index, outcome);
           checkOutcomes =
             allOutcomes.length === allChecks.length ? allOutcomes : [];
           // What the call was run with despite the contract — a require
@@ -2674,6 +2822,24 @@ export function buildFusionDelegateTool(
             };
           });
         }
+        // Every task whose checks name criteria has its facts, judged or
+        // not: one not ruled green stays open for the director (issue #40).
+        {
+          const named = briefCriteria ?? new Map<string, { id: string; text: string }>();
+          const outcomesByIndex = (parsed.contract?.checks ?? []).map(
+            (_, index) => latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index),
+          );
+          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
+        }
+        // The run's success-criteria facts, kept with its screenshots for
+        // the milestone report (issue #40, `run-criteria.ts`).
+        if (run !== undefined && deps.runCheckpoints !== undefined) {
+          writeRunCriteriaFacts(
+            deps.runCheckpoints.runsDir,
+            { runId: run.runId, sessionId: ctx.sessionId },
+            results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }])),
+          );
+        }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
         results = await collectTaskArtifactManifests(results, parsed.tasks, {
@@ -2843,7 +3009,7 @@ export function buildFusionDelegateTool(
         // reading only the status merged nothing as if it were something.
         // Workers that were never served or timed out before a single step
         // count as nothing delivered too (ATO-234).
-        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: deps.runChecks, holdChecks: (signal) => checkHold.decide(signal) }), signal: runSignal });
+        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
         completedCandidateReport = candidateReport;
         terminalTaskCount = results.length;
         const outcome = delegateOutcome(results);

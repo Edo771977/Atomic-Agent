@@ -1,5 +1,8 @@
 /** Explicit native Windows reliability gate; the Linux full suite remains separate. */
 import { spawnSync } from 'node:child_process';
+
+/** Per-test and per-hook ceiling for the Windows gate's single-worker run. */
+export const WINDOWS_GATE_TEST_TIMEOUT_MS = 60_000;
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -29,6 +32,12 @@ export const criticalFiles = [
   'src/tools/verify/verify-isolation.test.ts',
   'src/tools/verify/verify-checks.test.ts',
   'src/tools/verify/verify-run-summary.test.ts',
+  'src/tools/verify/verify-run-args.test.ts',
+  'src/tools/verify/safe-regex.test.ts',
+  'src/tools/fusion/contract-check-egress.test.ts',
+  // Issue #40: run folders' criteria facts and shots (paths), and the delegate seam.
+  'src/tools/fusion/run-criteria.test.ts',
+  'src/tools/fusion/fusion-delegate-criteria.test.ts',
   'src/tools/fusion/candidate-integration.test.ts',
   'src/tools/fusion/candidate-evidence.test.ts',
   'src/tools/fusion/candidate-path-references.test.ts',
@@ -120,6 +129,11 @@ export const supplementalFiles = [
  * file in those directories fails scopeDrift until it is added to one list.
  */
 export const deferredFiles = [
+  // Needs a launchable headless Chromium; skips without one.
+  'src/tools/verify/run-page-real-browser.test.ts',
+  // Pure rules (issue #40): criteria facts and the vision judge's prompt and answer.
+  'src/tools/fusion/criteria-facts.test.ts',
+  'src/tools/fusion/vision-judge.test.ts',
   'src/tools/fusion/artifact-manifest.test.ts',
   'src/tools/fusion/branch-diff.test.ts',
   'src/tools/fusion/branch-ignore-policy.test.ts',
@@ -232,7 +246,12 @@ function main() {
       ['run', '--config', 'eval-agents/vitest.hermetic.config.ts'],
     ];
     for (const args of suites) {
-      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1'], {
+      // The gate runs one worker on a shared Windows runner, where tests that
+      // spawn git or PowerShell take several times longer than elsewhere:
+      // the same test passed in 4 s on one run and hit the default 15 s on
+      // another. A wider per-test ceiling keeps those from flaking without
+      // changing what they assert.
+      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
         cwd: root, stdio: 'inherit', env: { ...process.env, ATOMIC_AGENT_STATE_DIR: state },
       });
       if (result.error) throw result.error;

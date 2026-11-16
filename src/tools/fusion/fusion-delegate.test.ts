@@ -27,6 +27,7 @@ import type { WorkerTaskResult } from "./worker-result.js";
 import { outcomeLogPath } from "./outcome-log.js";
 import { FusionTurnBudget } from "./turn-budget.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import type { ContractCheckRunner } from "./contract-checks.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import type { DelegateTask } from "./delegate-args.js";
 import type { TeamFamily, TeamMember } from "../../llm/run-mode/fusion-team.js";
@@ -1408,6 +1409,66 @@ describe("fusion.delegate", () => {
         };
         expect(report.findings).toHaveLength(3);
         expect(report.checks).toHaveLength(3);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("tells the check runner which run and task each check belongs to, so a page check's screenshots stay with the run (issue #40)", async () => {
+      const dir = fixture();
+      const state = mkdtempSync(join(tmpdir(), "fusion-shots-runs-"));
+      try {
+        const runChecks = vi.fn(async (specs: readonly Record<string, unknown>[], _ctx: Parameters<ContractCheckRunner>[1]) => ({
+          ok: true,
+          results: specs.map(() => ({ ok: true, summary: "exit 0" })),
+        }));
+        const store = new FusionRunStore({ dir: state });
+        const tool = buildFusionDelegateTool(deps({ workingDir: dir, runChecks, runCheckpoints: store }));
+        const result = await tool.run({ tasks: TASKS, contract: CONTRACT }, ctx({ workingDir: dir }));
+        const runId = result.details.runId;
+        expect(typeof runId).toBe("string");
+        const final = runChecks.mock.calls.at(-1)!;
+        expect(final[1].run).toEqual({ runId, sessionId: "s-parent" });
+        expect(final[1].checkTasks).toEqual(["t1", "t2", undefined]);
+        // A worker's self-check names its own task.
+        expect(runChecks.mock.calls[0]![1]).toMatchObject({ run: { runId, sessionId: "s-parent" }, checkTasks: ["t1"] });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(state, { recursive: true, force: true });
+      }
+    });
+
+    it("refuses a check the folder's egress rule does not allow before the runner sees it, as a red check with the egress message (issue #40)", async () => {
+      const dir = fixture();
+      try {
+        const runChecks = vi.fn(async (specs: readonly Record<string, unknown>[]) => ({
+          ok: true,
+          results: specs.map(() => ({ ok: true, summary: "exit 0" })),
+        }));
+        const egressMessage = 'folder /secret is restricted: verify.run would send content off this machine; add "browser" to projects.constraints["/secret"].allowedEgress to allow it';
+        const asked: string[] = [];
+        const tool = buildFusionDelegateTool(
+          deps({
+            workingDir: dir,
+            runChecks,
+            contractCheckEgress: (spec, egressCtx) => {
+              asked.push(egressCtx.sessionId);
+              return spec.kind === "page" ? new Error(egressMessage) : null;
+            },
+          }),
+        );
+        const result = await tool.run({ tasks: TASKS, contract: CONTRACT }, ctx({ workingDir: dir }));
+        // No runner call ever carried the page spec.
+        for (const [specs] of runChecks.mock.calls) {
+          expect(specs.some((s) => s.kind === "page")).toBe(false);
+        }
+        expect(asked.length).toBeGreaterThan(0);
+        expect(new Set(asked)).toEqual(new Set(["s-parent"]));
+        const rows = result.details.tasks as WorkerTaskResult[];
+        expect(rows.find((r) => r.id === "t2")?.status).toBe("failed");
+        expect(rows.find((r) => r.id === "t2")?.error).toContain("add \"browser\"");
+        const report = result.details.contract as { checks: { ok: boolean; detail: string }[] };
+        expect(report.checks.filter((c) => !c.ok).map((c) => c.detail).join(" ")).toContain("allowedEgress");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

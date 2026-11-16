@@ -6,6 +6,7 @@ import { summariseAriaSnapshot } from "./aria-compressor.js";
 import { describeElementInPage, toRefDescription } from "./describe-element.js";
 import { searchUrlFor } from "./search-engines.js";
 import { planShot, type CssRect } from "./screenshot-geometry.js";
+import { capturePlannedJpeg, readViewportMetricsInPage } from "./page-capture.js";
 import { buildChromeLaunchArgs } from "./build-chrome-launch-args.js";
 import { isOfflineNetwork } from "../../llm/offline-network.js";
 import { clearStaleChromeLocks } from "./clear-stale-chrome-locks.js";
@@ -341,24 +342,10 @@ export class PlaywrightBackend implements BrowserBackend {
     }
     const plan = planShot(rect, metrics.devicePixelRatio, input.maxSide, input.fullPage === true);
     if (!plan) throw new Error(input.ref ? `ref '${input.ref}' has no visible area` : "the page has no visible area");
-    await setSecretFieldMask(page, true);
-    let data: string;
-    const session = await page.context().newCDPSession(page);
-    try {
-      const shot = (await session.send("Page.captureScreenshot", {
-        format: "jpeg",
-        quality: input.quality,
-        clip: { ...plan.clip, scale: plan.scale },
-        captureBeyondViewport: input.fullPage === true,
-      })) as { data: string };
-      data = shot.data;
-    } finally {
-      await session.detach().catch(() => undefined);
-      await setSecretFieldMask(page, false);
-    }
+    const buffer = await capturePlannedJpeg(page, plan, input.quality, input.fullPage === true);
     const framesAfter = page.frames().map((frame) => frame.url());
     return {
-      buffer: Buffer.from(data, "base64"),
+      buffer,
       width: plan.width,
       height: plan.height,
       mime: "image/jpeg",
@@ -575,73 +562,6 @@ export class PlaywrightBackend implements BrowserBackend {
 function isDisconnected(context: PwBrowserContext): boolean {
   const browser = context.browser();
   return browser !== null && typeof browser.isConnected === "function" && !browser.isConnected();
-}
-
-interface ViewportMetrics {
-  devicePixelRatio: number;
-  pageX: number;
-  pageY: number;
-  viewportWidth: number;
-  viewportHeight: number;
-  scrollWidth: number;
-  scrollHeight: number;
-}
-
-/** Runs in the page: scroll offset, viewport and document size in CSS pixels. */
-function readViewportMetricsInPage(): ViewportMetrics {
-  const w = globalThis as unknown as {
-    devicePixelRatio: number;
-    scrollX: number;
-    scrollY: number;
-    innerWidth: number;
-    innerHeight: number;
-    visualViewport?: { pageLeft: number; pageTop: number; width: number; height: number } | null;
-    document: { documentElement: { scrollWidth: number; scrollHeight: number; clientWidth: number; clientHeight: number } };
-  };
-  const vv = w.visualViewport;
-  const root = w.document.documentElement;
-  return {
-    devicePixelRatio: w.devicePixelRatio || 1,
-    pageX: vv ? vv.pageLeft : w.scrollX,
-    pageY: vv ? vv.pageTop : w.scrollY,
-    viewportWidth: vv ? vv.width : root.clientWidth || w.innerWidth,
-    viewportHeight: vv ? vv.height : root.clientHeight || w.innerHeight,
-    scrollWidth: Math.max(root.scrollWidth, root.clientWidth),
-    scrollHeight: Math.max(root.scrollHeight, root.clientHeight),
-  };
-}
-
-const SECRET_MASK_STYLE_ID = "__atomic_agent_secret_mask";
-/** The same secret fields the snapshot masks (`redact-secret-fields.ts`). */
-const SECRET_MASK_CSS =
-  SECRET_AUTOCOMPLETE_TOKENS.map((token) => `input[autocomplete~="${token}"]`).join(",") +
-  "{-webkit-text-security:disc!important}";
-
-/** Runs in each frame: add or remove the style that draws secret fields as dots. */
-function toggleSecretMaskInPage(arg: { on: boolean; id: string; css: string }): void {
-  const doc = (globalThis as unknown as {
-    document: {
-      getElementById: (id: string) => { remove: () => void } | null;
-      createElement: (tag: string) => { id: string; textContent: string };
-      documentElement: { appendChild: (node: unknown) => void };
-    };
-  }).document;
-  doc.getElementById(arg.id)?.remove();
-  if (!arg.on) return;
-  const style = doc.createElement("style");
-  style.id = arg.id;
-  style.textContent = arg.css;
-  doc.documentElement.appendChild(style);
-}
-
-async function setSecretFieldMask(page: Page, on: boolean): Promise<void> {
-  await Promise.all(
-    page.frames().map((frame) =>
-      frame
-        .evaluate(toggleSecretMaskInPage, { on, id: SECRET_MASK_STYLE_ID, css: SECRET_MASK_CSS })
-        .catch(() => undefined),
-    ),
-  );
 }
 
 /** Secret field values in every frame; a frame that cannot be read gives none. */

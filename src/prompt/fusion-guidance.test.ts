@@ -17,6 +17,7 @@ import type { AtomicAgentConfig } from "../config/config-schema.js";
 import { COMPOSIO_SEARCH_TOOL } from "./composio-guidance.js";
 import { buildStablePrefix, type ToolDescriptor } from "./stable-prefix.js";
 import type { CapabilitiesSummary } from "./capabilities.js";
+import { DEFAULT_TOOL_DESCRIPTORS } from "./tool-descriptors.js";
 
 function descriptor(name: string): ToolDescriptor {
   return { name, summary: `${name} summary`, argsSchema: "{}" };
@@ -185,6 +186,19 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.milestone`/);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/### project/);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/never delegate while a gate waits/i);
+  });
+
+  it("asks for every success criterion to be mapped to contract checks by id, of the four kinds (issue #40)", () => {
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`criteria: \[ids\]`/);
+    for (const kind of ["e2e", "page", "game", "visual"]) expect(PROJECT_FLOW_GUIDANCE).toContain(kind);
+  });
+
+  it("the project.brief descriptor states the fixed game API (issue #40)", () => {
+    const brief = DEFAULT_TOOL_DESCRIPTORS.find((d) => d.name === "project.brief")!;
+    expect(brief.summary).toContain("window.__game");
+    expect(brief.summary).toMatch(/start\(\{ ?seed, mode: "auto" ?\}\)/);
+    expect(brief.summary).toMatch(/step\(\)/);
+    expect(brief.summary).toMatch(/state\(\) → \{ ?over, winner, moves, error\? ?\}/);
   });
 
   it("is static: the same bytes whatever the project's state, and absent without the project tools", () => {

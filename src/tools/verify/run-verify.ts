@@ -14,6 +14,8 @@ import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
 import type { ProbeSample } from "./page-probe-script.js";
+import type { VerifyGameSummary } from "./page-game-harness.js";
+import type { VerifyScreenshot, VerifyShotTarget } from "./page-screenshots.js";
 import { runCommandKind } from "./run-command-kind.js";
 import { type BrowserLauncher, defaultBrowserLauncher, type PageRunOutcome, runPageKind } from "./run-page-kind.js";
 import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-service-kind.js";
@@ -59,6 +61,12 @@ export interface VerifyRunResult {
   readonly requestFailures?: readonly string[];
   readonly missingSelectors?: readonly string[];
   readonly probes?: Readonly<Record<string, ProbeSample[]>>;
+  /** A page run's games (`game`), per game and summarised (`page-game-harness.ts`). */
+  readonly games?: VerifyGameSummary;
+  /** A page run's screenshots (`screenshot`), at most four (`page-screenshots.ts`). */
+  readonly screenshots?: readonly VerifyScreenshot[];
+  /** Screenshots that could not be taken or saved; not a failure of the run. */
+  readonly screenshotErrors?: readonly string[];
   readonly checks?: readonly CheckOutcome[];
   /** What the failure means and what to do instead (a terminal-only program, say). */
   readonly hint?: string;
@@ -81,6 +89,13 @@ export interface VerifyRunContext {
   /** Browser settings and copy limit; `getConfig().browser` for page runs when omitted. */
   readonly config?: VerifyRunConfig;
   readonly signal?: AbortSignal;
+  /**
+   * Where a page run's `screenshot` goes (a fusion run's shots folder);
+   * the temp screenshot folder when absent.
+   */
+  readonly screenshots?: VerifyShotTarget;
+  /** `runChecks` only: the target for spec `index`, over `screenshots`. */
+  readonly screenshotTargetFor?: (index: number) => VerifyShotTarget | undefined;
   /** Test seams. */
   readonly launchBrowser?: BrowserLauncher;
   readonly fetchImpl?: FetchLike;
@@ -140,7 +155,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     ctx.launchBrowser ??
     defaultBrowserLauncher(ctx.config ?? { browser: getConfig().browser });
   if (args.start === undefined) {
-    const out = await runPageKind(args, { cwd, signal: ctx.signal, launch });
+    const out = await runPageKind(args, { cwd, signal: ctx.signal, launch, ...(ctx.screenshots === undefined ? {} : { shots: ctx.screenshots }) });
     return finishPage(common, out, {}, args, started);
   }
   // The page is served by its own server: the browser opens it only once
@@ -151,7 +166,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     signal: ctx.signal,
     fetchImpl: ctx.fetchImpl,
     whileReady: async () => {
-      held.page = await runPageKind(args, { cwd, signal: ctx.signal, launch });
+      held.page = await runPageKind(args, { cwd, signal: ctx.signal, launch, ...(ctx.screenshots === undefined ? {} : { shots: ctx.screenshots }) });
     },
   });
   const serverFields = {
@@ -182,10 +197,17 @@ function finishPage(
   args: VerifyRunArgs,
   started: number,
 ): VerifyRunResult {
-  const runOk = out.launched && out.loaded && out.errors.length === 0 && out.consoleErrors.length === 0;
+  // A game spec over a page with no `window.__game` is a failed run even
+  // without checks: the brief requires the API.
+  const runOk = out.launched && out.loaded && out.errors.length === 0 && out.consoleErrors.length === 0 && out.games?.missingApi === undefined;
+  const games = out.games === undefined ? {} : { games: out.games };
+  const shots = {
+    ...(out.screenshots === undefined ? {} : { screenshots: out.screenshots }),
+    ...(out.screenshotErrors === undefined ? {} : { screenshotErrors: out.screenshotErrors }),
+  };
   return finish(
-    { ...common, ...extra, errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...(out.error === undefined ? {} : { error: out.error }) },
-    { kind: "page", errors: out.errors, consoleErrors: out.consoleErrors, missingSelectors: out.missingSelectors, probes: out.probes },
+    { ...common, ...extra, errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...games, ...shots, ...(out.error === undefined ? {} : { error: out.error }) },
+    { kind: "page", errors: out.errors, consoleErrors: out.consoleErrors, missingSelectors: out.missingSelectors, probes: out.probes, ...games },
     args.checks, runOk, started,
   );
 }
@@ -255,10 +277,12 @@ export const runChecks = Object.assign(async function runChecks(
   ctx: VerifyRunContext,
 ): Promise<{ ok: boolean; results: VerifyRunResult[] }> {
   const results: VerifyRunResult[] = [];
-  for (const spec of specs) {
+  for (const [index, spec] of specs.entries()) {
     if (ctx.signal?.aborted) break;
     try {
-      results.push(await runVerify(spec, ctx));
+      const target = ctx.screenshotTargetFor?.(index) ?? ctx.screenshots;
+      const { screenshotTargetFor: _perSpec, screenshots: _shared, ...rest } = ctx;
+      results.push(await runVerify(spec, { ...rest, ...(target === undefined ? {} : { screenshots: target }) }));
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       const kind = (typeof spec.kind === "string" ? spec.kind : "command") as VerifyRunKind;

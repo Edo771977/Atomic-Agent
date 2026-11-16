@@ -18,6 +18,7 @@ function recordingDeps(): {
     return new Response(
       JSON.stringify({
         choices: [{ message: { role: "assistant", content: "a cat" } }],
+        usage: { prompt_tokens: 900, completion_tokens: 40, total_tokens: 940 },
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
@@ -39,6 +40,15 @@ const REQUEST = {
   prompt: "what is this?",
   images: [{ id: 1, bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }],
 };
+
+describe("describeImageViaOpenAi — a pinned model and usage (issue #40)", () => {
+  it("asks for the request's model over the provider's default and reports the usage", async () => {
+    const { deps, body } = recordingDeps();
+    const result = await describeImageViaOpenAi(deps, "model-default", { ...REQUEST, model: "model-b" });
+    expect(body().model).toBe("model-b");
+    expect(result.usage).toMatchObject({ promptTokens: 900, completionTokens: 40 });
+  });
+});
 
 describe("describeImageViaOpenAi — per-model parameters (ATO-1215)", () => {
   it("sends Kimi K3.1 its one allowed temperature", async () => {

@@ -53,6 +53,8 @@
 import {
   CONTRACT_PROVIDE_KINDS,
   MAX_PROVIDE_SHAPE_CHARS,
+  MAX_CHECK_CRITERIA,
+  normalizeCriterionId,
   MAX_CONTRACT_CHECKS,
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
@@ -638,13 +640,24 @@ function readContract(
           problems.push(`${label} must be an object`);
           continue;
         }
-        const { task, ...spec } = entry;
+        const { task, criteria: rawCriteria, judge, ...spec } = entry;
         if (Object.keys(spec).length === 0) {
           problems.push(`${label} carries no verify.run arguments`);
           continue;
         }
+        const criteria = readCheckCriteria(rawCriteria, `${label}.criteria`, problems);
+        if (criteria === null) continue;
+        if (!readCheckJudge(judge, spec, criteria, `${label}.judge`, problems)) continue;
+        const judged = judge === undefined || judge === null ? spec : { judge: "vision" as const, ...spec };
+        const withCriteria = criteria.length === 0 ? judged : { criteria, ...judged };
         if (task === undefined || task === null) {
-          checks.push(spec);
+          // Criteria close with a task (`criteria-facts.ts`): a call-level
+          // check names no task they could hold open.
+          if (criteria.length > 0) {
+            problems.push(`${label}.criteria needs the \`task\` whose check it is: a criterion is a fact of the task that closes on it`);
+            continue;
+          }
+          checks.push(withCriteria);
           continue;
         }
         const bad = known(task, `${label}.task`);
@@ -652,7 +665,7 @@ function readContract(
           problems.push(bad);
           continue;
         }
-        checks.push({ task: (task as string).trim(), ...spec });
+        checks.push({ task: (task as string).trim(), ...withCriteria });
       }
       if (checks.length > 0) contract.checks = checks;
     }
@@ -787,4 +800,65 @@ export function parseDelegateArgs(
     ...(maxWorkers === null ? {} : { maxWorkers }),
     ...(contract === undefined ? {} : { contract }),
   };
+}
+
+/**
+ * A check's `judge` (issue #40): absent, or `"vision"` on a page check
+ * that takes a `screenshot` and names the `criteria` it judges. False
+ * (with the problem recorded) otherwise.
+ */
+function readCheckJudge(
+  raw: unknown,
+  spec: Record<string, unknown>,
+  criteria: readonly string[],
+  label: string,
+  problems: string[],
+): boolean {
+  if (raw === undefined || raw === null) return true;
+  if (raw !== "vision") {
+    problems.push(`${label} must be "vision"`);
+    return false;
+  }
+  const kind = spec.kind ?? spec.type;
+  if (kind !== "page" || spec.screenshot === undefined || spec.screenshot === null) {
+    problems.push(`${label} needs a page check with a \`screenshot\``);
+    return false;
+  }
+  if (criteria.length === 0) {
+    problems.push(`${label} needs the \`criteria\` it judges`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * A check's `criteria` (issue #40): the success-criterion ids it
+ * verifies, trimmed, unique, at most 20. `null` (with the problem
+ * recorded) when malformed; `[]` when absent or empty.
+ */
+function readCheckCriteria(raw: unknown, label: string, problems: string[]): string[] | null {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    problems.push(`${label} must be an array of criterion ids`);
+    return null;
+  }
+  if (raw.length > MAX_CHECK_CRITERIA) {
+    problems.push(`${label} has ${raw.length} entries; at most ${MAX_CHECK_CRITERIA}`);
+    return null;
+  }
+  const ids: string[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    // The brief's rule (trimmed, lower-cased), so a check's ids match the brief's.
+    const id = normalizeCriterionId(raw[i]);
+    if (id === null) {
+      problems.push(`${label}[${i}] ${JSON.stringify(raw[i])} is not a criterion id (a-z, 0-9 and -; at most 32)`);
+      return null;
+    }
+    if (ids.includes(id)) {
+      problems.push(`${label} repeats ${JSON.stringify(id)}`);
+      return null;
+    }
+    ids.push(id);
+  }
+  return ids;
 }

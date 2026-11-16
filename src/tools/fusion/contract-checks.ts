@@ -11,6 +11,8 @@ import {
 import type { DelegateTask } from "./delegate-args.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
+import type { VerifyGameSummary } from "../verify/page-game-harness.js";
+import type { VerifyScreenshot } from "../verify/page-screenshots.js";
 import {
   knownSecretsFromEnv,
   maskSecrets,
@@ -53,6 +55,18 @@ export interface ContractCheckResult {
    */
   stderrTail?: string;
   stdoutTail?: string;
+  /** A page check's games (`verify.run` `game`), per game (issue #40). */
+  games?: VerifyGameSummary;
+  /** A page check's screenshots (`verify.run` `screenshot`), at most four. */
+  screenshots?: readonly VerifyScreenshot[];
+  /** Screenshots asked for but not taken, one line each. */
+  screenshotErrors?: readonly string[];
+}
+
+/** The fusion run a batch of checks belongs to (`<stateDir>/fusion-runs/<runId>`). */
+export interface ContractCheckRun {
+  readonly runId: string;
+  readonly sessionId: string;
 }
 
 /**
@@ -72,6 +86,14 @@ export type ContractCheckRunner = ((
      * self-check records that time as `heldMs` (issue #30).
      */
     onHold?: { start(): void; end(): void };
+    /**
+     * The task each spec is attributed to, aligned with `specs` by index
+     * (`undefined` for a call-level check): a page check's screenshots
+     * are named by it (issue #40).
+     */
+    checkTasks?: readonly (string | undefined)[];
+    /** The fusion run the checks belong to: its screenshots are kept with the run. */
+    run?: ContractCheckRun;
   },
 ) => Promise<{ ok: boolean; results: readonly ContractCheckResult[] }>) & { readonly supportsInputIntegrity?: true };
 
@@ -100,6 +122,16 @@ export interface ContractCheckOutcome {
    * Absent on a pass and when the head already said everything.
    */
   output?: string;
+  /** The success-criterion ids the check verifies (its spec's `criteria`, issue #40). */
+  criteria?: string[];
+  /** The check's games, page texts masked (issue #40). */
+  games?: VerifyGameSummary;
+  /** The check's screenshots: paths of JPEGs on this machine (issue #40). */
+  screenshots?: readonly VerifyScreenshot[];
+  /** Screenshots the check asked for but did not get, one line each. */
+  screenshotErrors?: readonly string[];
+  /** The check's spec asked for a vision judgement of its screenshots. */
+  judge?: "vision";
 }
 
 /**
@@ -384,12 +416,29 @@ function maskResult(
   const error = mask(result.error).value;
   const stderrTail = mask(result.stderrTail).value;
   const stdoutTail = mask(result.stdoutTail).value;
+  const games = result.games === undefined ? undefined : maskGames(result.games, known);
   return {
     ok: result.ok,
     ...(summary === undefined ? {} : { summary }),
     ...(error === undefined ? {} : { error }),
     ...(stderrTail === undefined ? {} : { stderrTail }),
     ...(stdoutTail === undefined ? {} : { stdoutTail }),
+    ...(games === undefined ? {} : { games }),
+    ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
+    ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
+  };
+}
+
+/** The page-written texts of a game summary (errors, winners) masked. */
+function maskGames(games: VerifyGameSummary, known: readonly KnownSecret[]): VerifyGameSummary {
+  const mask = (text: string): string => maskSecrets(text, known);
+  const winners: Record<string, number> = {};
+  for (const [winner, count] of Object.entries(games.winners)) winners[mask(winner)] = (winners[mask(winner)] ?? 0) + count;
+  return {
+    ...games,
+    winners,
+    runs: games.runs.map((run) => ({ ...run, winner: run.winner === null ? null : mask(run.winner), errors: run.errors.map(mask) })),
+    ...(games.missingApi === undefined ? {} : { missingApi: mask(games.missingApi) }),
   };
 }
 
@@ -428,12 +477,12 @@ export async function runContractChecks(
   if (ctx.signal.aborted) {
     return { outcomes: [], checksSkipped: `${plural} not run — the turn was cancelled` };
   }
-  const specs = checks.map(({ task: _task, ...spec }) => spec);
+  const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, ...spec }) => spec);
   const known = ctx.knownSecrets ?? knownSecretsFromEnv();
   let results: readonly ContractCheckResult[];
   try {
     results = (
-      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }) })
+      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), checkTasks: checks.map((check) => check.task) })
     ).results;
   } catch (error) {
     // Held after outside content (`contract-check-hold.ts`): its own note,
@@ -456,7 +505,11 @@ export async function runContractChecks(
     const raw = results[i];
     const task = check.task === undefined ? {} : { task: check.task };
     if (raw === undefined) {
-      return { ...task, ok: false, detail: "the runner returned no result" };
+      return {
+        ...task, ok: false, detail: "the runner returned no result",
+        ...(check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] }),
+        ...(check.judge === "vision" ? { judge: "vision" as const } : {}),
+      };
     }
     const result = maskResult(raw, known);
     // The head is the summary before its output tails, on one line;
@@ -467,7 +520,14 @@ export async function runContractChecks(
     const headText = at >= 0 ? text.slice(0, at) : text;
     const detail = head(headText, CHECK_DETAIL_CHARS);
     const output = result.ok ? undefined : checkOutput(result, headText);
-    return { ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }) };
+    const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
+    return {
+      ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
+      ...(result.games === undefined ? {} : { games: result.games }),
+      ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
+      ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),
+      ...(check.judge === "vision" ? { judge: "vision" as const } : {}),
+    };
   });
   return { outcomes };
 }
