@@ -1004,15 +1004,12 @@ export function buildFusionDelegateTool(
           writeScope,
           [ctx.workingDir],
         );
+      const turnGrantCovers =
+        deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
       const alreadyApproved =
         !declinedInScope &&
         !(deps.approvals.holdsForOutsideContent?.(ctx.sessionId, "fusion_fanout") ?? false) &&
-        (planApproved ||
-          (deps.approvals.fanoutScopes?.turnGrantCovers(
-            ctx.sessionId,
-            writeScope,
-          ) ??
-            false));
+        (planApproved || turnGrantCovers);
       try {
         if (!alreadyApproved) {
           // A yes from a person who was shown this fan-out is their newer
@@ -1049,7 +1046,11 @@ export function buildFusionDelegateTool(
             deps.approvals.forgetDeclinedUnder?.(ctx.sessionId, writeScope);
           }
         }
-        deps.approvals.fanoutScopes?.grantForTurn(ctx.sessionId, writeScope);
+        // The plan's yes covers its own tasks only: a fan-out it admitted
+        // without asking grants nothing for the rest of the turn.
+        if (!alreadyApproved || turnGrantCovers) {
+          deps.approvals.fanoutScopes?.grantForTurn(ctx.sessionId, writeScope);
+        }
         if (projectVerdict.kind === "admit") admitted.milestoneId = projectVerdict.milestoneId;
 
       } catch (err) {

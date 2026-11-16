@@ -176,6 +176,16 @@ describe("fusion.delegate with a project (issue #39)", () => {
     }
   });
 
+  it("a fan-out the plan admitted grants nothing for the turn: a later one outside the plan still asks", async () => {
+    const { gate, prompts } = gateAnswering();
+    const d = deps({ approvalRequired: true, approvals: gate });
+    const tool = buildFusionDelegateTool(d);
+    await tool.run({ tasks: [task("board")] }, ctx(running()));
+    expect(prompts).toEqual([]);
+    await tool.run({ tasks: [task("extra")] }, ctx(running()));
+    expect(prompts.map((p) => p.tool)).toEqual(["fusion.delegate"]);
+  });
+
   it("without a project nothing changes: the fan-out asks and records no project update", async () => {
     const { gate, prompts } = gateAnswering();
     const d = deps({ approvalRequired: true, approvals: gate });
