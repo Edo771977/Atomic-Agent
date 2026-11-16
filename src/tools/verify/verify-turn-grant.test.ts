@@ -103,6 +103,15 @@ describe("a verify_page_local yes stands for the turn in the plan's folder", () 
     expect(asked).toHaveLength(3);
   });
 
+  it("asks again after outside content even with agent.taintReview off, also on a worker", async () => {
+    gate.followTaint("worker-1", "director");
+    await tool().run(page, ctx());
+    gate.noteUntrustedContent("director", "web page");
+    await tool().run(page, ctx());
+    expect(asked).toHaveLength(2);
+    expect(gate.verifyPageGrantedForTurn("worker-1", work)).toBe(false);
+  });
+
   it("never covers a loopback URL probe, which runs whatever that server serves", async () => {
     await tool().run(page, ctx());
     await tool().run({ kind: "page", url: "http://127.0.0.1:5173/", probes: [{ name: "x", expr: "document.title" }] }, ctx());

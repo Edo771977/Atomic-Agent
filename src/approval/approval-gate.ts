@@ -623,11 +623,14 @@ export class ApprovalGate {
    * Whether a `verify_page_local` probe of `folder` on `sessionId` is
    * covered by this turn's yes: one given on the session or, for a Fusion
    * worker, on its orchestrator (`followTaint`). Never after outside
-   * content was read in the turn (the hold asks); the caller still checks
+   * content was read in the turn, with or without `agent.taintReview`;
+   * the caller still checks
    * saved rules and declined targets.
    */
   verifyPageGrantedForTurn(sessionId: string, folder: string): boolean {
-    if (this.holdsForOutsideContent(sessionId, "verify_page_local")) return false;
+    // Any outside content this turn, on the session or its orchestrator,
+    // whatever `agent.taintReview` says: the yes was given before it.
+    if (this.taintSourcesOf(sessionId).length > 0) return false;
     const target = resolvePath(folder);
     return [sessionId, ...this.taintAncestors(sessionId)].some((id) =>
       [...(this.verifyPageFoldersBySession.get(id) ?? [])].some((granted) => relative(granted, target) === ""));
