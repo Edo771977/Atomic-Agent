@@ -267,7 +267,7 @@ jobs:
           $targets += (Get-Item "desktop\build\core\${{ matrix.slug }}\atomic-chat-core.exe").FullName
           $rg = "assets\ripgrep\${{ matrix.slug }}\rg.exe"
           if (Test-Path $rg) { $targets += (Get-Item $rg).FullName }
-          $sqlite = Get-ChildItem -Path "node_modules\better-sqlite3\build\Release" -Filter "*.node" -ErrorAction SilentlyContinue
+          $sqlite = @(Get-ChildItem -Path "node_modules\better-sqlite3\prebuilds\${{ matrix.slug }}.node" -ErrorAction SilentlyContinue) + @(Get-ChildItem -Path "node_modules\better-sqlite3\build\Release" -Filter "*.node" -ErrorAction SilentlyContinue)
           foreach ($f in $sqlite) { $targets += $f.FullName }
 
           # signtool is a native command: check $LASTEXITCODE, a failure does
@@ -631,7 +631,7 @@ jobs:
       - name: Check the bundle's binaries are arm64
         run: |
           set -euo pipefail
-          files=(bundle/win32-arm64/atomic-agent.exe bundle/win32-arm64/node_modules/better-sqlite3/build/Release/better_sqlite3.node)
+          files=(bundle/win32-arm64/atomic-agent.exe bundle/win32-arm64/node_modules/better-sqlite3/prebuilds/win32-arm64.node)
           if [[ -f bundle/win32-arm64/vendor/rg.exe ]]; then
             files+=(bundle/win32-arm64/vendor/rg.exe)
           else
@@ -733,7 +733,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f bundle/win32-arm64/atomic-agent.exe
-          test -f bundle/win32-arm64/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+          test -f bundle/win32-arm64/node_modules/better-sqlite3/prebuilds/win32-arm64.node
           ls -la bundle/win32-arm64
 
       # The arm64 asset, fetched on this x64 runner: it is only signed and
@@ -821,7 +821,7 @@ jobs:
           $targets += (Get-Item "desktop\build\core\win32-arm64\atomic-chat-core.exe").FullName
           $rg = "bundle\win32-arm64\vendor\rg.exe"
           if (Test-Path $rg) { $targets += (Get-Item $rg).FullName }
-          $sqlite = Get-ChildItem -Path "bundle\win32-arm64\node_modules\better-sqlite3\build\Release" -Filter "*.node" -ErrorAction SilentlyContinue
+          $sqlite = @(Get-ChildItem -Path "bundle\win32-arm64\node_modules\better-sqlite3\prebuilds\win32-arm64.node" -ErrorAction SilentlyContinue) + @(Get-ChildItem -Path "bundle\win32-arm64\node_modules\better-sqlite3\build\Release" -Filter "*.node" -ErrorAction SilentlyContinue)
           foreach ($f in $sqlite) { $targets += $f.FullName }
 
           # signtool is a native command: check $LASTEXITCODE, a failure does
