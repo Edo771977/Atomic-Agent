@@ -85,6 +85,25 @@ describe("project decisions from the TUI", () => {
     expect(f.emit).toHaveBeenCalledWith({ type: "project_card_failed", error: expect.stringMatching(/current turn/) });
   });
 
+  it("a decision taken on another surface refreshes the chat's own copy from the store", () => {
+    // HTTP (or Telegram) approved the plan: the runtime saved it and sent
+    // project_gate. The TUI's next turn must run on the stored project,
+    // or its save would put the old gate back.
+    const stored = { milestones: [], gate: { kind: "none" as const }, cancelledAt: 11 };
+    const load = vi.fn((id: string) => (id === "s1" ? { id: "s1", project: stored } : null));
+    const f = fixture({ sessionStore: { load } });
+    const app = f.app as unknown as { session: { project?: unknown }; onProjectGateEvent(id: string): void };
+    app.onProjectGateEvent("other");
+    expect(app.session.project).toBeUndefined();
+    app.onProjectGateEvent("s1");
+    expect(app.session.project).toBe(stored);
+    // While this chat's own turn runs, its result carries the project; nothing is read.
+    load.mockClear();
+    (f.app as unknown as { currentController: unknown }).currentController = new AbortController();
+    app.onProjectGateEvent("s1");
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("/plan opens the full view, or says there is no project", () => {
     const view = fixtureProjectGateView({ kind: "none" });
     const f = fixture({ projectState: () => view });

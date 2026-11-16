@@ -475,6 +475,13 @@ export class ChatOrchestrator {
       }
       this.turnEvents.record(action.sessionId, action.event);
     });
+    // A project gate moved for a chat (issue #39), possibly decided on
+    // another surface: the open chat's own copy takes the stored project.
+    bus.subscribe((action) => {
+      if (action.type === "agent_event" && action.event.type === "project_gate") {
+        this.onProjectGateEvent(action.event.sessionId);
+      }
+    });
     // A model picked while a thread is open belongs to that thread:
     // stamp it immediately so switching away before the next turn runs
     // does not lose the choice. `providers_select_chat_model` carries
@@ -743,6 +750,20 @@ export class ChatOrchestrator {
     if (decision.verdict === "cancel") this.notify("project cancelled");
     const next = projectContinueMessage(outcome.view, decision);
     if (next !== null) this.sendMessage(next);
+  }
+
+  /**
+   * A `project_gate` event (issue #39). A decision taken elsewhere (HTTP,
+   * Telegram, the CLI) is saved by the runtime to the store, while this
+   * chat keeps its own copy and runs (and saves) the next turn on it: take
+   * the stored project, or that save would put the old gate back. Not
+   * while this chat's own turn runs: its result carries the project.
+   */
+  onProjectGateEvent(sessionId: string): void {
+    if (this.session?.id !== sessionId || this.currentController) return;
+    const stored = this.runtime.sessionStore.load(sessionId);
+    if (stored === null) return;
+    this.session = withProject(this.session, stored.project);
   }
 
   /** "revise" at the brief gate: the person says what to change; the director redrafts. */
