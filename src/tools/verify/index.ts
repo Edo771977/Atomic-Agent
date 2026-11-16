@@ -70,6 +70,7 @@ export type {
   VerifyScriptStep,
   VerifyProbe,
   VerifyGameSpec,
+  VerifyScreenshotSpec,
 } from "./verify-run-args.js";
 export { evaluateCheck, evaluateChecks, tokenizeCheck } from "./verify-checks.js";
 export type { CheckOutcome, CheckSubject } from "./verify-checks.js";
@@ -98,6 +99,8 @@ export { runPageKind, defaultBrowserLauncher } from "./run-page-kind.js";
 export type { PageRunOutcome, BrowserLauncher } from "./run-page-kind.js";
 export { GAME_API_MISSING, GAME_DRIVER_SOURCE, playGames, summarizeGames } from "./page-game-harness.js";
 export type { VerifyGameRun, VerifyGameSummary } from "./page-game-harness.js";
+export { defaultShotTarget, VERIFY_MAX_SCREENSHOTS, writeShot } from "./page-screenshots.js";
+export type { VerifyScreenshot, VerifyShotTarget } from "./page-screenshots.js";
 export { compileCheckRegex, testCheckRegex, MAX_CHECK_REGEX_CHARS, CHECK_REGEX_TIMEOUT_MS } from "./safe-regex.js";
 export { downsample, sampleProbes, MISSING_SELECTOR_INIT_SCRIPT } from "./page-probe-script.js";
 export type { ProbeSample } from "./page-probe-script.js";

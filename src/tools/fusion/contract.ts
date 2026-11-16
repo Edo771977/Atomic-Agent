@@ -100,7 +100,20 @@ export interface ContractRequire {
  * One `verify.run` spec, plus the task it is attributed to. The spec's
  * own keys are owned by the verify tool and pass through untouched.
  */
-export type ContractCheck = { task?: string } & Record<string, unknown>;
+export type ContractCheck = {
+  task?: string;
+  /**
+   * The project's success-criterion ids this check verifies (issue #40):
+   * the judge maps each criterion to its checks. Not a `verify.run`
+   * argument; stripped before the runner, like `task`.
+   */
+  criteria?: string[];
+} & Record<string, unknown>;
+
+/** A criterion id as a check names it: `c1`, `plays-well`. */
+export const CRITERION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
+/** The project brief holds at most 20 success criteria. */
+export const MAX_CHECK_CRITERIA = 20;
 
 export interface DelegateContract {
   /** Candidate mode: exact existing files frozen before workers and kept byte/type/mode-identical for final checks. */

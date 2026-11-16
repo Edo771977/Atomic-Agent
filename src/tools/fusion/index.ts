@@ -21,6 +21,8 @@ export {
   MAX_CONTRACT_CHECKS,
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
+  CRITERION_ID_PATTERN,
+  MAX_CHECK_CRITERIA,
   contractWarnings,
   describeProvide,
   describeUncheckableProvide,

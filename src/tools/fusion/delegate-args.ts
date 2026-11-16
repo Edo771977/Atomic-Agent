@@ -53,6 +53,8 @@
 import {
   CONTRACT_PROVIDE_KINDS,
   MAX_PROVIDE_SHAPE_CHARS,
+  CRITERION_ID_PATTERN,
+  MAX_CHECK_CRITERIA,
   MAX_CONTRACT_CHECKS,
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
@@ -638,13 +640,16 @@ function readContract(
           problems.push(`${label} must be an object`);
           continue;
         }
-        const { task, ...spec } = entry;
+        const { task, criteria: rawCriteria, ...spec } = entry;
         if (Object.keys(spec).length === 0) {
           problems.push(`${label} carries no verify.run arguments`);
           continue;
         }
+        const criteria = readCheckCriteria(rawCriteria, `${label}.criteria`, problems);
+        if (criteria === null) continue;
+        const withCriteria = criteria.length === 0 ? spec : { criteria, ...spec };
         if (task === undefined || task === null) {
-          checks.push(spec);
+          checks.push(withCriteria);
           continue;
         }
         const bad = known(task, `${label}.task`);
@@ -652,7 +657,7 @@ function readContract(
           problems.push(bad);
           continue;
         }
-        checks.push({ task: (task as string).trim(), ...spec });
+        checks.push({ task: (task as string).trim(), ...withCriteria });
       }
       if (checks.length > 0) contract.checks = checks;
     }
@@ -787,4 +792,35 @@ export function parseDelegateArgs(
     ...(maxWorkers === null ? {} : { maxWorkers }),
     ...(contract === undefined ? {} : { contract }),
   };
+}
+
+/**
+ * A check's `criteria` (issue #40): the success-criterion ids it
+ * verifies, trimmed, unique, at most 20. `null` (with the problem
+ * recorded) when malformed; `[]` when absent or empty.
+ */
+function readCheckCriteria(raw: unknown, label: string, problems: string[]): string[] | null {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    problems.push(`${label} must be an array of criterion ids`);
+    return null;
+  }
+  if (raw.length > MAX_CHECK_CRITERIA) {
+    problems.push(`${label} has ${raw.length} entries; at most ${MAX_CHECK_CRITERIA}`);
+    return null;
+  }
+  const ids: string[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const id = typeof raw[i] === "string" ? (raw[i] as string).trim() : "";
+    if (!CRITERION_ID_PATTERN.test(id)) {
+      problems.push(`${label}[${i}] ${JSON.stringify(raw[i])} is not a criterion id (letters, digits, - and _; at most 32)`);
+      return null;
+    }
+    if (ids.includes(id)) {
+      problems.push(`${label} repeats ${JSON.stringify(id)}`);
+      return null;
+    }
+    ids.push(id);
+  }
+  return ids;
 }

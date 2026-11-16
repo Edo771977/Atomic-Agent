@@ -97,6 +97,11 @@ describe("contract check authorization", () => {
     expect(runner).toHaveBeenCalledOnce();
   });
 
+  it("authorizes a declared batch whose checks name the criteria they verify (issue #40)", async () => {
+    const { hold } = setup({ tainted: true });
+    expect(await hold.decide(signal, [{ task: "ui", criteria: ["c1"], kind: "page", path: "index.html", screenshot: { fullPage: true } }])).toBeUndefined();
+  });
+
   it("retains input-integrity capability and passes its guard unchanged", async () => {
     const { hold, runner } = setup();
     const inputIntegrity = { paths: ["test.js"], begin: async () => async () => {} };

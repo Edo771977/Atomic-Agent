@@ -401,6 +401,23 @@ describe("parseDelegateArgs — contract", () => {
     );
   });
 
+  it("carries the criterion ids a check verifies, validated (issue #40)", () => {
+    const parsed = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "page", path: "index.html", criteria: [" c1", "plays-well"] }, { kind: "command", cmd: "x", criteria: [] }] },
+    });
+    expect(parsed.ok && parsed.contract?.checks).toEqual([
+      { task: "main", criteria: ["c1", "plays-well"], kind: "page", path: "index.html" },
+      { kind: "command", cmd: "x" },
+    ]);
+    const bad = (criteria: unknown): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [{ kind: "command", cmd: "x", criteria }] } }));
+    expect(bad("c1")).toContain("contract.checks[0].criteria must be an array of criterion ids");
+    expect(bad(["c 1"])).toContain('contract.checks[0].criteria[0] "c 1" is not a criterion id');
+    expect(bad(["c1", "c1"])).toContain('contract.checks[0].criteria repeats "c1"');
+    expect(bad(Array.from({ length: 21 }, (_, i) => `c${i}`))).toContain("contract.checks[0].criteria has 21 entries; at most 20");
+  });
+
   it("carries a require that no provide satisfies through as a warning — the fan-out still runs", () => {
     // The launch-btn / btn-launch mismatch used to refuse the call. It
     // is still caught before any worker runs — as a note every worker
