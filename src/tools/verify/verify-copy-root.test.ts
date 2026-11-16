@@ -66,6 +66,14 @@ describe("verify.run from a session folder too broad to copy (issue #53)", () =>
     expect(copied).toEqual([join(home, "proj")]);
   });
 
+  it("keeps an explicit cwd inside the copy of an opened page", async () => {
+    mkdirSync(join(home, "proj", "site", "pages"));
+    writeFileSync(join(home, "proj", "site", "pages", "index.html"), "<p>hi</p>");
+    const { copied, tool, ctx } = harness();
+    await tool.run({ kind: "page", cwd: join("proj", "site"), path: join("pages", "index.html") }, ctx);
+    expect(copied).toEqual([join(home, "proj", "site")]);
+  });
+
   it("roots a command at its cwd", async () => {
     const { request, copied, tool, ctx } = harness();
     await tool.run({ kind: "command", cmd: "node", args: ["--version"], cwd: "proj" }, ctx);

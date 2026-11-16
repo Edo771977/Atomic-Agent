@@ -64,10 +64,10 @@ export function verifyCopyRoot(
   const pageFile = args.kind !== "page" ? null
     : args.path !== undefined ? resolve(cwd, args.path)
     : args.url !== undefined ? localFileOfUrl(args.url) : null;
-  // A command, a service and a started page run in `cwd`; an opened page
-  // needs only its file's folder.
+  // A command, a service and a started page run in `cwd`, and an explicit
+  // `cwd` is always kept; an opened page otherwise needs only its folder.
   const needed = [
-    ...(args.kind !== "page" || args.start !== undefined || pageFile === null ? [cwd] : []),
+    ...(args.kind !== "page" || args.start !== undefined || pageFile === null || args.cwd !== undefined ? [cwd] : []),
     ...(pageFile === null ? [] : [dirname(pageFile)]),
   ];
   const common = commonAncestor(needed);
