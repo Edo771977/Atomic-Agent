@@ -702,6 +702,10 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
               // planner's estimate of the work, not a malformed call.
               maxSteps: { type: "integer", minimum: 1 },
               timeoutMs: { type: "integer", minimum: 1 },
+              // Minutes between progress checks in a team run (issue
+              // #43); 0 is off. The parser clamps to 1..60, so no upper
+              // bound here, like the budgets above.
+              watchMinutes: { type: "integer", minimum: 0 },
               // Models by role (ATO-943): the task runs on that role's
               // model, or on the named one from the `### fusion` list;
               // `"orchestrator"` is always allowed in fusion (a worker

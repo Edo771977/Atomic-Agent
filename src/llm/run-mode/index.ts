@@ -26,6 +26,8 @@ export {
   teamFamilyOf,
   teamMembers,
   teamStrengthOf,
+  watchEveryMinutesOf,
+  watchMaxChecksOf,
 } from "./fusion-team.js";
 export type {
   PickReviewerOptions,

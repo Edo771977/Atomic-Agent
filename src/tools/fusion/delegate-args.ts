@@ -121,6 +121,13 @@ export interface DelegateTask {
    */
   timeoutMs?: number;
   /**
+   * Minutes between this task's progress checks while it runs, in a
+   * fusion team run (issue #43): clamped to 1..60, 0 turns the watch off
+   * for this task. Absent: `team.watchEveryMinutes`. Without a team it
+   * is ignored.
+   */
+  watchMinutes?: number;
+  /**
    * The kind of work this is (ATO-943). With `llm.runMode.fusion.roles`
    * set, the task runs on that role's model; without one for the role,
    * on the worker leg.
@@ -342,6 +349,28 @@ function readBudget(
     return null;
   }
   return Math.floor(n);
+}
+
+/** Upper clamp of a task's `watchMinutes` (issue #43). */
+export const MAX_WATCH_MINUTES = 60;
+
+/**
+ * A task's `watchMinutes` (issue #43): a number of minutes, rounded and
+ * clamped to 1..60; 0 is off. Negative or not a number is refused.
+ */
+function readWatchMinutes(
+  value: unknown,
+  label: string,
+  problems: string[],
+): number | null {
+  if (value === undefined || value === null) return null;
+  const n = typeof value === "string" && value.trim().length > 0 ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
+    problems.push(`${label} must be a number of minutes from 0 (off) to ${MAX_WATCH_MINUTES}`);
+    return null;
+  }
+  if (n === 0) return 0;
+  return Math.min(MAX_WATCH_MINUTES, Math.max(1, Math.round(n)));
 }
 
 /** A task's `role` (ATO-943): absent is fine, an unknown name is not. */
@@ -710,6 +739,7 @@ export function parseDelegateArgs(
       `${label}.timeoutMs`,
       problems,
     );
+    const watchMinutes = readWatchMinutes(entry.watchMinutes, `${label}.watchMinutes`, problems);
     const role = readRole(entry.role, `${label}.role`, problems);
     const model =
       entry.model === undefined || entry.model === null
@@ -741,6 +771,7 @@ export function parseDelegateArgs(
       ...(files.length === 0 ? {} : { files }),
       ...(maxSteps === null ? {} : { maxSteps }),
       ...(taskTimeoutMs === null ? {} : { timeoutMs: taskTimeoutMs }),
+      ...(watchMinutes === null ? {} : { watchMinutes }),
       ...(role === null ? {} : { role }),
       ...(model === null ? {} : { model }),
       ...(profile === null ? {} : { profile }),

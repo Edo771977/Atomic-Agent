@@ -50,12 +50,31 @@ export type UserFusionTeamConfig = {
    * within the turn's budget: 0, 1 or 2. Default 2.
    */
   reviewPasses?: 0 | 1 | 2;
+  /**
+   * How often, in minutes, a running task of a team run is checked for
+   * progress (issue #43): 0 to 60, 0 turns the watch off. A task's own
+   * `watchMinutes` in `fusion.delegate` wins. Default 5.
+   */
+  watchEveryMinutes?: number;
+  /**
+   * At most this many judge calls per watched task when its progress is
+   * unclear, counted against the turn's budget: 1 to 10. Default 3.
+   */
+  watchMaxChecks?: number;
 };
 
 export const FUSION_TEAM_REVIEW_MODES: readonly NonNullable<UserFusionTeamConfig["review"]>[] = ["on", "off"];
 export const FUSION_TEAM_REVIEW_PASSES: readonly NonNullable<UserFusionTeamConfig["reviewPasses"]>[] = [0, 1, 2];
 /** `reviewPasses` when unset. */
 export const DEFAULT_FUSION_TEAM_REVIEW_PASSES: NonNullable<UserFusionTeamConfig["reviewPasses"]> = 2;
+
+/** `watchEveryMinutes` when unset. */
+export const DEFAULT_FUSION_TEAM_WATCH_EVERY_MINUTES = 5;
+/** `watchMaxChecks` when unset. */
+export const DEFAULT_FUSION_TEAM_WATCH_MAX_CHECKS = 3;
+/** The bounds of `watchEveryMinutes` (and of a task's `watchMinutes`, clamped). */
+export const FUSION_TEAM_WATCH_MAX_MINUTES = 60;
+export const FUSION_TEAM_WATCH_MAX_CHECKS_LIMIT = 10;
 
 /** The two halves of a team member; null when `raw` is not `"<providerId>:<model>"` with both halves non-blank. */
 export function splitTeamMemberRef(raw: string): { providerId: string; model: string } | null {
@@ -131,6 +150,16 @@ export function parseFusionTeam(
     }
     out.reviewPasses = passes;
   }
+  const integerIn = (key: "watchEveryMinutes" | "watchMaxChecks", min: number, max: number): void => {
+    const value = obj[key];
+    if (value === undefined) return;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+      throw new ConfigValidationError(`${field}.${key}`, `expected an integer from ${min} to ${max}`);
+    }
+    out[key] = value;
+  };
+  integerIn("watchEveryMinutes", 0, FUSION_TEAM_WATCH_MAX_MINUTES);
+  integerIn("watchMaxChecks", 1, FUSION_TEAM_WATCH_MAX_CHECKS_LIMIT);
   return out;
 }
 
@@ -163,5 +192,7 @@ export function teamWithoutProviders(
     ...(team.crossFamilyReview === undefined ? {} : { crossFamilyReview: team.crossFamilyReview }),
     ...(team.review === undefined ? {} : { review: team.review }),
     ...(team.reviewPasses === undefined ? {} : { reviewPasses: team.reviewPasses }),
+    ...(team.watchEveryMinutes === undefined ? {} : { watchEveryMinutes: team.watchEveryMinutes }),
+    ...(team.watchMaxChecks === undefined ? {} : { watchMaxChecks: team.watchMaxChecks }),
   };
 }
