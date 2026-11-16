@@ -2242,6 +2242,40 @@ function render() {
   exaKeyRestore(exaHeld);
   // ATO-568: the caret goes into a worker's Steer field that was just opened.
   if (typeof fzpAfterRender === 'function') fzpAfterRender();
+  // Issue #39: the project card follows the chat on screen (it paints itself).
+  projectCardFollow();
+}
+
+/* ---------------- Issue #39: the fusion project card ----------------
+   project-card.js owns the card; this only connects it: main's
+   agent:project frames, GET /api/project when a chat opens, the decision,
+   and the continue_message sent as the chat's next message through
+   submit(), as the plan hand-off sends its own words. */
+let PCARD = null, PCARD_GEN = -1;
+function projectCardFollow() {
+  if (!PCARD) return;
+  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
+  const sid = S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
+  PCARD.follow(sid);
+}
+function projectCardContinue(sid, text) {
+  // Only into the chat it belongs to, between turns, on a live agent; otherwise it waits for the next look.
+  if (S.agentSession !== sid || S.busy || S.pending || S.live.state !== 'connected' || openHoldsComposer()) return false;
+  const e = $('#entry'), keep = S.draft;
+  submit(text, {plain: true});
+  // The person's own draft stays in the box.
+  if (keep && !S.draft) { S.draft = keep; if (e) { e.value = keep; autosize(e); } }
+  return true;
+}
+function projectCardStart() {
+  if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
+  PCARD = createProjectCard({
+    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body)},
+    draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) pcDraw(document, host, model, on); },
+    onContinue: projectCardContinue,
+    onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
+  });
+  BR.onProject((frame) => PCARD.onFrame(frame));
 }
 
 
@@ -11695,6 +11729,7 @@ if (BR) {
   if (BR.onAutoRestart) BR.onAutoRestart(autoRestartApply);
   BR.onChat(onChatEvent);
   BR.onApproval(onApprovalEvent);
+  projectCardStart();   // Issue #39 (project-card.js)
   /* B01 QA, ATO-198: the turns main is streaming are this page's from here
      (adoptLiveTurns), and only then does the agent replay the approvals still
      pending: a request then finds its chat, and is kept for it instead of
