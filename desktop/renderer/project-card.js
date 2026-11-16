@@ -124,6 +124,8 @@ function pcReduce(state, action) {
       const moved = !s.view || !next || s.view.version !== next.version
         || JSON.stringify(s.view.gate) !== JSON.stringify(next.gate);
       if (!moved) return Object.assign(s, {view: next});
+      // A view that arrives while my own decision is in flight is its result, not a change under me.
+      if (action.inFlight) return Object.assign(pcInitial(next), {busy: true});
       const wasEditing = s.mode !== 'view' && (Object.keys(s.picks).length > 0 || s.note.trim());
       return Object.assign(pcInitial(next), {
         notice: action.notice || (wasEditing && next ? 'The project changed while you were editing (now version ' + next.version + '); your changes were set aside.' : null),
@@ -636,7 +638,10 @@ function createProjectCard(opts) {
       if (!frame || typeof frame !== 'object') return;
       frames.set(frame.sessionId, (frames.get(frame.sessionId) || 0) + 1);
       const changed = store.put(frame.sessionId, frame.view);
-      if (changed && frame.sessionId === sid) { setView(store.get(sid)); paint(); notify(); }
+      if (changed && frame.sessionId === sid) {
+        state = pcReduce(state, {type: 'view', view: store.get(sid), inFlight: state.busy});
+        paint(); notify();
+      }
     },
     /** The chat on screen is `next` (null: none, or not saved yet). Reads its view once per change. */
     follow(next) {
@@ -655,7 +660,7 @@ function createProjectCard(opts) {
         if (mine !== serial || !res || res.supported === false || !res.ok) return;
         if ((frames.get(asked) || 0) !== seen) return;   // a frame came after the read went out: it is newer
         const changed = res.view ? store.put(asked, res.view) : store.drop(asked);
-        if (changed) { setView(store.get(asked)); paint(); notify(); }
+        if (changed) { state = pcReduce(state, {type: 'view', view: store.get(asked), inFlight: state.busy}); paint(); notify(); }
       }).catch(() => undefined);
     },
     /** Another agent is on the wire: what the last one said is not this one's. */

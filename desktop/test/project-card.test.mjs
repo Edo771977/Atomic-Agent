@@ -654,3 +654,22 @@ test('notices and errors are announced', () => {
   C.pcDraw(doc, host, C.pcModel(s), () => {});
   assert.equal(host.findAll((e) => e.className === 'pc-error')[0].attrs.role, 'alert');
 });
+
+test('the frame of my own edit arriving before its HTTP answer is not "your changes were set aside"', async () => {
+  let release;
+  const c = controller({decide: () => new Promise((r) => { release = r; }), read: async () => ({supported: true, ok: true, view: plan()})});
+  c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
+  c.last().on({type: 'edit'});
+  c.last().on({type: 'worker', taskId: 't2', value: 'openrouter:w-b'});
+  c.last().on({type: 'verdict', verdict: 'edit'});
+  await tick();
+  c.card.onFrame({sessionId: 'ses-1', view: plan({version: 4})});   // the agent's event, first
+  assert.equal(c.last().model.version, 4);
+  assert.equal(c.last().model.busy, true, 'still in flight');
+  assert.equal(c.last().model.notice, null, 'no false "set aside"');
+  release({supported: true, ok: true, view: plan({version: 4}), continueMessage: null});
+  await tick(); await tick();
+  assert.equal(c.last().model.busy, false);
+  assert.equal(c.last().model.notice, null);
+  assert.equal(c.last().model.mode, 'view');
+});
