@@ -434,16 +434,16 @@ export function buildFusionDelegateTool(
     async run(rawArgs, ctx): Promise<CompressedToolResult> {
       // The project's run of an approved milestone (issue #39), set once
       // the fan-out is admitted and approved, recorded on the result.
-      const admitted: { milestoneId: string | null } = { milestoneId: null };
+      const admitted: FanoutAdmission = { milestoneId: null, started: false };
       const result = await runFanout(rawArgs, ctx, admitted);
-      return withMilestoneRun(result, admitted.milestoneId);
+      return withMilestoneRun(result, admitted);
     },
   };
 
   async function runFanout(
     rawArgs: Record<string, unknown>,
     ctx: ToolContext,
-    admitted: { milestoneId: string | null },
+    admitted: FanoutAdmission,
   ): Promise<CompressedToolResult> {
       if (isFusionWorkerSessionId(ctx.sessionId)) {
         return error(
@@ -1733,6 +1733,9 @@ export function buildFusionDelegateTool(
         briefSuffix: ((taskId: string) => string | undefined) | undefined,
         allowSplit = false,
       ): Promise<WorkerTaskResult[]> => {
+        // Workers are about to run: the milestone's work has started
+        // (issue #39), whatever the fan-out's outcome.
+        if (tasks.length > 0) admitted.started = true;
         if (mode.isolation !== "worktree") {
           return runAcrossLegs(tasks, contract, briefSuffix, undefined, allowSplit);
         }
@@ -3041,15 +3044,24 @@ export function buildFusionDelegateTool(
   }
 }
 
+/** A fan-out's project admission (issue #39): the approved milestone it runs, and whether any worker started. */
+interface FanoutAdmission {
+  milestoneId: string | null;
+  started: boolean;
+}
+
 /**
  * The project update a fan-out of an approved milestone hands back
  * (issue #39): `milestone_run` with the run's checkpoint id (or a fresh
  * id when nothing was checkpointed), which the step commit folds to mark
- * the milestone in progress and remember the run. An errored fan-out
- * records nothing.
+ * the milestone in progress and remember the run. A fan-out whose workers
+ * ran is recorded even when it failed (every task failed, an interrupted
+ * run), so the milestone shows the work started and the run to resume;
+ * one refused or failed before any worker ran records nothing.
  */
-function withMilestoneRun(result: CompressedToolResult, milestoneId: string | null): CompressedToolResult {
-  if (milestoneId === null || result.status !== "ok") return result;
+function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
+  const milestoneId = admitted.milestoneId;
+  if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;
   const runId = typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`;
   const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
   const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };

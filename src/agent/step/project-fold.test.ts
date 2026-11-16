@@ -44,4 +44,18 @@ describe("foldProjectUpdate (issue #39)", () => {
     expect(bad.session).toBe(session);
     expect(bad.result.status).toBe("error");
   });
+
+  it("folds a milestone_run from a failed fan-out (work started), keeping the call's own error", () => {
+    let project = foldProjectUpdate(session, result("project.brief", brief), NOW).session;
+    project = { ...project, project: { ...project.project!, brief: { ...project.project!.brief!, status: "approved" }, gate: { kind: "none" },
+      plan: { rows: [], totals: { costUsd: null, ms: null, unknownCostRows: 0 }, detail: "compact", status: "approved", version: 1 },
+      milestones: [{ id: "m1", title: "Base", kind: "base", state: "approved", runIds: [], updatedAt: NOW }] } };
+    const failed = result("fusion.delegate", { kind: "milestone_run", id: "m1", runId: "run-1" }, "error");
+    const folded = foldProjectUpdate(project, failed, NOW);
+    expect(folded.result).toBe(failed);
+    expect(folded.session.project?.milestones[0]).toMatchObject({ state: "in_progress", runIds: ["run-1"] });
+    // A refused run update on a failed call leaves both alone.
+    const unknown = result("fusion.delegate", { kind: "milestone_run", id: "nope", runId: "run-2" }, "error");
+    expect(foldProjectUpdate(project, unknown, NOW)).toEqual({ session: project, result: unknown });
+  });
 });

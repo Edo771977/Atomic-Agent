@@ -130,6 +130,24 @@ describe("fusion.delegate with a project (issue #39)", () => {
     expect(after).toMatchObject({ ok: true, project: { milestones: [{ state: "in_progress", runIds: [runId] }, { state: "planned" }] } });
   });
 
+  it("a fan-out whose every task failed still records the run: the milestone shows work started", async () => {
+    const d = deps({ runTurn: vi.fn(async (): Promise<RunTurnResult> => { throw new Error("worker crashed"); }) });
+    const result = await buildFusionDelegateTool(d).run({ tasks: [task("board")] }, ctx(running()));
+    expect(d.runTurn).toHaveBeenCalled();
+    expect(result.status).toBe("error");
+    expect(result.details.projectUpdate).toMatchObject({ kind: "milestone_run", id: "m1" });
+    const after = applyProjectUpdate(running(), result.details.projectUpdate as ProjectUpdate, NOW);
+    expect(after).toMatchObject({ ok: true, project: { milestones: [{ state: "in_progress" }, { state: "planned" }] } });
+  });
+
+  it("a fan-out refused before any worker ran records nothing", async () => {
+    const d = deps({ approvalRequired: true, approvals: { ...deps().approvals, fanoutScopes: new FanoutScopeRegistry() } });
+    const refused = await buildFusionDelegateTool(d).run({ tasks: [task("score")] }, ctx(running()));
+    expect(refused.status).toBe("error");
+    expect(refused.details.projectUpdate).toBeUndefined();
+    expect(d.runTurn).not.toHaveBeenCalled();
+  });
+
   it("every worker's brief carries the approved brief and its success criteria", async () => {
     const d = deps();
     await buildFusionDelegateTool(d).run({ tasks: [task("board")] }, ctx(running()));
