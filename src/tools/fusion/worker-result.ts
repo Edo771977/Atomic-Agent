@@ -1,3 +1,4 @@
+import type { WatchRecord } from "./worker-watch.js";
 import type { FusionRole } from "../../config/llm-run-mode-config.js";
 import type { CompletionUsage } from "../../llm/provider/completion-types.js";
 import type { ResolvedModel } from "../../llm/provider/model-resolver.js";
@@ -296,6 +297,12 @@ export interface WorkerTaskResult {
    */
   review?: TaskReview;
   /**
+   * The periodic watch on this worker (issue #43), when one ran: checks
+   * made, judge calls, hints delivered, whether it stopped the task, and
+   * the judge's label. Counts only.
+   */
+  watch?: WatchRecord;
+  /**
    * The worker's turn failed or threw after it changed files, so the row
    * is `needs_orchestrator` rather than `failed` (issue #29): the files
    * exist but no report vouches for them. Under isolation its workspace
@@ -555,6 +562,11 @@ export class WorkerRunCollector {
         : []),
     ];
     return parts.join("; ");
+  }
+
+  /** How many files the worker's file tools changed so far (the watch's probe, issue #43). */
+  changedFileCount(): number {
+    return this.changes.list().length;
   }
 
   /** The worker loop's own account of why it stopped working, if any. */

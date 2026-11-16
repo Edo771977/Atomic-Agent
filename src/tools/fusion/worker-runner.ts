@@ -65,6 +65,14 @@ import {
   type LocalLegHealth,
 } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
+import {
+  renderWatchJudgePrompt,
+  startTaskWatch,
+  type TaskWatch,
+  type WatchClock,
+  type WatchJudgeCall,
+  type WatchProgress,
+} from "./worker-watch.js";
 import type { ContractCheckRunner } from "./contract-checks.js";
 import {
   knownSecretsFromEnv,
@@ -596,6 +604,20 @@ export interface WorkerRunnerDeps {
   knownSecrets?: () => readonly KnownSecret[];
 }
 
+/**
+ * The periodic watch on one running task (issue #43): how often, how
+ * many judge calls it may cost, who judges and how to ask them.
+ */
+export interface WorkerWatchPlan {
+  intervalMs: number;
+  maxJudgeCalls: number;
+  /** The judge's label for the row and the hint's framing; null when none is named. */
+  judgeLabel: string | null;
+  judge: WatchJudgeCall;
+  /** Tests drive the timer by hand; absent, the global one. */
+  clock?: WatchClock;
+}
+
 /** Escalations one worker may get, automatic and manual together. */
 export const MAX_ESCALATIONS_PER_WORKER = 2;
 
@@ -738,6 +760,11 @@ export interface RunWorkerTasksOptions {
   onWorkerTool?: (taskId: string, tool: string) => void;
   /** Each task's row as soon as it is final, before the fan-out returns (ATO-617). */
   onTaskFinished?: (result: WorkerTaskResult) => void;
+  /**
+   * The watch on a running task (issue #43), fusion team runs only.
+   * Absent, or `undefined` for a task: no watch, no timer.
+   */
+  watch?: (taskId: string) => WorkerWatchPlan | undefined;
 }
 
 /**
@@ -1376,6 +1403,10 @@ async function runOneTask(
   // What each completed step produced (F46): the current step's results
   // accumulate here and are folded into `steps` when it finishes.
   const steps: WorkerStepOutcome[] = [];
+  // The watch's probe (issue #43): output tokens of completed requests,
+  // and the streamed text of the request in flight (~4 chars a token).
+  let completedOutputTokens = 0;
+  let streamedChars = 0;
   let currentFingerprints: string[] = [];
   let currentBusy = false;
   // Why the step half fired, when it did; carried onto the note so the
@@ -1759,6 +1790,47 @@ async function runOneTask(
     }
     return { ...grace, stepCount: first.stepCount + grace.stepCount };
   };
+  // The watch (issue #43): armed with the worker's turn, stopped with it.
+  const watchPlan = options.watch?.(task.id);
+  let watch: TaskWatch | undefined;
+  const watchNotes: string[] = [];
+  const probeProgress = (): WatchProgress => ({
+    steps: stepsFinished,
+    outputTokens: completedOutputTokens + Math.ceil(streamedChars / 4),
+    filesChanged: collector.changedFileCount(),
+    served: servedAt !== null,
+    stalled: detectStall(steps) !== undefined,
+  });
+  const startWatch = (): TaskWatch | undefined => {
+    if (watchPlan === undefined || watchPlan.intervalMs <= 0) return undefined;
+    return startTaskWatch({
+      intervalMs: watchPlan.intervalMs,
+      maxJudgeCalls: watchPlan.maxJudgeCalls,
+      judgeLabel: watchPlan.judgeLabel,
+      probe: probeProgress,
+      prompt: (before, now, quietIntervals) =>
+        renderWatchJudgePrompt({
+          brief,
+          findings: collector.findings(),
+          before,
+          now,
+          intervalMinutes: Math.max(1, Math.round(watchPlan.intervalMs / 60_000)),
+          quietIntervals,
+        }),
+      judge: watchPlan.judge,
+      onHint: () => false,
+      onStuck: () => {},
+      onNote: (note) => watchNotes.push(note),
+      signal: AbortSignal.any([
+        options.signal,
+        timeLimit,
+        handBack.signal,
+        stopByPerson.signal,
+        replaceAbort.signal,
+      ]),
+      ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
+    });
+  };
   let result: WorkerTaskResult;
   try {
     const workerTurnOptions = (
@@ -1789,6 +1861,12 @@ async function runOneTask(
         // request is even sent — is what ends the queue wait.
         if (event.type === "llm_event" && SERVED_EVENTS.has(event.event.type)) {
           markServed();
+        }
+        if (
+          event.type === "llm_event" &&
+          (event.event.type === "assistant_delta" || event.event.type === "reasoning_delta")
+        ) {
+          streamedChars += event.event.text.length;
         }
         // Backstop for a provider that emits none of the above: by the
         // time a step has finished, tokens demonstrably arrived.
@@ -1858,6 +1936,8 @@ async function runOneTask(
             completion.usage?.completionTokens ??
             completion.timing?.predictedTokens ??
             0;
+          completedOutputTokens += spent;
+          streamedChars = 0;
           if (
             timeFittedCap !== undefined &&
             firstCutTokens === undefined &&
@@ -1897,6 +1977,7 @@ async function runOneTask(
         collector.observe(event);
       },
     });
+    watch = startWatch();
     let turn = await deps.runTurn(
       session,
       brief,
@@ -1949,6 +2030,7 @@ async function runOneTask(
         : { error: error instanceof Error ? error.message : String(error) }),
     });
   } finally {
+    watch?.stop();
     settled = true;
     clearTimeout(permitGraceTimer);
     unregisterLive?.();
@@ -2218,6 +2300,10 @@ async function runOneTask(
     result = { ...result, selfCheckPassed: true };
   }
   if (escalationsUsed > 0) result = { ...result, escalations: escalationsUsed };
+  if (watch !== undefined) {
+    result = { ...result, watch: watch.record() };
+    if (watchNotes.length > 0) result = { ...result, notes: [...(result.notes ?? []), ...watchNotes] };
+  }
 
   // A budget the orchestrator asked for and did not get is something it
   // has to know: it planned the task against the bigger number.
