@@ -89,7 +89,7 @@ describe("criteria facts (issue #40)", () => {
     expect(verdict.unverified).toContain("[c2]");
     expect(verdict.unverified).toContain("the board looks like a chess board");
     expect(verdict.criteria?.map((f) => [f.id, f.state])).toEqual([["c1", "unverified"], ["c2", "unverified"]]);
-    const row: WorkerTaskResult = { id: "ui", title: "UI", status: "ok", reply: "", durationMs: 1, providerId: "p", model: "m" } as WorkerTaskResult;
+    const row: WorkerTaskResult = { id: "ui", title: "UI", status: "ok", reply: "", durationMs: 1, providerId: "p", model: "m" } as unknown as WorkerTaskResult;
     expect(applyJudgeVerdict(row, verdict, false).status).toBe("needs_orchestrator");
   });
 
