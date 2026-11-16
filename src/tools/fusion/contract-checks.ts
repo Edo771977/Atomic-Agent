@@ -55,6 +55,12 @@ export interface ContractCheckResult {
   stdoutTail?: string;
 }
 
+/** The fusion run a batch of checks belongs to (`<stateDir>/fusion-runs/<runId>`). */
+export interface ContractCheckRun {
+  readonly runId: string;
+  readonly sessionId: string;
+}
+
 /**
  * The seam to `verify.run`. Injected because the runner lives in
  * another module family; absent, the checks are reported as not run —
@@ -72,6 +78,14 @@ export type ContractCheckRunner = ((
      * self-check records that time as `heldMs` (issue #30).
      */
     onHold?: { start(): void; end(): void };
+    /**
+     * The task each spec is attributed to, aligned with `specs` by index
+     * (`undefined` for a call-level check): a page check's screenshots
+     * are named by it (issue #40).
+     */
+    checkTasks?: readonly (string | undefined)[];
+    /** The fusion run the checks belong to: its screenshots are kept with the run. */
+    run?: ContractCheckRun;
   },
 ) => Promise<{ ok: boolean; results: readonly ContractCheckResult[] }>) & { readonly supportsInputIntegrity?: true };
 
@@ -433,7 +447,7 @@ export async function runContractChecks(
   let results: readonly ContractCheckResult[];
   try {
     results = (
-      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }) })
+      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), checkTasks: checks.map((check) => check.task) })
     ).results;
   } catch (error) {
     // Held after outside content (`contract-check-hold.ts`): its own note,

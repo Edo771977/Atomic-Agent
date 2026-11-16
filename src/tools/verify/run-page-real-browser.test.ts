@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { defaultBrowserLauncher, type BrowserLauncher } from "./run-page-kind.js";
-import { runVerify, type VerifyRunContext } from "./run-verify.js";
+import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
+import { BROWSER_SHOT_MAX_BYTES, BROWSER_SHOT_MAX_SIDE } from "../browser/screenshot-geometry.js";
 
 /**
  * The game harness under a real headless Chromium (issue #40). The host's
@@ -59,9 +60,15 @@ afterEach(async () => {
   await rm(work, { recursive: true, force: true });
 });
 
-function ctx(): VerifyRunContext {
-  return { workingDir: work, config: config(null), ...(launch === undefined ? {} : { launchBrowser: launch }) };
+function ctx(over: Partial<VerifyRunContext> = {}): VerifyRunContext {
+  return { workingDir: work, config: config(null), ...(launch === undefined ? {} : { launchBrowser: launch }), ...over };
 }
+
+const posix = process.platform !== "win32";
+const isJpeg = (path: string): boolean => {
+  const head = readFileSync(path).subarray(0, 3);
+  return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+};
 
 /** A stub game: a counter race whose winner follows the seed. */
 const STUB_GAME = `<html><body><script>
@@ -152,5 +159,62 @@ describe("runVerify — page games under a real browser", () => {
       probes: [{ name: "opts", expr: "JSON.stringify(window.__lastOpts)" }],
     }, ctx());
     expect(out.probes!.opts!.at(-1)![1]).toBe(JSON.stringify({ seed: 1, mode: "auto" }));
+  }, 60_000);
+});
+
+describe("runVerify — page screenshots under a real browser (issue #40)", () => {
+  let shots: string;
+  beforeEach(async () => {
+    shots = join(await mkdtemp(join(tmpdir(), "atag-verify-shots-")), "run", "shots");
+  });
+
+  it("takes one capped JPEG at the end of the run, stored where the caller says, owner-only", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "index.html"), "<html><body style='background:#36c'><h1>Board</h1></body></html>");
+    const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "t1" } }));
+    expect(out.ok).toBe(true);
+    expect(out.screenshots).toEqual([{ path: join(shots, "t1-1.jpg"), bytes: expect.any(Number), width: 1280, height: 720 }]);
+    const [shot] = out.screenshots!;
+    expect(shot!.bytes).toBeLessThanOrEqual(BROWSER_SHOT_MAX_BYTES);
+    expect(statSync(shot!.path).size).toBe(shot!.bytes);
+    expect(isJpeg(shot!.path)).toBe(true);
+    if (posix) {
+      expect(statSync(shot!.path).mode & 0o777).toBe(0o600);
+      expect(statSync(shots).mode & 0o777).toBe(0o700);
+    }
+    expect(out.summary).toContain(join(shots, "t1-1.jpg"));
+    // A second run for the same task numbers on.
+    const again = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "t1" } }));
+    expect(again.screenshots?.[0]?.path).toBe(join(shots, "t1-2.jpg"));
+  }, 60_000);
+
+  it("caps a full-page shot of a tall page at the long-side limit", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "tall.html"), "<html><body style='margin:0'><div style='height:3000px;background:linear-gradient(#f00,#00f)'></div></body></html>");
+    const out = await runVerify({ kind: "page", path: "tall.html", seconds: 0.1, screenshot: { fullPage: true } }, ctx({ screenshots: { dir: shots, prefix: "tall" } }));
+    const [shot] = out.screenshots!;
+    expect(Math.max(shot!.width, shot!.height)).toBeLessThanOrEqual(BROWSER_SHOT_MAX_SIDE);
+    expect(shot!.height).toBeGreaterThan(shot!.width);
+  }, 60_000);
+
+  it("takes a shot at the end of each game, at most four per run", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "game.html"), STUB_GAME);
+    const out = await runVerify({ kind: "page", path: "game.html", seconds: 0.1, game: { games: 6, maxMsPerGame: 2_000 }, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "g" } }));
+    expect(out.screenshots?.map((s) => [s.path, s.game])).toEqual([1, 2, 3, 4].map((n) => [join(shots, `g-${n}.jpg`), n - 1]));
+  }, 60_000);
+
+  it("falls back to the temp screenshot folder without a durable target, and runChecks picks a target per spec", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "index.html"), "<html><body>x</body></html>");
+    const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx());
+    expect(out.screenshots?.[0]?.path.startsWith(join(tmpdir(), "atomic-agent-browser-shots"))).toBe(true);
+    expect(existsSync(out.screenshots![0]!.path)).toBe(true);
+    await rm(out.screenshots![0]!.path, { force: true });
+    const both = await runChecks(
+      [{ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, { kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }],
+      ctx({ screenshotTargetFor: (i) => ({ dir: shots, prefix: i === 0 ? "a" : "b" }) }),
+    );
+    expect(both.results.map((r) => r.screenshots?.[0]?.path)).toEqual([join(shots, "a-1.jpg"), join(shots, "b-1.jpg")]);
   }, 60_000);
 });

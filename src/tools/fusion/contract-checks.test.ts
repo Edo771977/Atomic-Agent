@@ -248,7 +248,8 @@ describe("runContractChecks", () => {
     );
     expect(runner).toHaveBeenCalledWith(
       [{ kind: "command", cmd: "node" }, { kind: "command", cmd: "npm" }],
-      ctx,
+      // Each spec's task rides alongside, by index (screenshot names, issue #40).
+      { ...ctx, checkTasks: ["a", undefined] },
     );
     expect(out.outcomes).toEqual([
       { task: "a", ok: true, detail: "exit 0" },

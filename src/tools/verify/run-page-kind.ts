@@ -22,7 +22,9 @@ import {
   type ProbeSample,
   sampleProbes,
 } from "./page-probe-script.js";
+import { capturePageJpeg } from "../browser/page-capture.js";
 import { playGames, type VerifyGameSummary } from "./page-game-harness.js";
+import { defaultShotTarget, VERIFY_MAX_SCREENSHOTS, writeShot, type VerifyScreenshot, type VerifyShotTarget } from "./page-screenshots.js";
 import type { VerifyRunArgs, VerifyScriptStep } from "./verify-run-args.js";
 
 export type BrowserLauncher = () => Promise<Browser>;
@@ -41,6 +43,10 @@ export interface PageRunOutcome {
   readonly probes: Readonly<Record<string, ProbeSample[]>>;
   /** The games played through `window.__game` (`args.game`), after the script steps. */
   readonly games?: VerifyGameSummary;
+  /** `args.screenshot`: the shots taken (at the end, or after each game). */
+  readonly screenshots?: readonly VerifyScreenshot[];
+  /** Shots that could not be taken or saved; the run's own verdict stands. */
+  readonly screenshotErrors?: readonly string[];
   readonly durationMs: number;
 }
 
@@ -124,7 +130,13 @@ function describeStep(step: VerifyScriptStep): string {
 
 export async function runPageKind(
   args: VerifyRunArgs,
-  ctx: { cwd: string; signal?: AbortSignal; launch: BrowserLauncher },
+  ctx: {
+    cwd: string;
+    signal?: AbortSignal;
+    launch: BrowserLauncher;
+    /** Where `args.screenshot` shots go; the temp screenshot folder when absent. */
+    shots?: VerifyShotTarget;
+  },
 ): Promise<PageRunOutcome> {
   const started = Date.now();
   const errors: string[] = [];
@@ -134,6 +146,9 @@ export async function runPageKind(
   let missingSelectors: string[] = [];
   let probes: Record<string, ProbeSample[]> = {};
   let games: VerifyGameSummary | undefined;
+  const screenshots: VerifyScreenshot[] = [];
+  const screenshotErrors: string[] = [];
+  const shotTarget = args.screenshot === undefined ? undefined : (ctx.shots ?? defaultShotTarget());
   // Every uncaught error and console error, in order: a game owns the
   // ones raised while it ran.
   const errorFeed: string[] = [];
@@ -143,6 +158,8 @@ export async function runPageKind(
   const done = (partial: Partial<PageRunOutcome> & { target: string; launched: boolean; loaded: boolean }): PageRunOutcome => ({
     errors, consoleErrors, consoleWarnings, requestFailures, missingSelectors, probes,
     ...(games === undefined ? {} : { games }),
+    ...(args.screenshot === undefined ? {} : { screenshots }),
+    ...(screenshotErrors.length === 0 ? {} : { screenshotErrors }),
     durationMs: Date.now() - started,
     ...partial,
   });
@@ -210,10 +227,27 @@ export async function runPageKind(
         push(errors, `script step ${describeStep(step)} failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       }
     }
+    const shoot = async (game?: number): Promise<void> => {
+      if (args.screenshot === undefined || shotTarget === undefined || screenshots.length >= VERIFY_MAX_SCREENSHOTS || ctx.signal?.aborted) return;
+      try {
+        const shot = await capturePageJpeg(page, { fullPage: args.screenshot.fullPage });
+        const path = await writeShot(shotTarget, shot.buffer);
+        screenshots.push({
+          path, bytes: shot.buffer.length, width: shot.width, height: shot.height,
+          ...(shot.clipped ? { clipped: true as const } : {}),
+          ...(game === undefined ? {} : { game }),
+        });
+      } catch (err) {
+        push(screenshotErrors, `screenshot${game === undefined ? "" : ` after game ${game + 1}`}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+      }
+    };
     if (args.game !== undefined && !ctx.signal?.aborted) {
-      games = await playGames(page, args.game, { seen: () => errorFeed }, ctx.signal);
+      games = await playGames(page, args.game, { seen: () => errorFeed }, ctx.signal, (index) => shoot(index));
     }
     probes = await sampleProbes(args.probes ?? [], args.seconds, (expr) => page.evaluate(expr), ctx.signal);
+    // Without games, one shot at the end of the run (after the script
+    // steps and the probes' runtime).
+    if (args.game === undefined) await shoot();
     try {
       const recorded = await page.evaluate(`window[${JSON.stringify(MISSING_SELECTOR_GLOBAL)}]`);
       missingSelectors = Array.isArray(recorded) ? recorded.map(String) : [];

@@ -58,6 +58,7 @@ export {
 export type {
   ContractCheckOutcome,
   ContractCheckResult,
+  ContractCheckRun,
   ContractCheckRunner,
   ContractFinding,
   ContractProvideReport,
@@ -145,7 +146,9 @@ export type { LiveWorkerControls, EscalationComplete } from "./escalation.js";
 export { SPLIT_PROPOSAL_TAG, TaskTreeState } from "./task-tree.js";
 export type { TaskTreeNode, TaskTreeReport } from "./task-tree.js";
 export {
+  fusionRunShotTarget,
   FusionRunStore,
+  FUSION_RUN_SHOTS_DIR_NAME,
   FUSION_RUNS_DIR_NAME,
   FUSION_RUN_RETENTION_MS,
   toolHasSideEffects,

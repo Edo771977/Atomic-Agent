@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
@@ -50,7 +51,7 @@ import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../
 import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index.js";
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
-import { buildFusionDelegateTool, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
+import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
 import { currentPolicyAllows } from "../../llm/provider-policy.js";
@@ -1045,6 +1046,11 @@ export function registerRuntimeFusionAndReadScope(input: {
           workingDir: ctx.workingDir,
           signal: ctx.signal,
           config,
+          // A fusion run's page-check screenshots are kept with the run,
+          // under `<stateDir>/fusion-runs/<runId>/shots` (issue #40).
+          ...(ctx.run === undefined ? {} : {
+            screenshotTargetFor: (index: number) => fusionRunShotTarget(join(config.paths.stateDir, FUSION_RUNS_DIR_NAME), ctx.run!, ctx.checkTasks?.[index]),
+          }),
           shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
           ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }),
         }), { supportsInputIntegrity: true as const }),

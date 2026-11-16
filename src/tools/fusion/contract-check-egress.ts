@@ -1,4 +1,4 @@
-import type { ContractCheckResult, ContractCheckRunner } from "./contract-checks.js";
+import type { ContractCheckResult, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 
 /**
  * The folder's egress rule for contract checks (issue #40).
@@ -41,7 +41,10 @@ export function withContractCheckEgress(
     const refusals = specs.map((spec) => refuse(guardedShape(spec)));
     if (refusals.every((r) => r === null)) return runner(specs, ctx);
     const allowed = specs.filter((_, i) => refusals[i] === null);
-    const ran = allowed.length === 0 ? { ok: true, results: [] as readonly ContractCheckResult[] } : await runner(allowed, ctx);
+    const checkTasks = ctx.checkTasks?.filter((_, i) => refusals[i] === null);
+    const ran = allowed.length === 0
+      ? { ok: true, results: [] as readonly ContractCheckResult[] }
+      : await runner(allowed, { ...ctx, ...(checkTasks === undefined ? {} : { checkTasks }) });
     let next = 0;
     const results = specs.map((spec, i): ContractCheckResult => {
       const refusal = refusals[i];
@@ -61,4 +64,22 @@ export function contractChecksAllowedByEgress<T extends Record<string, unknown>>
   refuse: ContractCheckEgressRule | undefined,
 ): T[] {
   return refuse === undefined ? [...specs] : specs.filter((spec) => refuse(guardedShape(spec)) === null);
+}
+
+/**
+ * `runner` told which fusion run its checks belong to (`run()`, read
+ * per call: the run's checkpoint starts after the runner is built), so a
+ * page check's screenshots are kept with the run (issue #40). A ctx that
+ * already names a run keeps it.
+ */
+export function withCheckRun(
+  runner: ContractCheckRunner | undefined,
+  run: () => ContractCheckRun | undefined,
+): ContractCheckRunner | undefined {
+  if (runner === undefined) return undefined;
+  const wrapped = (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]): ReturnType<ContractCheckRunner> => {
+    const current = ctx.run ?? run();
+    return runner(specs, current === undefined ? ctx : { ...ctx, run: current });
+  };
+  return Object.assign(wrapped, runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {});
 }

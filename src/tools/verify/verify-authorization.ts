@@ -58,7 +58,7 @@ export function resolveVerifyCwd(root: string, cwd: string | undefined): string 
 
 const VERIFICATION_FIELDS = new Set([
   "kind", "type", "cmd", "command", "args", "start", "cwd", "env", "timeoutMs", "network",
-  "ready", "requests", "path", "url", "script", "seconds", "probes", "checks", "task", "stdin", "game",
+  "ready", "requests", "path", "url", "script", "seconds", "probes", "checks", "task", "stdin", "game", "screenshot",
 ]);
 
 /** Reject alternative executor meanings before interpreting or describing any plan. */

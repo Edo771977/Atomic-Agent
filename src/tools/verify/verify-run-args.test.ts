@@ -38,3 +38,19 @@ describe("verify.run arguments — game (issue #40)", () => {
     expect(() => parseVerifyRunArgs({ kind: "command", cmd: "node", game: { games: 1 } })).toThrow(/`game` applies to page runs/);
   });
 });
+
+describe("verify.run arguments — screenshot (issue #40)", () => {
+  it("reads a page's screenshot spec; false or null is none", () => {
+    expect(parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: {} }).screenshot).toEqual({ fullPage: false });
+    expect(parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: { fullPage: true } }).screenshot).toEqual({ fullPage: true });
+    expect(parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: true }).screenshot).toEqual({ fullPage: false });
+    expect(parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: false })).not.toHaveProperty("screenshot");
+    expect(parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: null })).not.toHaveProperty("screenshot");
+  });
+
+  it("refuses a screenshot on a run that has no page, and a malformed one", () => {
+    expect(() => parseVerifyRunArgs({ kind: "command", cmd: "node", screenshot: {} })).toThrow(/`screenshot` applies to page runs/);
+    expect(() => parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: "yes" })).toThrow(/`screenshot` must be/);
+    expect(() => parseVerifyRunArgs({ kind: "page", path: "i.html", screenshot: { fullPage: "yes" } })).toThrow(/`screenshot.fullPage` must be a boolean/);
+  });
+});

@@ -11,6 +11,7 @@ import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
 import * as browserTools from "../../tools/browser/index.js";
 import * as osTools from "../../tools/os/index.js";
 import * as fusionTools from "../../tools/fusion/index.js";
+import * as verifyTools from "../../tools/verify/index.js";
 import * as readScope from "../../tools/read-scope/index.js";
 import * as skillTools from "../../tools/skill/index.js";
 import { ProfileStore } from "../../memory/profile-store.js";
@@ -358,6 +359,32 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(wired).not.toHaveProperty("currentDirector");
     expect(wired?.resolveFusionTeam).toBeTypeOf("function");
     expect(wired?.currentWorker?.()).toBe(worker);
+  });
+
+  it("keeps a fusion run's check screenshots under <stateDir>/fusion-runs/<runId>/shots, named by task (issue #40)", async () => {
+    const config = getConfig(); const toolRegistry = new ToolRegistry();
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    const verify = vi.spyOn(verifyTools, "runChecks").mockResolvedValue({ ok: true, results: [] });
+    try {
+      registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+        resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+        prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+        providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+      const wired = builder.mock.calls.at(-1)![0];
+      await wired.runChecks!([{ kind: "page", path: "a.html" }, { kind: "page", path: "b.html" }], {
+        workingDir: directory, signal: new AbortController().signal, run: { runId: "fr-shots", sessionId: "s-parent" }, checkTasks: ["t1", undefined],
+      });
+      const target = verify.mock.calls[0]![1].screenshotTargetFor!;
+      const shots = join(config.paths.stateDir, "fusion-runs", "fr-shots", "shots");
+      expect(target(0)).toEqual({ dir: shots, prefix: "t1" });
+      expect(target(1)).toEqual({ dir: shots, prefix: "run" });
+      await wired.runChecks!([{ kind: "page", path: "a.html" }], { workingDir: directory, signal: new AbortController().signal });
+      expect(verify.mock.calls[1]![1].screenshotTargetFor).toBeUndefined();
+    } finally {
+      verify.mockRestore();
+      await rm(join(config.paths.stateDir, "fusion-runs", "fr-shots"), { recursive: true, force: true });
+    }
   });
 
   it("hands the fusion tool the registry's dispatch guard for contract checks, as verify.run calls of the delegating session (issue #40)", () => {

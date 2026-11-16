@@ -55,6 +55,17 @@ describe("contract checks under the folder's egress rule (issue #40)", () => {
     expect(out.results[2]!.error).toContain("runs curl");
   });
 
+  it("keeps the per-spec task list aligned with the specs it lets through", async () => {
+    const inner = runner();
+    const wrapped = withContractCheckEgress(inner, refuse("constrained"))!;
+    await wrapped([
+      { kind: "page", path: "index.html" },
+      { kind: "command", cmd: "node", args: ["a.js"] },
+    ], { workingDir: "/work/secret", signal, checkTasks: ["t-page", "t-cmd"], run: { runId: "fr-1", sessionId: "s" } });
+    expect(inner.mock.calls[0]![1].checkTasks).toEqual(["t-cmd"]);
+    expect(inner.mock.calls[0]![1].run).toEqual({ runId: "fr-1", sessionId: "s" });
+  });
+
   it("leaves an unconstrained session's checks alone", async () => {
     const inner = runner();
     const wrapped = withContractCheckEgress(inner, refuse("open"))!;

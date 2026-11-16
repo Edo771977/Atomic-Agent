@@ -75,6 +75,8 @@ export function renderVerifyRunSummary(r: VerifyRunResult): string {
     }
   }
   if (r.games !== undefined) lines.push(gamesLine(r.games));
+  lines.push(...listLines("screenshots", r.screenshots?.map((shot) => `${shot.path} (${shot.width}x${shot.height}, ${shot.bytes} bytes${shot.game === undefined ? "" : `, after game ${shot.game + 1}`})`)));
+  lines.push(...listLines("screenshot failures", r.screenshotErrors));
   lines.push(...passing.map(checkLine));
   let summary = lines.join("\n");
   const remaining = VERIFY_RUN_SUMMARY_MAX_CHARS - summary.length;

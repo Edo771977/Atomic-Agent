@@ -166,6 +166,8 @@ export async function playGames(
   spec: VerifyGameSpec,
   feed: GameErrorFeed,
   signal?: AbortSignal,
+  /** Told after each game that was played (a screenshot of its end). */
+  afterGame?: (index: number) => Promise<void>,
 ): Promise<VerifyGameSummary> {
   const runs: VerifyGameRun[] = [];
   for (let index = 0; index < spec.games; index += 1) {
@@ -212,6 +214,7 @@ export async function playGames(
     });
     // A page stuck inside a step cannot play another game.
     if (stuck) break;
+    await afterGame?.(index);
   }
   return summarizeGames(spec.games, runs);
 }

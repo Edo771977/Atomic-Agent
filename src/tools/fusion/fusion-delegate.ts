@@ -173,7 +173,8 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
-import { contractChecksAllowedByEgress, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
+import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
+import type { ContractCheckRun } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -1306,7 +1307,10 @@ export function buildFusionDelegateTool(
         ...(ctx.readRoots === undefined ? {} : { readRoots: ctx.readRoots }),
         checkInputs: parsed.contract?.checkInputs ?? [],
       });
-      const heldRunChecks = withContractCheckEgress(checkHold.runner, checkEgress);
+      // The run the checks belong to, once its checkpoint exists: a page
+      // check's screenshots are kept with it (issue #40). Read per call.
+      let checkRun: ContractCheckRun | undefined;
+      const heldRunChecks = withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -1447,6 +1451,7 @@ export function buildFusionDelegateTool(
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
       }) : undefined;
+      if (run !== undefined) checkRun = { runId: run.runId, sessionId: ctx.sessionId };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
         pricing: typeof workerPricing,

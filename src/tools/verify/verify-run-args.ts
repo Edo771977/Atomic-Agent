@@ -45,6 +45,15 @@ export interface VerifyGameSpec {
   readonly maxMoves?: number;
 }
 
+/**
+ * A page run's screenshot (issue #40): taken at the end of the run, or,
+ * with `game`, at the end of each game (at most four per run), under the
+ * `browser.screenshot` caps.
+ */
+export interface VerifyScreenshotSpec {
+  readonly fullPage: boolean;
+}
+
 export interface VerifyRunArgs {
   readonly kind: VerifyRunKind;
   /** Relative to the throwaway copy. */
@@ -73,6 +82,7 @@ export interface VerifyRunArgs {
   readonly seconds: number;
   readonly probes?: readonly VerifyProbe[];
   readonly game?: VerifyGameSpec;
+  readonly screenshot?: VerifyScreenshotSpec;
   // any kind
   readonly checks?: readonly string[];
 }
@@ -294,6 +304,17 @@ function parseGame(raw: unknown, kind: string): VerifyGameSpec | undefined {
   return { games, maxMsPerGame, ...(maxMoves === undefined ? {} : { maxMoves }) };
 }
 
+/** A page's `screenshot`: `true` or `{fullPage?}`; `false`/`null` is none. */
+function parseScreenshot(raw: unknown, kind: string): VerifyScreenshotSpec | undefined {
+  if (raw === undefined || raw === null || raw === false) return undefined;
+  if (raw !== true && (typeof raw !== "object" || Array.isArray(raw))) fail("`screenshot` must be true or an object `{ fullPage?: boolean }`");
+  if (kind !== "page") fail("`screenshot` applies to page runs only");
+  if (raw === true) return { fullPage: false };
+  const fullPage = (raw as Record<string, unknown>).fullPage;
+  if (fullPage !== undefined && fullPage !== null && typeof fullPage !== "boolean") fail("`screenshot.fullPage` must be a boolean");
+  return { fullPage: fullPage === true };
+}
+
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind, "kind");
   if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page");
@@ -310,6 +331,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   };
   const stdin = parseStdin(raw.stdin, kind);
   const game = parseGame(raw.game, kind);
+  const screenshot = parseScreenshot(raw.screenshot, kind);
   if (kind === "command") {
     return { ...base, cmd: requiredString(raw.cmd, "cmd"), args: optionalStringArray(raw.args, "args") ?? [], ...(stdin === undefined ? {} : { stdin }) };
   }
@@ -329,7 +351,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const path = optionalNonEmptyString(raw.path, "path");
   const url = optionalNonEmptyString(raw.url, "url");
   if ((path === undefined) === (url === undefined)) fail("page needs exactly one of `path` or `url`");
-  const page = { ...base, path, url, script: parseScript(raw.script) ?? [], probes: parseProbes(raw.probes) ?? [], ...(game === undefined ? {} : { game }) };
+  const page = { ...base, path, url, script: parseScript(raw.script) ?? [], probes: parseProbes(raw.probes) ?? [], ...(game === undefined ? {} : { game }), ...(screenshot === undefined ? {} : { screenshot }) };
   if (!startGiven(raw.start)) return page;
   // A page served by its own server: start it, wait until it is ready,
   // then open `url`. Without a wait the browser races the server and

@@ -27,6 +27,7 @@ import type { WorkerTaskResult } from "./worker-result.js";
 import { outcomeLogPath } from "./outcome-log.js";
 import { FusionTurnBudget } from "./turn-budget.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import type { ContractCheckRunner } from "./contract-checks.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import type { DelegateTask } from "./delegate-args.js";
 import type { TeamFamily, TeamMember } from "../../llm/run-mode/fusion-team.js";
@@ -1410,6 +1411,30 @@ describe("fusion.delegate", () => {
         expect(report.checks).toHaveLength(3);
       } finally {
         rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("tells the check runner which run and task each check belongs to, so a page check's screenshots stay with the run (issue #40)", async () => {
+      const dir = fixture();
+      const state = mkdtempSync(join(tmpdir(), "fusion-shots-runs-"));
+      try {
+        const runChecks = vi.fn(async (specs: readonly Record<string, unknown>[], _ctx: Parameters<ContractCheckRunner>[1]) => ({
+          ok: true,
+          results: specs.map(() => ({ ok: true, summary: "exit 0" })),
+        }));
+        const store = new FusionRunStore({ dir: state });
+        const tool = buildFusionDelegateTool(deps({ workingDir: dir, runChecks, runCheckpoints: store }));
+        const result = await tool.run({ tasks: TASKS, contract: CONTRACT }, ctx({ workingDir: dir }));
+        const runId = result.details.runId;
+        expect(typeof runId).toBe("string");
+        const final = runChecks.mock.calls.at(-1)!;
+        expect(final[1].run).toEqual({ runId, sessionId: "s-parent" });
+        expect(final[1].checkTasks).toEqual(["t1", "t2", undefined]);
+        // A worker's self-check names its own task.
+        expect(runChecks.mock.calls[0]![1]).toMatchObject({ run: { runId, sessionId: "s-parent" }, checkTasks: ["t1"] });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(state, { recursive: true, force: true });
       }
     });
 
