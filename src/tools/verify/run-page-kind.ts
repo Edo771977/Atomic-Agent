@@ -23,7 +23,7 @@ import {
   sampleProbes,
 } from "./page-probe-script.js";
 import { capturePageJpeg } from "../browser/page-capture.js";
-import { playGames, type VerifyGameSummary } from "./page-game-harness.js";
+import { GAME_ERROR_CHARS, GAME_INIT_SCRIPT, playGames, type VerifyGameSummary } from "./page-game-harness.js";
 import { defaultShotTarget, VERIFY_MAX_SCREENSHOTS, writeShot, type VerifyScreenshot, type VerifyShotTarget } from "./page-screenshots.js";
 import type { VerifyRunArgs, VerifyScriptStep } from "./verify-run-args.js";
 
@@ -53,6 +53,8 @@ export interface PageRunOutcome {
 const LIST_CAP = 50;
 /** Page errors kept for attributing them to games; only the count past it is lost. */
 const ERROR_FEED_CAP = 10_000;
+/** One page or console error a game keeps, at most this long. */
+const ERROR_FEED_ENTRY_CHARS = GAME_ERROR_CHARS;
 const STEP_TIMEOUT_MS = 5_000;
 const LOAD_TIMEOUT_MS = 30_000;
 
@@ -153,7 +155,7 @@ export async function runPageKind(
   // ones raised while it ran.
   const errorFeed: string[] = [];
   const feed = (entry: string): void => {
-    if (errorFeed.length < ERROR_FEED_CAP) errorFeed.push(entry);
+    if (errorFeed.length < ERROR_FEED_CAP) errorFeed.push(entry.length > ERROR_FEED_ENTRY_CHARS ? `${entry.slice(0, ERROR_FEED_ENTRY_CHARS - 1)}…` : entry);
   };
   const done = (partial: Partial<PageRunOutcome> & { target: string; launched: boolean; loaded: boolean }): PageRunOutcome => ({
     errors, consoleErrors, consoleWarnings, requestFailures, missingSelectors, probes,
@@ -225,6 +227,7 @@ export async function runPageKind(
       if (!why.includes("BLOCKED_BY_CLIENT")) push(requestFailures, `${req.url()} ${why}`);
     });
     await page.addInitScript(MISSING_SELECTOR_INIT_SCRIPT);
+    if (args.game !== undefined) await page.addInitScript(GAME_INIT_SCRIPT);
     try {
       await page.goto(target, { waitUntil: "load", timeout: Math.min(LOAD_TIMEOUT_MS, args.timeoutMs) });
     } catch (err) {

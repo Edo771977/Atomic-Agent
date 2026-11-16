@@ -76,18 +76,45 @@ interface InPageGame {
   readonly movesCapped?: boolean;
 }
 
+/** Where {@link GAME_INIT_SCRIPT} keeps the harness's text helpers. */
+export const GAME_TEXT_GLOBAL = "__atomicAgentGameText";
+/** A kept error's length, in the page and again on the Node side. */
+export const GAME_ERROR_CHARS = 300;
+
+/**
+ * Added before the page loads: the harness's text helpers, made from
+ * `String.prototype.slice`, `String` and `JSON.stringify` as they were
+ * before any page script, on a non-writable, non-configurable global.
+ */
+export const GAME_INIT_SCRIPT = `(() => {
+  const slice = Function.prototype.call.bind(String.prototype.slice);
+  const S = String;
+  const stringify = JSON.stringify;
+  const clip = (v, n) => { let t; try { t = typeof v === "string" ? v : S(v); } catch { t = "(unprintable)"; } return t.length > n ? slice(t, 0, n) : t; };
+  const json = (v) => { try { const t = stringify(v); return typeof t === "string" ? t : S(t); } catch { return "(unserializable)"; } };
+  Object.defineProperty(window, ${JSON.stringify(GAME_TEXT_GLOBAL)}, { value: Object.freeze({ clip, json }), writable: false, configurable: false, enumerable: false });
+})();`;
+
 /**
  * The driver, evaluated in the page with `{seed, maxMs, maxMoves}`. Kept
  * as source so it runs in the page's realm, never in Node.
  */
 export const GAME_DRIVER_SOURCE = `async ({ seed, maxMs, maxMoves }) => {
+  // Captured before any page script ran (GAME_INIT_SCRIPT): text leaves the
+  // page clipped even if the game replaces String.prototype.slice.
+  // Without the init script (an embedder's page), the page's own helpers;
+  // the Node side clips again.
+  const { clip, json } = window[${JSON.stringify(GAME_TEXT_GLOBAL)}] ?? {
+    clip: (v, n) => { const t = typeof v === "string" ? v : String(v); return t.length > n ? t.slice(0, n) : t; },
+    json: (v) => { try { return String(JSON.stringify(v)); } catch { return "(unserializable)"; } },
+  };
   const g = window.__game;
   const missing = [];
   if (g === null || typeof g !== "object" && typeof g !== "function") return { missing: "window.__game is " + (g === null ? "null" : typeof g) };
   for (const name of ["start", "step", "state"]) if (typeof g[name] !== "function") missing.push(name + "()");
   if (missing.length > 0) return { missing: "window.__game has no " + missing.join(", ") };
   const errors = [];
-  const say = (where, e) => errors.push(where + " threw: " + (e && e.message ? e.message : String(e)));
+  const say = (where, e) => { let m; try { m = e && e.message ? e.message : e; } catch { m = "(unreadable)"; } errors.push(where + " threw: " + clip(m, ${GAME_ERROR_CHARS})); };
   const t0 = performance.now();
   let st = null, timedOut = false, movesCapped = false, steps = 0;
   try { await g.start({ seed, mode: "auto" }); } catch (e) { say("start()", e); }
@@ -95,7 +122,7 @@ export const GAME_DRIVER_SOURCE = `async ({ seed, maxMs, maxMoves }) => {
     try {
       const s = g.state();
       if (s === null || typeof s !== "object") { errors.push("state() returned " + (s === null ? "null" : typeof s)); return null; }
-      if (typeof s.error === "string" && s.error.length > 0) errors.push("state().error: " + s.error.slice(0, 200));
+      if (typeof s.error === "string" && s.error.length > 0) errors.push("state().error: " + clip(s.error, 200));
       return s;
     } catch (e) { say("state()", e); return null; }
   };
@@ -112,7 +139,7 @@ export const GAME_DRIVER_SOURCE = `async ({ seed, maxMs, maxMoves }) => {
   await new Promise((r) => setTimeout(r, 0));
   return {
     over: st !== null && st.over === true,
-    winner: st === null ? null : st.winner,
+    winner: st === null || st.winner === null || st.winner === undefined ? null : clip(typeof st.winner === "string" ? st.winner : json(st.winner), 41),
     moves: st === null ? null : st.moves,
     durationMs: Math.round(performance.now() - t0),
     errors,
@@ -206,7 +233,11 @@ export async function playGames(
       return summarizeGames(spec.games, runs, `${GAME_API_MISSING} (${result.missing})`);
     }
     const pageErrors = feed.seen().slice(before);
-    const errors = [...(result.errors ?? []), ...pageErrors];
+    const clipError = (e: unknown): string => {
+      const text = typeof e === "string" ? e : String(e);
+      return text.length > GAME_ERROR_CHARS ? `${text.slice(0, GAME_ERROR_CHARS - 1)}…` : text;
+    };
+    const errors = [...(Array.isArray(result.errors) ? result.errors : []).map(clipError), ...pageErrors];
     const moves = typeof result.moves === "number" && Number.isFinite(result.moves) ? result.moves : null;
     runs.push({
       index,

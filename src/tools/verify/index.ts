@@ -97,7 +97,7 @@ export { runServiceKind } from "./run-service-kind.js";
 export type { ServiceRunOutcome, RequestOutcome, FetchLike } from "./run-service-kind.js";
 export { runPageKind, defaultBrowserLauncher } from "./run-page-kind.js";
 export type { PageRunOutcome, BrowserLauncher } from "./run-page-kind.js";
-export { GAME_API_MISSING, GAME_DRIVER_SOURCE, playGames, summarizeGames } from "./page-game-harness.js";
+export { GAME_API_MISSING, GAME_DRIVER_SOURCE, GAME_INIT_SCRIPT, playGames, summarizeGames } from "./page-game-harness.js";
 export type { VerifyGameRun, VerifyGameSummary } from "./page-game-harness.js";
 export { defaultShotTarget, VERIFY_MAX_SCREENSHOTS, writeShot } from "./page-screenshots.js";
 export type { VerifyScreenshot, VerifyShotTarget } from "./page-screenshots.js";

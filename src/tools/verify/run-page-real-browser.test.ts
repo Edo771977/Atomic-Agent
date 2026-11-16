@@ -152,6 +152,25 @@ describe("runVerify — page games under a real browser", () => {
     expect(out.ok).toBe(false);
   }, 60_000);
 
+  it("clips a page's long error, console and winner text in the page, whatever the page did to String.prototype.slice", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "loud.html"), `<html><body><script>
+      const big = "x".repeat(100000);
+      let n = 0, seed = 0;
+      window.__game = {
+        start(o) { n = 0; seed = o.seed; String.prototype.slice = function () { return String(this); }; },
+        step() { n += 1; console.error(big); if (seed === 2) throw new Error(big); },
+        state() { return { over: n >= 2, winner: n >= 2 ? big : null, moves: n }; },
+      };
+    </script></body></html>`);
+    const out = await runVerify({ kind: "page", path: "loud.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 5_000 } }, ctx());
+    const [first, second] = out.games!.runs;
+    expect(first!.winner!.length).toBeLessThanOrEqual(40);
+    expect(first!.errors.length).toBeGreaterThan(0);
+    for (const run of [first!, second!]) for (const e of run.errors) expect(e.length).toBeLessThanOrEqual(320);
+    expect(second!.errors.join(" ")).toContain("step() threw");
+  }, 60_000);
+
   it("fails with a clear reason when the page exposes no window.__game", async (test) => {
     if (launch === undefined) return test.skip();
     await writeFile(join(work, "plain.html"), "<html><body>no game here</body></html>");
