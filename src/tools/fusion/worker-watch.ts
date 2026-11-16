@@ -15,6 +15,8 @@
  * overlaps a judge call, and is cleared on `stop()` and on abort.
  */
 
+import { frameUntrustedText } from "../untrusted-tool-output.js";
+
 /** What the judge may say of a worker. */
 export type WatchState = "progressing" | "looping" | "stuck" | "off-track";
 
@@ -25,6 +27,17 @@ export const WATCH_HINT_MAX_CHARS = 300;
 
 /** Intervals without clear progress before the judge is asked. */
 export const WATCH_QUIET_INTERVALS = 2;
+
+/**
+ * Output tokens one interval must stream, with no step finished and no
+ * file changed, to count as clear progress: a worker writing a long
+ * answer is working. At or below it (a trickle, a stuck stream) the
+ * interval is `streaming`, and the judge reads the streamed tail.
+ */
+export const WATCH_STREAMING_FLOOR_TOKENS = 50;
+
+/** The streamed text's tail the judge reads, at most this long. */
+export const WATCH_TAIL_CHARS = 600;
 
 /** The output ceiling of one watch judge call: a state and a short hint. */
 export const WATCH_JUDGE_MAX_OUTPUT_TOKENS = 200;
@@ -64,7 +77,8 @@ export interface WatchProgress {
  * changed, a tool call is still running or the next request has not
  * produced its first token. `clear`: a file changed,
  * or steps finished that do not look stalled. `unclear`: steps finished
- * but look stalled. `streaming`: tokens without a finished step.
+ * but look stalled, or more than `WATCH_STREAMING_FLOOR_TOKENS` streamed
+ * (clear). `streaming`: fewer tokens than that, no finished step.
  * `none`: nothing moved.
  */
 export type WatchProgressKind = "waiting" | "clear" | "unclear" | "streaming" | "none";
@@ -73,6 +87,7 @@ export function progressKind(prev: WatchProgress, next: WatchProgress): WatchPro
   if (!next.served || next.paused === true) return "waiting";
   if (next.filesChanged > prev.filesChanged) return "clear";
   if (next.steps > prev.steps) return next.stalled ? "unclear" : "clear";
+  if (next.outputTokens - prev.outputTokens > WATCH_STREAMING_FLOOR_TOKENS) return "clear";
   if ((next.toolsInFlight ?? 0) > 0 || next.awaitingFirstToken === true) return "waiting";
   if (next.outputTokens > prev.outputTokens) return "streaming";
   return "none";
@@ -136,6 +151,8 @@ export function renderWatchJudgePrompt(input: {
   intervalMinutes: number;
   /** Checks in a row without clear progress, this one included. */
   quietIntervals: number;
+  /** The end of the text the worker streamed (framed as its own output, never instructions). */
+  streamedTail?: string;
 }): string {
   const clip = (text: string, max: number): string =>
     text.length > max ? `${text.slice(0, max)}\n[… truncated]` : text;
@@ -157,6 +174,13 @@ export function renderWatchJudgePrompt(input: {
     "## Its latest tool results",
     clip(input.findings.trim().length === 0 ? "(none yet)" : input.findings.trim(), WATCH_FINDINGS_CHARS),
     "",
+    ...(input.streamedTail === undefined || input.streamedTail.trim().length === 0
+      ? []
+      : [
+          "## Its latest streamed text",
+          frameUntrustedText(input.streamedTail.slice(-WATCH_TAIL_CHARS), "the watched worker's own output"),
+          "",
+        ]),
     "## Answer",
     "Reply with exactly one JSON object and nothing else:",
     '{"state":"progressing"|"looping"|"stuck"|"off-track","hint":string|null}',

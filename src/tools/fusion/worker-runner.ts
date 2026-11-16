@@ -66,6 +66,7 @@ import {
 } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
 import {
+  WATCH_TAIL_CHARS,
   formatWatchSteer,
   renderWatchJudgePrompt,
   startTaskWatch,
@@ -1408,6 +1409,8 @@ async function runOneTask(
   // and the streamed text of the request in flight (~4 chars a token).
   let completedOutputTokens = 0;
   let streamedChars = 0;
+  // The end of the streamed text, for the judge of a trickling stream.
+  let streamedTail = "";
   // Tool calls parsed and not yet executed in this step: a long build or
   // check run is waiting, not stalled (reset when the step finishes).
   let toolsInFlight = 0;
@@ -1838,6 +1841,7 @@ async function runOneTask(
           now,
           intervalMinutes: Math.max(1, Math.round(watchPlan.intervalMs / 60_000)),
           quietIntervals,
+          streamedTail,
         }),
       judge: watchPlan.judge,
       onHint: (state, hint) =>
@@ -1895,7 +1899,10 @@ async function runOneTask(
           // Counted defensively: the watch's probe must never take the
           // event hook (and with it the worker) down.
           const text: unknown = event.event.text;
-          if (typeof text === "string") streamedChars += text.length;
+          if (typeof text === "string") {
+            streamedChars += text.length;
+            streamedTail = (streamedTail + text).slice(-WATCH_TAIL_CHARS);
+          }
         }
         // Backstop for a provider that emits none of the above: by the
         // time a step has finished, tokens demonstrably arrived.

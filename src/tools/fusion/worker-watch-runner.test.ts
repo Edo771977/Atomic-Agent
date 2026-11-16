@@ -269,6 +269,32 @@ describe("a worker that is waiting, not stalled (issue #43)", () => {
   });
 });
 
+describe("a worker that streams (issue #43)", () => {
+  it("steady streaming costs nothing; a trickle is judged with its tail", async () => {
+    const h = harness();
+    const c = handClock();
+    const prompts: string[] = [];
+    const judge: WatchJudgeCall = async ({ prompt }) => {
+      prompts.push(prompt);
+      return { kind: "answer", content: '{"state":"progressing","hint":null}' };
+    };
+    const run = runWorkerTasks(h.deps, options(h, c.clock, judge));
+    await flush();
+    for (let i = 0; i < 3; i += 1) {
+      h.delta("y".repeat(800));
+      await c.tick();
+    }
+    expect(prompts).toEqual([]);
+    h.delta("now I will re-read src/a.ts");
+    await c.tick();
+    await c.tick();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("now I will re-read src/a.ts");
+    h.finish();
+    await run;
+  });
+});
+
 describe("what the watch does with the judge's answer (issue #43)", () => {
   it("delivers a looping hint to the worker through its steering inbox", async () => {
     const h = harness();
