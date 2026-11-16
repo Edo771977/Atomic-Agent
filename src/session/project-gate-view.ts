@@ -78,6 +78,14 @@ export interface ProjectGateRow extends AssignmentRow {
   selectableReviewers: string[];
 }
 
+/**
+ * A milestone as stored, with its estimate. From issue #40 it may carry
+ * `attachments` (screenshots of the result: `path` is absolute, inside
+ * the run's shots folder; a surface shows the caption and the path and
+ * renders the image only through its own safe file read) and
+ * `criteriaFacts` (per success criterion id: passed, failed or
+ * unverified, with a one-line why). Both are optional and additive.
+ */
 export interface ProjectGateMilestone extends ProjectMilestone {
   /** The milestone's estimate (`estimatePlan`); null when unknown. */
   estCostUsd: number | null;

@@ -18,6 +18,8 @@
  * strings, as written in `llm.runMode.fusion.team`.
  */
 
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -80,6 +82,36 @@ export interface MilestoneCorrection {
   at: number;
 }
 
+/**
+ * A picture of a milestone's result (issue #40): a screenshot a verify
+ * run of that milestone stored under `<stateDir>/fusion-runs/<runId>/shots/`
+ * ({@link validateMilestoneAttachments}). Surfaces show the caption and
+ * the path; a renderer reads the file through its own safe file read.
+ */
+export interface ProjectMilestoneAttachment {
+  /** Absolute, normalized; directly inside a recorded run's shots folder. */
+  path: string;
+  caption: string;
+  /** Ids of the brief's success criteria the picture shows. */
+  criteria?: string[];
+}
+
+export type CriterionFactState = "passed" | "failed" | "unverified";
+
+/**
+ * Where one success criterion stands after a milestone's runs: from its
+ * contract checks and the vision judgement (issue #40). Written by the
+ * runtime ({@link withMilestoneCriteriaFacts}), never by the model.
+ */
+export interface ProjectCriterionFact {
+  id: string;
+  state: CriterionFactState;
+  /** One line, e.g. the failing check or why it could not be judged. */
+  why?: string;
+}
+
+export const CRITERION_FACT_STATES: readonly CriterionFactState[] = ["passed", "failed", "unverified"];
+
 export interface ProjectMilestone {
   id: string;
   title: string;
@@ -91,6 +123,10 @@ export interface ProjectMilestone {
   summary?: string;
   /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
   corrections?: MilestoneCorrection[];
+  /** Pictures of the reported result ({@link PROJECT_LIMITS}.attachments); a new report replaces them. */
+  attachments?: ProjectMilestoneAttachment[];
+  /** Per success criterion, the facts of its runs (the runtime's; one per id, brief order). */
+  criteriaFacts?: ProjectCriterionFact[];
   updatedAt: number;
 }
 
@@ -190,6 +226,8 @@ export interface ProjectState {
  *    node ceiling), `runIds` 32 per milestone (the newest are kept).
  *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
  *    are kept): the person's notes at a milestone gate.
+ *  - `attachments` 8 per milestone, `attachmentPath` 1024: the result's
+ *    pictures (a caption is `shortText`). Criteria facts: one per criterion.
  */
 export const PROJECT_LIMITS = {
   text: 2000,
@@ -204,6 +242,8 @@ export const PROJECT_LIMITS = {
   runIds: 32,
   correctionNote: 2000,
   corrections: 8,
+  attachments: 8,
+  attachmentPath: 1024,
 } as const;
 
 /**
@@ -256,8 +296,24 @@ export type ProjectUpdate =
       /** Drafted after outside content (the tool reads the approval gate's taint). */
       draftedAfterUntrusted?: boolean;
     }
-  | { kind: "milestone"; id: string; state: "done" | "failed"; summary: string }
+  | {
+      kind: "milestone";
+      id: string;
+      state: "done" | "failed";
+      summary: string;
+      /** Checked by {@link validateMilestoneAttachments} when folded. */
+      attachments?: ReadonlyArray<ProjectMilestoneAttachment>;
+    }
   | { kind: "milestone_run"; id: string; runId: string };
+
+export interface ProjectUpdateOptions {
+  /**
+   * The state dir a report's attachments must lie under
+   * ({@link validateMilestoneAttachments}); absent: a report with
+   * attachments is refused.
+   */
+  stateDir?: string;
+}
 
 export type ProjectUpdateErrorCode =
   | "invalid"
@@ -592,6 +648,161 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   };
 }
 
+// ------------------------------------------------------------ attachments
+
+/** `<stateDir>/fusion-runs`: the run checkpoints' folder (`FUSION_RUNS_DIR_NAME`). */
+export const PROJECT_RUNS_DIR_NAME = "fusion-runs";
+/** A run's screenshots folder name, under its run folder. */
+export const PROJECT_SHOTS_DIR_NAME = "shots";
+/** A run id's shape (`FusionRunStore.isValidRunId`). */
+const RUN_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
+const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([".jpg", ".jpeg", ".png"]);
+
+/** `<stateDir>/fusion-runs/<runId>/shots`, where a run's screenshots are stored. */
+export function milestoneShotsDir(stateDir: string, runId: string): string {
+  return join(resolve(stateDir), PROJECT_RUNS_DIR_NAME, runId, PROJECT_SHOTS_DIR_NAME);
+}
+
+/** A list of criterion ids: unique, each of {@link CRITERION_ID_PATTERN}; null when malformed. */
+function cleanIdList(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
+    const id = cleanCriterionId(item);
+    if (id === null) return null;
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+export type AttachmentCheck =
+  | { ok: true; attachments: ProjectMilestoneAttachment[] }
+  | { ok: false; problems: string[] };
+
+/**
+ * The attachments of a milestone report checked, pure (no file is read):
+ * each `path` is absolute, an image (`.jpg`, `.jpeg`, `.png`) and
+ * directly inside `<stateDir>/fusion-runs/<runId>/shots/` of a run the
+ * milestone recorded (`runIds`); a `caption` is required; `criteria`
+ * name the brief's criteria (`criterionIds`, when given). At most
+ * {@link PROJECT_LIMITS}.attachments; a repeated path is kept once.
+ * Anything else refuses the whole list. A symlink inside the folder is
+ * not resolved here: a surface reads the file with its own safe read.
+ */
+export function validateMilestoneAttachments(input: {
+  stateDir: string;
+  milestone: Pick<ProjectMilestone, "id" | "runIds">;
+  attachments: readonly unknown[];
+  criterionIds?: ReadonlySet<string>;
+}): AttachmentCheck {
+  const problems: string[] = [];
+  if (input.attachments.length > PROJECT_LIMITS.attachments) {
+    return { ok: false, problems: [`at most ${PROJECT_LIMITS.attachments} attachments`] };
+  }
+  const roots = input.milestone.runIds.filter((r) => RUN_ID_SHAPE.test(r)).map((r) => milestoneShotsDir(input.stateDir, r));
+  const out: ProjectMilestoneAttachment[] = [];
+  for (const [i, raw] of input.attachments.entries()) {
+    const where = `attachment ${i + 1}`;
+    if (!isObject(raw) || typeof raw.path !== "string") {
+      problems.push(`${where} needs a path`);
+      continue;
+    }
+    const path = raw.path.trim();
+    if (path.length === 0 || path.length > PROJECT_LIMITS.attachmentPath || path.includes("\0") || !isAbsolute(path)) {
+      problems.push(`${where}: the path must be absolute`);
+      continue;
+    }
+    const resolved = resolve(path);
+    if (!IMAGE_EXTENSIONS.has(extname(resolved).toLowerCase())) {
+      problems.push(`${where}: only a .jpg, .jpeg or .png screenshot can be attached`);
+      continue;
+    }
+    const inside = roots.some((root) => {
+      const rel = relative(root, resolved);
+      return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel) && !rel.includes(sep) && !rel.includes("/");
+    });
+    if (!inside) {
+      problems.push(`${where}: the path must be a screenshot in the shots folder of a run of milestone ${input.milestone.id} (<stateDir>/${PROJECT_RUNS_DIR_NAME}/<runId>/${PROJECT_SHOTS_DIR_NAME}/)`);
+      continue;
+    }
+    const caption = typeof raw.caption === "string" ? clip(raw.caption, PROJECT_LIMITS.shortText) : "";
+    if (caption.length === 0) {
+      problems.push(`${where} needs a caption`);
+      continue;
+    }
+    let criteria: string[] | undefined;
+    if (raw.criteria !== undefined) {
+      const ids = cleanIdList(raw.criteria);
+      if (ids === null) {
+        problems.push(`${where}: criteria must be criterion ids`);
+        continue;
+      }
+      const unknown = input.criterionIds === undefined ? [] : ids.filter((id) => !input.criterionIds!.has(id));
+      if (unknown.length > 0) {
+        problems.push(`${where}: the brief has no criterion ${unknown.join(", ")}`);
+        continue;
+      }
+      if (ids.length > 0) criteria = ids;
+    }
+    if (out.some((a) => a.path === resolved)) continue;
+    out.push({ path: resolved, caption, ...(criteria === undefined ? {} : { criteria }) });
+  }
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, attachments: out };
+}
+
+/** Stored attachments read back: shape only (they were checked when reported); malformed ones dropped. */
+function readStoredAttachments(raw: readonly unknown[]): ProjectMilestoneAttachment[] {
+  const out: ProjectMilestoneAttachment[] = [];
+  for (const a of raw) {
+    if (out.length >= PROJECT_LIMITS.attachments) break;
+    if (!isObject(a) || typeof a.path !== "string" || typeof a.caption !== "string") continue;
+    if (a.path.length === 0 || a.path.length > PROJECT_LIMITS.attachmentPath || a.path.includes("\0") || !isAbsolute(a.path)) continue;
+    const caption = clip(a.caption, PROJECT_LIMITS.shortText);
+    if (caption.length === 0) continue;
+    const criteria = a.criteria === undefined ? [] : cleanIdList(a.criteria);
+    if (criteria === null) continue;
+    out.push({ path: a.path, caption, ...(criteria.length === 0 ? {} : { criteria }) });
+  }
+  return out;
+}
+
+/** Facts cleaned: known states, valid ids, the first per id, `why` clipped; malformed entries dropped. */
+function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
+  const out: ProjectCriterionFact[] = [];
+  for (const f of raw) {
+    if (out.length >= PROJECT_LIMITS.successCriteria) break;
+    if (!isObject(f)) continue;
+    const id = cleanCriterionId(f.id);
+    if (id === null || out.some((x) => x.id === id)) continue;
+    if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
+    const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
+    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }) });
+  }
+  return out;
+}
+
+/**
+ * Set one milestone's criteria facts (the runtime's, issue #40). Pure;
+ * the gate and versions do not move (facts are evidence, not a draft).
+ * The same project back for an unknown milestone; an empty list clears.
+ */
+export function withMilestoneCriteriaFacts(
+  project: ProjectState,
+  milestoneId: string,
+  facts: readonly ProjectCriterionFact[],
+  now: number,
+): ProjectState {
+  const index = project.milestones.findIndex((m) => m.id === milestoneId);
+  if (index < 0) return project;
+  const clean = cleanCriteriaFacts(facts);
+  const milestones = [...project.milestones];
+  const current = { ...milestones[index]!, updatedAt: now };
+  if (clean.length === 0) delete current.criteriaFacts;
+  else current.criteriaFacts = clean;
+  milestones[index] = current;
+  return { ...project, milestones };
+}
+
 function readMilestone(raw: unknown): ProjectMilestone | null {
   if (!isObject(raw)) return null;
   const id = cleanId(raw.id);
@@ -611,6 +822,9 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
       if (note.length > 0) corrections.push({ note, at: c.at });
     }
   }
+  // Pictures and facts are extras: a malformed entry is dropped, not the project.
+  const attachments = Array.isArray(raw.attachments) ? readStoredAttachments(raw.attachments) : [];
+  const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   return {
     id,
     title: clip(raw.title, PROJECT_LIMITS.title),
@@ -619,6 +833,8 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
+    ...(attachments.length === 0 ? {} : { attachments }),
+    ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     updatedAt: raw.updatedAt,
   };
 }
@@ -837,6 +1053,7 @@ function milestoneUpdate(
   project: ProjectState | undefined,
   update: Extract<ProjectUpdate, { kind: "milestone" | "milestone_run" }>,
   now: number,
+  options: ProjectUpdateOptions,
 ): ProjectUpdateResult {
   if (project?.cancelledAt !== undefined) {
     return { ok: false, error: { code: "cancelled", message: "The person cancelled this project." } };
@@ -867,7 +1084,25 @@ function milestoneUpdate(
   if (update.state !== "done" && update.state !== "failed") return invalid("state must be done or failed");
   const summary = typeof update.summary === "string" ? clipText(update.summary, PROJECT_LIMITS.text) : "";
   if (summary.length === 0) return invalid("the report needs a summary of the result");
-  milestones[index] = { ...current, state: update.state, summary, updatedAt: now };
+  let attachments: ProjectMilestoneAttachment[] = [];
+  if (update.attachments !== undefined) {
+    if (!Array.isArray(update.attachments)) return invalid("attachments must be a list");
+    if (update.attachments.length > 0) {
+      if (options.stateDir === undefined) return invalid("attachments cannot be checked here; report without them");
+      const checked = validateMilestoneAttachments({
+        stateDir: options.stateDir,
+        milestone: current,
+        attachments: update.attachments,
+        criterionIds: new Set(criteriaById(project.brief).keys()),
+      });
+      if (!checked.ok) return invalid(checked.problems.join("; "));
+      attachments = checked.attachments;
+    }
+  }
+  // A new report describes a new result: the old pictures go with it.
+  const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
+  delete reported.attachments;
+  milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,
     project: {
@@ -888,6 +1123,7 @@ export function applyProjectUpdate(
   project: ProjectState | undefined,
   update: ProjectUpdate,
   now: number,
+  options: ProjectUpdateOptions = {},
 ): ProjectUpdateResult {
   switch (update.kind) {
     case "brief":
@@ -896,7 +1132,7 @@ export function applyProjectUpdate(
       return planUpdate(project, update, now);
     case "milestone":
     case "milestone_run":
-      return milestoneUpdate(project, update, now);
+      return milestoneUpdate(project, update, now, options);
     default:
       return invalid("unknown project update");
   }

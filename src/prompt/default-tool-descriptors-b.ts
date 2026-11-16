@@ -349,7 +349,8 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     name: "project.milestone",
     summary:
       "Report the result of the approved milestone you ran: done or failed, with a summary of what it produced against the success criteria. The person then approves (the next milestone starts), corrects or cancels; reply after calling it.",
-    argsSchema: "{ id: string, state: 'done' | 'failed', summary: string }",
+    argsSchema:
+      "{ id: string, state: 'done' | 'failed', summary: string, attachments?: [{ path: string /* a screenshot a check of this milestone's runs saved, as its result names it */, caption: string, criteria?: string[] /* the criterion ids it shows */ }] /* up to 8 */ }",
     examples: ['{"id":"base","state":"done","summary":"Board, snake and apples work; arrow keys steer; checked in the page run."}'],
   },
   {

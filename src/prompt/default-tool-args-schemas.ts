@@ -745,6 +745,15 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
         id: stringSchema,
         state: { type: "string", enum: ["done", "failed"] },
         summary: stringSchema,
+        // Screenshots of this milestone's runs (issue #40); checked when folded.
+        attachments: {
+          type: "array",
+          maxItems: 8,
+          items: obj(
+            { path: stringSchema, caption: stringSchema, criteria: { type: "array", items: stringSchema } },
+            ["path", "caption"],
+          ),
+        },
       },
       ["id", "state", "summary"],
     ),

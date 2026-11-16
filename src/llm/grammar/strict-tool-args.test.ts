@@ -168,6 +168,8 @@ describe("strict tool args (ATO-633): the generic branch", () => {
       ["project.plan", { milestones: [{ id: "m", title: "M", kind: "weird" }], tasks: [{ id: "t", title: "T", milestone: "m" }] }, false],
       ["project.milestone", { id: "m", state: "done", summary: "s" }, true],
       ["project.milestone", { id: "m", state: "approved", summary: "s" }, false],
+      ["project.milestone", { id: "m", state: "done", summary: "s", attachments: [{ path: "/p.jpg", caption: "c", criteria: ["c1"] }] }, true],
+      ["project.milestone", { id: "m", state: "done", summary: "s", attachments: [{ path: "/p.jpg" }] }, false],
       ["plan.update", { items: [{ step: "a", status: "later" }] }, false],
       ["os.fs.read_document", { path: "a", format: "text" }, false],
       ["memory.profile.list", {}, true],

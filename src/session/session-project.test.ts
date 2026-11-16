@@ -7,6 +7,9 @@ import {
   applyProjectUpdate,
   criteriaById,
   gateVersion,
+  milestoneShotsDir,
+  validateMilestoneAttachments,
+  withMilestoneCriteriaFacts,
   normalizeProject,
   planTotals,
   projectExpectation,
@@ -19,6 +22,7 @@ import {
 } from "./session-project.js";
 import { createEmptySessionState } from "./session-state.js";
 import { normalizeSessionState } from "./normalize-session-state.js";
+import { join, resolve } from "node:path";
 
 const NOW = 1_700_000_000_000;
 
@@ -537,6 +541,80 @@ describe("success criteria ids", () => {
     expect([...map.keys()]).toEqual(["c1", "c2"]);
     expect(map.get("c2")).toEqual({ id: "c2", text: "Has three levels" });
     expect(criteriaById(undefined).size).toBe(0);
+  });
+});
+
+describe("milestone attachments (issue #40)", () => {
+  const STATE = resolve("/state-dir");
+  const shot = (runId: string, file = "t1-1.jpg") => join(STATE, "fusion-runs", runId, "shots", file);
+  const ran = (): ProjectState => update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+  const report = (attachments: unknown[]): ProjectUpdate =>
+    ({ kind: "milestone", id: "m1", state: "done", summary: "Board renders", attachments }) as ProjectUpdate;
+
+  it("the shots folder of a run is <stateDir>/fusion-runs/<runId>/shots", () => {
+    expect(milestoneShotsDir(STATE, "run-1")).toBe(join(STATE, "fusion-runs", "run-1", "shots"));
+  });
+
+  it("accepts a screenshot of a run recorded on the milestone, caption and criteria cleaned", () => {
+    const m = ran().milestones[0]!;
+    const checked = validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1"), caption: "  The board\n at start ", criteria: ["c1", "c1"] }], criterionIds: new Set(["c1"]) });
+    expect(checked).toEqual({ ok: true, attachments: [{ path: shot("run-1"), caption: "The board at start", criteria: ["c1"] }] });
+  });
+
+  it.each([
+    ["another run's shot", () => shot("run-9")],
+    ["a path out of the shots folder", () => join(STATE, "fusion-runs", "run-1", "shots", "..", "run.json")],
+    ["a file in a subfolder", () => join(STATE, "fusion-runs", "run-1", "shots", "sub", "a.jpg")],
+    ["a relative path", () => "fusion-runs/run-1/shots/t1-1.jpg"],
+    ["a non-image", () => shot("run-1", "t1-1.txt")],
+    ["the folder itself", () => milestoneShotsDir(STATE, "run-1")],
+  ])("refuses %s", (_label, path) => {
+    const m = ran().milestones[0]!;
+    const checked = validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: path(), caption: "x" }] });
+    expect(checked.ok).toBe(false);
+  });
+
+  it("refuses more than the cap, a missing caption, an unknown criterion and a run id that is not one", () => {
+    const m = ran().milestones[0]!;
+    const many = Array.from({ length: PROJECT_LIMITS.attachments + 1 }, (_, i) => ({ path: shot("run-1", `t-${i}.jpg`), caption: "x" }));
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: many }).ok).toBe(false);
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1") }] }).ok).toBe(false);
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: m, attachments: [{ path: shot("run-1"), caption: "x", criteria: ["zz"] }], criterionIds: new Set(["c1"]) }).ok).toBe(false);
+    const odd = { ...m, runIds: [".."] };
+    expect(validateMilestoneAttachments({ stateDir: STATE, milestone: odd, attachments: [{ path: join(STATE, "fusion-runs", "shots", "a.jpg"), caption: "x" }] }).ok).toBe(false);
+  });
+
+  it("a report stores checked attachments; without a state dir, or with a bad one, it is refused", () => {
+    const p = ran();
+    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board", criteria: ["c1"] }]), NOW, { stateDir: STATE })).project;
+    expect(done.milestones[0]!.attachments).toEqual([{ path: shot("run-1"), caption: "Board", criteria: ["c1"] }]);
+    expect(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW)).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(applyProjectUpdate(p, report([{ path: shot("run-9"), caption: "Board" }]), NOW, { stateDir: STATE })).toMatchObject({ ok: false, error: { code: "invalid" } });
+    // A new report without attachments drops the old result's.
+    const again = update(done, { kind: "milestone", id: "m1", state: "failed", summary: "Broke" });
+    expect(again.milestones[0]!.attachments).toBeUndefined();
+  });
+
+  it("stored attachments and criteria facts read back, malformed entries dropped, caps kept", () => {
+    const p = ran();
+    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW, { stateDir: STATE })).project;
+    const withFacts = withMilestoneCriteriaFacts(done, "m1", [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }], NOW);
+    const raw = JSON.parse(JSON.stringify(withFacts)) as Record<string, any>;
+    expect(normalizeProject(raw)).toEqual(withFacts);
+    raw.milestones[0].attachments.push({ path: 3 }, ...Array.from({ length: 10 }, (_, i) => ({ path: shot("run-1", `x${i}.jpg`), caption: "c" })));
+    raw.milestones[0].criteriaFacts.push({ id: "c3", state: "maybe" });
+    const read = normalizeProject(raw)!;
+    expect(read.milestones[0]!.attachments).toHaveLength(PROJECT_LIMITS.attachments);
+    expect(read.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }]);
+  });
+
+  it("withMilestoneCriteriaFacts sets one milestone's facts; unknown milestone or bad facts leave the project", () => {
+    const p = ran();
+    expect(withMilestoneCriteriaFacts(p, "zz", [{ id: "c1", state: "passed" }], NOW)).toBe(p);
+    const set = withMilestoneCriteriaFacts(p, "m1", [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never], NOW);
+    expect(set.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "failed", why: `${"x".repeat(PROJECT_LIMITS.shortText - 1)}…` }]);
+    expect(set.gate).toEqual(p.gate);
+    expect(set.plan!.version).toBe(p.plan!.version);
   });
 });
 

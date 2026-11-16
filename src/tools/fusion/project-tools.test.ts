@@ -235,6 +235,15 @@ describe("project.milestone", () => {
     expect(result.summary).toMatch(/reply/i);
   });
 
+  it("passes attachments through for the fold to check against the milestone's runs (issue #40)", async () => {
+    const attachments = [{ path: "/state/fusion-runs/r1/shots/t1-1.jpg", caption: "The board", criteria: ["c1"] }];
+    const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn", attachments }, ctx);
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({ kind: "milestone", id: "base", state: "done", summary: "Board drawn", attachments });
+    for (const bad of [[{ path: "/a.jpg" }], "x", [{ path: 3, caption: "c" }], [{ path: "/a.jpg", caption: "c", criteria: "c1" }], Array.from({ length: 9 }, () => ({ path: "/a.jpg", caption: "c" }))]) {
+      expect(parseProjectMilestoneArgs({ id: "base", state: "done", summary: "x", attachments: bad })).toMatchObject({ ok: false });
+    }
+  });
+
   it("the model cannot approve or review", async () => {
     expect(parseProjectMilestoneArgs({ id: "base", state: "reviewed", summary: "x" })).toMatchObject({ ok: false });
     expect(parseProjectMilestoneArgs({ id: "base", state: "approved", summary: "x" })).toMatchObject({ ok: false });

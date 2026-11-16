@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { join, resolve } from "node:path";
+
+import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, withMilestoneCriteriaFacts, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { estimatePlan } from "./project-estimate.js";
 import { projectGateChanged, projectGateView } from "./project-gate-view.js";
 
@@ -38,6 +41,25 @@ describe("projectGateView (issue #39)", () => {
     const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
     expect(view.brief!.successCriteria).toEqual(["Runs", "Keys steer"]);
     expect(view.brief!.criteria).toEqual([{ id: "c1", text: "Runs" }, { id: "keys", text: "Keys steer" }]);
+  });
+
+  it("a milestone carries its attachments and criteria facts (issue #40)", () => {
+    expect(PROJECT_RUNS_DIR_NAME).toBe(FUSION_RUNS_DIR_NAME);
+    const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error(JSON.stringify(r)); return (r as unknown as { project: ProjectState }).project; };
+    let project = ok(applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW }));
+    project = up(project, plan);
+    project = ok(applyProjectDecision(project, { gate: { kind: "plan" }, version: gateVersion(project)!, verdict: "approve" }, { now: NOW }));
+    project = up(project, { kind: "milestone_run", id: "m1", runId: "run-1" });
+    const stateDir = resolve("/state");
+    const path = join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.jpg");
+    project = ok(applyProjectUpdate(project, { kind: "milestone", id: "m1", state: "done", summary: "s", attachments: [{ path, caption: "Board", criteria: ["c1"] }] }, NOW, { stateDir }));
+    project = withMilestoneCriteriaFacts(project, "m1", [{ id: "c1", state: "unverified", why: "no vision reviewer" }], NOW);
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]).toMatchObject({
+      attachments: [{ path, caption: "Board", criteria: ["c1"] }],
+      criteriaFacts: [{ id: "c1", state: "unverified", why: "no vision reviewer" }],
+    });
+    expect(view.milestones[1]!.attachments).toBeUndefined();
   });
 
   it("a plan gate carries the plan's taint flag", () => {
