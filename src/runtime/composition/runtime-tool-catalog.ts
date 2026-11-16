@@ -23,6 +23,7 @@ import type { SlotManager } from "../../llm/slot-manager.js";
 import { createFusionFormatProbeFor } from "./fusion-format-check.js";
 import { assertProviderAllowed, hasProjectConstraints, runWithProviderRole } from "../../llm/provider-policy.js";
 import { buildFusionVisionJudge } from "./fusion-vision-judge.js";
+import { readMilestoneEvidence } from "../../tools/fusion/run-criteria.js";
 import type { LlmProvider } from "../../llm/index.js";
 import { configuredFusionRoutingIdentity } from "./fusion-routing-identity.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
@@ -1103,6 +1104,15 @@ export function registerRuntimeFusionAndReadScope(input: {
       }).plan;
     },
     outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
+    // A done milestone's criteria facts and screenshots, from its runs'
+    // folders under `<stateDir>/fusion-runs` (issue #40).
+    milestoneEvidence: (milestone, criteriaOrder) =>
+      readMilestoneEvidence({
+        runsDir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME),
+        stateDir: config.paths.stateDir,
+        runIds: milestone.runIds,
+        criteriaOrder,
+      }),
   })) {
     toolRegistry.register(tool);
   }

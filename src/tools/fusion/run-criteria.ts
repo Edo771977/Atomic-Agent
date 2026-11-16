@@ -1,0 +1,144 @@
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import {
+  CRITERION_FACT_STATES,
+  milestoneShotsDir,
+  normalizeCriterionId,
+  PROJECT_LIMITS,
+  type CriterionFactState,
+  type ProjectCriterionFact,
+  type ProjectMilestoneAttachment,
+} from "../../session/session-project.js";
+import { FusionRunStore, fusionRunShotTarget } from "./run-checkpoint.js";
+
+/**
+ * A fan-out's success-criteria facts kept with its run (issue #40):
+ * `<stateDir>/fusion-runs/<runId>/criteria.json` (0600), beside the
+ * run's screenshots and pruned with them, since the checkpoint goes
+ * when the run ends. A milestone report (`project.milestone` done)
+ * reads its runs' files and shots ({@link readMilestoneEvidence}).
+ */
+
+const FILE_NAME = "criteria.json";
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_TASKS = 64;
+const IMAGE_EXT = /\.(?:jpe?g|png)$/i;
+const RANK: Record<CriterionFactState, number> = { passed: 0, unverified: 1, failed: 2 };
+
+export interface RunTaskCriteria {
+  taskId: string;
+  facts: readonly ProjectCriterionFact[];
+}
+
+/** Write one run's task facts. Best effort: a run that cannot keep them keeps none. */
+export function writeRunCriteriaFacts(
+  runsDir: string,
+  run: { runId: string; sessionId: string },
+  tasks: readonly RunTaskCriteria[],
+): void {
+  const kept = tasks.filter((t) => t.facts.length > 0).slice(0, MAX_TASKS);
+  if (kept.length === 0) return;
+  const target = fusionRunShotTarget(runsDir, run, undefined);
+  if (target === undefined) return;
+  try {
+    writeFileSync(join(dirname(target.dir), FILE_NAME), JSON.stringify({ tasks: kept }), { mode: 0o600 });
+  } catch {
+    // The milestone then has no facts from this run, never wrong ones.
+  }
+}
+
+function readRunTasks(runsDir: string, runId: string): RunTaskCriteria[] {
+  if (!FusionRunStore.isValidRunId(runId)) return [];
+  let raw: unknown;
+  try {
+    const path = join(runsDir, runId, FILE_NAME);
+    if (statSync(path).size > MAX_FILE_BYTES) return [];
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return [];
+  }
+  const tasks = (raw as { tasks?: unknown })?.tasks;
+  if (!Array.isArray(tasks)) return [];
+  const out: RunTaskCriteria[] = [];
+  for (const t of tasks.slice(0, MAX_TASKS)) {
+    if (typeof t !== "object" || t === null || typeof t.taskId !== "string" || !Array.isArray(t.facts)) continue;
+    const facts: ProjectCriterionFact[] = [];
+    for (const f of t.facts as unknown[]) {
+      if (typeof f !== "object" || f === null) continue;
+      const { id, state, why } = f as Record<string, unknown>;
+      const clean = normalizeCriterionId(id);
+      if (clean === null || !CRITERION_FACT_STATES.includes(state as CriterionFactState)) continue;
+      facts.push({ id: clean, state: state as CriterionFactState, ...(typeof why === "string" ? { why } : {}) });
+    }
+    out.push({ taskId: t.taskId, facts });
+  }
+  return out;
+}
+
+export interface MilestoneEvidence {
+  /** One per criterion its runs' checks name, in `criteriaOrder`; the worst state across its tasks. */
+  facts: ProjectCriterionFact[];
+  /** The runs' screenshots, newest first, at most {@link PROJECT_LIMITS}.attachments. */
+  attachments: ProjectMilestoneAttachment[];
+  /** Criteria of `criteriaOrder` no check of these runs names. */
+  uncovered: string[];
+}
+
+/**
+ * The facts and screenshots of a milestone's runs (oldest first): a
+ * task's newest run stands for it; a criterion takes the worst state of
+ * the tasks naming it (failed, then unverified, then passed).
+ */
+export function readMilestoneEvidence(input: {
+  runsDir: string;
+  stateDir: string;
+  runIds: readonly string[];
+  criteriaOrder: readonly string[];
+}): MilestoneEvidence {
+  const byTask = new Map<string, readonly ProjectCriterionFact[]>();
+  for (const runId of input.runIds) {
+    for (const task of readRunTasks(input.runsDir, runId)) byTask.set(task.taskId, task.facts);
+  }
+  const worst = new Map<string, ProjectCriterionFact>();
+  for (const facts of byTask.values()) {
+    for (const fact of facts) {
+      const known = worst.get(fact.id);
+      if (known === undefined || RANK[fact.state] > RANK[known.state]) worst.set(fact.id, fact);
+    }
+  }
+  const facts = input.criteriaOrder.flatMap((id) => (worst.has(id) ? [worst.get(id)!] : []));
+  const uncovered = input.criteriaOrder.filter((id) => !worst.has(id));
+  const shots: Array<{ path: string; mtime: number; taskId: string; n: string }> = [];
+  for (const runId of input.runIds) {
+    if (!FusionRunStore.isValidRunId(runId)) continue;
+    const dir = milestoneShotsDir(input.stateDir, runId);
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!IMAGE_EXT.test(name)) continue;
+      const path = join(dir, name);
+      try {
+        const info = statSync(path);
+        if (!info.isFile()) continue;
+        const match = /^(.*)-(\d+)\.[^.]+$/.exec(name);
+        shots.push({ path, mtime: info.mtimeMs, taskId: match?.[1] ?? name, n: match?.[2] ?? "" });
+      } catch {
+        // gone
+      }
+    }
+  }
+  shots.sort((a, b) => b.mtime - a.mtime);
+  const attachments = shots.slice(0, PROJECT_LIMITS.attachments).map((s): ProjectMilestoneAttachment => {
+    const criteria = (byTask.get(s.taskId) ?? []).map((f) => f.id).filter((id) => input.criteriaOrder.includes(id));
+    return {
+      path: s.path,
+      caption: `${s.taskId}: screenshot${s.n.length === 0 ? "" : ` ${s.n}`}`,
+      ...(criteria.length === 0 ? {} : { criteria }),
+    };
+  });
+  return { facts, attachments, uncovered };
+}

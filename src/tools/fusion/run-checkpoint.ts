@@ -284,6 +284,11 @@ export class FusionRunStore {
     this.retentionMs = options.retentionMs ?? FUSION_RUN_RETENTION_MS;
   }
 
+  /** The folder the runs live in (`<stateDir>/fusion-runs`). */
+  get runsDir(): string {
+    return this.dir;
+  }
+
   static isValidRunId(runId: string): boolean {
     return RUN_ID_PATTERN.test(runId);
   }

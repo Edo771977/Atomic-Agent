@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -17,6 +17,8 @@ import { createEmptySessionState } from "../../session/session-state.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import type { VisionDescribe } from "./vision-judge.js";
+import { FusionRunStore } from "./run-checkpoint.js";
+import { readMilestoneEvidence } from "./run-criteria.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
 const NOW = 1_700_000_000_000;
@@ -52,7 +54,7 @@ const project = (): ProjectState =>
     detail: "compact",
   }));
 
-function setup(over: Partial<FusionDelegateDeps> = {}) {
+function setup(over: Partial<FusionDelegateDeps> | ((dir: string) => Partial<FusionDelegateDeps>) = {}) {
   const dir = mkdtempSync(join(tmpdir(), "fusion-criteria-"));
   const shot = join(dir, "t-1.jpg");
   writeFileSync(shot, Buffer.from([0xff, 0xd8, 0xff]));
@@ -78,7 +80,7 @@ function setup(over: Partial<FusionDelegateDeps> = {}) {
     logger,
     escalationComplete: async () => ({ content: ACCEPT }),
     runChecks: async () => ({ ok: true, results: [{ ok: true, summary: "verify.run page: ok", screenshots: [{ path: shot, bytes: 3, width: 10, height: 10 }] }] }),
-    ...over,
+    ...(typeof over === "function" ? over(dir) : over),
   };
   const run = () =>
     buildFusionDelegateTool(d).run(
@@ -104,6 +106,34 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     expect(row.status).toBe("ok");
     expect(row.judge?.criteria).toEqual([expect.objectContaining({ id: "board-looks-right", state: "passed" })]);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("records the task's criteria, game and screenshot counts in the outcome log", async () => {
+    const append = vi.fn();
+    const describeImage = vi.fn<VisionDescribe>(async () => ({ text: '[{"criterion":"board-looks-right","met":true,"why":"ok"}]' }));
+    const { dir, run } = setup((d) => ({
+      outcomeLog: { append } as unknown as NonNullable<FusionDelegateDeps["outcomeLog"]>,
+      visionJudge: { sees: () => true, route: () => null, describe: describeImage },
+      runChecks: async () => ({ ok: true, results: [{ ok: true, screenshots: [{ path: join(d, "t-1.jpg"), bytes: 3, width: 10, height: 10 }], games: { n: 3, played: 3, finished: 3, errors: 1, medianMs: 40, medianMoves: 9, winners: { X: 2, O: 1 }, runs: [] } }] }),
+    }));
+    await run();
+    const records = append.mock.calls.flatMap((c) => c[0] as Array<Record<string, unknown>>);
+    expect(records.find((r) => r.kind === undefined || r.kind === "task")).toMatchObject({ criteria: { passed: 1, failed: 0, unverified: 0 }, games: { n: 3, errors: 1, medianMs: 40 }, shots: 1 });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps the run's criteria facts with the run, for the milestone report", async () => {
+    const state = mkdtempSync(join(tmpdir(), "fusion-criteria-state-"));
+    const runsDir = join(state, "fusion-runs");
+    const describeImage = vi.fn<VisionDescribe>(async () => ({ text: '[{"criterion":"board-looks-right","met":false,"why":"no squares"}]' }));
+    const { dir, run } = setup({ runCheckpoints: new FusionRunStore({ dir: runsDir }), visionJudge: { sees: () => true, route: () => null, describe: describeImage } });
+    const result = await run();
+    const runId = result.details.runId as string;
+    expect(JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")).tasks[0]).toMatchObject({ taskId: "t", facts: [{ id: "board-looks-right", state: "failed" }] });
+    const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: ["board-looks-right"] });
+    expect(evidence.facts[0]).toMatchObject({ id: "board-looks-right", state: "failed" });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
   });
 
   it("does not close a task whose visual criterion has no vision judge: it goes to the director", async () => {

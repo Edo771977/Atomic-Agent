@@ -303,6 +303,12 @@ export type ProjectUpdate =
       summary: string;
       /** Checked by {@link validateMilestoneAttachments} when folded. */
       attachments?: ReadonlyArray<ProjectMilestoneAttachment>;
+      /**
+       * The milestone's criteria facts, from its runs (issue #40): set by
+       * the runtime's `project.milestone` (its arguments cannot carry
+       * them), cleaned when folded; a report without them clears them.
+       */
+      criteriaFacts?: ReadonlyArray<ProjectCriterionFact>;
     }
   | { kind: "milestone_run"; id: string; runId: string };
 
@@ -1111,6 +1117,9 @@ function milestoneUpdate(
   // A new report describes a new result: the old pictures go with it.
   const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
   delete reported.attachments;
+  delete reported.criteriaFacts;
+  const facts = Array.isArray(update.criteriaFacts) ? cleanCriteriaFacts(update.criteriaFacts) : [];
+  if (facts.length > 0) reported.criteriaFacts = facts;
   milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,

@@ -95,6 +95,10 @@ import {
   rowCostUsd,
   reviewOutcome,
   taskOutcomeRecord,
+  criteriaOutcome,
+  gamesOutcome,
+  shotsOutcome,
+  type TaskOutcomeContext,
   type FusionOutcomeSink,
   type MergeOutcome,
   type OutcomeLeg,
@@ -172,6 +176,7 @@ import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-pol
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import type { VisionJudgements } from "./criteria-facts.js";
+import { writeRunCriteriaFacts } from "./run-criteria.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1809,6 +1814,9 @@ export function buildFusionDelegateTool(
       // one is kept as a patch (`merge-gate.ts`). A judged-red task's
       // workspace is kept for its retry, and removed after the judge.
       const gateState = new MergeGateState();
+      // The newest outcome of each contract check, by index, wherever it
+      // ran (a gate's workspace or the folder): the outcome row's counts.
+      const latestCheckOutcomes = new Map<number, ContractCheckOutcome>();
       // The session's read scope, for the syntax pass (gate and after).
       const syntaxRoots = [
         ctx.workingDir,
@@ -2156,6 +2164,22 @@ export function buildFusionDelegateTool(
         return expanded;
       };
 
+      // Issue #40 counts on the task's outcome row: its criteria facts by
+      // state, its game checks summed, its screenshots.
+      const qualityOutcomeOf = (r: WorkerTaskResult): Pick<TaskOutcomeContext, "criteria" | "games" | "shots"> => {
+        const outcomes = (parsed.contract?.checks ?? []).flatMap((check, index) => {
+          const outcome = check.task === r.id ? (latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index)) : undefined;
+          return outcome === undefined ? [] : [outcome];
+        });
+        const games = gamesOutcome(outcomes.flatMap((o) =>
+          o.games === undefined ? [] : [{ n: o.games.played, errors: o.games.errors, medianMs: o.games.medianMs ?? 0 }]));
+        const shots = shotsOutcome(outcomes.map((o) => o.screenshots));
+        return {
+          ...(r.judge?.criteria === undefined ? {} : { criteria: criteriaOutcome(r.judge.criteria) }),
+          ...(games === undefined ? {} : { games }),
+          ...(shots === 0 ? {} : { shots }),
+        };
+      };
       const outcomeRowsFor = (ran: readonly WorkerTaskResult[], now: Date) => ran.map((r) => {
             const leg = taskLegs.get(r.id);
             const providerId = leg?.providerId ?? workerProviderId;
@@ -2195,6 +2219,7 @@ export function buildFusionDelegateTool(
                     : r.judge?.review !== undefined
                       ? { review: reviewOutcome(r.judge.review, r.judge.passes ?? (r.judge.retried ? 1 : 0)) }
                       : {}),
+                  ...qualityOutcomeOf(r),
                 },
                 ctx.sessionId,
                 now,
@@ -2540,6 +2565,7 @@ export function buildFusionDelegateTool(
             const outcome = byIndex.get(i);
             return outcome === undefined ? [] : [outcome];
           });
+          for (const [index, outcome] of byIndex) latestCheckOutcomes.set(index, outcome);
           checkOutcomes =
             allOutcomes.length === allChecks.length ? allOutcomes : [];
           // What the call was run with despite the contract — a require
@@ -2774,6 +2800,15 @@ export function buildFusionDelegateTool(
               error: row.error === undefined ? head : `${head}; ${row.error}`,
             };
           });
+        }
+        // The run's success-criteria facts, kept with its screenshots for
+        // the milestone report (issue #40, `run-criteria.ts`).
+        if (run !== undefined && deps.runCheckpoints !== undefined) {
+          writeRunCriteriaFacts(
+            deps.runCheckpoints.runsDir,
+            { runId: run.runId, sessionId: ctx.sessionId },
+            results.flatMap((r) => (r.judge?.criteria === undefined ? [] : [{ taskId: r.id, facts: r.judge.criteria }])),
+          );
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();

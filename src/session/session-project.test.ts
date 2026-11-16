@@ -595,6 +595,14 @@ describe("milestone attachments (issue #40)", () => {
     expect(again.milestones[0]!.attachments).toBeUndefined();
   });
 
+  it("a done report carries the runtime's criteria facts onto the milestone; a later report without them clears them", () => {
+    const p = ran();
+    const done = update(p, { kind: "milestone", id: "m1", state: "done", summary: "Board renders", criteriaFacts: [{ id: "c1", state: "passed", why: "ok" }, { id: "C2", state: "unverified" }] });
+    expect(done.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed", why: "ok" }, { id: "c2", state: "unverified" }]);
+    const again = update(done, { kind: "milestone", id: "m1", state: "failed", summary: "Broke" });
+    expect(again.milestones[0]!.criteriaFacts).toBeUndefined();
+  });
+
   it("stored attachments and criteria facts read back, malformed entries dropped, caps kept", () => {
     const p = ran();
     const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW, { stateDir: STATE })).project;

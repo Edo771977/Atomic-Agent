@@ -10,6 +10,7 @@ import {
   type MilestoneKind,
   type ProjectBriefDraft,
   type ProjectCriterionInput,
+  type ProjectMilestone,
   type ProjectMilestoneAttachment,
   type ProjectGameBrief,
   type ProjectUpdate,
@@ -18,6 +19,7 @@ import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor } from "./project-estimate.js";
 import type { WorkerPricing } from "./worker-result.js";
+import type { MilestoneEvidence } from "./run-criteria.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -75,6 +77,13 @@ export interface ProjectToolDeps {
   planContext: () => ProjectPlanContext;
   /** Whether the session read outside content this turn (the approval gate's taint). */
   outsideContent: (sessionId: string) => boolean;
+  /**
+   * A milestone's evidence from its runs (issue #40, `run-criteria.ts`):
+   * the criteria facts its checks and the vision judge established, and
+   * its screenshots, newest first. A done report carries the facts, and
+   * the screenshots when it names no attachments. Absent: neither.
+   */
+  milestoneEvidence?: (milestone: ProjectMilestone, criteriaOrder: readonly string[]) => MilestoneEvidence;
 }
 
 type Parsed<T> = { ok: true } & T | { ok: false; problems: string[] };
@@ -396,13 +405,36 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     name: PROJECT_MILESTONE_TOOL,
     description: "Report an approved milestone's result (done or failed, with a summary) for the person to review before the next one.",
     readonly: true,
-    async run(rawArgs) {
+    async run(rawArgs, ctx) {
       const parsed = parseProjectMilestoneArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_MILESTONE_TOOL, parsed.problems);
+      let report: Extract<ProjectUpdate, { kind: "milestone" }> = parsed.report;
+      const lines: string[] = [];
+      // A done milestone carries its runs' criteria facts (issue #40),
+      // and their screenshots when the report names none: the runtime's,
+      // never the model's (its arguments cannot carry facts).
+      const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
+      if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
+        const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
+        const evidence = deps.milestoneEvidence(milestone, order);
+        if (evidence.facts.length > 0) {
+          report = { ...report, criteriaFacts: evidence.facts };
+          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
+        }
+        if (evidence.uncovered.length > 0) lines.push(`Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`);
+        if (report.attachments === undefined && evidence.attachments.length > 0) {
+          report = { ...report, attachments: evidence.attachments };
+          lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
+        }
+      }
       return accepted(
         PROJECT_MILESTONE_TOOL,
-        `Milestone ${parsed.report.id} reported ${parsed.report.state}. Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.`,
-        parsed.report,
+        [
+          `Milestone ${report.id} reported ${report.state}.`,
+          ...lines,
+          "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
+        ].join(" "),
+        report,
       );
     },
   };
