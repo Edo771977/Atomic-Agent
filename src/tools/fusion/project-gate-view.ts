@@ -59,6 +59,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             status: plan.status,
             detail: plan.detail,
             version: plan.version,
+            draftedAfterUntrusted: plan.draftedAfterUntrusted,
             rows: plan.rows.map((row) => ({
               ...row,
               selectableWorkers: [...input.selectable.workers],

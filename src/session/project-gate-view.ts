@@ -53,6 +53,8 @@ export interface ProjectGatePlan {
   /** The default detail; `/plan` shows full regardless. */
   detail: PlanDetail;
   version: number;
+  /** Drafted after outside content entered the chat: show the warning before approving. */
+  draftedAfterUntrusted: boolean;
   rows: ProjectGateRow[];
   /** Wave-aware totals (`estimatePlan`): cost summed, time over milestones in order. */
   totals: ProjectPlanTotals;

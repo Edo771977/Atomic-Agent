@@ -161,6 +161,23 @@ describe("applyProjectUpdate: brief", () => {
 });
 
 describe("applyProjectUpdate: plan", () => {
+  it("records a plan drafted after outside content; its approval records that the warning was shown", () => {
+    const approvedBrief = approve(update(undefined, briefUpdate));
+    const clean = update(approvedBrief, planUpdate);
+    expect(clean.plan!.draftedAfterUntrusted).toBe(false);
+    const tainted = update(approvedBrief, { ...planUpdate, draftedAfterUntrusted: true } as ProjectUpdate);
+    expect(tainted.plan!.draftedAfterUntrusted).toBe(true);
+    expect(tainted.plan!.approvedWithUntrustedWarning).toBeUndefined();
+    const approved = approve(tainted);
+    expect(approved.plan).toMatchObject({ status: "approved", draftedAfterUntrusted: true, approvedWithUntrustedWarning: true });
+    expect(approve(clean).plan!.approvedWithUntrustedWarning).toBeUndefined();
+    expect(normalizeProject(JSON.parse(JSON.stringify(approved)))!.plan).toMatchObject({ draftedAfterUntrusted: true, approvedWithUntrustedWarning: true });
+    // A person's edit keeps the flag; the re-approval shows it again.
+    const edited = ok(applyProjectDecision(tainted, { gate: { kind: "plan" }, version: tainted.plan!.version, verdict: "edit", edits: { rows: [{ taskId: "t1", reviewer: null }] } }, { now: NOW })).project;
+    expect(edited.plan!.draftedAfterUntrusted).toBe(true);
+  });
+
+
   it("refuses a plan before the brief is approved", () => {
     expect(applyProjectUpdate(undefined, planUpdate, NOW)).toMatchObject({ ok: false, error: { code: "brief-not-approved" } });
     expect(applyProjectUpdate(update(undefined, briefUpdate), planUpdate, NOW))

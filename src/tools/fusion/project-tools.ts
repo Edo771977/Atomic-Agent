@@ -304,7 +304,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     name: PROJECT_PLAN_TOOL,
     description: "Draft or revise the plan (milestones and tasks) for the approved brief; each task gets a worker, a reviewer and an estimate.",
     readonly: true,
-    async run(rawArgs) {
+    async run(rawArgs, ctx) {
       const parsed = parseProjectPlanArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_PLAN_TOOL, parsed.problems);
       const context = deps.planContext();
@@ -324,7 +324,13 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         "Use these task ids in fusion.delegate when the milestone is approved.",
         AWAIT_PERSON,
       ];
-      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), { kind: "plan", milestones: parsed.plan.milestones, rows, detail });
+      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), {
+        kind: "plan",
+        milestones: parsed.plan.milestones,
+        rows,
+        detail,
+        draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
+      });
     },
   };
   const milestone: ToolDefinition = {

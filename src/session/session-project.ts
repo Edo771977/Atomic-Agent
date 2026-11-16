@@ -117,6 +117,18 @@ export interface ProjectPlan {
    */
   version: number;
   approvedAt?: number;
+  /**
+   * The director drafted this plan after outside content entered the
+   * chat (the approval gate's taint), like the brief's flag. Every
+   * surface shows the warning at the plan gate.
+   */
+  draftedAfterUntrusted: boolean;
+  /**
+   * Set when the person approved a plan drafted after outside content,
+   * from a view that showed that warning. Only then does the approval
+   * stand in for the fan-out prompt (`planCoversFanout`).
+   */
+  approvedWithUntrustedWarning?: true;
 }
 
 export type ProjectGate =
@@ -210,6 +222,8 @@ export type ProjectUpdate =
       milestones: ReadonlyArray<{ id: string; title: string; kind: MilestoneKind }>;
       rows: readonly AssignmentRow[];
       detail: PlanDetail;
+      /** Drafted after outside content (the tool reads the approval gate's taint). */
+      draftedAfterUntrusted?: boolean;
     }
   | { kind: "milestone"; id: string; state: "done" | "failed"; summary: string }
   | { kind: "milestone_run"; id: string; runId: string };
@@ -582,6 +596,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     if (p.status !== "draft" && p.status !== "approved" && p.status !== "cancelled") return undefined;
     if (p.detail !== "compact" && p.detail !== "full") return undefined;
     if (p.approvedAt !== undefined && !isTime(p.approvedAt)) return undefined;
+    if (p.draftedAfterUntrusted !== undefined && typeof p.draftedAfterUntrusted !== "boolean") return undefined;
     const rows: AssignmentRow[] = [];
     for (const r of p.rows.slice(0, PROJECT_LIMITS.rows)) {
       const read = readRow(r, ids);
@@ -595,6 +610,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
       status: p.status,
       version: p.version,
       ...(p.status === "approved" && p.approvedAt !== undefined ? { approvedAt: p.approvedAt as number } : {}),
+      // Older stores have no flag: nothing recorded the taint then.
+      draftedAfterUntrusted: p.draftedAfterUntrusted === true,
+      ...(p.status === "approved" && p.approvedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
     };
   }
   if (gate.kind === "brief" && brief === undefined) return undefined;
@@ -654,9 +672,10 @@ function briefUpdate(
   };
 }
 
-function withoutApproval<T extends { approvedAt?: number }>(value: T): T {
+function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true }>(value: T): T {
   const copy = { ...value };
   delete copy.approvedAt;
+  delete copy.approvedWithUntrustedWarning;
   return copy;
 }
 
@@ -716,6 +735,7 @@ function planUpdate(
     detail: update.detail,
     status: "draft",
     version: nextVersion(project, project.plan?.version),
+    draftedAfterUntrusted: update.draftedAfterUntrusted === true,
   };
   return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" }, ...floorOf(project) } };
 }
@@ -895,7 +915,13 @@ export function applyProjectDecision(
         ok: true,
         project: {
           ...project,
-          plan: { ...project.plan!, status: "approved", approvedAt: now },
+          plan: {
+            ...project.plan!,
+            status: "approved",
+            approvedAt: now,
+            // Every surface draws the warning from the view it approves from.
+            ...(project.plan!.draftedAfterUntrusted ? { approvedWithUntrustedWarning: true as const } : {}),
+          },
           milestones: approveNext(project.milestones, now),
           gate: { kind: "none" },
         },

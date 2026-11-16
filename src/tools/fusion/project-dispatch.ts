@@ -1,7 +1,7 @@
 import { resolve as resolvePath } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
-import type { AssignmentRow, ProjectState } from "../../session/session-project.js";
+import type { ProjectState } from "../../session/session-project.js";
 
 /**
  * The fusion project's dispatch gate (issue #39), enforced by
@@ -73,24 +73,29 @@ export function checkProjectDispatch(project: ProjectState | undefined, taskIds:
 
 /**
  * Whether the person's plan approval stands for this fan-out's own
- * prompt: every task is a row of the plan, runs on the worker the row
+ * prompt: the plan is approved (and, when drafted after outside content,
+ * approved with that warning shown), every task is a row of the plan in
+ * the milestone now approved or in progress, runs on the worker the row
  * names (`workerOf`: the resolved leg's member ref), and the write scope
  * stays inside what the plan was approved for (`approvedScope`: the
- * session's folder). Anything else — a new task, another worker, a write
- * elsewhere — asks as before.
+ * session's folder). Anything else — a new task, another milestone's,
+ * another worker, a write elsewhere — asks as before.
  */
 export function planCoversFanout(
-  rows: readonly AssignmentRow[],
+  project: ProjectState,
   taskIds: readonly string[],
   workerOf: (taskId: string) => string,
   writeScope: readonly string[],
   approvedScope: readonly string[],
 ): boolean {
-  if (taskIds.length === 0) return false;
-  const byTask = new Map(rows.map((r) => [r.taskId, r]));
+  const plan = project.plan;
+  if (taskIds.length === 0 || plan === undefined || plan.status !== "approved") return false;
+  if (plan.draftedAfterUntrusted && plan.approvedWithUntrustedWarning !== true) return false;
+  const open = new Set(project.milestones.filter((m) => m.state === "approved" || m.state === "in_progress").map((m) => m.id));
+  const byTask = new Map(plan.rows.map((r) => [r.taskId, r]));
   for (const id of taskIds) {
     const row = byTask.get(id);
-    if (row === undefined || row.worker !== workerOf(id)) return false;
+    if (row === undefined || !open.has(row.milestoneId) || row.worker !== workerOf(id)) return false;
   }
   const roots = approvedScope.map((dir) => resolvePath(dir));
   return writeScope.every((dir) => roots.some((root) => isInside(root, resolvePath(dir))));

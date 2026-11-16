@@ -52,6 +52,13 @@ describe("project card lines", () => {
     expect(out).toContain("• Runs in a browser");
   });
 
+  it("warns on a plan drafted after untrusted content", () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    expect(text(card(base))).not.toMatch(/plan was drafted after outside content/);
+    const out = text(card({ ...base, plan: { ...base.plan!, draftedAfterUntrusted: true } }));
+    expect(out).toMatch(/plan was drafted after outside content/);
+  });
+
   it("lists violations, hard ones marked", () => {
     const out = text(card(fixtureProjectGateView({ kind: "plan" }, {
       violations: [

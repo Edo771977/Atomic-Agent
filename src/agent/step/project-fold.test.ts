@@ -48,7 +48,7 @@ describe("foldProjectUpdate (issue #39)", () => {
   it("folds a milestone_run from a failed fan-out (work started), keeping the call's own error", () => {
     let project = foldProjectUpdate(session, result("project.brief", brief), NOW).session;
     project = { ...project, project: { ...project.project!, brief: { ...project.project!.brief!, status: "approved" }, gate: { kind: "none" },
-      plan: { rows: [], totals: { costUsd: null, ms: null, unknownCostRows: 0 }, detail: "compact", status: "approved", version: 1 },
+      plan: { rows: [], totals: { costUsd: null, ms: null, unknownCostRows: 0 }, detail: "compact", status: "approved", version: 1, draftedAfterUntrusted: false },
       milestones: [{ id: "m1", title: "Base", kind: "base", state: "approved", runIds: [], updatedAt: NOW }] } };
     const failed = result("fusion.delegate", { kind: "milestone_run", id: "m1", runId: "run-1" }, "error");
     const folded = foldProjectUpdate(project, failed, NOW);

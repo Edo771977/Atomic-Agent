@@ -152,6 +152,13 @@ describe("project.plan", () => {
     expect(result.summary).toMatch(/reply/i);
   });
 
+  it("marks a plan drafted after outside content", async () => {
+    const clean = await tools().plan.run(planArgs, ctx);
+    expect((clean.details[PROJECT_UPDATE_DETAIL] as { draftedAfterUntrusted?: boolean }).draftedAfterUntrusted).toBe(false);
+    const tainted = await tools({ tainted: true }).plan.run(planArgs, ctx);
+    expect((tainted.details[PROJECT_UPDATE_DETAIL] as { draftedAfterUntrusted?: boolean }).draftedAfterUntrusted).toBe(true);
+  });
+
   it("names a worker by model alone and takes the director's reviewer, or none", async () => {
     const result = await tools().plan.run({
       ...planArgs,

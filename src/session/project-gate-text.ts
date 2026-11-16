@@ -16,6 +16,10 @@ import type { ProjectGateView } from "./project-gate-view.js";
 export const PROJECT_WRITE_SCOPE_NOTE =
   "Approving lets these tasks write in this chat's folder (the session's working directory); a write outside it still asks.";
 
+/** The plan gate's warning for a plan drafted after outside content (every surface shows it). */
+export const PLAN_UNTRUSTED_WARNING =
+  "⚠ The plan was drafted after outside content entered the chat. Check its tasks and workers before approving: approving lets them run without asking again.";
+
 const usd = (n: number | null): string => (n === null ? "cost unknown" : n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
 
 function duration(ms: number | null): string {
@@ -61,6 +65,9 @@ export function formatProjectGateText(view: ProjectGateView): string {
     }
     if (brief.successCriteria.length > 0) out.push(`  Done when: ${brief.successCriteria.join("; ")}`);
   }
+  if (view.gate.kind !== "brief" && view.plan?.draftedAfterUntrusted) {
+    out.push(`  ${PLAN_UNTRUSTED_WARNING}`);
+  }
   if (view.gate.kind !== "brief") {
     const rows = view.plan?.rows ?? [];
     for (const r of rows) {
@@ -98,7 +105,7 @@ export function projectApprovalLine(view: ProjectGateView): string {
       return `approved the brief (version ${view.version}): ${view.brief?.what ?? ""}`.trimEnd();
     case "plan": {
       const t = view.plan?.totals ?? { costUsd: null, ms: null, unknownCostRows: 0 };
-      return `approved the plan (version ${view.version}): ${view.plan?.rows.length ?? 0} tasks, ${usd(t.costUsd)}${t.unknownCostRows > 0 ? ` (+${t.unknownCostRows} unpriced)` : ""}, ${duration(t.ms)}`;
+      return `approved the plan (version ${view.version})${view.plan?.draftedAfterUntrusted ? " [drafted after outside content]" : ""}: ${view.plan?.rows.length ?? 0} tasks, ${usd(t.costUsd)}${t.unknownCostRows > 0 ? ` (+${t.unknownCostRows} unpriced)` : ""}, ${duration(t.ms)}`;
     }
     case "milestone": {
       const id = view.gate.id;

@@ -6,7 +6,7 @@
  * buttons from the view's allowed verdicts.
  */
 
-import { PROJECT_WRITE_SCOPE_NOTE } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -108,6 +108,9 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   const brief = view.brief;
   if (brief?.draftedAfterUntrusted) {
     text("⚠ This brief was drafted after outside content entered the chat. Read it before approving.", "warn");
+  }
+  if (view.gate.kind !== "brief" && view.plan?.draftedAfterUntrusted) {
+    text(PLAN_UNTRUSTED_WARNING, "warn");
   }
   if (brief !== null) {
     text(`What: ${brief.what}`);

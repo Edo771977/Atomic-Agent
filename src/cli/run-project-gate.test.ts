@@ -31,6 +31,12 @@ describe("run at a project gate", () => {
     expect(rt.projectDecision).not.toHaveBeenCalled();
   });
 
+  it("the printed plan warns when it was drafted after outside content", async () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const step = await settleProjectGate(runtime({ ...base, plan: { ...base.plan!, draftedAfterUntrusted: true } }), "s", "stop");
+    expect(step.kind === "stop" && step.text).toMatch(/The plan was drafted after outside content/);
+  });
+
   it("carries on when nothing waits", async () => {
     expect((await settleProjectGate(runtime(undefined), "s", "stop")).kind).toBe("open");
     expect((await settleProjectGate(runtime(fixtureProjectGateView({ kind: "none" })), "s", "approve")).kind).toBe("open");

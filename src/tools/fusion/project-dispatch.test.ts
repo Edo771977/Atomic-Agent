@@ -78,17 +78,32 @@ describe("checkProjectDispatch (issue #39)", () => {
 });
 
 describe("planCoversFanout", () => {
-  const rows = running().plan!.rows;
+  const project = running();
   const legOf = (id: string) => (id === "b" ? "cloud:model-b" : "local:model-a");
 
   it("covers the same tasks on the same workers inside the approved folder", () => {
-    expect(planCoversFanout(rows, ["a", "b"], legOf, ["/w", "/w/src"], ["/w"])).toBe(true);
+    expect(planCoversFanout(project, ["a", "b"], legOf, ["/w", "/w/src"], ["/w"])).toBe(true);
   });
 
   it("not when a task is outside the plan, on another worker, or writes outside the folder", () => {
-    expect(planCoversFanout(rows, ["a", "extra"], legOf, ["/w"], ["/w"])).toBe(false);
-    expect(planCoversFanout(rows, ["b"], () => "local:model-a", ["/w"], ["/w"])).toBe(false);
-    expect(planCoversFanout(rows, ["a"], legOf, ["/w", "/elsewhere"], ["/w"])).toBe(false);
-    expect(planCoversFanout(rows, [], legOf, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["a", "extra"], legOf, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["b"], () => "local:model-a", ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["a"], legOf, ["/w", "/elsewhere"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, [], legOf, ["/w"], ["/w"])).toBe(false);
+  });
+
+  it("only the tasks of the milestone approved or in progress count", () => {
+    expect(planCoversFanout(project, ["c"], legOf, ["/w"], ["/w"])).toBe(false);
+    const inProgress = up(project, { kind: "milestone_run", id: "m1", runId: "r1" });
+    expect(planCoversFanout(inProgress, ["a"], legOf, ["/w"], ["/w"])).toBe(true);
+  });
+
+  it("a plan drafted after outside content counts only when approved with that warning shown", () => {
+    const approvedBrief = approve(up(undefined, brief));
+    const tainted = up(approvedBrief, { ...plan, draftedAfterUntrusted: true } as ProjectUpdate);
+    expect(planCoversFanout(approve(tainted), ["a"], legOf, ["/w"], ["/w"])).toBe(true);
+    const unshown = approve(tainted);
+    const { approvedWithUntrustedWarning: _shown, ...rest } = unshown.plan!;
+    expect(planCoversFanout({ ...unshown, plan: rest }, ["a"], legOf, ["/w"], ["/w"])).toBe(false);
   });
 });

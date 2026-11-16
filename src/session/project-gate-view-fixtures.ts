@@ -27,6 +27,7 @@ export function fixtureProjectGateView(
       status: gate.kind === "plan" ? "draft" : "approved",
       detail: "compact",
       version: 3,
+      draftedAfterUntrusted: false,
       totals: { costUsd: 0.12, ms: 90_000, unknownCostRows: 1 },
       rows: [
       {

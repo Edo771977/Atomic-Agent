@@ -993,9 +993,9 @@ export function buildFusionDelegateTool(
       const planApproved =
         projectVerdict.kind === "admit" &&
         projectVerdict.unplanned.length === 0 &&
-        ctx.project?.plan !== undefined &&
+        ctx.project !== undefined &&
         planCoversFanout(
-          ctx.project.plan.rows,
+          ctx.project,
           parsed.tasks.map((t) => t.id),
           (id) => {
             const leg = taskLegs.get(id);

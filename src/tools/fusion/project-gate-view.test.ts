@@ -33,6 +33,14 @@ describe("projectGateView (issue #39)", () => {
     });
   });
 
+  it("a plan gate carries the plan's taint flag", () => {
+    const approvedBrief = applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW });
+    if (!approvedBrief.ok) throw new Error("x");
+    const project = up(approvedBrief.project, { ...plan, draftedAfterUntrusted: true } as ProjectUpdate);
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.plan!.draftedAfterUntrusted).toBe(true);
+  });
+
   it("a plan gate: rows with selectable members, milestone estimates, wave totals and violations hard first", () => {
     const approvedBrief = applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW });
     if (!approvedBrief.ok) throw new Error("x");
