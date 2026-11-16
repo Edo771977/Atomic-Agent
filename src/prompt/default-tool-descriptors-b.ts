@@ -328,7 +328,7 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     // Frequent: a director must reach for them before the first fan-out.
     name: "project.brief",
     summary:
-      "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
+      "Draft or revise the project brief for the person to approve: what is built, for whom, how (stack, constraints), game details when it is a game, and checkable success criteria. A game must expose `window.__game` so it can be played automatically: start({ seed, mode: \"auto\" }) sets up a computer-vs-computer game, step() advances one move, state() → { over, winner, moves, error? }; say so in `how`. Every edit is a draft again; only the person approves. After calling it, reply so they can decide.",
     argsSchema:
       "{ what: string, users: string, how: string, game?: { rules: string, loop: string, difficulty: string, style: string }, successCriteria: ({ id: string /* a-z 0-9 -, max 32, unique */, text: string } | string)[] /* 1..20 short checkable sentences; a plain one gets id c<n>, n its position. Contract checks name the ids they verify */ }",
     examples: [
