@@ -1,5 +1,8 @@
 /** Explicit native Windows reliability gate; the Linux full suite remains separate. */
 import { spawnSync } from 'node:child_process';
+
+/** Per-test and per-hook ceiling for the Windows gate's single-worker run. */
+export const WINDOWS_GATE_TEST_TIMEOUT_MS = 60_000;
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -243,7 +246,12 @@ function main() {
       ['run', '--config', 'eval-agents/vitest.hermetic.config.ts'],
     ];
     for (const args of suites) {
-      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1'], {
+      // The gate runs one worker on a shared Windows runner, where tests that
+      // spawn git or PowerShell take several times longer than elsewhere:
+      // the same test passed in 4 s on one run and hit the default 15 s on
+      // another. A wider per-test ceiling keeps those from flaking without
+      // changing what they assert.
+      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
         cwd: root, stdio: 'inherit', env: { ...process.env, ATOMIC_AGENT_STATE_DIR: state },
       });
       if (result.error) throw result.error;
