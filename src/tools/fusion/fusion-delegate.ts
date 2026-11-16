@@ -15,7 +15,7 @@ import {
 } from "../../approval/dangerous-tool.js";
 import { isAbsolute, relative, resolve as resolvePath } from "node:path";
 import { isInside } from "../../approval/fanout-scope.js";
-import { resolveFanoutScope } from "./fanout-paths.js";
+import { analyseFanoutScope } from "./fanout-paths.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
@@ -919,7 +919,8 @@ export function buildFusionDelegateTool(
       // orchestrator left as the only party able to act — so the
       // operator is asked here instead, once, with the task list and the
       // directory in front of them.
-      let writeScope = resolveFanoutScope(parsed.tasks, ctx.workingDir);
+      const analysedScope = analyseFanoutScope(parsed.tasks, ctx.workingDir);
+      let writeScope = analysedScope.scope;
       // Never into the agent's own state directory (ATO-1267).
       const intoState = scopeInsideStateDir(writeScope, deps.agentStateDir);
       if (intoState.length > 0) {
@@ -993,6 +994,10 @@ export function buildFusionDelegateTool(
       const planApproved =
         projectVerdict.kind === "admit" &&
         projectVerdict.unplanned.length === 0 &&
+        // A brief naming a path the scope cannot grant (unresolvable
+        // here, or a root/home directory) writes outside the folder the
+        // plan was approved for, even though the scope leaves it out.
+        !analysedScope.namesUngrantedPath &&
         ctx.project !== undefined &&
         planCoversFanout(
           ctx.project,

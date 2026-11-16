@@ -161,6 +161,9 @@ describe("fusion.delegate with a project (issue #39)", () => {
       [task("board"), task("extra")],
       [{ ...task("board"), role: "review" }],
       [{ id: "board", title: "board", instructions: "Write /elsewhere/x.js" }],
+      // A file at a filesystem root: its directory is too broad to grant,
+      // so the scope drops it, and the plan must not stand for it.
+      [{ id: "board", title: "board", instructions: "Write /x.js" }],
     ]) {
       const { gate, prompts } = gateAnswering();
       const d = deps({

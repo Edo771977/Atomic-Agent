@@ -159,3 +159,12 @@ describe("collapseScope", () => {
     }
   });
 });
+
+describe("analyseFanoutScope (issue #39)", () => {
+  it("flags a brief naming a file at a filesystem root, which the scope cannot grant", async () => {
+    const { analyseFanoutScope } = await import("./fanout-paths.js");
+    const wd = process.cwd();
+    expect(analyseFanoutScope([{ id: "t", title: "t", instructions: "Write /x.js" }], wd).namesUngrantedPath).toBe(true);
+    expect(analyseFanoutScope([{ id: "t", title: "t", instructions: "Write ./src/x.js" }], wd).namesUngrantedPath).toBe(false);
+  });
+});

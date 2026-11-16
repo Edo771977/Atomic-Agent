@@ -59,7 +59,7 @@ function isTooBroad(dir: string): boolean {
   );
 }
 
-function collectFromText(text: string, workingDir: string): string[] {
+function collectFromText(text: string, workingDir: string, unresolved?: { count: number }): string[] {
   const out: string[] = [];
   const patterns = process.platform === "win32"
     ? [PATH_IN_PROSE, WINDOWS_PATH_IN_PROSE]
@@ -72,6 +72,7 @@ function collectFromText(text: string, workingDir: string): string[] {
     } catch {
       // `resolveUserPath` throws only on a Unix-absolute path under
       // Windows. A path we cannot resolve is a path we will not grant.
+      if (unresolved !== undefined) unresolved.count += 1;
     }
   }
   return out;
@@ -101,21 +102,43 @@ export function resolveFanoutScope(
   tasks: readonly DelegateTask[],
   workingDir: string,
 ): string[] {
+  return analyseFanoutScope(tasks, workingDir).scope;
+}
+
+/**
+ * The fan-out's write scope plus whether the briefs named a path that
+ * scope leaves out: one that cannot be resolved here (a Unix-absolute
+ * path under Windows) or whose directory is too broad to grant (a drive
+ * or filesystem root, the home folder or its parent). For the ordinary
+ * prompt a miss is cheap, since the person still answers it; a decision
+ * that skips the prompt (an approved project plan, issue #39) must treat
+ * such a brief as writing outside the approved folder.
+ */
+export function analyseFanoutScope(
+  tasks: readonly DelegateTask[],
+  workingDir: string,
+): { scope: string[]; namesUngrantedPath: boolean } {
   const paths: string[] = [];
+  const unresolved = { count: 0 };
   for (const task of tasks) {
     for (const file of task.files ?? []) {
       try {
         paths.push(resolveUserPath(file, workingDir));
       } catch {
         // See `collectFromText`.
+        unresolved.count += 1;
       }
     }
-    paths.push(...collectFromText(task.instructions, workingDir));
+    paths.push(...collectFromText(task.instructions, workingDir, unresolved));
     if (task.deliverable) {
-      paths.push(...collectFromText(task.deliverable, workingDir));
+      paths.push(...collectFromText(task.deliverable, workingDir, unresolved));
     }
   }
   const dirs = paths.map((path) => (isAbsolute(path) ? dirname(path) : path));
+  const tooBroad = dirs.some((dir) => {
+    const comparable = comparableScopePath(dir);
+    return comparable === null || isTooBroad(comparable);
+  });
   dirs.push(workingDir);
-  return collapseScope(dirs);
+  return { scope: collapseScope(dirs), namesUngrantedPath: unresolved.count > 0 || tooBroad };
 }
