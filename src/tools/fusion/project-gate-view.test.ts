@@ -126,6 +126,12 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
     expect(view.hints).toContain("only one worker available: configure llm.runMode.fusion.team to choose");
   });
 
+  it("says no other member is reachable, not to configure a team, when the team has members that cannot answer", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: true, otherMembersConfigured: true });
+    expect(view.plan!.editable).toBe(false);
+    expect(view.hints).toEqual(["no other team member is reachable now: the rows keep their worker"]);
+  });
+
   it("is editable without hints when there is a choice and reviewers are configured", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
     expect(view.plan!.editable).toBe(true);

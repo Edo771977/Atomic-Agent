@@ -61,6 +61,8 @@ export interface LiveProjectInputs {
   isLocal: (member: TeamMember) => boolean;
   /** Whether `llm.runMode.fusion.team.reviewers` names anyone (the gate's hint, issue #54). */
   reviewersConfigured?: boolean;
+  /** Whether the team names more than one worker or any reviewer (the gate's hint wording). */
+  otherMembersConfigured?: boolean;
 }
 
 export interface LiveProjectInputsSource {
@@ -124,6 +126,8 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     strength: teamStrengthOf(resolved.providers),
     isLocal: (member) => localProvider(member.providerId),
     reviewersConfigured: team !== undefined && teamMembers(team.team, "reviewers").length > 0,
+    otherMembersConfigured: team !== undefined &&
+      (teamMembers(team.team, "workers").length > 1 || teamMembers(team.team, "reviewers").length > 0),
   };
 }
 
@@ -213,6 +217,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         reviewers: inputs.plan.reviewers.map((m) => m.ref),
       },
       ...(inputs.reviewersConfigured === undefined ? {} : { reviewersConfigured: inputs.reviewersConfigured }),
+      ...(inputs.otherMembersConfigured === undefined ? {} : { otherMembersConfigured: inputs.otherMembersConfigured }),
     });
   };
   return {
