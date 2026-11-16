@@ -196,6 +196,21 @@ describe("run at a fusion project gate", () => {
     expect(stderr).toContain('project: approved milestone "Base" (version 3)');
   }, 60_000);
 
+  it("--auto-approve-project stops at a failed milestone with exit 3: a person decides what next", async () => {
+    const base = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const failed = { ...base, milestones: base.milestones.map((m) => (m.id === "m1" ? { ...m, state: "failed" as const, summary: "Tests fail" } : m)) };
+    // Every turn of the director ends with the milestone failed again.
+    project.openAfterTurn = [planGate, failed, failed, failed, failed];
+    project.after = running;
+    feed(["build the game\n"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    expect(project.decisions.map((d) => d.gate.kind)).toEqual(["plan"]);
+    expect(project.messages).toHaveLength(2);
+    expect(stderr).toMatch(/failed and waits for your review/);
+    expect(stderr).toContain("needs a person");
+  }, 60_000);
+
   it("an approval the runtime refuses (a hard cap) exits 1 with the reason", async () => {
     project.openAfterTurn = [planGate];
     feed(["build the game\n"]);

@@ -44,10 +44,18 @@ export async function settleProjectGate(
 ): Promise<ProjectGateStep> {
   const view = runtime.projectState?.(sessionId) ?? null;
   if (view === null || view.gate.kind === "none") return { kind: "open" };
-  if (mode === "stop") {
+  // `--auto-approve-project` would re-approve a failed milestone into
+  // another run that fails the same way, forever: a retry, a correction
+  // or a cancel is the person's call.
+  const failedMilestone =
+    mode === "approve" &&
+    view.gate.kind === "milestone" &&
+    view.milestones.find((m) => m.id === (view.gate as { id: string }).id)?.state === "failed";
+  if (mode === "stop" || failedMilestone) {
     return {
       kind: "stop",
       text: [
+        ...(failedMilestone ? ["The milestone failed: this needs a person, so it is not approved automatically."] : []),
         formatProjectGateText(view),
         `session: ${sessionId}`,
         `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),

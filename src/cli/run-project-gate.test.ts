@@ -66,6 +66,18 @@ describe("run at a project gate", () => {
     expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
   });
 
+  it("auto approval stops at a failed milestone: only a person decides a retry", async () => {
+    const base = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const failed = { ...base, milestones: base.milestones.map((m) => (m.id === "m1" ? { ...m, state: "failed" as const } : m)) };
+    const rt = runtime(failed, fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "s", "approve");
+    expect(step.kind).toBe("stop");
+    if (step.kind === "stop") expect(step.text).toContain("needs a person");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    // An explicit --approve <version> still decides it.
+    expect((await settleProjectGate(rt, "s", { version: 3 })).kind).toBe("approved");
+  });
+
   it("a refused approval (over a hard cap) fails with the reason and the summary", async () => {
     const step = await settleProjectGate(runtime(fixtureProjectGateView({ kind: "plan" })), "s", "approve");
     expect(step.kind).toBe("failed");
