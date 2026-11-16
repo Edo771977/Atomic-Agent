@@ -301,10 +301,12 @@ test('the correction box keeps maxLength 2000 and its counter follows the text',
 
 /* ---------------- the controller ---------------- */
 
-function controller({decide, read} = {}) {
-  const drawn = [], continued = [], reads = [];
+function controller({decide, read, extra} = {}) {
+  const drawn = [], continued = [], reads = [], changes = [];
   let accept = true;
   const card = C.createProjectCard({
+    ...extra,
+    onChange: () => changes.push(1),
     api: {
       read: async (sid) => { reads.push(sid); return read ? read(sid) : {supported: true, ok: true, view: null}; },
       decide: async (body) => decide(body),
@@ -312,7 +314,7 @@ function controller({decide, read} = {}) {
     draw: (model, on) => drawn.push({model, on}),
     onContinue: (sid, text) => { if (!accept) return false; continued.push([sid, text]); return true; },
   });
-  return {card, drawn, continued, reads, last: () => drawn.at(-1), refuse: (v) => { accept = !v; }};
+  return {card, drawn, continued, reads, changes, last: () => drawn.at(-1), refuse: (v) => { accept = !v; }};
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -521,4 +523,34 @@ test('a GET /api/project answer sent before a frame arrived does not overwrite t
   answer({supported: true, ok: true, view: views[0]});      // the read saw the brief
   await tick(); await tick();
   assert.equal(c.last().model.gate, 'plan');
+});
+
+test('Hide is keyed on the gate, not only its number: another gate at the same version shows', () => {
+  const c = controller();
+  c.card.onFrame({sessionId: 'ses-1', view: plan({version: 1})}); c.card.follow('ses-1');
+  c.last().on({type: 'hide'});
+  assert.equal(c.last().model, null);
+  c.card.onFrame({sessionId: 'ses-1', view: milestone({version: 1})});
+  assert.equal(c.last().model.gate, 'milestone', 'the milestone gate at v1 is not the plan the person hid');
+});
+
+test('Hide is undone by leaving the chat, and by Show project while the gate is open', () => {
+  const c = controller();
+  c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
+  assert.equal(c.card.hiddenOpen(), false);
+  c.last().on({type: 'hide'});
+  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show project');
+  assert.ok(c.changes.length > 0, 'the page is told, so it redraws the header');
+  c.card.show();
+  assert.equal(c.last().model.version, 3);
+  assert.equal(c.card.hiddenOpen(), false);
+  c.last().on({type: 'hide'});
+  c.card.follow('ses-2'); c.card.follow('ses-1');
+  assert.equal(c.last().model.version, 3, 'opening the chat again shows the card');
+});
+
+test('the page draws Show project in the chat header and acts on it', () => {
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(renderer, /PCARD\.hiddenOpen\(\)[^\n]*data-act="project:show"/);
+  assert.match(renderer, /a === 'project:show'[^\n]*PCARD\.show\(\)/);
 });

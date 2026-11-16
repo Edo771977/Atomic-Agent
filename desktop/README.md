@@ -66,7 +66,9 @@ running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
 closes the card. When the answer carries `continue_message`, the window sends
 it as that chat's next message (the agent never goes on by itself); a chat
 not on screen, or one running a turn, gets it the next time it is shown
-between turns. Everything is drawn with `textContent`: model text is never
+between turns. Hide puts away that gate (by kind, milestone and version) until the chat is
+opened again; while it stays open the chat header offers Show project.
+Everything is drawn with `textContent`: model text is never
 markup. Covered by `test/project-gate-routing.test.mjs`,
 `test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.
 

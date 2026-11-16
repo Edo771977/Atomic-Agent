@@ -531,10 +531,15 @@ function pcDraw(doc, host, model, on) {
 function createProjectCard(opts) {
   const store = pcStore();
   const pending = new Map();   // sid → continue message not sent yet
-  const hidden = new Set();    // sid:version the person put away
+  const hidden = new Set();    // the gates the person put away in the chat on screen (sid, gate, version)
   const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
   let sid = null, state = pcInitial(null), serial = 0;
-  const key = () => sid + ':' + (state.view ? state.view.version : '');
+  const key = () => {
+    const v = state.view;
+    return v ? JSON.stringify([sid, v.gate.kind, v.gate.id || '', v.version]) : '';
+  };
+  const changed = () => { if (opts.onChange) opts.onChange(); };
+  const notify = changed;
   function paint() {
     const model = sid && !hidden.has(key()) ? pcModel(state) : null;
     opts.draw(model, act);
@@ -548,7 +553,7 @@ function createProjectCard(opts) {
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
-      case 'hide': hidden.add(key()); return paint();
+      case 'hide': hidden.add(key()); paint(); return changed();
       case 'revise': if (opts.onRevise) opts.onRevise(); state = pcReduce(state, {type: 'notice', notice: 'Say in the chat what to change; the director drafts the brief again.'}); return paint();
       default: state = pcReduce(state, {type: a.type}); return paint();
     }
@@ -587,15 +592,18 @@ function createProjectCard(opts) {
       if (!frame || typeof frame !== 'object') return;
       frames.set(frame.sessionId, (frames.get(frame.sessionId) || 0) + 1);
       const changed = store.put(frame.sessionId, frame.view);
-      if (changed && frame.sessionId === sid) { setView(store.get(sid)); paint(); }
+      if (changed && frame.sessionId === sid) { setView(store.get(sid)); paint(); notify(); }
     },
     /** The chat on screen is `next` (null: none, or not saved yet). Reads its view once per change. */
     follow(next) {
       next = next || null;
       if (next === sid) { flush(); return; }
+      // Hide lasts while the chat stays on screen: opening it again shows its card.
+      hidden.clear();
       sid = next; serial++;
       state = pcInitial(sid ? store.get(sid) : null);
       paint();
+      notify();
       flush();
       if (!sid) return;
       const mine = serial, asked = sid, seen = frames.get(asked) || 0;
@@ -603,11 +611,15 @@ function createProjectCard(opts) {
         if (mine !== serial || !res || res.supported === false || !res.ok) return;
         if ((frames.get(asked) || 0) !== seen) return;   // a frame came after the read went out: it is newer
         const changed = res.view ? store.put(asked, res.view) : store.drop(asked);
-        if (changed) { setView(store.get(asked)); paint(); }
+        if (changed) { setView(store.get(asked)); paint(); notify(); }
       }).catch(() => undefined);
     },
     /** Another agent is on the wire: what the last one said is not this one's. */
     reset() { const keep = sid; store.clear(); pending.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+    /** Whether the chat on screen has an open gate the person hid (the header offers Show project). */
+    hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
+    /** Show project: the hidden card again. */
+    show() { if (hidden.delete(key())) { paint(); changed(); } },
     state: () => state,
     store,
   };
