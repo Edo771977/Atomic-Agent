@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 
 import {
   outcomeLogFiles,
+  readCriteriaOutcome,
+  readGamesOutcome,
   readReviewOutcome,
+  readShotsOutcome,
   readWatchOutcome,
   type FailureCategory,
   type OutcomeLeg,
@@ -61,6 +64,12 @@ export interface ModelStats {
   review: ReviewStats;
   /** The watch on running tasks (issue #43); `watched`: records with a watch field. */
   watch: WatchStats;
+  /** Success criteria over the records that carry them (issue #40); `recorded`: such records. */
+  criteria: CriteriaStats;
+  /** Played games (issue #40); `medianMs`: median of the records' medians, null with none. */
+  games: GamesStats;
+  /** Screenshots stored by the tasks' checks (issue #40). */
+  shots: number;
   topFailures: Array<{ category: FailureCategory; count: number }>;
   escalated: number;
   escalationRate: number;
@@ -74,6 +83,20 @@ export interface ModelStats {
   tokensOut: number;
   /** Null when no task of this model was priced. */
   costUsd: number | null;
+}
+
+export interface CriteriaStats {
+  recorded: number;
+  passed: number;
+  failed: number;
+  unverified: number;
+}
+
+export interface GamesStats {
+  recorded: number;
+  n: number;
+  errors: number;
+  medianMs: number | null;
 }
 
 export interface WatchStats {
@@ -238,6 +261,26 @@ function watchStats(rows: readonly TaskOutcomeRecord[]): WatchStats {
   };
 }
 
+function criteriaStats(rows: readonly TaskOutcomeRecord[]): CriteriaStats {
+  const read = rows.flatMap((r) => readCriteriaOutcome(r) ?? []);
+  return {
+    recorded: read.length,
+    passed: read.reduce((n, c) => n + c.passed, 0),
+    failed: read.reduce((n, c) => n + c.failed, 0),
+    unverified: read.reduce((n, c) => n + c.unverified, 0),
+  };
+}
+
+function gamesStats(rows: readonly TaskOutcomeRecord[]): GamesStats {
+  const read = rows.flatMap((r) => readGamesOutcome(r) ?? []);
+  return {
+    recorded: read.length,
+    n: read.reduce((n, g) => n + g.n, 0),
+    errors: read.reduce((n, g) => n + g.errors, 0),
+    medianMs: read.length === 0 ? null : median(read.map((g) => g.medianMs)),
+  };
+}
+
 function reviewStats(rows: TaskOutcomeRecord[]): ReviewStats {
   const reviews = rows.flatMap((r) => {
     const review = readReviewOutcome(r);
@@ -332,6 +375,9 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
     candidate: candidateStats(rows),
     review: reviewStats(rows),
     watch: watchStats(rows),
+    criteria: criteriaStats(rows),
+    games: gamesStats(rows),
+    shots: rows.reduce((n, r) => n + (readShotsOutcome(r) ?? 0), 0),
     topFailures: [...failures.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 3)
@@ -506,7 +552,7 @@ function table(header: string[], rows: string[][]): string[] {
 
 function modelRows(stats: ModelStats[]): string[] {
   return table(
-    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "reviewed accept/needs-changes/unverified", "review passes", "watch hints/stops", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
+    ["model", "leg", "tasks", "reported 1st-pass", "reported green", "after retry", "checks pass/fail/unverified/no-checks", "criteria pass/fail/unverified", "reviewed accept/needs-changes/unverified", "review passes", "watch hints/stops", "self-checked", "escalated", "self-check fixed", "median", "tokens in/out", "spend", "top failures"],
     stats.map((s) => [
       s.model === s.provider ? s.model : `${s.model} (${s.provider})`,
       s.leg,
@@ -515,6 +561,7 @@ function modelRows(stats: ModelStats[]): string[] {
       pct(s.greenRate),
       String(s.greenAfterRetry),
       `${s.checksPassed}/${s.checksFailed}/${s.checksUnverified}/${s.checksNone}`,
+      s.criteria.recorded === 0 ? "-" : `${s.criteria.passed}/${s.criteria.failed}/${s.criteria.unverified}`,
       s.review.reviewed === 0 ? "-" : `${s.review.accept}/${s.review.needsChanges}/${s.review.unverified}`,
       s.review.medianPasses === null ? "-" : String(s.review.medianPasses),
       s.watch.watched === 0 ? "-" : `${s.watch.hints}/${s.watch.stopped}`,
@@ -552,6 +599,11 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
   }
   if (report.orchestratorTargets.length > 0) {
     lines.push("", "Tasks sent to the orchestrator's model", ...modelRows(report.orchestratorTargets));
+  }
+  const played = [...report.workers, ...report.orchestratorTargets].filter((s) => s.games.recorded > 0);
+  if (played.length > 0) {
+    lines.push("", ...played.map((s) =>
+      `Games: ${s.model === s.provider ? s.model : `${s.model} (${s.provider})`} ${s.games.n} game${s.games.n === 1 ? "" : "s"}, errors ${s.games.errors}, median ${formatDurationShort(s.games.medianMs ?? 0)}`));
   }
   const candidates = [...report.workers, ...report.orchestratorTargets].filter(s => s.candidate.taskRuns > 0);
   if (candidates.length > 0) lines.push("", "Candidate task runs (telemetry only)", ...candidateRows(candidates));
@@ -592,6 +644,7 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
     "Reported green: status ok; reported 1st-pass: status ok on the first attempt with no judge retry, review pass or self-check notice. after retry: reported green after a replan, judge retry or review pass.",
     "Tokens on a local leg whose server reports no usage are its timing counts: \"in\" includes the cached part of each step's prompt.",
     "Checks pass/fail/unverified/no-checks: consistent task-checks acceptance records; missing or contradictory evidence (a judge that could not decide, a held or conflicted merge, a candidate run, an escalation, a judge retry or a review pass, a declared check that never ran, an older record) is unverified; no-checks: no check was attributed to the task. Self-checked (telemetry, never acceptance): the worker's own last verify.run was a declared check of its task and passed after its last change. Replan attempts can have check evidence. The worker can modify the declared checks and their inputs; passing them does not establish semantic correctness or full integration acceptance.",
+    "Criteria pass/fail/unverified: the project's success criteria named by a task's checks, after its checks and the vision judgement (unverified: no check result or no vision judgement for a visual one); - : none recorded (no criterion named, or an older record). Games: the game checks' played games, those with errors, and the median of their median game time.",
     "Reviewed accept/needs-changes/unverified: the per-task reviewer's last decision (unverified: no valid verdict); review passes: the median of extra worker passes the review caused, reviewed tasks only; - : no review recorded (review off, or an older record). A review is a model's opinion after the automated checks, not acceptance evidence. Reviewer models: per reviewer, its decisions, median passes and the issues of its last verdicts by severity; (automated checks only): no model reviewed.",
     "Candidate task runs count aggregated task rows by final disposition, not candidate calls or individual worker invocations. Known worker runs count explicit task invocations, including judge retries; missing or invalid counts stay unknown. Invocation counts remain independent of disposition and check validity. Rows are grouped under the configured leg even when retries or escalations used other providers; cost, usage and duration remain row-reported metrics, not complete billing or physical provider performance. Final own checks count only task-attributed final reruns; call-level integration green gives no individual model credit. Candidate rows are telemetry only: promoted-only rates are conditioned on success and never train measured routing quality. Missing or malformed candidate metadata stays unverified.",
   );
