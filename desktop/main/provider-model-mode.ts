@@ -27,19 +27,29 @@ const CLOUD_ORIGINS = new Set([
   "https://api.sambanova.ai",
   "https://api.sarvam.ai",
   "https://api.together.xyz",
+  "https://api.inference.wandb.ai",
   "https://api.x.ai",
 ]);
+
+// Per-account endpoints (an Azure resource, a Bedrock Region) match by host,
+// as the core's presets do through `perAccountEndpoint.hostPattern`.
+const CLOUD_HOST_PATTERNS: readonly RegExp[] = [
+  /^bedrock-(?:mantle|runtime)\.[a-z0-9-]+\.(?:api\.aws|amazonaws\.com)$/i,
+  /\.(?:openai|services\.ai|cognitiveservices)\.azure\.com$/i,
+];
 
 /** Only for a new connection. Existing choices, including inherit, stay put. */
 export function defaultProviderModelMode(entry: ProviderModeInput): ModelMode {
   if (
     entry.kind === "openrouter" || entry.kind === "aimlapi" ||
-    entry.kind === "gemini" ||
+    entry.kind === "gemini" || entry.kind === "anthropic" ||
     (entry.kind === "subscription-cli" && Boolean(entry.subscriptionCli?.cli))
   ) return "cloud";
   if (entry.kind !== "openai-compatible" || !entry.baseUrl) return "local";
   try {
-    if (CLOUD_ORIGINS.has(new URL(entry.baseUrl).origin)) return "cloud";
+    const url = new URL(entry.baseUrl);
+    if (CLOUD_ORIGINS.has(url.origin)) return "cloud";
+    if (url.protocol === "https:" && CLOUD_HOST_PATTERNS.some((p) => p.test(url.hostname))) return "cloud";
   } catch {
     // Invalid/custom endpoints retain the core's conservative local policy.
   }

@@ -42,7 +42,7 @@ test("desktop initial policy matches the core for every preset and provider kind
     { kind: "openai-compatible", baseUrl: preset.baseUrl },
     { kind: "openai-compatible", baseUrl: new URL(preset.baseUrl).origin.toUpperCase() + "/v1/" },
   ]);
-  for (const kind of ["openrouter", "aimlapi", "gemini", "llama-server", "openai-compatible", "qwen-openai-compatible", "subscription-cli"]) {
+  for (const kind of ["openrouter", "aimlapi", "gemini", "anthropic", "llama-server", "openai-compatible", "qwen-openai-compatible", "subscription-cli"]) {
     entries.push({ kind }, { kind, baseUrl: "https://api.openai.com/v1" });
   }
   entries.push(
@@ -50,7 +50,7 @@ test("desktop initial policy matches the core for every preset and provider kind
     { kind: "subscription-cli", subscriptionCli: { cli: "codex" } },
     { kind: "subscription-cli", subscriptionCli: { cli: "" } },
     { kind: "openai-compatible", subscriptionCli: { cli: "codex" } },
-    ...["https://custom.invalid", "not a url", "", "http://api.openai.com", "https://api.openai.com.evil.invalid", "https://api.openai.com:8443", "http://127.0.0.1:1337"].map((baseUrl) => ({ kind: "openai-compatible", baseUrl })),
+    ...["https://custom.invalid", "not a url", "", "http://api.openai.com", "https://api.openai.com.evil.invalid", "https://api.openai.com:8443", "http://127.0.0.1:1337", "https://bedrock-runtime.eu-west-1.amazonaws.com", "http://bedrock-runtime.eu-west-1.amazonaws.com", "https://acme.services.ai.azure.com/models", "https://azure.com.evil.invalid"].map((baseUrl) => ({ kind: "openai-compatible", baseUrl })),
   );
   for (const entry of entries) {
     assert.equal(defaultProviderModelMode(entry), core.defaultProviderModelMode(entry), JSON.stringify(entry));
