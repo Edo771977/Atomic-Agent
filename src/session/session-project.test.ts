@@ -244,6 +244,48 @@ describe("applyProjectDecision", () => {
     expect(p.milestones.map((m) => m.state)).toEqual(["approved", "planned"]);
   });
 
+  it("a correction at the milestone gate sends it back to approved with the note recorded", () => {
+    const reported = update(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const v = gateVersion(reported)!;
+    const p = ok(applyProjectDecision(
+      reported,
+      { gate: reported.gate, version: v, verdict: "edit", edits: { note: "  The score must  reset on restart. " } },
+      { now: NOW + 9 },
+    )).project;
+    expect(p.milestones[0]).toMatchObject({
+      state: "approved",
+      corrections: [{ note: "The score must reset on restart.", at: NOW + 9 }],
+      updatedAt: NOW + 9,
+    });
+    expect(p.milestones[1]!.state).toBe("planned");
+    expect(p.gate).toEqual({ kind: "none" });
+    expect(projectExpectation(p)).toEqual({ kind: "run_milestone", id: "m1" });
+    // Another run, another report: the corrections stay.
+    const again = update(update(p, { kind: "milestone_run", id: "m1", runId: "r2" }), { kind: "milestone", id: "m1", state: "done", summary: "fixed" });
+    expect(again.milestones[0]!.corrections).toHaveLength(1);
+  });
+
+  it("a milestone correction needs a note, is clipped and keeps only the newest", () => {
+    const reported = () => update(running(), { kind: "milestone", id: "m1", state: "failed", summary: "x" });
+    const r = reported();
+    expect(applyProjectDecision(r, { gate: r.gate, version: gateVersion(r)!, verdict: "edit" }, { now: NOW }))
+      .toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(applyProjectDecision(r, { gate: r.gate, version: gateVersion(r)!, verdict: "edit", edits: { note: "   " } }, { now: NOW }))
+      .toMatchObject({ ok: false, error: { code: "invalid" } });
+    const long = ok(applyProjectDecision(r, { gate: r.gate, version: gateVersion(r)!, verdict: "edit", edits: { note: "x".repeat(5000) } }, { now: NOW })).project;
+    expect(long.milestones[0]!.corrections![0]!.note.length).toBe(PROJECT_LIMITS.correctionNote);
+    let p: ProjectState = r;
+    for (let i = 0; i < PROJECT_LIMITS.corrections + 3; i += 1) {
+      p = ok(applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: { note: `fix ${i}` } }, { now: NOW + i })).project;
+      p = update(p, { kind: "milestone", id: "m1", state: "failed", summary: "again" });
+    }
+    const notes = p.milestones[0]!.corrections!.map((c) => c.note);
+    expect(notes).toHaveLength(PROJECT_LIMITS.corrections);
+    expect(notes.at(-1)).toBe(`fix ${PROJECT_LIMITS.corrections + 2}`);
+    // Stored corrections survive normalization.
+    expect(normalizeProject(JSON.parse(JSON.stringify(p)))!.milestones[0]!.corrections).toEqual(p.milestones[0]!.corrections);
+  });
+
   it("refuses a stale version and a different gate", () => {
     const p = update(undefined, briefUpdate);
     expect(applyProjectDecision(p, { gate: { kind: "brief" }, version: 7, verdict: "approve" }, { now: NOW }))
@@ -266,7 +308,7 @@ describe("applyProjectDecision", () => {
     expect(applyProjectDecision(p, { gate: p.gate, version: 1, verdict: "cheaper" }, { now: NOW }))
       .toMatchObject({ ok: false, error: { code: "verdict-not-allowed" } });
     expect(allowedProjectVerdicts({ kind: "plan" })).toEqual(["approve", "edit", "cheaper", "quality", "cancel"]);
-    expect(allowedProjectVerdicts({ kind: "milestone", id: "m1" })).toEqual(["approve", "cancel"]);
+    expect(allowedProjectVerdicts({ kind: "milestone", id: "m1" })).toEqual(["approve", "edit", "cancel"]);
     expect(allowedProjectVerdicts({ kind: "none" })).toEqual(["cancel"]);
   });
 

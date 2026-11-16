@@ -187,8 +187,14 @@ export interface PlanConstraints {
   isLocal: (ref: string) => boolean;
   /** `runMode.fusion.turnBudgetUsd`; a milestone runs in one turn, so each must fit. */
   turnBudgetUsd?: number;
-  /** What is left of `costTracking.dailyLimitUsd` today; null/absent: no limit. The whole plan must fit. */
+  /**
+   * What is left of `costTracking.dailyLimitUsd` today; null/absent: no
+   * limit. The next milestone must fit (hard); the whole plan only warns,
+   * since the limit resets daily and later milestones run on later days.
+   */
   dailyRemainingUsd?: number | null;
+  /** The milestone that runs next (the daily-limit check); absent: the rows' first. */
+  nextMilestoneId?: string;
   /** Local worker slots (`runMode.fusion.workers`); absent: no slot limit. */
   localSlots?: number;
   /** The folder's provider policy (`projects.constraints`); absent: all allowed. */
@@ -197,7 +203,8 @@ export interface PlanConstraints {
 
 export type PlanViolation =
   | { kind: "turn-budget"; severity: "hard"; milestoneId: string; estimateUsd: number; limitUsd: number }
-  | { kind: "daily-limit"; severity: "hard"; estimateUsd: number; remainingUsd: number }
+  | { kind: "daily-limit"; severity: "hard"; scope: "milestone"; milestoneId: string; estimateUsd: number; remainingUsd: number }
+  | { kind: "daily-limit"; severity: "warn"; scope: "plan"; estimateUsd: number; remainingUsd: number }
   | { kind: "local-slots"; severity: "warn"; milestoneId: string; localTasks: number; slots: number }
   | { kind: "folder-policy"; severity: "hard"; taskId: string; member: string; as: "worker" | "reviewer" };
 
@@ -227,7 +234,9 @@ export function describeViolation(v: PlanViolation): string {
     case "turn-budget":
       return `milestone ${v.milestoneId} is estimated at ${usd(v.estimateUsd)}, over the turn budget of ${usd(v.limitUsd)}`;
     case "daily-limit":
-      return `the plan is estimated at ${usd(v.estimateUsd)}, over the ${usd(v.remainingUsd)} left of today's limit`;
+      return v.scope === "milestone"
+        ? `milestone ${v.milestoneId} is estimated at ${usd(v.estimateUsd)}, over the ${usd(v.remainingUsd)} left of today's limit`
+        : `the whole plan is estimated at ${usd(v.estimateUsd)}, over the ${usd(v.remainingUsd)} left of today's limit; later milestones may have to wait for tomorrow`;
     case "local-slots":
       return `milestone ${v.milestoneId} has ${v.localTasks} local tasks for ${v.slots} slots; they run in turns`;
     case "folder-policy":
@@ -289,8 +298,15 @@ export function estimatePlan(rows: readonly AssignmentRow[], constraints: PlanCo
   }
   const sums = planTotals(rows);
   const remaining = constraints.dailyRemainingUsd;
-  if (remaining !== undefined && remaining !== null && sums.costUsd !== null && sums.costUsd > remaining) {
-    violations.push({ kind: "daily-limit", severity: "hard", estimateUsd: sums.costUsd, remainingUsd: remaining });
+  if (remaining !== undefined && remaining !== null) {
+    const nextId = constraints.nextMilestoneId ?? order[0];
+    const next = milestones.find((m) => m.id === nextId);
+    if (next !== undefined && next.costUsd !== null && next.costUsd > remaining) {
+      violations.push({ kind: "daily-limit", severity: "hard", scope: "milestone", milestoneId: next.id, estimateUsd: next.costUsd, remainingUsd: remaining });
+    }
+    if (sums.costUsd !== null && sums.costUsd > remaining) {
+      violations.push({ kind: "daily-limit", severity: "warn", scope: "plan", estimateUsd: sums.costUsd, remainingUsd: remaining });
+    }
   }
   if (constraints.allows !== undefined) {
     for (const row of rows) {

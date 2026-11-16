@@ -54,6 +54,13 @@ export const MILESTONE_KINDS: readonly MilestoneKind[] = ["base", "ui", "logic",
 export type MilestoneState = "planned" | "approved" | "in_progress" | "done" | "failed" | "reviewed";
 export const MILESTONE_STATES: readonly MilestoneState[] = ["planned", "approved", "in_progress", "done", "failed", "reviewed"];
 
+/** The person's correction of a milestone's result (the milestone gate's `edit`). */
+export interface MilestoneCorrection {
+  note: string;
+  /** Epoch ms of the decision. */
+  at: number;
+}
+
 export interface ProjectMilestone {
   id: string;
   title: string;
@@ -63,6 +70,8 @@ export interface ProjectMilestone {
   runIds: string[];
   /** The director's report of the result. */
   summary?: string;
+  /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
+  corrections?: MilestoneCorrection[];
   updatedAt: number;
 }
 
@@ -137,6 +146,8 @@ export interface ProjectState {
  *  - `id` 64 and `memberRef` 256: identifiers.
  *  - `successCriteria` 20, `milestones` 16, `rows` 64 (the task tree's
  *    node ceiling), `runIds` 32 per milestone (the newest are kept).
+ *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
+ *    are kept): the person's notes at a milestone gate.
  */
 export const PROJECT_LIMITS = {
   text: 2000,
@@ -148,6 +159,8 @@ export const PROJECT_LIMITS = {
   milestones: 16,
   rows: 64,
   runIds: 32,
+  correctionNote: 2000,
+  corrections: 8,
 } as const;
 
 // ---------------------------------------------------------------- updates
@@ -210,6 +223,12 @@ export interface ProjectEdits {
   brief?: Partial<ProjectBriefDraft>;
   /** Plan gate: per task, a new worker and/or reviewer (null: no review). */
   rows?: ReadonlyArray<{ taskId: string; worker?: string; reviewer?: string | null }>;
+  /**
+   * Milestone gate: what is wrong with the result. The milestone goes
+   * back to `approved` for another run, the note recorded on it
+   * (`corrections`) and shown to the director.
+   */
+  note?: string;
 }
 
 export interface ProjectDecision {
@@ -295,7 +314,7 @@ export function allowedProjectVerdicts(gate: ProjectGate): ProjectVerdict[] {
     case "plan":
       return ["approve", "edit", "cheaper", "quality", "cancel"];
     case "milestone":
-      return ["approve", "cancel"];
+      return ["approve", "edit", "cancel"];
     case "none":
       return ["cancel"];
   }
@@ -458,6 +477,16 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
   if (!Array.isArray(raw.runIds) || !raw.runIds.every((r) => cleanId(r) !== null)) return null;
   if (raw.summary !== undefined && typeof raw.summary !== "string") return null;
   if (!isTime(raw.updatedAt)) return null;
+  let corrections: MilestoneCorrection[] | undefined;
+  if (raw.corrections !== undefined) {
+    if (!Array.isArray(raw.corrections)) return null;
+    corrections = [];
+    for (const c of raw.corrections.slice(-PROJECT_LIMITS.corrections)) {
+      if (!isObject(c) || typeof c.note !== "string" || !isTime(c.at)) return null;
+      const note = clipText(c.note, PROJECT_LIMITS.correctionNote);
+      if (note.length > 0) corrections.push({ note, at: c.at });
+    }
+  }
   return {
     id,
     title: clip(raw.title, PROJECT_LIMITS.title),
@@ -465,6 +494,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     state: raw.state as MilestoneState,
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
+    ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     updatedAt: raw.updatedAt,
   };
 }
@@ -636,6 +666,7 @@ function planUpdate(
       state: keep ? old.state : "planned",
       runIds: old?.runIds ?? [],
       ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
+      ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
       updatedAt: now,
     });
   }
@@ -782,7 +813,9 @@ function editRows(
  *  - approve milestone: a done result becomes `reviewed` and the next
  *    planned milestone is approved; a failed one goes back to `approved`.
  *  - edit / cheaper / quality: the draft changes, its version bumps, the
- *    gate stays open for the new version.
+ *    gate stays open for the new version. At a milestone gate, `edit`
+ *    is the person's correction (`edits.note`): the milestone goes back
+ *    to `approved` for another run with the note on `corrections`.
  *  - cancel: the project is cancelled (`cancelledAt`, plan `cancelled`).
  */
 export function applyProjectDecision(
@@ -850,6 +883,25 @@ export function applyProjectDecision(
       const reviewed = project.milestones.map((m) => (m.id === gate.id ? { ...m, state: "reviewed" as const, updatedAt: now } : m));
       return { ok: true, project: { ...project, milestones: approveNext(reviewed, now), gate: { kind: "none" } } };
     }
+  }
+
+  if (gate.kind === "milestone" && decision.verdict === "edit") {
+    const raw = decision.edits?.note;
+    const note = typeof raw === "string" ? clipText(raw, PROJECT_LIMITS.correctionNote) : "";
+    if (note.length === 0) {
+      return refuse({ code: "invalid", message: "A correction needs a note saying what is wrong with the result." });
+    }
+    const milestones = project.milestones.map((m) =>
+      m.id === gate.id
+        ? {
+            ...m,
+            state: "approved" as const,
+            corrections: [...(m.corrections ?? []), { note, at: now }].slice(-PROJECT_LIMITS.corrections),
+            updatedAt: now,
+          }
+        : m,
+    );
+    return { ok: true, project: { ...project, milestones, gate: { kind: "none" } } };
   }
 
   if (gate.kind === "brief" && decision.verdict === "edit") {

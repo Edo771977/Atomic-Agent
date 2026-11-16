@@ -157,16 +157,29 @@ describe("estimatePlan", () => {
     expect(est.hardViolations).toEqual([]);
   });
 
-  it("flags a milestone over the turn budget and a plan over the remaining daily limit as hard", () => {
+  it("flags a milestone over the turn budget as hard; a plan over the remaining daily limit only warns", () => {
     const rows = [row("a", "m1", { estCostUsd: 2 }), row("b", "m2", { estCostUsd: 2 })];
     const est = estimatePlan(rows, { isLocal, turnBudgetUsd: 1.5, dailyRemainingUsd: 3 });
     expect(est.violations).toEqual([
       { kind: "turn-budget", severity: "hard", milestoneId: "m1", estimateUsd: 2, limitUsd: 1.5 },
       { kind: "turn-budget", severity: "hard", milestoneId: "m2", estimateUsd: 2, limitUsd: 1.5 },
-      { kind: "daily-limit", severity: "hard", estimateUsd: 4, remainingUsd: 3 },
+      { kind: "daily-limit", severity: "warn", scope: "plan", estimateUsd: 4, remainingUsd: 3 },
     ]);
-    expect(est.hardViolations).toHaveLength(3);
+    expect(est.hardViolations).toHaveLength(2);
     expect(est.hardViolations[0]).toBe(describeViolation(est.violations[0]!));
+  });
+
+  it("the next milestone over the remaining daily limit is hard (the limit resets daily)", () => {
+    const rows = [row("a", "m1", { estCostUsd: 1 }), row("b", "m2", { estCostUsd: 4 })];
+    // First milestone by default: fits.
+    expect(estimatePlan(rows, { isLocal, dailyRemainingUsd: 3 }).hardViolations).toEqual([]);
+    const est = estimatePlan(rows, { isLocal, dailyRemainingUsd: 3, nextMilestoneId: "m2" });
+    expect(est.violations).toEqual([
+      { kind: "daily-limit", severity: "hard", scope: "milestone", milestoneId: "m2", estimateUsd: 4, remainingUsd: 3 },
+      { kind: "daily-limit", severity: "warn", scope: "plan", estimateUsd: 5, remainingUsd: 3 },
+    ]);
+    expect(est.hardViolations).toEqual([describeViolation(est.violations[0]!)]);
+    expect(est.hardViolations[0]).toContain("m2");
   });
 
   it("flags members the folder policy refuses", () => {
