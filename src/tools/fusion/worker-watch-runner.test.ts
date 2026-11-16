@@ -269,6 +269,49 @@ describe("a worker that is waiting, not stalled (issue #43)", () => {
   });
 });
 
+describe("a first token that never comes (issue #43, #29)", () => {
+  it("waits two intervals, then judges the silence and stops a stuck worker", async () => {
+    const h = harness();
+    const c = handClock();
+    const prompts: string[] = [];
+    const run = runWorkerTasks(h.deps, options(h, c.clock, async ({ prompt }) => {
+      prompts.push(prompt);
+      return { kind: "answer", content: '{"state":"stuck","hint":null}' };
+    }));
+    await flush();
+    h.step();
+    for (let i = 0; i < 3; i += 1) await c.tick();
+    expect(prompts).toEqual([]);
+    await c.tick();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("no first token for at least 3 min (request in flight), no tool running");
+    const [row] = await run;
+    expect(row!.failure).toBe("stuck");
+    expect(row!.watch).toMatchObject({ checks: 4, judgeCalls: 1, stopped: true });
+  });
+
+  it("is never judged when the first token arrives in time", async () => {
+    const h = harness();
+    const c = handClock();
+    let calls = 0;
+    const run = runWorkerTasks(h.deps, options(h, c.clock, async () => {
+      calls += 1;
+      return { kind: "answer", content: '{"state":"stuck","hint":null}' };
+    }));
+    await flush();
+    h.step();
+    await c.tick();
+    await c.tick();
+    h.delta("y".repeat(400));
+    await c.tick();
+    await c.tick();
+    expect(calls).toBe(0);
+    h.finish();
+    const [row] = await run;
+    expect(row!.status).toBe("ok");
+  });
+});
+
 describe("a worker that streams (issue #43)", () => {
   it("steady streaming costs nothing; a trickle is judged with its tail", async () => {
     const h = harness();

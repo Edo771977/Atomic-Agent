@@ -28,6 +28,16 @@ const WATCH_STATES: ReadonlySet<string> = new Set<WatchState>(["progressing", "l
 /** A judge's hint, at most this long; longer ones are clipped. */
 export const WATCH_HINT_MAX_CHARS = 300;
 
+/**
+ * Checks in a row a request may await its first token and still read as
+ * waiting. From the next one on the silence is `none`: judge-able, and
+ * counted toward the quiet intervals, so a server that answers its
+ * health check but never this request (#29) does not blind the watch
+ * until the first-token timeout. A tool call in flight is not bounded
+ * here; the task's own wall clock bounds it.
+ */
+export const WATCH_FIRST_TOKEN_WAIT_INTERVALS = 2;
+
 /** Intervals without clear progress before the judge is asked. */
 export const WATCH_QUIET_INTERVALS = 2;
 
@@ -95,7 +105,8 @@ export interface WatchProgress {
  * answered yet (the queue watchdog's business), the runner is paused
  * on the worker's self-check, or, when no step finished and no file
  * changed, a tool call is still running or the next request has not
- * produced its first token. `clear`: a file changed,
+ * produced its first token (the watch bounds the latter to
+ * `WATCH_FIRST_TOKEN_WAIT_INTERVALS` checks). `clear`: a file changed,
  * or steps finished that do not look stalled. `unclear`: steps finished
  * but look stalled, or more than `WATCH_STREAMING_FLOOR_TOKENS` streamed
  * (clear). `streaming`: fewer tokens than that, no finished step.
@@ -252,6 +263,8 @@ export function renderWatchJudgePrompt(input: {
   quietIntervals: number;
   /** The end of the text the worker streamed (framed as its own output, never instructions). */
   streamedTail?: string;
+  /** Minutes a request has awaited its first token, at least, when that is why it is judged. */
+  firstTokenWaitMinutes?: number;
 }): string {
   const clip = (text: string, max: number): string =>
     text.length > max ? `${text.slice(0, max)}\n[… truncated]` : text;
@@ -269,6 +282,9 @@ export function renderWatchJudgePrompt(input: {
     count("files changed", input.now.filesChanged, input.before.filesChanged),
     `- recent steps look stalled (same result repeated, or only reads): ${input.now.stalled ? "yes" : "no"}`,
     `- checks in a row without clear progress: ${input.quietIntervals}`,
+    ...(input.firstTokenWaitMinutes === undefined
+      ? []
+      : [`- no first token for at least ${input.firstTokenWaitMinutes} min (request in flight), no tool running`]),
     "",
     "## Its latest tool results",
     input.findings.trim().length === 0
@@ -368,8 +384,17 @@ export interface TaskWatchOptions {
   judgeTimeoutMs?: number;
   judgeLabel: string | null;
   probe: () => WatchProgress;
-  /** The judge prompt for this check (`renderWatchJudgePrompt`). */
-  prompt: (before: WatchProgress, now: WatchProgress, quietIntervals: number) => string;
+  /**
+   * The judge prompt for this check (`renderWatchJudgePrompt`).
+   * `firstTokenWaitMinutes`: set when a request awaiting its first token
+   * for too long is why the judge is asked.
+   */
+  prompt: (
+    before: WatchProgress,
+    now: WatchProgress,
+    quietIntervals: number,
+    context?: { firstTokenWaitMinutes?: number },
+  ) => string;
   judge: WatchJudgeCall;
   /** Deliver a hint; true when it reached the worker. */
   onHint: (state: WatchState, hint: string) => boolean;
@@ -407,6 +432,8 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
   let timer: unknown;
   let armed = false;
   let quiet = 0;
+  // Checks in a row that saw a request awaiting its first token.
+  let firstTokenWaits = 0;
   let before: WatchProgress | undefined;
 
   const stop = (): void => {
@@ -457,8 +484,17 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
     const prev = before ?? { steps: 0, outputTokens: 0, filesChanged: 0, served: now.served, stalled: false };
     before = now;
     record.checks += 1;
-    const kind = progressKind(prev, now);
-    const decision = decideWatch(prev, now, quiet);
+    let kind = progressKind(prev, now);
+    // A first token awaited longer than `WATCH_FIRST_TOKEN_WAIT_INTERVALS`
+    // checks (no tool running) is silence, not waiting.
+    firstTokenWaits = now.awaitingFirstToken === true && (now.toolsInFlight ?? 0) === 0 ? firstTokenWaits + 1 : 0;
+    const silent = kind === "waiting" && now.served && now.paused !== true && firstTokenWaits > WATCH_FIRST_TOKEN_WAIT_INTERVALS;
+    if (silent) kind = "none";
+    const decision = silent
+      ? quiet + 1 >= WATCH_QUIET_INTERVALS
+        ? "judge"
+        : "ok"
+      : decideWatch(prev, now, quiet);
     if (kind === "clear") quiet = 0;
     else if (kind !== "waiting") quiet += 1;
     if (decision !== "judge") return "go-on";
@@ -467,7 +503,11 @@ export function startTaskWatch(options: TaskWatchOptions): TaskWatch {
       note(`watch: ${cap} judge call${cap === 1 ? "" : "s"} used; not asked again`);
       return "go-on";
     }
-    const result = await askJudge(options.prompt(prev, now, quiet));
+    const result = await askJudge(
+      options.prompt(prev, now, quiet, silent
+        ? { firstTokenWaitMinutes: Math.max(1, Math.round(((firstTokenWaits - 1) * options.intervalMs) / 60_000)) }
+        : {}),
+    );
     if (judgeSignal.aborted) return "stopped";
     if (result.kind === "skipped") {
       note(`watch: judge not asked: ${result.reason}`);

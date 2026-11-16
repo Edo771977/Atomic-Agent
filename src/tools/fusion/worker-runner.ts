@@ -1842,8 +1842,9 @@ async function runOneTask(
       judgeCallCap: watchPlan.judgeCallCap ?? watchPlan.maxJudgeCalls,
       judgeLabel: watchPlan.judgeLabel,
       probe: run.probe,
-      prompt: (before, now, quietIntervals) =>
+      prompt: (before, now, quietIntervals, context) =>
         renderWatchJudgePrompt({
+          ...(context?.firstTokenWaitMinutes === undefined ? {} : { firstTokenWaitMinutes: context.firstTokenWaitMinutes }),
           brief,
           findings: run.findings(),
           before,
