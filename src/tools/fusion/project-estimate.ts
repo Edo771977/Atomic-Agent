@@ -1,3 +1,8 @@
+import {
+  DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_TASKS,
+  DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_USD,
+  type UserFusionProjectConfig,
+} from "../../config/llm-run-mode-config.js";
 import { estimateSummedUsageCostUsd } from "../../llm/provider/usage-cost.js";
 import { MODEL_TIER_ORDER, type ModelTier } from "../../llm/provider/presets/model-tiers.js";
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
@@ -5,6 +10,7 @@ import {
   planTotals,
   type AssignmentRow,
   type EstimateBasis,
+  type PlanDetail,
   type ProjectPlanTotals,
 } from "../../session/session-project.js";
 import { outcomeLabel, roundUsd, type OutcomeRecord, type TaskOutcomeRecord } from "./outcome-log.js";
@@ -303,6 +309,25 @@ export function estimatePlan(rows: readonly AssignmentRow[], constraints: PlanCo
     violations,
     hardViolations: violations.filter((v) => v.severity === "hard").map(describeViolation),
   };
+}
+
+/**
+ * How much of the plan the card shows by default: `full` when `/plan`
+ * forces it, or the plan has more tasks than `fullPlanAboveTasks`
+ * (default 4) or a known cost above `fullPlanAboveUsd` (default $1);
+ * else `compact`. An unknown cost is not "above".
+ */
+export function planDetailFor(
+  plan: { readonly rows: readonly unknown[]; readonly totals: Pick<ProjectPlanTotals, "costUsd"> },
+  cfg: UserFusionProjectConfig | undefined,
+  forced: boolean,
+): PlanDetail {
+  if (forced) return "full";
+  const tasks = cfg?.fullPlanAboveTasks ?? DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_TASKS;
+  const usdCap = cfg?.fullPlanAboveUsd ?? DEFAULT_FUSION_PROJECT_FULL_PLAN_ABOVE_USD;
+  if (plan.rows.length > tasks) return "full";
+  const cost = plan.totals.costUsd;
+  return cost !== null && cost > usdCap ? "full" : "compact";
 }
 
 // -------------------------------------------------------------- variants

@@ -11,6 +11,7 @@ import {
   describeViolation,
   estimatePlan,
   estimateRow,
+  planDetailFor,
   qualityVariant,
   type RowEstimate,
   type VariantContext,
@@ -241,5 +242,25 @@ describe("variants", () => {
   it("without reviewerFor, a reviewer equal to the new worker is dropped", () => {
     const out = qualityVariant([row("a", "m1", { worker: "cloud:cheap", reviewer: "cloud:best" })], ctx(all));
     expect(out[0]).toMatchObject({ worker: "cloud:best", reviewer: null });
+  });
+});
+
+describe("planDetailFor", () => {
+  const plan = (n: number, cost: number | null) => ({
+    rows: Array.from({ length: n }, (_, i) => row(`t${i}`, "m")),
+    totals: { costUsd: cost, ms: null, unknownCostRows: 0 },
+  });
+
+  it("is compact at or under the defaults (4 tasks, $1) and full above either", () => {
+    expect(planDetailFor(plan(4, 1), undefined, false)).toBe("compact");
+    expect(planDetailFor(plan(5, 0.1), undefined, false)).toBe("full");
+    expect(planDetailFor(plan(1, 1.01), undefined, false)).toBe("full");
+    expect(planDetailFor(plan(1, null), undefined, false)).toBe("compact");
+  });
+
+  it("follows the config and /plan forces full", () => {
+    expect(planDetailFor(plan(5, 0), { fullPlanAboveTasks: 10 }, false)).toBe("compact");
+    expect(planDetailFor(plan(1, 0.5), { fullPlanAboveUsd: 0.25 }, false)).toBe("full");
+    expect(planDetailFor(plan(1, 0), undefined, true)).toBe("full");
   });
 });

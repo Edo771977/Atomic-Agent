@@ -455,6 +455,8 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `llm.runMode.fusion.team.reviewPasses` | `0 \| 1 \| 2` | `unset` | How many extra passes a task gets when its review asks for changes, within the turn's budget: 0, 1 or 2. Default 2. |
 | `llm.runMode.fusion.team.watchEveryMinutes` | `number` | `unset` | How often, in minutes, a running task of a team run is checked for progress (issue #43): 0 to 60, 0 turns the watch off. A task's own `watchMinutes` in `fusion.delegate` wins. Default 5. |
 | `llm.runMode.fusion.team.watchMaxChecks` | `number` | `unset` | At most this many judge calls per watched task when its progress is unclear, across all its runs (review passes and an escalation re-run), counted against the turn's budget: 1 to 10. Default 3. |
+| `llm.runMode.fusion.project.fullPlanAboveTasks` | `number` | `unset` | Show the full plan when it has more tasks than this, 0 to 1000. Default 4. |
+| `llm.runMode.fusion.project.fullPlanAboveUsd` | `number` | `unset` | Show the full plan when its estimated cost is above this many US dollars, 0 to 10000. Default 1. |
 | `llm.openrouter.preferCacheRoutes` | `boolean` | `unset` | Steer models whose caching depends on the route toward the routes that cache — today `google/…` models to Google AI Studio, which cached 83 % of input where Vertex cached 1–4 % — unless the entry configured `providerPreferences` of its own. |
 | `llm.costTracking.enabled` | `boolean` | `unset` | Track the cost of cloud calls. Default `false`. |
 | `llm.costTracking.showInStatusBar` | `boolean` | `unset` | Add today's spend, all sessions together, to the composer readout (ATO-649): `$0.31 · today $1.20`. The session's own cost is shown either way (ATO-569). |

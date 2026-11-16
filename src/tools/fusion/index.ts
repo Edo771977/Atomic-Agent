@@ -193,6 +193,7 @@ export {
   describeViolation,
   estimatePlan,
   estimateRow,
+  planDetailFor,
   qualityVariant,
 } from "./project-estimate.js";
 export type {
