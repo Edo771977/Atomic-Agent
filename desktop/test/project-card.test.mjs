@@ -673,3 +673,30 @@ test('the frame of my own edit arriving before its HTTP answer is not "your chan
   assert.equal(c.last().model.notice, null);
   assert.equal(c.last().model.mode, 'view');
 });
+
+test('Cancel project asks twice: the button turns into Confirm cancel for a few seconds, keeping its focus', async () => {
+  const sent = [];
+  const c = controller({decide: async (body) => { sent.push(body); return {supported: true, ok: true, view: closed(), continueMessage: null}; },
+    read: async () => ({supported: true, ok: true, view: plan()}), extra: {confirmMs: 40}});
+  c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
+  const label = () => c.last().model.actions.find((a) => a.verdict === 'cancel').label;
+  assert.equal(label(), 'Cancel project');
+  c.last().on({type: 'verdict', verdict: 'cancel'});
+  await tick();
+  assert.deepEqual(sent, [], 'the first press sends nothing');
+  assert.equal(label(), 'Confirm cancel');
+  await new Promise((r) => setTimeout(r, 70));
+  assert.equal(label(), 'Cancel project', 'the confirmation lapses');
+  c.last().on({type: 'verdict', verdict: 'cancel'});
+  c.last().on({type: 'verdict', verdict: 'cancel'});
+  await tick(); await tick();
+  assert.deepEqual(sent.map((b) => b.verdict), ['cancel']);
+  // The confirm button is the same control for the focus (keyboard: Enter, Enter).
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  const armed = C.pcReduce(C.pcInitial(plan()), {type: 'armCancel'});
+  C.pcDraw(doc, host, C.pcModel(armed), () => {});
+  const b = byFocus(host, 'verdict:cancel');
+  assert.equal(b.textContent, 'Confirm cancel');
+  assert.equal(b.tagName, 'BUTTON');
+});

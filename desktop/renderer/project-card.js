@@ -24,6 +24,8 @@
    through innerHTML (the page's CSP allows no inline handlers anyway). */
 
 const PC_NOTE_MAX = 2000;
+/* How long "Confirm cancel" waits for the second press. */
+const PC_CONFIRM_MS = 4000;
 
 /* The core's own sentences (src/session/project-gate-text.ts); test/project-card.test.mjs keeps them equal. */
 const PC_WRITE_SCOPE_NOTE = "Approving lets these tasks write in this chat's folder (the session's working directory); a write outside it still asks.";
@@ -88,7 +90,7 @@ function pcStore() {
 
 /** The card's state for one chat's view. `mode`: view | edit (plan rows) | correct (milestone note). */
 function pcInitial(view) {
-  return {view: view || null, mode: 'view', picks: {}, note: '', busy: false, error: null, notice: null};
+  return {view: view || null, mode: 'view', picks: {}, note: '', busy: false, error: null, notice: null, confirmCancel: false};
 }
 
 function pcRows(view) {
@@ -154,6 +156,10 @@ function pcReduce(state, action) {
       if (value === (row.reviewer === undefined ? null : row.reviewer)) delete p.reviewer; else p.reviewer = value;
       return pcSetPick(s, row.taskId, p);
     }
+    case 'armCancel':
+      return Object.assign(s, {confirmCancel: true, error: null});
+    case 'disarmCancel':
+      return Object.assign(s, {confirmCancel: false});
     case 'note':
       return Object.assign(s, {note: String(action.note || '').slice(0, PC_NOTE_MAX)});
     case 'sending':
@@ -270,7 +276,9 @@ function pcActions(view, state) {
           : {verdict, label: 'Edit rows…', open: 'edit', disabled: state.busy};
       case 'cheaper': return {verdict, label: 'Cheaper', disabled: state.busy};
       case 'quality': return {verdict, label: 'Better quality', disabled: state.busy};
-      case 'cancel': return {verdict, label: 'Cancel project', danger: true, disabled: state.busy};
+      case 'cancel': return state.confirmCancel
+        ? {verdict, label: 'Confirm cancel', danger: true, disabled: state.busy, why: 'Press again to cancel the project; it stops asking in a few seconds'}
+        : {verdict, label: 'Cancel project', danger: true, disabled: state.busy};
       default: return null;
     }
   }).filter(Boolean);
@@ -579,7 +587,7 @@ function createProjectCard(opts) {
   const pending = new Map();   // sid → continue message not sent yet
   const hidden = new Set();    // the gates the person put away in the chat on screen (sid, gate, version)
   const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
-  let sid = null, state = pcInitial(null), serial = 0;
+  let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
   const key = () => {
     const v = state.view;
     return v ? JSON.stringify([sid, v.gate.kind, v.gate.id || '', v.version]) : '';
@@ -595,7 +603,17 @@ function createProjectCard(opts) {
   }
   function act(a) {
     switch (a.type) {
-      case 'verdict': return decide(a.verdict);
+      case 'verdict':
+        // Cancel ends the project: the first press only arms it, for a few seconds.
+        if (a.verdict === 'cancel' && !state.confirmCancel) {
+          state = pcReduce(state, {type: 'armCancel'});
+          const armedFor = key();
+          clearTimeout(cancelTimer);
+          cancelTimer = setTimeout(() => { if (key() === armedFor && state.confirmCancel) { state = pcReduce(state, {type: 'disarmCancel'}); paint(); } }, opts.confirmMs ?? PC_CONFIRM_MS);
+          return paint();
+        }
+        clearTimeout(cancelTimer);
+        return decide(a.verdict);
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
