@@ -58,6 +58,16 @@ describe("verify.run from a session folder too broad to copy (issue #53)", () =>
     expect(copied).toEqual([join(home, "proj", "site")]);
   });
 
+  it("says what it copied, on the prompt and in the result, so the model can widen it with cwd", async () => {
+    const { request, tool, ctx } = harness();
+    const result = await tool.run({ kind: "page", path: "proj/site/index.html" }, ctx);
+    const note = `copied ${join(home, "proj", "site")} only; pass cwd to widen`;
+    const prompt = request.mock.calls[0]![0] as { reason: string; preview: string };
+    expect(prompt.reason).toContain(note);
+    expect(prompt.preview).toContain(note);
+    expect(result.summary).toContain(note);
+  });
+
   it("copies the git root when the page lies inside a repository", async () => {
     mkdirSync(join(home, "proj", ".git"));
     const { request, copied, tool, ctx } = harness();

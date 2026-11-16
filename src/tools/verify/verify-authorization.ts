@@ -47,6 +47,8 @@ export interface VerifyAuthorizationOptions extends DangerousToolOptions {
    * probe asks as before.
    */
   turnGrantFolder?: string;
+  /** Said on the prompt (reason and preview), e.g. that only part of the session's folder is copied. */
+  copyNote?: string;
 }
 export interface VerifyAuthorizationContext extends ToolContext {
   /** Rules and displayed project paths belong to the original project, never a private copy. */
@@ -162,12 +164,13 @@ export async function authorizeVerifyBatch(
     const preview = [
       ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)), previewKnown)),
       JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution: "in a private verification copy of this project; absolute project references are rebased into that copy" }, previewKnown), null, 2),
+      ...(options.copyNote === undefined ? [] : [options.copyNote]),
     ].join("\n");
     if (Buffer.byteLength(preview) > MAX_AUTHORIZATION_BYTES) throw new Error("verification authorization preview exceeds the size limit");
     const prompt = {
       sessionId: ctx.sessionId, tool: "verify.run",
       category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
-      reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox`,
+      reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`,
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,

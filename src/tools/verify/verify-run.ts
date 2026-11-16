@@ -82,9 +82,12 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       if (!copyRoot.ok) {
         return { tool: VERIFY_RUN_TOOL, status: "error", summary: copyRoot.message, details: { error: copyRoot.message, reason: "workdir-too-broad", description: maskVerificationSecrets(description, knownSecrets) }, truncated: false };
       }
+      // A narrowed copy says so, on the prompt and in the result, so the
+      // model can widen it with `cwd`.
+      const copyNote = copyRoot.root === ctx.workingDir ? undefined : `copied ${copyRoot.root} only; pass cwd to widen`;
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       try {
-        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }) }, ctx);
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
         args = parseVerifyRunArgs(approved[0]!);
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard
@@ -101,12 +104,13 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
         ...(options.launchBrowser === undefined ? {} : { launchBrowser: options.launchBrowser }),
         ...(options.workspace === undefined ? {} : { workspace: options.workspace }),
       });
-      const { summary, ...details } = result;
+      const { summary: runSummary, ...details } = result;
+      const summary = copyNote === undefined ? runSummary : `${runSummary}\n${copyNote}`;
       return {
         tool: VERIFY_RUN_TOOL,
         status: result.ok ? "ok" : "error",
         summary,
-        details: { ...details, description },
+        details: { ...details, description, ...(copyNote === undefined ? {} : { copyRoot: copyRoot.root }) },
         truncated: summary.endsWith("[clipped]"),
       };
     },
