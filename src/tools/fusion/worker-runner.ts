@@ -1881,7 +1881,10 @@ async function runOneTask(
           event.type === "llm_event" &&
           (event.event.type === "assistant_delta" || event.event.type === "reasoning_delta")
         ) {
-          streamedChars += event.event.text.length;
+          // Counted defensively: the watch's probe must never take the
+          // event hook (and with it the worker) down.
+          const text: unknown = event.event.text;
+          if (typeof text === "string") streamedChars += text.length;
         }
         // Backstop for a provider that emits none of the above: by the
         // time a step has finished, tokens demonstrably arrived.
