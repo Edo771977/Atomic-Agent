@@ -181,15 +181,18 @@ export async function runPageKind(
   } catch (err) {
     return done({ target, launched: false, loaded: false, error: err instanceof Error ? err.message : String(err) });
   }
+  // Closed once, whichever of the deadline, a cancel or the end comes first.
+  let closing: Promise<void> | undefined;
+  const closeBrowser = (): Promise<void> => (closing ??= browser.close().catch(() => {}));
   const deadline = setTimeout(() => {
     push(errors, `run exceeded timeoutMs (${args.timeoutMs})`);
-    void browser.close().catch(() => {});
+    void closeBrowser();
   }, args.timeoutMs);
   // A cancel closes the browser: whatever the page is doing (a game step
   // that never ends, a probe) stops with it.
   const onAbort = (): void => {
     push(errors, "the run was cancelled");
-    void browser.close().catch(() => {});
+    void closeBrowser();
   };
   if (ctx.signal?.aborted) onAbort();
   else ctx.signal?.addEventListener("abort", onAbort, { once: true });
@@ -268,6 +271,6 @@ export async function runPageKind(
   } finally {
     clearTimeout(deadline);
     ctx.signal?.removeEventListener("abort", onAbort);
-    await browser.close().catch(() => {});
+    await closeBrowser();
   }
 }
