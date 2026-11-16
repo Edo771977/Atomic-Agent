@@ -47,6 +47,19 @@ describe("automatic replan hold (ATO-941)", () => {
     expect(takeReplanNotice(s).notice).toBeNull();
   });
 
+  it("does not hold the planner for a task the watch stopped, nor for its held dependents (issue #43)", () => {
+    const s = observeReplanStep(createReplanState(), [
+      delegate({
+        replan: {
+          pending: [{ id: "ui", status: "cancelled", awaitsReview: ["core"] }],
+          stuck: [{ id: "core", status: "failed" }],
+        },
+      }),
+    ]);
+    expect(replanToolSet(s)).toBeNull();
+    expect(takeReplanNotice(s).notice).toBeNull();
+  });
+
   it("does not hold the planner for tasks held only on a review-exhausted task (issue #38)", () => {
     const s = observeReplanStep(createReplanState(), [
       delegate({

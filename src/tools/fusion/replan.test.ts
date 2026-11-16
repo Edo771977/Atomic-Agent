@@ -417,3 +417,40 @@ describe("tasks whose review passes ran out (issue #38)", () => {
     expect(block).toMatch(/do not send it again this turn[^\n]*:\n- map /i);
   });
 });
+
+describe("tasks the watch stopped as stuck (issue #43)", () => {
+  const stuck = { id: "hud", status: "failed", failure: "stuck", error: "stuck: the watch (model-r) judged the worker stuck after 3 checks and stopped it" } as never;
+
+  it("lists them in their own bucket with the review-exhausted guidance, never as pending", () => {
+    const report = describeReplan([stuck, { id: "plain", status: "failed" } as never], () => 1, 2);
+    expect(report.pending.map((t) => t.id)).toEqual(["plain"]);
+    expect(report.reviewExhausted).toEqual([]);
+    expect(report.stuck).toEqual([expect.objectContaining({ id: "hud", status: "failed", replansLeft: 1 })]);
+    const block = renderReplanBlock(report);
+    expect(block).toContain("STOPPED BY THE WATCH");
+    expect(block).toMatch(/re-delegate .*another worker or model/);
+    expect(block).toMatch(/fix it yourself/);
+    expect(block).toMatch(/accept (the partial work|it) .*reasons/);
+    expect(block).toMatch(/ask the person only if you cannot proceed/i);
+    expect(block).toContain("- hud (failed): stuck: the watch");
+  });
+
+  it("with no replans left keeps its own bucket, without the re-delegate option", () => {
+    const report = describeReplan([stuck], () => 1, 0);
+    expect(report.exhausted).toEqual([]);
+    expect(report.stuck).toEqual([expect.objectContaining({ id: "hud", replansLeft: 0, redelegate: false })]);
+    const block = renderReplanBlock(report);
+    expect(block).toContain("STOPPED BY THE WATCH");
+    expect(block).not.toMatch(/re-delegate/);
+    expect(block).not.toContain("NO REPLANS LEFT (");
+  });
+
+  it("does not force a replan for a dependent held only on a stuck task", () => {
+    const held = { id: "ui", status: "cancelled", error: "not started: held for the replan: it depends on hud, which did not close", heldOn: ["hud"] } as never;
+    const report = describeReplan([held, stuck], () => 1, 2);
+    expect(report.pending).toEqual([expect.objectContaining({ id: "ui", awaitsReview: ["hud"] })]);
+    const block = renderReplanBlock(report);
+    expect(block).not.toContain("REPLAN REQUIRED");
+    expect(block).toMatch(/after you decide on[^\n]*re-send[^\n]*:\n- ui \(cancelled\)/i);
+  });
+});

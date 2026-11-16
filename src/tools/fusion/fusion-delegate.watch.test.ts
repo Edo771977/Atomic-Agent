@@ -99,6 +99,7 @@ async function run(input: {
   ticks?: number;
   /** Runs once the worker is running, before the ticks. */
   beforeTicks?: () => void;
+  contract?: Record<string, unknown>;
 }) {
   const dir = mkdtempSync(join(tmpdir(), "fusion-watch-"));
   const c = handClock();
@@ -151,7 +152,10 @@ async function run(input: {
     ...input.over,
   } as unknown as FusionDelegateDeps;
   const pending = buildFusionDelegateTool(d).run(
-    { tasks: input.tasks ?? [{ id: "t", title: "T", instructions: "write a.txt" }] },
+    {
+      tasks: input.tasks ?? [{ id: "t", title: "T", instructions: "write a.txt" }],
+      ...(input.contract === undefined ? {} : { contract: input.contract }),
+    },
     { workingDir: dir, sessionId: "s-w", stepIndex: 0, signal: new AbortController().signal },
   );
   // Let each worker start, then drive it.
@@ -242,5 +246,40 @@ describe("the watch's cost guard (issue #43)", () => {
       },
     });
     expect(watchCalls).toEqual([]);
+  });
+});
+
+describe("a task the watch stopped goes to the director (issue #43)", () => {
+  it("in its own replan bucket, with autoReplan off too, and never as pending", async () => {
+    for (const autoReplan of [0, 2]) {
+      const { result, rows } = await run({ context: DIRECTED, ticks: 2, watchAnswer: '{"state":"stuck","hint":null}', runOver: { autoReplan } });
+      expect(rows[0]).toMatchObject({ status: "failed", failure: "stuck" });
+      const replan = result.details.replan as { pending: unknown[]; exhausted: unknown[]; stuck: Array<{ id: string; redelegate?: false }> };
+      expect(replan.pending).toEqual([]);
+      expect(replan.exhausted).toEqual([]);
+      expect(replan.stuck).toEqual([expect.objectContaining({ id: "t", ...(autoReplan === 0 ? { redelegate: false } : {}) })]);
+      expect(result.summary).toContain("STOPPED BY THE WATCH");
+    }
+  });
+
+  it("a dependent of a stuck task is held without forcing a replan", async () => {
+    const { result } = await run({
+      context: DIRECTED,
+      ticks: 2,
+      watchAnswer: '{"state":"stuck","hint":null}',
+      runOver: { autoReplan: 2 },
+      tasks: [
+        { id: "core", title: "Core", instructions: "x" },
+        { id: "ui", title: "UI", instructions: "y" },
+      ],
+      contract: {
+        provides: [{ task: "core", kind: "other", name: "core-ready" }],
+        requires: [{ task: "ui", name: "core-ready" }],
+      },
+    });
+    const replan = result.details.replan as { pending: Array<{ id: string; awaitsReview?: string[] }>; stuck: Array<{ id: string }> };
+    expect(replan.stuck.map((t) => t.id)).toEqual(["core"]);
+    expect(replan.pending).toEqual([expect.objectContaining({ id: "ui", awaitsReview: ["core"] })]);
+    expect(result.summary).not.toContain("REPLAN REQUIRED");
   });
 });

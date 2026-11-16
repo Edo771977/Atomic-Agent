@@ -2600,14 +2600,14 @@ export function buildFusionDelegateTool(
         const awaitingYes = new Set(
           resume?.needsConfirmation.map((r) => r.id) ?? [],
         );
-        // A task whose review passes ran out goes to the director with
-        // replanning off too (issue #38): then only that bucket, with no
-        // re-delegation left to offer.
+        // A task whose review passes ran out, or the watch stopped as
+        // stuck, goes to the director with replanning off too (issues
+        // #38, #43): then only those buckets, with no re-delegation left.
         const fullReplan =
           stoppedBy === undefined &&
           trips.length === 0 &&
           !ctx.signal.aborted &&
-          (autoReplan > 0 || results.some((r) => r.failure === "review-exhausted"))
+          (autoReplan > 0 || results.some((r) => r.failure === "review-exhausted" || r.failure === "stuck"))
             ? describeReplan(
                 results.filter((r) => !awaitingYes.has(r.id)),
                 (id) => turnBudget.attempts(ctx.sessionId, id),
@@ -2623,7 +2623,7 @@ export function buildFusionDelegateTool(
         const replan =
           fullReplan === undefined || autoReplan > 0
             ? fullReplan
-            : { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: fullReplan.reviewExhausted, max: 0 };
+            : { pending: [], exhausted: [], failedOnOrchestrator: [], reviewExhausted: fullReplan.reviewExhausted, stuck: fullReplan.stuck, max: 0 };
       // How this round's families ended, judged rows included: a family
       // that closed green is no longer one a dotted id can continue.
       if (ranNow.size > 0) {
@@ -2875,7 +2875,8 @@ export function buildFusionDelegateTool(
             (replan.pending.length === 0 &&
               replan.exhausted.length === 0 &&
               replan.failedOnOrchestrator.length === 0 &&
-              replan.reviewExhausted.length === 0)
+              replan.reviewExhausted.length === 0 &&
+              replan.stuck.length === 0)
                 ? {}
                 : { replan }),
               ...(treeReport === undefined ? {} : { taskTree: treeReport }),

@@ -280,13 +280,14 @@ export interface WorkerTaskResult {
    * `review-exhausted` (issue #38), a fusion team's review still asked
    * for changes after the last review pass; the
    * director decides (`describeReplan`'s own bucket), it is not re-run
-   * as pending.
+   * as pending. `stuck` (issue #43): the watch's judge found the worker
+   * stuck and stopped it; handed to the director the same way.
    */
-  failure?: "review-exhausted";
+  failure?: "review-exhausted" | "stuck";
   /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
-   * tasks, which waits for the director's decision (issue #38).
+   * or stuck tasks, which waits for the director's decision (issue #38).
    */
   heldOn?: string[];
   /**

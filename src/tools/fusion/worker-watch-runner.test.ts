@@ -7,7 +7,7 @@ import type { SessionState } from "../../session/session-state.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import type { DelegateTask } from "./delegate-args.js";
 import { runWorkerTasks, type RunWorkerTasksOptions, type WorkerRunnerDeps } from "./worker-runner.js";
-import type { WatchClock, WatchJudgeCall } from "./worker-watch.js";
+import { formatWatchSteer, type WatchClock, type WatchJudgeCall } from "./worker-watch.js";
 
 /**
  * The watch on a running worker inside the runner (issue #43): the probe
@@ -210,5 +210,42 @@ describe("the watch inside the worker runner (issue #43)", () => {
     turn.abort();
     await run2;
     expect(c2.live()).toBe(false);
+  });
+});
+
+describe("what the watch does with the judge's answer (issue #43)", () => {
+  it("delivers a looping hint to the worker through its steering inbox", async () => {
+    const h = harness();
+    const c = handClock();
+    const run = runWorkerTasks(h.deps, options(h, c.clock, async () => ({
+      kind: "answer",
+      content: '{"state":"looping","hint":"stop re-reading src/a.ts; write the fix"}',
+    })));
+    await flush();
+    h.delta("x");
+    await c.tick();
+    await c.tick();
+    expect(h.steered).toEqual([formatWatchSteer("model-r", "looping", "stop re-reading src/a.ts; write the fix")]);
+    h.finish();
+    const [row] = await run;
+    expect(row!.status).toBe("ok");
+    expect(row!.watch).toMatchObject({ hints: 1, stopped: false });
+  });
+
+  it("stops a stuck worker cleanly: failed, failure stuck, the watch's record, no timer left", async () => {
+    const h = harness();
+    const c = handClock();
+    const run = runWorkerTasks(h.deps, options(h, c.clock, async () => ({ kind: "answer", content: '{"state":"stuck","hint":null}' })));
+    await flush();
+    h.delta("x");
+    await c.tick();
+    await c.tick();
+    const [row] = await run;
+    expect(h.signal()?.aborted).toBe(true);
+    expect(row!.status).toBe("failed");
+    expect(row!.failure).toBe("stuck");
+    expect(row!.error).toMatch(/^stuck: the watch \(model-r\) judged the worker stuck/);
+    expect(row!.watch).toMatchObject({ judgeCalls: 1, stopped: true });
+    expect(c.live()).toBe(false);
   });
 });

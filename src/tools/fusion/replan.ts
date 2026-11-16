@@ -56,9 +56,10 @@ export interface ReplanTask {
    */
   redelegate?: false;
   /**
-   * A pending task held only on review-exhausted tasks (issue #38): it
-   * waits for the director's decision on these, so the loop does not
-   * hold the next step to the delegate for it.
+   * A pending task held only on tasks handed to the director: review-
+   * exhausted (issue #38) or stopped as stuck by the watch (issue #43).
+   * It waits for the director's decision on these, so the loop does not
+   * hold the next step to the delegate for it. The name is the wire's.
    */
   awaitsReview?: string[];
 }
@@ -80,6 +81,11 @@ export interface ReplanReport {
    * delegate, and never merely exhausted, whatever replans are left.
    */
   reviewExhausted: ReplanTask[];
+  /**
+   * Failed `stuck` (issue #43): the watch's judge found the worker stuck
+   * and stopped it. Handed to the director like `reviewExhausted`.
+   */
+  stuck: ReplanTask[];
   max: number;
 }
 
@@ -149,11 +155,12 @@ export function describeReplan(
   const exhausted: ReplanTask[] = [];
   const failedOnOrchestrator: ReplanTask[] = [];
   const reviewExhausted: ReplanTask[] = [];
-  const reviewIds = new Set(
-    results
-      .filter((r) => r.status === "failed" && r.failure === "review-exhausted")
-      .map((r) => r.id),
-  );
+  const stuck: ReplanTask[] = [];
+  // Tasks handed to the director: a dependent held only on these waits
+  // for its decision (issues #38, #43).
+  const handedOff = (r: WorkerTaskResult): boolean =>
+    r.status === "failed" && (r.failure === "review-exhausted" || r.failure === "stuck");
+  const reviewIds = new Set(results.filter(handedOff).map((r) => r.id));
   for (const result of results) {
     if (!isOpenResult(result)) continue;
     const runs = attempts(result.id);
@@ -163,7 +170,7 @@ export function describeReplan(
     // A question asked again on the orchestrator's model is still a
     // question to answer, not a failure past what a round fixes.
     const stop = left > 0 && runs >= 2 && onOrchestrator && result.status !== "needs_input";
-    const reviewed = result.status === "failed" && result.failure === "review-exhausted" && !stop;
+    const reviewed = handedOff(result) && !stop;
     const fix =
       left > 0 && !stop && !reviewed
         ? replanFix(
@@ -187,11 +194,14 @@ export function describeReplan(
       ...(awaits === undefined ? {} : { awaitsReview: awaits }),
     };
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
-    else if (reviewed) reviewExhausted.push(left > 0 ? task : { ...task, redelegate: false });
+    else if (reviewed) {
+      const bucket = result.failure === "stuck" ? stuck : reviewExhausted;
+      bucket.push(left > 0 ? task : { ...task, redelegate: false });
+    }
     else if (left > 0) pending.push(task);
     else exhausted.push(task);
   }
-  return { pending, exhausted, failedOnOrchestrator, reviewExhausted, max };
+  return { pending, exhausted, failedOnOrchestrator, reviewExhausted, stuck, max };
 }
 
 /**
@@ -255,10 +265,33 @@ export function renderReplanBlock(report: ReplanReport): string {
       ].join("\n"),
     );
   }
+  const stuckAgain = report.stuck.filter((t) => t.redelegate !== false);
+  const stuckSettle = report.stuck.filter((t) => t.redelegate === false);
+  const stuckHead =
+    "STOPPED BY THE WATCH — its judge found the worker stuck on these tasks and stopped it; what it changed is kept as a failed task's. You decide; finishing the task is preferred over asking the person:";
+  if (stuckAgain.length > 0) {
+    parts.push(
+      [
+        `${stuckHead} re-delegate it with \`fusion.delegate\` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:`,
+        ...stuckAgain.map(
+          (t) =>
+            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,
+        ),
+      ].join("\n"),
+    );
+  }
+  if (stuckSettle.length > 0) {
+    parts.push(
+      [
+        `${stuckHead} no replans are left, so do not send it again this turn; fix it yourself where your tools allow, or accept the partial work as it stands and state your reasons in your reply. Ask the person only if you cannot proceed:`,
+        ...stuckSettle.map((t) => `- ${t.id} (${t.status}): ${t.why}`),
+      ].join("\n"),
+    );
+  }
   if (awaiting.length > 0) {
     parts.push(
       [
-        "HELD ON THAT REVIEW — these did not start: they depend on a task whose review passes ran out. After you decide on it, re-send these with `fusion.delegate` (same ids): in the same call as its re-delegation, or once you fixed or accepted it:",
+        "HELD ON THAT REVIEW — these did not start: they depend on a task handed to you (its review passes ran out, or the watch stopped it). After you decide on it, re-send these with `fusion.delegate` (same ids): in the same call as its re-delegation, or once you fixed or accepted it:",
         ...awaiting.map(
           (t) =>
             `- ${t.id} (${t.status}): waits on ${t.awaitsReview!.join(", ")} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one`,

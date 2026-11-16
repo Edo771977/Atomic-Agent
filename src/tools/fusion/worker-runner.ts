@@ -66,6 +66,7 @@ import {
 } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
 import {
+  formatWatchSteer,
   renderWatchJudgePrompt,
   startTaskWatch,
   type TaskWatch,
@@ -1503,6 +1504,9 @@ async function runOneTask(
   // `escalationReplace` — the re-run of the task on the stronger model.
   const stopByPerson = new AbortController();
   const replaceAbort = new AbortController();
+  // The watch judged the worker stuck (issue #43): the task stops and
+  // goes to the director as `failure: "stuck"`.
+  const stopByWatch = new AbortController();
   let escalations = 0;
   let escalating = false;
   let replaceRequested = false;
@@ -1686,6 +1690,7 @@ async function runOneTask(
       options.signal.aborted ||
       timeLimit.aborted ||
       stopByPerson.signal.aborted ||
+      stopByWatch.signal.aborted ||
       replaceAbort.signal.aborted ||
       handBack.signal.aborted;
     if (stopped()) return first;
@@ -1727,6 +1732,7 @@ async function runOneTask(
         options.signal,
         timeLimit,
         stopByPerson.signal,
+        stopByWatch.signal,
         replaceAbort.signal,
       ]),
       timeCapMs: Math.min(SELF_CHECK_MAX_MS, remainingMs),
@@ -1818,8 +1824,9 @@ async function runOneTask(
           quietIntervals,
         }),
       judge: watchPlan.judge,
-      onHint: () => false,
-      onStuck: () => {},
+      onHint: (state, hint) =>
+        deps.steerWorker?.(session.id, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
+      onStuck: () => stopByWatch.abort(new Error("stopped by the watch: stuck")),
       onNote: (note) => watchNotes.push(note),
       signal: AbortSignal.any([
         options.signal,
@@ -1854,6 +1861,7 @@ async function runOneTask(
         timeLimit,
         handBack.signal,
         stopByPerson.signal,
+        stopByWatch.signal,
         replaceAbort.signal,
       ]),
       eventHook: (event) => {
@@ -2013,7 +2021,7 @@ async function runOneTask(
     const aborted =
       !timedOut &&
       !queuedOutcome &&
-      (options.signal.aborted || stoppedByHandBack || isAbortError(error));
+      (options.signal.aborted || stoppedByHandBack || stopByWatch.signal.aborted || isAbortError(error));
     result = collector.finish({
       id: task.id,
       title: task.title,
@@ -2047,6 +2055,7 @@ async function runOneTask(
   const localCut =
     replaceRequested ||
     stopByPerson.signal.aborted ||
+    stopByWatch.signal.aborted ||
     timedOutOutcome ||
     queuedOutcome ||
     stoppedByHandBack ||
@@ -2061,7 +2070,9 @@ async function runOneTask(
           ? "replaced by the escalation model"
           : stopByPerson.signal.aborted
             ? "stopped by the person"
-            : "cancelled";
+            : stopByWatch.signal.aborted
+              ? "stopped by the watch"
+              : "cancelled";
 
   // The advisor's hint did not help and the operator allowed the
   // replacement path (`escalationReplace`): the task runs again on the
@@ -2074,7 +2085,8 @@ async function runOneTask(
     pricing !== undefined &&
     options.escalation?.estimateOnly !== true &&
     !options.signal.aborted &&
-    !stopByPerson.signal.aborted;
+    !stopByPerson.signal.aborted &&
+    !stopByWatch.signal.aborted;
   // The local attempt's grace gave its permit to another task: the re-run
   // waits for one like any queued task rather than exceed the ceiling.
   if (replaceAllowed && permitReleasedByGrace && permitControl !== undefined) {
@@ -2237,6 +2249,20 @@ async function runOneTask(
   }
   if (stopByPerson.signal.aborted) {
     escalationNotes.push("stopped by the person");
+  }
+  // Stopped by the watch (issue #43): a failure the director decides on
+  // (`describeReplan`'s own bucket), never a cancellation. What the
+  // worker changed stays where the isolation rules keep a failed task's.
+  if (stopByWatch.signal.aborted) {
+    const record = watch?.record();
+    const checks = record?.checks ?? 0;
+    const { finishedWithoutReply: _unvouched, ...rest } = result;
+    result = {
+      ...rest,
+      status: "failed",
+      failure: "stuck",
+      error: `stuck: the watch (${watchPlan?.judgeLabel ?? "its judge"}) judged the worker stuck after ${checks} check${checks === 1 ? "" : "s"} and stopped it`,
+    };
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on
