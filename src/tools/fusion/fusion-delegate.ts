@@ -32,7 +32,7 @@ import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
-import type { ProjectUpdate } from "../../session/session-project.js";
+import { criteriaById, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -1153,6 +1153,9 @@ export function buildFusionDelegateTool(
       const projectBrief = approvedBrief === undefined
         ? undefined
         : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text) };
+      // The criteria a task's checks name are acceptance items, ruled by
+      // facts and the vision judge (issue #40).
+      const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
       // A local worker's time limit is sized from the machine's measured
       // speed (F19); a cloud leg has no such measurement and keeps the
       // configured ceiling.
@@ -1426,7 +1429,7 @@ export function buildFusionDelegateTool(
               .filter((t) => judgeTargetFor(t.id) !== null)
               .map((t) => [
                 t.id,
-                buildAcceptanceChecklist(t, parsed.contract),
+                buildAcceptanceChecklist(t, parsed.contract, briefCriteria),
               ])
           : [],
       );
