@@ -106,9 +106,16 @@ function copyAgent(context, target) {
   }
   rmSync(dest, { recursive: true, force: true });
   cpSync(src, dest, { recursive: true, preserveTimestamps: true });
-  const probe = join(dest, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
-  if (!existsSync(probe)) {
-    throw new Error(`the agent copy is missing its native module: ${probe}`);
+  // better-sqlite3 13.x is N-API and ships one prebuilt binary per platform
+  // in prebuilds/<platform>-<arch>.node (the agent's package.json denies its
+  // install-time node-gyp build). An older bundle carries build/Release.
+  const sqliteDir = join(dest, "node_modules", "better-sqlite3");
+  const candidates = [
+    join(sqliteDir, "prebuilds", `${target.slug}.node`),
+    join(sqliteDir, "build", "Release", "better_sqlite3.node"),
+  ];
+  if (!candidates.some((file) => existsSync(file))) {
+    throw new Error(`the agent copy is missing its native module: none of ${candidates.join(", ")}`);
   }
   probeDatabase(join(dest, target.exe), target);
   return dest;
