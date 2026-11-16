@@ -436,6 +436,21 @@ describe("parseDelegateArgs — contract", () => {
     for (const id of ["c1", "plays-well"]) expect(normalizeCriterionId(id)).toBe(id);
   });
 
+  it("carries a visual check's vision judge, validated (issue #40)", () => {
+    const parsed = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "page", path: "index.html", screenshot: {}, judge: "vision", criteria: ["c1"] }] },
+    });
+    expect(parsed.ok && parsed.contract?.checks).toEqual([
+      { task: "main", criteria: ["c1"], judge: "vision", kind: "page", path: "index.html", screenshot: {} },
+    ]);
+    const bad = (check: Record<string, unknown>): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [check] } }));
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "eyes", criteria: ["c1"] })).toContain('contract.checks[0].judge must be "vision"');
+    expect(bad({ kind: "page", path: "index.html", judge: "vision", criteria: ["c1"] })).toContain("contract.checks[0].judge needs a page check with a `screenshot`");
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "vision" })).toContain("contract.checks[0].judge needs the `criteria` it judges");
+  });
+
   it("carries a require that no provide satisfies through as a warning — the fan-out still runs", () => {
     // The launch-btn / btn-launch mismatch used to refuse the call. It
     // is still caught before any worker runs — as a note every worker

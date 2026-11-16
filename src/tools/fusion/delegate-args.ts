@@ -640,14 +640,16 @@ function readContract(
           problems.push(`${label} must be an object`);
           continue;
         }
-        const { task, criteria: rawCriteria, ...spec } = entry;
+        const { task, criteria: rawCriteria, judge, ...spec } = entry;
         if (Object.keys(spec).length === 0) {
           problems.push(`${label} carries no verify.run arguments`);
           continue;
         }
         const criteria = readCheckCriteria(rawCriteria, `${label}.criteria`, problems);
         if (criteria === null) continue;
-        const withCriteria = criteria.length === 0 ? spec : { criteria, ...spec };
+        if (!readCheckJudge(judge, spec, criteria, `${label}.judge`, problems)) continue;
+        const judged = judge === undefined || judge === null ? spec : { judge: "vision" as const, ...spec };
+        const withCriteria = criteria.length === 0 ? judged : { criteria, ...judged };
         if (task === undefined || task === null) {
           checks.push(withCriteria);
           continue;
@@ -792,6 +794,35 @@ export function parseDelegateArgs(
     ...(maxWorkers === null ? {} : { maxWorkers }),
     ...(contract === undefined ? {} : { contract }),
   };
+}
+
+/**
+ * A check's `judge` (issue #40): absent, or `"vision"` on a page check
+ * that takes a `screenshot` and names the `criteria` it judges. False
+ * (with the problem recorded) otherwise.
+ */
+function readCheckJudge(
+  raw: unknown,
+  spec: Record<string, unknown>,
+  criteria: readonly string[],
+  label: string,
+  problems: string[],
+): boolean {
+  if (raw === undefined || raw === null) return true;
+  if (raw !== "vision") {
+    problems.push(`${label} must be "vision"`);
+    return false;
+  }
+  const kind = spec.kind ?? spec.type;
+  if (kind !== "page" || spec.screenshot === undefined || spec.screenshot === null) {
+    problems.push(`${label} needs a page check with a \`screenshot\``);
+    return false;
+  }
+  if (criteria.length === 0) {
+    problems.push(`${label} needs the \`criteria\` it judges`);
+    return false;
+  }
+  return true;
 }
 
 /**

@@ -283,6 +283,13 @@ describe("runContractChecks", () => {
     expect(out.outcomes[1]).toEqual({ ok: true, detail: "passed" });
   });
 
+  it("strips a visual check's judge before the runner and carries it, and the screenshot failures, to the outcome (issue #40)", async () => {
+    const runner = vi.fn<ContractCheckRunner>(async () => ({ ok: true, results: [{ ok: true, screenshotErrors: ["screenshot: page crashed"] }] }));
+    const out = await runContractChecks([{ task: "ui", criteria: ["c1"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }], runner, ctx);
+    expect(runner.mock.calls[0]![0]).toEqual([{ kind: "page", path: "index.html", screenshot: {} }]);
+    expect(out.outcomes[0]).toMatchObject({ task: "ui", ok: true, criteria: ["c1"], judge: "vision", screenshotErrors: ["screenshot: page crashed"] });
+  });
+
   it("marks a check the runner returned nothing for as failed, and survives a runner that throws", async () => {
     const short = await runContractChecks(
       [{ task: "a", cmd: "x" }, { task: "b", cmd: "y" }],

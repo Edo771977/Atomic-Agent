@@ -59,6 +59,8 @@ export interface ContractCheckResult {
   games?: VerifyGameSummary;
   /** A page check's screenshots (`verify.run` `screenshot`), at most four. */
   screenshots?: readonly VerifyScreenshot[];
+  /** Screenshots asked for but not taken, one line each. */
+  screenshotErrors?: readonly string[];
 }
 
 /** The fusion run a batch of checks belongs to (`<stateDir>/fusion-runs/<runId>`). */
@@ -126,6 +128,10 @@ export interface ContractCheckOutcome {
   games?: VerifyGameSummary;
   /** The check's screenshots: paths of JPEGs on this machine (issue #40). */
   screenshots?: readonly VerifyScreenshot[];
+  /** Screenshots the check asked for but did not get, one line each. */
+  screenshotErrors?: readonly string[];
+  /** The check's spec asked for a vision judgement of its screenshots. */
+  judge?: "vision";
 }
 
 /**
@@ -419,6 +425,7 @@ function maskResult(
     ...(stdoutTail === undefined ? {} : { stdoutTail }),
     ...(games === undefined ? {} : { games }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
+    ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
   };
 }
 
@@ -470,7 +477,7 @@ export async function runContractChecks(
   if (ctx.signal.aborted) {
     return { outcomes: [], checksSkipped: `${plural} not run — the turn was cancelled` };
   }
-  const specs = checks.map(({ task: _task, criteria: _criteria, ...spec }) => spec);
+  const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, ...spec }) => spec);
   const known = ctx.knownSecrets ?? knownSecretsFromEnv();
   let results: readonly ContractCheckResult[];
   try {
@@ -498,7 +505,11 @@ export async function runContractChecks(
     const raw = results[i];
     const task = check.task === undefined ? {} : { task: check.task };
     if (raw === undefined) {
-      return { ...task, ok: false, detail: "the runner returned no result", ...(check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] }) };
+      return {
+        ...task, ok: false, detail: "the runner returned no result",
+        ...(check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] }),
+        ...(check.judge === "vision" ? { judge: "vision" as const } : {}),
+      };
     }
     const result = maskResult(raw, known);
     // The head is the summary before its output tails, on one line;
@@ -514,6 +525,8 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
+      ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),
+      ...(check.judge === "vision" ? { judge: "vision" as const } : {}),
     };
   });
   return { outcomes };

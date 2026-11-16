@@ -109,6 +109,13 @@ export type ContractCheck = {
    * argument; stripped before the runner, like `task`.
    */
   criteria?: string[];
+  /**
+   * `"vision"`: the check's screenshots are judged against its
+   * `criteria` by a vision-capable model (`vision-judge.ts`). Needs a
+   * page check with a `screenshot` and at least one criterion. Not a
+   * `verify.run` argument; stripped before the runner.
+   */
+  judge?: "vision";
 } & Record<string, unknown>;
 
 /**
