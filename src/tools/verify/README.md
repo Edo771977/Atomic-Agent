@@ -49,7 +49,7 @@ Assertions:
 
 `screenshot: { fullPage?: boolean }` (or `true`) on a page run takes one JPEG at the end of the run. With `game`, it takes one at the end of each game instead, at most four per run. The caps are those of `browser.screenshot` ([page-capture.ts](../browser/page-capture.ts), [screenshot-geometry.ts](../browser/screenshot-geometry.ts)): a long side of at most 1280 px and at most 900 KB, and secret fields are masked. The caller chooses where shots are stored:
 
-- A fusion contract check under a run stores them at `<stateDir>/fusion-runs/<runId>/shots/<taskId>-<n>.jpg` (`fusionRunShotTarget`). That folder is pruned with the run retention.
+- A fusion contract check under a run stores them at `<stateDir>/fusion-runs/<runId>/shots/<taskId>-<n>.jpg` (`fusionRunShotTarget`). That folder is pruned with the run retention. A contract check may ask `judge: "vision"` to have its screenshots judged against the criteria it names; see the fusion guide's criteria facts and vision judge ([fusion](../fusion/README.md)).
 - Every other run uses `<tmp>/atomic-agent-browser-shots/verify-run/`.
 
 Files are created exclusively with mode 0600, in 0700 folders. A shot that fails is listed in `screenshotErrors` and does not fail the run.
