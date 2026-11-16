@@ -192,6 +192,12 @@ describe("who watches a team run's worker (issue #43)", () => {
     expect(rows[0]!.watch).toMatchObject({ judge: "model-a" });
   });
 
+  it("the director when team.review is off, as for the review itself", async () => {
+    const { watchCalls, rows } = await run({ context: { ...REVIEWED, team: { ...REVIEWED.team, review: "off" } }, ticks: 2 });
+    expect(watchCalls).toEqual([expect.objectContaining({ providerId: "api-a", model: "model-a" })]);
+    expect(rows[0]!.watch).toMatchObject({ judge: "model-a" });
+  });
+
   it("every task's own watchMinutes, else team.watchEveryMinutes", async () => {
     const own = await run({ context: DIRECTED, tasks: [{ id: "t", title: "T", instructions: "x", watchMinutes: 12 }] });
     expect(own.clock.intervals[0]).toBe(12 * 60_000);

@@ -1545,7 +1545,8 @@ export function buildFusionDelegateTool(
       // The watch on running workers (issue #43), team runs only: every
       // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.
       // The judge is the task's reviewer (the same pick, policy and model
-      // pin as its review), else the director on its own model. Each call
+      // pin as its review; none with `team.review: "off"`), else the
+      // director on its own model. Each call
       // checks the turn's budget first and needs a priced judge under a
       // $ cap; its spend counts as the judge's.
       const watchMinutesOf = new Map(parsed.tasks.map((t) => [t.id, t.watchMinutes] as const));
@@ -1562,7 +1563,10 @@ export function buildFusionDelegateTool(
           : (taskId: string): WorkerWatchPlan | undefined => {
               const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
               if (minutes <= 0) return undefined;
-              const reviewer = team?.hasReviewers === true ? team.reviewerFor(taskMember(taskId)) : null;
+              // `team.review: "off"` turns the reviewers off for the watch
+              // too, as `judgeTargetFor` does for the review.
+              const reviewer =
+                team?.hasReviewers === true && teamReview?.on !== false ? team.reviewerFor(taskMember(taskId)) : null;
               const lead: TeamMember | null =
                 reviewer ??
                 director ??
