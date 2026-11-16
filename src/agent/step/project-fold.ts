@@ -14,8 +14,22 @@ const PROJECT_UPDATE_DETAIL = "projectUpdate";
  * the update did not land. Errored calls and results without an update
  * pass through untouched, except a dispatch `milestone_run` on a failed
  * fan-out whose workers ran: it is folded (a refusal drops it) and the
- * call's own error is kept.
+ * call's own error is kept. A refused `milestone_run` on a successful
+ * fan-out keeps the success and notes the refusal.
  */
+/**
+ * Which tool may carry which update: each project tool its own kind, the
+ * fan-out only the run record. Any other tool's `details.projectUpdate`
+ * (an MCP server's, a skill script's) is ignored: the project moves only
+ * through the tools that own it.
+ */
+const UPDATE_KIND_OF_TOOL: Readonly<Record<string, ProjectUpdate["kind"]>> = {
+  "project.brief": "brief",
+  "project.plan": "plan",
+  "project.milestone": "milestone",
+  "fusion.delegate": "milestone_run",
+};
+
 export function foldProjectUpdate(
   session: SessionState,
   result: CompressedToolResult,
@@ -24,6 +38,10 @@ export function foldProjectUpdate(
   const details = result.details as Record<string, unknown> | undefined;
   if (details === undefined || !(PROJECT_UPDATE_DETAIL in details)) return { session, result };
   const raw = details[PROJECT_UPDATE_DETAIL];
+  const owned = UPDATE_KIND_OF_TOOL[result.tool];
+  if (owned === undefined) return { session, result };
+  const kind = typeof raw === "object" && raw !== null ? (raw as { kind?: unknown }).kind : undefined;
+  if (kind !== undefined && kind !== owned) return { session, result };
   if (result.status !== "ok") {
     // A fan-out whose workers ran but failed still records its run on the
     // milestone (in progress, resumable); its own error stays the result.
@@ -38,6 +56,14 @@ export function foldProjectUpdate(
   if (applied.ok) return { session: withProject(session, applied.project), result };
   const rest = { ...details };
   delete rest[PROJECT_UPDATE_DETAIL];
+  if (owned === "milestone_run") {
+    // The fan-out itself worked: its result stands, with a note that the
+    // milestone did not record the run.
+    const kept = Object.defineProperties({}, Object.getOwnPropertyDescriptors(result)) as CompressedToolResult;
+    kept.summary = `${result.summary}\n(note: the milestone was not updated: ${applied.error.message})`;
+    kept.details = { ...rest, projectRefused: applied.error.code };
+    return { session, result: kept };
+  }
   return {
     session,
     result: compressToolResult({
