@@ -136,7 +136,27 @@ describe("applyProjectUpdate: brief", () => {
     expect(fresh.cancelledAt).toBeUndefined();
     expect(fresh.plan).toBeUndefined();
     expect(fresh.milestones).toEqual([]);
-    expect(fresh.brief?.version).toBe(1);
+    expect(fresh.brief!.version).toBeGreaterThan(p.plan!.version);
+  });
+
+  it("versions never restart after a cancel: a card of the old project cannot approve the new brief or plan", () => {
+    const first = update(undefined, briefUpdate);
+    expect(first.brief!.version).toBe(1);
+    const cancelled = ok(applyProjectDecision(first, { gate: { kind: "brief" }, version: 1, verdict: "cancel" }, { now: NOW })).project;
+    const fresh = update(cancelled, { ...briefUpdate, brief: { ...briefUpdate.brief, what: "Something else" } });
+    expect(applyProjectDecision(fresh, { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW }))
+      .toMatchObject({ ok: false, error: { code: "stale-version" } });
+    // It survives a save and reload.
+    const reloaded = normalizeProject(JSON.parse(JSON.stringify(cancelled)))!;
+    expect(update(reloaded, briefUpdate).brief!.version).toBe(fresh.brief!.version);
+    // And a plan of the new project starts above the old one's plan.
+    const old = running();
+    const oldPlan = old.plan!.version;
+    const c2 = ok(applyProjectDecision(old, { gate: { kind: "none" }, version: oldPlan, verdict: "cancel" }, { now: NOW })).project;
+    const replanned = update(approve(update(c2, briefUpdate)), planUpdate);
+    expect(replanned.plan!.version).toBeGreaterThan(oldPlan);
+    expect(applyProjectDecision(replanned, { gate: { kind: "plan" }, version: oldPlan, verdict: "approve" }, { now: NOW }))
+      .toMatchObject({ ok: false, error: { code: "stale-version" } });
   });
 });
 

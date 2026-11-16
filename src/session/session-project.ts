@@ -134,6 +134,12 @@ export interface ProjectState {
   gate: ProjectGate;
   /** Epoch ms the person cancelled the project; a new brief starts over. */
   cancelledAt?: number;
+  /**
+   * The highest brief/plan version a cancelled project issued. A new
+   * project's versions start above it, so a card shown for the old one
+   * can never approve a brief or plan the person has not seen.
+   */
+  versionFloor?: number;
 }
 
 /**
@@ -582,14 +588,24 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (gate.kind === "plan" && plan === undefined) return undefined;
   if (gate.kind === "milestone" && (plan === undefined || !ids.has(gate.id))) return undefined;
   if (raw.cancelledAt !== undefined && !isTime(raw.cancelledAt)) return undefined;
+  if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
     milestones,
     gate,
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
+    ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
   };
 }
+
+/** The version after `current`, never at or below the project's {@link ProjectState.versionFloor}. */
+function nextVersion(project: ProjectState | undefined, current: number | undefined): number {
+  return Math.max(current ?? 0, project?.versionFloor ?? 0) + 1;
+}
+
+const floorOf = (project: ProjectState | undefined) =>
+  project?.versionFloor === undefined ? {} : { versionFloor: project.versionFloor };
 
 // ---------------------------------------------------------------- update
 
@@ -605,7 +621,7 @@ function briefUpdate(
   // After a cancel, a new brief is a new project.
   const base: ProjectState | undefined = project?.cancelledAt !== undefined ? undefined : project;
   const brief: ProjectBrief = {
-    version: (base?.brief?.version ?? 0) + 1,
+    version: nextVersion(project, base?.brief?.version),
     ...draft,
     status: "draft",
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
@@ -621,7 +637,7 @@ function briefUpdate(
   );
   return {
     ok: true,
-    project: { brief, ...(plan === undefined ? {} : { plan }), milestones, gate: { kind: "brief" } },
+    project: { brief, ...(plan === undefined ? {} : { plan }), milestones, gate: { kind: "brief" }, ...floorOf(project) },
   };
 }
 
@@ -686,9 +702,9 @@ function planUpdate(
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
-    version: (project.plan?.version ?? 0) + 1,
+    version: nextVersion(project, project.plan?.version),
   };
-  return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" } } };
+  return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" }, ...floorOf(project) } };
 }
 
 function milestoneUpdate(
@@ -848,6 +864,7 @@ export function applyProjectDecision(
         ...(project.plan === undefined ? {} : { plan: { ...withoutApproval(project.plan), status: "cancelled" as const } }),
         gate: { kind: "none" },
         cancelledAt: now,
+        versionFloor: Math.max(project.versionFloor ?? 0, project.brief?.version ?? 0, project.plan?.version ?? 0),
       },
     };
   }
