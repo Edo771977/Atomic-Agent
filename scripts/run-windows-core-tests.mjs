@@ -160,6 +160,7 @@ export const deferredFiles = [
   'src/tools/fusion/worker-steer.test.ts',
   'src/tools/fusion/worker-tool-policy.test.ts',
   'src/tools/fusion/worker-transport-renew.test.ts',
+  'src/tools/fusion/worker-watch.test.ts',
   'src/tools/verify/check-css-syntax.test.ts',
   'src/tools/verify/check-html-syntax.test.ts',
   'src/tools/verify/check-language-syntax.test.ts',
