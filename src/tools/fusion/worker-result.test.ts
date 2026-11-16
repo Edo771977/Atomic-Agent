@@ -518,6 +518,22 @@ describe("formatDelegateOutput — a replaced input (F43)", () => {
     expect(lines[3]).not.toContain("review:");
   });
 
+  it("carries a watch: clause only when the watch sent hints or stopped the task (issue #43)", () => {
+    const watch = (hints: number, stopped: boolean) => ({ checks: 4, judgeCalls: 2, hints, stopped, judge: "model-r" });
+    const out = formatDelegateOutput(
+      [
+        row({ id: "t1", watch: watch(2, false) }),
+        row({ id: "t2", status: "failed", failure: "stuck", error: "stuck: the watch", watch: watch(0, true) }),
+        row({ id: "t3", watch: watch(0, false) }),
+      ],
+      4000,
+    );
+    const lines = out.split("\n");
+    expect(lines[1]).toContain("watch: 2 hints from model-r after 4 checks");
+    expect(lines[2]).toContain("watch: stopped as stuck by model-r after 4 checks");
+    expect(lines[3]).not.toContain("watch:");
+  });
+
   it("says nothing on the head line when no task replaced anything", () => {
     expect(formatDelegateOutput([row(), row({ id: "t2" })], 4000).split("\n")[0]).toBe("2 tasks: 2 ok");
   });

@@ -283,3 +283,20 @@ describe("a task the watch stopped goes to the director (issue #43)", () => {
     expect(result.summary).not.toContain("REPLAN REQUIRED");
   });
 });
+
+describe("the watch on the record (issue #43)", () => {
+  it("details.watch per task and the outcome log's counts, no text", async () => {
+    const written: Array<Record<string, unknown>> = [];
+    const outcomeLog = { append: (records: readonly unknown[]) => { written.push(...(records as Array<Record<string, unknown>>)); } };
+    const { result } = await run({
+      context: DIRECTED,
+      ticks: 2,
+      watchAnswer: '{"state":"looping","hint":"SECRET-HINT write a.txt"}',
+      over: { outcomeLog } as Partial<FusionDelegateDeps>,
+    });
+    expect(result.details.watch).toEqual({ t: { checks: 2, judgeCalls: 1, hints: 0, stopped: false, judge: "model-a" } });
+    const task = written.find((r) => r.type === "task")!;
+    expect(task.watch).toEqual({ checks: 2, judgeCalls: 1, hints: 0, stopped: false, judge: "model-a" });
+    expect(JSON.stringify(written)).not.toContain("SECRET-HINT");
+  });
+});

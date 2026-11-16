@@ -2869,6 +2869,15 @@ export function buildFusionDelegateTool(
                     ),
                   }
                 : {}),
+              // Every watched task's counts (issue #43); the row's `watch:`
+              // clause shows only hints and a stop.
+              ...(results.some((r) => r.watch !== undefined)
+                ? {
+                    watch: Object.fromEntries(
+                      results.flatMap((r) => (r.watch === undefined ? [] : [[r.id, r.watch]])),
+                    ),
+                  }
+                : {}),
               ...(profileReports.length === 0 ? {} : { profiles: profileReports }),
               ...(merges.length === 0 ? {} : { merges }),
               ...(replan === undefined ||

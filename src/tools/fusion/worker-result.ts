@@ -1431,6 +1431,7 @@ function renderStatusTable(
         : []),
       ...syntaxClause(r),
       ...(r.review === undefined ? [] : [reviewClause(r.review)]),
+      ...watchClause(r.watch),
       ...(r.notes ?? []).map((note) => oneLine(note, TABLE_DETAIL_CHARS)),
     ].join(" — "),
   );
@@ -1440,6 +1441,22 @@ function renderStatusTable(
     ...lines,
     ...(clock === null ? [] : [clock]),
   ].join("\n");
+}
+
+/**
+ * `watch: 2 hints from <judge> after 4 checks` or `watch: stopped as stuck
+ * by <judge> after 4 checks` (issue #43); nothing when the watch only
+ * looked. The counts are in `details.watch`.
+ */
+export function watchClause(watch: WatchRecord | undefined): string[] {
+  if (watch === undefined || (watch.hints === 0 && !watch.stopped)) return [];
+  const by = watch.judge === null ? "" : ` ${watch.stopped ? "by" : "from"} ${watch.judge}`;
+  const after = ` after ${watch.checks} check${watch.checks === 1 ? "" : "s"}`;
+  const hints = watch.hints > 0 ? `${watch.hints} hint${watch.hints === 1 ? "" : "s"}` : "";
+  const text = watch.stopped
+    ? `watch: ${hints.length > 0 ? `${hints}, then ` : ""}stopped as stuck${by}${after}`
+    : `watch: ${hints}${by}${after}`;
+  return [oneLine(text, TABLE_DETAIL_CHARS)];
 }
 
 /** Issues a row's `review:` clause names; the rest are counted (all are in `details.review`). */
