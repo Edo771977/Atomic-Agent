@@ -83,19 +83,47 @@ test('X-Atomic-Project: 1 goes on a chat only when the agent reports agent.proje
   }
 });
 
-test('an agent whose capabilities fail gets no project header, and is asked again next time', async () => {
+test('a failed capabilities read is kept for a minute, not asked again before every message', async () => {
   let fail = true;
   const s = await standIn((r) => {
     if (r.url.startsWith('/api/capabilities')) return fail ? [500, {error: {message: 'boom'}}] : [200, {agent: {project: true}}];
     return chatAgent({project: true})(r);
   });
+  const caps = () => s.seen.filter((r) => r.url.startsWith('/api/capabilities')).length;
   try {
     await s.client.chat('t1', [{role: 'user', content: 'hi'}], 'ses-1');
     fail = false;
     await s.client.chat('t2', [{role: 'user', content: 'hi'}], 'ses-2');
+    assert.equal(caps(), 1, 'the failure is remembered');
+    s.client.projectFlowRetryMs = 0;   // the minute has passed
+    await s.client.chat('t3', [{role: 'user', content: 'hi'}], 'ses-3');
+    assert.equal(caps(), 2);
     const chats = s.seen.filter((r) => r.url === '/v1/chat/completions');
-    assert.equal(chats[0].headers['x-atomic-project'], undefined);
-    assert.equal(chats[1].headers['x-atomic-project'], '1');
+    assert.deepEqual(chats.map((c) => c.headers['x-atomic-project']), [undefined, undefined, '1']);
+  } finally { await s.close(); }
+});
+
+test('a project route an agent no longer has (404 No route, 501) makes the next chat ask the capabilities again', async () => {
+  let routes = true;
+  const s = await standIn((r, body) => {
+    if (r.url === '/api/project/decision') return routes ? [200, {view: view(), continue_message: null}] : [404, {error: {message: 'No route for POST /api/project/decision'}}];
+    if (r.url.startsWith('/api/project?')) return [501, {error: {message: 'no projects here'}}];
+    return chatAgent({project: true})(r);
+  });
+  const caps = () => s.seen.filter((r) => r.url.startsWith('/api/capabilities')).length;
+  const decide = () => s.client.projectDecision({session: 'ses-1', gate: {kind: 'plan'}, version: 3, verdict: 'approve'});
+  try {
+    await s.client.chat('t1', [{role: 'user', content: 'hi'}], 'ses-1');
+    await decide();
+    await s.client.chat('t2', [{role: 'user', content: 'hi'}], 'ses-1');
+    assert.equal(caps(), 1, 'a working route keeps the answer');
+    routes = false;
+    assert.deepEqual(await decide(), {supported: false});
+    await s.client.chat('t3', [{role: 'user', content: 'hi'}], 'ses-1');
+    assert.equal(caps(), 2, 'an agent that lost the route is asked again');
+    assert.deepEqual(await s.client.getProject('ses-1'), {supported: false}, 'a 501 read is unsupported too');
+    await s.client.chat('t4', [{role: 'user', content: 'hi'}], 'ses-1');
+    assert.equal(caps(), 3);
   } finally { await s.close(); }
 });
 

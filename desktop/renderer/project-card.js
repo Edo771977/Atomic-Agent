@@ -704,8 +704,10 @@ function createProjectCard(opts) {
         if (changed) { state = pcReduce(state, {type: 'view', view: store.get(asked), inFlight: state.busy}); paint(); notify(); }
       }).catch(() => undefined);
     },
-    /** Another agent is on the wire: what the last one said is not this one's. */
-    reset() { const keep = sid; store.clear(); pending.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+    /* Another agent is on the wire (a restart, a remote one): what the last
+       one said is not this one's, except a continue message still owed to a
+       chat, which the person's decision already recorded. */
+    reset() { const keep = sid; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
     /** Show project: the hidden card again. */

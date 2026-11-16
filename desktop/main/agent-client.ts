@@ -1922,9 +1922,12 @@ export class AgentClient extends EventEmitter {
   }
 
   /* Issue #39: whether this agent runs the project flow (`agent.project` on
-     GET /api/capabilities), read once per agent (address and token). A read
-     that fails is not kept: the next chat asks again. */
-  private projectFlow: { key: string; value: Promise<boolean> } | null = null;
+     GET /api/capabilities), read once per agent (address and token) and
+     forgotten when it restarts (stopNow) or a project route turns out to be
+     missing. A read that fails counts as "no" for `projectFlowRetryMs`, so a
+     flaky agent is not asked before every message. */
+  private projectFlow: { key: string; value: Promise<boolean>; failedAt: number | null } | null = null;
+  projectFlowRetryMs = 60_000;
   private projectFlowSupported(): Promise<boolean> {
     let key: string;
     try {
@@ -1932,8 +1935,9 @@ export class AgentClient extends EventEmitter {
     } catch {
       return Promise.resolve(false);
     }
-    if (this.projectFlow?.key === key) return this.projectFlow.value;
-    const entry: { key: string; value: Promise<boolean> } = { key, value: Promise.resolve(false) };
+    const kept = this.projectFlow;
+    if (kept?.key === key && (kept.failedAt === null || Date.now() - kept.failedAt < this.projectFlowRetryMs)) return kept.value;
+    const entry: { key: string; value: Promise<boolean>; failedAt: number | null } = { key, value: Promise.resolve(false), failedAt: null };
     entry.value = (async () => {
         try {
           const res = await fetch(`${this.base()}/api/capabilities`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
@@ -1941,7 +1945,7 @@ export class AgentClient extends EventEmitter {
           const body = (await res.json()) as { agent?: { project?: unknown } };
           return body?.agent?.project === true;
         } catch {
-          if (this.projectFlow === entry) this.projectFlow = null;
+          entry.failedAt = Date.now();
           return false;
         }
       })();
@@ -1963,7 +1967,10 @@ export class AgentClient extends EventEmitter {
         signal: AbortSignal.timeout(10_000),
       });
       const text = await res.text();
-      if (res.status === 404 && /No route for/.test(text)) return { supported: false };
+      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) {
+        this.projectFlow = null;   // the agent changed under us: ask its capabilities again
+        return { supported: false };
+      }
       if (res.status === 404) return { supported: true, ok: true, view: null };
       if (!res.ok) return { supported: true, ok: false, status: res.status, error: errorMessage(text, res.status) };
       const body = JSON.parse(text) as { view?: unknown };
@@ -1993,7 +2000,10 @@ export class AgentClient extends EventEmitter {
         signal: AbortSignal.timeout(30_000),
       });
       const text = await res.text();
-      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) return { supported: false };
+      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) {
+        this.projectFlow = null;   // the agent changed under us: ask its capabilities again
+        return { supported: false };
+      }
       let parsed: { view?: unknown; continue_message?: unknown; error?: { code?: unknown } } = {};
       try {
         parsed = JSON.parse(text) as typeof parsed;

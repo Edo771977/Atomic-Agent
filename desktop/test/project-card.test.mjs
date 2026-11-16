@@ -728,3 +728,15 @@ test('the narrow sheet follows the composer and the chat through a ResizeObserve
   assert.ok(!/pcPlace\(/.test(follow), 'no forced layout on every paint');
   assert.match(follow, /PCWATCH\.sync\(\)/);
 });
+
+test('a continue message still pending survives reset() for the same chat (the agent restarted)', async () => {
+  const c = controller({decide: async () => ({supported: true, ok: true, view: closed(), continueMessage: 'Go on.'})});
+  c.refuse(true);
+  c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
+  c.last().on({type: 'verdict', verdict: 'approve'}); await tick(); await tick();
+  assert.deepEqual(c.continued, []);
+  c.card.reset();
+  c.refuse(false);
+  c.card.follow('ses-1');
+  assert.deepEqual(c.continued, [['ses-1', 'Go on.']]);
+});
