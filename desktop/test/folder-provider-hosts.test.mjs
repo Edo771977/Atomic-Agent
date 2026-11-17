@@ -218,3 +218,39 @@ test("main's customProviderId is the wizard's (renderer.js)", () => {
     assert.equal(H.customProviderId(u), renderer(u), u);
   }
 });
+
+// Review item: local-llama is kept for #llm-url even when it has its own url,
+// because saving that field rewrites it (setExternalLlamaUrl →
+// syncLocalLlamaProviderUrl); dropping it would hide a real refusal. The
+// window's list (renderer.js lanfProviderIdsFor) and main's agree.
+test("llm-url feeds local-llama even with its own url (the save moves it), and the window agrees with main", async () => {
+  const providers = [
+    { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
+    { id: "spare", kind: "llama-server" },
+    { id: "own-url", kind: "llama-server", url: "http://127.0.0.1:9000" },
+  ];
+  await withConfig({ version: 75, localModels: { mode: "managed" }, llm: { providers } }, async (config) => {
+    const w = await cli.setExternalLlamaUrl("http://192.168.1.20:8080");
+    assert.equal(w.ok, true, w.error);
+    const after = Object.fromEntries(config().llm.providers.map((p) => [p.id, p.url]));
+    assert.equal(after["local-llama"], "http://192.168.1.20:8080");
+    assert.equal(after["own-url"], "http://127.0.0.1:9000");
+  });
+  const src = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const fn = /\nfunction lanfProviderIdsFor\(fieldId, url\) \{[\s\S]*?\n\}/.exec(src);
+  const cid = /\nfunction customProviderId\(url\) \{[\s\S]*?\n\}/.exec(src);
+  assert.ok(fn && cid);
+  const lanSrc = readFileSync(new URL("../renderer/lan-provider.js", import.meta.url), "utf8");
+  const lanFn = /\nfunction lanAddressToBaseUrl\(raw\) \{[\s\S]*?\n\}/.exec(lanSrc);
+  const L = { lanAddressToBaseUrl: new Function(lanFn[0] + "; return lanAddressToBaseUrl;")() };
+  for (const [WIZ, fieldId, url] of [
+    [{}, "llm-url", "http://192.168.1.20:8080"],
+    [{ row: { custom: true, lan: true, kind: "openai-compatible" } }, "wiz-url", "http://192.168.1.20:8080/v1"],
+    [{ row: { custom: true, kind: "openai-compatible" } }, "wiz-url", "http://10.0.0.5:1234/v1"],
+  ]) {
+    const ids = new Function("WIZ", "selProviders", "lanAddressToBaseUrl", fn[0] + cid[0] + "; return lanfProviderIdsFor;")(WIZ, () => providers, L.lanAddressToBaseUrl)(fieldId, url);
+    const fed = H.fieldProviderIds({ llm: { providers } }, { fieldId }, url);
+    assert.ok(ids.length > 0 && ids.every((id) => fed.includes(id)), `${fieldId} ${url}: ${ids} within ${fed}`);
+    if (fieldId === "llm-url") assert.deepEqual(ids, ["local-llama", "spare"]);
+  }
+});

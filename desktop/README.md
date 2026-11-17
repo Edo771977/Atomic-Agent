@@ -782,8 +782,9 @@ Honestly degraded, and labelled as such in the UI:
   Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
   servers on this network and checks an address; it saves nothing. Once an
   address is in the field, each folder whose `projects.constraints[F]`
-  allows that field's provider (`local-llama` and URL-less llama-server
-  entries for the llama.cpp URL; the wizard's entry for the Base URL) but
+  allows that field's provider (`local-llama`, even with a url of its own
+  since saving the field rewrites it, and URL-less llama-server entries for
+  the llama.cpp URL; the wizard's entry for the Base URL) but
   would refuse the host gets "Folder F allows <id> only on this computer;
   it will refuse <host>" and an "Allow <host> for F" button
   ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
