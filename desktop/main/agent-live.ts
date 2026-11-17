@@ -132,13 +132,15 @@ export function wireAgentLiveIpc(client: AgentClient): void {
   /* Issue #67: the composer's "restricted to: …" chip (renderer/chat-restriction.js).
      Read-only; the folder it names goes to the window and nowhere else. */
   // `remote`: the agent is another computer's, so this window's config.json is not its policy (review of #67).
-  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer & { remote: boolean }> => {
+  // `status`: the route's own (a 404 at a first turn's end is a chat not stored yet; the window asks once more).
+  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer & { remote: boolean; status: number | null }> => {
     const remote = client.isRemote;
-    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { ...readProviderRestriction(null), remote };
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { ...readProviderRestriction(null), remote, status: null };
     try {
-      return { ...readProviderRestriction(await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000)), remote: client.isRemote };
+      const res = await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000);
+      return { ...readProviderRestriction(res), remote: client.isRemote, status: res.status };
     } catch {
-      return { ...readProviderRestriction(null), remote: client.isRemote };
+      return { ...readProviderRestriction(null), remote: client.isRemote, status: null };
     }
   });
 }

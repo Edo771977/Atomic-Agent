@@ -288,7 +288,14 @@ this computer, IPC `remote: false`, whose config has every entry and agrees
 with `channelsAllowed`) and what
 Fusion does: both sides, the orchestrator alone, the workers' model alone,
 or neither. No answer, an error, a 404 (an older agent, or a chat not
-stored yet) or an unrestricted chat: no chip.
+stored yet) or an unrestricted chat: no chip. A 404 is asked once more
+after `PENDING_GRACE_MS` (the agent stores a first turn as its loop winds
+down). A chat with no session yet (before its first message, a chat marked
+for a project included) wears a provisional chip (dashed, `provisional`)
+worked out from the folder it will open in (the project's, else the
+window's) against this window's `projects.constraints`, the deepest entry
+holding it, for an agent on this computer only; its tooltip says the agent
+confirms it once the first message is sent.
 
 ## Process model
 

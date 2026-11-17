@@ -63,7 +63,9 @@ function restrictionTip(info, opts) {
   if (!r) return '';
   const word = (opts && opts.word) || ((id) => id);
   const lines = [];
-  lines.push(r.readFrom && r.readFrom.length
+  if (info.provisional) {
+    lines.push("This new chat's folder (" + info.dir + ") is restricted in projects.constraints. From this window's config: the agent confirms it once the first message is sent.");
+  } else lines.push(r.readFrom && r.readFrom.length
     ? 'This chat read files from ' + r.readFrom.join(', ') + ', which ' + (r.readFrom.length > 1 ? 'are' : 'is') + ' restricted in projects.constraints.'
     : "This chat's folder (" + r.folder + ') is restricted in projects.constraints.');
   lines.push('Providers allowed: ' + (r.allowedProviders.length ? r.allowedProviders.map(word).join(', ') : 'none') + '.');
@@ -80,17 +82,59 @@ function restrictionTip(info, opts) {
   return lines.join('\n');
 }
 
+/* Review of #67: a path as projects.constraints keys compare (core
+   normalizeConstraintPath, without resolving links): one separator, no
+   trailing one, lower case on Windows and macOS. */
+function restrictionPathKey(dir) {
+  let s = String(dir == null ? '' : dir).trim().replace(/[\\/]+/g, '/');
+  if (s.length > 1) s = s.replace(/\/+$/, '');
+  const fold = (typeof IS_WIN !== 'undefined' && IS_WIN) || (typeof IS_MAC !== 'undefined' && IS_MAC);
+  return fold ? s.toLowerCase() : s;
+}
+
+/* A chat with no session yet (before its first message, or while that turn
+   has not been named): the restriction its folder will carry, worked out from
+   this window's projects.constraints (the deepest entry holding the folder,
+   as the agent picks it), or null. Only for an agent on this computer, whose
+   config this is; marked `provisional`: the agent's answer replaces it. */
+function restrictionProvisional(dir, config) {
+  const pm = typeof ProjectModels !== 'undefined' && ProjectModels && ProjectModels.state;
+  if (!dir || !pm || !pm.loaded || pm.remote) return null;
+  const all = config && config.projects && config.projects.constraints;
+  if (!all || typeof all !== 'object') return null;
+  const d = restrictionPathKey(dir);
+  let best = null;
+  for (const [key, entry] of Object.entries(all)) {
+    const k = restrictionPathKey(key);
+    if (!k || !entry || !Array.isArray(entry.allowedProviders)) continue;
+    const inside = d === k || d.startsWith(k.endsWith('/') ? k : k + '/');
+    if (inside && (!best || k.length > best.len)) best = {key, entry, len: k.length};
+  }
+  if (!best) return null;
+  const allowed = best.entry.allowedProviders.filter((x) => typeof x === 'string');
+  return {known: true, provisional: true, dir: String(dir), channelsAllowed: null, remote: false,
+    restriction: {label: 'restricted to: ' + (allowed.length ? allowed.join(', ') : 'no provider'), allowedProviders: allowed, folder: best.key, readFrom: []}};
+}
+
+/** The folder a chat with no session yet opens in: its project's, else the window's. */
+function restrictionNewChatDir() {
+  const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
+  return (mark && mark.folder) || (typeof workingDir === 'function' ? workingDir() : '');
+}
+
 /** The chip for the chat on screen, or '' (renderer.js composer(), after the route chips). */
 function restrictionChipHTML() {
-  const info = RESTRICT.info;
-  if (!info || !info.restriction || !RESTRICT.sid || RESTRICT.sid !== S.sessionId) return '';
+  const info = !S.agentSession
+    ? restrictionProvisional(restrictionNewChatDir(), typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null)
+    : RESTRICT.sid && RESTRICT.sid === S.sessionId ? RESTRICT.info : null;
+  if (!info || !info.restriction) return '';
   const label = restrictionChipLabel(info);
   const tip = restrictionTip(info, {
     config: typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null,
     rm: typeof rmNow === 'function' ? rmNow() : null,
     word: typeof providerWord === 'function' ? providerWord : (id) => id,
   });
-  return '<span class="cchip restrictchip" tabindex="0" title="' + esc(tip) + '" aria-label="' + esc(label + '. ' + tip.replace(/\n/g, ' ')) + '">'
+  return '<span class="cchip restrictchip' + (info.provisional ? ' provisional' : '') + '" tabindex="0" title="' + esc(tip) + '" aria-label="' + esc(label + '. ' + tip.replace(/\n/g, ' ')) + '">'
     + ic('lock') + '<span class="cval">' + esc(label) + '</span></span>';
 }
 
@@ -111,7 +155,7 @@ function restrictionRepaint() {
 }
 
 /** Ask the agent about chat `sid` (on open, and when its turn ends). */
-async function restrictionRefresh(sid) {
+async function restrictionRefresh(sid, retried) {
   if (!sid || typeof BR === 'undefined' || !BR || !BR.providerRestriction) return;
   const token = ++RESTRICT.token;
   let info = null;
@@ -121,8 +165,15 @@ async function restrictionRefresh(sid) {
   RESTRICT.sid = sid;
   RESTRICT.info = info && info.known ? info : null;
   restrictionRepaint();
+  /* Review of #67: a 404 at a first turn's end is a chat the agent has not
+     stored yet (it writes the turn as its loop winds down): asked once more,
+     after the sidebar stand-in's own grace, unless the window moved on. */
+  if (!retried && info && !info.known && info.status === 404) {
+    const ms = typeof PENDING_GRACE_MS === 'number' ? PENDING_GRACE_MS : 5000;
+    setTimeout(() => { if (token === RESTRICT.token && sid === S.sessionId) void restrictionRefresh(sid, true); }, ms);
+  }
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {restrictionChipLabel, restrictionTip, restrictionEgress, restrictionFusionLine};
+  module.exports = {restrictionChipLabel, restrictionTip, restrictionEgress, restrictionFusionLine, restrictionPathKey};
 }

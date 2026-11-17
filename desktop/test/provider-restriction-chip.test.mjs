@@ -83,7 +83,7 @@ test("in Fusion the tooltip says which side runs", () => {
 function windowWith(answers) {
   const asked = [];
   const c = vm.createContext({
-    S: { sessionId: "s-1" }, LIVE_CONFIG: CONFIG, esc: (s) => String(s), ic: () => "", providerWord: word,
+    S: { sessionId: "s-1", agentSession: "s-1" }, LIVE_CONFIG: CONFIG, esc: (s) => String(s), ic: () => "", providerWord: word,
     rmNow: () => ({ effective: "local" }), document: { querySelector: () => null }, setTimeout,
     BR: { providerRestriction: async (sid) => { asked.push(sid); return answers[sid]; } },
   });
@@ -101,16 +101,16 @@ test("the chip is drawn for the chat on screen once its answer lands, and not fo
   assert.match(html, /class="cchip restrictchip"/);
   assert.match(html, /restricted to: local-llama/);
   assert.match(html, /title="This chat's folder/);
-  c.S.sessionId = "s-2";
+  c.S.sessionId = c.S.agentSession = "s-2";
   assert.equal(c.restrictionChipHTML(), "", "another chat does not wear it");
   await c.restrictionRefresh("s-2");
   assert.equal(c.restrictionChipHTML(), "");
   // An answer that lands after the chat was left is not drawn for the next one.
-  c.S.sessionId = "s-3";
+  c.S.sessionId = c.S.agentSession = "s-3";
   await c.restrictionRefresh("s-1");
   assert.equal(c.restrictionChipHTML(), "");
   // No session yet (a new chat before its first turn) asks nothing.
-  c.S.sessionId = null;
+  c.S.sessionId = c.S.agentSession = null;
   await c.restrictionRefresh(null);
   assert.equal(asked.includes(null), false);
 });
