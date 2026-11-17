@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import { ChatSessionMap } from "../chat-session-map.js";
 import { ImessageApprovalBridge } from "./imessage-approval-bridge.js";
@@ -180,5 +181,14 @@ describe("handleImessageMessage", () => {
     t.runTurn.mockRejectedValueOnce(new Error("provider down for +14155551212"));
     await expect(handleImessageMessage(msg(), t.ctx)).resolves.toBeUndefined();
     expect(t.sent.at(-1)?.text).toBe("Turn failed (provider down for <phone>)");
+  });
+});
+
+describe("per-folder egress (issue #33) on iMessage", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const t = setup();
+    (t.ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleImessageMessage(msg(), t.ctx);
+    expect(t.sent.map((s) => s.text)).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

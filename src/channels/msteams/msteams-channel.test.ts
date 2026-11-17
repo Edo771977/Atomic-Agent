@@ -141,3 +141,38 @@ describe("msteamsChannelDefinition", () => {
     expect(readTeamsTenantId({})).toBeNull();
   });
 });
+
+describe("TeamsChannel approval prompts in a restricted folder (issue #33)", () => {
+  it("binds a handler that posts the prompt without its details", async () => {
+    const setForSession = vi.fn((_id: string, _handler: (request: unknown) => void) => vi.fn());
+    const { channel, endpoints, fetchImpl } = makeChannel({ approvalRouter: { setForSession } as never });
+    (channel as unknown as { deps: { runtime: Record<string, unknown> } }).deps.runtime.channelSendRefusal =
+      () => "folder /clienti/acme is restricted";
+    await channel.start();
+    endpoints[0]!.deps.onActivity({
+      type: "message",
+      id: "m1",
+      channelId: "msteams",
+      serviceUrl: SERVICE,
+      text: "ping",
+      from: { id: "29:u", aadObjectId: "aad-owner" },
+      recipient: { id: "28:bot" },
+      conversation: { id: "a:1", conversationType: "personal" },
+    });
+    await vi.waitFor(() => expect(setForSession).toHaveBeenCalled());
+    const handler = setForSession.mock.calls[0]![1];
+    fetchImpl.mockClear();
+    handler({
+      approvalId: "ap1",
+      sessionId: "s1",
+      tool: "os.shell.run",
+      category: "shell",
+      reason: "run cat /clienti/acme/contract.txt",
+      preview: "cat /clienti/acme/contract.txt",
+    });
+    await vi.waitFor(() => expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("/activities"))).toBe(true));
+    const bodies = fetchImpl.mock.calls.map(([, init]) => String((init as RequestInit | undefined)?.body ?? "")).join("\n");
+    expect(bodies).not.toContain("/clienti/acme");
+    expect(bodies).toContain("details withheld");
+  });
+});

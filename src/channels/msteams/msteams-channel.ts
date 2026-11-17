@@ -13,6 +13,7 @@
  * backoff on one unref'd timer.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import type { ApprovalRouter } from "../../approval/approval-router.js";
 import type { ChannelStatus } from "../../runtime/channel-status.js";
@@ -219,7 +220,11 @@ export class TeamsChannel implements Channel {
     existing?.unsubscribe();
     this.approvalBindings.delete(sessionId);
     if (!this.bridge) return;
-    const unsubscribe = this.deps.approvalRouter.setForSession(sessionId, this.bridge.handlerFor(target));
+    // A restricted session's prompt goes without its details (issue #33).
+    const unsubscribe = this.deps.approvalRouter.setForSession(
+      sessionId,
+      gateApprovalHandler(this.deps.runtime, sessionId, this.bridge.handlerFor(target)),
+    );
     this.approvalBindings.set(sessionId, { key, unsubscribe });
   }
 

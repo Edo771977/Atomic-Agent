@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import { handleSlackEvent, refOf, stripMention, type SlackInboundContext } from "./slack-inbound-handler.js";
 import type { SlackMessageEvent, SlackTarget } from "./slack-types.js";
@@ -200,5 +201,14 @@ describe("stripMention", () => {
     expect(stripMention(`<@${BOT}> hi`, BOT)).toBe(" hi");
     expect(stripMention(`<@${BOT}|bot> hi`, BOT)).toBe(" hi");
     expect(stripMention(`ask <@${BOT}> later`, BOT)).toBe(`ask <@${BOT}> later`);
+  });
+});
+
+describe("per-folder egress (issue #33) on Slack", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const { ctx, posted } = makeCtx();
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleSlackEvent(dm("hello"), ctx);
+    expect(posted.map((p) => p.text)).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

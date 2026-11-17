@@ -13,6 +13,7 @@
  * while the watcher keeps retrying with the shared backoff.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import { join } from "node:path";
 
 import type { ApprovalGate } from "../../approval/approval-gate.js";
@@ -213,7 +214,11 @@ export class ImessageChannel implements Channel {
     existing?.unsubscribe();
     this.approvalBindings.delete(sessionId);
     if (!this.bridge) return;
-    const unsubscribe = this.deps.approvalRouter.setForSession(sessionId, this.bridge.handlerFor(chatId, target));
+    // A restricted session's prompt goes without its details (issue #33).
+    const unsubscribe = this.deps.approvalRouter.setForSession(
+      sessionId,
+      gateApprovalHandler(this.deps.runtime, sessionId, this.bridge.handlerFor(chatId, target)),
+    );
     this.approvalBindings.set(sessionId, { chatId, unsubscribe });
   }
 

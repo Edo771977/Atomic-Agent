@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import type { MatrixEvent } from "./matrix-api.js";
 import { handleMatrixEvent, type MatrixInboundContext } from "./matrix-inbound-handler.js";
@@ -202,5 +203,14 @@ describe("handleMatrixEvent", () => {
     const { ctx } = makeCtx();
     (ctx.api.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("down"));
     await expect(handleMatrixEvent(ROOM, text("go"), ctx)).resolves.toBeUndefined();
+  });
+});
+
+describe("per-folder egress (issue #33) on Matrix", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const { ctx, messages, notices } = makeCtx();
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleMatrixEvent(ROOM, text("list files"), ctx);
+    expect([...messages, ...notices]).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

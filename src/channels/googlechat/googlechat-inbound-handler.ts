@@ -20,6 +20,7 @@ import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ChatSessionMap } from "../chat-session-map.js";
 import type { GoogleChatApprovalBridge } from "./googlechat-approval-bridge.js";
 import { GOOGLE_CHAT_HELP_TEXT, handleGoogleChatCommand } from "./googlechat-commands.js";
+import { channelSendWithheld, CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 import {
   chunkGoogleChatText,
   googleChatRequestText,
@@ -170,6 +171,7 @@ async function dispatchToRuntime(
   ctx.ensureApprovalSession(session.id, space);
   const controller = new AbortController();
   ctx.inflight.set(space, controller);
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
 
   let reply: string | null = null;
   let replyFiles: ReadonlyArray<string> = [];
@@ -199,6 +201,13 @@ async function dispatchToRuntime(
     releaseIfMovedOn(space, session.id, ctx);
   }
 
+  // Asked after the turn (issue #33): a read inside a constrained folder
+  // can taint the session mid-turn, after the runtime let it in. A
+  // withheld session gets the fixed notice alone: no reply, file or failure text.
+  if (withheld()) {
+    await say(ctx, space, CHANNEL_RESTRICTED_NOTICE, thread);
+    return;
+  }
   if (controller.signal.aborted) {
     await say(ctx, space, "Turn cancelled.", thread);
   } else if (reply !== null) {

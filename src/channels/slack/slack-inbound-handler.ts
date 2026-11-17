@@ -20,6 +20,7 @@ import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ChatSessionMap } from "../chat-session-map.js";
 import { runModelCommand } from "../model-command.js";
+import { channelSendWithheld, CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 import type { SlackApi } from "./slack-api.js";
 import { markdownToSlack } from "./slack-format.js";
 import { scrubSlackError, type SlackMessageEvent, type SlackTarget } from "./slack-types.js";
@@ -188,6 +189,7 @@ export async function dispatchToRuntime(text: string, ref: SlackRef, ctx: SlackI
   ctx.ensureApprovalSession?.(session.id, ref.target);
   const controller = new AbortController();
   ctx.inflight.set(ref.key, controller);
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
 
   let reply: string | null = null;
   let files = 0;
@@ -219,6 +221,13 @@ export async function dispatchToRuntime(text: string, ref: SlackRef, ctx: SlackI
     if (ctx.sessions.get(ref.key).current !== session.id) ctx.releaseApprovalSession?.(session.id);
   }
 
+  // Asked after the turn (issue #33): a read inside a constrained folder
+  // can taint the session mid-turn, after the runtime let it in. A
+  // withheld session gets the fixed notice alone: no reply, file or failure text.
+  if (withheld()) {
+    await post(ctx, ref, CHANNEL_RESTRICTED_NOTICE);
+    return;
+  }
   if (controller.signal.aborted) {
     await post(ctx, ref, "Turn cancelled.");
   } else if (reply !== null) {

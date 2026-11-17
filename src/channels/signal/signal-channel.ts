@@ -9,6 +9,7 @@
  * retrying in the background until `stop()`.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import { join } from "node:path";
 
 import type { ChannelState, ChannelStatus } from "../../runtime/channel-status.js";
@@ -157,7 +158,11 @@ export class SignalChannel implements Channel {
   private bindApprovals(sessionId: string, target: SignalTarget): void {
     if (!this.bridge) return;
     this.approvalBindings.get(sessionId)?.();
-    const unsubscribe = this.ctx.approvalRouter.setForSession(sessionId, this.bridge.handlerFor(target));
+    // A restricted session's prompt goes without its details (issue #33).
+    const unsubscribe = this.ctx.approvalRouter.setForSession(
+      sessionId,
+      gateApprovalHandler(this.ctx.runtime, sessionId, this.bridge.handlerFor(target)),
+    );
     this.approvalBindings.set(sessionId, unsubscribe);
   }
 

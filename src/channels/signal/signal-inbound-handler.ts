@@ -19,6 +19,7 @@ import type { ChannelContext } from "../channel.js";
 import type { ChatSessionMap } from "../chat-session-map.js";
 import { chunkMessage } from "../discord/discord-channel-types.js";
 import { runModelCommand } from "../model-command.js";
+import { channelSendWithheld, CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 import type { SignalApprovalBridge } from "./signal-approval-bridge.js";
 import type { SignalTarget } from "./signal-rpc.js";
 import { formatSignalSenderLine } from "./signal-sender-line.js";
@@ -198,6 +199,7 @@ async function dispatch(
 
   const controller = new AbortController();
   ctx.inflight.set(chatKey, controller);
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
   const stopTyping = startTyping(ctx, target);
 
   let answer: string | null = null;
@@ -227,6 +229,13 @@ async function dispatch(
     releaseIfMovedOn(chatKey, session.id, ctx);
   }
 
+  // Asked after the turn (issue #33): a read inside a constrained folder
+  // can taint the session mid-turn, after the runtime let it in. A
+  // withheld session gets the fixed notice alone: no reply, file or failure text.
+  if (withheld()) {
+    await reply(ctx, target, CHANNEL_RESTRICTED_NOTICE);
+    return;
+  }
   if (controller.signal.aborted) {
     await reply(ctx, target, "Turn cancelled.");
   } else if (answer !== null) {

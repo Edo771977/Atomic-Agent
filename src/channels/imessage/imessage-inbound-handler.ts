@@ -16,6 +16,7 @@ import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ChatSessionMap } from "../chat-session-map.js";
 import { runModelCommand } from "../model-command.js";
+import { channelSendWithheld, CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 import type { ImessageApprovalBridge } from "./imessage-approval-bridge.js";
 import { isOwnerHandle, maskHandle } from "./imessage-handle.js";
 import type { ServiceCheck } from "./imessage-service-check.js";
@@ -189,6 +190,7 @@ async function dispatchToRuntime(
 
   const controller = new AbortController();
   ctx.inflight.set(chatKey, controller);
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
   let reply: string | null = null;
   let failure: string | null = null;
   const eventHook = (event: AgentLoopEvent): void => {
@@ -206,6 +208,13 @@ async function dispatchToRuntime(
     if (ctx.sessions.get(chatKey).current !== session.id) ctx.releaseApprovalSession(session.id);
   }
 
+  // Asked after the turn (issue #33): a read inside a constrained folder
+  // can taint the session mid-turn, after the runtime let it in. A
+  // withheld session gets the fixed notice alone: no reply, file or failure text.
+  if (withheld()) {
+    await ctx.send(target, CHANNEL_RESTRICTED_NOTICE);
+    return;
+  }
   if (controller.signal.aborted) await ctx.send(target, "Turn cancelled.");
   else if (reply !== null) await ctx.send(target, reply);
   else if (failure !== null) await ctx.send(target, `Turn failed (${scrubImessageError(failure)})`);

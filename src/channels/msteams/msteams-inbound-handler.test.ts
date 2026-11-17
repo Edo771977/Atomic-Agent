@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import { handleTeamsActivity, stripBotMention, type TeamsInboundContext } from "./msteams-inbound-handler.js";
 import type { TeamsActivity, TeamsTarget } from "./msteams-types.js";
@@ -166,5 +167,14 @@ describe("stripBotMention", () => {
       ],
     };
     expect(stripBotMention(a, BOT)).toBe("ask <at>Bob</at>");
+  });
+});
+
+describe("per-folder egress (issue #33) on Teams", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const { ctx, posted } = makeCtx();
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleTeamsActivity(personal("hello"), ctx);
+    expect(posted.map((p) => p.text)).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

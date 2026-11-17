@@ -20,6 +20,7 @@ import type { ChatSessionMap } from "../chat-session-map.js";
 import type { MatrixApi, MatrixEvent } from "./matrix-api.js";
 import type { MatrixApprovalBridge } from "./matrix-approval-bridge.js";
 import { handleMatrixCommand } from "./matrix-commands.js";
+import { channelSendWithheld, CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 import { matrixSenderLine, stripBotMention, stripReplyFallback } from "./matrix-text.js";
 import {
   ENCRYPTED_NOTICE_INTERVAL_MS,
@@ -137,6 +138,7 @@ async function dispatchToRuntime(
   ctx.ensureApprovalSession(session.id, roomId);
   const controller = new AbortController();
   ctx.inflight.set(roomId, controller);
+  const withheld = channelSendWithheld(ctx.runtime, session.id);
   const stopTyping = startTyping(roomId, ctx);
 
   let reply: string | null = null;
@@ -168,6 +170,13 @@ async function dispatchToRuntime(
     releaseIfMovedOn(roomId, session.id, ctx);
   }
 
+  // Asked after the turn (issue #33): a read inside a constrained folder
+  // can taint the session mid-turn, after the runtime let it in. A
+  // withheld session gets the fixed notice alone: no reply, file or failure text.
+  if (withheld()) {
+    await notice(ctx, roomId, CHANNEL_RESTRICTED_NOTICE);
+    return;
+  }
   if (controller.signal.aborted) {
     await notice(ctx, roomId, "Turn cancelled.");
   } else if (reply !== null) {

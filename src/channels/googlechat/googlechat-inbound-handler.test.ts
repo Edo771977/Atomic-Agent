@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import { GOOGLE_CHAT_HELP_TEXT } from "./googlechat-commands.js";
 import type { GoogleChatEvent, GoogleChatUser } from "./googlechat-events.js";
@@ -205,5 +206,14 @@ describe("handleGoogleChatEvent", () => {
   it("never throws, even when posting fails", async () => {
     const { ctx } = makeCtx({ post: vi.fn(async () => Promise.reject(new Error("Bearer ya29.x"))) });
     await expect(handleGoogleChatEvent(message("hi"), ctx)).resolves.toBeUndefined();
+  });
+});
+
+describe("per-folder egress (issue #33) on Google Chat", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const { ctx, posts } = makeCtx();
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleGoogleChatEvent(message("list files"), ctx);
+    expect(posts.map((p) => p.text)).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

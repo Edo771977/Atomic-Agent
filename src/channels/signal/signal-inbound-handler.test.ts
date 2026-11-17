@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
 
 import { ChatSessionMap } from "../chat-session-map.js";
 import { SignalApprovalBridge } from "./signal-approval-bridge.js";
@@ -177,5 +178,14 @@ describe("handleSignalEnvelope", () => {
       },
     });
     await expect(handleSignalEnvelope(dm("/help"), ctx)).resolves.toBeUndefined();
+  });
+});
+
+describe("per-folder egress (issue #33) on Signal", () => {
+  it("replaces the reply with the restricted notice when the session may not reach the chat", async () => {
+    const { ctx, sent } = makeCtx();
+    (ctx.runtime as unknown as { channelSendRefusal: unknown }).channelSendRefusal = () => "folder /clienti/acme is restricted";
+    await handleSignalEnvelope(dm("what time is it"), ctx);
+    expect(sent.map((s) => s.text)).toEqual([CHANNEL_RESTRICTED_NOTICE]);
   });
 });

@@ -10,6 +10,7 @@
  * `<stateDir>/.env` as `MATRIX_ACCESS_TOKEN`.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import { resolve } from "node:path";
 
 import type { ApprovalGate } from "../../approval/approval-gate.js";
@@ -254,7 +255,11 @@ export class MatrixChannel implements Channel {
       }
     }
     if (!this.bridge) return;
-    const unsubscribe = this.deps.approvalRouter.setForSession(sessionId, this.bridge.handlerFor(roomId));
+    // A restricted session's prompt goes without its details (issue #33).
+    const unsubscribe = this.deps.approvalRouter.setForSession(
+      sessionId,
+      gateApprovalHandler(this.deps.runtime, sessionId, this.bridge.handlerFor(roomId)),
+    );
     this.approvalBindings.set(sessionId, { roomId, unsubscribe });
   }
 

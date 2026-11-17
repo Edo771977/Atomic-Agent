@@ -11,6 +11,7 @@
  * JSON key in `<stateDir>/.env` as `GOOGLE_CHAT_CREDENTIALS`.
  */
 
+import { gateApprovalHandler } from "../channel-egress.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -264,7 +265,8 @@ export class GoogleChatChannel implements Channel {
       }
     }
     if (!this.bridge) return;
-    const handler = this.bridge.handlerFor(space, () => this.threads.get(space));
+    // A restricted session's prompt goes without its details (issue #33).
+    const handler = gateApprovalHandler(this.deps.runtime, sessionId, this.bridge.handlerFor(space, () => this.threads.get(space)));
     const unsubscribe = this.deps.approvalRouter.setForSession(sessionId, handler);
     this.approvalBindings.set(sessionId, { space, unsubscribe });
   }
