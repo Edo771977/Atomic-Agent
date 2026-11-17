@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -17,7 +18,7 @@ import {
   toolCallsFromTrace,
 } from "./workspace.mjs";
 
-const HERE = new URL(".", import.meta.url).pathname;
+const HERE = fileURLToPath(new URL(".", import.meta.url));
 const temps: string[] = [];
 function temp(): string {
   const dir = mkdtempSync(join(tmpdir(), "aa-pf-test-"));
