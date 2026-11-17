@@ -577,7 +577,7 @@ export function handoffTargetRefusal(
     : `${origin.text}, which ${origin.plural ? "are" : "is"} restricted to: ${list}`;
   const keys = effective.key.split(" + ").map((k) => `projects.constraints[${JSON.stringify(k)}]`).join(" and ");
   return `${head}; a handoff to ${HANDOFF_TARGET_LABEL[to]} would send this chat to ${HANDOFF_TARGET_VENDOR[to]}, so nothing was written. ` +
-    `To allow it, add the id of a ${HANDOFF_TARGET_VENDOR[to]} provider (llm.providers) to allowedProviders of ${keys}`;
+    `To allow it, add the id of an ${HANDOFF_TARGET_VENDOR[to]} provider (llm.providers) to allowedProviders of ${keys}`;
 }
 
 function usableDir(dir: string | null): string | null {
