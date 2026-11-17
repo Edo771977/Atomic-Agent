@@ -53,10 +53,15 @@ the warning when it was drafted after outside content), the plan rows
 (worker, reviewer, reason, measured or preset basis and samples, estimate;
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
-one stands), the view's `hints` (`ℹ` lines, as the TUI), the milestones
-(each with its `criteriaFacts` as `✓` / `✕` / `?` lines in the core's words,
-and its `attachments` as text only: how many, each caption with its criteria
-and the file's name; no file is read and no image or file link is drawn), and under the plan the core's own note that
+one stands), the view's `hints` (`ℹ` lines, the TUI card's prefix), the
+milestones, and under every milestone that has them (the card lists all
+milestones, as the TUI's full `/plan` view does; its compact card shows only
+the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` lines in the
+core's `criterionFactLine` words and its `attachments` as text only: an
+"N pictures" line, then each caption with its criteria (the core's
+`attachmentLabel`) and the file's name, where the TUI shows the full path as
+a file link; no file is read and no image or file link is drawn. Under the
+plan comes the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
 row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;
