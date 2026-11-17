@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
+import { pathToFileURL } from "node:url";
+
+import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import { projectCardLines, projectResumeLine } from "./project-card-lines.js";
 import { reduceProjectCard, type ProjectCardState } from "./project-card-state.js";
@@ -39,6 +41,23 @@ describe("project card lines", () => {
     expect(text(card(planWith({ detail: "full" })))).toContain("t2 Level screen");
   });
 
+  it("shows a local row as $0.00 (local), not unpriced (issue #54)", () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);
+    const out = text(card({ ...base, plan: { ...base.plan!, rows, totals: { ...base.plan!.totals, unknownCostRows: 0 } } }, true));
+    expect(out).toContain("worker model-c · review no review · $0.00 (local) · time unknown");
+    expect(out).not.toContain("unpriced");
+  });
+
+  it("shows the view's hints and hides edit rows when the plan is not editable (issue #54)", () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const view: ProjectGateView = { ...base, hints: ["only one worker available: configure llm.runMode.fusion.team to choose"], plan: { ...base.plan!, editable: false } };
+    const out = text(card(view));
+    expect(out).toContain("only one worker available: configure llm.runMode.fusion.team to choose");
+    expect(out).not.toContain("edit rows");
+    expect(out).toMatch(/a approve .* c cheaper/);
+  });
+
   it("says the approved write scope is the session folder (rows carry no file list)", () => {
     expect(text(card(fixtureProjectGateView({ kind: "plan" })))).toContain("Approving lets these tasks write in this chat's folder");
     expect(text(card(fixtureProjectGateView({ kind: "plan" }), true))).toContain("Approving lets these tasks write in this chat's folder");
@@ -75,6 +94,21 @@ describe("project card lines", () => {
     expect(out).toContain("MILESTONE Base DONE — YOUR REVIEW");
     expect(out).toContain("Board renders");
     expect(out).toContain("e correct");
+  });
+
+  it("milestone gate: criteria facts by tone and each picture's caption with its path as a file link (issue #40)", () => {
+    const c = card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] })));
+    const out = text(c);
+    expect(out).toContain("✓ c1 passed: Runs in a browser");
+    expect(out).toContain("? c2 unverified: Ten levels (no vision-capable reviewer)");
+    expect(out).toContain("The board at start [c1]");
+    const lines = projectCardLines(c, 90);
+    const link = lines.flatMap((l) => l.segments).find((s) => s.link !== undefined);
+    expect(link).toMatchObject({ text: FIXTURE_SHOT_PATH, link: pathToFileURL(FIXTURE_SHOT_PATH).href });
+    const unverified = lines.flatMap((l) => l.segments).find((s) => s.text.includes("c2 unverified"));
+    expect(unverified?.tone).toBe("warn");
+    // Not on the plan gate's compact card.
+    expect(text(card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "plan" }))))).not.toContain("The board at start");
   });
 
   it("note mode shows the typed correction", () => {

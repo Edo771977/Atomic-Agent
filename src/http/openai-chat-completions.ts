@@ -27,6 +27,9 @@ import {
 import { getConfig } from "../config/index.js";
 
 import { checkWorkingDir } from "./session-working-dir.js";
+import { chatGoalSpec, goalProgressFrame } from "./chat-goal.js";
+import type { GoalState } from "../agent/goal/index.js";
+import { parseProjectFields, type SessionProject } from "../session/session-project.js";
 import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
@@ -47,8 +50,10 @@ import {
 } from "./request-context.js";
 import { deriveChatSessionId } from "./openai-session-id.js";
 import { maintenanceFrame } from "./stream-maintenance-frames.js";
+import { PROJECT_SECTION_MAX_TOKENS } from "../prompt/build-prompt.js";
 import { toolDisabledNotice } from "../agent/tool-disabled-notice.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
+import { canvasRecordOf, type CanvasRecord } from "../tools/canvas/index.js";
 import { createTurnPhaseTracker } from "./stream-turn-phase.js";
 import { claimTurnProgress } from "../agent/step/turn-progress-opt-in.js";
 import { claimScreenOverlay } from "../tools/os/screen/screen-overlay-hosts.js";
@@ -124,6 +129,13 @@ interface ChatCompletionRequest {
   /** ATO-731: the folder a NEW session works in (absolute); an existing one keeps its own. */
   working_dir?: string;
   /**
+   * ATO-42: the instructions of the client's project this chat belongs to,
+   * re-sent each turn; null clears them, absent keeps what the session has.
+   */
+  project_instructions?: string | null;
+  /** ATO-42: the project's name, shown to the model beside its instructions. */
+  project_name?: string | null;
+  /**
    * ATO-490: OpenAI's own field, read as the chat's reasoning level.
    * `low` / `medium` / `high` override for this turn; `auto`, absent and
    * any other value change nothing (`reasoningOverrideFromRequest`).
@@ -167,6 +179,8 @@ interface ParsedRequest {
   sessionIdOverride: string | null;
   /** ATO-731: `working_dir`, checked; null for the server's own folder. */
   workingDir: string | null;
+  /** ATO-42: the project fields, checked (see `parseProjectFields`). */
+  project: SessionProject | null | undefined;
   /** ATO-586: `incognito: true` on the request. */
   incognito: boolean;
   /** ATO-1148: `provider_id` + `provider_model`, checked; null for the active model. */
@@ -268,6 +282,7 @@ async function handleNonStream(
   const controller = new AbortController();
   onClientGone(res, () => controller.abort());
   let result: RunTurnResult;
+  const nonStreamGoal = chatGoalSpec(env.session, env.request.extensionsEnabled);
   try {
     // Non-stream mode ignores intermediate events — only the final
     // RunTurnResult matters. The TurnController per-session lock is
@@ -275,6 +290,9 @@ async function handleNonStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      // ATO-42: stamped inside the session's turn lock, so a turn that
+      // is running cannot save over it.
+      ...(env.request.project !== undefined ? { project: env.request.project } : {}),
       // ATO-1148: a project's own cloud model, for this turn only.
       ...(env.request.turnModel
         ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }
@@ -288,6 +306,8 @@ async function handleNonStream(
       ...(env.request.extensionsEnabled
         ? { interactive: true, answerChannel: "desktop" as const }
         : {}),
+      // ATO-1040: a chat with an active stored goal runs it (chat-goal.ts).
+      ...(nonStreamGoal === undefined ? {} : { goal: nonStreamGoal }),
       ...(env.request.reasoningOverride !== undefined
         ? { reasoningOverride: env.request.reasoningOverride }
         : {}),
@@ -457,6 +477,8 @@ async function handleStream(
 
   let result: RunTurnResult | null = null;
   let error: Error | null = null;
+  // ATO-1040: an active stored goal runs as rounds, each change a frame.
+  const goal = chatGoalSpec(env.session, env.request.extensionsEnabled);
   try {
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
@@ -466,12 +488,21 @@ async function handleStream(
         ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }
         : {}),
       eventHook: hook,
+      ...(env.request.project !== undefined ? { project: env.request.project } : {}),
       // See the non-stream path: only a client that draws approval
       // prompts is asked before an out-of-memory restart (ATO-334).
       // Desktop answer style and reply polish too, see the non-stream path.
       ...(env.request.extensionsEnabled
         ? { interactive: true, answerChannel: "desktop" as const }
         : {}),
+      ...(goal === undefined
+        ? {}
+        : {
+            goal,
+            onGoalProgress: (state: GoalState) => {
+              if (!sse.closed) sse.writeEvent("goal_progress", goalProgressFrame(env.session.id, state));
+            },
+          }),
       ...(env.request.reasoningOverride !== undefined
         ? { reasoningOverride: env.request.reasoningOverride }
         : {}),
@@ -600,12 +631,17 @@ async function handleStream(
  *    else.
  *  - `reasoning_delta` → `event: reasoning_progress` (extensions opt-in
  *    only)
+ *  - an ok `canvas.render` call's `tool_result` carries `canvas`: the
+ *    file it wrote, for the chat to show (extensions opt-in only, ATO-1137)
  *  - `plan_updated` → `event: plan_updated` with the whole checklist
  *    (extensions opt-in only, ATO-486)
  *  - compaction lifecycle and `history_trimmed` → named frames of the
  *    same names (extensions opt-in only, `stream-maintenance-frames.ts`)
  *  - `tool_disabled` → `event: tool_disabled` with the chat sentence
  *    (extensions opt-in only, ATO-1417)
+ *  - the first `prompt_built` whose local prompt carries a project block
+ *    → `event: project_instructions` {name, tokens, truncated, max_tokens}
+ *    (extensions opt-in only, ATO-42)
  *  - `step_error` / `loop_failed` → `emitStreamError` (shape depends on
  *    whether extensions are opted in)
  *
@@ -636,6 +672,8 @@ export function buildStreamEventHook(
      can say in words what it did ("Read config.ts"). Removed when the
      result is written. */
   const openCallArgs = new Map<string, unknown>();
+  /* ATO-42: the project block is fixed for the turn, so it is told once. */
+  let projectReported = false;
   const writeContent = (content: string): void => {
     sse.writeEvent(
       null,
@@ -754,6 +792,9 @@ export function buildStreamEventHook(
           }).line,
           ...keyRequiredFrame(inner.result),
           ...screenMarksFrame(inner.result),
+          // ATO-1137: the canvas an ok `canvas.render` wrote, for the chat to show.
+          ...canvasFrame(inner.result),
+          ...diffstatFrame(inner.result),
           // ATO-1145: the call's approval records, as the transcript keeps
           // them (`tool_result.approvals`), so a live turn summary can list
           // what was auto-approved (`verdict: "auto-approved"`, `via`,
@@ -761,6 +802,24 @@ export function buildStreamEventHook(
           ...(inner.result.approvals !== undefined && inner.result.approvals.length > 0
             ? { approvals: inner.result.approvals }
             : {}),
+        });
+      } else if (inner.type === "prompt_built") {
+        /* ATO-42: the local prompt carried the chat's project instructions,
+           and whether they were cut to PROJECT_SECTION_MAX_TOKENS, so a
+           host can say so in the chat. Once per turn, extensions-only. */
+        const project = inner.prompt.project;
+        if (!env.request.extensionsEnabled || projectReported || project === undefined) return;
+        projectReported = true;
+        sse.writeEvent("project_instructions", {
+          id: env.completionId,
+          object: "chat.completion.project_instructions",
+          created: env.created,
+          model: env.request.model,
+          session_id: env.session.id,
+          name: project.name,
+          tokens: project.tokens,
+          truncated: project.truncated,
+          max_tokens: PROJECT_SECTION_MAX_TOKENS,
         });
       } else if (inner.type === "plan_updated") {
         /* ATO-486: the live checklist, whole, each time it changes. A
@@ -1221,6 +1280,44 @@ function screenMarksFrame(
   return { screen_marks: { marks, seconds } };
 }
 
+/**
+ * `canvas` on a `tool_result` frame (ATO-1137): the HTML file an ok
+ * `canvas.render` call wrote, as `{path, title, kind, chart?, bytes}`,
+ * so a host can open the canvas beside the chat while the turn runs.
+ * Left out for every other call and for a shape a host cannot open.
+ */
+function canvasFrame(result: CompressedToolResult): { canvas?: CanvasRecord } {
+  const canvas = canvasRecordOf(result);
+  return canvas === undefined ? {} : { canvas };
+}
+
+/** Tools whose ok result carries `details.diffstat` (ATO-1187). */
+const DIFFSTAT_TOOLS: ReadonlySet<string> = new Set(["os.fs.write", "os.fs.edit"]);
+
+/**
+ * `diffstat` on a `tool_result` frame (ATO-1187): the file an ok
+ * `os.fs.write` / `os.fs.edit` changed and how many lines it added and
+ * removed, for the desktop's "Changed files" card. The frame is the
+ * only live path: the summary is clipped and the store keeps no
+ * `details`. Left out unless the path is a string and both counts are
+ * whole non-negative numbers.
+ */
+function diffstatFrame(
+  result: CompressedToolResult,
+): { diffstat?: { path: string; added: number; removed: number } } {
+  if (!DIFFSTAT_TOOLS.has(result.tool) || result.status !== "ok") return {};
+  const details = result.details ?? {};
+  const path = details.path;
+  const raw = details.diffstat;
+  if (typeof path !== "string" || path.length === 0) return {};
+  if (typeof raw !== "object" || raw === null) return {};
+  const { added, removed } = raw as { added?: unknown; removed?: unknown };
+  const count = (n: unknown): n is number =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0;
+  if (!count(added) || !count(removed)) return {};
+  return { diffstat: { path, added, removed } };
+}
+
 /** Longest `summary` a `tool_result` carries; the store keeps the whole one. */
 const TOOL_SUMMARY_MAX = 400;
 
@@ -1434,6 +1531,11 @@ async function parseRequestBody(
     }
     workingDir = check.dir;
   }
+  const project = parseProjectFields(body.project_instructions, body.project_name);
+  if (!project.ok) {
+    sendError(res, 400, openaiError(project.error, "invalid_request_error", project.param));
+    return null;
+  }
   const reasoningOverride = reasoningOverrideFromRequest(body.reasoning_effort);
   const turnModel = parseTurnModel(body);
   if (typeof turnModel === "string") {
@@ -1457,6 +1559,7 @@ async function parseRequestBody(
     firstUserMessage: firstUser?.content ?? lastUser.content,
     sessionIdOverride,
     workingDir,
+    project: project.value,
     incognito: body.incognito === true,
     turnModel,
     extensionsEnabled: isExtensionsHeaderTruthy(

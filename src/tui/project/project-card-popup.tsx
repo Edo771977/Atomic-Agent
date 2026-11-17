@@ -7,6 +7,7 @@ import { MOUSE_LAYER_MODAL } from "../mouse/mouse-registry.js";
 import { chromeTheme } from "../theme/theme.js";
 import { fitToWidth } from "../components/fit-to-width.js";
 import type { ProjectCardState } from "./project-card-state.js";
+import { wrapOsc8 } from "../render/osc8-link.js";
 import { projectCardLines, type ProjectLineTone } from "./project-card-lines.js";
 
 export interface ProjectCardPopupProps {
@@ -33,6 +34,12 @@ function toneColor(tone: ProjectLineTone | undefined): string | undefined {
     default:
       return undefined;
   }
+}
+
+/** The link covers the text, not the padding that fills the line. */
+function linked(text: string, url: string): string {
+  const body = text.trimEnd();
+  return `${wrapOsc8(body, url)}${text.slice(body.length)}`;
 }
 
 /**
@@ -78,7 +85,7 @@ export function ProjectCardPopup({ card, availableRows, availableColumns }: Proj
               used += t.length;
               return (
                 <Text key={j} color={toneColor(s.tone)} bold={s.bold} inverse={s.inverse}>
-                  {t}
+                  {s.link === undefined ? t : linked(t, s.link)}
                 </Text>
               );
             })}

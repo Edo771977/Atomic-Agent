@@ -14,6 +14,7 @@ import type {
 } from "./completion-types.js";
 import type { StreamConsumer } from "./adapters/stream-consumer.js";
 import type { ToolCallAdapter } from "./adapters/tool-call-adapter.js";
+import type { CompletionUsage } from "./completion-types.js";
 
 export type {
   CompletionRequest,
@@ -76,12 +77,44 @@ export interface ProviderCapabilities {
     | "catalog.live"
     | "assumed"
     | "rejected-images";
+  /**
+   * Whether the model this link serves takes audio input directly
+   * (OpenAI-compatible `input_audio` content parts). Optional: absent
+   * reads as `false`, so a provider that says nothing is never sent
+   * audio. Unlike vision there is no `assumed`: nothing is offered
+   * until llama-server `/props` (`modalities.audio`), the operator's
+   * config (`supportsAudio`) or the provider's own model list says so.
+   * `audio.listen` reads it on every call; a `false` keeps today's path
+   * (the file stays on disk for the transcription skill).
+   */
+  audio?: boolean;
+  audioSource?: AudioSource;
   toolTransport: ToolCallTransport;
   contextWindow: number;
   supportsParallelTools: boolean;
   supportsSlotAffinity: boolean;
   supportsPromptCache: boolean;
   reasoningFormat: ReasoningFormat;
+}
+
+/** Where `ProviderCapabilities.audio` came from. */
+export type AudioSource =
+  | "modalities.audio"
+  | "absent"
+  | "config.userModels"
+  | "config.provider"
+  | "catalog.live"
+  | "unknown";
+
+/** Audio formats an OpenAI-compatible `input_audio` part may carry. */
+export type AudioInputFormat = "wav" | "mp3";
+
+export interface AudioRequest {
+  prompt: string;
+  audio: { bytes: Uint8Array; format: AudioInputFormat };
+  maxTokens?: number;
+  temperature?: number;
+  signal?: AbortSignal;
 }
 
 export interface VisionImage {
@@ -96,11 +129,20 @@ export interface VisionRequest {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+  /**
+   * The model to ask (a fusion team member's pin, issue #40); absent,
+   * the provider's own. Honoured by providers that can ask for a model
+   * per request (the OpenAI-compatible family); a local server serves
+   * the model it has loaded and ignores it.
+   */
+  model?: string;
 }
 
 export interface VisionResult {
   text: string;
   durationMs: number;
+  /** Token usage as the service reported it, when it did: the caller prices the call. */
+  usage?: CompletionUsage;
 }
 
 export interface LlmProvider {
@@ -127,6 +169,13 @@ export interface LlmProvider {
     request: CompletionRequest,
   ): AsyncGenerator<StreamChunk, CompletionResult, void>;
   describeImage(request: VisionRequest): Promise<VisionResult>;
+  /**
+   * Send one audio clip plus a prompt to the chat model as an
+   * `input_audio` part. Optional: a provider without it cannot take
+   * audio whatever `capabilities.audio` says. Throws
+   * `AudioUnsupportedError` when the model takes no audio.
+   */
+  describeAudio?(request: AudioRequest): Promise<VisionResult>;
   health(): Promise<ProviderHealthResult>;
   close(): Promise<void>;
   listModels?(): Promise<readonly string[]>;
@@ -136,6 +185,13 @@ export class VisionUnsupportedError extends Error {
   constructor(provider: string, message?: string) {
     super(message ?? `vision is not supported by provider "${provider}"`);
     this.name = "VisionUnsupportedError";
+  }
+}
+
+export class AudioUnsupportedError extends Error {
+  constructor(provider: string, message?: string) {
+    super(message ?? `audio input is not supported by provider "${provider}"`);
+    this.name = "AudioUnsupportedError";
   }
 }
 

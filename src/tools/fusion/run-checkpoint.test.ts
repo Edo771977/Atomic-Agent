@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { TurnOwnerProbe } from "../../session/turn-owner.js";
 import {
+  fusionRunShotTarget,
   FusionRunStore,
   toolHasSideEffects,
   type FusionRunCheckpoint,
@@ -286,6 +287,44 @@ describe("fusion run checkpoints (ATO-617)", () => {
     now += 5_000;
     expect(store.listResumable()).toEqual([]);
     expect(existsSync(join(dir, `${run.runId}.json`))).toBe(false);
+  });
+
+  it("keeps a run's screenshots under <runs>/<runId>/shots, owner-only, and prunes them with the run retention (issue #40)", () => {
+    const target = fusionRunShotTarget(dir, { runId: "fr-shots-1", sessionId: "s-1" }, "task/1");
+    expect(target).toEqual({ dir: join(dir, "fr-shots-1", "shots"), prefix: "task_1" });
+    expect(existsSync(target!.dir)).toBe(true);
+    if (process.platform !== "win32") {
+      expect(statSync(join(dir, "fr-shots-1")).mode & 0o777).toBe(0o700);
+      expect(statSync(target!.dir).mode & 0o777).toBe(0o700);
+    }
+    expect(fusionRunShotTarget(dir, { runId: "fr-shots-1", sessionId: "s-1" }, undefined)?.prefix).toBe("run");
+    // A run id that could leave the directory gets no durable target.
+    expect(fusionRunShotTarget(dir, { runId: "../x", sessionId: "s-1" }, "t")).toBeUndefined();
+    writeFileSync(join(target!.dir, "task_1-1.jpg"), "x");
+
+    let now = Date.now();
+    const store = new FusionRunStore({ dir, now: () => now, retentionMs: 60_000 });
+    expect(store.listResumable()).toEqual([]);
+    expect(existsSync(join(target!.dir, "task_1-1.jpg"))).toBe(true);
+    now += 120_000;
+    store.listResumable();
+    expect(existsSync(join(dir, "fr-shots-1"))).toBe(false);
+  });
+
+  it("removeForSession removes that session's run screenshots too, and no other's", () => {
+    const mine = fusionRunShotTarget(dir, { runId: "fr-mine", sessionId: "s-1" }, "t")!;
+    const theirs = fusionRunShotTarget(dir, { runId: "fr-theirs", sessionId: "s-2" }, "t")!;
+    writeFileSync(join(mine.dir, "t-1.jpg"), "x");
+    writeFileSync(join(theirs.dir, "t-1.jpg"), "x");
+    const store = new FusionRunStore({ dir });
+    store.removeForSession("s-1");
+    expect(existsSync(join(dir, "fr-mine"))).toBe(false);
+    expect(existsSync(join(theirs.dir, "t-1.jpg"))).toBe(true);
+    // A stale dir keeps its age from its newest content.
+    const old = (Date.now() - 10_000) / 1000;
+    utimesSync(join(dir, "fr-theirs"), old, old);
+    expect(new FusionRunStore({ dir, retentionMs: 60_000 }).listResumable()).toEqual([]);
+    expect(existsSync(join(theirs.dir, "t-1.jpg"))).toBe(true);
   });
 
   it("discards a stopped run, and refuses one in flight", () => {

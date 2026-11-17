@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeGitRepo, runGitRaw, writeRepoFile } from "../os/git/test-helpers.js";
+import { createDirectoryIgnorePolicy } from "./branch-ignore-policy.js";
 import { runIsolatedWave } from "./branch-merge.js";
 import type { CreateBranchSetOptions } from "./branch-workspace.js";
 import type { WorkerTaskResult } from "./worker-result.js";
@@ -105,5 +106,21 @@ describe("frozen disposable-directory policy", () => {
     });
     expect(runs).toBe(0);
     expect(result.results[0]!.error).toMatch(/not started:.*Git.*ignore/i);
+  });
+
+  it("reports a cancellation during a Git probe as the cancellation, not as Git being unavailable", async () => {
+    const { repo, root } = await fixture(false);
+    const controller = new AbortController();
+    const reason = new Error("cancel private import");
+    const policy = createDirectoryIgnorePolicy({
+      originalDir: repo, baseDir: repo, probeDir: join(root, "probe"), signal: controller.signal,
+      copy: async (from, to) => { await writeFile(to, await readFile(from)); },
+      // A killed child resolves like an unavailable Git; the abort decides.
+      git: async (args) => {
+        if (args[0] === "init") controller.abort(reason);
+        return null;
+      },
+    });
+    await expect(policy).rejects.toBe(reason);
   });
 });

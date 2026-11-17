@@ -30,6 +30,7 @@ import type { ApprovalRequest } from "../approval/approval-gate.js";
 import type { ApprovalLevel } from "../approval/approval-level.js";
 import type { AgentLoopEvent } from "../agent/agent-contract.js";
 import type { LogSink } from "../tracing/structured-logger.js";
+import type { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { McpServerConfig } from "../mcp/mcp-types.js";
 
 import { ApprovalBus } from "./approval-bus.js";
@@ -92,6 +93,8 @@ export class FakeBrowserBackend implements BrowserBackend {
 export interface HarnessOptions {
   /** When set, the HTTP server requires this bearer token. */
   apiKey?: string | null;
+  /** Installed as a metric sink and handed to `GET /metrics`, as serve does (ATO-646). */
+  metricsRegistry?: PrometheusRegistry;
   /**
    * Point `localModels.url` at a specific server so llama health probes
    * are deterministic — e.g. a stub that answers `/health`, or a port
@@ -235,6 +238,7 @@ export async function startTestHarness(
     approvalLevel: options.approvalLevel ?? 5,
     handlers: {
       logSinks: options.logSinks,
+      ...(options.metricsRegistry ? { metricSinks: [options.metricsRegistry.sink] } : {}),
       onAgentEvent: (event) => {
         if (event.type === "project_gate") projectGateBus.publish(event);
         options.onAgentEvent?.(event);
@@ -263,7 +267,9 @@ export async function startTestHarness(
     host: options.host ?? "127.0.0.1",
     port: 0,
     apiKey: options.apiKey ?? null,
-    routes: buildRouteTable(),
+    routes: buildRouteTable(
+      options.metricsRegistry ? { metricsRegistry: options.metricsRegistry } : {},
+    ),
     approvalBus,
     projectGateBus,
     completionRegistry,

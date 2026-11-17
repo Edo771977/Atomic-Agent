@@ -34,6 +34,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `localModels.managed.contextSize` (default `0`).
 - `localModels.managed.parallel` (default `"auto"`).
 - `localModels.managed.swaFull` (default `"auto"`).
+- `localModels.managed.loraAdapters` (default absent: no adapters; `{ "<modelId>": { "path": "/abs/adapter.gguf", "scale"?: number } }` launches that model with `--lora`, or `--lora-scaled` when `scale` is not 1).
 - `localModels.embeddings.enabled` (default `false`).
 - `localModels.embeddings.modelId` (default `null`).
 - `localModels.embeddings.port` (default `19092`).
@@ -57,6 +58,8 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `agent.task.resumeInterrupted` (default `true`): continue a task run cut off by a crash, a kill or a restart from its checkpoint.
 - `agent.task.maxResumes` (default `3`): crash/kill resumes before the task is failed.
 - `agent.task.maxCostUsd` (default `0`): spend ceiling per task in USD, `0` = no cap; a provider-billed cost (`usage.costUsd`) counts as reported, otherwise unpriced (local) models count as $0.
+- `agent.task.replanEveryNSteps` (default `0`): every this many steps of a task, ask the model to review and resend its live plan (`plan.update`) through the next step's notice, no extra model call; `0` = off.
+- `agent.goal.maxTokens` (default `0`): token budget a new goal starts with, across all its rounds; `0` = no cap. `/goal tokens` changes it for one goal.
 - `agent.toolTimeoutMs` (default `60000`).
 - `agent.readScope` (default `"working-dir"`).
 - `agent.approvalLevel` (default `1`).
@@ -99,6 +102,17 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `web.fetch.maxRetries` (default `2`).
 - `web.fetch.retryBaseDelayMs` (default `500`).
 - `web.fetch.retryMaxDelayMs` (default `5000`).
+- `web.crawl.minDelayMs` (default `1000`): smallest gap between two `os.web.crawl` requests to one host; a longer robots.txt `Crawl-delay` wins, up to 30 seconds.
+- `web.crawl.maxPages` (default `50`): hard cap on pages one crawl reads.
+- `web.crawl.maxDepth` (default `2`): hard cap on link depth from the start page.
+- `web.crawl.respectRobots` (default `true`): obey robots.txt.
+- `web.crawl.robotsExemptHosts` (default `[]`): your own sites, where robots.txt is not applied (`*.example.com` covers subdomains). The rate limit still applies.
+- `web.crawl.cacheTtlMinutes` (default `15`): how long fetched pages and robots.txt are reused.
+- `web.fetch.extractor` (default `"readability"`): `"defuddle"` runs Defuddle first on HTML pages and falls back to Readability.
+- `web.fetch.renderWithBrowser` (default `true`): a page that answers curl with a bot-protection challenge is rendered in the agent's own browser (not with `browser.connect: "user-chrome"`).
+- `web.fetch.jinaReader` (default `false`): then try Jina Reader without a key; this sends the URL to Jina.
+- `web.fetch.jinaApiKeyEnv` (default `"JINA_API_KEY"`): a key here turns Jina Reader on.
+- `web.fetch.firecrawlApiKeyEnv` (default `"FIRECRAWL_API_KEY"`): a key here adds Firecrawl after Jina.
 
 ## tools
 
@@ -119,6 +133,10 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `browser.connect` (default `"agent"`): `"agent"` uses the agent's own Chrome profile; `"user-chrome"` (opt-in) works in the user's own signed-in Chrome ([browser tools](../../tools/browser/README.md#your-own-chrome)).
 - `browser.cdpUrl` (default `null`): a DevTools address to attach to instead; loopback only. Env `ATOMIC_AGENT_BROWSER_CDP_URL` wins.
 - `browser.userDataDir` (default `null`): the user's Chrome data folder for `"user-chrome"` when it is not in a standard place.
+- `browser.headless` (default `"auto"`): `"auto"` runs the agent's own Chrome without a window for scheduled tasks, Telegram, Discord and webhooks, and with one for the TUI and the desktop app; `true` / `false` always / never. Env `ATOMIC_AGENT_BROWSER_HEADLESS` wins when set ([browser tools](../../tools/browser/README.md#background-runs-and-throwaway-profiles)).
+- `browser.profile` (default `"agent"`): `"temp"` gives each chat its own throwaway, logged-out profile instead of the agent's.
+- `browser.maxTabs` (default `8`, 1 to 50): tabs the agent may have open at once, fusion workers' included; one more is refused until a tab closes.
+- `browser.workerIsolation` (default `"tabs"`): fusion workers browse in tabs of their own in the agent's profile; `"context"` gives each worker its own throwaway, logged-out context.
 
 ## network
 
@@ -134,6 +152,10 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 
 - `tracing.trace.enabled` (default `null`).
 - `tracing.trace.maxBytesPerSession` (default `10485760`).
+- `tracing.otel.enabled` (default `null`): OpenTelemetry span export; `null` turns it on when an OTLP endpoint is known, `false` keeps it off.
+- `tracing.otel.endpoint` (default `null`): OTLP/HTTP base URL; `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` win over it.
+- `tracing.otel.headers` (default `{}`): extra request headers; `OTEL_EXPORTER_OTLP_HEADERS` adds to them.
+- `tracing.otel.captureContent` (default `false`): put prompt, reply, tool argument and error text into spans.
 
 ## memory
 
@@ -221,6 +243,8 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `vision.autoDetect` (default `true`).
 - `vision.maxImageBytes` (default `8388608`).
 - `vision.maxImagesPerCall` (default `4`).
+- `vision.audioInput` (unset by default, which means auto): `audio.listen` sends a WAV/MP3 file to a chat model that takes audio input. Auto offers it only while a local model that reports audio is loaded; `true` also allows cloud models (the file is uploaded); `false` turns it off.
+- `vision.maxAudioBytes` (default `16777216`).
 
 ## skills
 
@@ -229,12 +253,15 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `skills.clawhub.apiBase` (default `"https://clawhub.ai"`).
 - `skills.clawhub.browseLimit` (default `100`).
 - `skills.clawhub.nonSuspiciousOnly` (default `true`).
+- `skills.eval.judgeProvider`: unset. A provider id from `llm.providers` that grades `judge` checks in `atomic-agent skill eval` (ATO-1101). Unset, the active text provider grades them when it is a cloud provider; with a local model active, `skill eval` stops with exit 2 until this is set or `ATOMIC_AGENT_JUDGE_URL` is.
 
 ## tui
 
 - `tui.theme` (default `"auto"`).
 - `tui.whileBusySubmit` (default `"steer"`).
 - `tui.mouse` (default `true`).
+- `tui.nextStepSuggestions` (default `false`).
+- `tui.vimMode` (default `false`).
 - `tui.notify.enabled` (default `true`).
 - `tui.notify.minDurationMs` (default `30000`).
 - `tui.onboarding.completedAt` (default `null`).
@@ -247,7 +274,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 ## analytics
 
 - `analytics.errorReports` (default `false`): opt in to anonymous crash/error reports (Sentry). Sent only when this and `analytics.enabled` are both `true`, the kill switches below are off, and no incognito chat is open. Read at start.
-- `analytics.enabled` (default `true`). `ATOMIC_AGENT_ANALYTICS=off` or `DO_NOT_TRACK=1` in the environment turns analytics and crash reports off for that process whatever this says. `ATOMIC_AGENT_TEAM=1`, or a file `~/.atomic-agent-team`, marks the machine as one of ours: events are still sent, tagged `test_run` (for the team's own QA and test runs).
+- `analytics.enabled` (default `true`). `ATOMIC_AGENT_ANALYTICS=off` or `DO_NOT_TRACK=1` in the environment turns analytics and crash reports off for that process whatever this says. `ATOMIC_AGENT_TEAM=1`, or a file `~/.atomic-agent-team`, marks the machine as one of ours: events are still sent, tagged `test_run` (for the team's own QA and test runs). On a CI server (`CI`, `GITHUB_ACTIONS` and similar variables set) events are still sent too, tagged `automation`.
 
 ## telegram
 
@@ -255,6 +282,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `telegram.ownerUserId` (default `null`).
 - `telegram.parseMode` (default `"html"`).
 - `telegram.progressIndicator` (default `true`).
+- `telegram.streamReplies` (default `"private"` when absent): `"private"` streams the agent's reply into the owner's DM while it is written (one message edited about once a second, the formatted version replaces it at the end), `"off"` sends the whole reply at the end. Groups and forum topics never stream. `ATOMIC_AGENT_TELEGRAM_STREAM_REPLIES=off|private` overrides it for that process.
 
 ## discord
 
@@ -266,6 +294,10 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `notifications.approvalPending.enabled` (default `false`; `true` sends one plain message per approval prompt that has waited `afterMinutes`, see [approval pending notifications](../../notifications/README.md)).
 - `notifications.approvalPending.afterMinutes` (default `5`; whole minutes, 1 to 1440).
 - `notifications.approvalPending.channel` (default `"auto"`; `"telegram"`, `"discord"`, or `"auto"` for Telegram when it is up and paired, else Discord).
+- `notifications.push.enabled` (default `false`).
+- `notifications.push.server` (default `"https://ntfy.sh"`).
+- `notifications.push.topic` (default `null`).
+- `notifications.push.tokenEnv` (default `"NTFY_TOKEN"`).
 
 ## atomicMail
 
@@ -286,3 +318,5 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `composio.userId` (default `null`).
 - `composio.sessionId` (default `null`).
 - `composio.mcpUrl` (default `null`).
+- `composio.accounts` (default `[]`).
+- `composio.sessionPins` (default `null`).

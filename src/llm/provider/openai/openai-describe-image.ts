@@ -1,7 +1,7 @@
 import type { VisionRequest, VisionResult } from "../llm-provider.js";
 import type { OpenAiHttpDeps } from "./openai-http.js";
 import { openAiPostJson } from "./openai-http.js";
-import { normaliseMessageContent } from "./openai-normalise-response.js";
+import { normaliseMessageContent, normaliseOpenAiUsage } from "./openai-normalise-response.js";
 import { modelParamProfile, resolveTemperature } from "./model-params.js";
 
 /**
@@ -39,10 +39,7 @@ export async function describeImageViaOpenAi(
   providerPreferences?: Record<string, unknown>,
   bodyOptions: DescribeImageBodyOptions = {},
 ): Promise<VisionResult> {
-  const userContent: Array<
-    | { type: "image_url"; image_url: { url: string } }
-    | { type: "text"; text: string }
-  > = [];
+  const userContent: OpenAiUserContentPart[] = [];
   for (const img of request.images) {
     const b64 = Buffer.from(img.bytes).toString("base64");
     userContent.push({
@@ -51,14 +48,49 @@ export async function describeImageViaOpenAi(
     });
   }
   userContent.push({ type: "text", text: request.prompt });
+  return postUserPartsViaOpenAi(
+    deps,
+    defaultChatModel,
+    userContent,
+    request,
+    apiPathPrefix,
+    providerPreferences,
+    bodyOptions,
+  );
+}
+
+/** One part of the single user message a describe-style call sends. */
+export type OpenAiUserContentPart =
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "input_audio"; input_audio: { data: string; format: string } }
+  | { type: "text"; text: string };
+
+/**
+ * POST one user message of `userContent` parts as a non-streamed chat
+ * completion and return its text. Shared by the image describe call
+ * above and the audio one (`openai-describe-audio.ts`): same per-model
+ * parameter rules, same routing preferences, same passthrough.
+ */
+export async function postUserPartsViaOpenAi(
+  deps: OpenAiHttpDeps,
+  defaultChatModel: string,
+  userContent: OpenAiUserContentPart[],
+  request: Pick<VisionRequest, "maxTokens" | "temperature" | "signal" | "model">,
+  apiPathPrefix = "/v1",
+  providerPreferences?: Record<string, unknown>,
+  bodyOptions: DescribeImageBodyOptions = {},
+): Promise<VisionResult> {
   // Same per-model rules as a turn (`model-params.ts`): OpenAI's
   // reasoning models get no temperature and `max_completion_tokens`,
   // the newer Claude models get no temperature, Kimi K3.1 gets its one
   // allowed temperature.
-  const profile = modelParamProfile(defaultChatModel);
+  // A pinned model (a fusion team member's, issue #40) wins over the
+  // provider's default; its own parameter rules apply.
+  const model = request.model ?? defaultChatModel;
+  const profile = modelParamProfile(model);
   const temperature = resolveTemperature(profile, request.temperature, 0.1);
   const base: Record<string, unknown> = {
-    model: defaultChatModel,
+    model,
     messages: [{ role: "user", content: userContent }],
     // Reasoning models (Qwen3.8, DeepSeek-R1) spend completion tokens on
     // their think channel before any visible description. The old 512
@@ -98,7 +130,10 @@ export async function describeImageViaOpenAi(
   if (text.length === 0 && typeof message.reasoning_content === "string") {
     text = message.reasoning_content.trim();
   }
-  return { text, durationMs: Date.now() - start };
+  const usage = json.usage === undefined || json.usage === null
+    ? undefined
+    : normaliseOpenAiUsage(json.usage as Record<string, unknown>);
+  return { text, durationMs: Date.now() - start, ...(usage === undefined ? {} : { usage }) };
 }
 
 function withPassthrough(

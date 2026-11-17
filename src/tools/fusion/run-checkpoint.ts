@@ -1,8 +1,11 @@
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -98,6 +101,7 @@ const REPEAT_SAFE_TOOLS: ReadonlySet<string> = new Set([
   "skill.view",
   "os.web.search",
   "os.web.fetch",
+  "os.web.crawl",
   "os.git.status",
   "os.git.log",
   "os.git.diff",
@@ -109,6 +113,7 @@ const REPEAT_SAFE_TOOLS: ReadonlySet<string> = new Set([
   "memory.notes.recall",
   "memory.lessons.recall",
   "memory.procedures.recall",
+  "memory.sessions.search",
   "memory.profile.list",
   "memory.profile.history",
   "tasks.list",
@@ -119,6 +124,7 @@ const REPEAT_SAFE_TOOLS: ReadonlySet<string> = new Set([
   "mcp.prompt.list",
   "browser.read_aria",
   "browser.screenshot",
+  "browser.extract",
 ]);
 
 /** Whether one call of `tool` may have changed something a re-run would change again. */
@@ -227,6 +233,41 @@ export interface FusionRunStoreOptions {
   retentionMs?: number;
 }
 
+/** A run's own folder beside its checkpoint: `<runs>/<runId>/`, with `shots/` and `run.json`. */
+export const FUSION_RUN_SHOTS_DIR_NAME = "shots";
+const RUN_DIR_MARKER = "run.json";
+
+/**
+ * Where a fusion run's contract-check screenshots go (issue #40):
+ * `<runsDir>/<runId>/shots`, folders 0700, files named by `taskId` (a
+ * call-level check: `run`). The folder records the session it belongs
+ * to (`run.json`), so closing an incognito chat removes it, and it is
+ * pruned with the run retention (`FusionRunStore.pruneRunFolders`): it
+ * outlives the checkpoint, which goes when the run ends, so a
+ * milestone can still show the shots. `undefined` for a run id that
+ * could leave the folder, or a folder that cannot be made.
+ */
+export function fusionRunShotTarget(
+  runsDir: string,
+  run: { runId: string; sessionId: string },
+  taskId: string | undefined,
+): { dir: string; prefix: string } | undefined {
+  if (!FusionRunStore.isValidRunId(run.runId)) return undefined;
+  const runDir = join(runsDir, run.runId);
+  const dir = join(runDir, FUSION_RUN_SHOTS_DIR_NAME);
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(runDir, 0o700);
+    chmodSync(dir, 0o700);
+    const marker = join(runDir, RUN_DIR_MARKER);
+    if (!existsSync(marker)) writeFileSync(marker, JSON.stringify({ runId: run.runId, sessionId: run.sessionId }), { mode: 0o600 });
+  } catch {
+    return undefined;
+  }
+  const prefix = (taskId ?? "run").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64);
+  return { dir, prefix: prefix.length === 0 || prefix === "." || prefix === ".." ? "run" : prefix };
+}
+
 /**
  * The run files of one state dir. One instance per runtime; it knows
  * which runs this process is working on right now, so a fan-out in
@@ -244,6 +285,11 @@ export class FusionRunStore {
     this.now = options.now ?? Date.now;
     this.probe = options.probe ?? currentTurnOwnerProbe();
     this.retentionMs = options.retentionMs ?? FUSION_RUN_RETENTION_MS;
+  }
+
+  /** The folder the runs live in (`<stateDir>/fusion-runs`). */
+  get runsDir(): string {
+    return this.dir;
   }
 
   static isValidRunId(runId: string): boolean {
@@ -318,6 +364,7 @@ export class FusionRunStore {
    * deleted on the way.
    */
   listResumable(sessionId?: string): FusionRunCheckpoint[] {
+    this.pruneRunFolders();
     let names: string[];
     try {
       names = readdirSync(this.dir);
@@ -342,6 +389,26 @@ export class FusionRunStore {
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  /**
+   * Delete run folders (`<runId>/`, screenshots) whose newest content is
+   * past the retention and whose run is not in flight. Best effort.
+   */
+  pruneRunFolders(): void {
+    for (const runId of this.runFolders()) {
+      if (this.active.has(runId)) continue;
+      const runDir = join(this.dir, runId);
+      let newest = 0;
+      for (const path of [runDir, join(runDir, FUSION_RUN_SHOTS_DIR_NAME), join(runDir, RUN_DIR_MARKER)]) {
+        try {
+          newest = Math.max(newest, statSync(path).mtimeMs);
+        } catch {
+          // absent
+        }
+      }
+      if (this.now() - newest > this.retentionMs) this.removeRunFolder(runId);
+    }
+  }
+
   /** Drop a run that is not live. `false` when there was none to drop. */
   discard(runId: string): boolean {
     const checkpoint = this.load(runId);
@@ -362,6 +429,14 @@ export class FusionRunStore {
       return 0;
     }
     let removed = 0;
+    for (const runId of this.runFolders()) {
+      try {
+        const marker = JSON.parse(readFileSync(join(this.dir, runId, RUN_DIR_MARKER), "utf8")) as { sessionId?: unknown };
+        if (marker.sessionId === sessionId) this.removeRunFolder(runId);
+      } catch {
+        // No readable marker: not known to be this session's.
+      }
+    }
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
       const runId = name.slice(0, -".json".length);
@@ -423,6 +498,25 @@ export class FusionRunStore {
   /** @internal */
   stamp(): number {
     return this.now();
+  }
+
+  /** Run ids that have a folder of their own. */
+  private runFolders(): string[] {
+    try {
+      return readdirSync(this.dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && FusionRunStore.isValidRunId(entry.name))
+        .map((entry) => entry.name);
+    } catch {
+      return [];
+    }
+  }
+
+  private removeRunFolder(runId: string): void {
+    try {
+      rmSync(join(this.dir, runId), { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
   }
 
   private remove(runId: string): boolean {

@@ -46,4 +46,4 @@ export type {
   ProjectDecisionPayload,
   ProjectDecisionResult,
 } from "./sidecar-events.js";
-export type { ProjectGateMilestone, ProjectGatePlan, ProjectGateRow, ProjectGateView, ProjectGateViolation } from "../session/project-gate-view.js";
+export type { ProjectGateBrief, ProjectGateMilestone, ProjectGatePlan, ProjectGateRow, ProjectGateView, ProjectGateViolation } from "../session/project-gate-view.js";

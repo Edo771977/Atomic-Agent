@@ -101,11 +101,14 @@ export { parseRewriterGateMode } from "./memory/memory-parser.js";
 import {
   createWebSearchDefaults,
   createWebFetchDefaults,
+  createWebCrawlDefaults,
   prepareWebSearchInputs,
   parseWebSearchConfig,
   parseWebFetchConfig,
+  parseWebCrawlConfig,
   type WebSearchConfig,
   type WebFetchConfig,
+  type WebCrawlConfig,
 } from "./web-config.js";
 
 export {
@@ -114,6 +117,8 @@ export {
   type WebSearchProviderName,
   type WebSearchConfig,
   type WebFetchConfig,
+  type WebCrawlConfig,
+  type WebFetchExtractorName,
 } from "./web-config.js";
 export { parseStringArrayOrNull, parseUrl } from "./config-values.js";
 
@@ -124,11 +129,30 @@ import {
   parseWebhookMap,
   type WebhookConfig,
 } from "./webhook-config.js";
+import {
+  parseExtraChannelsConfig,
+  type ExtraChannelConfig,
+} from "./extra-channel-config.js";
+
+export {
+  parseExtraChannelsConfig,
+  type ExtraChannelConfig,
+} from "./extra-channel-config.js";
 
 export {
   parseWebhookMap,
   type WebhookConfig,
 } from "./webhook-config.js";
+
+import {
+  parseFileTriggerMap,
+  type FileTriggerConfig,
+} from "./file-trigger-config.js";
+
+export {
+  parseFileTriggerMap,
+  type FileTriggerConfig,
+} from "./file-trigger-config.js";
 
 export {
   parseSessionRailConfig,
@@ -223,7 +247,23 @@ export interface AtomicAgentConfig {
      */
     enabled: boolean;
     channel: BrowserChannel;
+    /** The browser runs without a window for every turn (an explicit `true`). */
     headless: boolean;
+    /**
+     * `UserConfigFile.browser.headless` after env `ATOMIC_AGENT_BROWSER_HEADLESS`
+     * (which wins when set): `true` / `false`, or `"auto"` per turn (ATO-959).
+     * Absent (hand-built configs): `headless`.
+     */
+    headlessSetting?: boolean | "auto";
+    /**
+     * `UserConfigFile.browser.profile`: the agent's profile or a throwaway
+     * one per chat. Absent: `"agent"`.
+     */
+    profile?: "agent" | "temp";
+    /** `UserConfigFile.browser.maxTabs`. Absent: 8. */
+    maxTabs?: number;
+    /** `UserConfigFile.browser.workerIsolation`. Absent: `"tabs"`. */
+    workerIsolation?: "tabs" | "context";
     /**
      * Attach to this DevTools endpoint instead of launching. Env
      * `ATOMIC_AGENT_BROWSER_CDP_URL`, else `UserConfigFile.browser.cdpUrl`
@@ -251,6 +291,12 @@ export interface AtomicAgentConfig {
   web: {
     search: WebSearchConfig;
     fetch: WebFetchConfig;
+    /**
+     * `os.web.crawl` politeness (ATO-700, ATO-970). Optional only so
+     * hand-built test configs stay valid; the parser always fills it and
+     * the tool falls back to `createWebCrawlDefaults()`.
+     */
+    crawl?: WebCrawlConfig;
   };
   /**
    * User-declared project root directories consumed by
@@ -337,6 +383,15 @@ export interface AtomicAgentConfig {
      */
     agentToolsEnabled: boolean;
     /**
+     * Cross-chat tools (`sessions.list|read|send|check`, ATO-570): the
+     * agent lists the operator's other chats, reads one, or queues a
+     * request into one as a task. Off by default; needs `tasks.enabled`
+     * too, since a send is a queued task. Reading or sending into another
+     * chat still asks first (`session_cross`). Optional so hand-built
+     * configs need not name it; absent means off.
+     */
+    sessionToolsEnabled?: boolean;
+    /**
      * Lower bound on `interval` schedule `everyMs`. Cannot go below
      * `SCHEDULE_INTERVAL_MIN_MS` (1 000 ms) in `task-schedule.ts`;
      * this knob lets operators enforce a larger floor.
@@ -351,6 +406,15 @@ export interface AtomicAgentConfig {
      * on a malformed value. Optional so hand-built configs stay valid.
      */
     report?: { quietHours: string | null };
+    /**
+     * Keep the computer awake for scheduled tasks (ATO-592): the raw
+     * `ATOMIC_AGENT_TASKS_KEEP_AWAKE` value (`off` or `while-working`:
+     * held only while a task or turn runs) or `null` (default: off). The
+     * runtime parses it (`src/scheduler/keep-awake.ts`) and treats any
+     * other value, the removed `always` included, as off, with a warning. A closed MacBook lid still sleeps the Mac.
+     * Optional so hand-built configs stay valid.
+     */
+    keepAwake?: string | null;
   };
   /**
    * Auto status snapshots on long turns and running tasks (ATO-965).
@@ -391,6 +455,11 @@ export interface AtomicAgentConfig {
    * reaching back into the user config file.
    */
   webhooks: Record<string, WebhookConfig>;
+  /**
+   * File and log-line triggers (ATO-441). Mirrors
+   * `UserConfigFile.fileTriggers`; the scheduler leader watches them.
+   */
+  fileTriggers: Record<string, FileTriggerConfig>;
   /**
    * Multimodal (vision) input configuration. The runtime registers the
    * `vision.describe` tool only when (a) `vision.enabled` is true AND
@@ -433,6 +502,11 @@ export interface AtomicAgentConfig {
    * The bot token is not stored here — see `DiscordConfig`.
    */
   discord: DiscordConfig;
+  /**
+   * Chat channels beyond Telegram and Discord (Slack, Signal, ...),
+   * keyed by channel id. Mirrors `UserConfigFile.channels`.
+   */
+  channels: Record<string, ExtraChannelConfig>;
   /** Extra Telegram / Discord bots. Mirrors `UserConfigFile.swarm`. */
   swarm: SwarmConfig;
   /** Out-of-band pings. Mirrors `UserConfigFile.notifications`. */
@@ -493,8 +567,16 @@ export interface AtomicAgentConfig {
        * missing from this mirror of that shape.
        */
       apiKeyEnvVar?: string;
+      /**
+       * Env var names of more keys for the same service, tried after
+       * `apiKey` (ATO-471). Values come from `<stateDir>/.env`.
+       */
+      extraApiKeyEnvVars?: string[];
+      /** Command whose output is the key (`UserLlmProviderEntry.apiKeyCommand`). */
+      apiKeyCommand?: readonly string[];
       supportsTools?: boolean;
       supportsVision?: boolean;
+      supportsAudio?: boolean;
       requestTimeoutMs?: number;
       promptCache?: "auto" | "off" | "explicit-markers";
       /**
@@ -544,6 +626,7 @@ export interface AtomicAgentConfig {
         contextWindow?: number;
         dim?: number;
         supportsVision?: boolean;
+        supportsAudio?: boolean;
         supportsTools?: "none" | "basic" | "parallel" | "strict";
         supportsPromptCache?: boolean;
         reasoningFormat?:
@@ -678,6 +761,12 @@ export interface UserConfigFile {
   web: {
     search: WebSearchConfig;
     fetch: WebFetchConfig;
+    /**
+     * `os.web.crawl` politeness (ATO-700, ATO-970). Optional only so
+     * hand-built test configs stay valid; the parser always fills it and
+     * the tool falls back to `createWebCrawlDefaults()`.
+     */
+    crawl?: WebCrawlConfig;
   };
   /**
    * Project path resolution (config v36). `roots` lists directories
@@ -716,6 +805,12 @@ export interface UserConfigFile {
    * transparently upgraded with `webhooks: {}`.
    */
   webhooks: Record<string, WebhookConfig>;
+  /**
+   * Keyed map of file triggers (ATO-441): a file appearing or a log line
+   * matching wakes the agent with a task. Additive and unversioned: a
+   * file without the block reads `{}`.
+   */
+  fileTriggers: Record<string, FileTriggerConfig>;
   /**
    * Multimodal (vision) input. Added in config v6; older files are
    * transparently upgraded with the `USER_CONFIG_DEFAULTS.vision`
@@ -807,6 +902,12 @@ export interface UserConfigFile {
    * null }`, which starts nothing.
    */
   discord: DiscordConfig;
+  /**
+   * Chat channels beyond Telegram and Discord, keyed by channel id (see
+   * `ExtraChannelConfig`). Unversioned, additive: a file without the
+   * block reads as `{}`, which starts nothing.
+   */
+  channels: Record<string, ExtraChannelConfig>;
   /**
    * Extra Telegram / Discord bots ("swarm units"). Added in config v52.
    * Older files are transparently upgraded with `{ units: [] }`.
@@ -1144,10 +1245,28 @@ export interface UserConfigFile {
 // `notion` skills working. An older file has no field and takes the
 // default. A DEFAULT-BEHAVIOUR CHANGE for a command that relied on any
 // other inherited key; the fix is one line in config.
+// Unversioned, additive: `web.fetch.extractor` (`readability` |
+// `defuddle`, default `readability`, ATO-698). `defuddle` makes
+// `os.web.fetch` run Defuddle before Readability on HTML pages; an older
+// file has no field and keeps Readability.
+// Unversioned, additive: the `os.web.fetch` page-read ladder (ATO-968).
+// `web.fetch.renderWithBrowser` (default `true`) renders a page that
+// answered curl with a bot wall in the agent's own browser;
+// `web.fetch.jinaReader` (default `false`), `jinaApiKeyEnv`
+// (`JINA_API_KEY`) and `firecrawlApiKeyEnv` (`FIRECRAWL_API_KEY`) enable
+// the third-party readers after that. An older file has no fields and
+// gets the defaults.
+// Unversioned, additive: `notifications.push` (`enabled` false, `server`
+// "https://ntfy.sh", `topic` null, `tokenEnv` "NTFY_TOKEN", ATO-1129) and
+// `"push"` as a `notifications.downloads.channel`. An older file has no
+// block and sends no push.
 // Unversioned, additive: `localModels.drySampler` (default `false`,
 // ATO-332). `true` adds llama.cpp's DRY anti-repeat sampler fields to
 // every `/completion` request, window 256 tokens (`src/llm/dry-sampler.ts`); only llama.cpp
 // engines receive them. An older file has no field and reads as off.
+// Unversioned, additive: `skills.eval.judgeProvider` (ATO-1101), the
+// provider id that grades `judge` checks in `skill eval`. An older file
+// has no field; the key stays out of the file until it is set.
 // Unversioned, additive: `localModels.strictToolArgs` (default `false`,
 // ATO-633). `true` generates a per-tool args rule from each tool's JSON
 // Schema into the request grammar (`src/llm/grammar/strict-tool-args.ts`),
@@ -1204,6 +1323,9 @@ export interface UserConfigFile {
 // default true): one short completion under the workers' grammar before
 // the first fan-out on a local worker leg. An older file has no field and
 // gets the check; `false` turns it off.
+// Unversioned, additive: `llm.runMode.fusion.outcomeJournal` (default
+// true), ATO-949. `false` keeps no outcome rows and states no past-run
+// summary; an older file has none and journals.
 // Unversioned, additive: `llm.runMode.fusion.isolation` (`off|worktree`,
 // default `off`), ATO-946. An older file has none and workers write in
 // place, as before.
@@ -1214,6 +1336,8 @@ export interface UserConfigFile {
 // 300 000 ms, ATO-922). It used to be env-only
 // (`ATOMIC_AGENT_LLAMA_REQUEST_TIMEOUT_MS`, which still wins over the
 // file). An older file has no field and reads the default, as before.
+// Unversioned, additive: top-level `channels` (chat channels beyond
+// Telegram and Discord keyed by id, ATO-1169). Missing reads as `{}`.
 // v80: new `projects.constraints` dictionary (issue #33): an absolute
 // folder → `{ allowedProviders }`, the provider ids that may receive any
 // request carrying a session's content while it works in that folder.
@@ -1389,6 +1513,7 @@ export const USER_CONFIG_DEFAULTS: UserConfigFile = {
   web: {
     search: createWebSearchDefaults(),
     fetch: createWebFetchDefaults(),
+    crawl: createWebCrawlDefaults(),
   },
   projects: createProjectsDefaults(),
   tools: createToolsDefaults(),
@@ -1398,6 +1523,7 @@ export const USER_CONFIG_DEFAULTS: UserConfigFile = {
   network: createNetworkDefaults(),
   memory: createMemoryDefaults(),
   webhooks: {},
+  fileTriggers: {},
   vision: createVisionDefaults(),
   skills: createSkillsDefaults(),
   tui: createTuiDefaults(),
@@ -1407,6 +1533,7 @@ export const USER_CONFIG_DEFAULTS: UserConfigFile = {
   },
   telegram: createTelegramDefaults(),
   discord: createDiscordDefaults(),
+  channels: {},
   swarm: createSwarmDefaults(),
   notifications: createNotificationsDefaults(),
   atomicMail: createAtomicMailDefaults(),
@@ -1477,6 +1604,7 @@ export const ENV_DEFAULTS = {
   TASKS_SCHEDULER_TICK_MS: 5_000,
   TASKS_SCHEDULER_BATCH: 10,
   TASKS_AGENT_TOOLS_ENABLED: true,
+  SESSION_TOOLS_ENABLED: false,
   TASKS_MIN_INTERVAL_MS: 1_000,
   /** Auto status snapshot after this many more steps (ATO-965); 0 = off. */
   STATUS_SNAPSHOT_EVERY_STEPS: 10,
@@ -1649,6 +1777,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
   const toolsLsp = (tools.lsp as Record<string, unknown> | undefined) ?? {};
   const webSearch = (web.search as Record<string, unknown> | undefined) ?? {};
   const webFetch = (web.fetch as Record<string, unknown> | undefined) ?? {};
+  const webCrawl = (web.crawl as Record<string, unknown> | undefined) ?? {};
   const webSearchInputs = prepareWebSearchInputs(
     webSearch,
     () => USER_CONFIG_DEFAULTS.web.search,
@@ -1671,6 +1800,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
   const memory = (obj.memory as Record<string, unknown> | undefined) ?? {};
   const preparedMemory = prepareMemoryInputs(memory);
   const webhooks = parseWebhookMap(obj.webhooks ?? {}, "webhooks");
+  const fileTriggers = parseFileTriggerMap(obj.fileTriggers ?? {}, "fileTriggers");
   const vision = (obj.vision as Record<string, unknown> | undefined) ?? {};
   const skills = (obj.skills as Record<string, unknown> | undefined) ?? {};
   const telegram = (obj.telegram as Record<string, unknown> | undefined) ?? {};
@@ -1683,6 +1813,8 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     (notifications.downloads as Record<string, unknown> | undefined) ?? {};
   const notificationsApprovalPending =
     (notifications.approvalPending as Record<string, unknown> | undefined) ?? {};
+  const notificationsPush =
+    (notifications.push as Record<string, unknown> | undefined) ?? {};
   const atomicMail =
     (obj.atomicMail as Record<string, unknown> | undefined) ?? {};
   const git = (obj.git as Record<string, unknown> | undefined) ?? {};
@@ -1765,6 +1897,10 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
         webFetch,
         () => USER_CONFIG_DEFAULTS.web.fetch,
       ),
+      crawl: parseWebCrawlConfig(
+        webCrawl,
+        () => USER_CONFIG_DEFAULTS.web.crawl ?? createWebCrawlDefaults(),
+      ),
     },
     projects: {
       ...parseProjectsConfig(projects, () => USER_CONFIG_DEFAULTS.projects),
@@ -1773,7 +1909,11 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     tools: parseToolsConfig(toolsShell, () => USER_CONFIG_DEFAULTS.tools, toolsScreen, toolsVerify, toolsLsp),
     browser: parseBrowserConfig(browser, () => USER_CONFIG_DEFAULTS.browser),
     sessions: parseSessionConfig(sessionsRetention, () => USER_CONFIG_DEFAULTS.sessions),
-    tracing: parseTracingConfig(mergedTrace, () => USER_CONFIG_DEFAULTS.tracing),
+    tracing: parseTracingConfig(
+      mergedTrace,
+      () => USER_CONFIG_DEFAULTS.tracing,
+      (tracing.otel as Record<string, unknown> | undefined) ?? {},
+    ),
     network: parseNetworkConfig(network, () => USER_CONFIG_DEFAULTS.network),
     memory: parseMemoryConfig(
       preparedMemory,
@@ -1781,6 +1921,7 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
       () => USER_CONFIG_DEFAULTS.memory,
     ),
     webhooks,
+    fileTriggers,
     vision: parseVisionConfig(vision, () => USER_CONFIG_DEFAULTS.vision),
     skills: parseSkillsConfig(skills, () => USER_CONFIG_DEFAULTS.skills),
     tui: parseTuiConfig(tui, () => USER_CONFIG_DEFAULTS.tui),
@@ -1796,11 +1937,13 @@ export function parseUserConfigFile(raw: unknown): UserConfigFile {
     },
     telegram: parseTelegramConfig(telegram, () => USER_CONFIG_DEFAULTS.telegram),
     discord: parseDiscordConfig(discord, () => USER_CONFIG_DEFAULTS.discord),
+    channels: parseExtraChannelsConfig(obj.channels),
     swarm: parseSwarmConfig(swarm),
     notifications: parseNotificationsConfig(
       notificationsDownloads,
       () => USER_CONFIG_DEFAULTS.notifications,
       notificationsApprovalPending,
+      notificationsPush,
     ),
     atomicMail: parseAtomicMailConfig(atomicMail),
     git: parseGitConfig(git, () => USER_CONFIG_DEFAULTS.git),

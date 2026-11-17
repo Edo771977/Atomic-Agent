@@ -9,7 +9,7 @@ const clip = (text: string, max: number): string => {
 };
 
 /**
- * The `### project` section (issue #39): where the fusion project
+ * The `### fusion project` section (issue #39): where the fusion project
  * stands, for the director. In the step-mutable tail, never the cached
  * prefix: a director tool or a person's decision changes it between
  * steps and turns. Null without a project.
@@ -28,7 +28,7 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
   if (brief !== undefined) {
     lines.push(`brief: ${brief.status} v${brief.version} — ${clip(brief.what, WHAT_CHARS)}`);
     if (brief.successCriteria.length > 0) {
-      lines.push("success criteria:", ...brief.successCriteria.map((c) => `- ${c}`));
+      lines.push("success criteria (ids for contract checks' `criteria`):", ...brief.successCriteria.map((c) => `- ${c.id}: ${c.text}`));
     }
   }
   const plan = project.plan;

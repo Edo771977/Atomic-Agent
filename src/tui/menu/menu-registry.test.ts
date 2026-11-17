@@ -115,6 +115,12 @@ const V0_2_2_SLASH_COMMANDS = [
     description:
       "always show steps: `/steps` toggles | `/steps on` keeps finished turns open | `/steps off` folds them",
   },
+  // ATO-34: a plain note per step, and /why for the last one.
+  {
+    name: "verbose",
+    description:
+      "one plain note per step under its tool card: `/verbose` toggles | `/verbose on` | `/verbose off`",
+  },
   {
     name: "session",
     description: "show current session id",
@@ -218,6 +224,17 @@ const V0_2_2_SLASH_COMMANDS = [
       "what the running turn is doing: plan, now, last result, blocked on an approval, time, steps",
   },
   {
+    name: "why",
+    description:
+      "the agent's last step in plain words: what it called and with what, what came back, tokens, and its reasoning when the model gave one",
+  },
+  // ATO-1152: a side question that is not saved to the session.
+  {
+    name: "btw",
+    description:
+      "ask a quick side question: `/btw <question>` — the model sees this chat, runs no tools, and nothing is saved to the session",
+  },
+  {
     name: "window",
     description: "open a new terminal window running atomic-agent (ctrl+n)",
     aliases: ["newwindow"],
@@ -226,6 +243,12 @@ const V0_2_2_SLASH_COMMANDS = [
     name: "mouse",
     description:
       "mouse support on/off/status (off restores the terminal's drag-to-select)",
+  },
+  // ATO-662: vim keys in the composer.
+  {
+    name: "vim",
+    description:
+      "vim keys in the prompt (NORMAL / INSERT): `/vim` toggles | `/vim on` | `/vim off`",
   },
   {
     name: "context",
@@ -252,6 +275,13 @@ const V0_2_2_SLASH_COMMANDS = [
     name: "report",
     description:
       "file a GitHub issue with your logs attached — you choose how much leaves this machine",
+    aliases: ["bug"],
+  },
+  // ATO-1465: the community server, right after /report.
+  {
+    name: "discord",
+    description:
+      "open our Discord server in the browser (the link is printed too, for SSH sessions)",
   },
   {
     name: "runmode",
@@ -267,11 +297,17 @@ const V0_2_2_SLASH_COMMANDS = [
   },
   {
     name: "compact",
-    description: "summarize older context; show displays the saved summary",
+    description: "summarize older context; add text to say what to keep; show displays the saved summary",
   },
   {
     name: "enhance",
     description: "rewrite a prompt into a clearer one in the composer; nothing is sent",
+  },
+  // ATO-1057.
+  {
+    name: "rewind",
+    description:
+      "take the chat back to an earlier message of yours and edit it; files the agent changed stay as they are",
   },
   // Added with the plugin loader (ATO-954).
   {
@@ -282,7 +318,13 @@ const V0_2_2_SLASH_COMMANDS = [
   {
     name: "goal",
     description:
-      "keep working until an acceptance list is green: `/goal <criteria; …>` | `/goal check add <cmd>` | `/goal status` | `/goal pause|resume|clear`",
+      "keep working until an acceptance list is green: `/goal <criteria; …>` | `/goal check add <cmd>` | `/goal tokens <n>|off` | `/goal status` | `/goal pause|resume|clear`",
+  },
+  // Added with personas (ATO-54).
+  {
+    name: "persona",
+    description:
+      "named instructions for the agent: `/persona` lists them · `/persona use <name|default>` · `/persona bind <name|default>` ties one to this folder; applies from the next session",
   },
   {
     name: "worker",
@@ -308,6 +350,18 @@ const V0_2_2_SLASH_COMMANDS = [
     name: "resume",
     description:
       "continue the last reply a restart cut off: starts a new turn from it, once (the model checks before repeating commands or writes)",
+  },
+  // Added with the external editor (ATO-655).
+  {
+    name: "edit",
+    description:
+      "open the prompt in your $VISUAL / $EDITOR; save and close to put it back in the composer, nothing is sent",
+  },
+  // The interview invite's permanent entry (ATO-1467).
+  {
+    name: "feedback",
+    description:
+      "15 min call with the team, $50 in OpenRouter credits after it: `/feedback` opens the form · `/feedback never` hides the invite",
   },
   {
     name: "uninstall",

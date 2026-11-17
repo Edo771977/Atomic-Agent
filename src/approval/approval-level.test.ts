@@ -31,6 +31,7 @@ const ALL_CATEGORIES: readonly ApprovalCategory[] = [
   "browser_commit",
   "browser_secret",
   "browser_offsite",
+  "browser_site_tool",
   "trust_config",
   "state_secret",
   "email",
@@ -42,6 +43,7 @@ const ALL_CATEGORIES: readonly ApprovalCategory[] = [
   "hook_ask",
   "verify_page_local",
   "user_question",
+  "session_cross",
   "other",
 ];
 
@@ -127,6 +129,8 @@ describe("approval ladder", () => {
       browser_secret: 5,
       // Navigation outside a non-empty allow-list: the `http` rung.
       browser_offsite: 3,
+      // A site's own WebMCP tool: the same rung as a submit.
+      browser_site_tool: 4,
       trust_config: 5,
       // The read-side twin of trust_config (ATO-877).
       state_secret: 5,
@@ -146,6 +150,8 @@ describe("approval ladder", () => {
       verify_page_local: 2,
       // A question only the person can answer (ATO-489).
       user_question: null,
+      // Another chat's messages, read or written (ATO-570).
+      session_cross: 5,
       other: 5,
     };
     for (const [category, from] of Object.entries(silentFrom) as [
@@ -192,6 +198,9 @@ describe("approval ladder", () => {
     );
     expect(formatApprovalCategory("browser_secret")).toBe(
       "browser · password or payment",
+    );
+    expect(formatApprovalCategory("session_cross")).toBe(
+      "another chat · read / send",
     );
   });
 

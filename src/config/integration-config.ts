@@ -4,6 +4,17 @@ import { parseBool, parseBoundedPositiveInt, parseNonEmptyString } from "./confi
 
 import { parseNullableString } from "./config-values.js";
 
+import {
+  parseComposioAccounts,
+  type ComposioAccount,
+} from "./composio-accounts-config.js";
+
+import {
+  createPushDefaults,
+  parsePushConfig,
+  type PushNotifyConfig,
+} from "./push-config.js";
+
 /**
  * Git remote-sync policy. Added in config v52.
  *
@@ -56,11 +67,26 @@ export interface ComposioConfig {
   sessionId: string | null;
   /** Cached MCP endpoint for `sessionId`. */
   mcpUrl: string | null;
+  /**
+   * Named connected accounts and per-toolkit defaults (ATO-548). Empty
+   * by default: nothing is pinned and Composio picks the account.
+   */
+  accounts: ComposioAccount[];
+  /**
+   * Which pins the cached session was created with, as
+   * `<sessionId>#<pins>`; `null` for an unpinned session. Tied to the
+   * session id so a writer that replaces `sessionId` without knowing
+   * about pins (an older build, the desktop key check) invalidates it.
+   */
+  sessionPins: string | null;
 }
 
-/** Where a finished (or failed) background model download is reported. */
+/**
+ * Where a finished (or failed) background model download is reported.
+ * `"push"` is the ntfy topic in `notifications.push` (ATO-1129).
+ */
 export type DownloadNotifyChannelSetting =
-  "telegram" | "discord" | "email" | "off";
+  "telegram" | "discord" | "email" | "push" | "off";
 
 export interface NotificationsConfig {
   downloads: {
@@ -77,6 +103,8 @@ export interface NotificationsConfig {
    * channel running in this process. Additive and unversioned.
    */
   approvalPending: ApprovalPendingNotifyConfig;
+  /** Phone push through ntfy. Unversioned, additive (ATO-1129). */
+  push: PushNotifyConfig;
 }
 
 /** Which running channel carries the approval-pending ping. */
@@ -132,13 +160,14 @@ export function parseDownloadNotifyChannel(
     raw === "telegram" ||
     raw === "discord" ||
     raw === "email" ||
+    raw === "push" ||
     raw === "off"
   ) {
     return raw;
   }
   throw new ConfigValidationError(
     field,
-    `expected "telegram", "discord", "email", "off" or null, got ${JSON.stringify(raw)}`,
+    `expected "telegram", "discord", "email", "push", "off" or null, got ${JSON.stringify(raw)}`,
   );
 }
 
@@ -179,6 +208,8 @@ export function createNotificationsDefaults(): NotificationsConfig {
       afterMinutes: 5,
       channel: "auto",
     },
+    // Unversioned, additive (ATO-1129): off, no topic until `push on`.
+    push: createPushDefaults(),
   };
 }
 
@@ -211,6 +242,9 @@ export function createComposioDefaults(): ComposioConfig {
     userId: null,
     sessionId: null,
     mcpUrl: null,
+    // Unversioned, additive (ATO-548): no named accounts, nothing pinned.
+    accounts: [],
+    sessionPins: null,
   };
 }
 
@@ -218,6 +252,7 @@ export function parseNotificationsConfig(
   rawDownloads: Record<string, unknown>,
   readDefaults: () => NotificationsConfig,
   rawApprovalPending: Record<string, unknown> = {},
+  rawPush: Record<string, unknown> = {},
 ): NotificationsConfig {
   return {
       downloads: {
@@ -230,6 +265,10 @@ export function parseNotificationsConfig(
       approvalPending: parseApprovalPendingNotifyConfig(
         rawApprovalPending,
         () => readDefaults().approvalPending,
+      ),
+      push: parsePushConfig(
+        rawPush,
+        () => readDefaults().push ?? createPushDefaults(),
       ),
     };
 }
@@ -310,5 +349,7 @@ export function parseComposioConfig(
       userId: parseNullableString(raw.userId, "composio.userId"),
       sessionId: parseNullableString(raw.sessionId, "composio.sessionId"),
       mcpUrl: parseNullableString(raw.mcpUrl, "composio.mcpUrl"),
+      accounts: parseComposioAccounts(raw.accounts, "composio.accounts"),
+      sessionPins: parseNullableString(raw.sessionPins, "composio.sessionPins"),
     };
 }

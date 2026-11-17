@@ -7,6 +7,9 @@
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
+import { needsShellInterpretation } from "../os/shell/shell-interpretation.js";
+
 export type ReadTargetsOf = (args: Record<string, unknown>) => string[];
 
 function nonEmpty(value: unknown): string | undefined {
@@ -118,11 +121,18 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
   ["os.fs.hash", pathArg],
   ["os.fs.watch", pathArg],
   ["os.fs.read_document", pathArg],
+  // The office tools read the file they edit or show; `create` makes a
+  // new one, which the approval ladder classifies as a write.
+  ["os.fs.docx", (args) => (args.op === "create" ? [] : pathArg(args))],
+  ["os.fs.xlsx", (args) => (args.op === "create" ? [] : pathArg(args))],
   ["os.fs.archive.list", pathArg],
   ["os.fs.archive.read_entry", pathArg],
   ["os.fs.grep", pathArg],
   // A folder to map or one file to outline; omitted = the working dir.
   ["os.fs.code_map", pathArg],
+  // Both read what they search (ATO-696); the rewrite then asks to write.
+  ["os.code.search", pathArg],
+  ["os.code.rewrite", pathArg],
   [
     "os.fs.glob",
     // `cwd` wins over `path` inside the tool; either names the root.
@@ -139,12 +149,41 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
       ),
   ],
   [
+    // Not a read, but a way to one: a picture from outside the scope
+    // embedded in a deck inside it could then be read without asking.
+    // The deck itself is a write, which the approval ladder classifies.
+    "os.fs.write_pptx",
+    (args) =>
+      (Array.isArray(args.slides) ? args.slides : [])
+        .map((slide: unknown) =>
+          typeof slide === "object" && slide !== null
+            ? nonEmpty((slide as Record<string, unknown>).image)
+            : undefined,
+        )
+        .filter((path): path is string => path !== undefined),
+  ],
+  [
     "vision.describe",
     (args) =>
       [
         nonEmpty(args.path),
         ...(Array.isArray(args.paths) ? args.paths.map(nonEmpty) : []),
       ].filter((path): path is string => path !== undefined),
+  ],
+  // The clip is read from disk and sent to the model (ATO-497).
+  ["audio.listen", pathArg],
+  [
+    // `browser.act { action: "upload" }` reads local files and sends
+    // them to a site (ATO-957): scoped like any read, and the agent's
+    // own secret files ask as `state_secret` before the upload prompt.
+    "browser.act",
+    (args) =>
+      args.action !== "upload"
+        ? []
+        : [
+            nonEmpty(args.path),
+            ...(Array.isArray(args.paths) ? args.paths.map(nonEmpty) : [nonEmpty(args.paths)]),
+          ].filter((path): path is string => path !== undefined),
   ],
   [
     // The first frame of an image-to-video clip: Core reads the file and
@@ -153,6 +192,16 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
     (args) => {
       const image = nonEmpty(args.image);
       return image === undefined ? [] : [image];
+    },
+  ],
+  // The page `video.render_html` records (ATO-1164).
+  ["video.render_html", pathArg],
+  [
+    // whisper.cpp reads the recording: scoped like any read (ATO-702).
+    "audio.transcribe",
+    (args) => {
+      const path = nonEmpty(args.path);
+      return path === undefined ? [] : [path];
     },
   ],
   [
@@ -213,11 +262,20 @@ export function verifyRunShellCalls(
   args: Record<string, unknown>,
 ): Record<string, unknown>[] {
   const calls: Record<string, unknown>[] = [];
-  if (typeof args.cmd === "string") calls.push({ cmd: args.cmd, args: args.args, ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) });
+  const scope = { ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) };
+  if (typeof args.cmd === "string") {
+    calls.push({ cmd: args.cmd, args: args.args, ...scope });
+    // A script a shell reads from `stdin` runs as that command line.
+    const cmdArgs = Array.isArray(args.args) ? args.args.filter((a): a is string => typeof a === "string") : [];
+    const stdin = typeof args.stdin === "string" ? args.stdin : undefined;
+    for (const line of stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), stdin)?.lines ?? []) {
+      calls.push({ cmd: line, ...scope });
+    }
+  }
   const start = args.start;
   if (typeof start === "object" && start !== null) {
     const { cmd, args: startArgs } = start as Record<string, unknown>;
-    if (typeof cmd === "string") calls.push({ cmd, args: startArgs, ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) });
+    if (typeof cmd === "string") calls.push({ cmd, args: startArgs, ...scope });
   }
   return calls;
 }

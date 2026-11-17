@@ -4,6 +4,7 @@ import {
   canGrantCategory,
   canGrantShape,
   describeCategoryGrant,
+  describeMcpToolGrant,
   type ApprovalGrantScope,
   type ApprovalRequest,
 } from "../approval/approval-gate.js";
@@ -21,6 +22,7 @@ import {
   hiddenLinesNote,
   previewLines,
 } from "../approval/approval-preview.js";
+import { formatRiskLine } from "../approval/risk-review.js";
 import {
   APPROVAL_CHORDS,
   canEditPath,
@@ -36,6 +38,7 @@ import { codingModeApprovalNote } from "./coding-mode/coding-mode-approval-note.
 import { MultiLineEditor } from "./components/multi-line-editor.js";
 import { readableOn } from "./theme/readable-foreground.js";
 import { theme } from "./theme/theme.js";
+import { diffLineTone, diffToneColor, looksLikeUnifiedDiff } from "./diff-line-tone.js";
 import { MouseTarget, useMouseCommands } from "./mouse/mouse-context.js";
 import { isPrimaryPress } from "./mouse/mouse-event.js";
 import { MOUSE_LAYER_MODAL } from "./mouse/mouse-registry.js";
@@ -125,6 +128,8 @@ export function ApprovalModal({
   const grantAlways = canGrantAlways(request);
   const editable = canEditPath(request);
   const editing = pathDraft !== null;
+  // Smart approval's verdict on a request it did not let through (ATO-1268).
+  const riskLine = formatRiskLine(request);
   return (
     <Box
       flexDirection="column"
@@ -149,6 +154,11 @@ export function ApprovalModal({
           <Text color="gray">reason: </Text>
           {request.reason}
         </Text>
+        {riskLine !== null ? (
+          <Text color={request.riskLevel === "high" ? theme.colors.error : "yellow"}>
+            {riskLine}
+          </Text>
+        ) : null}
         {request.preview ? (
           <ApprovalPreview
             request={request}
@@ -226,7 +236,7 @@ export function ApprovalModal({
                     grant="category"
                     tone="secondary"
                   >
-                    {`allow ${describeCategoryGrant(request)}${request.grantKey !== undefined ? ` to ${request.grantKey}` : ""} this session${request.category === "shell" ? RISKY_STILL_ASK : ""} · ctrl+${APPROVAL_CHORDS.grantCategory}`}
+                    {`allow ${describeMcpToolGrant(request) ?? `${describeCategoryGrant(request)}${request.grantKey !== undefined ? ` to ${request.grantKey}` : ""}`} this session${request.category === "shell" ? RISKY_STILL_ASK : ""} · ctrl+${APPROVAL_CHORDS.grantCategory}`}
                   </ApprovalButton>
                   <Text> </Text>
                 </>
@@ -322,6 +332,10 @@ function ApprovalPreview({
 }): ReactElement {
   const truncated = approvalPreviewTruncated(request);
   const pages = truncated && page !== null ? approvalPreviewPages(request) : [];
+  // ATO-563: an edit's preview is a unified diff; its + and - lines are coloured.
+  const isDiff = looksLikeUnifiedDiff(preview);
+  const tone = (line: string): string | undefined =>
+    isDiff ? diffToneColor(diffLineTone(line), theme.colors) : undefined;
   const shown = page === null ? undefined : pages[page];
   if (shown) {
     const total = previewLines(preview).length;
@@ -332,7 +346,7 @@ function ApprovalPreview({
           {`preview, full command (${total} ${total === 1 ? "line" : "lines"}), page ${(page ?? 0) + 1} of ${pages.length}:`}
         </Text>
         {shown.map((line, index) => (
-          <Text key={index}>{`  ${line}`}</Text>
+          <Text key={index} color={tone(line)}>{`  ${line}`}</Text>
         ))}
         <Box marginLeft={2}>
           <CommandButton onPress={onPage}>
@@ -356,7 +370,7 @@ function ApprovalPreview({
     <Box flexDirection="column">
       <Text color="gray">preview:</Text>
       {excerpt.lines.map((line, index) => (
-        <Text key={index}>{`  ${line}`}</Text>
+        <Text key={index} color={tone(line)}>{`  ${line}`}</Text>
       ))}
       {note === null ? null : <Text color="gray">{`  ${note}`}</Text>}
       {truncated ? (

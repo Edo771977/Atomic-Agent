@@ -11,6 +11,7 @@ import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
 import * as browserTools from "../../tools/browser/index.js";
 import * as osTools from "../../tools/os/index.js";
 import * as fusionTools from "../../tools/fusion/index.js";
+import * as verifyTools from "../../tools/verify/index.js";
 import * as readScope from "../../tools/read-scope/index.js";
 import * as skillTools from "../../tools/skill/index.js";
 import { ProfileStore } from "../../memory/profile-store.js";
@@ -30,6 +31,7 @@ import { createDailySpendBudget } from "../daily-spend-budget.js";
 import { DailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
 import { createRuntimeToolRegistry, registerRuntimeCoreTools, connectRuntimeMcpCatalog, mcpGrammarHookFor, registerRuntimeFusionAndReadScope, runtimeKnownSecrets } from "./runtime-tool-catalog.js";
 import { ModelProfileManager } from "../../llm/model-profile-manager.js";
+import { createApiKeyCommandSource, resetCommandIssuedSecrets } from "../../llm/provider/openai/api-key-command.js";
 import { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
 import { PLAIN_INSTRUCT_PROFILE } from "../../llm/model-profile.js";
 import { buildGrammar } from "../../llm/grammar/build-grammar.js";
@@ -106,7 +108,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
       const requests = new Map<string, string>(); const recent = vi.fn(() => []);
       const registration = vi.spyOn(osTools, "registerOsTools");
       const skillRegistration = vi.spyOn(skillTools, "registerSkillTools");
-      registerRuntimeCoreTools({ config, toolRegistry: registry, dangerous, logger, sessionStore: { listRecentWorkingDirs: recent, listSummaryPage: () => [], listChatLines: () => [] },
+      registerRuntimeCoreTools({ config, toolRegistry: registry, dangerous, logger, sessionStore: { listRecentWorkingDirs: recent, listSummaryPage: () => [], listChatLines: () => [], searchTranscripts: () => ({ hits: [], pending: 0 }), listSearchableChatLines: () => [] },
         resolveOriginalRequest: id => requests.get(id), declaredInputs, shellJobs, skillRegistry: new SkillRegistry({ globalDir: join(directory, "skills"), projectDir: null }), profileStore, notesStore });
       const wired = registration.mock.calls[0]?.[1]; if (!wired) throw new Error("OS tools not registered");
       expect(wired.approvals).toBe(approvals); expect(wired.approvalRequired).toBe(true);
@@ -114,6 +116,8 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
       expect(wired.trustConfigPaths).toEqual(getTrustConfigPaths(config.paths)); expect(wired.stateDir).toBe(config.paths.stateDir);
       // Skill scripts share the shell's passthrough list (ATO-877).
       expect(skillRegistration.mock.calls[0]?.[3]).toBe(config.tools.shell.envPassthrough);
+      // Skill history (ATO-580): skill uses reach the usage ledger.
+      expect(typeof skillRegistration.mock.calls[0]?.[5]).toBe("function");
       requests.set("session", "new request"); expect(wired.resolveOriginalRequest?.("session")).toBe("new request");
       wired.listRecentSessionDirs(7); expect(recent).toHaveBeenCalledWith(7);
       config.git.remoteSync = false; expect(wired.shellPolicy?.isGitRemoteSyncEnabled()).toBe(false);
@@ -140,7 +144,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     const dangerous = { approvals: gate, approvalRequired: true };
     const registry = createRuntimeToolRegistry(config, backend, dangerous);
     registerRuntimeCoreTools({ config, toolRegistry: registry, dangerous, logger,
-      sessionStore: { listRecentWorkingDirs: () => [], listSummaryPage: () => [], listChatLines: () => [] },
+      sessionStore: { listRecentWorkingDirs: () => [], listSummaryPage: () => [], listChatLines: () => [], searchTranscripts: () => ({ hits: [], pending: 0 }), listSearchableChatLines: () => [] },
       resolveOriginalRequest: () => undefined, declaredInputs: new osTools.DeclaredInputsRegistry(), shellJobs,
       skillRegistry: new SkillRegistry({ globalDir: join(directory, "skills"), projectDir: null }), profileStore, notesStore });
     return { config, registry, close: () => { shellJobs.endAll(); notesStore.close(); profileStore.close(); } };
@@ -193,7 +197,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
       const dangerous = { approvals: new ApprovalGate({ emit: () => {}, level: 5 }), approvalRequired: true };
       const registration = vi.spyOn(osTools, "registerOsTools");
       registerRuntimeCoreTools({ config, toolRegistry: createRuntimeToolRegistry(config, backend, dangerous), dangerous, logger,
-        sessionStore: { listRecentWorkingDirs: () => [], listSummaryPage: () => [], listChatLines: () => [] },
+        sessionStore: { listRecentWorkingDirs: () => [], listSummaryPage: () => [], listChatLines: () => [], searchTranscripts: () => ({ hits: [], pending: 0 }), listSearchableChatLines: () => [] },
         resolveOriginalRequest: () => undefined, declaredInputs: new osTools.DeclaredInputsRegistry(), shellJobs,
         skillRegistry: new SkillRegistry({ globalDir: join(directory, "skills"), projectDir: null }), profileStore, notesStore,
         webSearchKeyHelp: "integrations-hub" });
@@ -358,6 +362,54 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(wired).not.toHaveProperty("currentDirector");
     expect(wired?.resolveFusionTeam).toBeTypeOf("function");
     expect(wired?.currentWorker?.()).toBe(worker);
+  });
+
+  it("keeps a fusion run's check screenshots under <stateDir>/fusion-runs/<runId>/shots, named by task (issue #40)", async () => {
+    const config = getConfig(); const toolRegistry = new ToolRegistry();
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    const verify = vi.spyOn(verifyTools, "runChecks").mockResolvedValue({ ok: true, results: [] });
+    try {
+      registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+        resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+        prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+        providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+      const wired = builder.mock.calls.at(-1)![0];
+      await wired.runChecks!([{ kind: "page", path: "a.html" }, { kind: "page", path: "b.html" }], {
+        workingDir: directory, signal: new AbortController().signal, run: { runId: "fr-shots", sessionId: "s-parent" }, checkTasks: ["t1", undefined],
+      });
+      const target = verify.mock.calls[0]![1].screenshotTargetFor!;
+      const shots = join(config.paths.stateDir, "fusion-runs", "fr-shots", "shots");
+      expect(target(0)).toEqual({ dir: shots, prefix: "t1" });
+      expect(target(1)).toEqual({ dir: shots, prefix: "run" });
+      await wired.runChecks!([{ kind: "page", path: "a.html" }], { workingDir: directory, signal: new AbortController().signal });
+      expect(verify.mock.calls[1]![1].screenshotTargetFor).toBeUndefined();
+    } finally {
+      verify.mockRestore();
+      await rm(join(config.paths.stateDir, "fusion-runs", "fr-shots"), { recursive: true, force: true });
+    }
+  });
+
+  it("hands the fusion tool the registry's dispatch guard for contract checks, as verify.run calls of the delegating session (issue #40)", () => {
+    const config = getConfig();
+    const seen: Array<{ tool: string; sessionId: string }> = [];
+    const toolRegistry = new ToolRegistry({
+      dispatchGuard: (tool, args, ctx) => {
+        seen.push({ tool, sessionId: ctx.sessionId });
+        return args.kind === "page" ? new Error('folder /w is restricted: add "browser"') : null;
+      },
+    });
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(fusionTools, "buildFusionDelegateTool");
+    registerRuntimeFusionAndReadScope({ config, toolRegistry, approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+      resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+      prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {}, resolveCurrentRunMode: () => resolveRunMode(resolveLlmConfig(config)),
+      providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
+    const wired = builder.mock.calls.at(-1)?.[0];
+    expect(wired?.contractCheckEgress).toBeTypeOf("function");
+    expect(wired!.contractCheckEgress!({ kind: "page", path: "index.html" }, { sessionId: "s-parent", workingDir: directory })?.message).toContain('add "browser"');
+    expect(wired!.contractCheckEgress!({ kind: "command", cmd: "node" }, { sessionId: "s-parent", workingDir: directory })).toBeNull();
+    expect(seen).toEqual([{ tool: "verify.run", sessionId: "s-parent" }, { tool: "verify.run", sessionId: "s-parent" }]);
   });
 
   it("registers fusion after existing tools, then decorates reads with live security callbacks", async () => {
@@ -651,6 +703,45 @@ describe("runtimeKnownSecrets (ATO-1077)", () => {
       { label: "mcp-gh-GITHUB_TOKEN", value: "Gg1Hh2Ii3Jj4" },
       { label: "mcp-remote-header", value: "Rr1Ss2Tt3Uu4" },
     ]);
+  });
+
+  it("lists the values behind a provider's extra key env vars too (ATO-471)", () => {
+    const config = {
+      llm: {
+        activeTextProvider: "groq",
+        activeEmbeddingProvider: "groq",
+        providers: [
+          {
+            id: "groq",
+            kind: "openai-compatible",
+            apiKey: "Aa1Bb2Cc3Dd4",
+            extraApiKeyEnvVars: ["XK_ONE", "XK_TWO", "XK_UNSET"],
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof runtimeKnownSecrets>[0];
+    const env = { XK_ONE: "Ee5Ff6Gg7Hh8", XK_TWO: "Ii9Jj0Kk1Ll2" };
+    const groq = runtimeKnownSecrets(config, env).filter((s) => s.label === "groq-key");
+    expect(groq).toEqual([
+      { label: "groq-key", value: "Aa1Bb2Cc3Dd4" },
+      { label: "groq-key", value: "Ee5Ff6Gg7Hh8" },
+      { label: "groq-key", value: "Ii9Jj0Kk1Ll2" },
+    ]);
+  });
+
+  it("masks the token a provider key command printed (Vertex AI, ATO-468)", async () => {
+    const source = createApiKeyCommandSource(["gcloud", "auth", "print-access-token"], {
+      label: "google-vertex",
+      run: async () => "ya29.Kk1Ll2Mm3Nn4\n",
+    });
+    await source.get();
+    try {
+      expect(runtimeKnownSecrets({}, {})).toEqual([
+        { label: "google-vertex-key-command", value: "ya29.Kk1Ll2Mm3Nn4" },
+      ]);
+    } finally {
+      resetCommandIssuedSecrets();
+    }
   });
 });
 

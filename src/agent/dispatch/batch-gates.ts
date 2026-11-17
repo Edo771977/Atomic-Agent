@@ -117,14 +117,16 @@ export function runToolFilterGate(
   return compressToolResult({
     tool: name,
     status: "error",
-    output: `\`${name}\` is not available in this turn; the call was not run. Use an allowed tool or report the blocked action in your reply.`,
+    output: `\`${name}\`: ${TOOL_FILTER_REFUSAL}; the call was not run. Use an allowed tool or report the blocked action in your reply.`,
     details: { tool_filter: true, tool: name },
   });
 }
 
 /**
- * Refuse a non-terminal call on the loop's reserved final step, or one
- * outside the step's tool set (`step-tool-set.ts`). The prompt's
+ * Refuse a non-terminal call on the loop's reserved final step, one
+ * outside the step's tool set (`step-tool-set.ts`), or one the turn's
+ * `toolFilter` hides (a fusion worker's policy and profile allowlist;
+ * `runToolFilterGate` normally refuses those earlier). The prompt's
  * `### notice` already said so; this is what makes it true without
  * narrowing the tool catalog (stable-prefix bytes) for one step. A solo
  * `[reply]` never reaches this gate — terminals are split off before
@@ -153,8 +155,27 @@ export function runFinalStepGate(
       vetoResult: toolSetRefusal(input.call.tool, ctx.toolSet),
     };
   }
+  if (ctx.toolFilter !== undefined && !ctx.toolFilter(input.call.tool)) {
+    return {
+      proceed: false,
+      vetoResult: {
+        tool: input.call.tool,
+        status: "error",
+        summary: `${TOOL_FILTER_REFUSAL}: \`${input.call.tool}\` was not run`,
+        details: { tool_filter: true, tool: input.call.tool },
+        truncated: false,
+      },
+    };
+  }
   return { proceed: true };
 }
+
+/**
+ * The result a call gets when the turn's `toolFilter` hides its tool: a
+ * native-tool model can name a tool that was never in its payload, and
+ * the hidden tool must not run just because it is registered.
+ */
+export const TOOL_FILTER_REFUSAL = "this tool is not available in this turn";
 
 /**
  * Refuse a mutating call while plan mode is on.

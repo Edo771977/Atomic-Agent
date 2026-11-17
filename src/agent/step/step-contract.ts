@@ -181,6 +181,12 @@ export interface StepDependencies {
    */
   compactPromptLatch?: import("../../prompt/compact-prompt.js").CompactPromptLatch;
   /**
+   * Per-session user persona (ATO-54), owned by the loop so the
+   * `### persona` block cannot move mid-session. Absent (tests, one-off
+   * callers): no persona is rendered.
+   */
+  personaLatch?: import("../../prompt/persona-latch.js").PersonaLatch;
+  /**
    * Plan mode, read per call rather than captured once — same contract
    * as `BatchExecutionContext.isPlanMode`. Absent ⇒ off.
    */
@@ -270,6 +276,11 @@ export interface StepDependencies {
    * absent or `null` states nothing.
    */
   fusionTokensPerSecond?: () => number | null;
+  /**
+   * The fusion outcome log's summary for the `### fusion` block
+   * (ATO-949). Held per session by the log, so stable per step.
+   */
+  fusionPastRuns?: (sessionId: string) => readonly string[];
   /**
    * Provider capability: whether the active native-tools provider can
    * generate parallel tool calls in one response. When false (or the

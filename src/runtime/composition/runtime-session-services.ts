@@ -167,8 +167,9 @@ export function createRuntimeSessionFactories(
     const incognito = input.incognito === true ? sessionStore.newIncognitoMark!() : undefined;
     const state = createEmptySessionState({
       id: `s-${randomUUID()}`,
-      // A session another session creates (a task's) keeps its caller's
-      // folder (issue #33, `childSessionSeed`); otherwise the runtime's.
+      // A session another session creates (a task's, or a chat opened on
+      // another chat's behalf by sessions.send) keeps its caller's folder
+      // (issue #33, `childSessionSeed`; ATO-570); otherwise the runtime's.
       workingDir: input.workingDir ?? workingDir,
       ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(incognito ? { incognito } : {}),

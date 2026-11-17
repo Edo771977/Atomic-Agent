@@ -57,6 +57,20 @@ export interface HttpServerOptions {
   projectGateBus?: ProjectGateBus;
   completionRegistry?: CompletionRegistry;
   undeliveredSteers?: UndeliveredSteerStore;
+  /**
+   * The keyless loopback guard (ATO-1495). On by default. Only the
+   * webhook tunnel gateway (ATO-625) turns it off: cloudflared sends the
+   * public tunnel host, and webhook senders choose their own body type;
+   * that listener serves nothing but signed `POST /api/webhooks/{name}`.
+   */
+  loopbackGuard?: boolean;
+  /**
+   * Whether this listener counts as reachable from the network for the
+   * per-folder `serve` refusal (issue #33). Default: a non-loopback
+   * `host`. The webhook tunnel gateway sets it: it listens on loopback,
+   * but cloudflared exposes it to the internet.
+   */
+  networkServe?: boolean;
 }
 
 export interface HttpServerHandle {
@@ -147,7 +161,7 @@ export function createHttpServer(
   const incognitoChats = new Set<string>();
   // Issue #33: on a network address, sessions of constrained folders
   // without "serve" are refused (serve-egress.ts).
-  const networkServe = isNetworkListenHost(options.host);
+  const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
 
   const server = createServer(async (req, res) => {
     try {
@@ -160,7 +174,7 @@ export function createHttpServer(
         undeliveredSteers,
         incognitoChats,
         networkServe,
-      });
+      }, options.loopbackGuard ?? true);
     } catch (err) {
       handleRouteError(res, err);
     }
@@ -227,6 +241,7 @@ async function dispatch(
   res: ServerResponse,
   routes: CompiledRoute[],
   baseCtx: Omit<HandlerContext, "params">,
+  loopbackGuard: boolean,
 ): Promise<void> {
   const url = parseRequestUrl(req);
   if (!url) {
@@ -234,7 +249,7 @@ async function dispatch(
     return;
   }
   // ATO-1495: without a key, refuse foreign Host/Origin and non-JSON bodies before routing (preflights too).
-  if (!enforceLoopbackGuard(req, res, baseCtx.apiKey)) return;
+  if (loopbackGuard && !enforceLoopbackGuard(req, res, baseCtx.apiKey)) return;
   const method = (req.method ?? "GET").toUpperCase();
   const matched = matchRoute(routes, method, url.pathname);
   if (!matched) {

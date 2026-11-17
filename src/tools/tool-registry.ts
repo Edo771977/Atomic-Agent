@@ -165,6 +165,17 @@ export interface ToolRegistryOptions {
    * content exists. A throw refuses the call. Absent ⇒ nobody is told.
    */
   onDispatch?: (name: string, args: Record<string, unknown>, ctx: ToolContext) => void;
+  /**
+   * Runs before every call that passed the guards above, with the arguments the tool will get. The
+   * runtime saves what a file tool is about to change here
+   * (`fs-checkpoint-targets.ts`, ATO-1056). It must not throw; a throw
+   * is ignored and the call goes ahead. Absent => nothing runs.
+   */
+  beforeInvoke?: (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: ToolContext,
+  ) => Promise<void>;
 }
 
 export class ToolRegistry {
@@ -176,6 +187,7 @@ export class ToolRegistry {
   private readonly onUntrustedOutput: ToolRegistryOptions["onUntrustedOutput"];
   private readonly dispatchGuard: ToolRegistryOptions["dispatchGuard"];
   private readonly onDispatch: ToolRegistryOptions["onDispatch"];
+  private readonly beforeInvoke: ToolRegistryOptions["beforeInvoke"];
 
   constructor(options: ToolRegistryOptions = {}) {
     this.dispatchGuard = options.dispatchGuard;
@@ -183,6 +195,7 @@ export class ToolRegistry {
     this.knownSecrets = options.knownSecrets ?? (() => knownSecretsFromEnv());
     this.onUntrustedOutput = options.onUntrustedOutput;
     this.onDispatch = options.onDispatch;
+    this.beforeInvoke = options.beforeInvoke;
   }
 
   register(definition: ToolDefinition): void {
@@ -214,6 +227,20 @@ export class ToolRegistry {
   }
 
   /**
+   * The refusal `dispatchGuard` gives `name` with `args`, or `null` when
+   * the call may run. For a caller that runs a tool's work outside the
+   * registry under the same rule (contract checks are `verify.run`
+   * calls the fan-out runs directly, issue #40).
+   */
+  dispatchRefusal(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: Pick<ToolContext, "sessionId" | "workingDir">,
+  ): Error | null {
+    return this.dispatchGuard?.(name, args, ctx) ?? null;
+  }
+
+  /**
    * The error result `dispatchGuard` gives `name` with `args`, or `null`
    * when the call may run. For the batch scheduler, before any hook or
    * approval prompt.
@@ -223,7 +250,7 @@ export class ToolRegistry {
     args: Record<string, unknown>,
     ctx: Pick<ToolContext, "sessionId" | "workingDir">,
   ): CompressedToolResult | null {
-    const refused = this.dispatchGuard?.(name, args, ctx) ?? null;
+    const refused = this.dispatchRefusal(name, args, ctx);
     if (refused === null) return null;
     const code = (refused as { code?: unknown }).code;
     return compressToolResult({
@@ -263,6 +290,15 @@ export class ToolRegistry {
       this.onDispatch?.(name, runArgs, ctx);
       const refused = this.dispatchGuard?.(name, runArgs, ctx) ?? null;
       if (refused !== null) throw refused;
+      // Checkpoint hook (ATO-1056) after the guards: a refused call saves
+      // nothing. A hook never stops the call.
+      if (this.beforeInvoke !== undefined) {
+        try {
+          await this.beforeInvoke(name, runArgs, ctx);
+        } catch {
+          // A hook never stops the call.
+        }
+      }
       result = await tool.run(runArgs, ctx);
     } catch (err) {
       // Same error object (its class matters to callers), one more line.

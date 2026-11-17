@@ -1,10 +1,9 @@
-import { dirname, isAbsolute, parse, relative, resolve } from "node:path";
-import { homedir } from "node:os";
+import { dirname, isAbsolute } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { DelegateTask } from "./delegate-args.js";
-import { comparableScopePath } from "./scope-path.js";
+import { comparableScopePath, isTooBroadScope } from "./scope-path.js";
 
 /**
  * Where a fan-out is about to write — the directory the operator is
@@ -48,15 +47,7 @@ const WINDOWS_PATH_IN_PROSE =
 
 /** Roots too broad to hand to a fan-out, however the brief was written. */
 function isTooBroad(dir: string): boolean {
-  const home = comparableScopePath(homedir());
-  if (home === null) return true;
-  const absolute = resolve(dir);
-  // Native path equality also covers Windows drive/UNC roots, separator
-  // aliases and case differences. A textual comparison with `sep` only
-  // rejects "\\", leaving an entire drive or share available to workers.
-  return [parse(absolute).root, home, resolve(home, "..")].some(
-    (broad) => relative(broad, absolute) === "",
-  );
+  return isTooBroadScope(dir);
 }
 
 function collectFromText(text: string, workingDir: string, unresolved?: { count: number }): string[] {

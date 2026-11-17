@@ -135,3 +135,26 @@ describe("serveConstraintNote (issue #33)", () => {
     expect(serveConstraintNote("0.0.0.0", { "/clienti/open": { allowedEgress: ["serve"] } })).toBeNull();
   });
 });
+
+// ATO-625: a tunnel that cannot be made safe never opens, and nothing
+// boots: no cloudflared on PATH is an error with how to install it.
+describe("serve --tunnel without cloudflared", () => {
+  it("exits 1 with an install hint, and never boots a runtime", async () => {
+    vi.stubEnv("PATH", "");
+    vi.stubEnv("Path", "");
+    boot.options = null;
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      expect(await serveCommand(["--tunnel"])).toBe(1);
+      const written = stderr.mock.calls.map((c) => String(c[0])).join("");
+      expect(written).toContain("cloudflared");
+      expect(written).toContain("never downloads");
+    } finally {
+      stderr.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    expect(boot.options).toBeNull();
+  });
+});

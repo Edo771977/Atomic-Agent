@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
-import { createBranchSet, planBranchSetCopy } from "./branch-workspace.js";
+import type { IgnoreGit } from "./branch-ignore-policy.js";
+import { createBranchSet, defaultGitExec, planBranchSetCopy, type GitExec } from "./branch-workspace.js";
 import { createCandidateIntegration } from "./candidate-integration.js";
 import { makeGitRepo, runGitRaw } from "../os/git/test-helpers.js";
 import type { WorkerTaskResult } from "./worker-result.js";
@@ -206,12 +207,24 @@ it("never freshens aged source split-index metadata during private inventory que
   await set?.cleanup(); expect(await stamps()).toEqual(before); expect(await readFile(join(indexDir, "index"))).toEqual(index);
 });
 
-it("cancels a private import without writing source metadata or leaving incomplete stores", async () => {
+// Each point cancels while a Git child is running, so the abort decides the
+// outcome rather than a timer racing the import (a killed child resolves like
+// an unavailable Git). "snapshot" aborts before the private object store is
+// prepared; "ignore policy" after the private stores exist.
+it.each(["snapshot", "ignore policy"] as const)("cancels a private import during the %s without writing source metadata or leaving incomplete stores", async (point) => {
   const f = await fixture(); const before = await metadata(f.project), controller = new AbortController();
-  const signal = controller.signal;
-  const pending = createBranchSet(f.project, ["one", "two"], { tmpRoot: f.copies, signal, maxCopyBytes: 1024 * 1024 });
-  const timer = setTimeout(() => controller.abort(new Error("cancel private import")), 150);
-  try { await expect(pending).rejects.toThrow(/cancel private import/); } finally { clearTimeout(timer); }
+  const reason = new Error("cancel private import");
+  const git: GitExec = async (args, cwd) => {
+    const result = await defaultGitExec(args, cwd);
+    if (point === "snapshot" && args.includes("MERGE_HEAD")) controller.abort(reason);
+    return result;
+  };
+  const ignoreGit: IgnoreGit = async (args) => {
+    if (point === "ignore policy" && args[0] === "init") controller.abort(reason);
+    return null;
+  };
+  const pending = createBranchSet(f.project, ["one", "two"], { tmpRoot: f.copies, signal: controller.signal, maxCopyBytes: 1024 * 1024, git, ignoreGit });
+  await expect(pending).rejects.toBe(reason);
   expect(await metadata(f.project)).toEqual(before); expect(await readdir(f.copies)).toEqual([]);
 });
 

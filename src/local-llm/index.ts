@@ -43,6 +43,7 @@ export {
   probeMachineForModels,
   type ProbeMachineInput,
 } from "./backend/machine-for-models.js";
+export { hostRamGb, marketedRamGb } from "./backend/host-ram.js";
 export {
   estimateMemoryBandwidth,
   type MemoryBandwidth,
@@ -72,6 +73,7 @@ export {
   resolvePlatformAsset,
   UnsupportedPlatformError,
   WINDOWS_ARM64_NO_BACKEND_MESSAGE,
+  wantedAssetForInstalled,
   type PlatformAsset,
 } from "./backend/platform-assets.js";
 
@@ -392,6 +394,11 @@ export {
   type ReclaimOutcome,
   type ReclaimRequest,
 } from "./server/port-reclaim.js";
+export {
+  loraAdapterForModel,
+  loraAdapterKey,
+  type LoraAdapter,
+} from "./server/lora-adapter.js";
 
 export {
   huggingFaceToken,

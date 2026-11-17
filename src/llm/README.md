@@ -15,6 +15,7 @@ The provider registry keeps defensive construction-entry snapshots and exposes c
 - [llama-server-client.ts](llama-server-client.ts)
 - [dry-sampler.ts](dry-sampler.ts): the opt-in DRY anti-repeat fields for `/completion` (`localModels.drySampler`)
 - [slot-manager.ts](slot-manager.ts)
+- [toolcall-bench/](toolcall-bench/index.ts): the fixed tool-call reliability prompts, their scoring, and asking one question to several models (`models toolcall-bench`, `models ask`)
 - [transport-deadlines.ts](transport-deadlines.ts) and [offline-network.ts](offline-network.ts): the process-wide HTTP pool and the offline-mode kill switch composed into it ([offline mode](docs/offline-network.md), ATO-1084)
 
 ## Ownership and dependencies
@@ -24,6 +25,8 @@ Model profiles connect prompt framing, grammar and streamed parsing. Provider ad
 ## Task-specific reading
 
 Read docs/profiles.md for framing/grammar and docs/fallback.md for reliability; provider/openai tests for wire/schema changes.
+
+Read [subscription OAuth primitives](provider/subscription-oauth/README.md) before wiring any subscription sign-in; they are not used by a provider yet.
 
 Read [model behavior mode](docs/model-mode.md) for the explicit local/cloud policy flag, configuration precedence, per-turn lifetime and full cloud context. Native message IDs remain stable across checkpoints; the final OpenAI body checks messages, schemas and output reserve against a known cloud window before sending.
 

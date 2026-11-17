@@ -27,7 +27,23 @@ export interface ProjectGateViewInput {
   estimate: PlanEstimate | null;
   /** The members the person may pick, in config order. */
   selectable: { workers: readonly string[]; reviewers: readonly string[] };
+  /** Whether `llm.runMode.fusion.team.reviewers` names anyone; absent: whether any reviewer is selectable. */
+  reviewersConfigured?: boolean;
+  /**
+   * Whether the team names a member besides the one worker (another
+   * worker, or any reviewer), reachable now or not; absent: as
+   * `reviewersConfigured`. Picks which hint explains a plan with nothing
+   * to choose.
+   */
+  otherMembersConfigured?: boolean;
 }
+
+/** The plan gate's hint when the team names no reviewers (issue #54). */
+export const NO_REVIEWERS_HINT = "no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed";
+/** The plan gate's hint when "edit rows" would offer nothing to choose (issue #54). */
+export const ONE_WORKER_HINT = "only one worker available: configure llm.runMode.fusion.team to choose";
+/** The same, when the team names other members but none can answer now (issue #54). */
+export const NONE_REACHABLE_HINT = "no other team member is reachable now: the rows keep their worker";
 
 /** The gate card's payload. Pure. */
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
@@ -43,6 +59,22 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       ...("taskId" in v ? { taskId: v.taskId } : {}),
     }))
     .sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "hard" ? -1 : 1));
+  const rows = (plan?.rows ?? []).map((row) => ({
+    ...row,
+    selectableWorkers: [...input.selectable.workers],
+    selectableReviewers: input.selectable.reviewers.filter((r) => r !== row.worker),
+  }));
+  // Nothing to choose: every row's only worker is its own, no reviewer.
+  const editable = rows.some((row) =>
+    row.selectableReviewers.length > 0 || row.selectableWorkers.some((w) => w !== row.worker));
+  const hints: string[] = [];
+  if (project.gate.kind === "plan" && plan !== undefined) {
+    if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
+    if (!editable) {
+      const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
+      hints.push(others ? NONE_REACHABLE_HINT : ONE_WORKER_HINT);
+    }
+  }
   return {
     schema: 1,
     sessionId: input.sessionId,
@@ -51,7 +83,10 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate),
     expectation: projectExpectation(project),
     cancelled: project.cancelledAt !== undefined,
-    brief: project.brief ?? null,
+    brief:
+      project.brief === undefined
+        ? null
+        : { ...project.brief, successCriteria: project.brief.successCriteria.map((c) => c.text), criteria: project.brief.successCriteria.map((c) => ({ ...c })) },
     plan:
       plan === undefined
         ? null
@@ -60,12 +95,9 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             detail: plan.detail,
             version: plan.version,
             draftedAfterUntrusted: plan.draftedAfterUntrusted,
-            rows: plan.rows.map((row) => ({
-              ...row,
-              selectableWorkers: [...input.selectable.workers],
-              selectableReviewers: input.selectable.reviewers.filter((r) => r !== row.worker),
-            })),
+            rows,
             totals: estimate?.totals ?? plan.totals,
+            editable,
           },
     milestones: project.milestones.map((m) => ({
       ...m,
@@ -73,6 +105,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       estMs: byMilestone.get(m.id)?.ms ?? null,
     })),
     violations,
+    hints,
   };
 }
 

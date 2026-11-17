@@ -17,6 +17,7 @@ import {
   type GuardVerdict,
   type ShellGuardPolicy,
 } from "../os/shell-command-guard/index.js";
+import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
 import { needsShellInterpretation } from "../os/shell/shell-interpretation.js";
 import { isDangerousGuardRule } from "../os/shell/shell.js";
 import type { VerifyRunArgs } from "./verify-run-args.js";
@@ -36,12 +37,28 @@ export interface VerifyGuardResult {
   readonly dangerous: readonly VerifyGuardedCommand[];
 }
 
-/** Every command the call would start: none for a plain page. */
+/**
+ * What a command run's `stdin` executes (`stdinScriptOf`): the script
+ * line a shell reads from it, and whether an interpreter runs code from
+ * it no rule can read. `null` for plain input data, or no stdin.
+ */
+export function verifyRunStdinScript(args: VerifyRunArgs): { lines: string[]; unreadable: boolean } | null {
+  if (args.kind !== "command" || args.cmd === undefined) return null;
+  const cmdArgs = args.args ?? [];
+  return stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), args.stdin);
+}
+
+/**
+ * Every command the call would start: none for a plain page. A script
+ * a shell reads from `stdin` is listed too, as the command line it is.
+ */
 export function verifyRunCommands(
   args: VerifyRunArgs,
 ): { cmd: string; args: readonly string[] }[] {
   if (args.kind === "command") {
-    return args.cmd === undefined ? [] : [{ cmd: args.cmd, args: args.args ?? [] }];
+    if (args.cmd === undefined) return [];
+    const lines = verifyRunStdinScript(args)?.lines ?? [];
+    return [{ cmd: args.cmd, args: args.args ?? [] }, ...lines.map((line) => ({ cmd: line, args: [] }))];
   }
   if (args.start === undefined || args.start.cmd.length === 0) return [];
   return [{ cmd: args.start.cmd, args: args.start.args ?? [] }];

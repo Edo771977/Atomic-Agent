@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
+import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
 import { settleProjectGate } from "./run-project-gate.js";
@@ -29,6 +29,29 @@ describe("run at a project gate", () => {
     expect(step.text).toContain("session: sess-1");
     expect(step.text).toContain("atomic-agent run --session sess-1 --approve 3");
     expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("prints a local row as $0.00 (local), not unpriced (issue #54)", async () => {
+    const base = fixtureProjectGateView({ kind: "plan" });
+    const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);
+    const step = await settleProjectGate(runtime({ ...base, plan: { ...base.plan!, rows, totals: { ...base.plan!.totals, unknownCostRows: 0 } } }), "sess-1", "stop");
+    if (step.kind !== "stop") throw new Error("expected a stop");
+    expect(step.text).toContain("t2 Level screen [m2]: worker prov-c:model-c · review none · $0.00 (local) · time unknown · preset");
+    expect(step.text).not.toContain("unpriced");
+  });
+
+  it("prints the view's hints (issue #54)", async () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { hints: ["no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"] });
+    const step = await settleProjectGate(runtime(view), "sess-1", "stop");
+    if (step.kind !== "stop") throw new Error("expected a stop");
+    expect(step.text).toContain("no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed");
+  });
+
+  it("a milestone gate prints its criteria facts and pictures (issue #40)", async () => {
+    const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
+    const step = await settleProjectGate(runtime(view), "s", "stop");
+    expect(step.kind === "stop" && step.text).toContain("Criteria:\n    ✓ c1 passed: Runs in a browser");
+    expect(step.kind === "stop" && step.text).toContain(`Picture: The board at start [c1] — ${FIXTURE_SHOT_PATH}`);
   });
 
   it("the printed plan warns when it was drafted after outside content", async () => {

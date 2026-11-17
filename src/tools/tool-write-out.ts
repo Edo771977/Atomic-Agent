@@ -54,6 +54,28 @@ export function writeTargetsOf(tool: string, args: Record<string, unknown>, work
       // A dry run (the default) writes nothing.
       if (args.apply === true) raw.push(str(args.rootDir) ?? workingDir);
       break;
+    // Upstream's office writers (merge 6d1f14fcd): every docx op writes,
+    // an xlsx `read` does not.
+    case "os.fs.docx":
+    case "os.fs.write_pptx":
+      raw.push(str(args.path));
+      break;
+    case "os.fs.xlsx":
+      if (args.op !== "read") raw.push(str(args.path));
+      break;
+    // These save next to the session, never elsewhere: the working folder
+    // (a video's `output` must stay inside it).
+    case "video.render_html":
+      raw.push(str(args.output) ?? workingDir);
+      break;
+    case "canvas.render":
+      raw.push(workingDir);
+      break;
+    // ast-grep's rewrite (ATO-1187) writes every changed file under `path`
+    // only when applied; the dry run (the default) writes nothing.
+    case "os.code.rewrite":
+      if (args.apply === true) raw.push(str(args.path) ?? workingDir);
+      break;
     default:
       return [];
   }

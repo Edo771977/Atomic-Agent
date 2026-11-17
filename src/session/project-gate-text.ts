@@ -8,6 +8,25 @@
  */
 
 import type { ProjectGateView } from "./project-gate-view.js";
+import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, ProjectMilestoneAttachment } from "./session-project.js";
+
+const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
+
+/**
+ * One criterion fact as a line (issue #40), e.g. "✓ c1 passed: Runs
+ * offline" or "? c2 unverified: Looks right (no vision-capable
+ * reviewer)". The text is the brief's when it names the id.
+ */
+export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly ProjectCriterion[] | undefined): string {
+  const text = criteria?.find((c) => c.id === fact.id)?.text;
+  return `${FACT_MARK[fact.state] ?? "?"} ${fact.id} ${fact.state}${text === undefined ? "" : `: ${text}`}${fact.why ? ` (${fact.why})` : ""}`;
+}
+
+/** A picture's caption with the criteria it shows, e.g. "The board [c1, c2]". */
+export function attachmentLabel(attachment: ProjectMilestoneAttachment): string {
+  const ids = attachment.criteria ?? [];
+  return ids.length === 0 ? attachment.caption : `${attachment.caption} [${ids.join(", ")}]`;
+}
 
 /**
  * Plan rows carry no file list: what approving the plan lets the tasks
@@ -73,7 +92,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
     for (const r of rows) {
       const basis = r.basis === "measured" ? `measured (${r.samples} runs)` : "preset";
       out.push(
-        `  ${r.taskId} ${r.title} [${r.milestoneId}]: worker ${r.worker} · review ${r.reviewer ?? "none"} · ${usd(r.estCostUsd)} · ${duration(r.estMs)} · ${basis}`,
+        `  ${r.taskId} ${r.title} [${r.milestoneId}]: worker ${r.worker} · review ${r.reviewer ?? "none"} · ${r.local === true ? "$0.00 (local)" : usd(r.estCostUsd)} · ${duration(r.estMs)} · ${basis}`,
       );
     }
     if (view.plan !== null && rows.length > 0) {
@@ -89,11 +108,15 @@ export function formatProjectGateText(view: ProjectGateView): string {
     }
     if (view.gate.kind === "milestone") {
       const id = view.gate.id;
-      const summary = view.milestones.find((m) => m.id === id)?.summary;
-      if (summary) out.push(`  Summary: ${summary}`);
+      const milestone = view.milestones.find((m) => m.id === id);
+      if (milestone?.summary) out.push(`  Summary: ${milestone.summary}`);
+      const facts = milestone?.criteriaFacts ?? [];
+      if (facts.length > 0) out.push("  Criteria:", ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
+      for (const a of milestone?.attachments ?? []) out.push(`  Picture: ${attachmentLabel(a)} — ${a.path}`);
     }
   }
   for (const v of view.violations) out.push(`  ${v.severity === "hard" ? "✕ over a hard cap:" : "! note:"} ${v.message}`);
+  for (const hint of view.hints ?? []) out.push(`  hint: ${hint}`);
   out.push(`  Allowed: ${view.allowedVerdicts.join(", ")}`);
   return out.join("\n");
 }

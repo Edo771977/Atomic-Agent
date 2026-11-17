@@ -106,6 +106,23 @@ export interface WatchOutcome {
   judge: string | null;
 }
 
+/**
+ * A task's success criteria after its checks and the vision judgement
+ * (issue #40), as counts of the criteria its checks name. Never a text.
+ */
+export interface CriteriaOutcome {
+  passed: number;
+  failed: number;
+  unverified: number;
+}
+
+/** A task's played games (issue #40): how many, how many errors, the median game time. */
+export interface GamesOutcome {
+  n: number;
+  errors: number;
+  medianMs: number;
+}
+
 export interface TaskOutcomeRecord {
   v: number;
   type: "task";
@@ -149,6 +166,12 @@ export interface TaskOutcomeRecord {
   review?: ReviewOutcome;
   /** Absent when no watch ran, and on older records (`readWatchOutcome`). */
   watch?: WatchOutcome;
+  /** Issue #40; absent when no check named a criterion, and on older records (`readCriteriaOutcome`). */
+  criteria?: CriteriaOutcome;
+  /** Issue #40; absent when no game check ran, and on older records (`readGamesOutcome`). */
+  games?: GamesOutcome;
+  /** Issue #40: screenshots its checks stored; absent when none, and on older records (`readShotsOutcome`). */
+  shots?: number;
   selfCheckNotice: boolean;
   escalations: number;
   judge: JudgeOutcome;
@@ -287,6 +310,10 @@ export interface TaskOutcomeContext {
   taskChecks?: number;
   /** The per-task review (`reviewOutcome`); absent: review off, no `review` written. */
   review?: ReviewOutcome;
+  /** Issue #40 counts (`criteriaOutcome`, `gamesOutcome`, `shotsOutcome`); each absent: not written. */
+  criteria?: CriteriaOutcome;
+  games?: GamesOutcome;
+  shots?: number;
 }
 
 const REVIEW_DECISIONS: ReadonlySet<string> = new Set<ReviewDecision>(["accept", "needs-changes", "unverified"]);
@@ -360,6 +387,67 @@ export function readWatchOutcome(row: TaskOutcomeRecord): WatchOutcome | undefin
   return { checks: w.checks, judgeCalls: w.judgeCalls, hints: w.hints, stopped: w.stopped, judge: w.judge };
 }
 
+// ------------------------------------------------------ quality (issue #40)
+
+/** Criteria facts as counts by state; `base` adds counts already taken. */
+export function criteriaOutcome(
+  facts: ReadonlyArray<{ state: "passed" | "failed" | "unverified" }>,
+  base: CriteriaOutcome = { passed: 0, failed: 0, unverified: 0 },
+): CriteriaOutcome {
+  const out = { passed: wholeCount(base.passed), failed: wholeCount(base.failed), unverified: wholeCount(base.unverified) };
+  for (const f of facts) if (f.state === "passed" || f.state === "failed" || f.state === "unverified") out[f.state] += 1;
+  return out;
+}
+
+/**
+ * A task's game checks summed: games and errors added, the median game
+ * time the median of the checks' medians (whole ms). Undefined when no
+ * game was played.
+ */
+export function gamesOutcome(runs: ReadonlyArray<{ n: number; errors: number; medianMs: number }>): GamesOutcome | undefined {
+  const played = runs.filter((r) => wholeCount(r.n) > 0);
+  if (played.length === 0) return undefined;
+  const medians = played.map((r) => wholeCount(r.medianMs)).sort((a, b) => a - b);
+  const mid = Math.floor(medians.length / 2);
+  const medianMs = medians.length % 2 === 1 ? medians[mid]! : Math.round((medians[mid - 1]! + medians[mid]!) / 2);
+  return {
+    n: played.reduce((n, r) => n + wholeCount(r.n), 0),
+    errors: played.reduce((n, r) => n + wholeCount(r.errors), 0),
+    medianMs,
+  };
+}
+
+/** How many screenshots a task's check results carry (each result's list, or none). */
+export function shotsOutcome(lists: ReadonlyArray<readonly unknown[] | undefined>): number {
+  return lists.reduce<number>((n, list) => n + (Array.isArray(list) ? list.length : 0), 0);
+}
+
+const isWhole = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+
+/** A record's criteria counts; undefined on an older record or one this reader cannot trust. */
+export function readCriteriaOutcome(row: TaskOutcomeRecord): CriteriaOutcome | undefined {
+  const c: unknown = (row as { criteria?: unknown }).criteria;
+  if (typeof c !== "object" || c === null) return undefined;
+  const r = c as Record<string, unknown>;
+  return isWhole(r.passed) && isWhole(r.failed) && isWhole(r.unverified)
+    ? { passed: r.passed, failed: r.failed, unverified: r.unverified }
+    : undefined;
+}
+
+/** A record's games; undefined on an older record or one this reader cannot trust. */
+export function readGamesOutcome(row: TaskOutcomeRecord): GamesOutcome | undefined {
+  const g: unknown = (row as { games?: unknown }).games;
+  if (typeof g !== "object" || g === null) return undefined;
+  const r = g as Record<string, unknown>;
+  return isWhole(r.n) && isWhole(r.errors) && isWhole(r.medianMs) ? { n: r.n, errors: r.errors, medianMs: r.medianMs } : undefined;
+}
+
+/** A record's screenshot count; undefined on an older record or a malformed one. */
+export function readShotsOutcome(row: TaskOutcomeRecord): number | undefined {
+  const s: unknown = (row as { shots?: unknown }).shots;
+  return isWhole(s) ? s : undefined;
+}
+
 /** USD kept to a millionth of a dollar: sums of floats stay readable in the file. */
 export function roundUsd(usd: number): number;
 export function roundUsd(usd: number | null): number | null;
@@ -423,6 +511,9 @@ export function taskOutcomeRecord(
     judgeRetried: retried,
     ...(context.review === undefined ? {} : { review: context.review }),
     ...(row.watch === undefined ? {} : { watch: watchOutcome(row.watch) }),
+    ...(context.criteria === undefined ? {} : { criteria: criteriaOutcome([], context.criteria) }),
+    ...(context.games === undefined ? {} : { games: { n: wholeCount(context.games.n), errors: wholeCount(context.games.errors), medianMs: wholeCount(context.games.medianMs) } }),
+    ...(context.shots === undefined || wholeCount(context.shots) === 0 ? {} : { shots: wholeCount(context.shots) }),
     selfCheckNotice: row.selfCheckNotice === true,
     escalations: row.escalations ?? 0,
     judge: judgeOutcome(row),

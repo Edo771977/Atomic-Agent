@@ -15,14 +15,20 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  * The inventory below follows the offline-mode refusal points
  * (`offlineRefusal` / `offlineRefusalFor`) and the tool catalog:
  *
- * - `web`: `os.web.search`, `os.web.fetch` (a loopback URL stays local);
+ * - `web`: `os.web.search`, `os.web.fetch`, `os.web.crawl` (a loopback
+ *   URL stays local). `os.web.fetch`'s bot-wall ladder (ATO-968) asks
+ *   again per step (`webFetchStepEgress`): rendering in the agent's
+ *   browser is `browser`, sending the URL to Jina Reader or Firecrawl is
+ *   `http` (a third-party API request); a refused step is skipped;
  * - `http`: `os.http.request` (curl underneath; loopback stays local);
  * - `browser`: every `browser.*` tool. The page a click or a read acts
  *   on may be remote whatever this call's arguments say, so the whole
  *   browser is one class. A `verify.run` page probe (`kind: "page"`)
  *   is a headless browser too and is classed the same, whatever it
  *   opens: a local file or a loopback page can still load remote
- *   resources (its `network: false` block is a soft one);
+ *   resources (its `network: false` block is a soft one).
+ *   `video.render_html` records a page in the same headless browser, so
+ *   it is `browser` too;
  * - `github`: every `github.*` tool (the GitHub API);
  * - `git`: `os.git.fetch`, `pull`, `push`, `clone` (a remote);
  * - `mail`: `os.email.*` (Atomic Mail);
@@ -44,6 +50,12 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  * own sockets, and `skill.run_script` is not inspected. Model,
  * embedding and media endpoints are the provider policy's
  * (`allowedProviders`), not this one's.
+ *
+ * Not classed, as they send nothing of the folder: `audio.transcribe` and
+ * `audio.listen` (local whisper.cpp; the one-time model download is an
+ * approved `http` fetch that carries no content), `canvas.render` (drawn
+ * locally), the office tools (`os.fs.docx`, `os.fs.xlsx`,
+ * `os.fs.write_pptx`, read-scope and read-taint targets like any file).
  */
 
 export const EGRESS_NOT_ALLOWED_CODE = "ATOMIC_AGENT_EGRESS_NOT_ALLOWED";
@@ -79,10 +91,11 @@ export function egressTargetOf(
   deps: EgressClassifierDeps = {},
 ): EgressTarget | null {
   if (tool === "os.web.search") return { cls: "web" };
-  if (tool === "os.web.fetch") return isLocalUrl(args.url) ? null : { cls: "web" };
+  if (tool === "os.web.fetch" || tool === "os.web.crawl") return isLocalUrl(args.url) ? null : { cls: "web" };
   if (tool === "os.http.request") return isLocalUrl(args.url) ? null : { cls: "http" };
   if (tool.startsWith("browser.")) return { cls: "browser" };
   if (tool === VERIFY_TOOL && args.kind === "page") return { cls: "browser" };
+  if (tool === "video.render_html") return { cls: "browser" };
   if (tool.startsWith("github.")) return { cls: "github" };
   if (GIT_REMOTE_TOOLS.has(tool)) return { cls: "git" };
   if (tool.startsWith("os.email.")) return { cls: "mail" };
@@ -99,6 +112,11 @@ export function egressTargetOf(
     return { cls: `mcp:${server.length > 0 ? server : "(unknown)"}` };
   }
   return null;
+}
+
+/** The class one step of `os.web.fetch`'s bot-wall ladder sends through (see the inventory above). */
+export function webFetchStepEgress(via: "browser" | "jina" | "firecrawl"): EgressClass {
+  return via === "browser" ? "browser" : "http";
 }
 
 /** A tool call refused because the folder's constraint does not allow its egress class. */
