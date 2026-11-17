@@ -71,6 +71,11 @@ export function writeTargetsOf(tool: string, args: Record<string, unknown>, work
     case "canvas.render":
       raw.push(workingDir);
       break;
+    // ast-grep's rewrite (ATO-1187) writes every changed file under `path`
+    // only when applied; the dry run (the default) writes nothing.
+    case "os.code.rewrite":
+      if (args.apply === true) raw.push(str(args.path) ?? workingDir);
+      break;
     default:
       return [];
   }

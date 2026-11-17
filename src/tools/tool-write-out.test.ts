@@ -47,6 +47,10 @@ describe("write-out guard (constrained content leaving its folder)", () => {
     expect(writeTargetsOf("video.render_html", { path: "p.html", output: "clip.mp4" }, "/w")).toEqual(["/w/clip.mp4"]);
     expect(writeTargetsOf("video.render_html", { path: "p.html" }, "/w")).toEqual(["/w"]);
     expect(writeTargetsOf("canvas.render", { kind: "chart" }, "/w")).toEqual(["/w"]);
+    // A structural rewrite writes only when applied, under `path` (default: the session folder).
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", path: "/x/src", apply: true }, "/w")).toEqual(["/x/src"]);
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", apply: true }, "/w")).toEqual(["/w"]);
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", path: "/x/src" }, "/w")).toEqual([]);
   });
 
   it("refuses a tainted session's Word document in an open folder", () => {
