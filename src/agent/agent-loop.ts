@@ -575,9 +575,6 @@ export class AgentLoop {
             ...(options.reasoningOverride !== undefined
               ? { reasoningOverride: options.reasoningOverride }
               : {}),
-            ...(options.reasoningOverride !== undefined
-              ? { reasoningOverride: options.reasoningOverride }
-              : {}),
             ...(options.maxOutputTokens !== undefined
               ? { maxOutputTokens: options.maxOutputTokens }
               : {}),
