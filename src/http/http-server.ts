@@ -16,13 +16,15 @@ import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
 import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
 import { sessionIdError } from "../session/session-id.js";
+import { routeKey, scopeForRoute, type HttpScope } from "./http-scopes.js";
+import type { StoredHttpToken } from "./http-token-store.js";
+import { authorizeRequest } from "./scoped-auth.js";
 
 /** ATO-1126: one per process; loopback callers are never counted. */
 const authThrottle = new AuthThrottle();
 import {
   BodyParseError,
   BodyTooLargeError,
-  enforceAuth,
   sendError,
   sendJson,
   type HandlerContext,
@@ -45,6 +47,8 @@ export interface RouteDefinition {
    * `/v1/models` which OpenAI SDKs probe pre-auth.
    */
   requiresAuth?: boolean;
+  /** ATO-583: the scope a named token needs here; defaults to the `ROUTE_SCOPES` entry. */
+  scope?: HttpScope;
 }
 
 export interface HttpServerOptions {
@@ -79,6 +83,8 @@ export interface HttpServerOptions {
    * but cloudflared exposes it to the internet.
    */
   networkServe?: boolean;
+  /** ATO-583: named tokens with roles, read per request (`createHttpTokenSource`). */
+  namedTokens?: () => readonly StoredHttpToken[];
 }
 
 export interface HttpServerHandle {
@@ -103,6 +109,8 @@ interface CompiledRoute {
   paramNames: string[];
   handler: HttpHandler;
   requiresAuth: boolean;
+  key: string;
+  scope: HttpScope;
 }
 
 /**
@@ -128,6 +136,8 @@ function compileRoute(route: RouteDefinition): CompiledRoute {
     paramNames,
     handler: route.handler,
     requiresAuth: /^\/(?:api|v1)(?:\/|$)/.test(route.path) || route.requiresAuth !== false,
+    key: routeKey(route.method, route.path),
+    scope: route.scope ?? scopeForRoute(route.method, route.path),
   };
 }
 
@@ -190,7 +200,7 @@ export function createHttpServer(
         undeliveredSteers,
         incognitoChats,
         networkServe,
-      });
+      }, options.namedTokens);
     } catch (err) {
       handleRouteError(res, err);
     }
@@ -257,6 +267,7 @@ async function dispatch(
   res: ServerResponse,
   routes: CompiledRoute[],
   baseCtx: Omit<HandlerContext, "params">,
+  namedTokens?: () => readonly StoredHttpToken[],
 ): Promise<void> {
   const url = parseRequestUrl(req);
   if (!url) {
@@ -278,7 +289,12 @@ async function dispatch(
     );
     return;
   }
-  if (matched.route.requiresAuth && !enforceAuth(req, res, baseCtx.apiKey, authThrottle)) {
+  if (matched.route.requiresAuth && !authorizeRequest(req, res, {
+    apiKey: baseCtx.apiKey,
+    namedTokens,
+    scope: matched.route.scope,
+    route: matched.route.key,
+  }, authThrottle)) {
     return;
   }
   const ctx: HandlerContext = { ...baseCtx, params: matched.params };
