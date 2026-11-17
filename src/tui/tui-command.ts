@@ -333,8 +333,17 @@ export async function tuiCommand(args: string[]): Promise<number> {
   // mouse reporting off, alt screen left — and exits hard, instead of
   // Node's default kill that skips `exit` hooks and leaves the shell
   // printing `[<0;64;21M` on every click. See `signal-escalation.ts`.
+  // The graceful path is the same transition as the second Ctrl+C:
+  // `quit_requested` moves the app to `quitting`, which calls `onQuit`
+  // and unmounts Ink, so `waitUntilExit` below returns and the `finally`
+  // hands the terminal back. `orchestrator.quit()` alone only stops
+  // work; with nothing unmounting Ink the raw-mode stdin kept the
+  // process alive until a second signal.
   const onSignal = makeEscalatingSignalHandler({
-    quit: () => orchestrator.quit(),
+    quit: () => {
+      orchestrator.quit();
+      bus.emit({ type: "quit_requested" });
+    },
     restoreTerminal: restoreTerminalNow,
     exit: (code) => process.exit(code),
   });
