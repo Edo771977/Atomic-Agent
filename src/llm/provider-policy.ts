@@ -317,7 +317,8 @@ export function providerPolicyRefusalFor(
 const GUARDED = new WeakSet<object>();
 
 /**
- * Wrap a provider so `complete`, `completeStream` and `describeImage`
+ * Wrap a provider so `complete`, `completeStream`, `describeImage` and
+ * (when it has one) `describeAudio`
  * check the current frame first (`assertProviderAllowed` against the
  * provider's own id). Every other member passes through to the provider
  * itself. The registry wraps every provider it builds, so a direct
@@ -346,6 +347,15 @@ export function guardProvider(
     return guarded();
   };
   const overrides: Record<PropertyKey, unknown> = { complete, completeStream, describeImage };
+  // Optional on the interface (`audio.listen`, upstream ATO-1164): guarded
+  // only where the provider has it, so a caller's feature check still works.
+  if (typeof provider.describeAudio === "function") {
+    const describeAudio: NonNullable<LlmProvider["describeAudio"]> = async (request) => {
+      check();
+      return provider.describeAudio!(request);
+    };
+    overrides.describeAudio = describeAudio;
+  }
   const proxy = new Proxy(provider, {
     get(target, prop) {
       if (Object.prototype.hasOwnProperty.call(overrides, prop)) return overrides[prop];
