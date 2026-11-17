@@ -581,8 +581,8 @@ function continueWith(over = {}) {
     calls.submit.push([text, opts]);
     return env.submitRefuses ? false : true;
   };
-  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'localTurnGate', 'submit', '$', 'autosize', 'pcCanContinue',
-    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, env.localTurnGate, submit, () => null, () => {}, C.pcCanContinue);
+  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'localTurnGate', 'swxWaitsForRoute', 'DRAIN_OWED', 'SWX', 'submit', '$', 'autosize', 'pcCanContinue',
+    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, env.localTurnGate, () => false, false, {sendError: null}, submit, () => null, () => {}, C.pcCanContinue);
   return {sent: run('ses-1', 'Go on.'), calls};
 }
 
@@ -953,4 +953,23 @@ test('a continue on a local route without its model stays pending and never touc
   t.env.S.draft = 'typed';
   assert.equal(t.page.submit(), true);
   assert.equal(t.env.S.draft, 'typed');
+});
+
+test('a continue is not put in the switch queue (× or another chat could drop it): it waits for the switch', () => {
+  const typed = realPage({swxWaitsForRoute: () => true});
+  typed.env.S.draft = 'typed';
+  assert.equal(typed.page.submit(), true, 'a typed message is queued as before');
+  assert.deepEqual(typed.env.S.queued, ['typed']);
+  assert.equal(typed.env.DRAIN_OWED, true);
+  for (const [label, over] of [
+    ['the route switching', {swxWaitsForRoute: () => true}],
+    ['a queue owed', {DRAIN_OWED: true}],
+    ['the last send failed during a switch', {SWX: {sendError: 'x'}}],
+  ]) {
+    const r = realPage(over);
+    r.env.S.draft = 'my words';
+    assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false, label);
+    assert.deepEqual(r.env.S.queued, [], label);
+    assert.equal(r.env.S.draft, 'my words', label);
+  }
 });

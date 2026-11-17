@@ -2405,6 +2405,8 @@ function projectCardContinue(sid, text) {
     fitHolds: typeof fitHoldsSend === 'function' && fitHoldsSend(), gating: BSW.gating,
     // The local gate would hand the message back to the editor (model not on disk): it waits instead.
     localBlocked: localTurnGate().kind === 'block',
+    // A model switch would put it in the queue, where × on its chip or another chat drops it: it waits for the switch.
+    switching: swxWaitsForRoute() || DRAIN_OWED || !!SWX.sendError,
   })) return false;
   const e = $('#entry'), keep = S.draft;
   const sent = submit(text, {plain: true}) === true;
