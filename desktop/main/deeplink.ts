@@ -452,6 +452,10 @@ function remoteUrl(raw: string): { ok: true; url: string; host: string } | { ok:
   return { ok: true, url: u.toString(), host: u.host };
 }
 
+/** Said on the card when a link carried `local=` (issue #65); the server is added without it. */
+export const LINK_LOCAL_DROPPED =
+  "The link asked to mark this server as one that never uses the network. A link cannot mark that, so it is added without it; set it in Settings › MCP if you know the server stays on this computer.";
+
 export const mcpInstallRoute: DeeplinkRoute = (link) => {
   if (link.path.join("/") !== "install") return { ok: false, error: "The MCP link can only install a server (atomicagent://mcp/install)." };
   const p = takeParams(link, {
@@ -463,9 +467,14 @@ export const mcpInstallRoute: DeeplinkRoute = (link) => {
     env: { max: MCP_MAX_ENV },
     url: { max: 1 },
     transport: { max: 1 },
+    // Issue #65: taken only to be dropped. `"local": true` lets a stdio server
+    // run in a folder with an egress constraint (core #60); only the person
+    // may say a server never reaches the network, in Settings, never a link.
+    local: { max: 8 },
   });
   if (!p.ok) return p;
   const v = p.values;
+  const localAsked = v.local!.length > 0 ? [LINK_LOCAL_DROPPED] : [];
   const name = v.name![0]!.trim();
   if (!MCP_SERVER_NAME_RE.test(name)) return { ok: false, error: "The server name can use lowercase letters, digits and dashes (2 to 32 characters)." };
   const description = (v.description![0] ?? "").trim();
@@ -483,7 +492,7 @@ export const mcpInstallRoute: DeeplinkRoute = (link) => {
     if (t !== undefined && t !== "http" && t !== "sse") return { ok: false, error: "transport is http or sse." };
     const kind = t === "sse" || (t === undefined && /\/sse\/?$/i.test(new URL(r.url).pathname)) ? "sse" : "streamable_http";
     const server: McpServerEntry = { name, ...(description ? { description } : {}), transport: { kind, url: r.url } };
-    return { ok: true, request: { ...base, server, warnings: [`What the agent asks this server, and what it answers, goes through ${r.host}.`] } };
+    return { ok: true, request: { ...base, server, warnings: [`What the agent asks this server, and what it answers, goes through ${r.host}.`, ...localAsked] } };
   }
 
   if (v.transport!.length) return { ok: false, error: "transport is only for a url." };
@@ -507,7 +516,7 @@ export const mcpInstallRoute: DeeplinkRoute = (link) => {
     transport: { kind: "stdio", command: command!.trim(), ...(args.length ? { args } : {}) },
     ...(Object.keys(env).length ? { env } : {}),
   };
-  const warnings = [`This runs ${command!.trim()} on this computer with your permissions, every time the agent starts the server.`, ...check.warnings];
+  const warnings = [`This runs ${command!.trim()} on this computer with your permissions, every time the agent starts the server.`, ...check.warnings, ...localAsked];
   const empty = Object.keys(env).filter((k) => env[k] === "");
   if (empty.length) warnings.push(`Empty settings (${empty.join(", ")}): fill them in Settings › MCP if the server needs them.`);
   return { ok: true, request: { ...base, server, warnings } };

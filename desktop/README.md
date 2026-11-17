@@ -746,6 +746,14 @@ Honestly degraded, and labelled as such in the UI:
   sequential thinking: they never reach the network) keep the mark through
   the box's parser into the `mcp.servers` entry, so a folder with an egress
   constraint lets them run (issue #60; see `src/mcp/README.md`).
+- **Deep links** (`atomicagent://mcp/install`, `atomicagent://skill/install`,
+  [deeplink.ts](main/deeplink.ts)) open a confirm card; an MCP link's server
+  is written through the same add as the box. A link never sets
+  `"local": true`: a `local=` parameter is taken only to be dropped, the card
+  says so, and the copy the card writes is stripped of it again
+  ([deeplink.js](renderer/deeplink.js), issue #65). Only the person marks a
+  server local, in Settings, since the mark lets it run in a folder with an
+  egress constraint.
 - **LLM** is the TUI's four panes. Local rows come from `atag models list`
   minus the ids `models list-embeddings` lists (the chat route never picks an
   embedding model, and which models those are is a fact the CLI publishes —

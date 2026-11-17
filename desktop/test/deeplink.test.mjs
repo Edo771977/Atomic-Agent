@@ -611,3 +611,44 @@ test("card: Install is off for a moment after the card's content changes", async
 test("renderer.js: the overlay hook opens a waiting link once the card is closed", () => {
   assert.match(RENDERER_SRC, /if \(S\.overlay === 'deeplink'\) html \+= deeplinkSheetHTML\(\); else deeplinkWhenClosed\(\);/);
 });
+
+/* ---------------- issue #65: a link never marks a server local ---------------- */
+
+// `"local": true` lets a stdio server run in a folder with an egress
+// constraint (core #60). Only the person, in Settings, may say a server never
+// reaches the network: a link that asks for it is installed without it.
+test("mcp: a link's local= is dropped, never written, and the card says so", () => {
+  for (const q of ["local=true", "local=1", "local=true&local=yes", "local="]) {
+    const r = mcp(`name=files&command=npx&arg=-y&arg=%40scope%2Fserver-files%401.2.0&${q}`);
+    assert.equal(r.ok, true, `${q}: ${err(r)}`);
+    assert.equal(Object.hasOwn(r.request.server, "local"), false, q);
+    assert.equal(Object.hasOwn(r.request.server.transport, "local"), false, q);
+    assert.ok(r.request.warnings.some((w) => /cannot mark/.test(w)), q);
+  }
+  const remote = mcp("name=docs&url=https%3A%2F%2Fexample.com%2Fmcp&local=true");
+  assert.equal(remote.ok, true, err(remote));
+  assert.equal(Object.hasOwn(remote.request.server, "local"), false);
+  // Without the key, nothing is said about it.
+  assert.equal(mcp("name=files&command=npx&arg=pkg%401.0.0").request.warnings.some((w) => /cannot mark/.test(w)), false);
+});
+
+test("card: a link's server that carries local (main or a stale queue) is added without it", async () => {
+  const written = [];
+  const ctx = vm.createContext({
+    setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref?.(); return t; }, clearTimeout,
+    S: { overlay: null, settings: null }, MCP: {},
+    BR: { deeplinkTake: async () => [], onDeeplink() {} },
+    toast() {}, mcpAddSubmit: async (json) => { written.push(JSON.parse(json)); return { ok: true }; },
+    sheet: (title, body, foot) => title + body + foot, ic: () => "", esc: (v) => String(v),
+  });
+  vm.runInContext(DLINK_SRC + "\nfunction render() {}\nglobalThis.installMcp = deeplinkInstallMcp;", ctx);
+  const req = mcpReq("files");
+  req.server.local = true;
+  req.server.transport.local = true;
+  const r = await ctx.installMcp(req);
+  assert.equal(r.ok, true);
+  assert.equal(written.length, 1);
+  assert.equal(Object.hasOwn(written[0], "local"), false);
+  assert.equal(Object.hasOwn(written[0].transport, "local"), false);
+  assert.equal(req.server.local, true, "the request itself is not changed");
+});
