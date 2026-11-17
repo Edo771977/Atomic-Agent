@@ -57,6 +57,8 @@ test('the write-scope note and the untrusted warnings are the core\'s sentences'
   assert.equal(C.PC_WRITE_SCOPE_NOTE, constant('PROJECT_WRITE_SCOPE_NOTE'));
   assert.equal(C.PC_PLAN_UNTRUSTED, constant('PLAN_UNTRUSTED_WARNING'));
   assert.ok(core.includes(C.PC_BRIEF_UNTRUSTED.slice(2)), 'brief warning');
+  const marks = core.match(/const FACT_MARK[^=]*= \{([^}]*)\}/)[1];
+  assert.deepEqual(Object.fromEntries([...marks.matchAll(/(\w+): "([^"]*)"/g)].map((x) => [x[1], x[2]])), C.PC_FACT_MARK, 'criterion fact marks');
   const parse = readFileSync(new URL('../../src/session/project-decision-parse.ts', import.meta.url), 'utf8');
   assert.equal(C.PC_NOTE_MAX, Number(parse.match(/MAX_PROJECT_NOTE_CHARS = (\d+)/)[1]));
 });
@@ -83,7 +85,7 @@ test('the store takes views in arrival order; versions are per gate, not a proje
 
 test('the plan card: rows with worker, reviewer, reason, basis and estimate, totals, the write-scope note, milestones', () => {
   const m = C.pcModel(C.pcInitial(plan()));
-  assert.equal(m.headline, 'The project plan waits for your approval');
+  assert.equal(m.headline, 'The Fusion project plan waits for your approval');
   assert.equal(m.version, 3);
   assert.deepEqual(m.rows.map((r) => [r.taskId, r.worker, r.reviewer, r.basis, r.estimate]), [
     ['t1', 'openrouter:w-a', 'openrouter:r-a', 'measured (3 runs)', '$0.12 · ~1m35s'],
@@ -99,12 +101,12 @@ test('the plan card: rows with worker, reviewer, reason, basis and estimate, tot
 
 test('only the verdicts the view allows become buttons', () => {
   const m = C.pcModel(C.pcInitial(plan({allowedVerdicts: ['approve', 'cancel']})));
-  assert.deepEqual(m.actions.map((a) => a.label), ['Approve', 'Cancel project']);
+  assert.deepEqual(m.actions.map((a) => a.label), ['Approve', 'Cancel Fusion project']);
   assert.equal(C.pcModel(C.pcInitial(closed())), null, 'nothing to decide, no card');
   const b = C.pcModel(C.pcInitial(brief()));
-  assert.deepEqual(b.actions.map((a) => a.label), ['Approve', 'Revise in chat', 'Cancel project']);
+  assert.deepEqual(b.actions.map((a) => a.label), ['Approve', 'Revise in chat', 'Cancel Fusion project']);
   const ms = C.pcModel(C.pcInitial(milestone()));
-  assert.deepEqual(ms.actions.map((a) => a.label), ['Approve milestone', 'Correct…', 'Cancel project']);
+  assert.deepEqual(ms.actions.map((a) => a.label), ['Approve milestone', 'Correct…', 'Cancel Fusion project']);
 });
 
 test('the brief card warns when it was drafted after outside content, and shows the whole brief', () => {
@@ -212,7 +214,7 @@ test('refusals: stale and wrong gate redraw the current view, a running turn and
   assert.match(C.pcOutcome({ok: false, status: 409, code: 'wrong-gate', view: v4}).notice, /changed/);
   assert.match(C.pcOutcome({ok: false, status: 409, code: 'turn-running', view: v4}).error, /turn is running/);
   assert.equal(C.pcOutcome({ok: false, status: 422, code: 'over-cap', error: 'over the turn budget', view: v4}).error, 'over the turn budget');
-  assert.deepEqual(C.pcOutcome({ok: false, status: 404, code: null, error: 'no project', view: null}), {closed: true, notice: 'This chat has no project any more.'});
+  assert.deepEqual(C.pcOutcome({ok: false, status: 404, code: null, error: 'no project', view: null}), {closed: true, notice: 'This chat has no Fusion project any more.'});
   assert.equal(C.pcOutcome({ok: false, status: 400, code: null, error: 'verdict must be', view: null}).error, 'verdict must be');
   assert.match(C.pcOutcome({supported: false}).error, /update it/);
 });
@@ -256,7 +258,7 @@ test('the card is built from text nodes and listeners; model text is never marku
   assert.ok(host.textContent.includes(C.PC_WRITE_SCOPE_NOTE));
   assert.ok(!doc.all.some((e) => Object.keys(e.attrs).some((k) => k.startsWith('on'))), 'no inline handlers');
   const buttons = host.findAll((e) => e.tagName === 'BUTTON');
-  assert.deepEqual(buttons.map((b) => b.textContent), ['Hide', 'Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel project']);
+  assert.deepEqual(buttons.map((b) => b.textContent), ['Hide', 'Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel Fusion project']);
   buttons.find((b) => b.textContent === 'Cheaper').fire('click');
   buttons.find((b) => b.textContent === 'Edit rows…').fire('click');
   assert.deepEqual(acts, [{type: 'verdict', verdict: 'cheaper'}, {type: 'edit'}]);
@@ -539,12 +541,12 @@ test('Hide is keyed on the gate, not only its number: another gate at the same v
   assert.equal(c.last().model.gate, 'milestone', 'the milestone gate at v1 is not the plan the person hid');
 });
 
-test('Hide is undone by leaving the chat, and by Show project while the gate is open', () => {
+test('Hide is undone by leaving the chat, and by Show Fusion project while the gate is open', () => {
   const c = controller();
   c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
   assert.equal(c.card.hiddenOpen(), false);
   c.last().on({type: 'hide'});
-  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show project');
+  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show Fusion project');
   assert.ok(c.changes.length > 0, 'the page is told, so it redraws the header');
   c.card.show();
   assert.equal(c.last().model.version, 3);
@@ -554,7 +556,7 @@ test('Hide is undone by leaving the chat, and by Show project while the gate is 
   assert.equal(c.last().model.version, 3, 'opening the chat again shows the card');
 });
 
-test('the page draws Show project in the chat header and acts on it', () => {
+test('the page draws Show Fusion project in the chat header and acts on it', () => {
   const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(renderer, /PCARD\.hiddenOpen\(\)[^\n]*data-act="project:show"/);
   assert.match(renderer, /a === 'project:show'[^\n]*PCARD\.show\(\)/);
@@ -568,18 +570,19 @@ function continueWith(over = {}) {
   const fn = src.match(/function projectCardContinue\([\s\S]*?\n}\n/)[0];
   const calls = {submit: [], voiceStop: 0};
   const env = Object.assign({
-    S: {agentSession: 'ses-1', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
+    S: {agentSession: 'ses-1', room: 'chat', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
     VOICE: {state: 'idle'}, BSW: {gating: false},
-    starterHoldsSend: () => false, openHoldsComposer: () => false,
+    starterHoldsSend: () => false, fitHoldsSend: () => false, openHoldsComposer: () => false, localTurnGate: () => ({kind: 'run'}),
   }, over);
   const submit = (text, opts) => {
     // submit()'s own first steps: dictation is stopped, a hold keeps the message out.
-    if (env.VOICE.state === 'recording' || env.VOICE.state === 'starting') { calls.voiceStop++; return; }
-    if (env.VOICE.state === 'finishing' || env.starterHoldsSend() || env.BSW.gating) return;
+    if (env.VOICE.state === 'recording' || env.VOICE.state === 'starting') { calls.voiceStop++; return false; }
+    if (env.VOICE.state === 'finishing' || env.starterHoldsSend() || env.fitHoldsSend() || env.BSW.gating) return false;
     calls.submit.push([text, opts]);
+    return env.submitRefuses ? false : true;
   };
-  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'openHoldsComposer', 'submit', '$', 'autosize', 'pcCanContinue',
-    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.openHoldsComposer, submit, () => null, () => {}, C.pcCanContinue);
+  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'localTurnGate', 'swxWaitsForRoute', 'DRAIN_OWED', 'SWX', 'submit', '$', 'autosize', 'pcCanContinue',
+    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, env.localTurnGate, () => false, false, {sendError: null}, submit, () => null, () => {}, C.pcCanContinue);
   return {sent: run('ses-1', 'Go on.'), calls};
 }
 
@@ -590,7 +593,10 @@ test('a continue message is not handed to submit() while it would not send, and 
     ['dictation finishing', {VOICE: {state: 'finishing'}}],
     ['the starter model downloading', {starterHoldsSend: () => true}],
     ['a backend switch gating', {BSW: {gating: true}}],
-    ['a turn running', {S: {agentSession: 'ses-1', busy: true, live: {state: 'connected'}, draft: ''}}],
+    ['a model test holding the local server', {fitHoldsSend: () => true}],
+    ['the local model not on disk', {localTurnGate: () => ({kind: 'block', text: 'x'})}],
+    ['a turn running', {S: {agentSession: 'ses-1', room: 'chat', busy: true, live: {state: 'connected'}, draft: ''}}],
+    ['another room on screen (Studio)', {S: {agentSession: 'ses-1', room: 'studio', busy: false, live: {state: 'connected'}, draft: ''}}],
   ]) {
     const r = continueWith(over);
     assert.equal(r.sent, false, label + ': kept pending');
@@ -600,6 +606,29 @@ test('a continue message is not handed to submit() while it would not send, and 
   const ok = continueWith();
   assert.equal(ok.sent, true);
   assert.deepEqual(ok.calls.submit, [['Go on.', {plain: true}]]);
+});
+
+test('a continue message submit() did not send stays pending: the card is told false', () => {
+  const r = continueWith({submitRefuses: true});
+  assert.deepEqual(r.calls.submit, [['Go on.', {plain: true}]]);
+  assert.equal(r.sent, false, 'submit() answered false: the continue stays pending');
+});
+
+test('submit() answers whether it took the message: no bare return, every caller may ignore it', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/\nfunction submit\(preparedSkillText, opts\) \{[\s\S]*?\n}\n/)[0];
+  // The local gate's snapshot callback returns from itself, not from submit().
+  const own = fn.replace(/bswSnapshot\(\)\.then\(\(\) => \{[\s\S]*?\n    \}\);/, '');
+  assert.notEqual(own, fn, 'the gate callback is found');
+  assert.deepEqual(own.match(/return\s*;/g) || [], [], 'every return says true or false');
+  assert.match(fn, /fitHoldsSend\(\)\) \{[^\n]*return false; \}/, 'a model test holding the server: not sent');
+  assert.match(fn, /bswGatedTurn\(text\);\n  return true;\n}\n$/, 'a turn started: sent');
+});
+
+test('pcCanContinue waits while a model test holds the local server', () => {
+  const env = {onScreen: true, room: 'chat', busy: false, pending: null, connected: true, opening: false, voice: 'idle', starterHolds: false, gating: false, fitHolds: false};
+  assert.equal(C.pcCanContinue(env), true);
+  assert.equal(C.pcCanContinue({...env, fitHolds: true}), false);
 });
 
 /* ---------------- focus and announcements ---------------- */
@@ -674,19 +703,19 @@ test('the frame of my own edit arriving before its HTTP answer is not "your chan
   assert.equal(c.last().model.mode, 'view');
 });
 
-test('Cancel project asks twice: the button turns into Confirm cancel for a few seconds, keeping its focus', async () => {
+test('Cancel Fusion project asks twice: the button turns into Confirm cancel for a few seconds, keeping its focus', async () => {
   const sent = [];
   const c = controller({decide: async (body) => { sent.push(body); return {supported: true, ok: true, view: closed(), continueMessage: null}; },
     read: async () => ({supported: true, ok: true, view: plan()}), extra: {confirmMs: 40}});
   c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
   const label = () => c.last().model.actions.find((a) => a.verdict === 'cancel').label;
-  assert.equal(label(), 'Cancel project');
+  assert.equal(label(), 'Cancel Fusion project');
   c.last().on({type: 'verdict', verdict: 'cancel'});
   await tick();
   assert.deepEqual(sent, [], 'the first press sends nothing');
   assert.equal(label(), 'Confirm cancel');
   await new Promise((r) => setTimeout(r, 70));
-  assert.equal(label(), 'Cancel project', 'the confirmation lapses');
+  assert.equal(label(), 'Cancel Fusion project', 'the confirmation lapses');
   c.last().on({type: 'verdict', verdict: 'cancel'});
   c.last().on({type: 'verdict', verdict: 'cancel'});
   await tick(); await tick();
@@ -739,4 +768,238 @@ test('a continue message still pending survives reset() for the same chat (the a
   c.refuse(false);
   c.card.follow('ses-1');
   assert.deepEqual(c.continued, [['ses-1', 'Go on.']]);
+});
+
+/* ---------------- gate-view fields the core added (issues #40, #54) ---------------- */
+
+test('a local row is priced "$0.00 (local)", as the TUI card says', () => {
+  const view = plan({plan: Object.assign(plan().plan, {rows: [row({local: true, estCostUsd: 0}), row({taskId: 't2', estCostUsd: 0})]})});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.rows.map((r) => r.estimate), ['$0.00 (local) · ~1m35s', '$0.00 · ~1m35s']);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.ok(host.textContent.includes('$0.00 (local) · ~1m35s'));
+});
+
+test('the view\'s hints are shown; Edit rows is hidden when the plan offers no choice', () => {
+  const hint = 'only one worker available: configure llm.runMode.fusion.team to choose';
+  const view = plan({hints: [hint], plan: Object.assign(plan().plan, {editable: false})});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.hints, [hint]);
+  assert.deepEqual(m.actions.map((a) => a.verdict), ['approve', 'cheaper', 'quality', 'cancel'], 'edit stays allowed but has nothing to offer');
+  assert.equal(C.pcReduce(C.pcInitial(view), {type: 'edit'}).mode, 'view', 'edit mode does not open');
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.ok(host.findAll((e) => e.className === 'pc-hint').some((e) => e.textContent === 'ℹ ' + hint));
+  assert.ok(!host.findAll((e) => e.tagName === 'BUTTON').some((b) => b.textContent === 'Edit rows…'));
+  // An older agent sends neither field: nothing changes.
+  const old = C.pcModel(C.pcInitial(plan()));
+  assert.deepEqual(old.hints, []);
+  assert.ok(old.actions.some((a) => a.verdict === 'edit'));
+  // A milestone's edit (Correct…) is not the plan's.
+  assert.ok(C.pcModel(C.pcInitial(milestone({plan: Object.assign(plan().plan, {editable: false})}))).actions.some((a) => a.verdict === 'edit'));
+});
+
+test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as the TUI card', () => {
+  const base = milestone();
+  const view = milestone({
+    brief: Object.assign({}, base.brief, {criteria: [{id: 'c1', text: 'legal moves only'}, {id: 'c2', text: 'Looks right'}]}),
+    milestones: [Object.assign({}, base.milestones[0], {criteriaFacts: [
+      {id: 'c1', state: 'passed'},
+      {id: 'c2', state: 'unverified', why: 'no vision-capable reviewer'},
+      {id: 'c3', state: 'failed', why: 'check exited 1'},
+    ]}), base.milestones[1]],
+  });
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.milestones[0].facts, [
+    {state: 'passed', text: '✓ c1 passed: legal moves only'},
+    {state: 'unverified', text: '? c2 unverified: Looks right (no vision-capable reviewer)'},
+    {state: 'failed', text: '✕ c3 failed (check exited 1)'},
+  ]);
+  assert.deepEqual(m.milestones[1].facts, []);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  const lines = host.findAll((e) => /\bpc-fact\b/.test(e.className));
+  assert.deepEqual(lines.map((e) => [e.className, e.textContent]), [
+    ['pc-fact is-passed', '✓ c1 passed: legal moves only'],
+    ['pc-fact is-unverified', '? c2 unverified: Looks right (no vision-capable reviewer)'],
+    ['pc-fact is-failed', '✕ c3 failed (check exited 1)'],
+  ]);
+});
+
+test('a milestone\'s pictures are listed as text: count, caption with its criteria, file name; no image, no file URL', () => {
+  const base = milestone();
+  const view = milestone({milestones: [Object.assign({}, base.milestones[0], {attachments: [
+    {path: '/state/fusion-runs/r1/shots/board.png', caption: 'The board', criteria: ['c1', 'c2']},
+    {path: 'C:\\state\\fusion-runs\\r1\\shots\\menu.png', caption: '<img src=x onerror=alert(1)>'},
+  ]}), base.milestones[1]]});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.milestones[0].pictures, ['The board [c1, c2] · board.png', '<img src=x onerror=alert(1)> · menu.png']);
+  assert.deepEqual(m.milestones[1].pictures, []);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.deepEqual(host.findAll((e) => e.className === 'pc-pictures-count').map((e) => e.textContent), ['2 pictures']);
+  assert.deepEqual(host.findAll((e) => e.className === 'pc-picture').map((e) => e.textContent), ['▣ The board [c1, c2] · board.png', '▣ <img src=x onerror=alert(1)> · menu.png']);
+  assert.ok(!doc.all.some((e) => e.tagName === 'IMG' || e.tagName === 'A'), 'no image and no link');
+  assert.ok(!doc.all.some((e) => Object.values(e.attrs).some((v) => /file:|\/state\//.test(v)) || /file:/.test(e.textContent)), 'no path or file URL');
+  assert.ok(!/\/state\/fusion-runs/.test(host.textContent), 'the full path is not shown');
+});
+
+test('the card follows the chat only while the chat room is on screen (not over Studio)', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
+  const followed = [];
+  const S = {agentSession: 'ses-1', room: 'chat'};
+  const run = new Function('S', 'PCARD', 'PCARD_GEN', 'AGENT_GEN', 'PCWATCH', fn + '\nreturn projectCardFollow;')(
+    S, {follow: (sid) => followed.push(sid), reset() {}}, 0, 0, null);
+  run();
+  S.room = 'studio'; run();
+  S.room = 'chat'; run();
+  assert.deepEqual(followed, ['ses-1', null, 'ses-1']);
+});
+
+test('the card says "Fusion project", not the sidebar\'s folder "project"', () => {
+  assert.equal(C.pcModel(C.pcInitial(brief())).headline, 'The Fusion project brief waits for your approval');
+  assert.equal(C.pcDecision(C.pcInitial(closed()), 'ses-1', 'approve').error, 'Nothing in the Fusion project waits for you');
+  const armed = C.pcModel(Object.assign(C.pcInitial(plan()), {confirmCancel: true})).actions.find((a) => a.verdict === 'cancel');
+  assert.match(armed.why, /cancel the Fusion project/);
+  assert.match(C.pcOutcome({supported: false}).error, /Fusion project decisions/);
+  assert.match(C.pcOutcome({ok: false, code: 'stale-version', view: null}).notice, /^The Fusion project changed/);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, C.pcModel(C.pcInitial(plan())), () => {});
+  assert.equal(host.children[0].getAttribute('aria-label'), 'Fusion project');
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(renderer, /data-act="project:show" title="Show the Fusion project card again">Show Fusion project<\/button>/);
+  // Every user-facing sentence of the card that names a project names the Fusion one.
+  const card = readFileSync(new URL('../renderer/project-card.js', import.meta.url), 'utf8');
+  const strings = [...card.matchAll(/'([^'\n]*)'/g)].map((x) => x[1]).filter((t) => /\bproject\b/i.test(t) && /\s/.test(t));
+  assert.deepEqual(strings.filter((t) => !/Fusion project/.test(t)), []);
+});
+
+/* ---------------- the real submit() with stand-ins for the page ---------------- */
+
+/**
+ * renderer.js's own submit(), bswGatedTurn(), gatedTurnLeft() and
+ * projectCardContinue() run against stand-ins: every name they read that
+ * is not one of theirs comes from `env` (a `with` scope), so an assignment
+ * such as `DRAIN_OWED = true` lands there too.
+ */
+function realPage(over = {}) {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const take = (re) => src.match(re)[0];
+  const fns = [
+    take(/\nfunction submit\(preparedSkillText, opts\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction gatedTurnLeft\(text\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction bswGatedTurn\(text\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction projectCardContinue\([\s\S]*?\n}\n/),
+  ].join('\n');
+  const toasts = [], turns = [], snapshots = [];
+  const env = Object.assign({
+    S: {agentSession: 'ses-1', sessionId: 'ses-1', room: 'chat', settings: null, busy: false, pending: null, live: {state: 'connected'}, draft: '', log: [], queued: [], slash: false},
+    VOICE: {state: 'idle'}, BSW: {gating: false}, SK: {workingDir: null}, SLASH: [], OPENING: {}, SWX: {sendError: null},
+    DRAIN_OWED: false, MAX_QUEUED: 20, EXECUTE_PLAN_MESSAGE: '\u0000', PLAN_TRACE: [], ANX: {messageAction() {}},
+    FIT_HOLD_TITLE: 'A model test is running', FIT_HOLD_TEXT: 'Your message stays here.',
+    voiceStop() {}, starterHoldsSend: () => false, fitHoldsSend: () => false, updHoldsNewChat: () => false,
+    openHoldsComposer: () => false, swxWaitsForRoute: () => false, attPreparing: () => false,
+    attComposeMessage: (t) => t, attClearSent() {}, attToEditor: (t) => t,
+    toast: (...a) => toasts.push(a), $: () => null, autosize() {}, ctxDraftChanged() {}, render() {}, refreshSend() {},
+    runSlash() {}, submitSkillCommand() {}, noteWaitingChat() {}, drainOwed() {}, dropStaleGateNotices() {},
+    approvalOpen: () => null, steerOrQueue() {}, queueKey: () => 'k', apprKeyLabel: (k) => k,
+    nid: (() => { let n = 0; return () => ++n; })(), esc: (t) => t,
+    gate: {kind: 'run'}, localTurnGate: () => env.gate,
+    bswSnapshot: () => new Promise((r) => snapshots.push(r)),
+    startLiveTurn: (t) => turns.push(t), pcCanContinue: C.pcCanContinue, crypto: globalThis.crypto,
+  }, over);
+  const scope = new Proxy(env, {has: (t, k) => k in t});
+  const page = new Function('scope', 'with (scope) {\n' + fns + '\nreturn {submit, projectCardContinue, bswGatedTurn};\n}')(scope);
+  return {page, env, toasts, turns, snapshots};
+}
+
+test('the real submit() answers false on a hold and leaves the box alone', () => {
+  const r = realPage({fitHoldsSend: () => true});
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.submit('Go on.', {plain: true}), false);
+  assert.equal(r.env.S.draft, 'my words');
+  assert.deepEqual(r.turns, []);
+  assert.equal(r.toasts[0][0], 'A model test is running');
+  const ok = realPage();
+  assert.equal(ok.page.submit('Go on.', {plain: true}), true);
+  assert.deepEqual(ok.turns, ['Go on.']);
+});
+
+test('a continue on a local route without its model stays pending and never touches the person\'s draft', async () => {
+  // The gate already knows: nothing is submitted, the continue waits.
+  const r = realPage({gate: {kind: 'block', text: 'local model m is not downloaded'}});
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false);
+  assert.equal(r.env.S.draft, 'my words');
+  assert.deepEqual(r.env.S.log, []);
+  // The gate learns it only after the disk snapshot: the continue went back to the editor, above the person's draft.
+  const a = realPage({gate: {kind: 'pending'}});
+  a.env.S.draft = 'my words';
+  assert.equal(a.page.projectCardContinue('ses-1', 'Go on.'), true);
+  assert.equal(a.env.S.draft, 'my words', 'restored while the snapshot runs');
+  a.env.gate = {kind: 'block', text: 'local model m is not downloaded'};
+  a.snapshots[0](); await tick();
+  assert.equal(a.env.S.draft, 'Go on.\n\nmy words', 'nothing the person typed is written over');
+  // A message the person typed comes back as before (the box was empty).
+  const t = realPage({gate: {kind: 'block', text: 'blocked'}});
+  t.env.S.draft = 'typed';
+  assert.equal(t.page.submit(), true);
+  assert.equal(t.env.S.draft, 'typed');
+});
+
+test('a continue is not put in the switch queue (× or another chat could drop it): it waits for the switch', () => {
+  const typed = realPage({swxWaitsForRoute: () => true});
+  typed.env.S.draft = 'typed';
+  assert.equal(typed.page.submit(), true, 'a typed message is queued as before');
+  assert.deepEqual(typed.env.S.queued, ['typed']);
+  assert.equal(typed.env.DRAIN_OWED, true);
+  for (const [label, over] of [
+    ['the route switching', {swxWaitsForRoute: () => true}],
+    ['a queue owed', {DRAIN_OWED: true}],
+    ['the last send failed during a switch', {SWX: {sendError: 'x'}}],
+  ]) {
+    const r = realPage(over);
+    r.env.S.draft = 'my words';
+    assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false, label);
+    assert.deepEqual(r.env.S.queued, [], label);
+    assert.equal(r.env.S.draft, 'my words', label);
+  }
+});
+
+test('the Settings window (Cron jobs and Skills open there; S.room stays chat) holds a continue', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(src, /if \(v === 'tasks' \|\| v === 'skills'\) \{ act\('settings:' \+ v\); return; \}/, 'those rooms are Settings tabs');
+  const r = realPage();
+  r.env.S.settings = 1;
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false, 'not sent into the chat behind Settings');
+  assert.deepEqual(r.turns, []);
+  r.env.S.settings = null;
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), true);
+  assert.deepEqual(r.turns, ['Go on.']);
+});
+
+test('reset(next) follows the chat the page shows now: no read for a chat Studio covers', async () => {
+  const c = controller({read: async () => ({supported: true, ok: true, view: plan()})});
+  c.card.follow('ses-1'); await tick();
+  assert.deepEqual(c.reads, ['ses-1']);
+  c.card.reset(null); await tick();
+  assert.deepEqual(c.reads, ['ses-1'], 'Studio is on screen: nothing to read');
+  c.card.reset('ses-1'); await tick();
+  assert.deepEqual(c.reads, ['ses-1', 'ses-1'], 'back on the chat: read again from the new agent');
+  // The page hands its own room-aware sid to reset.
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
+  const calls = [];
+  const S = {agentSession: 'ses-1', room: 'studio'};
+  new Function('S', 'PCARD', 'PCARD_GEN', 'AGENT_GEN', 'PCWATCH', fn + '\nreturn projectCardFollow;')(
+    S, {follow: (sid) => calls.push(['follow', sid]), reset: (sid) => calls.push(['reset', sid])}, 1, 2, null)();
+  assert.deepEqual(calls[0], ['reset', null]);
 });

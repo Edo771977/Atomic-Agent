@@ -621,6 +621,7 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_PERSONA` | unset | env only | Persona name to use for this process, above every config.json setting. |
 | `ATOMIC_AGENT_OFFLINE` | unset | env only | Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved. |
 | `ATOMIC_AGENT_ALLOWED_ORIGINS` | unset | env only | Comma-separated web origins that may call a keyless local `serve`, besides loopback ones. |
+| `ATOMIC_AGENT_MEMORY_GUARD` | unset | env only | Set to 0 to turn off `serve`'s memory guard, which shuts the server down cleanly when its heap nears the limit (for a heap raised on purpose). |
 | `ATOMIC_AGENT_SERVE_NO_PARENT_EXIT` | unset | env only | Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit). |
 | `ATOMIC_AGENT_MODEL_CATALOG_URL` | unset | env only | URL of the extra local-model catalog JSON. Unset: the catalog hosted on atomicagent.io. |
 | `ATOMIC_AGENT_TELEGRAM_STREAM_REPLIES` | unset | env only | Stream Telegram replies into the owner's DM (private) or not (off). Wins over telegram.streamReplies when set. |

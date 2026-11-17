@@ -43,14 +43,18 @@ const ANX_ACTS = (() => {
     return {
       // chat, sessions and the window
       close:L, palette:{slash:L, theme:L}, shortcuts:L, context:L, modes:L, send:L, stop:L, retry:L,
-      attach:{window:L}, clear:L, dump:L, report:L, 'help.report':L, tools:L, restart:L, quit:L, about:L, update:L,
+      attach:{window:L}, clear:L, dump:L, report:L, 'help.report':L, 'help.discord':L, tools:L, restart:L, quit:L, about:L, update:L,
       workspace:{choose:L}, analytics:L, steer:L, onboarding:{choose:L, openNow:L}, voice:{add:L, dismiss:L, lang:L, pick:L, reset:L, settings:L},
-      session:{new:L, switch:L, id:L}, ses:L, pin:L, unpin:L, unread:L, read:L, del:L, delask:L, sesmenu:L, rename:L,
+      session:{new:L, switch:L, id:L}, ses:L, pin:L, unpin:L, unread:L, read:L, del:L, delask:L, sesmenu:L, rename:L, export:L,
       // ATO-1034: chat folders; the folder and chat ids after the verb are cut off.
       tts:{auto:L}, ftoggle:L, fnew:L, frename:L, fdel:L, fpick:L, fput:L, fautosort:L,
+      // ATO-1150: archive in the chat list; the chat id after the verb is cut off.
+      archive:L, unarchive:L, archtoggle:L, chatsearch:{clear:L, open:L},
+      // W2: the sidebar's Studio row and its popover; the composer's mode chip (composer-mode.js cmodePick tracks the row id).
+      studio:{menu:L, open:{images:L, video:L}}, cmode:{chat:L, endGoal:L, goal:L, overnight:L, voice:L},
       more:{chats:L, tasks:L}, task:L, toastx:L, 'turn':{continue:L}, sessmodel:{apply:L},
       copy:{reply:L, session:L}, agent:{restart:L, update:L}, jump:{appr:L}, diag:{llmlogs:L, check:L, startModel:L},
-      dl:{cancel:L}, dlc:{cloud:L, dismiss:L, fold:L, keep:L, retry:L, switch:L, unfold:L},
+      dl:{cancel:L}, dlc:{cloud:L, dismiss:L, fold:L, keep:L, retry:L, switch:L, unfold:L, visionLater:L, visionRestart:L},
       appr:{y:L, n:L, esc:L, s:L, a:L}, selector:{model:L}, cards:{expand:L, collapse:L},
       room:{chat:L, tasks:L, skills:L}, insp:{steps:L, reasoning:L, world:L}, console:{agent:L, llm:L},
       toggle:{sidebar:L, inspector:L, console:L, files:L},
@@ -61,21 +65,24 @@ const ANX_ACTS = (() => {
       menu:set(menuIds),
       scope:L, taskfilter:set(taskFilters), skillstab:L, memtab:L,
       // composer selector and the add-provider wizard
-      sel:{add:L, browseLocal:L, closeAdd:L, savePreset:L, cancelPull:L},
-      wiz:{back:L, next:L, cancel:L, model:L, useDefault:L, saveUnchecked:L},
+      sel:{add:L, browseLocal:L, closeAdd:L, savePreset:L, cancelPull:L, vision:L},
+      wiz:{back:L, next:L, cancel:L, model:L, useDefault:L, saveUnchecked:L, subRecheck:L, subLogin:L, subCopy:L},
       // Settings › Privacy and General
-      privacy:{analytics:L, refresh:L, readscope:set(readScopes)}, notify:{toggle:L}, names:{toggle:L},
+      privacy:{analytics:L, refresh:L, readscope:set(readScopes)}, notify:{toggle:L}, names:{toggle:L}, nextstep:{toggle:L},
+      // ATO-523: the quick entry shortcut row (quick-entry-settings.js)
+      quickentry:{toggle:L, record:L, cancel:L},
       // ATO-229: the update toast and General's update rows
       appupd:{update:L, notnow:L, skip:L, cancel:L, install:L, later:L, check:L, auto:L},
       // the Manage panes' own verbs (renderer.js mcpAct / skillsAct / memoryAct / tasksAct / llmAct / telegramAct / composioAct / importAct)
-      mcp:{add:L, addSubmit:L, addCancel:L, auto:L, back:L, detail:L, refresh:L, remove:L,
-        removeCancel:L, removeConfirm:L, restart:L, toggle:L, enable:L, disable:L,
+      mcp:{add:L, addSubmit:L, addCancel:L, catalog:L, auto:L, back:L, detail:L, refresh:L, remove:L,
+        removeCancel:L, removeConfirm:L, restart:L, toggle:L, enable:L, disable:L, signin:L, signout:L,
         dtab:Object.assign(set(mcpTabs), {cycle:L})},
       skills:{auto:L, back:L, card:L, cardScroll:UPDOWN, detail:L, filter:set(skillFilters), hub:L,
         hubPage:UPDOWN, hubSearch:L, install:L, installAck:L, installCancel:L, page:UPDOWN,
         rebrowse:L, refresh:L, remove:L, removeCancel:L, removeConfirm:L, search:L, toggle:L, tools:L},
       // ATO-954: Settings › Plugins (renderer/plugins-pane.js); the plugin and part names are cut off.
-      plugins:{refresh:L, expand:L, toggle:L, part:L, code:L, codeConfirm:L, codeCancel:L, remove:L, removeConfirm:L, removeCancel:L},
+      plugins:{refresh:L, expand:L, toggle:L, part:L, code:L, codeConfirm:L, codeCancel:L, remove:L, removeConfirm:L, removeCancel:L,
+        install:L, installAnyway:L, installDismiss:L},
       memory:{auto:L, back:L, ch:set(memChannels), cycle:L, expand:L, filter:set(memFilters), jump:L,
         neighbor:L, open:L, page:UPDOWN, refresh:L},
       tasks:{auto:L, back:L, cancel:L, cancelConfirm:L, cancelKeep:L, clearSearch:L, detail:L,
@@ -84,16 +91,18 @@ const ANX_ACTS = (() => {
       llm:{mode:Object.assign(set(llmModes), {next:L, prev:L}), add:L, autoUpdate:L, back:L, backend:L,
         cancel:L, cancelPull:L, configure:L, confirm:L, daemon:L, device:L, edit:L, embToggle:L,
         embedding:L, enter:L, external:{cancel:L, save:L, edit:L}, filter:L, logs:L, logsRefresh:L,
-        pricing:L, refresh:L, remove:L, removeAt:L, restartModel:L, row:L, select:L, steer:{y:L, n:L}, tune:L,
+        pricing:L, refresh:L, remove:L, removeAt:L, restartModel:L, row:L, visionAt:L, select:L, steer:{y:L, n:L}, tune:L,
         fb:{add:L, local:L, move:L, pick:L, pickCancel:L, remove:L, select:L},
         hf:{add:L, back:L, cancel:L, clear:L, close:L, look:L, mirror:L, row:L}},
       telegram:{advanced:L, clearOwner:L, clearToken:L, enable:L, disable:L, pair:L, pairCancel:L,
         pairReplace:L, pairStart:L, refresh:L, restart:L, start:L, stop:L, token:L, tokenCancel:L, tokenSave:L},
       // Settings › Connections › Composio (renderer.js composioAct); never the key.
       composio:{check:L, enable:L, key:L, keyCancel:L, keySave:L, refresh:L, removeKey:L, restart:L},
+      // Settings › Connections › Phone push (phone-push.js phonePushAct); never the topic.
+      push:{copy:L, enable:L, newTopic:L, refresh:L, setup:L, test:L},
       // ATO-328: Save on the Exa key card (chat) or its Settings row; never the key.
       exakey:{save:{chat:L, settings:L}},
-      import:{apply:L, field:L, focus:L, preview:L, reset:L, source:Object.assign(set(impSources), {tui:L}),
+      import:{apply:L, field:L, focus:L, pick:L, preview:L, reset:L, source:Object.assign(set(impSources), {tui:L}),
         toggle:set(impFields)},
     };
   }

@@ -93,6 +93,15 @@ test("the dialog: budget hidden for local models, Telegram switch only when pair
   assert.match(local, /Pair Telegram/);
 });
 
+test("the Telegram row says the report goes out when the run finishes, not in the morning", () => {
+  const form = { message: "", folder: "/x", budget: "", hours: "8", notify: true };
+  for (const tgPaired of [true, false]) {
+    const html = O.ovnDialogHTML({ local: false, tgPaired, busy: false, error: null, form }, h);
+    assert.match(html, /Send the report to Telegram when it finishes/);
+    assert.doesNotMatch(html, /morning/i);
+  }
+});
+
 test("in Fusion the budget field says it covers the planning model only", () => {
   const st = { local: false, fusion: false, tgPaired: false, busy: false, error: null,
     form: { message: "", folder: "/x", budget: "", hours: "8", notify: false } };
@@ -124,11 +133,15 @@ test("the runs card: Stop while running, Dismiss when finished, nothing when emp
   assert.doesNotMatch(done, /data-ovn="stop:/);
 });
 
-test("UI copy has no em dashes, and the composer's + menu opens the dialog", () => {
+test("UI copy has no em dashes, and the composer's mode chip (not the + menu) opens the dialog", () => {
   const src = readFileSync(new URL("../renderer/overnight.js", import.meta.url), "utf8");
   assert.equal(src.includes("—"), false);
   const att = readFileSync(new URL("../renderer/attachments.js", import.meta.url), "utf8");
-  assert.match(att, /data-ovn="open"[^\n]*Run overnight/);
+  // W2: "+" holds attachments only; Run overnight is a row of the mode chip (composer-mode.js).
+  assert.doesNotMatch(att, /data-ovn=|Run overnight<\/span>/);
+  const mode = readFileSync(new URL("../renderer/composer-mode.js", import.meta.url), "utf8");
+  assert.match(mode, /id: 'overnight', word: 'Run overnight'/);
+  assert.match(mode, /if \(id === 'overnight'\) \{ if \(typeof ovnOpen === 'function'\) void ovnOpen\(\); return; \}/);
   const html = readFileSync(new URL("../renderer/index.html", import.meta.url), "utf8");
   assert.match(html, /<div id="overnight"><\/div>/);
   assert.ok(html.indexOf('src="overnight.js"') < html.indexOf('src="renderer.js"'));

@@ -13,6 +13,10 @@
  * `tui.notify.minDurationMs`, so a quick question does not ring every
  * time. The config is read when a turn ends (not cached), so the Settings
  * toggle and a hand edit both take effect on the next turn.
+ *
+ * The folder named in the note is the chat's own (not the agent's default
+ * folder). The phone push (push-ipc.ts) words its own note with
+ * `turnPushNote`, which asks the chat's folder constraint first.
  */
 
 export type TurnOutcome = "completed" | "failed" | "cancelled";
@@ -84,8 +88,64 @@ export function formatTurnNotification(p: {
   return { title, body: cleanNotificationText(parts.join(" · ")) };
 }
 
+/** How a turn ended, as the notifier hands it to `show`. */
+export interface TurnEnd {
+  /** The chat the turn ran in; `null` when the notifier never learned it. */
+  sessionId: string | null;
+  outcome: TurnOutcome;
+  steps: number;
+  durationMs: number;
+  error: string | null;
+  /** The chat's own folder (its last segment), when known. */
+  workingDirName?: string | undefined;
+}
+
+/**
+ * The phone push of a turn's note (push-ipc.ts pushTurnNote), against the
+ * chat's folder constraint (issue #33). `answer` is the agent's
+ * `GET /api/sessions/{id}/provider-restriction` (status and parsed body),
+ * or `null` when it could not be asked. The note goes only when the
+ * agent says the chat's content may go to a channel (`channelsAllowed`);
+ * an agent from before that field answers for an unrestricted chat only.
+ * A restricted chat's note never carries the error text (a refusal names
+ * the folder it read) or the folder's name. Anything else (no session, no
+ * answer, an error, a restricted chat on an agent without the field):
+ * `null`, nothing is sent (fail closed).
+ */
+export function turnPushNote(
+  turn: TurnEnd,
+  answer: { status: number; body: unknown } | null,
+): TurnNotification | null {
+  if (!turn.sessionId || !answer || answer.status !== 200) return null;
+  const body = answer.body && typeof answer.body === "object" ? (answer.body as Record<string, unknown>) : null;
+  if (!body || !("restriction" in body)) return null;
+  const restricted = body.restriction !== null;
+  // An agent from before `channelsAllowed`: an unrestricted chat pushes as it always did;
+  // a restricted one cannot be told apart from one without channels, so nothing goes.
+  const allowed = body.channelsAllowed === undefined ? !restricted : body.channelsAllowed === true;
+  if (!allowed) return null;
+  return formatTurnNotification({
+    outcome: turn.outcome,
+    steps: turn.steps,
+    durationMs: turn.durationMs,
+    // Like the TUI's push (src/tui/phone-push.ts): no failure text and no folder name.
+    error: restricted ? "open Atomic Agent to see why" : turn.error,
+    workingDirName: restricted ? undefined : turn.workingDirName,
+  });
+}
+
+/** The agent's answer has no `channelsAllowed` (an agent from before it): push-ipc.ts says so once. */
+export function answerLacksChannelsField(answer: { status: number; body: unknown } | null): boolean {
+  const body = answer && answer.status === 200 && answer.body && typeof answer.body === "object"
+    ? (answer.body as Record<string, unknown>)
+    : null;
+  return body !== null && "restriction" in body && body.channelsAllowed === undefined;
+}
+
 interface TurnTrack {
   startedAt: number;
+  /** The chat, from a `session_id` frame or the caller's `sessionOf`. */
+  sessionId: string | null;
   steps: number;
   /** An `event: error` frame, held until `done` says whether the turn went on after it. */
   heldError: string | null;
@@ -98,8 +158,12 @@ export interface TurnNotifierDeps {
   isFocused: () => boolean;
   /** `tui.notify` as the config file has it now. */
   readConfig: () => Promise<NotifyConfig>;
-  workingDirName: () => string | undefined;
-  show: (note: TurnNotification) => void;
+  /** The chat's folder name; `sessionId` is `null` when the turn's chat is unknown. */
+  workingDirName: (sessionId: string | null) => string | undefined | Promise<string | undefined>;
+  /** The chat a turn runs in, as the caller knows it (main's liveTurns); asked on every frame. */
+  sessionOf?: (turnId: string) => string | null | undefined;
+  /** The native note, and the turn it is about (the phone push words its own, turnPushNote). */
+  show: (note: TurnNotification, turn: TurnEnd) => void;
 }
 
 /**
@@ -117,19 +181,43 @@ export class TurnNotifier {
     return (this.deps.now ?? Date.now)();
   }
 
-  /** The turn was sent. Called by the chat IPC so the clock starts at the request. */
-  begin(turnId: string): void {
-    this.turns.set(turnId, { startedAt: this.now(), steps: 0, heldError: null, workAfterError: false });
+  /**
+   * The turn was sent. Called by the chat IPC so the clock starts at the
+   * request, with the chat when it is known: a turn refused before the
+   * stream sends one bare `error` frame and no `session_id`, and by then
+   * main's own record of it is gone.
+   */
+  begin(turnId: string, sessionId?: string | null): void {
+    this.turns.set(turnId, {
+      startedAt: this.now(),
+      sessionId: sessionId || this.deps.sessionOf?.(turnId) || null,
+      steps: 0,
+      heldError: null,
+      workAfterError: false,
+    });
+  }
+
+  /** The chat of a turn already begun, fixed after `begin` (a new chat filed in a project). */
+  knowSession(turnId: string, sessionId: string | null | undefined): void {
+    const t = this.turns.get(turnId);
+    if (t && sessionId) t.sessionId = sessionId;
   }
 
   observe(ev: { turnId?: unknown; kind?: unknown; error?: unknown; payload?: unknown }): void {
     if (typeof ev.turnId !== "string" || typeof ev.kind !== "string") return;
     let t = this.turns.get(ev.turnId);
     if (!t) {
-      t = { startedAt: this.now(), steps: 0, heldError: null, workAfterError: false };
+      t = { startedAt: this.now(), sessionId: null, steps: 0, heldError: null, workAfterError: false };
       this.turns.set(ev.turnId, t);
     }
     const kind = ev.kind;
+    const known = this.deps.sessionOf?.(ev.turnId);
+    if (known) t.sessionId = known;
+    if (kind === "session_id" && ev.payload && typeof ev.payload === "object") {
+      const p = ev.payload as Record<string, unknown>;
+      const sid = typeof p.sessionId === "string" ? p.sessionId : typeof p.session_id === "string" ? p.session_id : null;
+      if (sid) t.sessionId = sid;
+    }
     if (kind === "tool_progress") t.steps += 1;
     if (kind === "error" && ev.payload) {
       if (t.heldError === null || t.workAfterError) {
@@ -151,10 +239,16 @@ export class TurnNotifier {
     }
     if (!outcome) return;
     this.turns.delete(ev.turnId);
-    void this.finish(outcome, this.now() - t.startedAt, t.steps, error);
+    void this.finish(t.sessionId, outcome, this.now() - t.startedAt, t.steps, error);
   }
 
-  private async finish(outcome: TurnOutcome, durationMs: number, steps: number, error: string | null): Promise<void> {
+  private async finish(
+    sessionId: string | null,
+    outcome: TurnOutcome,
+    durationMs: number,
+    steps: number,
+    error: string | null,
+  ): Promise<void> {
     try {
       // Cancelled turns were stopped by someone, so there is nobody to tell.
       if (outcome === "cancelled") return;
@@ -163,9 +257,15 @@ export class TurnNotifier {
       if (!shouldNotify(outcome, durationMs, cfg)) return;
       // Focus may have come back while the config was being read.
       if (this.deps.isFocused()) return;
-      this.deps.show(
-        formatTurnNotification({ outcome, steps, durationMs, error, workingDirName: this.deps.workingDirName() }),
-      );
+      let workingDirName: string | undefined;
+      try {
+        workingDirName = await this.deps.workingDirName(sessionId);
+      } catch {
+        workingDirName = undefined;
+      }
+      if (this.deps.isFocused()) return;
+      const turn: TurnEnd = { sessionId, outcome, steps, durationMs, error, workingDirName };
+      this.deps.show(formatTurnNotification({ outcome, steps, durationMs, error, workingDirName }), turn);
     } catch {
       // A notifier must never be the thing that fails.
     }

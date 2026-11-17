@@ -20,13 +20,25 @@ const run = promisify(execFile);
  * from the stores: `notes.recall` does not bump `recall_count` (the store's
  * `touchOnRecall` is a write) and the store limits are inlined by the
  * renderer as the TUI's memory-orchestrator passes them.
+ *
+ * Per-folder constraints (issue #33): the stores hide a row written under
+ * a folder constraint (`constraint_scope`, src/memory/memory-constraint-scope.ts)
+ * from every call outside that folder; this raw read lists them all. Note
+ * and fact rows carry `scoped` (1 for such a row, 0 otherwise; never the
+ * descriptor) so the tab marks them read-only: the agent's /api/memory
+ * routes, which carry no folder policy, cannot change them. A database
+ * from before the column reads every row as unscoped.
  */
 
 type ParamKind = "int" | "text";
 interface NamedStatement { sql: string; params: ParamKind[] }
 
-const PROFILE_COLS = "id, key, value, pinned, keywords, valid_from, superseded_by, supersedes, created_at, updated_at, vote_score";
-const NOTE_COLS = "id, content, created_at, updated_at, source, session_id, working_dir, tags, recall_count, last_recalled_at, consolidated_into";
+/** A row kept for a restricted folder (issue #33): only the flag, never the descriptor. */
+const SCOPED = "(constraint_scope IS NOT NULL) AS scoped";
+const PROFILE_COLS = `id, key, value, pinned, keywords, valid_from, superseded_by, supersedes, created_at, updated_at, vote_score, ${SCOPED}`;
+const NOTE_COLS = `id, content, created_at, updated_at, source, session_id, working_dir, tags, recall_count, last_recalled_at, consolidated_into, ${SCOPED}`;
+/** The same statement on a database from before `constraint_scope`: every row unscoped. */
+const withoutScope = (sql: string): string => sql.replace(/\((?:m\.)?constraint_scope IS NOT NULL\)/g, "0");
 const LESSON_COLS = "id, activation, principle, tags, status, success_count, failure_count, parent_ids, working_dir, created_at, updated_at, deprecated_at, vote_score";
 const PROC_COLS = "id, activation, steps, tags, status, success_count, failure_count, use_count, vote_score, parent_lesson_ids, parent_memory_ids, source, working_dir, created_at, updated_at, deprecated_at";
 const LINK_COLS = "from_id, to_id, kind, weight, created_at";
@@ -41,7 +53,7 @@ export const MEMORY_SQL: Record<string, NamedStatement> = {
   "notes.listAll": { sql: `SELECT ${NOTE_COLS} FROM memories ORDER BY updated_at DESC, id DESC LIMIT ?`, params: ["int"] },
   "notes.get": { sql: `SELECT ${NOTE_COLS} FROM memories WHERE id = ?`, params: ["int"] },
   "notes.recall": {
-    sql: `SELECT m.id, m.content, m.created_at, m.updated_at, m.source, m.session_id, m.working_dir, m.tags, m.recall_count, m.last_recalled_at, m.consolidated_into FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) ASC LIMIT ?`,
+    sql: `SELECT m.id, m.content, m.created_at, m.updated_at, m.source, m.session_id, m.working_dir, m.tags, m.recall_count, m.last_recalled_at, m.consolidated_into, (m.constraint_scope IS NOT NULL) AS scoped FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) ASC LIMIT ?`,
     params: ["text", "int"],
   },
   // lesson-store.ts listActiveStmt / getByIdStmt
@@ -54,6 +66,13 @@ export const MEMORY_SQL: Record<string, NamedStatement> = {
   "links.listAll": { sql: `SELECT ${LINK_COLS} FROM memory_links ORDER BY created_at DESC LIMIT ?`, params: ["int"] },
   "links.outgoing": { sql: `SELECT ${LINK_COLS} FROM memory_links WHERE from_id = ? ORDER BY weight DESC, created_at DESC`, params: ["int"] },
   "links.incoming": { sql: `SELECT ${LINK_COLS} FROM memory_links WHERE to_id = ? ORDER BY weight DESC, created_at DESC`, params: ["int"] },
+  // ATO-584: the Notes graph. The N most linked notes (degree over both ends, then newest), a short preview each,
+  // and the strongest edges; the renderer keeps the edges whose both ends are among the nodes.
+  "graph.nodes": {
+    sql: `WITH d AS (SELECT id, COUNT(*) AS degree FROM (SELECT from_id AS id FROM memory_links UNION ALL SELECT to_id AS id FROM memory_links) GROUP BY id) SELECT m.id, substr(m.content, 1, 200) AS content, m.source, m.consolidated_into, COALESCE(d.degree, 0) AS degree FROM memories m LEFT JOIN d ON d.id = m.id ORDER BY degree DESC, m.updated_at DESC, m.id DESC LIMIT ?`,
+    params: ["int"],
+  },
+  "graph.edges": { sql: `SELECT from_id, to_id, kind, weight FROM memory_links ORDER BY weight DESC, created_at DESC LIMIT ?`, params: ["int"] },
   // vote-store.ts listEvents
   "votes.listEvents": {
     sql: `SELECT id, kind, target_id AS targetId, direction, session_id AS sessionId, turn_index AS turnIndex, created_at AS createdAt FROM vote_events ORDER BY id DESC LIMIT ?`,
@@ -126,10 +145,21 @@ export async function memoryQuery(
     if (v === null) return { ok: false, error: `${name}: parameter ${i + 1} must be ${stmt.params[i]}` };
     params.push(v);
   }
+  const first = await runStatement(file, stmt.sql, stmt.params, params);
+  if (first.ok || !/no such column: (?:m\.)?constraint_scope/.test(first.error ?? "")) return first;
+  return runStatement(file, withoutScope(stmt.sql), stmt.params, params);
+}
+
+async function runStatement(
+  file: string,
+  sql: string,
+  kinds: ParamKind[],
+  params: Array<number | string>,
+): Promise<{ ok: boolean; rows?: MemoryRow[]; via?: "sqlite3" | "node:sqlite"; error?: string }> {
   let cliError = "";
   if (existsSync(SQLITE3)) {
     let idx = 0;
-    const inlined = stmt.sql.replace(/\?/g, () => literal(stmt.params[idx]!, params[idx++]!));
+    const inlined = sql.replace(/\?/g, () => literal(kinds[idx]!, params[idx++]!));
     try {
       return { ok: true, rows: await viaCli(file, inlined), via: "sqlite3" };
     } catch (err) {
@@ -137,7 +167,7 @@ export async function memoryQuery(
     }
   }
   try {
-    return { ok: true, rows: viaNodeSqlite(file, stmt.sql, params), via: "node:sqlite" };
+    return { ok: true, rows: viaNodeSqlite(file, sql, params), via: "node:sqlite" };
   } catch (err) {
     const nodeError = err instanceof Error ? err.message : String(err);
     return { ok: false, error: cliError ? `sqlite3: ${cliError}; node:sqlite: ${nodeError}` : nodeError };

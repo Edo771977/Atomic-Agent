@@ -126,7 +126,7 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   check(chats()[0]?.project === '1', 'the chat asked for the project flow (X-Atomic-Project: 1)', JSON.stringify(chats()[0]));
   check(chats()[0]?.extensions === '1', 'with X-Atomic-Extensions: 1');
   const briefV = await cardAt('brief', 'brief');
-  check(/The project brief waits for your approval/.test(await cardText(app)), 'the card names the brief gate');
+  check(/The Fusion project brief waits for your approval/.test(await cardText(app)), 'the card names the brief gate');
   app.repliesBefore = (await app.replies()).length;
   await app.clickText('Approve', { scope: '#projectcard .pc-actions' });
   await until(app, async () => decisions().length === 1, 'the brief approval');
@@ -137,14 +137,14 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   // ---- the plan gate (its own counter, from 1 again) --------------------------------
   const planV = await cardAt('plan', 'plan');
   const plan = await cardText(app);
-  check(/The project plan waits for your approval/.test(plan), 'the card names the plan gate', plan.slice(0, 200));
+  check(/The Fusion project plan waits for your approval/.test(plan), 'the card names the plan gate', plan.slice(0, 200));
   for (const want of ['Draw the board and the pieces', 'Move pieces by drag and drop', 'Legal moves, check and checkmate',
     'measured (5 runs)', 'preset', 'local', 'outside content', "this chat's folder", 'Board and pieces', 'Rules and moves']) {
     check(plan.includes(want), `the plan card shows "${want}"`);
   }
   check(await app.eval(`!!document.querySelector('#projectcard .pc-soft')`), 'the estimator\'s warning is drawn');
   const buttons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
-  check(JSON.stringify(buttons) === JSON.stringify(['Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel project']),
+  check(JSON.stringify(buttons) === JSON.stringify(['Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel Fusion project']),
     'the buttons are the view\'s verdicts', JSON.stringify(buttons));
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1470, height: 923, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
@@ -210,7 +210,7 @@ export const run = () => liveScenario(SCENARIO_NAME(import.meta.url), async ({ a
   check(/Milestone “Board and pieces” is done/.test(ms), 'the milestone card');
   check(ms.includes('The board renders with all 32 pieces'), 'the milestone card shows the result');
   const msButtons = await app.eval(`[...document.querySelectorAll('#projectcard .pc-actions button')].map((b) => b.textContent)`);
-  check(JSON.stringify(msButtons) === JSON.stringify(['Approve milestone', 'Correct…', 'Cancel project']), 'the milestone buttons', JSON.stringify(msButtons));
+  check(JSON.stringify(msButtons) === JSON.stringify(['Approve milestone', 'Correct…', 'Cancel Fusion project']), 'the milestone buttons', JSON.stringify(msButtons));
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1470, height: 923, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
   await geometry(app, 'wide window, milestone gate');

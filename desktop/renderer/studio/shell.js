@@ -1,4 +1,4 @@
-/* Studio shell: the "Studio" group in the sidebar (Images, Video), the Studio
+/* Studio shell: the one "Studio" row in the sidebar (its popover opens Images or Video), the Studio
    room next to the chats, and the one subscription to BR.studio's job events.
 
    A page plugs in with
@@ -24,10 +24,14 @@
                                   attachment, anything else as its path in the message box
      STUDIO.openSettings(section) Settings › Models on the cloud providers, so an
                                   OpenRouter key can be added ('openrouter' starts that setup)
+     STUDIO.chatPlace()           'local' | 'cloud' | null: where the chat runs now, so the
+                                  pages pick their model there (ATO-902, ATO-1304); null
+                                  while the settings are not read yet
    Atomic Core being put in place before the first call (a cloud-route install never
    started it): main pushes `core` events on onLocal; the shell shows "Preparing the
    engine… 42%" with a bar at the top of the page on screen while it installs, and hands
-   each status to the page's optional onCore(status).
+   each status to the page's optional onCore(status). Every other onLocal event (a model
+   loaded, a download done, a model removed) goes to each page's optional onLocal(event).
    The pure helpers (fileUrl, mediaKindOf, dataUrlToBytes, draftWithPath, coreLine) are
    exported under Node for test/studio-shell.test.mjs. */
 (function () {
@@ -43,6 +47,7 @@
   const dirs = {image: null, video: null};
   let cur = 'images';
   let shown = null;
+  let menu = null;   // W2: the Studio row's popover, {left, top, width} while open
 
   const W = typeof window !== 'undefined' ? window : globalThis;
   const br = () => (W.atomic && W.atomic.studio) || null;
@@ -100,6 +105,21 @@
     }
     return null;
   }
+  /**
+   * ATO-1304: where Studio works for a chat route. Studio always works where the chat
+   * does (owner decision 25.10, ATO-902): `backend` is renderer.js selBackend()
+   * ('cloud' | 'local' | 'custom' | 'fusion'); a custom server counts as local (it is
+   * the chat's own server, usually on this computer); Fusion goes where its
+   * orchestrator runs (`orchestratorKind`: the provider kind, 'llama-server' = local),
+   * as Improve prompt does (main/studio-improve-prompt.ts). Anything else: null.
+   */
+  function placeOf(backend, orchestratorKind) {
+    if (backend === 'cloud') return 'cloud';
+    if (backend === 'local' || backend === 'custom') return 'local';
+    if (backend === 'fusion') return orchestratorKind === 'llama-server' ? 'local' : 'cloud';
+    return null;
+  }
+
   /** The status line for a `core` event: "Preparing the engine… 42%", or null when there is nothing to show. */
   function coreLine(core) {
     if (!core || core.state !== 'installing') return null;
@@ -130,7 +150,11 @@
   }
 
   function onLocal(ev) {
-    if (!ev || ev.type !== 'core' || !ev.core) return;
+    if (!ev || typeof ev !== 'object') return;
+    /* A model loaded, unloaded, downloaded or removed (ATO-1394): every page, shown or not,
+       so its picker and footer stop saying "Not loaded" once Generate has loaded the model. */
+    if (ev.type !== 'core') { for (const k of Object.keys(pages)) safe(pages[k].onLocal, ev); return; }
+    if (!ev.core) return;
     coreStatus = ev.core;
     paintCore();
     const page = shown ? pages[shown] : null;
@@ -148,6 +172,20 @@
   }
 
   function repaintSidebar() { if (typeof renderSidebar === 'function') safe(renderSidebar); }
+
+  /* W2: puts the Studio popover on <body> while `menu` is set, takes it away otherwise. */
+  function paintMenu() {
+    if (typeof document === 'undefined') return;
+    const old = document.getElementById('sb-studio-pop');
+    if (!menu) { if (old) old.remove(); return; }
+    const kinds = ORDER.filter((k) => pages[k]).concat(Object.keys(pages).filter((k) => !ORDER.includes(k)));
+    const room = typeof S !== 'undefined' ? S.room : null;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = STUDIO.menuHTML(kinds, room);
+    const el = tmp.firstElementChild;
+    if (!el) return;
+    if (old) old.replaceWith(el); else document.body.appendChild(el);
+  }
 
   function hide(kind) { if (pages[kind]) safe(pages[kind].onHide); }
 
@@ -199,25 +237,61 @@
 
     /* ---------- renderer.js hooks ---------- */
 
-    /** The sidebar's Studio group, between New chat and Chats. */
+    /** W2: the sidebar's one Studio row (sparkles), first of the section rows
+        under New chat. A click opens a small popover with Image and Video,
+        each opening its page; `menu` holds where it hangs while it is open. */
     sidebarHTML(room) {
       const kinds = ORDER.filter((k) => pages[k]).concat(Object.keys(pages).filter((k) => !ORDER.includes(k)));
       if (!kinds.length) return '';
-      return '<div class="sb-studio" role="group" aria-label="Studio">'
-        + '<div class="sb-studio-head micro"><span>Studio</span></div>'
-        + kinds.map((k) => {
-          const p = pages[k];
-          const on = room === 'studio' && cur === k;
-          const busy = running[k] && running[k].size > 0;
-          return '<button class="sb-new sb-studio-row' + (on ? ' on' : '') + '" data-act="studio:open:' + esc(k) + '"'
-            + (on ? ' aria-current="page"' : '')
-            + ' title="' + esc(p.title + (busy ? ' · working' : '')) + '" aria-label="' + esc(p.title) + '">'
-            + '<span class="sb-new-ic">' + icon(p.icon) + '</span><span class="sb-new-lb">' + esc(p.title) + '</span>'
+      const on = room === 'studio';
+      const busy = kinds.some((k) => running[k] && running[k].size > 0);
+      const lu = (n) => (typeof lucideIcon === 'function' && lucideIcon(n)) || icon(n === 'image' ? 'image' : n === 'video' ? 'video' : 'wand');
+      return '<button class="sb-new sb-nav-row sb-studio-row' + (on ? ' on' : '') + '" data-act="studio:menu" data-nav="studio"'
+          + (on ? ' aria-current="page"' : '')
+          + ' aria-haspopup="menu" aria-expanded="' + !!menu + '"'
+          + ' title="' + esc('Studio · Image, Video' + (busy ? ' · working' : '')) + '" aria-label="Studio">'
+          + '<span class="sb-new-ic">' + lu('sparkles') + '</span><span class="sb-new-lb">Studio</span>'
+          + (busy ? '<span class="sb-studio-dot" aria-label="working"></span>' : '')
+        + '</button>';
+    },
+
+    /** The Studio row's popover: Image, Video. It lives on <body>, fixed, so
+        neither the 52px rail nor the sidebar's own stacking context clips it. */
+    menuHTML(kinds, room) {
+      const items = typeof studioMenuItems === 'function' ? studioMenuItems(kinds)
+        : kinds.map((k) => ({kind: k, label: pages[k].title, icon: k === 'images' ? 'image' : 'video', act: 'studio:open:' + k}));
+      const lu = (n) => (typeof lucideIcon === 'function' && lucideIcon(n)) || icon(n);
+      return '<div class="popover sesmenu tk-pop sb-studio-pop" id="sb-studio-pop" role="menu" aria-label="Studio"'
+          + ' style="position:fixed;left:' + menu.left + 'px;top:' + menu.top + 'px;right:auto;bottom:auto;width:' + menu.width + 'px">'
+        + items.map((it) => {
+          const lit = room === 'studio' && cur === it.kind;
+          const busy = running[it.kind] && running[it.kind].size > 0;
+          return '<button class="tk-mi sesmenu-item' + (lit ? ' on' : '') + '" role="menuitem" data-act="' + esc(it.act) + '"'
+            + (lit ? ' aria-current="page"' : '') + '>'
+            + lu(it.icon) + '<span class="body"><span class="t">' + esc(it.label) + '</span></span>'
             + (busy ? '<span class="sb-studio-dot" aria-label="working"></span>' : '')
             + '</button>';
         }).join('')
         + '</div>';
     },
+
+    /** Opens or closes the Studio row's popover, hung under the row (beside it in the rail). */
+    toggleMenu(force) {
+      const want = typeof force === 'boolean' ? force : !menu;
+      if (!want) { if (menu) { menu = null; paintMenu(); repaintSidebar(); } return; }
+      const row = typeof document !== 'undefined' ? document.querySelector('#sidebar [data-act="studio:menu"]') : null;
+      const sb = typeof document !== 'undefined' ? document.getElementById('sidebar') : null;
+      if (!row || !sb) return;
+      const r = row.getBoundingClientRect();
+      const narrow = sb.getBoundingClientRect().width < 120;   // the rail, by class or by width
+      menu = narrow ? {left: Math.round(r.right + 8), top: Math.round(r.top), width: 180}
+        : {left: Math.round(r.left), top: Math.round(r.bottom + 4), width: Math.round(Math.max(180, Math.min(r.width, 220)))};
+      paintMenu();
+      repaintSidebar();
+    },
+
+    /** Whether the Studio popover is open (smoke hooks). */
+    menuOpen() { return !!menu; },
 
     /** Puts the current page into #content; a page already there is left alone. */
     mount(c) {
@@ -249,6 +323,13 @@
       const k = shown;
       shown = null;
       hide(k);
+      /* W2 QA: the chat room morphs #content in place (ATO-1023, dom-morph.js),
+         so a page root still standing there was rewritten into the chat's
+         scroller and composer, and the next visit to Studio mounted that
+         node: the chat composer on an empty page. The kept root leaves
+         #content first, and the chat builds its own nodes. */
+      const root = roots[k];
+      if (root && root.parentNode) root.parentNode.removeChild(root);
     },
 
     /** `studio:<verb>` from act(). */
@@ -256,7 +337,8 @@
       const s = String(v || '');
       const i = s.indexOf(':');
       const head = i < 0 ? s : s.slice(0, i), rest = i < 0 ? '' : s.slice(i + 1);
-      if (head === 'open') { STUDIO.open(rest || cur); return; }
+      if (head === 'menu') { STUDIO.toggleMenu(); return; }
+      if (head === 'open') { if (menu) { menu = null; paintMenu(); } STUDIO.open(rest || cur); return; }
       if (head === 'file') { STUDIO.openFile(rest); return; }
       const page = pages[head];
       if (page) safe(page.act, rest);
@@ -328,6 +410,25 @@
       act(section === 'openrouter' && !known ? 'llm:preset:openrouter' : 'llm:mode:cloud');
     },
 
+    /** 'local' | 'cloud' | null: where the chat runs now (renderer.js selBackend and rmNow).
+        null until the settings are read: selBackend() answers 'cloud' for an empty config. */
+    chatPlace() {
+      try {
+        if (typeof LIVE_CONFIG === 'undefined' || !LIVE_CONFIG || typeof selBackend !== 'function') return null;
+        const backend = selBackend();
+        let kind = null;
+        if (backend === 'fusion' && typeof rmNow === 'function') {
+          const id = rmNow().orchestratorProviderId;
+          const list = LIVE_CONFIG.llm && Array.isArray(LIVE_CONFIG.llm.providers) ? LIVE_CONFIG.llm.providers : [{id: 'local-llama', kind: 'llama-server'}];
+          const p = list.find((x) => x && x.id === id);
+          kind = p ? p.kind : null;
+        }
+        return placeOf(backend, kind);
+      } catch (e) {
+        return null;
+      }
+    },
+
     /** A data: URL as {type, bytes}; null when it is not one. */
     dataUrlToBytes,
 
@@ -350,10 +451,32 @@
         + icon('open') + 'Open in Studio</button></div>';
     },
 
-    _pure: {fileUrl, mediaKindOf, dataUrlToBytes, draftWithPath, coreLine},
+    _pure: {fileUrl, mediaKindOf, dataUrlToBytes, draftWithPath, coreLine, placeOf},
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = STUDIO;
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    /* W2: the Studio popover closes on a click outside it and on Escape. A
+       click on the row itself toggles it (act 'studio:menu'), one on an item
+       opens that page (act 'studio:open:…'), so both are left to act(). */
+    document.addEventListener('click', (e) => {
+      if (!menu) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t && t.closest('.sb-studio-pop, [data-act="studio:menu"]')) return;
+      menu = null;
+      paintMenu();
+      repaintSidebar();
+    }, true);
+    document.addEventListener('keydown', (e) => {
+      if (!menu || e.key !== 'Escape') return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      menu = null;
+      paintMenu();
+      repaintSidebar();
+      const row = document.querySelector('#sidebar [data-act="studio:menu"]');
+      if (row) row.focus({preventScroll: true});
+    }, true);
+  }
   if (typeof window !== 'undefined') {
     window.STUDIO = STUDIO;
     const s = br();

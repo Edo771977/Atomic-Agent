@@ -234,6 +234,20 @@ test('the temperature follows the model: 0.7, Kimi K3.1 only 1, none for OpenAI 
   assert.equal(body('olmo-3').temperature, 0.7);
 });
 
+test('new Claude models get no temperature, older ones keep 0.7 (ATO-1416)', () => {
+  const body = (model) => M.improveRequestBody(model, 'image', 'a fox');
+  for (const model of ['claude-sonnet-5-5', 'claude-haiku-5-5', 'anthropic/claude-opus-5-5', 'claude-opus-4-7',
+    'claude-opus-4.8', 'claude-fable-5-1', 'us.anthropic.claude-sonnet-5-5', 'claude-mythos-1']) {
+    const b = body(model);
+    assert.equal('temperature' in b, false, model);
+    assert.equal(b.max_tokens, 4096, model);
+  }
+  for (const model of ['claude-opus-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-3-5-sonnet-20241022',
+    'claude-sonnet-4-20250514', 'Qwen3-8B-Claude-Sonnet-5-Distill']) {
+    assert.equal(body(model).temperature, 0.7, model);
+  }
+});
+
 test('a reply that only thought says so; a cut-off think block is not taken as the prompt', async () => {
   assert.equal(M.improvedPromptOf({ choices: [{ message: { content: '<think>the fox should be red, and' } }] }), '');
   assert.equal(M.improveReplyOnlyThought({ choices: [{ message: { content: '', reasoning_content: 'hmm' } }] }), true);
@@ -283,4 +297,80 @@ test('improvePrompt: empty text, no chat model, a refused key and a paused local
   assert.deepEqual(await M.improveReady({ readConfig: cfg(local), localPaused: () => false }), { ready: true, why: '' });
   const down = await M.improvePrompt({ readConfig: cfg(local), request: async () => { throw new TypeError('fetch failed'); } }, 'image', 'a fox');
   assert.equal(down.error.code, 'IMPROVE_FAILED');
+});
+
+/* ---------- ATO-875: the agent's POST /api/complete first ---------- */
+
+test('improvePrompt asks the agent first and never calls the provider when the agent answers', async () => {
+  const never = async () => { throw new Error('must not be called'); };
+  let sent = null;
+  const r = await M.improvePrompt({
+    readConfig: async () => ({ ok: true, config: { llm: { activeTextProvider: 'openrouter', providers: [cloud] } } }),
+    request: never,
+    viaAgent: async (body) => { sent = body; return { supported: true, ok: true, text: '"A red fox at dawn, soft mist."' }; },
+  }, 'video', 'a fox');
+  assert.deepEqual(r, { ok: true, data: { prompt: 'A red fox at dawn, soft mist.' } });
+  assert.equal(sent.prompt, 'a fox');
+  assert.match(sent.system, /short video clip/);
+  assert.equal(sent.max_tokens, 4096);
+  // The key never goes to the agent call: it owns its own routing.
+  assert.ok(!JSON.stringify(sent).includes('sk-test'));
+});
+
+test('an agent without the route (or not reachable) falls back to the direct request', async () => {
+  let direct = 0;
+  const deps = (viaAgent) => ({
+    readConfig: async () => ({ ok: true, config: { llm: { activeTextProvider: 'openrouter', providers: [cloud] } } }),
+    request: async () => { direct += 1; return new Response(JSON.stringify({ choices: [{ message: { content: 'A red fox at dawn.' } }] }), { status: 200 }); },
+    viaAgent,
+  });
+  assert.deepEqual(await M.improvePrompt(deps(async () => ({ supported: false })), 'image', 'a fox'), { ok: true, data: { prompt: 'A red fox at dawn.' } });
+  assert.deepEqual(await M.improvePrompt(deps(async () => { throw new Error('agent is not running'); }), 'image', 'a fox'), { ok: true, data: { prompt: 'A red fox at dawn.' } });
+  assert.equal(direct, 2);
+});
+
+test('an agent that answers with a failure is reported, not retried directly', async () => {
+  const never = async () => { throw new Error('must not be called'); };
+  const base = { readConfig: async () => ({ ok: true, config: { llm: { activeTextProvider: 'openrouter', providers: [cloud] } } }), request: never };
+  const failed = await M.improvePrompt({ ...base, viaAgent: async () => ({ supported: true, ok: false, status: 502, error: '401 unauthorized' }) }, 'image', 'a fox');
+  assert.equal(failed.error.code, 'IMPROVE_FAILED');
+  assert.match(failed.error.message, /401 unauthorized/);
+  const slow = await M.improvePrompt({ ...base, viaAgent: async () => ({ supported: true, ok: false, status: 504, error: 'timed out' }) }, 'image', 'a fox');
+  assert.match(slow.error.message, /did not answer in time/);
+  const empty = await M.improvePrompt({ ...base, viaAgent: async () => ({ supported: true, ok: true, text: '<think>hmm</think>' }) }, 'image', 'a fox');
+  assert.match(empty.error.message, /gave no prompt back/);
+});
+
+test('a long prompt is capped before the agent is asked, like the direct path', async () => {
+  let sentLength = 0;
+  const answer = await M.improvePrompt({
+    readConfig: async () => ({ ok: true, config: { llm: { activeTextProvider: 'openrouter', providers: [cloud] } } }),
+    request: async () => { throw new Error('must not be called'); },
+    viaAgent: async (b) => {
+      sentLength = b.prompt.length;
+      return b.prompt.length > 16000 ? { supported: true, ok: false, status: 400, error: 'prompt is too long' } : { supported: true, ok: true, text: 'x' };
+    },
+  }, 'image', 'a'.repeat(17000));
+  assert.equal(answer.ok, true);
+  assert.equal(sentLength, M.IMPROVE_PROMPT_MAX);
+});
+
+test('the paused local model still greys the call before the agent is asked', async () => {
+  const local = { localModels: { mode: 'managed', managed: { modelId: 'qwen-4b' } }, llm: { activeTextProvider: 'local-llama', providers: [{ id: 'local-llama', kind: 'llama-server', url: 'http://127.0.0.1:19091' }] } };
+  const paused = await M.improvePrompt({
+    readConfig: async () => ({ ok: true, config: local }),
+    localPaused: () => true,
+    viaAgent: async () => { throw new Error('must not be called'); },
+  }, 'image', 'a fox');
+  assert.equal(paused.error.code, 'NO_CHAT_MODEL');
+});
+
+test('main wires the agent client into Studio and the client treats 404 "No route for" as unsupported', () => {
+  const main = readFileSync(new URL('../main/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /plainComplete: \(body\) => client\.plainComplete\(body\)/);
+  const ipc = readFileSync(new URL('../main/studio-ipc.ts', import.meta.url), 'utf8');
+  assert.match(ipc, /viaAgent: opts\.plainComplete/);
+  const client = readFileSync(new URL('../main/agent-client.ts', import.meta.url), 'utf8');
+  assert.match(client, /\/api\/complete/);
+  assert.match(client, /res\.status === 404 && \/No route for\/\.test\(text\)\) \|\| res\.status === 501\) return \{ supported: false \}/);
 });

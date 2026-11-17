@@ -180,8 +180,11 @@ export function createGetSessionHandler(): HttpHandler {
  * `GET /api/sessions/{id}/provider-restriction` (issue #33): `{ restriction }`,
  * the provider restriction on the chat (its folder's `projects.constraints`
  * entry, or what it read inside one) as `{ label, allowedProviders, folder,
- * readFrom }`, or `null` when none applies. 404 if the session is not
- * persisted.
+ * readFrom }`, or `null` when none applies, and `channelsAllowed`: whether
+ * the chat's content may go to a chat channel or phone push now (its
+ * effective policy lists "channels" in `allowedEgress`, or nothing
+ * constrains it). A runtime without the egress check answers `false` for
+ * a restricted chat (fail closed). 404 if the session is not persisted.
  */
 export function createGetSessionProviderRestrictionHandler(): HttpHandler {
   return async (_req, res, ctx) => {
@@ -195,7 +198,11 @@ export function createGetSessionProviderRestrictionHandler(): HttpHandler {
       sendError(res, 404, openaiError(`session not found: ${id}`));
       return;
     }
-    sendJson(res, 200, { restriction: ctx.runtime.providerRestrictionFor?.(state) ?? null });
+    const restriction = ctx.runtime.providerRestrictionFor?.(state) ?? null;
+    const refusal = ctx.runtime.egressRefusal
+      ? ctx.runtime.egressRefusal(state, "channels")
+      : restriction === null ? null : "no egress check";
+    sendJson(res, 200, { restriction, channelsAllowed: refusal === null });
   };
 }
 
