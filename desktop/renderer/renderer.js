@@ -18619,7 +18619,9 @@ async function refreshLiveConfig() {
   // Lane B — item 3: a provider or model change moves the window and the baseline.
   const ctxWas = selActiveProviderId() + '\n' + activeModel();
   const cfg = await BR.configGet();
+  const cfgWas = LIVE_CONFIG;
   if (cfg && cfg.ok && cfg.config) LIVE_CONFIG = cfg.config;
+  void restrictionConfigChanged(cfgWas, LIVE_CONFIG);   // review of #67: a constraint edited or removed
   const provider = LIVE_CONFIG && LIVE_CONFIG.llm
     && (LIVE_CONFIG.llm.providers || []).find((p) => p.id === LIVE_CONFIG.llm.activeTextProvider);
   if (provider) {

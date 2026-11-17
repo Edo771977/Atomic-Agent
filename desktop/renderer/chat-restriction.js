@@ -174,6 +174,16 @@ async function restrictionRefresh(sid, retried) {
   }
 }
 
+/* Review of #67: a config read (renderer.js refreshLiveConfig, after every
+   write) whose projects.constraints changed asks again for the chat on screen;
+   a new chat's provisional chip follows the next render by itself. */
+async function restrictionConfigChanged(before, after) {
+  const of = (c) => JSON.stringify((c && c.projects && c.projects.constraints) || null);
+  if (of(before) === of(after)) return;
+  if (S.agentSession) await restrictionRefresh(S.agentSession);
+  else restrictionRepaint();
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {restrictionChipLabel, restrictionTip, restrictionEgress, restrictionFusionLine, restrictionPathKey};
 }

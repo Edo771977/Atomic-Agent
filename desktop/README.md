@@ -278,8 +278,10 @@ composer's route chips, as the TUI composer does
 `GET /api/sessions/{id}/provider-restriction` (IPC
 `agent:providerRestriction`, read by
 [provider-restriction.ts](main/provider-restriction.ts)), asked when a chat
-is opened and when each of its turns ends (a read inside a restricted
-folder narrows the chat mid-turn). The tooltip says why (the chat's folder,
+is opened, when each of its turns ends (a read inside a restricted
+folder narrows the chat mid-turn) and when a config read finds
+`projects.constraints` changed (`restrictionConfigChanged`, from
+`refreshLiveConfig`). The tooltip says why (the chat's folder,
 or the restricted folders it read from), the providers allowed, whether chat
 channels and phone push are allowed (always the agent's `channelsAllowed`),
 the egress classes allowed (the intersection of this window's config
