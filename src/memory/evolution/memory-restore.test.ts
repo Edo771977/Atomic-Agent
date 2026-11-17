@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { makeProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { MemoryStore } from "../memory-store.js";
 import { ProfileStore } from "../profile-store.js";
 import { MemoryChangeLog, MEMORY_CHANGE_LOG_MAX_AGE_MS } from "./memory-change-log.js";
@@ -38,6 +39,24 @@ describe("memory change journal and undo (ATO-1059)", () => {
     const back = notes.get(note.id);
     expect(back).toMatchObject({ content: "the user lives in Porto", tags: ["place"], sessionId: "s1", createdAt: 1_000 });
     expect(notes.recall("Porto").map((e) => e.id)).toEqual([note.id]);
+  });
+
+  it("puts a constrained note back in its own scope, and hides its change from a call that cannot see it (issue #33)", () => {
+    const secret = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama"], matchedDir: "/work/secret" });
+    // Stricter: sees the secret folder's rows, but writes rows of its own scope.
+    const stricter = makeProviderPolicy({ key: "/work/secret/deeper", allowedProviders: [], matchedDir: "/work/secret/deeper" });
+    const inSecret = <T>(fn: () => T): T => runWithProviderPolicy(secret, fn, { sessionId: "s-secret" });
+    const note = inSecret(() => notes.store({ content: "the client is Acme", sessionId: "s-secret" }));
+    expect(inSecret(() => notes.remove(note.id, "agent"))).toBe(true);
+    const [change] = inSecret(() => notes.getChangeLog().list());
+    expect((change!.before as { constraintScope?: unknown }).constraintScope).toEqual(expect.stringContaining("/work/secret"));
+    // With no policy frame (the HTTP route, the TUI) the change is not there to undo.
+    expect(restoreMemoryChange(change!.id, { notes, profile })).toMatchObject({ ok: false, status: 404, code: "change_not_found" });
+    expect(inSecret(() => notes.get(note.id))).toBeNull();
+    // Undone under a stricter policy, the note keeps the scope it had.
+    expect(runWithProviderPolicy(stricter, () => restoreMemoryChange(change!.id, { notes, profile })).ok).toBe(true);
+    expect(notes.get(note.id)).toBeNull();
+    expect(inSecret(() => notes.get(note.id))?.content).toBe("the client is Acme");
   });
 
   it("refuses to undo the same change twice", () => {

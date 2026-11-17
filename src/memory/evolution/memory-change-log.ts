@@ -1,3 +1,4 @@
+import { currentScopeVisible } from "../memory-constraint-scope.js";
 import type Database from "better-sqlite3";
 
 /**
@@ -36,6 +37,13 @@ export interface NoteSnapshot {
   sessionId: string | null;
   workingDir: string | null;
   tags: string[];
+  /**
+   * The note's `constraint_scope` when it was journaled (issue #33):
+   * an undo puts it back in that scope, and a call that could not see
+   * the note does not see its change either. Absent in rows journaled
+   * before the field existed: those restore under the caller's scope.
+   */
+  constraintScope?: string | null;
 }
 
 export interface ProfileSnapshot {
@@ -114,6 +122,12 @@ function rowToChange(row: ChangeRow): MemoryChange {
   };
 }
 
+function visibleNow(change: MemoryChange): boolean {
+  if (change.kind !== "note") return true;
+  const scope = (change.before as NoteSnapshot).constraintScope;
+  return typeof scope !== "string" || currentScopeVisible(scope);
+}
+
 export class MemoryChangeLog {
   private readonly insertStmt: Database.Statement;
   private readonly getStmt: Database.Statement;
@@ -150,7 +164,11 @@ export class MemoryChangeLog {
     return Number(result.lastInsertRowid);
   }
 
-  /** Newest first. */
+  /**
+   * Newest first. A note change whose snapshot carries a constraint scope
+   * the call running now cannot see is left out (memory scoping, issue
+   * #33), so a page can hold fewer than `limit` rows.
+   */
   list(opts: { limit?: number; kind?: MemoryChangeKind; target?: string } = {}): MemoryChange[] {
     const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? 50)), MEMORY_CHANGE_LOG_LIST_MAX);
     const where: string[] = [];
@@ -168,12 +186,14 @@ export class MemoryChangeLog {
     const rows = this.db
       .prepare(`SELECT * FROM memory_change_log ${clause} ORDER BY at DESC, id DESC LIMIT ?`)
       .all(...params) as ChangeRow[];
-    return rows.map(rowToChange);
+    return rows.map(rowToChange).filter(visibleNow);
   }
 
+  /** `null` for an unknown id, or a change the call running now may not see (see `list`). */
   get(id: number): MemoryChange | null {
     const row = this.getStmt.get(id) as ChangeRow | undefined;
-    return row ? rowToChange(row) : null;
+    const change = row ? rowToChange(row) : null;
+    return change !== null && visibleNow(change) ? change : null;
   }
 
   /** `false` when the change was already undone (or is unknown). */

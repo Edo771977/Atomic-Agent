@@ -355,6 +355,8 @@ export class MemoryStore {
   private readonly dedupCandidateStmt: Database.Statement;
   private readonly restoreStmt: Database.Statement;
   private readonly changeLog: MemoryChangeLog;
+  /** A row's scope and existence whatever the caller may see (journal and undo only). */
+  private readonly rawScopeStmt: Database.Statement;
 
   constructor(options: MemoryStoreOptions) {
     if (!Number.isInteger(options.maxEntries) || options.maxEntries <= 0) {
@@ -402,14 +404,18 @@ export class MemoryStore {
     this.now = options.now ?? Date.now;
     // ATO-1059: the journal of edits and deletions, in this same file.
     this.changeLog = new MemoryChangeLog(this.db, this.now());
+    // An undo (ATO-1059) puts the note back in the scope it was journaled
+    // with (issue #33); a snapshot from before scopes were journaled takes
+    // the caller's, like `store`.
     this.restoreStmt = this.db.prepare(
       `INSERT INTO memories
          (id, content, created_at, updated_at, source, session_id, working_dir, tags,
           recall_count, last_recalled_at, consolidating_at, constraint_scope)
        VALUES
          (@id, @content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags,
-          0, NULL, NULL, memory_scope_write())`,
+          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END)`,
     );
+    this.rawScopeStmt = this.db.prepare(`SELECT constraint_scope AS scope FROM memories WHERE id = ?`);
     this.insertStmt = this.db.prepare(
       `INSERT INTO memories
          (content, created_at, updated_at, source, session_id, working_dir, tags,
@@ -869,6 +875,12 @@ export class MemoryStore {
     }
   }
 
+  /** The stored `constraint_scope` of row `id` (null: untagged or no row). */
+  private rawScope(id: number): string | null {
+    const row = this.rawScopeStmt.get(id) as { scope: string | null } | undefined;
+    return row?.scope ?? null;
+  }
+
   get(id: number): MemoryEntry | null {
     const normalizedId = validateId(id);
     const row = this.getStmt.get(normalizedId) as MemoryRow | undefined;
@@ -884,10 +896,11 @@ export class MemoryStore {
     return this.db.transaction((): boolean => {
       const before = this.get(normalizedId);
       if (before === null) return false;
+      const scope = this.rawScope(normalizedId);
       const result = this.deleteStmt.run(normalizedId) as { changes: number };
       if (result.changes === 0) return false;
       this.changeLog.record(
-        { kind: "note", target: String(normalizedId), op: "remove", by, before: noteSnapshot(before) },
+        { kind: "note", target: String(normalizedId), op: "remove", by, before: noteSnapshot(before, scope) },
         this.now(),
       );
       return true;
@@ -909,7 +922,10 @@ export class MemoryStore {
     const content = validateContent(snapshot.content);
     const tags = validateTags(snapshot.tags);
     const source = validateSource(snapshot.source === "user" ? "user" : "agent");
-    const free = this.get(validateId(snapshot.id)) === null;
+    // Free means no row at all, not only none this call can see: a hidden
+    // note of another scope keeps its id.
+    const free = this.rawScopeStmt.get(validateId(snapshot.id)) === undefined;
+    const scopeKnown = snapshot.constraintScope !== undefined;
     const result = this.restoreStmt.run({
       id: free ? snapshot.id : null,
       content,
@@ -919,6 +935,8 @@ export class MemoryStore {
       session_id: snapshot.sessionId,
       working_dir: snapshot.workingDir,
       tags: tags.length > 0 ? JSON.stringify(tags) : null,
+      scope_known: scopeKnown ? 1 : 0,
+      constraint_scope: scopeKnown ? snapshot.constraintScope ?? null : null,
     }) as { lastInsertRowid: number | bigint };
     const id = Number(result.lastInsertRowid);
     this.evictOverflow();
@@ -954,7 +972,7 @@ export class MemoryStore {
         .run(text, now, normalizedId);
       // ATO-1059: the old text goes into the journal, for an undo.
       this.changeLog.record(
-        { kind: "note", target: String(normalizedId), op: "update", by, before: noteSnapshot(before), after: text },
+        { kind: "note", target: String(normalizedId), op: "update", by, before: noteSnapshot(before, this.rawScope(normalizedId)), after: text },
         now,
       );
       return true;
@@ -1911,8 +1929,9 @@ function buildFtsQuery(query: string): string {
   return tokens.map((t) => `"${t}"*`).join(" OR ");
 }
 
-function noteSnapshot(entry: MemoryEntry): NoteSnapshot {
+function noteSnapshot(entry: MemoryEntry, constraintScope: string | null): NoteSnapshot {
   return {
+    constraintScope,
     id: entry.id,
     content: entry.content,
     createdAt: entry.createdAt,
