@@ -238,10 +238,7 @@ export function loadConfig(): AtomicAgentConfig {
     resolve(stateDir, "models"),
   );
 
-  const resolvedLocalLlmUrl =
-    user.localModels.mode === "managed"
-      ? `http://127.0.0.1:${user.localModels.managed.port}`
-      : user.localModels.url;
+  const resolvedLocalLlmUrl = resolveLocalModelsUrl(user.localModels);
 
   return {
     dotenv,
@@ -886,4 +883,19 @@ function mapUserLlmToRuntime(
     // Without this the router block (ATO-483) never reached the runtime.
     ...(llm.router ? { router: llm.router } : {}),
   };
+}
+
+/**
+ * The address the runtime reaches the local model at
+ * (`config.localModels.url`): the managed daemon's loopback port in
+ * managed mode, whatever the file's `url` still says, else that `url`.
+ * `atomic-agent doctor` judges a constrained folder's local provider by
+ * the same address (issue #60).
+ */
+export function resolveLocalModelsUrl(localModels: {
+  mode: string;
+  url: string;
+  managed: { port: number };
+}): string {
+  return localModels.mode === "managed" ? `http://127.0.0.1:${localModels.managed.port}` : localModels.url;
 }

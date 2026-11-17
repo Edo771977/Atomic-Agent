@@ -166,7 +166,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `projects.constraints` | `Record<string, ProjectConstraintEntry>` | `{}` | Absolute folder → which providers may receive a session's content while it works in or under that folder, and which egress its tools may use. Empty: nothing is constrained. |
 | `projects.constraints.*.allowedProviders` | `string[]` | `unset` | Provider ids that may receive a request carrying content of a session working in or under this folder. An empty list lets no provider serve it. |
 | `projects.constraints.*.allowedEgress` | `string[]` | `unset` | Egress classes the folder's tools may use to send content off the machine (`web`, `http`, `browser`, `github`, `git`, `channels`, `mail`, `composio`, `serve`, `mcp:<server>`). Absent or empty: none. |
-| `projects.constraints.*.allowedProviderHosts` | `string[]` | `unset` | Other machines (host names or IP addresses, no port) a local provider allowed by id (`llama-server`, an `openai-compatible` server that is not a known cloud service) may be reached at. Absent or empty: such a provider serves this folder only on this machine (loopback). |
+| `projects.constraints.*.allowedProviderHosts` | `string[]` | `unset` | Computers on the local network (host names or IP addresses, no port) that a local provider allowed by id (`llama-server`, or an `openai-compatible` / `qwen-openai-compatible` entry not marked `modelMode: "cloud"`) may be reached at. |
 
 ## tools
 

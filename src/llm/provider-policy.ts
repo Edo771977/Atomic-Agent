@@ -2,7 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { defaultProviderModelMode } from "../config/model-mode.js";
 import { makeProviderPolicy, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
-import { classifiableHostOf, isLoopbackUrl } from "./provider/url-host.js";
+import { isLocalServerUrl } from "./provider/openai/local-server-url.js";
+import { isLoopbackHost } from "./offline-network.js";
+import { constraintHostOf } from "./provider/url-host.js";
 
 export type { ProviderPolicy, ProviderPolicyStamp } from "../config/project-constraint-match.js";
 export {
@@ -328,17 +330,19 @@ export interface ProviderEndpoint {
 /**
  * The endpoint of a configured provider entry. A `llama-server` entry
  * without its own `url` reaches `localModelsUrl` (`localModels.url`, read
- * live by the provider). An `openai-compatible` entry is local unless its
- * base URL is a known cloud service (`defaultProviderModelMode`, the same
- * test the default model mode uses): an unknown remote URL is judged by
- * endpoint, fail closed.
+ * live by the provider). An `openai-compatible` / `qwen-openai-compatible`
+ * entry is local unless it is marked `modelMode: "cloud"` or its base URL
+ * is a known cloud service (`defaultProviderModelMode`). Whether a local
+ * one is then judged by place depends on its host
+ * (`providerEndpointRefusal`).
  */
 export function providerEndpointOf(
-  entry: { kind: string; url?: string | undefined; baseUrl?: string | undefined },
+  entry: { kind: string; url?: string | undefined; baseUrl?: string | undefined; modelMode?: string | undefined },
   localModelsUrl: string | undefined,
 ): ProviderEndpoint {
   if (entry.kind === "llama-server") return { local: true, url: entry.url ?? localModelsUrl };
   if (entry.kind !== "openai-compatible" && entry.kind !== "qwen-openai-compatible") return { local: false, url: entry.baseUrl ?? entry.url };
+  if (entry.modelMode === "cloud") return { local: false, url: entry.baseUrl };
   const cloud = entry.baseUrl !== undefined &&
     defaultProviderModelMode({ kind: "openai-compatible", baseUrl: entry.baseUrl }) === "cloud";
   return { local: !cloud, url: entry.baseUrl };
@@ -347,20 +351,41 @@ export function providerEndpointOf(
 /**
  * Why `policy` refuses `endpoint` although its provider id is allowed
  * (issue #60), or `undefined` when it does not: a local provider whose
- * URL is not loopback (`isLoopbackUrl`: 127/8, `::1`, `localhost`,
- * `*.localhost`, the unspecified address) and whose host the folder does
- * not list in `allowedProviderHosts`. `{ host: null }` when the URL
- * cannot be read (fail closed). The same test `atomic-agent doctor` runs.
+ * URL is a private-network form other than literal loopback
+ * (`isLocalServerUrl`, which also counts `*.localhost`, `0.0.0.0` and an
+ * IPv6 form embedding a private or loopback IPv4 address: RFC 1918, link-local, CGNAT 100.64/10, IPv6
+ * unique- and link-local, own-network names such as `.local`, `.lan`,
+ * `.home.arpa`, `.internal`, single-label names) and whose host the
+ * folder does not list in `allowedProviderHosts`. A public host keeps the
+ * id-only match: it is a service the operator named, not a computer the
+ * URL was quietly repointed to on the network. `{ host: null }` when the
+ * URL cannot be read (fail closed). The same test `atomic-agent doctor`
+ * runs.
  */
 export function providerEndpointRefusal(
   policy: ProviderPolicy,
   endpoint: ProviderEndpoint,
 ): { host: string | null } | undefined {
   if (!endpoint.local) return undefined;
-  const host = classifiableHostOf(endpoint.url);
+  const host = constraintHostOf(endpoint.url);
   if (host === null) return { host: null };
-  if (isLoopbackUrl(endpoint.url)) return undefined;
+  // This machine by literal address only (`isLoopbackHost`: `localhost`,
+  // 127/8, `::1`, IPv4-mapped 127/8): not `*.localhost` or `0.0.0.0`,
+  // which name nothing a lookup cannot repoint, nor 6to4 / NAT64 /
+  // IPv4-compatible spellings of 127.0.0.1, which reach other machines.
+  if (isLoopbackHost(host)) return undefined;
+  if (!isLocalServerUrl(endpoint.url)) return undefined;
   return policy.allowedProviderHosts.includes(host) ? undefined : { host };
+}
+
+/**
+ * Whether `url` is a computer on the local network that `policy` lists
+ * in `allowedProviderHosts` (issue #60), for a sender with no provider id
+ * to match (memory embeddings): a private-network host only, so a public
+ * host is never let through by this list, and an unreadable URL is not.
+ */
+export function networkEndpointListed(policy: ProviderPolicy, url: string | undefined): boolean {
+  return isLocalServerUrl(url) && providerEndpointRefusal(policy, { local: true, url }) === undefined;
 }
 
 /**

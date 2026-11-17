@@ -11,6 +11,7 @@ import {
   makeProviderPolicy,
   noAllowedProviderError,
   providerEndpointOf,
+  providerEndpointRefusal,
   PROVIDER_NOT_ALLOWED_CODE,
   ProviderNotAllowedError,
   runWithProviderPolicy,
@@ -137,13 +138,13 @@ describe("a local provider whose endpoint is another machine (issue #60)", () =>
     );
     await expect(runWithProviderPolicy(policy, () => at("http://gpu-box.local:1234").completeStream({ prompt: "x" } as never).next()))
       .rejects.toThrow(/endpoint gpu-box\.local is another machine/);
-    await expect(runWithProviderPolicy(policy, () => at("https://my-gateway.example.com").describeImage({ prompt: "x", images: [] })))
-      .rejects.toThrow(/endpoint my-gateway\.example\.com is another machine/);
+    await expect(runWithProviderPolicy(policy, () => at("http://10.0.0.5:8000").describeImage({ prompt: "x", images: [] })))
+      .rejects.toThrow(/endpoint 10\.0\.0\.5 is another machine/);
     expect(serve).not.toHaveBeenCalled();
   });
 
   it.each([
-    "http://127.0.0.1:8080", "http://127.4.5.6:1", "http://localhost:11434", "http://llama.localhost:8080", "http://[::1]:8080",
+    "http://127.0.0.1:8080", "http://127.4.5.6:1", "http://localhost:11434", "http://[::1]:8080",
   ])("lets a loopback endpoint through (%s)", async (url) => {
     await expect(runWithProviderPolicy(policy, () => at(url).complete({ prompt: "x" } as never))).resolves.toBe(ok);
   });
@@ -242,5 +243,66 @@ describe("ProviderRegistry judges a local provider by its configured endpoint (i
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe("only a private-network endpoint is judged by place (issue #60 review)", () => {
+  const folder = makeProviderPolicy({ key: "/w", allowedProviders: ["x"], matchedDir: "/w" });
+  const refusalFor = (baseUrl: string, extra: { modelMode?: "local" | "cloud" } = {}) =>
+    providerEndpointRefusal(folder, providerEndpointOf({ kind: "openai-compatible", baseUrl, ...extra }, undefined));
+
+  it.each([
+    "https://openrouter.ai/api/v1",
+    "https://generativelanguage.googleapis.com/v1beta/openai",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "https://router.huggingface.co/v1",
+    "https://llm-gateway.example.com/v1",
+    "http://203.0.113.7:8000",
+  ])("keeps the id-only match for a public host (%s)", (url) => {
+    expect(refusalFor(url)).toBeUndefined();
+  });
+
+  it.each([
+    ["http://10.1.2.3:8000", "10.1.2.3"],
+    ["http://172.16.0.9", "172.16.0.9"],
+    ["http://169.254.3.4", "169.254.3.4"],
+    ["http://100.100.1.1:11434", "100.100.1.1"],
+    ["http://[fd12::5]:8080", "fd12::5"],
+    ["http://[fe80::1]:8080", "fe80::1"],
+    ["http://gpu.local:1234", "gpu.local"],
+    ["http://gpu.lan", "gpu.lan"],
+    ["http://gpu.home.arpa", "gpu.home.arpa"],
+    ["http://gpu.internal", "gpu.internal"],
+    ["http://gpubox:8080", "gpubox"],
+  ])("judges a private-network endpoint by place (%s)", (url, host) => {
+    expect(refusalFor(url)).toEqual({ host });
+  });
+
+  it("leaves an entry marked modelMode cloud to the id match, and still fails closed on an unreadable URL", () => {
+    expect(refusalFor("http://192.168.1.20:8080", { modelMode: "cloud" })).toBeUndefined();
+    expect(refusalFor("http://192.168.1.20:8080", { modelMode: "local" })).toEqual({ host: "192.168.1.20" });
+    expect(refusalFor("not a url")).toEqual({ host: null });
+  });
+});
+
+describe("this machine is judged by literal loopback only (issue #60 review)", () => {
+  const folder = makeProviderPolicy({ key: "/w", allowedProviders: ["x"], matchedDir: "/w" });
+  const refusalFor = (baseUrl: string) =>
+    providerEndpointRefusal(folder, providerEndpointOf({ kind: "openai-compatible", baseUrl }, undefined));
+
+  it.each([
+    "http://localhost:8080", "http://127.0.0.1:8080", "http://127.9.9.9", "http://[::1]:8080", "http://[::ffff:127.0.0.1]:8080",
+  ])("lets %s through", (url) => {
+    expect(refusalFor(url)).toBeUndefined();
+  });
+
+  it.each([
+    "http://[2002:7f00:1::1]:8080",
+    "http://[64:ff9b::7f00:1]:8080",
+    "http://[::127.0.0.1]:8080",
+    "http://gpu.localhost:8080",
+    "http://0.0.0.0:8080",
+  ])("does not take %s for this machine", (url) => {
+    expect(refusalFor(url)).not.toBeUndefined();
   });
 });

@@ -7,6 +7,7 @@ import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
 import { Database } from "../native/index.js";
+import { resolveLocalModelsUrl } from "../config/load-config.js";
 import { makeProviderPolicy, resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { providerEndpointOf, providerEndpointRefusal, remoteEndpointOptInHint } from "../llm/provider-policy.js";
 import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
@@ -145,7 +146,9 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
  * (`providerEndpointRefusal`); say so before a turn finds out.
  */
 function remoteEndpointWarnings(parsed: ReturnType<typeof parseUserConfigFile>): DoctorFinding[] {
-  const providers = parsed.llm?.providers ?? [{ id: "local-llama", kind: "llama-server", url: parsed.localModels.url }];
+  // The address the runtime uses: a managed model is on loopback whatever the stored url says.
+  const localModelsUrl = resolveLocalModelsUrl(parsed.localModels);
+  const providers = parsed.llm?.providers ?? [{ id: "local-llama", kind: "llama-server", url: localModelsUrl }];
   const out: DoctorFinding[] = [];
   for (const [folder, entry] of Object.entries(parsed.projects.constraints)) {
     const policy = makeProviderPolicy({
@@ -156,7 +159,7 @@ function remoteEndpointWarnings(parsed: ReturnType<typeof parseUserConfigFile>):
     });
     for (const provider of providers) {
       if (!entry.allowedProviders.includes(provider.id)) continue;
-      const refusal = providerEndpointRefusal(policy, providerEndpointOf(provider, parsed.localModels.url));
+      const refusal = providerEndpointRefusal(policy, providerEndpointOf(provider, localModelsUrl));
       if (refusal === undefined) continue;
       out.push({
         check: "project-constraints",

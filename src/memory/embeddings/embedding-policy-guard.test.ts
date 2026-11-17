@@ -46,4 +46,24 @@ describe("memory embeddings under a folder's provider constraint (issue #33)", (
       guardEmbeddingClient(remote, { onMachine: false, constraintsActive: () => true }).embed({ text: "x" }));
     expect(remote.embed).toHaveBeenCalledTimes(1);
   });
+
+  it("lets a LAN endpoint the folder lists in allowedProviderHosts through, never a public one (issue #60)", async () => {
+    const listed = makeProviderPolicy({ ...policy, allowedProviderHosts: ["192.168.1.20", "embed.example.com"] });
+    const lan = client();
+    await runWithProviderPolicy(listed, () =>
+      guardEmbeddingClient(lan, { onMachine: false, url: "http://192.168.1.20:19092", constraintsActive: () => true }).embed({ text: "x" }));
+    expect(lan.embed).toHaveBeenCalledTimes(1);
+    const other = client();
+    await expect(runWithProviderPolicy(listed, () =>
+      guardEmbeddingClient(other, { onMachine: false, url: "http://192.168.1.21:19092", constraintsActive: () => true }).embed({ text: "x" })))
+      .rejects.toBeInstanceOf(EmbeddingUnavailableError);
+    // Embeddings have no provider id to match: a public host stays refused even when listed.
+    await expect(runWithProviderPolicy(listed, () =>
+      guardEmbeddingClient(other, { onMachine: false, url: "https://embed.example.com", constraintsActive: () => true }).embed({ text: "x" })))
+      .rejects.toBeInstanceOf(EmbeddingUnavailableError);
+    await expect(runWithProviderPolicy(policy, () =>
+      guardEmbeddingClient(other, { onMachine: false, url: "http://192.168.1.20:19092", constraintsActive: () => true }).embed({ text: "x" })))
+      .rejects.toBeInstanceOf(EmbeddingUnavailableError);
+    expect(other.embed).not.toHaveBeenCalled();
+  });
 });
