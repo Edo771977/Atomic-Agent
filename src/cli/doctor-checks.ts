@@ -11,6 +11,7 @@ import { resolveProjectConstraint } from "../config/project-constraint-match.js"
 import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 import { checkConsoleCodePage } from "./doctor-console-code-page.js";
+import { checkMcpLocalMarks } from "./doctor-mcp-local.js";
 
 /**
  * ATO-577 — `atag doctor`: a registry of checks, each of which can find one
@@ -326,6 +327,7 @@ export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[
   checkMemoryConstraintScope,
   checkConfigMode,
   checkMcpCommands,
+  checkMcpLocalMarks,
   checkCoreLocks,
   checkSessionPins,
   checkSqlite,
