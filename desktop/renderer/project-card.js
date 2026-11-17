@@ -33,6 +33,8 @@ const PC_PLAN_UNTRUSTED = "⚠ The plan was drafted after outside content entere
 const PC_BRIEF_UNTRUSTED = '⚠ The brief was drafted after outside content entered the chat. Read it before approving.';
 
 const PC_MARK = {planned: '·', approved: '▸', in_progress: '◐', done: '✓', failed: '✕', reviewed: '✔'};
+/* A criterion fact's mark (project-gate-text.ts FACT_MARK; the test keeps them equal). */
+const PC_FACT_MARK = {passed: '✓', failed: '✕', unverified: '?'};
 
 const pcStr = (v) => (typeof v === 'string' ? v : '');
 const pcList = (v) => (Array.isArray(v) ? v : []);
@@ -130,11 +132,11 @@ function pcReduce(state, action) {
       if (action.inFlight) return Object.assign(pcInitial(next), {busy: true});
       const wasEditing = s.mode !== 'view' && (Object.keys(s.picks).length > 0 || s.note.trim());
       return Object.assign(pcInitial(next), {
-        notice: action.notice || (wasEditing && next ? 'The project changed while you were editing (now version ' + next.version + '); your changes were set aside.' : null),
+        notice: action.notice || (wasEditing && next ? 'The Fusion project changed while you were editing (now version ' + next.version + '); your changes were set aside.' : null),
       });
     }
     case 'edit':
-      if (!s.view || s.view.gate.kind !== 'plan' || !pcList(s.view.allowedVerdicts).includes('edit')) return s;
+      if (!s.view || s.view.gate.kind !== 'plan' || !pcList(s.view.allowedVerdicts).includes('edit') || !pcPlanEditable(s.view)) return s;
       return Object.assign(s, {mode: 'edit', error: null, notice: null});
     case 'correct':
       if (!s.view || s.view.gate.kind !== 'milestone' || !pcList(s.view.allowedVerdicts).includes('edit')) return s;
@@ -200,7 +202,7 @@ function pcEditRows(state) {
  */
 function pcDecision(state, sid, verdict) {
   const view = state.view;
-  if (!pcOpen(view)) return {error: 'Nothing in this project waits for you'};
+  if (!pcOpen(view)) return {error: 'Nothing in the Fusion project waits for you'};
   if (!pcList(view.allowedVerdicts).includes(verdict)) return {error: 'This gate does not take that'};
   const body = {session: sid, gate: view.gate.kind === 'milestone' ? {kind: 'milestone', id: view.gate.id} : {kind: view.gate.kind}, version: view.version, verdict};
   if (verdict === 'approve' && pcHardViolations(view).length) return {error: 'Approve waits until the plan is within its hard limits'};
@@ -227,20 +229,20 @@ function pcDecision(state, sid, verdict) {
  * `continueMessage` to send, `error` / `notice` for the card.
  */
 function pcOutcome(res) {
-  if (!res || res.supported === false) return {error: 'This agent cannot take project decisions; update it.'};
+  if (!res || res.supported === false) return {error: 'This agent cannot take Fusion project decisions; update it.'};
   if (res.ok) return {view: res.view || null, continueMessage: typeof res.continueMessage === 'string' && res.continueMessage.trim() ? res.continueMessage : null};
   const view = res.view || null;
   switch (res.code) {
     case 'stale-version':
     case 'wrong-gate':
-      return {view, notice: 'The project changed before your answer landed. Read this version and decide again.'};
+      return {view, notice: 'The Fusion project changed before your answer landed. Read this version and decide again.'};
     case 'turn-running':
       return {view, error: 'A turn is running in this chat. Decide once it has finished.'};
     case 'over-cap':
     case 'needs-estimates':
       return {view, error: res.error || 'The plan breaks a hard limit'};
     default:
-      if (res.status === 404) return {closed: true, notice: 'This chat has no project any more.'};
+      if (res.status === 404) return {closed: true, notice: 'This chat has no Fusion project any more.'};
       return {view, error: res.error || 'The decision did not go through'};
   }
 }
@@ -251,22 +253,58 @@ function pcHardViolations(view) {
 
 /* ---------- what the card shows ---------- */
 
+/**
+ * A milestone's picture as a line (issue #40): its caption with the criteria
+ * it shows, as the core's attachmentLabel ("The board [c1, c2]"), then the
+ * file's name. Text only: the card reads no file and draws no image or file
+ * link; showing the picture needs a safe file read through main (a follow-up).
+ */
+function pcPictureLine(a) {
+  const ids = pcList(a.criteria).map(pcStr).filter(Boolean);
+  const name = pcStr(a.path).split(/[\\/]/).pop();
+  return pcStr(a.caption) + (ids.length ? ' [' + ids.join(', ') + ']' : '') + (name ? ' · ' + name : '');
+}
+
+/**
+ * One criterion fact as a line, as the core's criterionFactLine words it
+ * (issue #40): "✓ c1 passed: Runs offline", "? c2 unverified: Looks right
+ * (no vision-capable reviewer)". The text is the brief's when it names the id.
+ */
+function pcFactLine(fact, criteria) {
+  const id = pcStr(fact && fact.id), state = pcStr(fact && fact.state);
+  const c = pcList(criteria).find((x) => x && x.id === id);
+  const text = c ? pcStr(c.text) : '';
+  const why = pcStr(fact && fact.why);
+  return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
+}
+
 function pcHeadline(view) {
   switch (view.gate.kind) {
-    case 'brief': return 'The project brief waits for your approval';
-    case 'plan': return 'The project plan waits for your approval';
+    case 'brief': return 'The Fusion project brief waits for your approval';
+    case 'plan': return 'The Fusion project plan waits for your approval';
     case 'milestone': {
       const m = pcList(view.milestones).find((x) => x.id === view.gate.id);
       return 'Milestone “' + pcStr(m && m.title || view.gate.id) + '” ' + (m && m.state === 'failed' ? 'failed' : 'is done') + ' and waits for your review';
     }
-    default: return 'Nothing in the project waits for you';
+    default: return 'Nothing in the Fusion project waits for you';
   }
+}
+
+/**
+ * Whether the plan's "Edit rows" offers a choice (issue #54): the view says
+ * false when no row has another worker or a reviewer to pick. An older agent
+ * sends no `editable`; that reads as true.
+ */
+function pcPlanEditable(view) {
+  return !(view && view.plan && view.plan.editable === false);
 }
 
 /** The buttons, in the order the agent allows them; labels as the TUI's card. */
 function pcActions(view, state) {
   const hard = pcHardViolations(view).length > 0;
-  return pcList(view.allowedVerdicts).map((verdict) => {
+  // Edit rows with nothing to choose is hidden, as in the TUI (the view's hint says why); `edit` stays allowed.
+  const verdicts = pcList(view.allowedVerdicts).filter((v) => !(v === 'edit' && view.gate.kind === 'plan' && !pcPlanEditable(view)));
+  return verdicts.map((verdict) => {
     switch (verdict) {
       case 'approve': return {verdict, label: view.gate.kind === 'milestone' ? 'Approve milestone' : 'Approve', primary: true,
         disabled: hard || state.busy, why: hard ? 'Over a hard limit: change the plan first' : ''};
@@ -277,8 +315,8 @@ function pcActions(view, state) {
       case 'cheaper': return {verdict, label: 'Cheaper', disabled: state.busy};
       case 'quality': return {verdict, label: 'Better quality', disabled: state.busy};
       case 'cancel': return state.confirmCancel
-        ? {verdict, label: 'Confirm cancel', danger: true, disabled: state.busy, why: 'Press again to cancel the project; it stops asking in a few seconds'}
-        : {verdict, label: 'Cancel project', danger: true, disabled: state.busy};
+        ? {verdict, label: 'Confirm cancel', danger: true, disabled: state.busy, why: 'Press again to cancel the Fusion project; it stops asking in a few seconds'}
+        : {verdict, label: 'Cancel Fusion project', danger: true, disabled: state.busy};
       default: return null;
     }
   }).filter(Boolean);
@@ -311,7 +349,8 @@ function pcModel(state) {
       changed: !!state.picks[r.taskId],
       reason: pcStr(r.reason),
       basis: r.basis === 'measured' ? 'measured (' + (pcNum(r.samples) || 0) + ' run' + (r.samples === 1 ? '' : 's') + ')' : 'preset',
-      estimate: pcUsd(pcNum(r.estCostUsd)) + ' · ' + pcDuration(pcNum(r.estMs)),
+      // A local member's row is $0 by its own mark (issue #54), worded as the TUI card.
+      estimate: (r.local === true ? '$0.00 (local)' : pcUsd(pcNum(r.estCostUsd))) + ' · ' + pcDuration(pcNum(r.estMs)),
       workers: pcWorkerOptions(r), reviewers: pcReviewerOptions(r),
     };
   });
@@ -326,6 +365,10 @@ function pcModel(state) {
     id: pcStr(m.id), title: pcStr(m.title), state: pcStr(m.state), mark: PC_MARK[m.state] || '·',
     current: m.id === gateId,
     estimate: pcNum(m.estCostUsd) === null && pcNum(m.estMs) === null ? '' : pcUsd(pcNum(m.estCostUsd)) + ' · ' + pcDuration(pcNum(m.estMs)),
+    // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
+    facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
+      .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   return {
@@ -333,6 +376,7 @@ function pcModel(state) {
     warnings, brief: briefLines, criteria, rows, totals,
     scopeNote: gate === 'plan' && rows.length ? PC_WRITE_SCOPE_NOTE : null,
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
+    hints: pcList(view.hints).map(pcStr).filter(Boolean),
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -458,7 +502,7 @@ function pcDraw(doc, host, model, on) {
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
   const card = pcEl(doc, 'section', 'pc-card');
-  card.setAttribute('aria-label', 'Project');
+  card.setAttribute('aria-label', 'Fusion project');
   const head = pcEl(doc, 'div', 'pc-head');
   head.appendChild(pcEl(doc, 'div', 'pc-title', model.headline));
   head.appendChild(pcEl(doc, 'span', 'pc-ver', 'v' + model.version));
@@ -519,11 +563,26 @@ function pcDraw(doc, host, model, on) {
     for (const v of model.violations) ul.appendChild(pcEl(doc, 'li', v.hard ? 'pc-hard' : 'pc-soft', (v.hard ? '✕ Over a hard limit: ' : '! ') + v.text));
     body.appendChild(ul);
   }
+  // One-line advice from the agent (issue #54), worded as the TUI card.
+  for (const h of model.hints) body.appendChild(pcEl(doc, 'p', 'pc-hint', 'ℹ ' + h));
   if (model.milestones.length) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
     for (const m of model.milestones) {
       const li = pcEl(doc, 'li', 'pc-milestone is-' + m.state.replace(/[^a-z_]/g, '') + (m.current ? ' is-current' : ''),
         m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+      if (m.facts.length) {
+        const facts = pcEl(doc, 'ul', 'pc-facts');
+        facts.setAttribute('aria-label', 'Success criteria');
+        for (const f of m.facts) facts.appendChild(pcEl(doc, 'li', 'pc-fact is-' + f.state, f.text));
+        li.appendChild(facts);
+      }
+      if (m.pictures.length) {
+        const pics = pcEl(doc, 'ul', 'pc-pictures');
+        pics.setAttribute('aria-label', 'Pictures of the result');
+        pics.appendChild(pcEl(doc, 'li', 'pc-pictures-count', m.pictures.length + ' picture' + (m.pictures.length === 1 ? '' : 's')));
+        for (const p of m.pictures) pics.appendChild(pcEl(doc, 'li', 'pc-picture', '▣ ' + p));
+        li.appendChild(pics);
+      }
       ul.appendChild(li);
     }
     body.appendChild(ul);
@@ -590,11 +649,14 @@ function pcFind(root, test) {
 /**
  * Whether the window may send a continue message now. Everything that would
  * make submit() keep it out (or, for dictation, stop the recording instead
- * of sending) answers no, so the message stays pending rather than lost.
+ * of sending) answers no, so the message stays pending rather than lost:
+ * a model test holding the local server (`fitHolds`) among them, and any
+ * room but the chat on screen (`room`: Studio draws into the same column). What this
+ * cannot foresee, submit() answers itself (false: not sent, still pending).
  */
 function pcCanContinue(env) {
-  return !!env && env.onScreen && !env.busy && !env.pending && env.connected && !env.opening
-    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.gating;
+  return !!env && env.onScreen && env.room === 'chat' && !env.busy && !env.pending && env.connected && !env.opening
+    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating;
 }
 
 /* ---------- the controller: one card for the chat on screen ---------- */
@@ -708,9 +770,9 @@ function createProjectCard(opts) {
        one said is not this one's, except a continue message still owed to a
        chat, which the person's decision already recorded. */
     reset() { const keep = sid; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
-    /** Whether the chat on screen has an open gate the person hid (the header offers Show project). */
+    /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
-    /** Show project: the hidden card again. */
+    /** Show Fusion project: the hidden card again. */
     show() { if (hidden.delete(key())) { paint(); changed(); } },
     state: () => state,
     store,
@@ -719,7 +781,7 @@ function createProjectCard(opts) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
+    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };

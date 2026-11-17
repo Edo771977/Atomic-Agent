@@ -50,13 +50,18 @@ card (`renderer/project-card.js`, drawn into `#projectcard`, never by
 order; a read answered after a frame is ignored; the version is the gate's
 own counter, never compared across gates) and shows the brief (with
 the warning when it was drafted after outside content), the plan rows
-(worker, reviewer, reason, measured or preset basis and samples, estimate),
+(worker, reviewer, reason, measured or preset basis and samples, estimate;
+a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
-one stands), the milestones, and under the plan the core's own note that
+one stands), the view's `hints` (`ℹ` lines, as the TUI), the milestones
+(each with its `criteriaFacts` as `✓` / `✕` / `?` lines in the core's words,
+and its `attachments` as text only: how many, each caption with its criteria
+and the file's name; no file is read and no image or file link is drawn), and under the plan the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
-row, chosen only among the row's `selectableWorkers` / `selectableReviewers`),
-Cheaper, Better quality and Cancel project at the plan; Approve milestone,
+row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;
+hidden when `plan.editable` is false),
+Cheaper, Better quality and Cancel Fusion project at the plan; Approve milestone,
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through
 `agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
@@ -66,9 +71,15 @@ running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
 closes the card. When the answer carries `continue_message`, the window sends
 it as that chat's next message (the agent never goes on by itself); a chat
 not on screen, or one running a turn, gets it the next time it is shown
-between turns. Cancel project asks twice: the first press turns the button into Confirm
+between turns; so does one `submit()` did not take (it answers true or false:
+a model test holding the local server, the starter download, dictation).
+The card follows the chat only while the chat room is on screen: over
+Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel Fusion project asks twice: the first press turns the button into Confirm
 cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
-opened again; while it stays open the chat header offers Show project.
+opened again; while it stays open the chat header offers Show Fusion project.
+The card's words say "Fusion project" (Cancel Fusion project, Show Fusion
+project), apart from the sidebar's Projects folders; IPC and bridge names
+stay `project`.
 Everything is drawn with `textContent`: model text is never
 markup. Covered by `test/project-gate-routing.test.mjs`,
 `test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.
