@@ -143,3 +143,88 @@ describe("/api/ideas", () => {
     expect(bad.status).toBe(400);
   });
 });
+
+/**
+ * Issue #68: a Retry card never widens what the retried prompt may reach.
+ * The new chat carries the original chat's restriction (its folder's
+ * constraint and its read taint) as a read taint, wherever it opens; a
+ * retry whose original chat is gone is refused while constraints exist.
+ */
+describe("/api/ideas accept keeps the original chat's restriction (issue #68)", () => {
+  let harness: Harness | undefined;
+  const dirs: string[] = [];
+  afterEach(async () => {
+    await harness?.cleanup();
+    harness = undefined;
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const post = (h: Harness, path: string) => fetch(`${h.baseUrl}${path}`, { method: "POST", headers: { "content-type": "application/json" } });
+
+  async function retryIdea(h: Harness, session: { id: string; workingDir: string; metadata?: Record<string, unknown> }): Promise<string> {
+    h.runtime.sessionStore.save({ ...h.runtime.createSession({ persist: false }), ...session });
+    const store = h.runtime.taskStore;
+    const original = store.create({ sessionId: session.id, userMessage: "summarise the acme figures", origin: "http", maxAttempts: 1 });
+    store.markRunning(original.id);
+    store.markBlocked(original.id, { category: "transport", message: "spend ceiling reached" });
+    const refreshed = (await (await post(h, "/api/ideas/refresh")).json()) as { ideas: IdeaJson[] };
+    return refreshed.ideas.find((i) => i.kind === "retry_task")!.id;
+  }
+
+  it("a retry whose constrained folder is gone runs in a new chat that keeps the folder's restriction", async () => {
+    const secret = mkdtempSync(join(tmpdir(), "idea-secret-"));
+    dirs.push(secret);
+    harness = await startTestHarness({ constraints: { [secret]: { allowedProviders: ["local-llama"] } } });
+    const id = await retryIdea(harness, { id: "s-secret", workingDir: secret });
+    rmSync(secret, { recursive: true, force: true });
+    const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(200);
+    const task = harness.runtime.taskStore.get(((await res.json()) as { task: { id: string } }).task.id)!;
+    expect(task.sessionId).not.toBeNull();
+    expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
+    const fresh = harness.runtime.sessionStore.load(task.sessionId!)!;
+    expect(fresh.workingDir).toBe(harness.workingDir);
+    expect(harness.runtime.providerRestrictionFor?.(fresh)?.allowedProviders).toEqual(["local-llama"]);
+  });
+
+  it("a retry in the original's folder keeps the original chat's read taint", async () => {
+    const open = mkdtempSync(join(tmpdir(), "idea-open-"));
+    dirs.push(open);
+    harness = await startTestHarness({ constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } });
+    const id = await retryIdea(harness, {
+      id: "s-tainted", workingDir: open,
+      metadata: { providerReadTaint: { key: "/work/secret", allowedProviders: ["local-llama"], allowedEgress: [], matchedDir: "/work/secret", readFrom: ["/work/secret"] } },
+    });
+    const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(200);
+    const task = harness.runtime.taskStore.get(((await res.json()) as { task: { id: string } }).task.id)!;
+    expect(task.sessionId).not.toBe("s-tainted");
+    expect(harness.runtime.sessionStore.load(task.sessionId!)?.workingDir).toBe(open);
+    expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
+  });
+
+  it("refuses a retry whose original chat is gone while constraints exist (fail closed)", async () => {
+    harness = await startTestHarness({ constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } });
+    const id = await retryIdea(harness, { id: "s-gone", workingDir: harness.workingDir });
+    harness.runtime.sessionStore.delete("s-gone");
+    const before = harness.runtime.taskStore.list({ limit: 50 }).length;
+    const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toContain("restriction");
+    expect(harness.runtime.taskStore.list({ limit: 50 })).toHaveLength(before);
+  });
+
+  it("an unrestricted original changes nothing: a plain chat in its folder", async () => {
+    const open = mkdtempSync(join(tmpdir(), "idea-plain-"));
+    dirs.push(open);
+    harness = await startTestHarness({ constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } });
+    const id = await retryIdea(harness, { id: "s-plain", workingDir: open });
+    const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(200);
+    const task = harness.runtime.taskStore.get(((await res.json()) as { task: { id: string } }).task.id)!;
+    const fresh = harness.runtime.sessionStore.load(task.sessionId!)!;
+    expect(fresh.workingDir).toBe(open);
+    expect(fresh.metadata?.providerReadTaint).toBeUndefined();
+    expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toBeNull();
+  });
+});

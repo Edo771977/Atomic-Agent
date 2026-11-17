@@ -55,12 +55,19 @@ export interface IdeaTaskCarry {
   notify: TaskNotifyTarget | null;
   /** The original chat's folder; `null` when it is unknown or gone. */
   workingDir: string | null;
+  /**
+   * The original chat, for its provider restriction (issue #68): the
+   * rerun's chat keeps it. `null` when the task had no chat or it is gone.
+   */
+  sourceSession: { id: string; workingDir: string; metadata?: Record<string, unknown> } | null;
+  /** The original task named a chat that no longer loads: its restriction is unknown. */
+  sourceSessionMissing: boolean;
 }
 
 /** Where `acceptIdea` looks the original task and its chat up. */
 export interface IdeaCarrySource {
   tasks: Pick<TaskStore, "get">;
-  sessions: { load(id: string): Pick<SessionState, "workingDir"> | null };
+  sessions: { load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata">>) | null };
 }
 
 /** How the accepted idea becomes a task: the caller's own create path. */
@@ -69,6 +76,8 @@ export type IdeaTaskFactory = (input: {
   userMessage: string;
   /** Set for a `retry_task` idea whose original task still exists. */
   carry: IdeaTaskCarry | null;
+  /** A `retry_task` idea (its `carry` is `null` when the original task is gone). */
+  retry: boolean;
 }) => TaskRecord;
 
 export interface AcceptedIdea {
@@ -108,6 +117,10 @@ export function ideaTaskCarry(
     maxDurationMs: original.maxDurationMs,
     notify: original.notify,
     workingDir: session?.workingDir ?? null,
+    sourceSession: session && original.sessionId
+      ? { id: original.sessionId, workingDir: session.workingDir, ...(session.metadata === undefined ? {} : { metadata: session.metadata }) }
+      : null,
+    sourceSessionMissing: original.sessionId !== null && session === null,
   };
 }
 
@@ -135,7 +148,7 @@ export function acceptIdea(
   if (claimed === null) return null;
   let task: TaskRecord;
   try {
-    task = createTask({ sessionId: claimed.sessionId, userMessage: claimed.prompt, carry });
+    task = createTask({ sessionId: claimed.sessionId, userMessage: claimed.prompt, carry, retry: ideaSourceTaskId(before) !== null });
   } catch (err) {
     ideas.release(id, before.prompt, now);
     throw err;

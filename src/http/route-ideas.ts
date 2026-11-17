@@ -1,3 +1,5 @@
+import { getConfig } from "../config/index.js";
+import { createSessionProviderPolicy, retrySessionSeed, retrySourceOf } from "../runtime/session-provider-policy.js";
 import { openaiError } from "./openai-errors.js";
 import {
   readJsonBody,
@@ -32,7 +34,10 @@ import {
  *    `{ idea, task }`; `409 idea_decided` when the card was already
  *    accepted or dismissed. A Retry card's task keeps the original's
  *    `maxSteps`, `maxCostUsd`, `maxDurationMs` and `notify`, and runs in
- *    a new chat opened in the original chat's folder.
+ *    a new chat opened in the original chat's folder (the default one
+ *    when it is gone) that keeps the original chat's provider restriction
+ *    (issue #68); `400` (param `sessionId`) when the original chat is
+ *    gone while constraints exist, since its restriction is unknown.
  *  - `POST /api/ideas/{id}/dismiss` retires the card for good.
  *
  * All four answer 404 when `tasks.enabled` is false. The store is opened
@@ -61,6 +66,11 @@ function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
     ? idea.evidence.ref
     : ctx.runtime.taskStore.get(idea.evidence.ref)?.sessionId ?? idea.sessionId;
   return sessionId !== null && serveWithheld(ctx, sessionId)();
+}
+
+/** The live per-folder policy, read against this server's session store. */
+function ideaRetryPolicy(ctx: HandlerContext) {
+  return createSessionProviderPolicy({ readConfig: getConfig, loadSession: (id) => ctx.runtime.sessionStore.load(id) });
 }
 
 function visibleIdeas(ctx: HandlerContext, list: IdeaRecord[]): IdeaRecord[] {
@@ -149,17 +159,22 @@ export function createAcceptIdeaHandler(): HttpHandler {
       try {
         const accepted = acceptIdea(
           ideas,
-          ({ sessionId, userMessage, carry }) => {
+          ({ sessionId, userMessage, carry, retry }) => {
             // A Retry card reruns in a fresh chat opened in the original's folder,
             // the way `POST /api/tasks` with `workingDir` does; a folder that is
-            // gone falls back to the default one.
+            // gone falls back to the default one. Either way the new chat keeps
+            // the original chat's restriction (issue #68).
             let taskSessionId = sessionId;
             let opened: string | null = null;
-            if (!taskSessionId && carry?.workingDir) {
-              const dir = checkWorkingDir(carry.workingDir);
-              if (dir.ok) {
-                const fresh = ctx.runtime.createSession({ metadata: { source: "http-task" }, persist: false });
-                ctx.runtime.sessionStore.save({ ...fresh, workingDir: dir.dir });
+            const source = taskSessionId ? null : retrySourceOf(retry, carry);
+            if (source !== null) {
+              const dir = carry?.workingDir ? checkWorkingDir(carry.workingDir) : null;
+              const target = dir?.ok ? dir.dir : ctx.runtime.capabilities.workingDir;
+              const seed = retrySessionSeed(ideaRetryPolicy(ctx), source, target);
+              if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);
+              if (dir?.ok || seed.restricted) {
+                const fresh = ctx.runtime.createSession({ metadata: { source: "http-task", ...seed.metadata }, persist: false });
+                ctx.runtime.sessionStore.save({ ...fresh, workingDir: target });
                 taskSessionId = fresh.id;
                 opened = fresh.id;
               }

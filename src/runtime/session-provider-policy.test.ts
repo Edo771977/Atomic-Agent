@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
-import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder } from "./session-provider-policy.js";
+import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder, retrySessionSeed } from "./session-provider-policy.js";
 
 describe("session provider policy (issue #33)", () => {
   let root: string | undefined;
@@ -238,6 +238,21 @@ describe("moveSessionFolder (issue #68)", () => {
     expect(open.policy?.key).toBe("/work/b");
     const none = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: () => null });
     expect(moveSessionFolder(none, { id: "s", workingDir: "/work/a" }, "/free").kept).toBeUndefined();
+  });
+});
+
+describe("retrySessionSeed (issue #68)", () => {
+  const config = { projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama"] } } } };
+  const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+
+  it("carries the original chat's restriction, refuses a gone chat, and adds nothing otherwise", () => {
+    const kept = retrySessionSeed(policy, { kind: "session", session: { id: "s", workingDir: "/work/a" } }, "/free");
+    expect(kept).toMatchObject({ ok: true, restricted: true, metadata: { providerReadTaint: { key: "/work/a", allowedProviders: ["local-llama"] } } });
+    expect(retrySessionSeed(policy, { kind: "session", session: { id: "s", workingDir: "/work/a" } }, "/work/a")).toEqual({ ok: true, metadata: {}, restricted: false });
+    expect(retrySessionSeed(policy, { kind: "missing" }, "/free").ok).toBe(false);
+    expect(retrySessionSeed(policy, { kind: "none" }, "/free")).toEqual({ ok: true, metadata: {}, restricted: false });
+    const none = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: () => null });
+    expect(retrySessionSeed(none, { kind: "missing" }, "/free").ok).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 
 import { getConfig } from "../config/index.js";
+import { createSessionProviderPolicy, retrySessionSeed, retrySourceOf } from "../runtime/session-provider-policy.js";
 import { SessionStore, createEmptySessionState } from "../session/index.js";
 import {
   IDEA_STATUSES,
@@ -74,7 +75,7 @@ export async function ideasCommand(args: string[]): Promise<number> {
       return 1;
     }
     if (err instanceof TaskValidationError) {
-      process.stderr.write(`validation: prompt: ${err.message}\n`);
+      process.stderr.write(`validation: ${err.field === "userMessage" ? "prompt" : err.field}: ${err.message}\n`);
       return 1;
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -153,20 +154,29 @@ function handleAccept(args: string[]): number {
     return withIdeas((ideas) => {
       const accepted = acceptIdea(
         ideas,
-        ({ sessionId, userMessage, carry }) => {
+        ({ sessionId, userMessage, carry, retry }) => {
           // A Retry card reruns in a fresh chat opened in the original's folder
-          // (when that folder still exists), with the original's limits and notify.
+          // (when that folder still exists, else this one), with the original's
+          // limits and notify, and its provider restriction (issue #68).
           let taskSessionId = sessionId;
           let opened: string | null = null;
-          if (!taskSessionId && carry?.workingDir && isFolder(carry.workingDir)) {
-            const fresh = createEmptySessionState({
-              id: `s-${randomUUID()}`,
-              workingDir: carry.workingDir,
-              metadata: { source: "cli-task" },
-            });
-            sessions.save(fresh);
-            taskSessionId = fresh.id;
-            opened = fresh.id;
+          const source = taskSessionId ? null : retrySourceOf(retry, carry);
+          if (source !== null) {
+            const inFolder = carry?.workingDir && isFolder(carry.workingDir) ? carry.workingDir : null;
+            const target = inFolder ?? process.cwd();
+            const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
+            const seed = retrySessionSeed(policy, source, target);
+            if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);
+            if (inFolder !== null || seed.restricted) {
+              const fresh = createEmptySessionState({
+                id: `s-${randomUUID()}`,
+                workingDir: target,
+                metadata: { source: "cli-task", ...seed.metadata },
+              });
+              sessions.save(fresh);
+              taskSessionId = fresh.id;
+              opened = fresh.id;
+            }
           }
           try {
             return tasks.create({

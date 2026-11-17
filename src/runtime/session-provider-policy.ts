@@ -263,3 +263,50 @@ export function moveSessionFolder<T extends { id: string; workingDir: string; me
   const moved = { ...plain, metadata: { ...(session.metadata ?? {}), [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(taint) } };
   return { session: moved, kept: carried, policy: policy.forSession(moved) };
 }
+
+/** What a Retry card knows about the chat its original task ran in (`IdeaTaskCarry`). */
+export type RetrySource =
+  | { kind: "session"; session: { id: string; workingDir: string; metadata?: Record<string, unknown> } }
+  /** The original task never had a chat: it ran in the default folder, as the rerun will. */
+  | { kind: "none" }
+  /** The original task, or its chat, is gone: its restriction cannot be known. */
+  | { kind: "missing" };
+
+export const RETRY_RESTRICTION_UNKNOWN =
+  "the chat this retry comes from is gone, so its folder restriction cannot be checked; start a new task instead";
+
+/**
+ * The metadata a Retry card's new chat starts with (issue #68): the
+ * original chat's restriction (its folder's constraint and read taint),
+ * carried the way `moveSessionFolder` carries it into `workingDir`, so a
+ * rerun opened in another folder (the original one is gone) or a fresh
+ * chat in the same folder never widens what the prompt may reach.
+ * `restricted` says whether a taint was added. A source whose chat is
+ * gone is refused while constraints exist (fail closed). With no
+ * constraint configured nothing is added.
+ */
+export function retrySessionSeed(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
+  source: RetrySource,
+  workingDir: string,
+): { ok: true; metadata: Record<string, unknown>; restricted: boolean } | { ok: false; error: string } {
+  if (!policy.constraintsActive() || source.kind === "none") return { ok: true, metadata: {}, restricted: false };
+  if (source.kind === "missing") return { ok: false, error: RETRY_RESTRICTION_UNKNOWN };
+  const moved = moveSessionFolder(policy, source.session, workingDir);
+  const stamp = moved.session.metadata?.[READ_TAINT_METADATA_KEY];
+  // Within the same constraint entry the original's stored taint (if any) still applies.
+  const taint = stamp ?? source.session.metadata?.[READ_TAINT_METADATA_KEY];
+  return taint === undefined
+    ? { ok: true, metadata: {}, restricted: false }
+    : { ok: true, metadata: { [READ_TAINT_METADATA_KEY]: taint }, restricted: true };
+}
+
+/** The `RetrySource` of an accepted idea's carry (`retry`: it is a Retry card). */
+export function retrySourceOf(
+  retry: boolean,
+  carry: { sourceSession: { id: string; workingDir: string; metadata?: Record<string, unknown> } | null; sourceSessionMissing: boolean } | null,
+): RetrySource | null {
+  if (!retry) return null;
+  if (carry === null || carry.sourceSessionMissing) return { kind: "missing" };
+  return carry.sourceSession === null ? { kind: "none" } : { kind: "session", session: carry.sourceSession };
+}
