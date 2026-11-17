@@ -45,6 +45,14 @@ test('an HTTP rule saved for one site names the site (ATO-1471)', () => {
   assert.equal(arulesSentence(anyHost, deps), 'Always allow the os.http.request tool to any site');
 });
 
+test('a POST rule (http_write) with no site says it covers every site', () => {
+  const plain = {categoryPlain: (c) => (c === 'http_write' ? 'send data in a web request' : c)};
+  assert.equal(arulesSentence({decision: 'allow', category: 'http_write'}, plain),
+    'Always allow: send data in a web request to any site');
+  assert.equal(arulesSentence({decision: 'allow', category: 'http_write', origin: 'https://a.example'}, plain),
+    'Always allow: send data in a web request to https://a.example');
+});
+
 test('where a rule applies: this project, another project, everywhere', () => {
   assert.equal(arulesHere(list()), '/repo');
   assert.equal(arulesScope(gitRule, '/repo').text, 'this project');
