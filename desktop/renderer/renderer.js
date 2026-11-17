@@ -10426,12 +10426,29 @@ function startLiveTurn(text) {
     streaming.turn = res.turnId;
     // item 6: the sidebar's running dot follows the stream, not S.busy.
     RUNNING.set(res.turnId, session || null);
-    // Issue #67: a new chat in a project is under it from here (chat-projects.js).
-    if (opensChat) { FIRST_TURNS.set(res.turnId, text); projectStandInNote(res.turnId, forProject, text); }
+    if (opensChat) firstTurnSent(res.turnId, text, forProject);
     projectNoteTurn(res.turnId, forProject);   // W2 QA: a new chat in a project with no disk folder is filed once it has an id
     liveTurnStarted(res.turnId, live, session || null);   // Item 38
     renderSidebar();
   });
+}
+
+/* A new chat's first turn, in the three steps the list follows (item 27,
+   issue #67): sent (its first prompt kept; in a project, a stand-in under it
+   from here, chat-projects.js), named (the stream's session_id: the chat's
+   own row takes the stand-in's place, filed by its id) and ended. */
+function firstTurnSent(turnId, text, forProject) {
+  FIRST_TURNS.set(turnId, text);
+  projectStandInNote(turnId, forProject, text);
+}
+function firstTurnNamed(turnId, sid) {
+  noteFirstPrompt(turnId, sid);   // item 27: a new chat is on the list from here
+  projectFileNewChat(turnId, sid);
+  projectStandInSession(turnId, sid);
+}
+function firstTurnEnded(turnId) {
+  FIRST_TURNS.delete(turnId);   // item 27: a turn that ended before its stream named a session
+  projectStandInEnded(turnId);
 }
 
 /** Item 27: the stream named the session a new chat's first turn runs in.
@@ -11419,22 +11436,19 @@ function onChatEvent(ev) {
       RUNNING.set(ev.turnId, sid);
       // Backlog 26: a new chat's queue, waiting under its first turn, now goes by the chat's session.
       moveQueue('turn:' + ev.turnId, sid);
-      noteFirstPrompt(ev.turnId, sid);   // item 27: a new chat is on the list from here
-      projectFileNewChat(ev.turnId, sid);
-      projectStandInSession(ev.turnId, sid);   // issue #67: the chat's own row takes the stand-in's place
+      firstTurnNamed(ev.turnId, sid);
       renderSidebar();
     }
     if (ev.kind === 'done' || ev.kind === 'aborted' || ev.kind === 'error') {
       const sid = RUNNING.get(ev.turnId);
       RUNNING.delete(ev.turnId);
       queueTurnEnded(sid, ev.turnId);   // Backlog 26
-      FIRST_TURNS.delete(ev.turnId);   // item 27: a turn that ended before its stream named a session
-      projectStandInEnded(ev.turnId);  // issue #67: and its stand-in under the project
+      firstTurnEnded(ev.turnId);
       if (sid) notePendingEnded(sid);  // item 27: its stand-in waits for the agent to store the turn
       if (sid && typeof goalTurnEnded === 'function') void goalTurnEnded(sid);  // ATO-1040: a pause / clear asked of its goal has landed
       if (ev.kind === 'error' && sid) ATTN.add(sid);
       nextStepTurnEnded(sid, ev.kind);   // ATO-1094: retire the old suggestion; a finished turn asks for a new one
-      if (sid && sid === S.sessionId) void restrictionRefresh(sid);   // Issue #67: a read may have restricted the chat
+      void restrictionTurnEnded(sid);   // Issue #67: a read may have restricted the chat (chat-restriction.js)
       const endedSince = (LIVE_TURNS.get(ev.turnId) || {}).startedAt || 0;   // B01: closeChatApprovals, read before liveTurnEnded drops it
       const endedTools = turnToolNames(LIVE_TURNS.get(ev.turnId));          // ATO-203: and the calls it made
       liveTurnEnded(ev, sid);          // item 38: a failed or stopped turn is kept for its chat

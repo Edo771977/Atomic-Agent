@@ -174,6 +174,11 @@ async function restrictionRefresh(sid, retried) {
   }
 }
 
+/** A turn of chat `sid` ended: asked again when that chat is on screen (a read may have restricted it). */
+async function restrictionTurnEnded(sid) {
+  if (sid && sid === S.sessionId) await restrictionRefresh(sid);
+}
+
 /* Review of #67: a config read (renderer.js refreshLiveConfig, after every
    write) whose projects.constraints changed asks again for the chat on screen;
    a new chat's provisional chip follows the next render by itself. */

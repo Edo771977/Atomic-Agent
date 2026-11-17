@@ -96,13 +96,36 @@ test("a turn that ends before naming a session takes its stand-in with it; a pla
   assert.equal(c.projectStandIn("turn:t4"), null);
 });
 
-test("the window notes the stand-in at the send, hands it over on session_id and drops it at the turn's end", () => {
-  const send = renderer.slice(renderer.indexOf("function startLiveTurn("), renderer.indexOf("function noteFirstPrompt("));
-  assert.match(send, /if \(opensChat\) \{ FIRST_TURNS\.set\(res\.turnId, text\); projectStandInNote\(res\.turnId, forProject, text\); \}/);
-  const frames = renderer.slice(renderer.indexOf("if (ev.kind === 'session_id') {\n      const sid = pick("));
-  assert.match(frames.slice(0, 900), /projectStandInSession\(ev\.turnId, sid\)/);
-  assert.match(frames.slice(0, 2400), /projectStandInEnded\(ev\.turnId\)/);
-  // A click on it shows the new chat on screen, and it is not dragged or given a chat menu.
-  assert.match(fn("openSession"), /projectStandIn\(id\)/);
+/* Review of #67, item 8: the window's own steps, run in order (send,
+   the stream naming the session, the stored row, the turn's end), instead of
+   reading their source: one row under the project at every step. */
+test("send, session_id, stored row and the turn's end leave exactly one row under the project", () => {
+  const { c, view } = sidebar();
+  vm.runInContext("var FIRST_TURNS = new Map(); var renderSidebar = () => {}; var moveQueue = () => {}; var saveFolders = () => {};", c);
+  for (const n of ["noteFirstPrompt", "firstTurnSent", "firstTurnNamed", "firstTurnEnded"]) vm.runInContext(fn(n), c);
+  c.firstTurnSent("t1", "Plan the release", STORE.id);
+  assert.deepEqual(view(), { project: ["turn:t1"], folder: [], loose: [] });
+  c.firstTurnNamed("t1", "s-1");
+  assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
+  assert.equal(c.sidebarChats().projects[0].rows[0].t, "Plan the release");
+  vm.runInContext("PROJECTS.state = projectsCoerce({projects: [" + JSON.stringify(STORE) + "], chats: {'s-1': " + JSON.stringify(STORE.id) + "}});", c);
+  c.SESSIONS.push({ id: "s-1", t: "Plan the release", turnCount: 1, updatedAt: 3 });
+  assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
+  c.firstTurnEnded("t1");
+  c.PENDING_CHATS.delete("s-1");
+  assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
+  // A plain new chat (no project): its row is item 27's, under Chats, once named.
+  c.firstTurnSent("t2", "Hello", undefined);
+  assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
+  c.firstTurnNamed("t2", "s-2");
+  assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: ["s-2"] });
+});
+
+test("a stand-in is not dragged, and the turn's frames go through those steps", () => {
   assert.match(fn("chatRow"), /s\.standIn \? '' : ' draggable="true"'/);
+  const send = fn("startLiveTurn");
+  assert.match(send, /if \(opensChat\) firstTurnSent\(res\.turnId, text, forProject\);/);
+  const frames = renderer.slice(renderer.indexOf("if (ev.kind === 'session_id') {\n      const sid = pick("));
+  assert.match(frames.slice(0, 700), /firstTurnNamed\(ev\.turnId, sid\)/);
+  assert.match(frames.slice(0, 2400), /firstTurnEnded\(ev\.turnId\)/);
 });

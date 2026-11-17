@@ -115,12 +115,25 @@ test("the chip is drawn for the chat on screen once its answer lands, and not fo
   assert.equal(asked.includes(null), false);
 });
 
-test("the window asks when a chat is opened and when its turn ends; the bridge and the composer carry it", () => {
+/* Review of #67, item 8: what the window does at a turn's end, run instead of read. */
+test("a turn's end asks for the chat on screen, and not for a chat in the background", async () => {
+  const known = M.readProviderRestriction(RESTRICTED);
+  const { c, asked } = windowWith({ "s-1": known, "s-9": known });
+  await c.restrictionTurnEnded("s-9");
+  assert.deepEqual([...asked], []);
+  await c.restrictionTurnEnded("s-1");
+  assert.deepEqual([...asked], ["s-1"]);
+  assert.match(c.restrictionChipHTML(), /restricted to: local-llama/);
+  await c.restrictionTurnEnded(null);
+  assert.equal(asked.length, 1);
+});
+
+test("the window's seams: opening a chat and a turn's end call it, the composer draws it, the bridge carries it", () => {
   const r = src("../renderer/renderer.js");
   const open = r.slice(r.indexOf("async function openSession("), r.indexOf("async function openSession(") + 6000);
   assert.match(open, /restrictionRefresh\(id\)/);
   const end = r.slice(r.indexOf("if (ev.kind === 'done' || ev.kind === 'aborted' || ev.kind === 'error') {\n      const sid = RUNNING.get(ev.turnId);"));
-  assert.match(end.slice(0, 1500), /restrictionRefresh\(sid\)/);
+  assert.match(end.slice(0, 1500), /restrictionTurnEnded\(sid\)/);
   assert.match(r, /routeChipsHtml\(backend\)\)\n\s*\+ restrictionChipHTML\(\)/);
   const html = src("../renderer/index.html");
   assert.ok(html.indexOf('src="chat-restriction.js"') > 0 && html.indexOf('src="chat-restriction.js"') < html.indexOf('src="renderer.js"'));
