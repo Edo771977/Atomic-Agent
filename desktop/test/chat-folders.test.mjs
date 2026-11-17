@@ -242,3 +242,19 @@ test("W2 QA: agent worktrees are filed under their repository, as the import doe
   assert.equal(F.folderOf(st, "claude-code:b").id, F.folderOf(st, "claude-code:a").id, "a worktree joins its repo's folder");
   assert.equal(F.folderOf(st, "claude-code:c").name, "site");
 });
+
+// Review of #62, item 5: a new chat in a chat folder the import sorted by a project directory works in that directory.
+test("a new chat in an import-sorted chat folder works in the folder's directory", { skip: !M && "run npm run build first" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "folders-dir-")); dirs.push(dir);
+  const data = M.coerceChatFolders({ folders: [{ id: "fa", name: "app" }, { id: "fb", name: "repo" }, { id: "fc", name: "Plain" }, { id: "fd", name: "gone" }],
+    projects: { fa: dir, fb: "worktree-repo/repo", fd: join(dir, "missing") } });
+  assert.equal(M.folderTurnDir(data, "fa"), dir, "the directory the import sorted the folder by");
+  assert.equal(M.folderTurnDir(data, "fb"), undefined, "a repository name only is no folder");
+  assert.equal(M.folderTurnDir(data, "fc"), undefined, "a folder made here has none");
+  assert.equal(M.folderTurnDir(data, "fd"), undefined, "a directory no longer there");
+  assert.equal(M.folderTurnDir(data, undefined), undefined);
+  // main.ts: only a new chat takes it, and never on a remote agent (that computer's paths are not this one's).
+  const main = readFileSync(new URL("../main/main.ts", import.meta.url), "utf8");
+  assert.match(main, /const filedDir = !known && filed && !client\.isRemote \? folderTurnDir\(folders, filed\.id\) : undefined;/);
+  assert.match(main, /void client\.chat\(turnId, clean, chatId, filedDir \?\? proj\.workingDir, instructions,/);
+});

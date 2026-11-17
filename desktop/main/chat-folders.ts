@@ -26,8 +26,8 @@
  * with a disk folder), so a folder may carry `instructions` for every chat
  * in it, as a project does, and `createdAt`, which orders a new one first.
  */
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 export interface ChatFolder { id: string; name: string; collapsed: boolean; instructions?: string; createdAt?: number }
 export interface ChatFolders {
@@ -112,6 +112,21 @@ export function coerceChatFolders(raw: unknown): ChatFolders {
 export function folderForTurn(data: ChatFolders, sessionId: string | null, folderId: unknown): ChatFolder | null {
   const fid = sessionId ? data.chats[sessionId] : typeof folderId === "string" ? folderId : null;
   return fid ? data.folders.find((f) => f.id === fid) ?? null : null;
+}
+
+/**
+ * The directory a new chat in chat folder `folderId` works in: the project
+ * directory the import sorted that folder by (`projects`, ATO-1253), when it
+ * is a folder this computer has. Undefined otherwise (a folder made here, a
+ * repository name only, a directory gone): the chat works in the window's.
+ */
+export function folderTurnDir(data: ChatFolders, folderId: unknown, isDir: (dir: string) => boolean = isDirectory): string | undefined {
+  const dir = typeof folderId === "string" ? data.projects[folderId] : undefined;
+  return dir && isAbsolute(dir) && isDir(dir) ? dir : undefined;
+}
+
+function isDirectory(dir: string): boolean {
+  try { return statSync(dir).isDirectory(); } catch { return false; }
 }
 
 /** The folders on disk, or empty ones. Never throws. */

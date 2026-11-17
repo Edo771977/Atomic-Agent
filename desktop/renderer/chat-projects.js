@@ -15,6 +15,9 @@
      the chat in the project before the turn starts.
    - The sidebar shows each project with its chats, folding like a chat
      folder. A chat filed in an ATO-1034 chat folder stays in that folder.
+   - New chat (the plus on a project's header, issue #62) opens a new chat in
+     that project the way New project does once it has made one
+     (projectNewChat): the first turn carries the project's id.
    - Edit (the pencil on a project's header): its name and its instructions,
      which main hands the agent with every turn of the project's chats.
    - Removing a project leaves its chats (under Chats) and the folder on disk.
@@ -126,11 +129,65 @@ function projectFromSave(res) {
    chat or opening another chat since gives that chat a new transcript
    (S.log), so the mark is dropped. Read once. */
 function projectForNewTurn() {
-  const n = PROJECTS.newFor;
+  const id = projectMarked();
   PROJECTS.newFor = null;
+  return id;
+}
+
+/* The project the chat on screen is marked for, without using the mark up
+   (the model chip, the empty chat's line), or undefined. */
+function projectMarked() {
+  const n = PROJECTS.newFor;
   if (!n || typeof S === 'undefined' || S.agentSession || S.log !== n.log) return undefined;
   if (PROJECTS.state.projects.some((p) => p.id === n.id)) return n.id;
   return typeof FOLDERS !== 'undefined' && folderById(FOLDERS.state, n.id) ? n.id : undefined;
+}
+
+/* What the empty chat says while it is marked for a project: the project's
+   name and the folder its first turn runs in ('' for the window's), or null. */
+function projectMarkedInfo() {
+  const id = projectMarked();
+  const p = id ? projectAny(id) : null;
+  return p ? {id, name: p.name, folder: projectTurnFolder(id)} : null;
+}
+
+/* Clear Transcript in a new chat that has no session yet is still that new
+   chat: the mark follows it onto the cleared transcript. */
+function projectKeepMark(before, after) {
+  const n = PROJECTS.newFor;
+  if (n && n.log === before && typeof S !== 'undefined' && !S.agentSession) n.log = after;
+}
+
+/* The folder a new chat's first turn in project `pid` runs in, as main
+   picks it (main.ts startTurn), or '' for the window's: a store project's
+   folder on disk, or the directory the import sorted a chat folder by
+   (main/chat-folders.ts folderTurnDir; main also checks it is there). */
+function projectTurnFolder(pid) {
+  if (typeof pid !== 'string' || !pid) return '';
+  if (pid[0] === 'f') {
+    const dir = typeof FOLDERS !== 'undefined' && FOLDERS.state.projects ? FOLDERS.state.projects[pid] : '';
+    return typeof dir === 'string' && dir && typeof isAbsPath === 'function' && isAbsPath(dir) ? dir : '';
+  }
+  const p = PROJECTS.state.projects.find((x) => x.id === pid);
+  return p && p.folder ? p.folder : '';
+}
+
+/* A first turn main refused ("could not start the turn"): the chat is still
+   new, so the mark goes back and the next send opens in the project again.
+   Not when the turn had none, the person has left that chat, or a newer mark
+   was set meanwhile. */
+function projectNewTurnFailed(pid, log) {
+  if (!pid || PROJECTS.newFor || typeof S === 'undefined' || S.agentSession || S.log !== log) return;
+  PROJECTS.newFor = {id: pid, log};
+}
+
+/* Open a new chat in project `id` (a store id `p…` or a chat folder `f…`):
+   New chat, then the mark projectForNewTurn reads. As New chat, a turn
+   running in the chat on screen keeps running there (session:new). */
+function projectNewChat(id) {
+  act('session:new');
+  PROJECTS.newFor = {id, log: S.log};
+  render();
 }
 
 /* A new chat New project opened in a project with no disk folder: main reads
@@ -241,9 +298,7 @@ async function projectCreateSave() {
     render();
     return;
   }
-  act('session:new');
-  PROJECTS.newFor = {id, log: S.log};
-  render();
+  projectNewChat(id);
 }
 
 /** The New project sheet (S.overlay === 'pnew'). */
@@ -389,6 +444,7 @@ function projectAct(k, v) {
   if (k === 'pnewpick') { projectCreatePick(); return true; }
   if (k === 'pnewclear') { projectCreateRedraw({folder: ''}); return true; }
   if (k === 'pnewsave') { projectCreateSave(); return true; }
+  if (k === 'pchat') { if (projectAny(v)) projectNewChat(v); return true; }
   if (k === 'ptoggle') { projectToggle(v); render(); if (typeof nameVisibleSessions === 'function') nameVisibleSessions(); return true; }
   if (k === 'pmore') { PROJECTS.showAll = PROJECTS.showAll !== true; render(); if (typeof nameVisibleSessions === 'function') nameVisibleSessions(); return true; }
   if (k === 'pdelask') {
@@ -427,20 +483,26 @@ function projectsSidebarHTML(groups, folders) {
       const folder = g.kind === 'folder';
       const shut = folder ? g.item.collapsed : projectCollapsed(g.id);
       const where = folder ? '' : ' · ' + g.item.folder;
-      const head = folder
-        ? '<button class="sb-fhead" data-act="ftoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"'
-        : '<button class="sb-fhead" data-act="ptoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"';
+      const newChat = g.name ? 'New chat in ' + g.name : 'New chat in this project';
+      const fold = (folder ? 'ftoggle:' : 'ptoggle:') + g.id;
+      /* Review of #62: the row is a container, not a button, so its controls
+         are real buttons a screen reader lists: the fold toggle (chevron,
+         name, count), then New chat, Edit and Remove beside it. The row
+         takes a dragged chat (data-fdrop, chat-folders.js). */
       return '<div class="sb-folder sb-project' + (shut ? ' collapsed' : '') + '" ' + (folder ? 'data-folder' : 'data-project') + '="' + esc(g.id) + '">'
-        + head
+        + '<div class="sb-fhead sb-phead" data-fdrop="' + esc(g.id) + '"'
           + ' title="' + esc(g.name + where + ' · ' + g.rows.length + (g.rows.length === 1 ? ' chat' : ' chats')) + '">'
-          + '<span class="sb-fchev">' + ic(shut ? 'chevR' : 'chevD') + '</span>'
-          + '<span class="sb-fic">' + ic('folder') + '</span>'
-          + '<span class="sb-fname">' + esc(g.name) + '</span>'
-          + (g.rows.length ? '<span class="ct tnum">' + g.rows.length + '</span>' : '')
-          + '<span class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project" role="button">' + ic('edit') + '</span>'
-          + '<span class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project" role="button">' + ic('x') + '</span>'
-        + '</button>'
-        + (shut ? '' : g.rows.length ? g.rows.map(chatRow).join('') : '<div class="sb-empty sb-fempty">No chats yet. Drag a chat here</div>')
+          + '<button type="button" class="sb-ftoggle" data-act="' + esc(fold) + '" aria-expanded="' + !shut + '">'
+            + '<span class="sb-fchev">' + ic(shut ? 'chevR' : 'chevD') + '</span>'
+            + '<span class="sb-fic">' + ic('folder') + '</span>'
+            + '<span class="sb-fname">' + esc(g.name) + '</span>'
+            + (g.rows.length ? '<span class="ct tnum">' + g.rows.length + '</span>' : '')
+          + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pchat:' + esc(g.id) + '" title="' + esc(newChat) + '" aria-label="' + esc(newChat) + '">' + ic('plus') + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project">' + ic('edit') + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project">' + ic('x') + '</button>'
+        + '</div>'
+        + (shut ? '' : g.rows.length ? g.rows.map(chatRow).join('') : '<div class="sb-empty sb-fempty">No chats yet. Start one with + or drag a chat here</div>')
         + '</div>';
     }).join('')
     + toggle
