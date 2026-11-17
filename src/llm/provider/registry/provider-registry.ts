@@ -67,7 +67,7 @@ export const MAX_MODEL_VARIANTS_PER_PROVIDER = 16;
  * `localModels.url`, as the provider itself does.
  */
 function endpointReader(entry: LlmProviderConfigEntry): () => ProviderEndpoint {
-  const own = { kind: entry.kind, url: entry.url, baseUrl: entry.baseUrl };
+  const own = { kind: entry.kind, url: entry.url, baseUrl: entry.baseUrl, modelMode: entry.modelMode };
   return () => providerEndpointOf(own, entry.kind === "llama-server" && own.url === undefined ? liveLocalModelsUrl() : undefined);
 }
 
