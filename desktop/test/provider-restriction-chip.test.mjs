@@ -54,6 +54,7 @@ test("the chip says what the agent says, and the tooltip why, what may be used, 
     `This chat's folder (${FOLDER}) is restricted in projects.constraints.`,
     "Providers allowed: Local models.",
     "Allowed to leave this computer: git.",
+    "Chat channels and phone push: not allowed.",
     "In Fusion, only the side these providers allow would run.",
   ].join("\n"));
 });

@@ -280,10 +280,12 @@ composer's route chips, as the TUI composer does
 [provider-restriction.ts](main/provider-restriction.ts)), asked when a chat
 is opened and when each of its turns ends (a read inside a restricted
 folder narrows the chat mid-turn). The tooltip says why (the chat's folder,
-or the restricted folders it read from), the providers allowed, the egress
-classes allowed (the intersection of the config's `allowedEgress` for the
-entries the agent names; when one is not in the config, only whether chat
-channels and phone push are allowed, from `channelsAllowed`) and what
+or the restricted folders it read from), the providers allowed, whether chat
+channels and phone push are allowed (always the agent's `channelsAllowed`),
+the egress classes allowed (the intersection of this window's config
+`allowedEgress` for the entries the agent names, shown only for an agent on
+this computer, IPC `remote: false`, whose config has every entry and agrees
+with `channelsAllowed`) and what
 Fusion does: both sides, the orchestrator alone, the workers' model alone,
 or neither. No answer, an error, a 404 (an older agent, or a chat not
 stored yet) or an unrestricted chat: no chip.

@@ -131,12 +131,14 @@ export function wireAgentLiveIpc(client: AgentClient): void {
   });
   /* Issue #67: the composer's "restricted to: …" chip (renderer/chat-restriction.js).
      Read-only; the folder it names goes to the window and nowhere else. */
-  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer> => {
-    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return readProviderRestriction(null);
+  // `remote`: the agent is another computer's, so this window's config.json is not its policy (review of #67).
+  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer & { remote: boolean }> => {
+    const remote = client.isRemote;
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { ...readProviderRestriction(null), remote };
     try {
-      return readProviderRestriction(await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000));
+      return { ...readProviderRestriction(await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000)), remote: client.isRemote };
     } catch {
-      return readProviderRestriction(null);
+      return { ...readProviderRestriction(null), remote: client.isRemote };
     }
   });
 }

@@ -67,11 +67,15 @@ function restrictionTip(info, opts) {
     ? 'This chat read files from ' + r.readFrom.join(', ') + ', which ' + (r.readFrom.length > 1 ? 'are' : 'is') + ' restricted in projects.constraints.'
     : "This chat's folder (" + r.folder + ') is restricted in projects.constraints.');
   lines.push('Providers allowed: ' + (r.allowedProviders.length ? r.allowedProviders.map(word).join(', ') : 'none') + '.');
-  const egress = restrictionEgress(r, opts && opts.config);
+  /* Review of #67: the agent's `channelsAllowed` is the authority and is
+     always said. The config's list is this window's file: not the remote
+     agent's, and not a read-taint stamp's from before an edit, so it is
+     shown only for an agent on this computer and only when it agrees. */
+  const said = info.channelsAllowed === true || info.channelsAllowed === false;
+  let egress = info.remote === true ? null : restrictionEgress(r, opts && opts.config);
+  if (egress !== null && said && egress.includes('channels') !== info.channelsAllowed) egress = null;
   if (egress !== null) lines.push('Allowed to leave this computer: ' + (egress.length ? egress.join(', ') : 'nothing') + '.');
-  else if (info.channelsAllowed === true || info.channelsAllowed === false) {
-    lines.push('Chat channels and phone push: ' + (info.channelsAllowed ? 'allowed' : 'not allowed') + '.');
-  }
+  if (said) lines.push('Chat channels and phone push: ' + (info.channelsAllowed ? 'allowed' : 'not allowed') + '.');
   lines.push(restrictionFusionLine(opts && opts.rm, r.allowedProviders, word));
   return lines.join('\n');
 }
