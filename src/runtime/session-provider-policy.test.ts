@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
+import { describeProviderRestriction, makeProviderPolicy, noAllowedProviderError, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
 import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder, retrySessionSeed } from "./session-provider-policy.js";
 
@@ -222,11 +222,37 @@ describe("moveSessionFolder (issue #68)", () => {
     };
     const moved = moveSessionFolder(policy, tainted, "/elsewhere");
     expect(moved.session.workingDir).toBe("/elsewhere");
-    expect(moved.kept?.readFrom).toEqual(["/work/b", "/work/a"]);
+    expect(moved.kept?.readFrom).toEqual(["/work/b"]);
+    expect(moved.kept?.movedFrom).toEqual(["/work/a"]);
     const after = policy.forSession(moved.session);
     expect(after?.allowedProviders).toEqual(["local-llama"]);
     expect(after?.allowedEgress).toEqual(["web"]);
     expect(moved.policy?.key).toBe(after?.key);
+  });
+
+  it("a moved chat's refusal and status say it came from the old folder, not that it read files there", () => {
+    const moved = moveSessionFolder(policy, { id: "s", workingDir: "/work/b" }, "/elsewhere").session;
+    const after = policy.forSession(moved)!;
+    const message = noAllowedProviderError(after, "the main model").message;
+    expect(message).toContain("this chat came from /work/b, which is restricted to: local-llama");
+    expect(message).not.toContain("read files");
+    expect(describeProviderRestriction(after)).toMatchObject({ movedFrom: ["/work/b"], readFrom: [] });
+  });
+
+  it("a tainted chat moving inside its own constraint entry keeps its stamp unchanged (review)", () => {
+    const tainted = {
+      id: "s", workingDir: "/work/a/src",
+      metadata: { providerReadTaint: { key: "/work/b", allowedProviders: ["local-llama"], allowedEgress: ["web", "git"], matchedDir: "/work/b", readFrom: ["/work/b"] } },
+    };
+    const moved = moveSessionFolder(policy, tainted, "/work/a/docs");
+    expect(moved.kept).toBeUndefined();
+    expect(moved.session.metadata.providerReadTaint).toEqual(tainted.metadata.providerReadTaint);
+    // Moving out and back never repeats a key part.
+    const out = moveSessionFolder(policy, tainted, "/elsewhere");
+    const back = moveSessionFolder(policy, out.session, "/work/a/x");
+    const key = (back.session.metadata.providerReadTaint as { key: string }).key;
+    expect(new Set(key.split(" + ")).size).toBe(key.split(" + ").length);
+    expect(policy.forSession(back.session)?.key.split(" + ").sort()).toEqual(["/work/a", "/work/b"]);
   });
 
   it("adds nothing inside the same constraint entry, for an unrestricted session, or with no constraint configured", () => {
@@ -241,9 +267,44 @@ describe("moveSessionFolder (issue #68)", () => {
   });
 });
 
+describe("a stored stamp follows its constraint entries live (issue #68 review)", () => {
+  it("a tightened entry reaches a moved chat; a loosened or removed one leaves the snapshot holding", () => {
+    const config: { projects: { roots: never[]; constraints: Record<string, { allowedProviders: string[]; allowedEgress?: string[] }> } } = {
+      projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama", "openai"], allowedEgress: ["web"] }, "/work/z": { allowedProviders: [] } } },
+    };
+    const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+    const moved = moveSessionFolder(policy, { id: "s", workingDir: "/work/a" }, "/free").session;
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    // Tightened: the live entry narrows the snapshot.
+    config.projects.constraints["/work/a"] = { allowedProviders: ["local-llama"], allowedEgress: [] };
+    expect(policy.forSession(moved)?.allows("openai")).toBe(false);
+    expect(policy.forSession(moved)?.allowsEgress("web")).toBe(false);
+    expect(policy.forSession(moved)?.key).toBe("/work/a");
+    // Loosened: the snapshot still holds (stricter wins).
+    config.projects.constraints["/work/a"] = { allowedProviders: ["local-llama", "openai", "anthropic"], allowedEgress: ["web", "http"] };
+    expect(policy.forSession(moved)?.allows("anthropic")).toBe(false);
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    // Removed (other entries remain): the snapshot still holds.
+    delete config.projects.constraints["/work/a"];
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    expect(policy.forSession(moved)?.allows("anthropic")).toBe(false);
+  });
+});
+
 describe("retrySessionSeed (issue #68)", () => {
   const config = { projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama"] } } } };
   const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+
+  it("reads the original chat's live view: a taint its running turn has not saved yet is carried", () => {
+    const taint = { key: "/work/a", allowedProviders: ["local-llama"], allowedEgress: [], matchedDir: "/work/a", readFrom: ["/work/a"] };
+    const live = createSessionProviderPolicy({
+      readConfig: () => config,
+      loadSession: (id) => (id === "s-run" ? { workingDir: "/free" } : null),
+      liveSession: (id) => (id === "s-run" ? { workingDir: "/free", metadata: { providerReadTaint: taint } } : undefined),
+    });
+    const seed = retrySessionSeed(live, { kind: "session", session: { id: "s-run", workingDir: "/free" } }, "/free");
+    expect(seed).toMatchObject({ ok: true, restricted: true, metadata: { providerReadTaint: { key: "/work/a", allowedProviders: ["local-llama"] } } });
+  });
 
   it("carries the original chat's restriction, refuses a gone chat, and adds nothing otherwise", () => {
     const kept = retrySessionSeed(policy, { kind: "session", session: { id: "s", workingDir: "/work/a" } }, "/free");

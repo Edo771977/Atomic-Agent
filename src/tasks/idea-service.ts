@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+
 import type { SessionState } from "../session/index.js";
 
 import { goalIdeaInputs } from "./idea-goal-source.js";
@@ -26,17 +28,34 @@ export interface IdeaRefreshDeps {
   ideas: Pick<IdeaStore, "sync">;
   tasks: Pick<TaskStore, "list">;
   sessions: { listRecent(limit?: number): Pick<SessionState, "id" | "metadata">[] };
+  /**
+   * A chat's provider policy now (issue #68): a stamp, `null` when
+   * unrestricted, `undefined` when unknown (the chat is gone, no
+   * constraint is configured). Recorded on a Retry card so the retry
+   * keeps the restriction after the chat is deleted.
+   */
+  sourcePolicy?: (sessionId: string) => Record<string, unknown> | null | undefined;
   now?: number;
 }
 
 export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
   const now = deps.now ?? Date.now();
+  const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN });
   const candidates = buildIdeaCandidates({
-    tasks: deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }),
+    tasks,
     goals: goalIdeaInputs(deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)),
     now,
   });
-  return deps.ideas.sync(candidates, now);
+  const sourcePolicy = deps.sourcePolicy;
+  if (sourcePolicy === undefined) return deps.ideas.sync(candidates, now);
+  const sessionOf = new Map(tasks.map((t) => [t.id, t.sessionId]));
+  return deps.ideas.sync(candidates.map((c) => {
+    const taskId = ideaSourceTaskId(c);
+    const sessionId = taskId === null ? null : sessionOf.get(taskId) ?? null;
+    if (sessionId === null) return c;
+    const policy = sourcePolicy(sessionId);
+    return policy === undefined ? c : { ...c, sourcePolicy: policy };
+  }), now);
 }
 
 /**
@@ -78,7 +97,21 @@ export type IdeaTaskFactory = (input: {
   carry: IdeaTaskCarry | null;
   /** A `retry_task` idea (its `carry` is `null` when the original task is gone). */
   retry: boolean;
+  /** The original chat's policy recorded on the card (`IdeaCandidate.sourcePolicy`). */
+  recordedPolicy?: Record<string, unknown> | null;
 }) => TaskRecord;
+
+/**
+ * Thrown by a task factory when a Retry card can never be accepted (its
+ * original chat's restriction cannot be known, issue #68): `acceptIdea`
+ * retires the card instead of offering it again.
+ */
+export class IdeaUnavailableError extends TaskValidationError {
+  constructor(message: string) {
+    super("sessionId", message);
+    this.name = "IdeaUnavailableError";
+  }
+}
 
 export interface AcceptedIdea {
   idea: IdeaRecord;
@@ -134,7 +167,7 @@ export function ideaTaskCarry(
  * idea was already decided and `TaskValidationError` for a bad prompt.
  */
 export function acceptIdea(
-  ideas: Pick<IdeaStore, "get" | "claimForAccept" | "attachTask" | "release">,
+  ideas: Pick<IdeaStore, "get" | "claimForAccept" | "attachTask" | "release" | "dismiss">,
   createTask: IdeaTaskFactory,
   id: string,
   options: AcceptIdeaOptions = {},
@@ -148,9 +181,16 @@ export function acceptIdea(
   if (claimed === null) return null;
   let task: TaskRecord;
   try {
-    task = createTask({ sessionId: claimed.sessionId, userMessage: claimed.prompt, carry, retry: ideaSourceTaskId(before) !== null });
+    task = createTask({
+      sessionId: claimed.sessionId,
+      userMessage: claimed.prompt,
+      carry,
+      retry: ideaSourceTaskId(before) !== null,
+      ...(before.sourcePolicy === undefined ? {} : { recordedPolicy: before.sourcePolicy }),
+    });
   } catch (err) {
     ideas.release(id, before.prompt, now);
+    if (err instanceof IdeaUnavailableError) ideas.dismiss(id, now);
     throw err;
   }
   const idea = ideas.attachTask(id, task.id, now) ?? { ...claimed, taskId: task.id };
@@ -188,4 +228,15 @@ export function ideaToJson(idea: IdeaRecord): Record<string, unknown> {
     updatedAt: idea.updatedAt,
     decidedAt: idea.decidedAt,
   };
+}
+
+/**
+ * Where a Retry card's new chat opens when its original folder is gone
+ * and a restriction must be carried (issue #68): the home folder, the
+ * same for `serve` and `atomic-agent ideas accept` (neither knows which
+ * folder the process draining the task will use). An unrestricted retry
+ * opens no chat there; its task runs where the draining runtime works.
+ */
+export function ideaRetryFallbackDir(): string {
+  return homedir();
 }

@@ -56,6 +56,30 @@ function narrow(a: ProviderPolicy | undefined, b: ProviderPolicy | undefined): P
   return intersectProviderPolicies(a, b);
 }
 
+/**
+ * A stored stamp (read taint, a moved chat's carried restriction) is a
+ * snapshot of the entries named in its key. Each entry still configured
+ * narrows it live, so a later tightening reaches the chat; a loosened or
+ * removed entry leaves the snapshot holding (stricter wins). The key is
+ * kept, so memory scoping is unchanged.
+ */
+function withLiveEntries(taint: ProviderPolicy, config: Pick<AtomicAgentConfig, "projects">): ProviderPolicy {
+  const constraints = config.projects.constraints ?? {};
+  let providers = taint.allowedProviders;
+  let egress = taint.allowedEgress;
+  let hosts = taint.allowedProviderHosts;
+  for (const part of new Set(taint.key.split(" + "))) {
+    const entry = Object.prototype.hasOwnProperty.call(constraints, part) ? constraints[part] : undefined;
+    if (entry === undefined) continue;
+    providers = providers.filter((id) => entry.allowedProviders.includes(id));
+    egress = egress.filter((cls) => (entry.allowedEgress ?? []).includes(cls));
+    hosts = hosts.filter((host) => (entry.allowedProviderHosts ?? []).includes(host));
+  }
+  if (providers.length === taint.allowedProviders.length && egress.length === taint.allowedEgress.length
+    && hosts.length === taint.allowedProviderHosts.length) return taint;
+  return makeProviderPolicy({ ...taint, allowedProviders: providers, allowedEgress: egress, allowedProviderHosts: hosts });
+}
+
 export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const constraintsActive = (): boolean => hasProjectConstraints(deps.readConfig());
   const forWorkingDir = (workingDir: string): ProviderPolicy | undefined =>
@@ -64,7 +88,8 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     // Read taint (session-read-taint.ts): what the session read inside a
     // constrained folder holds on top of its own folder's policy.
     const own = ownPolicy(session);
-    const taint = readTaintOf(session.metadata);
+    const stored = readTaintOf(session.metadata);
+    const taint = stored === undefined ? undefined : withLiveEntries(stored, deps.readConfig());
     if (taint === undefined) return own;
     return own === undefined ? taint : intersectProviderPolicies(own, taint);
   };
@@ -239,7 +264,7 @@ export function childSessionSeed(
  * intersected with its read taint) is restricted, that policy rides with
  * it as its read taint (`providerReadTaint`, the same stamp, intersection,
  * `/resume` persistence and memory scoping), with the old folder named in
- * `readFrom`, and the new folder's own constraint intersects with it. An
+ * `movedFrom` (a refusal reads "this chat came from <folder>"), and the new folder's own constraint intersects with it. An
  * unrestricted session, or a move inside the same constraint entry,
  * changes only the folder. With no constraint configured nothing is added.
  */
@@ -247,18 +272,24 @@ export function moveSessionFolder<T extends { id: string; workingDir: string; me
   policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
   session: T,
   workingDir: string,
+  /** The session's policy right now, when the caller has a fresher view (a running turn's unsaved taint). */
+  currentPolicy?: ProviderPolicy,
 ): { session: T; kept: ProviderPolicy | undefined; policy: ProviderPolicy | undefined } {
   const plain = { ...session, workingDir };
   if (!policy.constraintsActive()) return { session: plain, kept: undefined, policy: undefined };
-  const current = policy.forSession(session);
+  const current = currentPolicy ?? policy.forSession(session);
   const destination = policy.forWorkingDir(workingDir);
-  if (current === undefined || (destination !== undefined && policyCovers(destination, current))) {
+  const previous = readTaintOf(session.metadata);
+  // What the chat would hold after a plain move: the new folder and the
+  // taint it already carries. When that covers today's policy (a move
+  // inside the same entry), nothing is added.
+  const after = destination === undefined ? previous : previous === undefined ? destination : intersectProviderPolicies(destination, previous);
+  if (current === undefined || (after !== undefined && policyCovers(after, current))) {
     return { session: plain, kept: undefined, policy: policy.forSession(plain) };
   }
   const oldFolder = policy.forWorkingDir(session.workingDir);
-  const readFrom = [...new Set([...(current.readFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
-  const carried = makeProviderPolicy({ ...current, readFrom });
-  const previous = readTaintOf(session.metadata);
+  const movedFrom = [...new Set([...(current.movedFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
+  const carried = makeProviderPolicy({ ...current, movedFrom });
   const taint = previous === undefined ? carried : intersectProviderPolicies(previous, carried);
   const moved = { ...plain, metadata: { ...(session.metadata ?? {}), [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(taint) } };
   return { session: moved, kept: carried, policy: policy.forSession(moved) };
@@ -269,6 +300,8 @@ export type RetrySource =
   | { kind: "session"; session: { id: string; workingDir: string; metadata?: Record<string, unknown> } }
   /** The original task never had a chat: it ran in the default folder, as the rerun will. */
   | { kind: "none" }
+  /** The chat is gone, but the card recorded its policy (a stamp) when it was offered. */
+  | { kind: "recorded"; stamp: Record<string, unknown> }
   /** The original task, or its chat, is gone: its restriction cannot be known. */
   | { kind: "missing" };
 
@@ -286,13 +319,20 @@ export const RETRY_RESTRICTION_UNKNOWN =
  * constraint configured nothing is added.
  */
 export function retrySessionSeed(
-  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir" | "effectivePolicyForSession">,
   source: RetrySource,
   workingDir: string,
 ): { ok: true; metadata: Record<string, unknown>; restricted: boolean } | { ok: false; error: string } {
   if (!policy.constraintsActive() || source.kind === "none") return { ok: true, metadata: {}, restricted: false };
   if (source.kind === "missing") return { ok: false, error: RETRY_RESTRICTION_UNKNOWN };
-  const moved = moveSessionFolder(policy, source.session, workingDir);
+  if (source.kind === "recorded") {
+    // The recorded policy is carried as is (an unreadable stamp fails closed
+    // in `readTaintOf`); the new folder's own constraint intersects with it.
+    return { ok: true, metadata: { [READ_TAINT_METADATA_KEY]: source.stamp }, restricted: true };
+  }
+  // The live view: the stored row, and a turn running for the chat now
+  // whose taint is not saved yet.
+  const moved = moveSessionFolder(policy, source.session, workingDir, policy.effectivePolicyForSession(source.session));
   const stamp = moved.session.metadata?.[READ_TAINT_METADATA_KEY];
   // Within the same constraint entry the original's stored taint (if any) still applies.
   const taint = stamp ?? source.session.metadata?.[READ_TAINT_METADATA_KEY];
@@ -305,8 +345,31 @@ export function retrySessionSeed(
 export function retrySourceOf(
   retry: boolean,
   carry: { sourceSession: { id: string; workingDir: string; metadata?: Record<string, unknown> } | null; sourceSessionMissing: boolean } | null,
+  /** The policy the card recorded when offered (`IdeaCandidate.sourcePolicy`). */
+  recorded?: Record<string, unknown> | null,
 ): RetrySource | null {
   if (!retry) return null;
-  if (carry === null || carry.sourceSessionMissing) return { kind: "missing" };
+  if (carry === null || carry.sourceSessionMissing) {
+    if (recorded === undefined) return { kind: "missing" };
+    return recorded === null ? { kind: "none" } : { kind: "recorded", stamp: recorded };
+  }
   return carry.sourceSession === null ? { kind: "none" } : { kind: "session", session: carry.sourceSession };
+}
+
+/**
+ * What a Retry card records about its original chat when offered (issue
+ * #68, `IdeaRefreshDeps.sourcePolicy`): its effective policy as a stamp,
+ * `null` when unrestricted, `undefined` when unknown (the chat is gone,
+ * or no constraint is configured, so nothing can be said for later).
+ */
+export function sessionPolicyStamp(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  load: (sessionId: string) => { workingDir: string; metadata?: Record<string, unknown> } | null,
+  sessionId: string,
+): ProviderPolicyStamp | null | undefined {
+  if (!policy.constraintsActive()) return undefined;
+  const row = load(sessionId);
+  if (row === null) return undefined;
+  const effective = policy.effectivePolicyForSession({ id: sessionId, ...row });
+  return effective === undefined ? null : toProviderPolicyStamp(effective);
 }

@@ -33,6 +33,11 @@ export interface ProviderPolicy {
    * own constraint.
    */
   readonly readFrom?: readonly string[];
+  /**
+   * The constrained folders this chat was moved out of with their
+   * restriction (issue #68), when that is why the policy applies.
+   */
+  readonly movedFrom?: readonly string[];
   /** Whether `providerId` (the ACTUAL provider about to be called) is allowed. */
   allows(providerId: string): boolean;
   /** Whether a tool of egress class `cls` may run. */
@@ -48,6 +53,7 @@ export interface ProviderPolicyStamp {
   allowedProviderHosts?: string[];
   matchedDir: string;
   readFrom?: string[];
+  movedFrom?: string[];
 }
 
 /** Build a policy; an absent `allowedEgress` is none (fail closed). */
@@ -58,12 +64,16 @@ export function makeProviderPolicy(stamp: {
   allowedProviderHosts?: readonly string[];
   matchedDir: string;
   readFrom?: readonly string[] | undefined;
+  movedFrom?: readonly string[] | undefined;
 }): ProviderPolicy {
   const allowed = Object.freeze([...stamp.allowedProviders]);
   const egress = Object.freeze([...(stamp.allowedEgress ?? [])]);
   const hosts = Object.freeze([...(stamp.allowedProviderHosts ?? [])]);
   const readFrom = stamp.readFrom !== undefined && stamp.readFrom.length > 0
     ? Object.freeze([...stamp.readFrom])
+    : undefined;
+  const movedFrom = stamp.movedFrom !== undefined && stamp.movedFrom.length > 0
+    ? Object.freeze([...stamp.movedFrom])
     : undefined;
   return Object.freeze({
     key: stamp.key,
@@ -72,6 +82,7 @@ export function makeProviderPolicy(stamp: {
     allowedProviderHosts: hosts,
     matchedDir: stamp.matchedDir,
     ...(readFrom === undefined ? {} : { readFrom }),
+    ...(movedFrom === undefined ? {} : { movedFrom }),
     allows: (providerId: string) => allowed.includes(providerId),
     allowsEgress: (cls: string) => egress.includes(cls),
   });
@@ -85,16 +96,20 @@ export function toProviderPolicyStamp(policy: ProviderPolicy): ProviderPolicySta
     ...(policy.allowedProviderHosts.length === 0 ? {} : { allowedProviderHosts: [...policy.allowedProviderHosts] }),
     matchedDir: policy.matchedDir,
     ...(policy.readFrom === undefined ? {} : { readFrom: [...policy.readFrom] }),
+    ...(policy.movedFrom === undefined ? {} : { movedFrom: [...policy.movedFrom] }),
   };
 }
 
 /** Rebuild a stamped policy; anything malformed is `undefined` (the caller fails closed). */
 export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefined {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const { key, allowedProviders, allowedEgress, allowedProviderHosts, matchedDir, readFrom } = raw as Record<string, unknown>;
+  const { key, allowedProviders, allowedEgress, allowedProviderHosts, matchedDir, readFrom, movedFrom } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)) return undefined;
   if (!allowedProviders.every((id): id is string => typeof id === "string")) return undefined;
   if (readFrom !== undefined && !(Array.isArray(readFrom) && readFrom.every((dir): dir is string => typeof dir === "string"))) {
+    return undefined;
+  }
+  if (movedFrom !== undefined && !(Array.isArray(movedFrom) && movedFrom.every((dir): dir is string => typeof dir === "string"))) {
     return undefined;
   }
   // A stamp from before allowedEgress existed carries none: no egress.
@@ -110,6 +125,7 @@ export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefine
     ...(allowedProviderHosts === undefined ? {} : { allowedProviderHosts: allowedProviderHosts as string[] }),
     matchedDir,
     readFrom: readFrom as string[] | undefined,
+    movedFrom: movedFrom as string[] | undefined,
   });
 }
 
@@ -329,4 +345,21 @@ export function resolveProjectConstraint(
       allowedProviderHosts: best.allowedProviderHosts,
       matchedDir: workingDir,
     });
+}
+
+/**
+ * Why a restriction applies to a session beyond its own folder, for a
+ * refusal: "this session read files from /a" (read taint), "this chat
+ * came from /b" (moved with its restriction, issue #68), or both; with
+ * whether several folders are named. `undefined` for a folder's own.
+ */
+export function restrictionOrigin(policy: Pick<ProviderPolicy, "readFrom" | "movedFrom">): { text: string; plural: boolean } | undefined {
+  const read = policy.readFrom ?? [];
+  const moved = policy.movedFrom ?? [];
+  if (read.length === 0 && moved.length === 0) return undefined;
+  const parts = [
+    ...(moved.length > 0 ? [`came from ${moved.join(", ")}`] : []),
+    ...(read.length > 0 ? [`read files from ${read.join(", ")}`] : []),
+  ];
+  return { text: `this ${moved.length > 0 ? "chat" : "session"} ${parts.join(" and ")}`, plural: new Set([...read, ...moved]).size > 1 };
 }

@@ -1,6 +1,8 @@
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
+import { getConfig } from "../config/index.js";
+import { hasProjectConstraints } from "../llm/provider-policy.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
 
@@ -58,8 +60,14 @@ export function createSetSessionWorkingDirHandler(): HttpHandler {
       sendError(res, 409, openaiError("this chat has a turn in progress; change its folder when it finishes", "invalid_request_error", null, "turn_in_progress"));
       return;
     }
-    // Issue #68: a restricted chat keeps its restriction wherever it goes.
-    const moved = ctx.runtime.moveSessionFolder?.(session, check.dir)
+    // Issue #68: a restricted chat keeps its restriction wherever it goes. A
+    // runtime that cannot carry it may not move a chat while constraints exist.
+    const move = ctx.runtime.moveSessionFolder;
+    if (move === undefined && hasProjectConstraints(getConfig())) {
+      sendError(res, 501, openaiError("this server cannot keep a chat's folder restriction when it moves; the chat was not moved", "invalid_request_error", null, "restriction_unavailable"));
+      return;
+    }
+    const moved = move?.(session, check.dir)
       ?? { session: { ...session, workingDir: check.dir }, restriction: null, restrictionKept: false };
     ctx.runtime.sessionStore.save(moved.session);
     sendJson(res, 200, { id, workingDir: check.dir, restriction: moved.restriction, restrictionKept: moved.restrictionKept });

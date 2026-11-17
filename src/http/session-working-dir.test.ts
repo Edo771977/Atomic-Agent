@@ -70,7 +70,7 @@ describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issu
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workingDir }),
   });
   const restrictionOf = async (h: Harness, id: string) =>
-    ((await (await fetch(`${h.baseUrl}/api/sessions/${id}/provider-restriction`)).json()) as { restriction: { allowedProviders: string[]; readFrom: string[] } | null }).restriction;
+    ((await (await fetch(`${h.baseUrl}/api/sessions/${id}/provider-restriction`)).json()) as { restriction: { allowedProviders: string[]; readFrom: string[]; movedFrom: string[] } | null }).restriction;
 
   it("a restricted chat moved to an unconstrained folder still refuses a cloud provider and web egress", async () => {
     harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
@@ -83,7 +83,7 @@ describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issu
     // The next turn's policy: no cloud provider, no web.
     expect(harness.runtime.egressRefusal?.("wd-r1", "web")).toContain("restricted");
     expect(harness.runtime.providerRestrictionFor?.(moved)?.allowedProviders).toEqual(["local-llama"]);
-    expect(await restrictionOf(harness, "wd-r1")).toMatchObject({ allowedProviders: ["local-llama"], readFrom: [harness.workingDir] });
+    expect(await restrictionOf(harness, "wd-r1")).toMatchObject({ allowedProviders: ["local-llama"], readFrom: [], movedFrom: [harness.workingDir] });
     const body = (await res.json()) as { workingDir: string; restrictionKept: boolean; restriction: { allowedProviders: string[] } | null };
     expect(body.workingDir).toBe(open);
     expect(body.restrictionKept).toBe(true);
@@ -123,6 +123,33 @@ describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issu
     expect(harness.runtime.egressRefusal?.("wd-i1", "git")).toContain("restricted");
     expect(await restrictionOf(harness, "wd-i1")).toMatchObject({ allowedProviders: ["local-llama"] });
     expect(((await res.json()) as { restriction: { allowedProviders: string[] } }).restriction.allowedProviders).toEqual(["local-llama"]);
+  });
+
+  it("refuses the move while constraints exist when the runtime cannot carry a restriction", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const open = mkdtempSync(join(tmpdir(), "wd-nohook-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-n1", workingDir: harness.workingDir }));
+    Object.defineProperty(harness.runtime, "moveSessionFolder", { value: undefined, configurable: true });
+    const res = await post(harness, "wd-n1", open);
+    expect(res.status).toBe(501);
+    expect(harness.runtime.sessionStore.load("wd-n1")?.workingDir).toBe(harness.workingDir);
+  });
+
+  it("a refused move (turn in progress) leaves the stamp and folder as they were", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const first = mkdtempSync(join(tmpdir(), "wd-busy1-"));
+    const second = mkdtempSync(join(tmpdir(), "wd-busy2-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-b1", workingDir: harness.workingDir }));
+    expect((await post(harness, "wd-b1", first)).status).toBe(200);
+    const stamped = harness.runtime.sessionStore.load("wd-b1")!.metadata?.providerReadTaint;
+    expect(stamped).toBeDefined();
+    const busy = vi.spyOn(harness.runtime.turnController, "isBusy").mockReturnValue(true);
+    expect((await post(harness, "wd-b1", second)).status).toBe(409);
+    busy.mockRestore();
+    const after = harness.runtime.sessionStore.load("wd-b1")!;
+    expect(after.workingDir).toBe(first);
+    expect(after.metadata?.providerReadTaint).toEqual(stamped);
+    expect(harness.runtime.egressRefusal?.("wd-b1", "web")).toContain("restricted");
   });
 
   it("the carried restriction persists in the stored chat (reload, /resume) and through a second move", async () => {
