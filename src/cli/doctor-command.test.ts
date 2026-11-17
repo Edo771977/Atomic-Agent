@@ -49,6 +49,29 @@ describe("atag doctor (ATO-577)", () => {
     expect(out).toContain("project-constraints: /work/other restricted to: no provider; egress allowed: none;");
   });
 
+  it("warns about catalog-local stdio servers added before the local flag, only under a constraint (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.mcp = { servers: [
+      { name: "time", enabled: true, transport: { kind: "stdio", command: "uvx", args: ["mcp-server-time"] } },
+      { name: "files", enabled: true, transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes", "/home/me/code"] } },
+      { name: "fetch", enabled: true, transport: { kind: "stdio", command: "uvx", args: ["mcp-server-fetch"] } },
+      { name: "memory", enabled: true, local: true, transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"] } },
+    ] };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).not.toContain("mcp-local");
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedEgress: [] } } };
+    save(tree);
+    out = "";
+    await run([]);
+    expect(out).toContain('warn  mcp-local: time: a catalog server that works on local data, without "local": true, so folders with an egress constraint refuse its tools; set "local": true on mcp.servers[0] in config.json, or add "mcp:time" to the folder\'s allowedEgress');
+    expect(out).toContain('warn  mcp-local: files: a catalog server that works on local data');
+    expect(out).not.toContain("mcp-local: fetch");
+    expect(out).not.toContain("mcp-local: memory");
+    // Nothing is migrated: the file keeps its servers unmarked.
+    expect(read().mcp.servers[0].local).toBeUndefined();
+  });
+
   it("reports memory rows retro-tagged with a folder's constraint and untagged profile facts (issue #33)", async () => {
     const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
     tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"] } } };

@@ -425,7 +425,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mcp.servers` | `McpServerConfig[]` | `[]` | MCP client servers. Each entry declares one external MCP server the runtime will connect to at bootstrap and whose tools / resources / prompts will be exposed through the agent's tool registry (namespaced as `mcp.<server>.<tool>`). |
+| `mcp.servers` | `McpServerConfig[]` | `[]` | MCP client servers. One entry per external MCP server, connected at bootstrap, its tools exposed as `mcp.<server>.<tool>`. `local: true` on a stdio entry: it never reaches the network, so an egress-constrained folder allows it without `mcp:<server>` in `allowedEgress`. Older files are transparently upgraded with `mcp: { servers: [] }`. |
 
 ## webhooks
 
