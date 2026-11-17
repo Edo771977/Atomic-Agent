@@ -2,6 +2,8 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { getConfig, LOCAL_PROVIDER_KIND, type AtomicAgentConfig } from "../config/index.js";
+import { restrictionOrigin } from "../config/project-constraint-match.js";
+import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
 import { isLocalProviderUrl } from "../llm/provider/presets/is-local-provider-url.js";
 import {
   HANDOFF_AGENT_LABEL,
@@ -326,6 +328,12 @@ export async function handoffToCommand(
     stderr(`${session.id} is an incognito chat; it cannot be handed off\n`);
     return 1;
   }
+  // Issue #68: the brief hands the chat's content to the other agent's provider.
+  const restricted = handoffTargetRefusal(getConfig(), session, parsed.to);
+  if (restricted !== null) {
+    stderr(`${restricted}\n`);
+    return 1;
+  }
   // Like `export`: the brief leaves the agent, so known keys are masked.
   const brief = maskSecrets(
     buildHandoffBrief({
@@ -521,6 +529,55 @@ function formatCandidate(c: HandoffCandidate): string {
   const title = c.title ?? "(untitled)";
   const where = c.cwd ?? "?";
   return `  ${c.id}  ${when}  ${c.messageCount} msgs  ${where}\n      ${title}`;
+}
+
+/** The provider that receives a brief handed to `to`, for a refusal. */
+const HANDOFF_TARGET_VENDOR: Record<HandoffTarget, string> = { claude: "Anthropic", codex: "OpenAI" };
+
+/** Does a configured provider entry send to the same vendor as agent `to`? */
+function entryServes(to: HandoffTarget, entry: NonNullable<AtomicAgentConfig["llm"]>["providers"][number]): boolean {
+  const cli = entry.kind === SUBSCRIPTION_CLI_KIND ? entry.subscriptionCli?.cli : undefined;
+  if (to === "claude") return entry.kind === "anthropic" || cli === "claude";
+  if (cli === "codex") return true;
+  if (entry.kind !== "openai-compatible" || typeof entry.baseUrl !== "string") return false;
+  try {
+    return new URL(entry.baseUrl).hostname === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Why a brief of `session` may not be written for agent `to` (issue #68),
+ * or `null`: while the chat's policy (its folder and read taint) is
+ * restricted, one of its allowed provider ids must name a configured
+ * provider of that agent's vendor (`claude`: an `anthropic` or Claude
+ * subscription entry; `codex`: a Codex subscription entry or an
+ * `openai-compatible` one on api.openai.com). Anything else is refused.
+ */
+export function handoffTargetRefusal(
+  config: AtomicAgentConfig,
+  session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
+  to: HandoffTarget,
+): string | null {
+  const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+  if (!policy.constraintsActive()) return null;
+  const effective = policy.forSession(session);
+  if (effective === undefined) return null;
+  const entries = config.llm?.providers ?? [];
+  const allowed = effective.allowedProviders.some((id) => {
+    const entry = entries.find((e) => e.id === id);
+    return entry !== undefined && entryServes(to, entry);
+  });
+  if (allowed) return null;
+  const origin = restrictionOrigin(effective);
+  const list = effective.allowedProviders.length === 0 ? "no provider" : effective.allowedProviders.join(", ");
+  const head = origin === undefined
+    ? `folder ${effective.key} is restricted to: ${list}`
+    : `${origin.text}, which ${origin.plural ? "are" : "is"} restricted to: ${list}`;
+  const keys = effective.key.split(" + ").map((k) => `projects.constraints[${JSON.stringify(k)}]`).join(" and ");
+  return `${head}; a handoff to ${HANDOFF_TARGET_LABEL[to]} would send this chat to ${HANDOFF_TARGET_VENDOR[to]}, so nothing was written. ` +
+    `To allow it, add the id of a ${HANDOFF_TARGET_VENDOR[to]} provider (llm.providers) to allowedProviders of ${keys}`;
 }
 
 function usableDir(dir: string | null): string | null {
