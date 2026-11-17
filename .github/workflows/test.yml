@@ -149,7 +149,7 @@ jobs:
 
       - name: Run pure eval harness tests
         if: (success() || failure()) && steps.install.outcome == 'success' && matrix.drop_canvas == 'false'
-        run: node node_modules/vitest/vitest.mjs run --config eval-agents/vitest.hermetic.config.ts --maxWorkers=1 --minWorkers=1
+        run: node node_modules/vitest/vitest.mjs run --config eval-agents/vitest.hermetic.config.ts --maxWorkers=1
 
   windows-core:
     name: Windows core reliability

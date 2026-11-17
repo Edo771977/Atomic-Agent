@@ -263,7 +263,7 @@ function main() {
       // the same test passed in 4 s on one run and hit the default 15 s on
       // another. A wider per-test ceiling keeps those from flaking without
       // changing what they assert.
-      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
+      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
         cwd: root, stdio: 'inherit', env: { ...process.env, ATOMIC_AGENT_STATE_DIR: state },
       });
       if (result.error) throw result.error;
