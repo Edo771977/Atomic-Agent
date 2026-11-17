@@ -32,6 +32,7 @@ import { createEmptySessionState, type SessionState } from "../session/index.js"
 
 import { createAgUiTranslator } from "./ag-ui-events.js";
 import { openaiError } from "./openai-errors.js";
+import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import {
   beginSse,
   onClientGone,
@@ -90,6 +91,12 @@ export function createAgUiRunHandler(): HttpHandler {
       return;
     }
     const session = resolveThreadSession(input.threadId, ctx);
+    // Issue #33: a network server refuses a restricted session's turn
+    // before it runs, like `/v1/chat/completions`.
+    if (serveWithheld(ctx, session)()) {
+      sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+      return;
+    }
     await runAgUiTurn(res, ctx, session, input);
   };
 }
@@ -112,13 +119,25 @@ async function runAgUiTurn(
   onClientGone(res, () => controller.abort());
   translator.runStarted();
 
+  // Once a read taints the turn mid-way, nothing more of it is written
+  // and the turn is stopped (issue #33).
+  const withheld = serveWithheld(ctx, session);
+  let cut = false;
   let result: RunTurnResult | null = null;
   let error: Error | null = null;
   try {
     result = await ctx.runtime.runTurn(session, input.userMessage, {
       signal: controller.signal,
       origin: "http",
-      eventHook: (event) => translator.onEvent(event),
+      eventHook: (event) => {
+        if (cut) return;
+        if (withheld()) {
+          cut = true;
+          controller.abort();
+          return;
+        }
+        translator.onEvent(event);
+      },
     });
   } catch (err) {
     error = err instanceof Error ? err : new Error(String(err));
@@ -127,7 +146,9 @@ async function runAgUiTurn(
   // `GET /api/sessions/{id}/steer` finds it, as after a chat stream.
   ctx.undeliveredSteers.park(session.id, result?.undelivered ?? []);
 
-  if (error) {
+  if (cut || withheld()) {
+    translator.failed(SERVE_RESTRICTED_NOTICE);
+  } else if (error) {
     translator.failed(error.message);
   } else if (result!.session.status === "failed") {
     translator.failed(result!.session.lastError ?? "Agent loop failed");

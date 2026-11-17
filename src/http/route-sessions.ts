@@ -1,3 +1,4 @@
+import { serveWithheld } from "./serve-egress.js";
 import { readGoalState } from "../agent/goal/index.js";
 import { MAX_PENDING_STEERS } from "../runtime/steering-inbox.js";
 import type { SessionState } from "../session/session-state.js";
@@ -129,7 +130,9 @@ export function createSearchSessionsHandler(): HttpHandler {
         ...(limit === undefined ? {} : { limit }),
         ...(all ? {} : { workingDir: ctx.runtime.capabilities.workingDir }),
       });
-      sendJson(res, 200, { query, hits: result.hits, pending: result.pending });
+      // Issue #33: a network server lists no line of a restricted session.
+      const hits = result.hits.filter((hit) => !serveWithheld(ctx, hit.sessionId)());
+      sendJson(res, 200, { query, hits, pending: result.pending });
     } catch (err) {
       if (err instanceof SessionSearchUnavailableError) {
         sendError(res, 503, openaiError(err.message));
