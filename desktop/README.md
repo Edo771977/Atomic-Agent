@@ -789,8 +789,13 @@ Honestly degraded, and labelled as such in the UI:
   provider judged by place, not already in `allowedProviderHosts`. Only the
   click writes, through the whole-file compare-and-swap write, and the main
   process checks again before adding the normalised host. Its address rules
-  (and [local-server-url.ts](main/local-server-url.ts)) are copies of the
-  agent's, compared by `test/folder-provider-hosts.test.mjs`.
+  (`isPrivateNetworkUrl` among them) are copies of the agent's, compared by
+  `test/folder-provider-hosts.test.mjs`. They are used for this warning only:
+  [local-server-url.ts](main/local-server-url.ts) keeps its narrower rule,
+  since a project model reads it as "cloud vs this machine" (a `.corp`,
+  `.intranet`, `.ts.net` or 100.64/10 gateway stays cloud there) and
+  `test/project-model.test.mjs` keeps it equal to the renderer's
+  `projectLocalUrl`.
 - **LLM** is the TUI's four panes. Local rows come from `atag models list`
   minus the ids `models list-embeddings` lists (the chat route never picks an
   embedding model, and which models those are is a fact the CLI publishes —

@@ -152,3 +152,25 @@ test('client: a turn on the project\'s model sends provider_id + provider_model 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+// Review of issue #65: main/local-server-url.ts and renderer projectLocalUrl
+// decide together whether a project's model is "cloud" (main turnModelFor,
+// renderer projectCloudEntry). They must agree on every host, including the
+// gateways the agent's wider private-network rule counts (.corp, .intranet,
+// .ts.net, CGNAT), which here stay cloud.
+test('main isLocalServerUrl and renderer projectLocalUrl agree, and gateways stay cloud', () => {
+  const { isLocalServerUrl } = require('../out/main/local-server-url.js');
+  const { projectLocalUrl } = require('../renderer/project-model.js');
+  const urls = [
+    'http://localhost:8080', 'http://foo.localhost', 'http://0.0.0.0:1', 'http://[::1]:8080', 'http://127.0.0.1', 'http://10.0.0.5',
+    'http://172.16.0.1', 'http://172.32.0.1', 'http://192.168.1.20.', 'http://169.254.1.1', 'http://[fe80::1]', 'http://[fd00::1]',
+    'http://box.local', 'http://BOX.LAN', 'http://x.internal', 'http://nas.home.arpa', 'http://gpubox',
+    'https://gw.corp', 'https://llm.intranet', 'https://box.tail1.ts.net', 'http://100.64.0.1', 'http://box.home',
+    'http://box.localdomain', 'http://10.0.0.5.nip.io', 'http://[::ffff:127.0.0.1]', 'http://[::]', 'https://api.openai.com/v1',
+    'not a url', '', undefined,
+  ];
+  for (const url of urls) assert.equal(isLocalServerUrl(url), projectLocalUrl(url), String(url));
+  for (const url of ['https://gw.corp', 'https://llm.intranet', 'https://box.tail1.ts.net', 'http://100.64.0.1']) {
+    assert.equal(isLocalServerUrl(url), false, url + ' stays cloud for a project model');
+  }
+});

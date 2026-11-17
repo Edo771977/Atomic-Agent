@@ -18,7 +18,6 @@ after(() => rmSync(stateDir, { recursive: true, force: true }));
 const require = createRequire(import.meta.url);
 const cli = require("../out/main/agent-cli.js");
 const H = require("../out/main/folder-provider-hosts.js");
-const { isLocalServerUrl } = require("../out/main/local-server-url.js");
 
 const URLS = [
   "http://localhost:8080", "http://LOCALHOST.:8080", "http://127.0.0.1:1234", "http://127.9.9.9", "http://[::1]:8080",
@@ -34,7 +33,7 @@ const URLS = [
   "not a url", "", undefined, "http://", "file:///tmp/x",
 ];
 
-test("the address rules match the agent's (isLocalServerUrl, constraintHostOf, isLoopbackHost, normalizeProviderHost)", () => {
+test("the address rules match the agent's (isPrivateNetworkUrl = isLocalServerUrl, constraintHostOf, isLoopbackHost, normalizeProviderHost)", () => {
   const coreLocal = loadCore(new URL("../../src/llm/provider/openai/local-server-url.ts", import.meta.url));
   const coreHost = loadCore(new URL("../../src/llm/provider/url-host.ts", import.meta.url));
   const coreNet = loadCore(new URL("../../src/llm/offline-network.ts", import.meta.url));
@@ -47,7 +46,7 @@ test("the address rules match the agent's (isLocalServerUrl, constraintHostOf, i
     return host;
   };
   for (const url of URLS) {
-    assert.equal(isLocalServerUrl(url), coreLocal.isLocalServerUrl(url), `isLocalServerUrl ${url}`);
+    assert.equal(H.isPrivateNetworkUrl(url), coreLocal.isLocalServerUrl(url), `isPrivateNetworkUrl ${url}`);
     assert.equal(H.constraintHostOf(url), coreHost.constraintHostOf(url), `constraintHostOf ${url}`);
     assert.equal(H.networkHostToList(url), coreRefused(url), `networkHostToList ${url}`);
   }
