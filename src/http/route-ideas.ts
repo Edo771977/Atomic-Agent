@@ -15,6 +15,7 @@ import {
   IDEA_STATUSES,
   IdeaStateError,
   IdeaStore,
+  IdeaUnavailableError,
   TaskValidationError,
   acceptIdea,
   ideaToJson,
@@ -122,6 +123,7 @@ export function createRefreshIdeasHandler(): HttpHandler {
         ideas,
         tasks: ctx.runtime.taskStore,
         sessions: ctx.runtime.sessionStore,
+        ...(ctx.runtime.sessionPolicyStamp ? { sourcePolicy: ctx.runtime.sessionPolicyStamp } : {}),
       });
       sendJson(res, 200, {
         ideas: visibleIdeas(ctx, ideas.list({ status: "new" })).map(ideaToJson),
@@ -164,19 +166,19 @@ export function createAcceptIdeaHandler(): HttpHandler {
       try {
         const accepted = acceptIdea(
           ideas,
-          ({ sessionId, userMessage, carry, retry }) => {
+          ({ sessionId, userMessage, carry, retry, recordedPolicy }) => {
             // A Retry card reruns in a fresh chat opened in the original's folder,
             // the way `POST /api/tasks` with `workingDir` does; a folder that is
             // gone falls back to the default one. Either way the new chat keeps
             // the original chat's restriction (issue #68).
             let taskSessionId = sessionId;
             let opened: string | null = null;
-            const source = taskSessionId ? null : retrySourceOf(retry, carry);
+            const source = taskSessionId ? null : retrySourceOf(retry, carry, recordedPolicy);
             if (source !== null) {
               const dir = carry?.workingDir ? checkWorkingDir(carry.workingDir) : null;
               const target = dir?.ok ? dir.dir : ctx.runtime.capabilities.workingDir;
               const seed = ideaRetrySeed(ctx, source, target);
-              if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);
+              if (!seed.ok) throw new IdeaUnavailableError(`${seed.error}; the card is retired`);
               if (dir?.ok || seed.restricted) {
                 const fresh = ctx.runtime.createSession({ metadata: { source: "http-task", ...seed.metadata }, persist: false });
                 ctx.runtime.sessionStore.save({ ...fresh, workingDir: target });

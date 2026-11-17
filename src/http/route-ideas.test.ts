@@ -203,15 +203,40 @@ describe("/api/ideas accept keeps the original chat's restriction (issue #68)", 
     expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
   });
 
-  it("refuses a retry whose original chat is gone while constraints exist (fail closed)", async () => {
-    harness = await startTestHarness({ constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } });
-    const id = await retryIdea(harness, { id: "s-gone", workingDir: harness.workingDir });
-    harness.runtime.sessionStore.delete("s-gone");
-    const before = harness.runtime.taskStore.list({ limit: 50 }).length;
+  it("a retry whose chat was deleted after the card was offered keeps the restriction recorded on the card", async () => {
+    const secret = mkdtempSync(join(tmpdir(), "idea-rec-"));
+    dirs.push(secret);
+    harness = await startTestHarness({ constraints: { [secret]: { allowedProviders: ["local-llama"] } } });
+    const id = await retryIdea(harness, { id: "s-rec", workingDir: secret });
+    harness.runtime.sessionStore.delete("s-rec");
     const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(200);
+    const task = harness.runtime.taskStore.get(((await res.json()) as { task: { id: string } }).task.id)!;
+    expect(task.sessionId).not.toBeNull();
+    expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
+    expect(harness.runtime.providerRestrictionFor?.(harness.runtime.sessionStore.load(task.sessionId!)!)?.allowedProviders).toEqual(["local-llama"]);
+  });
+
+  it("refuses, and retires, a retry whose chat was gone before its restriction could be recorded (fail closed)", async () => {
+    harness = await startTestHarness({ constraints: { "/work/secret": { allowedProviders: ["local-llama"] } } });
+    const h = harness;
+    h.runtime.sessionStore.save({ ...h.runtime.createSession({ persist: false }), id: "s-gone", workingDir: h.workingDir });
+    const original = h.runtime.taskStore.create({ sessionId: "s-gone", userMessage: "summarise the acme figures", origin: "http", maxAttempts: 1 });
+    h.runtime.taskStore.markRunning(original.id);
+    h.runtime.taskStore.markBlocked(original.id, { category: "transport", message: "spend ceiling reached" });
+    h.runtime.sessionStore.delete("s-gone");
+    const refreshed = (await (await post(h, "/api/ideas/refresh")).json()) as { ideas: IdeaJson[] };
+    const id = refreshed.ideas.find((i) => i.kind === "retry_task")!.id;
+    const before = h.runtime.taskStore.list({ limit: 50 }).length;
+    const res = await post(h, `/api/ideas/${id}/accept`);
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { message: string } }).error.message).toContain("restriction");
-    expect(harness.runtime.taskStore.list({ limit: 50 })).toHaveLength(before);
+    expect(h.runtime.taskStore.list({ limit: 50 })).toHaveLength(before);
+    // The card does not come back to loop on the same refusal.
+    const waiting = (await (await fetch(`${h.baseUrl}/api/ideas?status=new`)).json()) as { ideas: IdeaJson[] };
+    expect(waiting.ideas.map((i) => i.id)).not.toContain(id);
+    const again = (await (await post(h, "/api/ideas/refresh")).json()) as { ideas: IdeaJson[] };
+    expect(again.ideas.map((i) => i.id)).not.toContain(id);
   });
 
   it("an unrestricted original changes nothing: a plain chat in its folder", async () => {

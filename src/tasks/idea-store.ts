@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS ideas (
   task_id       TEXT,
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
-  decided_at    INTEGER
+  decided_at    INTEGER,
+  source_policy TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ideas_status_created ON ideas(status, created_at);
 `;
@@ -60,6 +61,7 @@ interface IdeaRow {
   created_at: number;
   updated_at: number;
   decided_at: number | null;
+  source_policy?: string | null;
 }
 
 export interface IdeaSyncResult {
@@ -82,6 +84,9 @@ export class IdeaStore {
     this.db = new DatabaseCtor(options.dbFile);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
+    // Issue #68: a store from before `source_policy` gains it (NULL: unknown).
+    const columns = this.db.prepare(`PRAGMA table_info(ideas)`).all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "source_policy")) this.db.exec(`ALTER TABLE ideas ADD COLUMN source_policy TEXT`);
   }
 
   /**
@@ -100,9 +105,14 @@ export class IdeaStore {
   sync(candidates: readonly IdeaCandidate[], now: number = Date.now()): IdeaSyncResult {
     const insert = this.db.prepare(
       `INSERT INTO ideas (id, kind, source_key, title, reason, evidence_json, prompt,
-         session_id, status, task_id, created_at, updated_at, decided_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?, NULL)
+         session_id, status, task_id, created_at, updated_at, decided_at, source_policy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?, NULL, ?)
        ON CONFLICT(source_key) DO NOTHING`,
+    );
+    // A policy learnt later (the card was offered before it could be read) is
+    // filled in; a recorded one is never overwritten.
+    const record = this.db.prepare(
+      `UPDATE ideas SET source_policy = ? WHERE source_key = ? AND status = 'new' AND source_policy IS NULL`,
     );
     const added: IdeaRecord[] = [];
     const retired: string[] = [];
@@ -121,7 +131,10 @@ export class IdeaStore {
         qualifying.add(c.sourceKey);
         const status = known.get(c.sourceKey);
         if (status === undefined) fresh.push(c);
-        else if (status === "new") waiting.set(c.kind, (waiting.get(c.kind) ?? 0) + 1);
+        else if (status === "new") {
+          waiting.set(c.kind, (waiting.get(c.kind) ?? 0) + 1);
+          if (c.sourcePolicy !== undefined) record.run(JSON.stringify(c.sourcePolicy), c.sourceKey);
+        }
         // accepted / dismissed: decided, takes no slot
       }
       for (const c of fresh) {
@@ -131,6 +144,7 @@ export class IdeaStore {
         const info = insert.run(
           id, c.kind, c.sourceKey, c.title, c.reason, JSON.stringify(c.evidence),
           c.prompt, c.sessionId, now, now,
+          c.sourcePolicy === undefined ? null : JSON.stringify(c.sourcePolicy),
         );
         if (info.changes === 1) {
           waiting.set(c.kind, count + 1);
@@ -249,7 +263,21 @@ function rowToRecord(row: IdeaRow): IdeaRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     decidedAt: row.decided_at,
+    ...sourcePolicyOf(row.source_policy),
   };
+}
+
+/** The recorded policy: a stamp object or `null`; anything else (NULL, unreadable) is unknown. */
+function sourcePolicyOf(raw: string | null | undefined): { sourcePolicy?: Record<string, unknown> | null } {
+  if (typeof raw !== "string") return {};
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (value === null) return { sourcePolicy: null };
+    if (typeof value === "object" && !Array.isArray(value)) return { sourcePolicy: value as Record<string, unknown> };
+  } catch {
+    // unreadable: unknown
+  }
+  return {};
 }
 
 function parseEvidence(raw: string, sourceKey: string): IdeaEvidence {

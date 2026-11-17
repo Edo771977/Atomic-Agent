@@ -438,6 +438,12 @@ export interface AgentRuntime {
    */
   readonly retrySessionSeed?: (source: RetrySource, workingDir: string) => ReturnType<typeof retrySessionSeed>;
   /**
+   * A chat's provider policy as a stamp for a Retry card to record
+   * (issue #68, `sessionPolicyStamp`): `null` unrestricted, `undefined`
+   * unknown. Optional (absent: nothing is recorded).
+   */
+  readonly sessionPolicyStamp?: (sessionId: string) => Record<string, unknown> | null | undefined;
+  /**
    * Why a chat adapter may not send this session's content to its chat
    * right now (issue #33): a constrained folder, or a read taint, whose
    * `allowedEgress` lacks "channels"; `null` when it may. Asked before

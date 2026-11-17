@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 
 import { getConfig } from "../config/index.js";
-import { createSessionProviderPolicy, retrySessionSeed, retrySourceOf } from "../runtime/session-provider-policy.js";
+import { createSessionProviderPolicy, retrySessionSeed, retrySourceOf, sessionPolicyStamp } from "../runtime/session-provider-policy.js";
 import { SessionStore, createEmptySessionState } from "../session/index.js";
 import {
   IDEA_STATUSES,
   IdeaStateError,
   IdeaStore,
+  IdeaUnavailableError,
   TaskStore,
   TaskValidationError,
   acceptIdea,
@@ -109,7 +110,11 @@ function handleRefresh(): number {
   const sessions = new SessionStore({ dbFile: config.paths.sessionsDbFile });
   try {
     return withIdeas((ideas) => {
-      const result = refreshIdeas({ ideas, tasks, sessions });
+      const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
+      const result = refreshIdeas({
+        ideas, tasks, sessions,
+        sourcePolicy: (sid) => sessionPolicyStamp(policy, (id) => sessions.load(id), sid) as Record<string, unknown> | null | undefined,
+      });
       const fresh = ideas.list({ status: "new" });
       process.stdout.write(
         `${result.added.length} new, ${result.retired.length} retired, ${fresh.length} waiting\n`,
@@ -154,13 +159,13 @@ function handleAccept(args: string[]): number {
     return withIdeas((ideas) => {
       const accepted = acceptIdea(
         ideas,
-        ({ sessionId, userMessage, carry, retry }) => {
+        ({ sessionId, userMessage, carry, retry, recordedPolicy }) => {
           // A Retry card reruns in a fresh chat opened in the original's folder
           // (when that folder still exists, else this one), with the original's
           // limits and notify, and its provider restriction (issue #68).
           let taskSessionId = sessionId;
           let opened: string | null = null;
-          const source = taskSessionId ? null : retrySourceOf(retry, carry);
+          const source = taskSessionId ? null : retrySourceOf(retry, carry, recordedPolicy);
           if (source !== null) {
             const inFolder = carry?.workingDir && isFolder(carry.workingDir) ? carry.workingDir : null;
             const target = inFolder ?? process.cwd();
@@ -168,7 +173,7 @@ function handleAccept(args: string[]): number {
             // (`serve` uses the runtime's `retrySessionSeed`, which sees its turns).
             const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
             const seed = retrySessionSeed(policy, source, target);
-            if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);
+            if (!seed.ok) throw new IdeaUnavailableError(`${seed.error}; the card is retired`);
             if (inFolder !== null || seed.restricted) {
               const fresh = createEmptySessionState({
                 id: `s-${randomUUID()}`,

@@ -132,16 +132,43 @@ describe("ideasCommand", () => {
       }
     });
 
-    it("refuses a retry whose original chat is gone while constraints exist", async () => {
-      constrain("/work/secret");
-      blockedTaskIn("s-gone", stateDir);
+    it("a retry whose chat was deleted after the card was offered keeps the recorded restriction", async () => {
+      const secret = mkdtempSync(join(tmpdir(), "atomic-ideas-rec-"));
+      constrain(secret);
+      blockedTaskIn("s-rec", secret);
       await ideasCommand(["refresh"]);
       const id = onlyNewIdeaId();
       const sessions = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+      sessions.delete("s-rec");
+      sessions.close();
+      rmSync(secret, { recursive: true, force: true });
+      out = [];
+      expect(await ideasCommand(["accept", id])).toBe(0);
+      const printed = JSON.parse(out.join("")) as { task: { sessionId: string | null } };
+      const reopened = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+      try {
+        expect(reopened.load(printed.task.sessionId!)?.metadata?.providerReadTaint).toMatchObject({ key: secret, allowedProviders: ["local-llama"] });
+      } finally {
+        reopened.close();
+      }
+    });
+
+    it("refuses and retires a retry whose chat was gone before its restriction was recorded", async () => {
+      constrain("/work/secret");
+      blockedTaskIn("s-gone", stateDir);
+      const sessions = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
       sessions.delete("s-gone");
       sessions.close();
+      await ideasCommand(["refresh"]);
+      const id = onlyNewIdeaId();
       expect(await ideasCommand(["accept", id])).toBe(1);
       expect(err.join("")).toMatch(/restriction cannot be checked/);
+      const ideas = new IdeaStore({ dbFile: getConfig().paths.tasksDbFile });
+      try {
+        expect(ideas.get(id)?.status).toBe("dismissed");
+      } finally {
+        ideas.close();
+      }
     });
   });
 

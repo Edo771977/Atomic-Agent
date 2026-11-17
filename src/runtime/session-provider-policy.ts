@@ -300,6 +300,8 @@ export type RetrySource =
   | { kind: "session"; session: { id: string; workingDir: string; metadata?: Record<string, unknown> } }
   /** The original task never had a chat: it ran in the default folder, as the rerun will. */
   | { kind: "none" }
+  /** The chat is gone, but the card recorded its policy (a stamp) when it was offered. */
+  | { kind: "recorded"; stamp: Record<string, unknown> }
   /** The original task, or its chat, is gone: its restriction cannot be known. */
   | { kind: "missing" };
 
@@ -323,6 +325,11 @@ export function retrySessionSeed(
 ): { ok: true; metadata: Record<string, unknown>; restricted: boolean } | { ok: false; error: string } {
   if (!policy.constraintsActive() || source.kind === "none") return { ok: true, metadata: {}, restricted: false };
   if (source.kind === "missing") return { ok: false, error: RETRY_RESTRICTION_UNKNOWN };
+  if (source.kind === "recorded") {
+    // The recorded policy is carried as is (an unreadable stamp fails closed
+    // in `readTaintOf`); the new folder's own constraint intersects with it.
+    return { ok: true, metadata: { [READ_TAINT_METADATA_KEY]: source.stamp }, restricted: true };
+  }
   // The live view: the stored row, and a turn running for the chat now
   // whose taint is not saved yet.
   const moved = moveSessionFolder(policy, source.session, workingDir, policy.effectivePolicyForSession(source.session));
@@ -338,8 +345,31 @@ export function retrySessionSeed(
 export function retrySourceOf(
   retry: boolean,
   carry: { sourceSession: { id: string; workingDir: string; metadata?: Record<string, unknown> } | null; sourceSessionMissing: boolean } | null,
+  /** The policy the card recorded when offered (`IdeaCandidate.sourcePolicy`). */
+  recorded?: Record<string, unknown> | null,
 ): RetrySource | null {
   if (!retry) return null;
-  if (carry === null || carry.sourceSessionMissing) return { kind: "missing" };
+  if (carry === null || carry.sourceSessionMissing) {
+    if (recorded === undefined) return { kind: "missing" };
+    return recorded === null ? { kind: "none" } : { kind: "recorded", stamp: recorded };
+  }
   return carry.sourceSession === null ? { kind: "none" } : { kind: "session", session: carry.sourceSession };
+}
+
+/**
+ * What a Retry card records about its original chat when offered (issue
+ * #68, `IdeaRefreshDeps.sourcePolicy`): its effective policy as a stamp,
+ * `null` when unrestricted, `undefined` when unknown (the chat is gone,
+ * or no constraint is configured, so nothing can be said for later).
+ */
+export function sessionPolicyStamp(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+  load: (sessionId: string) => { workingDir: string; metadata?: Record<string, unknown> } | null,
+  sessionId: string,
+): ProviderPolicyStamp | null | undefined {
+  if (!policy.constraintsActive()) return undefined;
+  const row = load(sessionId);
+  if (row === null) return undefined;
+  const effective = policy.effectivePolicyForSession({ id: sessionId, ...row });
+  return effective === undefined ? null : toProviderPolicyStamp(effective);
 }
