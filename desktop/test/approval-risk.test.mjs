@@ -87,3 +87,13 @@ test('the outside-content line is cleaned to one line; the reviewer\'s words can
   assert.equal(apprRiskLine({ riskNote: 'risk check: medium (read outside content this turn (x); y)', riskLevel: 'medium' }),
     'Risk check: medium. Read outside content this turn (x); y');
 });
+
+// fix009: the sources have their own bound; the ones that do not fit are counted.
+test('the outside sources are named within their own bound, the rest counted', () => {
+  const label = (i) => ('source ' + i + ' ').padEnd(80, 'x');
+  const many = [0, 1, 2, 3, 4, 5, 6].map(label).concat('the e-mail inbox');
+  assert.equal(apprRiskLine({ riskNote: 'read outside content this turn (' + many.join(', ') + '), asking you' }),
+    'Read outside content this turn: ' + label(0) + ', ' + label(1) + ', ' + label(2) + ' and 5 more. Asking you.');
+  assert.equal(apprRiskLine({ riskNote: 'read outside content this turn (a web page, an HTTP response, MCP docs, the e-mail inbox), asking you' }),
+    'Read outside content this turn: a web page, an HTTP response, MCP docs, the e-mail inbox. Asking you.');
+});

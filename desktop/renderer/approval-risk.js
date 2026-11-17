@@ -38,6 +38,27 @@ function apprRiskFields(payload) {
 
 const APPR_TAINT_HEAD = 'read outside content this turn (';
 const APPR_TAINT_QUESTION = 'this question may come from that content';
+const APPR_TAINT_SOURCES_MAX = 250; // the list's own bound; the rest are counted
+const APPR_TAINT_SOURCE_MAX = 80;   // one label (untrusted-taint.ts keeps 80)
+
+/** "a, b, c", or "a, b and 3 more" when they do not fit (risk-review.ts formatTaintSources),
+    so a later source is never cut to a bare "…" without the person knowing it was read. */
+function apprTaintSources(raw) {
+  const flat = String(raw).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const labels = flat.split(', ').map((l) => l.trim()).filter(Boolean)
+    .map((l) => l.length > APPR_TAINT_SOURCE_MAX ? l.slice(0, APPR_TAINT_SOURCE_MAX - 1).trimEnd() + '…' : l);
+  if (!labels.length) return 'an outside source';
+  const shown = [];
+  let length = 0;
+  for (const label of labels) {
+    const next = length + (shown.length ? 2 : 0) + label.length;
+    if (shown.length && next > APPR_TAINT_SOURCES_MAX) break;
+    shown.push(label);
+    length = next;
+  }
+  const hidden = labels.length - shown.length;
+  return hidden > 0 ? shown.join(', ') + ' and ' + hidden + ' more' : shown.join(', ');
+}
 
 /* A request held after outside content (src/approval/untrusted-taint.ts):
    "read outside content this turn (<sources>), asking you" (no review),
@@ -93,7 +114,7 @@ function apprRiskLine(m) {
   const note = typeof r.riskNote === 'string' ? r.riskNote.trim() : '';
   const taint = apprTaintSplit(note);
   if (!taint) return apprVerdictLine(r, note);
-  const sources = apprRiskClean(taint.sources) || 'an outside source';
+  const sources = apprTaintSources(taint.sources);
   const head = 'Read outside content this turn: ' + sources + (/[.!?…]$/.test(sources) ? '' : '.');
   let tail;
   if (taint.rest.toLowerCase().startsWith(APPR_TAINT_QUESTION)) tail = apprSentence(apprRiskClean(taint.rest));
