@@ -45,7 +45,7 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal, moveSessionFolder } from "./session-provider-policy.js";
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
@@ -1241,6 +1241,10 @@ export async function createAgentRuntime(
     // ATO-1084: the channels are attached below; read at call time.
     teamMemberReachable: providers.teamMemberReachable,
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
+    moveSessionFolder: (session, workingDir) => {
+      const moved = moveSessionFolder(sessionProviderPolicy, session, workingDir);
+      return { session: moved.session, restriction: describeProviderRestriction(moved.policy), restrictionKept: moved.kept !== undefined };
+    },
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
     egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),

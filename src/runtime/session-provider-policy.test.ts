@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
-import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy } from "./session-provider-policy.js";
+import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder } from "./session-provider-policy.js";
 
 describe("session provider policy (issue #33)", () => {
   let root: string | undefined;
@@ -200,6 +200,44 @@ describe("session provider policy (issue #33)", () => {
       const { policy } = setup();
       expect(channelNotifyRefusal(policy, null)).not.toBeNull();
     });
+  });
+});
+
+describe("moveSessionFolder (issue #68)", () => {
+  const config = {
+    projects: {
+      roots: [],
+      constraints: {
+        "/work/a": { allowedProviders: ["local-llama", "openai"], allowedEgress: ["web"] },
+        "/work/b": { allowedProviders: ["local-llama"], allowedEgress: ["web", "git"] },
+      },
+    },
+  };
+  const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+
+  it("keeps the folder's constraint and an existing read taint, intersected, wherever the session goes", () => {
+    const tainted = {
+      id: "s", workingDir: "/work/a/src",
+      metadata: { providerReadTaint: { key: "/work/b", allowedProviders: ["local-llama"], allowedEgress: ["web", "git"], matchedDir: "/work/b", readFrom: ["/work/b"] } },
+    };
+    const moved = moveSessionFolder(policy, tainted, "/elsewhere");
+    expect(moved.session.workingDir).toBe("/elsewhere");
+    expect(moved.kept?.readFrom).toEqual(["/work/b", "/work/a"]);
+    const after = policy.forSession(moved.session);
+    expect(after?.allowedProviders).toEqual(["local-llama"]);
+    expect(after?.allowedEgress).toEqual(["web"]);
+    expect(moved.policy?.key).toBe(after?.key);
+  });
+
+  it("adds nothing inside the same constraint entry, for an unrestricted session, or with no constraint configured", () => {
+    const inside = moveSessionFolder(policy, { id: "s", workingDir: "/work/a/src" }, "/work/a/docs");
+    expect(inside.kept).toBeUndefined();
+    expect(inside.session).not.toHaveProperty("metadata");
+    const open = moveSessionFolder(policy, { id: "s", workingDir: "/free" }, "/work/b");
+    expect(open.kept).toBeUndefined();
+    expect(open.policy?.key).toBe("/work/b");
+    const none = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: () => null });
+    expect(moveSessionFolder(none, { id: "s", workingDir: "/work/a" }, "/free").kept).toBeUndefined();
   });
 });
 

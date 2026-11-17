@@ -417,6 +417,18 @@ export interface AgentRuntime {
     session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ) => ProviderRestriction | null;
   /**
+   * A copy of a stored session moved to `workingDir` (issue #68), for the
+   * caller to save: a restricted session keeps its policy as its read
+   * taint, so the move never widens what it may reach. `restriction` is
+   * the session's restriction after the move, `restrictionKept` whether
+   * the old one was carried. Optional so hand-built runtimes keep
+   * compiling (absent: only the folder changes).
+   */
+  readonly moveSessionFolder?: <T extends { id: string; workingDir: string; metadata?: Record<string, unknown> }>(
+    session: T,
+    workingDir: string,
+  ) => { session: T; restriction: ProviderRestriction | null; restrictionKept: boolean };
+  /**
    * Why a chat adapter may not send this session's content to its chat
    * right now (issue #33): a constrained folder, or a read taint, whose
    * `allowedEgress` lacks "channels"; `null` when it may. Asked before

@@ -7,6 +7,7 @@ import {
   toProviderPolicyStamp,
   currentProviderPolicyFrame,
   intersectProviderPolicies,
+  policyCovers,
   type ProviderPolicy,
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
@@ -227,4 +228,38 @@ export function childSessionSeed(
   const effective = policy.effectivePolicyForSession(parent.sessionId);
   if (effective === undefined) return { workingDir: parent.workingDir, metadata: {} };
   return { workingDir: parent.workingDir, metadata: { [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(effective) } };
+}
+
+/**
+ * A stored session moved to another folder (issue #68): the session and
+ * the restriction it keeps. Moving never widens what a session may
+ * reach: its transcript already holds whatever its folder governed
+ * (pasted text, shell output, model output) without any read having
+ * tainted it. So when the session's policy right now (its folder
+ * intersected with its read taint) is restricted, that policy rides with
+ * it as its read taint (`providerReadTaint`, the same stamp, intersection,
+ * `/resume` persistence and memory scoping), with the old folder named in
+ * `readFrom`, and the new folder's own constraint intersects with it. An
+ * unrestricted session, or a move inside the same constraint entry,
+ * changes only the folder. With no constraint configured nothing is added.
+ */
+export function moveSessionFolder<T extends { id: string; workingDir: string; metadata?: Record<string, unknown> }>(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
+  session: T,
+  workingDir: string,
+): { session: T; kept: ProviderPolicy | undefined; policy: ProviderPolicy | undefined } {
+  const plain = { ...session, workingDir };
+  if (!policy.constraintsActive()) return { session: plain, kept: undefined, policy: undefined };
+  const current = policy.forSession(session);
+  const destination = policy.forWorkingDir(workingDir);
+  if (current === undefined || (destination !== undefined && policyCovers(destination, current))) {
+    return { session: plain, kept: undefined, policy: policy.forSession(plain) };
+  }
+  const oldFolder = policy.forWorkingDir(session.workingDir);
+  const readFrom = [...new Set([...(current.readFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
+  const carried = makeProviderPolicy({ ...current, readFrom });
+  const previous = readTaintOf(session.metadata);
+  const taint = previous === undefined ? carried : intersectProviderPolicies(previous, carried);
+  const moved = { ...plain, metadata: { ...(session.metadata ?? {}), [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(taint) } };
+  return { session: moved, kept: carried, policy: policy.forSession(moved) };
 }
