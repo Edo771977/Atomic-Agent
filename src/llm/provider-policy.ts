@@ -126,7 +126,8 @@ export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy):
       : makeProviderPolicy({ ...a, readFrom: [...new Set([...(a.readFrom ?? []), ...b.readFrom])] });
   }
   return makeProviderPolicy({
-    key: `${a.key} + ${b.key}`,
+    // A part both keys carry is named once ("/a + /b" with "/b + /c").
+    key: [...new Set([...a.key.split(" + "), ...b.key.split(" + ")])].join(" + "),
     allowedProviders: a.allowedProviders.filter((id) => b.allowedProviders.includes(id)),
     allowedEgress: a.allowedEgress.filter((cls) => b.allowedEgress.includes(cls)),
     allowedProviderHosts: hosts,

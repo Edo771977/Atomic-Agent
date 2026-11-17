@@ -229,6 +229,22 @@ describe("moveSessionFolder (issue #68)", () => {
     expect(moved.policy?.key).toBe(after?.key);
   });
 
+  it("a tainted chat moving inside its own constraint entry keeps its stamp unchanged (review)", () => {
+    const tainted = {
+      id: "s", workingDir: "/work/a/src",
+      metadata: { providerReadTaint: { key: "/work/b", allowedProviders: ["local-llama"], allowedEgress: ["web", "git"], matchedDir: "/work/b", readFrom: ["/work/b"] } },
+    };
+    const moved = moveSessionFolder(policy, tainted, "/work/a/docs");
+    expect(moved.kept).toBeUndefined();
+    expect(moved.session.metadata.providerReadTaint).toEqual(tainted.metadata.providerReadTaint);
+    // Moving out and back never repeats a key part.
+    const out = moveSessionFolder(policy, tainted, "/elsewhere");
+    const back = moveSessionFolder(policy, out.session, "/work/a/x");
+    const key = (back.session.metadata.providerReadTaint as { key: string }).key;
+    expect(new Set(key.split(" + ")).size).toBe(key.split(" + ").length);
+    expect(policy.forSession(back.session)?.key.split(" + ").sort()).toEqual(["/work/a", "/work/b"]);
+  });
+
   it("adds nothing inside the same constraint entry, for an unrestricted session, or with no constraint configured", () => {
     const inside = moveSessionFolder(policy, { id: "s", workingDir: "/work/a/src" }, "/work/a/docs");
     expect(inside.kept).toBeUndefined();

@@ -252,13 +252,17 @@ export function moveSessionFolder<T extends { id: string; workingDir: string; me
   if (!policy.constraintsActive()) return { session: plain, kept: undefined, policy: undefined };
   const current = policy.forSession(session);
   const destination = policy.forWorkingDir(workingDir);
-  if (current === undefined || (destination !== undefined && policyCovers(destination, current))) {
+  const previous = readTaintOf(session.metadata);
+  // What the chat would hold after a plain move: the new folder and the
+  // taint it already carries. When that covers today's policy (a move
+  // inside the same entry), nothing is added.
+  const after = destination === undefined ? previous : previous === undefined ? destination : intersectProviderPolicies(destination, previous);
+  if (current === undefined || (after !== undefined && policyCovers(after, current))) {
     return { session: plain, kept: undefined, policy: policy.forSession(plain) };
   }
   const oldFolder = policy.forWorkingDir(session.workingDir);
   const readFrom = [...new Set([...(current.readFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
   const carried = makeProviderPolicy({ ...current, readFrom });
-  const previous = readTaintOf(session.metadata);
   const taint = previous === undefined ? carried : intersectProviderPolicies(previous, carried);
   const moved = { ...plain, metadata: { ...(session.metadata ?? {}), [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(taint) } };
   return { session: moved, kept: carried, policy: policy.forSession(moved) };
