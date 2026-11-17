@@ -240,6 +240,25 @@ describe("/api/ideas accept keeps the original chat's restriction (issue #68)", 
     expect(again.ideas.map((i) => i.id)).not.toContain(id);
   });
 
+  it("a retry of a chat that was moved out of a constrained folder keeps the carried restriction", async () => {
+    const secret = mkdtempSync(join(tmpdir(), "idea-moved-s-"));
+    const open = mkdtempSync(join(tmpdir(), "idea-moved-o-"));
+    dirs.push(secret, open);
+    harness = await startTestHarness({ constraints: { [secret]: { allowedProviders: ["local-llama"] } } });
+    harness.runtime.sessionStore.save({ ...harness.runtime.createSession({ persist: false }), id: "s-moved", workingDir: secret });
+    const move = await fetch(`${harness.baseUrl}/api/sessions/s-moved/working-dir`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workingDir: open }),
+    });
+    expect(move.status).toBe(200);
+    const moved = harness.runtime.sessionStore.load("s-moved")!;
+    const id = await retryIdea(harness, moved);
+    const res = await post(harness, `/api/ideas/${id}/accept`);
+    expect(res.status).toBe(200);
+    const task = harness.runtime.taskStore.get(((await res.json()) as { task: { id: string } }).task.id)!;
+    expect(harness.runtime.sessionStore.load(task.sessionId!)?.workingDir).toBe(open);
+    expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
+  });
+
   it("an unrestricted original changes nothing: a plain chat in its folder", async () => {
     const open = mkdtempSync(join(tmpdir(), "idea-plain-"));
     dirs.push(open);
