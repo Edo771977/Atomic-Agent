@@ -11180,6 +11180,19 @@ function turnFailureLine(ev) {
     have the agent's raw words (provider-policy.ts, tool-egress.ts). */
 function constraintTurnLine(ev) {
   const p = (ev && ev.payload) || {};
+  /* Review of #67: a chain that went on past the refused link
+     (`fallback_failures` lists the links before the last) ended on a later
+     link. When that was the managed local model with its engine gone (the
+     verdict says so), the dead-engine row is the story (deadEngineRow, Start
+     model); any other ending keeps the refusal and says the fallback failed
+     too, beside the row's "Providers tried". */
+  const after = Array.isArray(p.fallback_failures) && p.fallback_failures.length > 0;
+  if (after && p.failure && p.failure.cause === 'local_engine_down') return '';
+  const line = constraintRefusalWords(ev, p);
+  return line && after ? line + ' The fallback after it failed too (Providers tried).' : line;
+}
+/** constraintTurnLine's sentence for the refusal itself, or ''. */
+function constraintRefusalWords(ev, p) {
   const code = String(p.code || (ev && ev.code) || '');
   const advice = String(p.advice || (ev && ev.advice) || '').trim();
   if ((code === 'ATOMIC_AGENT_PROVIDER_NOT_ALLOWED' || code === 'ATOMIC_AGENT_EGRESS_NOT_ALLOWED') && advice) {

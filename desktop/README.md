@@ -265,7 +265,12 @@ without `advice`, and the 400 a turn's own provider gets before the stream
 (the message agent-client's `httpErrorDetail` shows), are read from the
 agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
 be used here." (`constraintTurnLine` in renderer.js, ahead of every other
-wording of a failed turn).
+wording of a failed turn). A chain that went on past the refused link
+(`fallback_failures` in the frame) ended on a later one: when the verdict
+says that was the managed local model with its engine gone
+(`failure.cause: "local_engine_down"`, which `dead-engine.js` now reads too),
+the row is the dead-engine one with Start model; any other ending keeps the
+refusal and adds "The fallback after it failed too (Providers tried)."
 
 A restricted chat wears a "restricted to: <providers>" chip after the
 composer's route chips, as the TUI composer does

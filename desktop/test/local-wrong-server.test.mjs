@@ -19,7 +19,7 @@ function fn(name) {
 
 const NAMES = [
   "providerHost", "providerFailure", "providerReplied", "turnWaited", "turnFailure",
-  "turnFailureLine", "offlineTurnLine", "constraintTurnLine", "localWrongServerLine", "localContextFullLine", "localRequestInvalidLine", "localFailureCode", "localFrameAdvice", "localServerHost", "waitIsLocalServer",
+  "turnFailureLine", "offlineTurnLine", "constraintTurnLine", "constraintRefusalWords", "localWrongServerLine", "localContextFullLine", "localRequestInvalidLine", "localFailureCode", "localFrameAdvice", "localServerHost", "waitIsLocalServer",
   "selProviders", "selActiveProviderId", "llmBlock", "llmProviders", "llmProvider", "llmLocalModels",
 ];
 
