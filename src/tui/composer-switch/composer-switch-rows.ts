@@ -16,7 +16,10 @@ import {
   selectLocalRows,
 } from "../llm-panel/llm-panel-row-builders.js";
 import type { TuiState } from "../tui-state.js";
-import { describeFusionBlocker } from "../run-mode/fusion-preflight.js";
+import {
+  describeFusionBlocker,
+  describeFusionWorkerLeg,
+} from "../run-mode/fusion-preflight.js";
 import { selectComposerBackend } from "./composer-backend-selectors.js";
 import { filterSwitchRows } from "./composer-switch-filter.js";
 import { gateRowsForOffline } from "./composer-switch-offline.js";
@@ -62,7 +65,10 @@ function backendRows(state: TuiState): readonly ComposerSwitchRow[] {
     {
       id: "backend:fusion",
       label: "fusion",
-      detail: describeFusionBlocker(state) ?? fusionDetail(state),
+      detail:
+        describeFusionBlocker(state) ??
+        describeFusionWorkerLeg(state)?.short ??
+        fusionDetail(state),
       active: current === "fusion",
       intent: { kind: "backend", backend: "fusion" },
       emphasis: "fusion",

@@ -187,6 +187,8 @@ export function buildProviderEntryFromWizard(input: {
     // `config.json`. A preset with a native kind (Anthropic) saves that
     // kind, whose client sends its own headers.
     ...(baseUrl !== undefined && preset
+      // `presetEntryFields` also carries a preset's `apiKeyCommand` (a
+      // short-lived token printed per request, Vertex AI's gcloud, ATO-468).
       ? wizardPresetFields(preset, baseUrl, input.storedKind)
       : {}),
   };

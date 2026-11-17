@@ -64,6 +64,13 @@ import {
   type TurnArchiveStatements,
 } from "./turn-archive.js";
 import {
+  SessionSearchIndex,
+  forgetSessionSearchRows,
+  searchableSessionSource,
+  type SessionSearchOptions,
+  type SessionSearchResult,
+} from "./session-search.js";
+import {
   isIncognitoSession,
   newIncognitoMark,
   orphanIncognitoSessionIds,
@@ -414,6 +421,8 @@ export class SessionStore {
    */
   private readonly openIncognito = new Set<string>();
   private secureDelete = false;
+  /** Built on the first search (ATO-1149); see `session-search.ts`. */
+  private searchIndex: SessionSearchIndex | null = null;
 
   constructor(options: SessionStoreOptions = {}) {
     const config = getConfig();
@@ -1140,6 +1149,30 @@ export class SessionStore {
     return stmt.all({ id }) as SessionChatLine[];
   }
 
+  /**
+   * Full-text search over the user messages and closing replies of every
+   * stored session (ATO-1149). The index is created on the first call and
+   * brought up to date by each one; see `session-search.ts`. Throws
+   * `SessionSearchUnavailableError` when the index cannot be created.
+   */
+  searchTranscripts(options: SessionSearchOptions): SessionSearchResult {
+    this.searchIndex ??= new SessionSearchIndex(this.db, (id) =>
+      this.listChatLines(id),
+    );
+    return this.searchIndex.search(options);
+  }
+
+  /**
+   * `listChatLines` for a session search may show, and nothing for one it
+   * may not (incognito, a Fusion worker, an internal session; see
+   * `classifySessionForSearch`) or one that is not stored. What the agent's
+   * `memory.sessions.search` reads a hit through.
+   */
+  listSearchableChatLines(id: string): SessionChatLine[] {
+    if (searchableSessionSource(this.db, id) === null) return [];
+    return this.listChatLines(id);
+  }
+
   /** Rows whose payload is not valid JSON — the ones every reader skips. */
   countUnreadable(): number {
     const row = this.countUnreadableStmt.get() as { n: number };
@@ -1197,6 +1230,8 @@ export class SessionStore {
     this.db.transaction(() => {
       this.deleteStmt.run(id);
       this.archiveStatements?.clear.run(id);
+      // A deleted chat's text leaves the search index with it.
+      forgetSessionSearchRows(this.db, id);
     })();
     if (!incognito) return;
     this.openIncognito.delete(id);

@@ -26,6 +26,11 @@ export { buildNotesForgetTool } from "./notes-forget.js";
 export { buildLessonsRecallTool } from "./lessons-recall.js";
 export { buildProceduresRecallTool } from "./procedures-recall.js";
 export {
+  buildSessionsSearchTool,
+  SESSIONS_SEARCH_TOOL,
+  type SessionsSearchSource,
+} from "./sessions-search.js";
+export {
   INCOGNITO_MEMORY_READ_REFUSAL,
   INCOGNITO_MEMORY_WRITE_REFUSAL,
   INCOGNITO_TASK_REFUSAL,

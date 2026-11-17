@@ -8,6 +8,7 @@ import type { SkillCatalogEntry } from "../prompt/stable-prefix.js";
 import { formatSkillCatalogOmittedNote } from "../skills/index.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 import { describeMemoryEmbeddingReconnect } from "./local-models/describe-memory-embedding-reconnect.js";
+import { startWorktreeSession, sweepIdleWorktrees } from "./session-worktree-start.js";
 import {
   isFailedSessionStatus,
   recordPlan,
@@ -29,6 +30,11 @@ import {
   planLastTurnRollback,
   type LastTurnRollbackOptions,
 } from "../session/session-truncate.js";
+import {
+  listRewindPoints,
+  planRewind,
+  type RewindRefusal,
+} from "../session/session-rewind.js";
 import { getConfig } from "../config/index.js";
 import { resolveLlmConfig } from "../llm/provider/registry/index.js";
 import {
@@ -47,6 +53,11 @@ import {
   detectInstallSource,
 } from "../update/index.js";
 import { clearTtyScreen } from "./clear-tty-screen.js";
+import {
+  blocksNewChat,
+  REQUIRED_UPDATE_REFUSAL,
+  type RequiredUpdate,
+} from "./update/required-update.js";
 import {
   DetachedTurns,
   droppedPreview,
@@ -86,7 +97,7 @@ import {
 } from "./session-rail/index.js";
 import type { LastTurnRollbackOutcome, TuiEventBus } from "./tui-app.js";
 import { formatAgentErrorForChat } from "./chat/format-agent-error-for-chat.js";
-import { readGoalState, type GoalState } from "../agent/goal/index.js";
+import { isInterruptedGoal, readGoalState, type GoalState } from "../agent/goal/index.js";
 import type { GoalCommand } from "./commands/goal-command.js";
 import { activeGoalSpec, createGoalProgressReporter, runGoalCommand } from "./goal/goal-commands.js";
 import {
@@ -251,6 +262,8 @@ export class ChatOrchestrator {
   private started = false;
   /** Latest release version captured by `checkForUpdate`, used by `runUpdate`. */
   private pendingUpdateVersion: string | null = null;
+  /** ATO-1125: what the release policy says about the running version. */
+  private requiredUpdate: RequiredUpdate = null;
   private readonly queue: string[] = [];
   private readonly pendingCompactions = new Set<string>();
   /**
@@ -258,6 +271,13 @@ export class ChatOrchestrator {
    * the first for the buffer); aborted on send, Esc, switch, new and quit.
    */
   private promptEnhance: AbortController | null = null;
+  /**
+   * The running `/btw` side question, if any (ATO-1152). One at a time;
+   * aborted on switch, new and quit so an answer never lands in a chat
+   * it was not asked in. Sending or aborting the main turn leaves it be:
+   * asking beside a running turn is the point.
+   */
+  private sideQuestion: AbortController | null = null;
   /**
    * Messages refused since the queue last had room, so a burst reads as
    * one escalating counter instead of N identical lines. Reset by the
@@ -601,10 +621,12 @@ export class ChatOrchestrator {
       });
       if (!result.updateAvailable) return;
       this.pendingUpdateVersion = result.latestVersion;
+      this.requiredUpdate = result.requiredReason;
       this.bus.emit({
         type: "update_available",
         current: result.currentVersion,
         latest: result.latestVersion,
+        required: result.requiredReason,
       });
     } catch {
       // Silent: a failed update check is never user-facing noise.
@@ -1161,6 +1183,7 @@ export class ChatOrchestrator {
   switchSession(sessionId: string): void {
     if (this.quitting) return;
     this.cancelPromptEnhance();
+    this.cancelSideQuestion();
     if (this.currentController && this.session?.id === sessionId) {
       // Enter on the picker row that is already open, mid-run.
       // Re-loading would replace the live transcript with the stale
@@ -1234,7 +1257,15 @@ export class ChatOrchestrator {
     // Each thread keeps the model it ran on: entering one whose stamp
     // differs from the active provider/model re-applies it.
     this.restoreSessionModel(loaded);
-    this.showGoal(readGoalState(loaded.metadata));
+    const storedGoal = readGoalState(loaded.metadata);
+    this.showGoal(storedGoal);
+    // A goal a restart cut off waits for the person (ATO-1038).
+    if (storedGoal !== null && isInterruptedGoal(storedGoal) && !running) {
+      this.bus.emit({
+        type: "system_message",
+        text: "this chat's goal was running when the agent stopped. It will not continue on its own: /goal resume continues it, /goal clear drops it",
+      });
+    }
     // The fusion project (issue #39): where it stands, and an open gate's card.
     this.showProject(loaded.id);
     // After `session_switched`, so they land in the new transcript
@@ -1542,13 +1573,40 @@ export class ChatOrchestrator {
   }
 
   /**
-   * Start a fresh session. `incognito` (ATO-586, `/incognito`) opens an
-   * incognito chat: nothing from it is saved to memory, the rail never
-   * lists it, and it is deleted when the operator leaves it or quits.
+   * `/new worktree` (ATO-576): a fresh session in a git worktree of its
+   * own. Outside a git repository nothing changes and the reason is
+   * shown. Each start also sweeps idle worktrees whose branches are
+   * merged and clean; the one on screen is never touched.
    */
-  newSession(options: { incognito?: boolean } = {}): void {
+  async newWorktreeSession(): Promise<void> {
+    if (this.quitting) return;
+    const started = await startWorktreeSession(this.runtime);
+    if (!started.ok) {
+      this.notify(started.message);
+      return;
+    }
+    this.newSession(started.session);
+    this.bus.emit({ type: "runtime_info", line: started.notice });
+    this.bus.emit({ type: "system_message", text: started.notice });
+    void sweepIdleWorktrees(this.runtime, new Set([started.session.id]))
+      .then((swept) => {
+        if (swept.removed.length > 0) {
+          this.bus.emit({ type: "runtime_info", line: `removed ${swept.removed.length} idle merged worktree(s)` });
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Start a fresh session (or adopt `prepared`, e.g. a worktree session).
+   * `incognito` (ATO-586, `/incognito`) opens an incognito chat: nothing
+   * from it is saved to memory, the rail never lists it, and it is deleted
+   * when the operator leaves it or quits.
+   */
+  newSession(prepared?: SessionState, options: { incognito?: boolean } = {}): void {
     if (this.quitting) return;
     this.cancelPromptEnhance();
+    this.cancelSideQuestion();
     // A running turn keeps running in its old thread — see
     // `leaveCurrentSession`. A fresh session starts with no point
     // exceptions of its own; the previous thread's grants are cleared
@@ -1557,7 +1615,7 @@ export class ChatOrchestrator {
     // Deferred like `ensureSession`'s, and for the same reason: a `+ new`
     // the operator never types into leaves no row behind. The one left
     // here is dropped as soon as the next `+ new` or switch replaces it.
-    this.session = this.runtime.createSession({
+    this.session = prepared ?? this.runtime.createSession({
       persist: false,
       ...(options.incognito === true ? { incognito: true } : {}),
     });
@@ -1800,6 +1858,85 @@ export class ChatOrchestrator {
   }
 
   /**
+   * `/rewind` (ATO-1057): open the picker of the chat's earlier
+   * questions. Refused while anything could still write the session,
+   * under the same rule as {@link rollbackLastTurn}.
+   */
+  openRewindPicker(): void {
+    const session = this.session;
+    if (this.quitting) return;
+    if (this.rewindBusy()) {
+      this.bus.emit({ type: "system_message", text: rewindRefusalText("turn_in_progress") });
+      return;
+    }
+    const points = session ? listRewindPoints(session) : [];
+    if (points.length === 0) {
+      this.bus.emit({ type: "system_message", text: rewindRefusalText("nothing_to_rewind") });
+      return;
+    }
+    this.bus.emit({ type: "rewind_picker_opened", points });
+  }
+
+  /**
+   * Take the chat back to just before the question at `turnIndex`
+   * (ATO-1057): that question and everything after it leave the session
+   * this orchestrator holds and the store, the transcript is rebuilt
+   * from what is left, and the question goes back in the composer to be
+   * edited and sent again. Only the conversation moves: files the agent
+   * changed stay as they are, and the note says so.
+   */
+  rewindTo(turnIndex: number, expectText: string): void {
+    const session = this.session;
+    if (this.quitting || !session) return;
+    if (this.rewindBusy()) {
+      this.bus.emit({ type: "system_message", text: rewindRefusalText("turn_in_progress") });
+      return;
+    }
+    const plan = planRewind(session, turnIndex, expectText);
+    if (!plan.ok) {
+      this.bus.emit({ type: "system_message", text: rewindRefusalText(plan.code) });
+      return;
+    }
+    // A compaction started on this chat would summarise the rows removed.
+    this.runtime.cancelSessionCompaction?.(session.id);
+    this.session = plan.state;
+    // Saved, not only held: `/resume` and the rail read the store, and a
+    // restart must not bring the removed turns back.
+    this.runtime.sessionStore.save(plan.state);
+    this.runtime.sessionStore.clearTurnProgress(session.id);
+    // Same re-emit a re-attach uses: the reducer rebuilds the transcript
+    // from the turns that are left.
+    this.bus.emit({
+      type: "session_switched",
+      sessionId: plan.state.id,
+      workingDir: plan.state.workingDir,
+      messages: turnsToMessages(plan.state.turns),
+      ...(plan.state.plan ? { plan: plan.state.plan } : {}),
+      ...(plan.state.sessionUsage ? { sessionUsage: plan.state.sessionUsage } : {}),
+    });
+    this.bus.emit({ type: "input_changed", value: plan.text });
+    this.bus.emit({
+      type: "system_message",
+      text: "Rewound: that message and everything after it were removed from this chat. It is back in the composer to edit and send. Files the agent changed were not restored.",
+    });
+    this.refreshRecentSessions();
+  }
+
+  /** Anything that could still write this chat's session or its tail. */
+  private rewindBusy(): boolean {
+    const session = this.session;
+    if (!session) return false;
+    return (
+      this.currentController !== null ||
+      this.queue.length > 0 ||
+      this.composerRoutePending ||
+      this.pendingCompactions.has(session.id) ||
+      this.waitingModelMessages.has(session.id) ||
+      this.runtime.turnController.isBusy(session.id)
+    );
+  }
+
+  /**
    * Re-publish the pending-message queue to the TUI. The orchestrator is
    * the source of truth — the reducer mirrors this list rather than
    * tracking pushes and drains on its own, so an optimistic UI insert can
@@ -1872,6 +2009,15 @@ export class ChatOrchestrator {
     }
     if (this.holdComposerSubmission(text)) return;
     if (!this.session) return;
+    // ATO-1125: a version the release lists as broken starts no new
+    // chat. Only a session with no turns yet is gated; a queued message
+    // belongs to a chat that already runs, and runOneTurn is never
+    // reached while a turn is in flight here (sendMessage queues).
+    if (!fromQueue && blocksNewChat(this.requiredUpdate, this.session.turns.length)) {
+      this.bus.emit({ type: "turn_gate_blocked", text: REQUIRED_UPDATE_REFUSAL });
+      this.bus.emit({ type: "input_changed", value: text });
+      return;
+    }
     this.announceHeapPressure();
     // Pre-turn gate: a managed local model that is not on disk cannot
     // serve this turn, so fail fast with the real fix instead of
@@ -2221,13 +2367,59 @@ export class ChatOrchestrator {
     }
   }
 
+  /**
+   * `/btw <question>` (ATO-1152): one answer from the runtime's side
+   * call, shown as a chat notice. Nothing is written to the session, so
+   * the question and the answer are gone after a restart and the model
+   * never sees them in later turns.
+   */
+  async askSideQuestion(question: string): Promise<void> {
+    if (!this.runtime.askSideQuestion) {
+      this.bus.emit({ type: "system_message", text: "Side questions are not available here.", variant: "warn" });
+      return;
+    }
+    if (this.sideQuestion) {
+      this.bus.emit({ type: "system_message", text: "Already answering a side question; wait for it to finish.", variant: "warn" });
+      return;
+    }
+    const controller = new AbortController();
+    this.sideQuestion = controller;
+    this.bus.emit({ type: "system_message", text: `btw: ${question}\n(asking; not saved to this chat)` });
+    try {
+      const sessionId = this.session?.id;
+      const result = await this.runtime.askSideQuestion(question, {
+        ...(sessionId ? { sessionId } : {}),
+        signal: controller.signal,
+      });
+      // Cancelled by a switch, new chat or quit: say nothing.
+      if (controller.signal.aborted) return;
+      if (result.ok) {
+        this.bus.emit({ type: "system_message", text: `btw › ${result.text}` });
+      } else {
+        this.bus.emit({ type: "system_message", text: `Could not answer the side question (${result.reason}).`, variant: "warn" });
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const reason = error instanceof Error ? error.message : String(error);
+      this.bus.emit({ type: "system_message", text: `Could not answer the side question (${reason}).`, variant: "warn" });
+    } finally {
+      if (this.sideQuestion === controller) this.sideQuestion = null;
+    }
+  }
+
+  /** Stop a running `/btw` quietly. */
+  cancelSideQuestion(): void {
+    this.sideQuestion?.abort();
+    this.sideQuestion = null;
+  }
+
   /** Stop a running `/enhance` quietly; idle Esc and every exit path call it. */
   cancelPromptEnhance(): void {
     this.promptEnhance?.abort();
     this.promptEnhance = null;
   }
 
-  async compactContext(verb: "run" | "show"): Promise<void> {
+  async compactContext(verb: "run" | "show", instructions?: string): Promise<void> {
     const id = this.session?.id;
     if (!id) { this.notify("No conversation to compact yet."); return; }
     if (verb === "show") {
@@ -2243,7 +2435,7 @@ export class ChatOrchestrator {
     this.bus.emit({ type: "compaction_requested", sessionId: id });
     let busy = false;
     try {
-      const result = await this.runtime.compactSession(id);
+      const result = await this.runtime.compactSession(id, instructions ? { instructions } : {});
       busy = result.status === "busy";
       // The loop owns its live state. Never install a saved snapshot here.
       if (this.session?.id === id && result.status !== "compacted" && result.status !== "failed" && result.status !== "cancelled") {
@@ -2308,6 +2500,7 @@ export class ChatOrchestrator {
       send: (text) => this.sendMessage(text),
       say: (text) => this.bus.emit({ type: "system_message", text }),
       show: (goal) => this.showGoal(goal),
+      defaultMaxTokens: getConfig().agent.goal?.maxTokens ?? 0,
       now: () => Date.now(),
     });
   }
@@ -2320,6 +2513,7 @@ export class ChatOrchestrator {
     if (this.quitting) return;
     this.quitting = true;
     this.cancelPromptEnhance();
+    this.cancelSideQuestion();
     this.clearQueue();
     this.currentController?.abort();
     this.detachedTurns.abortAll();
@@ -2421,4 +2615,18 @@ function toPickerEntry(row: SessionSummary): SessionPickerEntry {
     preview: preview.length > 0 ? preview : "(empty)",
     pinned: false,
   };
+}
+
+/** The chat line for a `/rewind` that did not happen (ATO-1057). */
+export function rewindRefusalText(code: RewindRefusal): string {
+  switch (code) {
+    case "turn_in_progress":
+      return "Can't rewind while the agent is working or messages are waiting. Stop it or let it finish, then try /rewind again.";
+    case "nothing_to_rewind":
+      return "Nothing to rewind: this chat has no earlier messages of yours.";
+    case "point_compacted":
+      return "Can't rewind to that message: it is inside the part of the chat that was already compacted into a summary.";
+    case "point_mismatch":
+      return "The chat changed since the list was opened. Run /rewind again.";
+  }
 }

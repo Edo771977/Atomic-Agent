@@ -330,7 +330,7 @@ describe("buildPrompt", () => {
     // The bad guess in issue #113 was `format: "text"`. The stable prefix
     // carries the closed set so the guess is never reachable.
     expect(prompt.stablePrefix).toContain(
-      "format?: 'pdf' | 'docx' | 'doc' | 'xlsx' | 'rtf' | 'odt' | 'pptx' | 'plain'",
+      "format?: 'pdf' | 'docx' | 'doc' | 'xlsx' | 'rtf' | 'odt' | 'pptx' | 'ods' | 'odp' | 'epub' | 'html' | 'eml' | 'mbox' | 'plain'",
     );
   });
 
@@ -917,7 +917,7 @@ describe("buildPrompt", () => {
     expect(noticeIdx).toBeGreaterThan(conversationIdx);
   });
 
-  it("renders ### project after the conversation; the stable prefix stays byte-identical across gate changes (issue #39)", () => {
+  it("renders ### fusion project after the conversation; the stable prefix stays byte-identical across gate changes (issue #39)", () => {
     const brief = {
       version: 1, what: "A snake game", users: "Kids", how: "HTML", successCriteria: [{ id: "c1", text: "Runs offline" }],
       status: "draft" as const, draftedAfterUntrusted: false,
@@ -932,10 +932,12 @@ describe("buildPrompt", () => {
     const none = build();
     const atBrief = build({ brief, milestones: [], gate: { kind: "brief" } });
     const approved = build({ brief: { ...brief, status: "approved", approvedAt: 5 }, milestones: [], gate: { kind: "none" } });
-    expect(none.tail).not.toContain("### project");
-    expect(atBrief.tail).toContain("### project\nbrief: draft v1 — A snake game");
+    expect(none.tail).not.toContain("### fusion project");
+    // `### project` is the client's project instructions (ATO-42), never the digest.
+    expect(atBrief.tail).not.toContain("### project");
+    expect(atBrief.tail).toContain("### fusion project\nbrief: draft v1 — A snake game");
     expect(approved.tail).toContain("brief: approved v1");
-    expect(atBrief.tail.indexOf("### project")).toBeGreaterThan(atBrief.tail.indexOf("### conversation"));
+    expect(atBrief.tail.indexOf("### fusion project")).toBeGreaterThan(atBrief.tail.indexOf("### conversation"));
     expect(atBrief.stablePrefix).toBe(none.stablePrefix);
     expect(approved.stablePrefix).toBe(none.stablePrefix);
     expect(atBrief.stablePrefix).not.toContain("A snake game");
@@ -2152,7 +2154,8 @@ describe("buildPrompt tool roles (F18)", () => {
     expect(line).toContain("tasks.schedule");
     expect(line).toContain("browser.navigate");
     expect(line).toContain("finish");
-    expect(line).not.toContain("os.fs.write");
+    // As a whole name: `os.fs.write_pptx` is a different tool on the line.
+    expect(line).not.toMatch(/[\s,]os\.fs\.write(?:,|$)/);
     // Exactly one such line, and it sits inside `### tools`.
     expect(stablePrefix.split(ALSO_AVAILABLE_VIA_TOOL_VIEW)).toHaveLength(2);
     expect(stablePrefix.indexOf(ALSO_AVAILABLE_VIA_TOOL_VIEW)).toBeGreaterThan(

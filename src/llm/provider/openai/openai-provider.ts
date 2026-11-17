@@ -1,6 +1,8 @@
 import {
+  AudioUnsupportedError,
   ModelCannotSeeError,
   VisionUnsupportedError,
+  type AudioRequest,
   type LlmProvider,
   type ProviderCapabilities,
   type ProviderHealthResult,
@@ -8,7 +10,7 @@ import {
   type VisionResult,
 } from "../llm-provider.js";
 import { isGeminiOpenAiCompatUrl } from "../gemini/gemini-openai-compat.js";
-import { toGeminiTools } from "../gemini/gemini-tool-schema.js";
+import { toGeminiResponseFormat, toGeminiTools } from "../gemini/gemini-tool-schema.js";
 import type {
   CompletionRequest,
   CompletionResult,
@@ -50,13 +52,16 @@ import {
   OPENAI_MAX_ATTEMPTS,
   type OpenAiAttemptBudget,
   type OpenAiHttpDeps,
+  type OpenAiKeyRotation,
 } from "./openai-http.js";
 import { isNetworkError } from "../../reliability/network-error.js";
 import { normaliseOpenAiChatResponse } from "./openai-normalise-response.js";
 import { parseRateLimitHeaders, type RateLimitWindow } from "../rate-limits.js";
 import { normalizeOpenAiBaseUrl } from "./normalize-openai-base-url.js";
 import { openAiChatPathPrefix } from "./openai-chat-path.js";
+import type { ApiKeySource } from "./api-key-command.js";
 import { describeImageViaOpenAi } from "./openai-describe-image.js";
+import { describeAudioViaOpenAi } from "./openai-describe-audio.js";
 import { isAnthropicHost, isAnthropicModel } from "./prompt-cache-control.js";
 import { isLocalServerUrl } from "./local-server-url.js";
 import {
@@ -95,6 +100,12 @@ export interface OpenAiProviderOptions {
    */
   apiKeyHeader?: string;
   /**
+   * The key as a command's output (`apiKeyCommand`), re-read per request
+   * and refreshed on a 401. Replaces `apiKey` when set. See
+   * `api-key-command.ts`.
+   */
+  apiKeySource?: ApiKeySource;
+  /**
    * Whether the model this link serves can read images, as resolved per
    * model by the factory (`model-vision.ts`), with `visionSource` saying
    * where that came from. Absent means nothing describes the model:
@@ -103,6 +114,13 @@ export interface OpenAiProviderOptions {
    */
   supportsVision?: boolean;
   visionSource?: ProviderCapabilities["visionSource"];
+  /**
+   * Whether the model takes audio input, resolved per model by the
+   * factory (`model-audio.ts`). Absent means unknown, which is `false`:
+   * audio is never sent on a guess.
+   */
+  supportsAudio?: boolean;
+  audioSource?: ProviderCapabilities["audioSource"];
   supportsParallelTools?: boolean;
   supportsPromptCache?: boolean;
   reasoningFormat?: ReasoningFormat;
@@ -174,6 +192,13 @@ export interface OpenAiProviderOptions {
    */
   logger?: CreditLimitLogger;
   /**
+   * The provider's key pool when it has more than one key (ATO-471):
+   * every request carries the pool's current key, and a refused key is
+   * swapped for the next before the error reaches the fallback chain.
+   * Absent: `apiKey` alone, as before.
+   */
+  keyPool?: OpenAiKeyRotation;
+  /**
    * The entry is an external local engine (Ollama, LM Studio) whose
    * tool-call parser may not know the model's format (ATO-642). Native
    * tools stay the default; a model whose native calls come back
@@ -244,6 +269,17 @@ export class OpenAiProvider implements LlmProvider {
    * rebuilt on every config write, which is the cheapest re-probe.
    */
   private readonly flatSessions = new Set<string>();
+  /**
+   * Tools whose JSON schema this server refused, per session (`"*"` for
+   * requests without a session id): wire name -> the exact tool
+   * definition that was refused (ATO-1443). Every later request of the
+   * session goes out without them, instead of paying one failed request
+   * per agent step. Keyed on the definition as well as the name, so a
+   * tool whose schema changed (an MCP server reload) is tried again.
+   * Per instance, like `flatSessions`: a config write rebuilds the
+   * provider, which is the re-probe.
+   */
+  private readonly rejectedTools = new Map<string, Map<string, string>>();
 
   constructor(options: OpenAiProviderOptions) {
     this.id = options.id;
@@ -265,6 +301,11 @@ export class OpenAiProvider implements LlmProvider {
       createOpenAiStreamConsumer(this.reasoningFormat);
     this.capabilities = {
       ...openAiVisionCapabilities(options),
+      audio: options.supportsAudio ?? false,
+      audioSource:
+        options.supportsAudio === undefined
+          ? "unknown"
+          : (options.audioSource ?? "config.provider"),
       toolTransport: "native_tools",
       contextWindow: 128_000,
       supportsParallelTools: options.supportsParallelTools ?? true,
@@ -306,6 +347,7 @@ export class OpenAiProvider implements LlmProvider {
       apiKey: options.apiKey,
       extraHeaders: options.headers ?? {},
       ...(options.apiKeyHeader ? { apiKeyHeader: options.apiKeyHeader } : {}),
+      ...(options.apiKeySource ? { apiKeySource: options.apiKeySource } : {}),
       requestTimeoutMs:
         options.requestTimeoutMs ?? OPENAI_DEFAULT_REQUEST_TIMEOUT_MS,
       fetchImpl: options.fetchImpl ?? fetch,
@@ -315,7 +357,17 @@ export class OpenAiProvider implements LlmProvider {
         const windows = parseRateLimitHeaders(headers);
         if (windows.length > 0) this.lastRateLimits = windows;
       },
+      ...(options.keyPool ? { keyPool: options.keyPool } : {}),
     };
+    const pool = options.keyPool;
+    if (pool) {
+      // Paths that send without the rotation wrapper (the model list
+      // probe) still carry the key in use rather than a refused primary.
+      Object.defineProperty(this.http, "apiKey", {
+        get: () => pool.current(),
+        enumerable: true,
+      });
+    }
   }
 
   /**
@@ -353,19 +405,23 @@ export class OpenAiProvider implements LlmProvider {
   }
 
   private async completeNative(
-    request: CompletionRequest,
+    original: CompletionRequest,
   ): Promise<CompletionResult> {
+    // Tools this session already learned the server refuses stay out
+    // from the first send (ATO-1443).
+    const known = this.withoutRememberedTools(original);
+    const request = known.request;
     try {
-      return await this.completeOnce(request);
+      return withDroppedTools(await this.completeOnce(request), known.dropped);
     } catch (err) {
       // One resend without the tool whose schema the server could not
       // use (ATO-1399); a second refusal goes back as the server wrote it.
       const reduced = this.withoutRejectedTool(request, err);
       if (!reduced) throw err;
       try {
-        return withDroppedTool(
+        return withDroppedTools(
           await this.completeOnce(reduced.request),
-          reduced.dropped,
+          [...known.dropped, reduced.dropped],
         );
       } catch (retryErr) {
         if (request.signal?.aborted) throw retryErr;
@@ -497,6 +553,16 @@ export class OpenAiProvider implements LlmProvider {
     if (body.tools !== undefined && isGeminiOpenAiCompatUrl(this.http.baseUrl)) {
       body.tools = toGeminiTools(body.tools);
     }
+    // The helper calls' structured-output schema gets the same cleaning
+    // (ATO-1444). Only one we attached from `responseFormat`: a
+    // `response_format` set through `extraBody` is the operator's.
+    if (
+      request.responseFormat !== undefined &&
+      body.response_format !== undefined &&
+      isGeminiOpenAiCompatUrl(this.http.baseUrl)
+    ) {
+      body.response_format = toGeminiResponseFormat(body.response_format);
+    }
     return this.wire ? this.wire.toWireBody(body) : body;
   }
 
@@ -596,6 +662,7 @@ export class OpenAiProvider implements LlmProvider {
       tools,
     );
     if (!culprit) return null;
+    this.rememberRejectedTool(request, tools[culprit.index]!, culprit.name);
     const tool = this.toolCallAdapter.nameUnescape(culprit.name);
     this.http.logger?.warn(
       `llm: "${this.id}" could not use the JSON schema of tool "${tool}" (at ${culprit.pointer}); resending this request without that tool`,
@@ -616,6 +683,51 @@ export class OpenAiProvider implements LlmProvider {
       },
       dropped: { name: tool, reason: "schema_rejected" },
     };
+  }
+
+  /** Remember a refused tool for the rest of the session (ATO-1443). */
+  private rememberRejectedTool(
+    request: CompletionRequest,
+    tool: Record<string, unknown>,
+    wireName: string,
+  ): void {
+    const key = sessionKey(request);
+    let known = this.rejectedTools.get(key);
+    if (!known) {
+      known = new Map();
+      this.rejectedTools.set(key, known);
+    }
+    known.set(wireName, JSON.stringify(tool));
+  }
+
+  /**
+   * The request without the tools this session already learned the
+   * server refuses (ATO-1443), and those tools for `droppedTools`. The
+   * request itself when there are none.
+   */
+  private withoutRememberedTools(request: CompletionRequest): {
+    request: CompletionRequest;
+    dropped: DroppedTool[];
+  } {
+    const known = this.rejectedTools.get(sessionKey(request));
+    const tools = request.tools;
+    if (!known || known.size === 0 || !tools || tools.length === 0) {
+      return { request, dropped: [] };
+    }
+    const dropped: DroppedTool[] = [];
+    const kept = tools.filter((tool) => {
+      const name = toolWireName(tool);
+      if (name === null) return true;
+      const refused = known.get(name);
+      if (refused === undefined || refused !== JSON.stringify(tool)) return true;
+      dropped.push({
+        name: this.toolCallAdapter.nameUnescape(name),
+        reason: "schema_rejected",
+      });
+      return false;
+    });
+    if (dropped.length === 0) return { request, dropped };
+    return { request: { ...request, tools: kept }, dropped };
   }
 
   /**
@@ -748,9 +860,11 @@ export class OpenAiProvider implements LlmProvider {
       );
     }
     let shape = this.shapeFor(request);
-    // The request the body is built from: the caller's, until a schema
-    // error names a tool to leave out (`withoutRejectedTool`).
-    let activeRequest = request;
+    // The request the body is built from: the caller's without the tools
+    // this session already learned the server refuses (ATO-1443), until
+    // a schema error names one more to leave out (`withoutRejectedTool`).
+    const known = this.withoutRememberedTools(request);
+    let activeRequest = known.request;
     let body = this.buildBody(activeRequest, true, shape);
     const path = this.chatPath();
     let accumulated = "";
@@ -1035,7 +1149,10 @@ export class OpenAiProvider implements LlmProvider {
       sentBody,
     );
     return this.withRateLimits(
-      toolDropped ? withDroppedTool(safe, toolDropped) : safe,
+      withDroppedTools(
+        safe,
+        toolDropped ? [...known.dropped, toolDropped] : known.dropped,
+      ),
     );
   }
 
@@ -1152,6 +1269,31 @@ export class OpenAiProvider implements LlmProvider {
       }
       throw error;
     }
+  }
+
+  async describeAudio(request: AudioRequest): Promise<VisionResult> {
+    if (!this.capabilities.audio) {
+      throw new AudioUnsupportedError(this.name);
+    }
+    const model = this.defaultChatModel;
+    if (!model) {
+      throw new Error(
+        `openai-compatible provider "${this.name}" has no defaultChatModel configured`,
+      );
+    }
+    return describeAudioViaOpenAi(
+      this.http,
+      model,
+      request,
+      this.chatPathPrefix,
+      this.providerPreferences,
+      {
+        ...(this.extraBody ? { extraBody: this.extraBody } : {}),
+        ...(this.bodyOptions.modelParams
+          ? { modelParams: this.bodyOptions.modelParams }
+          : {}),
+      },
+    );
   }
 
   async listModels(): Promise<readonly string[]> {
@@ -1307,6 +1449,24 @@ function withDroppedTool(
   const already = result.droppedTools ?? [];
   if (already.some((tool) => tool.name === dropped.name)) return result;
   return { ...result, droppedTools: [...already, dropped] };
+}
+
+/** `withDroppedTool` for each tool in order; the result itself when none. */
+function withDroppedTools(
+  result: CompletionResult,
+  dropped: readonly DroppedTool[],
+): CompletionResult {
+  let out = result;
+  for (const tool of dropped) out = withDroppedTool(out, tool);
+  return out;
+}
+
+/** A chat-completions tool's `function.name`, or null for any other shape. */
+function toolWireName(tool: Record<string, unknown>): string | null {
+  const fn = tool.function;
+  if (typeof fn !== "object" || fn === null) return null;
+  const name = (fn as { name?: unknown }).name;
+  return typeof name === "string" ? name : null;
 }
 
 /**

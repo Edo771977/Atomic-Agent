@@ -1,6 +1,8 @@
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import {
+  openPerCallHeartbeatStore,
   parseQuietHours,
   SqliteHeldReportStore,
   TaskReportHold,
@@ -10,9 +12,22 @@ import {
 } from "../../tasks/index.js";
 import type { TaskRunnerRuntime } from "../../tasks/task-runner.js";
 import type { TaskRecord } from "../../tasks/index.js";
-import { createSchedulerLeadership, Scheduler } from "../../scheduler/index.js";
+import {
+  chokidarWatcherFactory,
+  createKeepAwake,
+  createSchedulerLeadership,
+  FileTriggerManager,
+  nodeFileTriggerFs,
+  parseKeepAwakeMode,
+  realFileTriggerClock,
+  Scheduler,
+  type KeepAwake,
+  type SchedulerSidecar,
+  type FileTriggerFire,
+} from "../../scheduler/index.js";
 import { WebhookSessionStore, WEBHOOK_SESSIONS_FILENAME } from "../../http/webhook-session-store.js";
 import { registerTaskTools } from "../../tools/tasks/index.js";
+import { showDesktopNotification } from "../../tools/os/notify.js";
 import type { ToolRegistry } from "../../tools/tool-registry.js";
 import type { SessionStore } from "../../session/index.js";
 import { TelegramChannel } from "../../channels/telegram/index.js";
@@ -22,6 +37,7 @@ import type { AgentRuntime } from "../runtime-contract.js";
 import type { TaskSessionInput } from "../../tools/tasks/index.js";
 import type { SessionState } from "../../session/index.js";
 import { childSessionSeed, type SessionProviderPolicy } from "../session-provider-policy.js";
+import { createPushTaskReportSink, readCurrentPushConfig } from "../../notifications/index.js";
 
 export function createRuntimeTaskStores(args: {
   config: Pick<AtomicAgentConfig, "paths" | "tasks">;
@@ -93,6 +109,8 @@ export function createRuntimeTaskRunner(args: {
    * constraint exists.
    */
   providerPolicy?: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">;
+  /** Sleep inhibitor held while a drain runs (ATO-592). */
+  keepAwake?: KeepAwake;
 }): TaskRunner {
   const { config, taskStore, runTurn, sessionStore, createSession, toolRegistry, resolveTelegram, logger, metrics } = args;
   const taskRunner = new TaskRunner({
@@ -112,9 +130,9 @@ export function createRuntimeTaskRunner(args: {
     enabled: config.tasks.enabled,
     runOnCreate: config.tasks.runOnCreate,
     minIntervalMs: config.tasks.minIntervalMs,
-    // Telegram is the only `TaskNotifyTarget` today, so the runner's
-    // single sink IS the Telegram route (a second target would turn
-    // this into a per-target dispatch). The channel is constructed
+    // One sink, routed per `TaskReport.notify`: phone push (ATO-1129)
+    // goes straight to ntfy, everything else is the Telegram route. The
+    // Telegram channel is constructed
     // after the runner — it needs the finished runtime object — so the
     // sink resolves the same live reference the shutdown path uses,
     // assigned further below, at delivery time. A report that fires in
@@ -124,7 +142,15 @@ export function createRuntimeTaskRunner(args: {
     // never affect the task's own status, and the runner isolates sink
     // rejections. Skip-path logging is pinned by the sink's own unit
     // tests in telegram-channel.test.ts.
-    reportSink: createTaskReportSink({ config, resolveTelegram, logger }),
+    reportSink: routeTaskReports({
+      telegram: createTaskReportSink({ config, resolveTelegram, logger }),
+      push: createPushTaskReportSink({
+        // Read per report from disk, not the boot config: `push on` from
+        // the CLI or the desktop must reach a running agent.
+        readPush: () => readCurrentPushConfig(config.paths.userConfigFile),
+        logger,
+      }),
+    }),
     // Auto status snapshots of long reporting runs (ATO-965): one edited
     // Telegram message per task, silent inside quiet hours. Same late
     // channel resolution as the report sink.
@@ -133,11 +159,19 @@ export function createRuntimeTaskRunner(args: {
       quietHours: parseQuietHours(config.tasks.report?.quietHours ?? undefined),
     }),
     snapshotCadence: config.statusSnapshot ?? null,
+    // Heartbeats (ATO-454): settings in tasks.sqlite, read per run; news
+    // goes to Telegram through the report sink above and, when the
+    // heartbeat asks, to a desktop notification.
+    heartbeat: {
+      store: openPerCallHeartbeatStore(config.paths.tasksDbFile),
+      notifyDesktop: (title, message) => showDesktopNotification({ title, message }),
+    },
     logger,
     metrics,
     ...(args.approvalLevel ? { approvalLevel: args.approvalLevel } : {}),
     ...(args.notifyRefusal ? { notifyRefusal: args.notifyRefusal } : {}),
     ...(args.providerPolicy ? { recreateSessionRefusal: recreateRefusalFor(args.providerPolicy) } : {}),
+    ...(args.keepAwake ? { keepAwake: args.keepAwake } : {}),
     // Continue a run a crash, a kill or a restart cut off from its
     // session's checkpoint (ATO-1109).
     resume: {
@@ -164,6 +198,15 @@ export function createRuntimeTaskRunner(args: {
   });
 
   return taskRunner;
+}
+
+/** Send each report to its own target; unmarked reports are Telegram's. */
+function routeTaskReports(sinks: {
+  telegram: TaskReportSink;
+  push: TaskReportSink;
+}): TaskReportSink {
+  return (report) =>
+    report.notify === "push" ? sinks.push(report) : sinks.telegram(report);
 }
 
 /**
@@ -241,8 +284,38 @@ function createTaskReportSink(args: {
   }
 }
 
+/**
+ * The sleep inhibitor for tasks and turns (ATO-592), from
+ * `ATOMIC_AGENT_TASKS_KEEP_AWAKE`. Default off; a value that is not
+ * `off` / `while-working` (the removed `always` included) is warned
+ * about and treated as off.
+ */
+export function createRuntimeKeepAwake(args: {
+  config: Pick<AtomicAgentConfig, "tasks">;
+  logger: StructuredLogger;
+  platform?: NodeJS.Platform;
+}): KeepAwake {
+  const { config, logger } = args;
+  const raw = config.tasks.keepAwake ?? null;
+  let mode = parseKeepAwakeMode(raw);
+  if (raw !== null && raw.trim() !== "" && mode === null) {
+    logger.warn("keep-awake setting ignored: expected off or while-working", {
+      value: raw,
+      ...(raw.trim().toLowerCase() === "always"
+        ? { hint: "always was removed: while-working keeps the computer awake only while a task or turn runs" }
+        : {}),
+    });
+  }
+  mode ??= "off";
+  return createKeepAwake({
+    mode,
+    logger,
+    ...(args.platform ? { platform: args.platform } : {}),
+  });
+}
+
 export function createRuntimeScheduler(args: {
-  config: Pick<AtomicAgentConfig, "tasks" | "paths">;
+  config: Pick<AtomicAgentConfig, "tasks" | "paths" | "fileTriggers">;
   taskRunner: TaskRunner;
   logger: StructuredLogger;
   metrics: AgentMetrics;
@@ -251,8 +324,10 @@ export function createRuntimeScheduler(args: {
    * after the scheduler). Absent or `null`: Telegram is not wanted here.
    */
   resolveTelegram?: () => Pick<TelegramChannel, "hasToken" | "state"> | null;
+  /** Periodic work that runs only in the leading process (the mail trigger, ATO-601). */
+  sidecars?: readonly SchedulerSidecar[];
 }): Scheduler | null {
-  const { config, taskRunner, logger, metrics, resolveTelegram } = args;
+  const { config, taskRunner, logger, metrics, resolveTelegram, sidecars } = args;
   if (!config.tasks.enabled || !config.tasks.schedulerEnabled) return null;
   // ATO-416: the desktop's `atag serve` and the TUI can share this state
   // dir, each with a scheduler. Only one drains due tasks — the Telegram
@@ -265,6 +340,7 @@ export function createRuntimeScheduler(args: {
       return channel !== null && channel.hasToken() && channel.state() !== "disabled";
     },
   });
+  const fileTriggers = createFileTriggers({ config, taskRunner, logger });
   return new Scheduler({
     taskRunner,
     tickMs: config.tasks.schedulerTickMs,
@@ -272,5 +348,51 @@ export function createRuntimeScheduler(args: {
     logger,
     metrics,
     leadership,
+    ...(fileTriggers
+      ? { onLeadershipChange: (leading: boolean) => fileTriggers.setLeader(leading) }
+      : {}),
+    ...(sidecars && sidecars.length > 0 ? { sidecars } : {}),
+  });
+}
+
+/**
+ * File and log-line triggers (ATO-441). Watchers run only in the
+ * scheduler leader (started and stopped through `onLeadershipChange`),
+ * and each hit files a task the way a webhook hit does: the trigger
+ * never calls `runTurn` itself. `null` when none are configured.
+ */
+function createFileTriggers(args: {
+  config: Pick<AtomicAgentConfig, "tasks" | "fileTriggers">;
+  taskRunner: Pick<TaskRunner, "create">;
+  logger: StructuredLogger;
+}): FileTriggerManager | null {
+  const { config, taskRunner, logger } = args;
+  const definitions = config.fileTriggers ?? {};
+  if (Object.keys(definitions).length === 0) return null;
+  return new FileTriggerManager({
+    definitions,
+    factory: chokidarWatcherFactory,
+    fs: nodeFileTriggerFs,
+    clock: realFileTriggerClock,
+    homeDir: homedir(),
+    logger,
+    fire: (task: FileTriggerFire) => {
+      try {
+        const created = taskRunner.create({
+          ...(task.sessionId ? { sessionId: task.sessionId } : {}),
+          userMessage: task.userMessage,
+          origin: "scheduler",
+          triggerSource: "file",
+          maxAttempts: config.tasks.maxAttempts,
+          maxSteps: null,
+        });
+        logger.info("file trigger filed a task", { trigger: task.trigger, taskId: created.id });
+      } catch (err) {
+        logger.warn("file trigger could not file a task", {
+          trigger: task.trigger,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
   });
 }

@@ -12,10 +12,13 @@ import { osFsListTool } from "./fs/fs-list.js";
 import { osFsGlobTool } from "./fs/fs-glob.js";
 import { buildOsFsLocateProjectTool } from "./fs/fs-locate-project.js";
 import { buildOsFsCodeMapTool } from "./code-map/index.js";
+import { buildOsCodeRewriteTool, buildOsCodeSearchTool } from "./code/index.js";
 import type { RecentSessionDir } from "./fs/fs-locate-project-sources.js";
 import { buildOsFsGrepTool } from "./fs/fs-grep.js";
 import { buildOsFsEditTool } from "./fs/fs-edit.js";
 import { buildOsFsReadDocumentTool } from "./read-document/index.js";
+import { buildOsFsWritePptxTool } from "./pptx/index.js";
+import { buildOsFsDocxTool, buildOsFsXlsxTool } from "./office/index.js";
 import {
   buildOsFsArchiveListTool,
   buildOsFsArchiveReadEntryTool,
@@ -23,6 +26,8 @@ import {
 } from "./archive/index.js";
 import { buildOsHttpRequestTool } from "./web/http-request.js";
 import { buildOsWebFetchTool } from "./web/web-fetch.js";
+import { buildOsWebCrawlTool } from "./web/web-crawl.js";
+import type { PageRenderer } from "./web/web-fetch-ladder.js";
 import { buildOsWebSearchTool, type WebSearchKeyHelp } from "./web-search/index.js";
 import { osClipboardReadTool, osClipboardWriteTool } from "./clipboard.js";
 import { osWindowListTool, osWindowFocusTool } from "./window.js";
@@ -71,6 +76,8 @@ export type { RecentSessionDir } from "./fs/fs-locate-project-sources.js";
 export { buildOsFsGrepTool } from "./fs/fs-grep.js";
 export { buildOsFsEditTool } from "./fs/fs-edit.js";
 export { buildOsFsReadDocumentTool } from "./read-document/index.js";
+export { buildOsFsWritePptxTool } from "./pptx/index.js";
+export { buildOsFsDocxTool, buildOsFsXlsxTool } from "./office/index.js";
 export {
   buildOsFsArchiveListTool,
   buildOsFsArchiveReadEntryTool,
@@ -78,6 +85,8 @@ export {
 } from "./archive/index.js";
 export { buildOsHttpRequestTool } from "./web/http-request.js";
 export { buildOsWebFetchTool } from "./web/web-fetch.js";
+export { buildOsWebCrawlTool } from "./web/web-crawl.js";
+export type { PageRenderer } from "./web/web-fetch-ladder.js";
 export { buildOsWebSearchTool } from "./web-search/index.js";
 export type { WebSearchKeyHelp } from "./web-search/index.js";
 export { osClipboardReadTool, osClipboardWriteTool } from "./clipboard.js";
@@ -199,6 +208,12 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    */
   webSearchKeyHelp?: WebSearchKeyHelp;
   /**
+   * Renders a page that answered `os.web.fetch` with a bot wall in the
+   * agent's own browser (ATO-968). The composition root builds it from
+   * the browser backend; absent ⇒ the fetch ladder skips that step.
+   */
+  webFetchRenderPage?: PageRenderer;
+  /**
    * Whether the operator trusts a folder (project folder trust,
    * `skills.projectTrust`), read live. A language server (ATO-503)
    * starts without a question only in a trusted work tree; elsewhere the
@@ -297,6 +312,11 @@ export function registerOsTools(
   registry.register(buildOsFsGrepTool());
   registry.register(buildOsFsEditTool(fsMutation));
   registry.register(buildOsFsReadDocumentTool());
+  // The same bag as os.fs.write: an input deck is refused, a replaced
+  // one keeps a restore copy.
+  registry.register(buildOsFsWritePptxTool(fsMutation));
+  registry.register(buildOsFsDocxTool(fsMutation));
+  registry.register(buildOsFsXlsxTool(fsMutation));
   registry.register(buildOsFsArchiveListTool());
   registry.register(buildOsFsArchiveReadEntryTool());
   registry.register(
@@ -329,8 +349,12 @@ export function registerOsTools(
         approvals: options.approvals,
         approvalRequired: options.approvalRequired,
       },
+      ...(options.webFetchRenderPage === undefined
+        ? {}
+        : { renderPage: options.webFetchRenderPage }),
     }),
   );
+  registry.register(buildOsWebCrawlTool({ config: options.config }));
   registry.register(osClipboardReadTool);
   registry.register(osClipboardWriteTool);
   registry.register(osWindowListTool);
@@ -353,6 +377,10 @@ export function registerOsTools(
   registry.register(buildOsFsPatchTool(fsMutation));
   registry.register(buildOsFsRestoreTool(fsMutation));
   registry.register(buildOsFsMoveTool(fsMutation));
+  // Structural search / rewrite through the user's ast-grep CLI (ATO-696);
+  // the rewrite rides the same write funnel and guards as the patch.
+  registry.register(buildOsCodeSearchTool());
+  registry.register(buildOsCodeRewriteTool(fsMutation));
   registry.register(osFsWatchTool);
   registry.register(osGitStatusTool);
   registry.register(osGitLogTool);

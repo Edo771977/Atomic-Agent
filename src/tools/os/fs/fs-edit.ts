@@ -10,6 +10,7 @@ import {
 } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import { checkChangedFile } from "./fs-content-check.js";
+import { computeDiffStat } from "./fs-diffstat.js";
 import {
   clampDiffPreview,
   countLineDelta,
@@ -190,6 +191,9 @@ async function editFile(
               sizeAfter: Buffer.byteLength(updated, "utf8"),
               // For a fan-out's `changed:` line (`WorkerRunCollector`).
               ...countLineDelta(original, updated),
+              // Lines added/removed for a host's "Changed files" card
+              // (ATO-1187). `details` is not rendered into the prompt.
+              diffstat: computeDiffStat(original, updated),
             },
           },
           {

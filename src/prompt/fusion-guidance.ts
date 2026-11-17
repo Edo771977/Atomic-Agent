@@ -184,7 +184,35 @@ export function formatFusionMachineLine(
       `Set \`etaSeconds\`: tokens out / ${tokensPerSecond} tok/s × parallel workers + queue.`,
     );
   }
+  // The two limits the late guards enforce (ATO-1363): a worker with no
+  // write by half its steps is handed back, and the timeout ends it.
+  // Stated so a plan is sized against them instead of discovering them.
+  const limits = formatWorkerLimitsLine(facts);
+  if (limits !== null) lines.push(limits);
   return lines.join("\n");
+}
+
+/**
+ * A local worker's step budget and time limit, and the ask for an output
+ * estimate checked against them (ATO-1363); `null` when neither limit
+ * is known, so a facts object without them renders as before.
+ */
+export function formatWorkerLimitsLine(
+  facts: FusionMachineFacts,
+): string | null {
+  const { workerMaxSteps, workerTimeoutMs } = facts;
+  const parts = [
+    workerMaxSteps === undefined ? null : `${workerMaxSteps} steps`,
+    workerTimeoutMs === undefined
+      ? null
+      : `${Math.max(1, Math.round(workerTimeoutMs / 60_000))} min`,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return null;
+  const estimate =
+    facts.tokensPerSecond === null
+      ? ""
+      : " Set `outputTokens` (or `outputLines`): a task that cannot write that in its limit at this speed is flagged on its row.";
+  return `Each local worker gets ${parts.join(" and ")} (more via \`maxSteps\` / \`timeoutMs\`): a task with \`files\` and no write by half its steps is handed back, one out of time comes back to split, so split big files first.${estimate}`;
 }
 
 /**
@@ -201,6 +229,7 @@ export function buildFusionGuidance(
   const machine = formatFusionMachineLine(facts);
   const roles = formatFusionRolesLine(facts);
   const team = formatFusionTeamLine(facts);
+  const past = formatFusionPastRunsLine(facts);
   const base =
     facts.workerLeg === "local"
       ? fusionGuidanceLines(
@@ -210,7 +239,7 @@ export function buildFusionGuidance(
           LOCAL_WORKER_SEES,
         )
       : FUSION_GUIDANCE;
-  return [base, options.project === true ? PROJECT_FLOW_GUIDANCE : null, machine, roles, team]
+  return [base, options.project === true ? PROJECT_FLOW_GUIDANCE : null, machine, roles, team, past]
     .filter((line): line is string => line !== null)
     .join("\n");
 }
@@ -228,14 +257,14 @@ export function isProjectActive(descriptors: readonly ToolDescriptor[]): boolean
  * milestones, each a gate the person decides between turns. Static
  * bytes, present exactly when the project tools are mounted (with the
  * fan-out, so for the whole fusion session); where the project stands
- * is the step-mutable `### project`, never here.
+ * is the step-mutable `### fusion project`, never here.
  */
 export const PROJECT_FLOW_GUIDANCE = [
   "Every job is a project with three gates the person decides between turns; after each step, reply and stop:",
   "1. `project.brief`: what, for whom, how, checkable success criteria.",
   "2. Once approved, `project.plan`: milestones in run order, tasks with the ids you will delegate.",
   "3. Once approved, delegate the approved milestone's tasks (same ids and workers), review them, report with `project.milestone`.",
-  "Never delegate while a gate waits; `### project` says where it stands and what the person corrected.",
+  "Never delegate while a gate waits; `### fusion project` says where it stands and what the person corrected.",
   "Map each success criterion to contract checks naming it (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`).",
 ].join("\n");
 
@@ -261,4 +290,16 @@ export function formatFusionRolesLine(
   if (roles.length === 0) return null;
   const list = roles.map((r) => `${r.role} \`${r.model}\``).join(", ");
   return `Models by role: ${list}. Give a task \`role\` to run it on that model, or \`model\` naming one of them (or the workers' model); a task with neither runs on the workers' model.`;
+}
+
+/**
+ * What past runs on this machine showed (ATO-949), one line, or `null`
+ * when the outcome log has nothing with enough samples.
+ */
+export function formatFusionPastRunsLine(
+  facts: FusionMachineFacts,
+): string | null {
+  const past = facts.pastRuns ?? [];
+  if (past.length === 0) return null;
+  return `Past runs here: ${past.join("; ")}. Plan the split and pick models by these.`;
 }

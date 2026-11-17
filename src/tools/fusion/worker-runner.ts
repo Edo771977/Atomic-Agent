@@ -94,6 +94,8 @@ import {
   renderSelfCheckNotice,
   runSelfCheck,
 } from "./worker-self-check.js";
+import { WrittenFilesTracker } from "./worker-files-written.js";
+import { estimatedOutputTokens } from "./worker-fit.js";
 
 /**
  * How many `phase: "tool"` lines one worker may put in the parent's
@@ -126,6 +128,12 @@ export function estimateWorkerTimeoutMs(input: {
   declaredFiles: number;
   tokensPerSecond: number | null | undefined;
   ceilingMs: number;
+  /**
+   * The planner's own output estimate for the task (ATO-1363). Used in
+   * place of the per-file guess when it is larger, so a task stated as
+   * big is not sized as two files; never makes the limit shorter.
+   */
+  outputTokens?: number | null;
 }): number {
   const { tokensPerSecond, ceilingMs } = input;
   if (
@@ -136,9 +144,15 @@ export function estimateWorkerTimeoutMs(input: {
   ) {
     return ceilingMs;
   }
-  const tokens =
-    input.briefChars / 4 +
+  const perFile =
     WORKER_TOKENS_PER_DECLARED_FILE * Math.max(0, input.declaredFiles);
+  const stated =
+    typeof input.outputTokens === "number" &&
+    Number.isFinite(input.outputTokens) &&
+    input.outputTokens > 0
+      ? input.outputTokens
+      : 0;
+  const tokens = input.briefChars / 4 + Math.max(perFile, stated);
   const estimateMs =
     (tokens / tokensPerSecond) * WORKER_TIMEOUT_SAFETY_FACTOR * 1000;
   const floor = Math.min(WORKER_TIMEOUT_FLOOR_MS, ceilingMs);
@@ -1004,6 +1018,7 @@ async function runOneTask(
       phase: "failed",
       role: "worker",
       model: options.workerModel,
+      status: refused.status,
       stepCount: 0,
       durationMs: refused.durationMs,
       summary: summarise(refused),
@@ -1085,6 +1100,7 @@ async function runOneTask(
       role: "worker",
       model: options.workerModel,
       ...(task.etaSeconds === undefined ? {} : { etaSeconds: task.etaSeconds }),
+      ...(liveStepBudget === undefined ? {} : { stepBudget: liveStepBudget }),
     });
     // Until the first token the worker is waiting on the server, not
     // working: up to the first-token budget on a full local server.
@@ -1136,8 +1152,15 @@ async function runOneTask(
   // What this worker has spent so far, for its row: tokens always, $
   // when the worker model is priced, escalations folded in.
   let spentTokens = 0;
+  let spentTokensOut = 0;
   let spentUsd = 0;
   let priced = options.workerPricing !== undefined;
+  // Progress for the row (ATO-1364): steps against the budget, and the
+  // distinct files written. Declared here, ahead of the budget itself,
+  // so every announcer above can read them whenever it fires.
+  let liveStepBudget: number | undefined;
+  let liveSteps = 0;
+  const filesWritten = new WrittenFilesTracker();
   const announceUsage = (contextTokens: number, spendMoved = false): void => {
     const contextMoved =
       contextTokens > 0 && contextTokens !== lastContextTokens;
@@ -1152,11 +1175,20 @@ async function runOneTask(
       model: options.workerModel,
       ...(lastContextTokens > 0 ? { contextTokens: lastContextTokens } : {}),
       ...(spentTokens > 0 ? { tokens: spentTokens } : {}),
+      ...(spentTokensOut > 0 ? { tokensOut: spentTokensOut } : {}),
       ...(priced ? { spentUsd } : {}),
+      ...(liveStepBudget === undefined ? {} : { stepBudget: liveStepBudget }),
+      ...(liveSteps > 0 ? { stepCount: liveSteps } : {}),
+      ...(filesWritten.count > 0 ? { filesWritten: filesWritten.count } : {}),
     });
   };
-  const addSpend = (tokens: number, usd: number | null): void => {
+  const addSpend = (
+    tokens: number,
+    usd: number | null,
+    tokensOut = 0,
+  ): void => {
     spentTokens += Math.max(0, tokens);
+    spentTokensOut += Math.max(0, tokensOut);
     if (usd !== null) {
       spentUsd += usd;
       priced = true;
@@ -1236,6 +1268,7 @@ async function runOneTask(
   // this install allows. A task that asked for nothing keeps the
   // configured defaults, byte for byte as before.
   const stepBudget = clampTaskBudget(task.maxSteps, options.workerMaxSteps);
+  liveStepBudget = stepBudget.value;
   const timeBudget = clampTaskBudget(task.timeoutMs, options.workerTimeoutMs);
   // A local worker gets at least the local floor, however small a
   // number the planner sized the task with (ATO-234).
@@ -1277,6 +1310,7 @@ async function runOneTask(
     declaredFiles,
     tokensPerSecond: options.localTokensPerSecond,
     ceilingMs: taskTimeMs,
+    outputTokens: estimatedOutputTokens(task),
   });
 
   // The worker's own clock, kept apart from the operator's signal: when
@@ -1925,6 +1959,8 @@ async function runOneTask(
           currentFingerprints = [];
           currentBusy = false;
           stepsFinished += 1;
+          liveSteps = stepsFinished;
+          announceUsage(0, true);
           const stalled = detectStall(steps);
           if (stalled !== undefined) {
             autoEscalate({ kind: "stall", detail: stalled });
@@ -1945,6 +1981,7 @@ async function runOneTask(
             event.event.call.args,
             event.event.batchIndex,
           );
+          filesWritten.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
           } catch {
@@ -1961,12 +1998,14 @@ async function runOneTask(
             addSpend(
               completed.usage.promptTokens + completed.usage.completionTokens,
               completionCostUsd(completed.usage, options.workerPricing) ?? null,
+              completed.usage.completionTokens,
             );
           } else {
             addSpend(
               (completed.timing?.promptTokens ?? 0) +
                 (completed.timing?.predictedTokens ?? 0),
               null,
+              completed.timing?.predictedTokens ?? 0,
             );
           }
           announceUsage(completed.timing?.promptTokens ?? 0, true);
@@ -2008,6 +2047,9 @@ async function runOneTask(
             event.event.batchIndex,
             stepsFinished,
           );
+          if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
+            announceUsage(0, true);
+          }
           currentFingerprints.push(fingerprintToolOutcome(result.tool, result));
           if (result.status === "ok" && !READ_ONLY_TOOLS.has(result.tool)) {
             currentBusy = true;
@@ -2239,6 +2281,16 @@ async function runOneTask(
             } catch {
               // The watch's probe never takes the re-run down.
             }
+            if (
+              event.type === "llm_event" &&
+              event.event.type === "tool_call_executed" &&
+              filesWritten.observeExecuted(
+                event.event.result,
+                event.event.batchIndex,
+              )
+            ) {
+              announceUsage(0, true);
+            }
             // The re-run's side effects reach the checkpoint as they
             // start, like the local worker's do (ATO-1316): a crash in
             // the middle of the re-run must not offer the task as safe
@@ -2247,6 +2299,10 @@ async function runOneTask(
               event.type === "llm_event" &&
               event.event.type === "tool_call_parsed"
             ) {
+              filesWritten.observeParsed(
+                event.event.call,
+                event.event.batchIndex,
+              );
               try {
                 options.onWorkerTool?.(task.id, event.event.call.tool);
               } catch {
@@ -2268,6 +2324,7 @@ async function runOneTask(
                 event.event.completion.usage.promptTokens +
                   event.event.completion.usage.completionTokens,
                 usd,
+                event.event.completion.usage.completionTokens,
               );
               announceUsage(0, true);
               if (
@@ -2597,7 +2654,10 @@ async function runOneTask(
     phase: workerPhase(result),
     role: "worker",
     model: options.workerModel,
+    status: result.status,
     stepCount: result.stepCount,
+    stepBudget: stepBudget.value,
+    ...(filesWritten.count > 0 ? { filesWritten: filesWritten.count } : {}),
     durationMs: result.durationMs,
     summary: summarise(result),
   });

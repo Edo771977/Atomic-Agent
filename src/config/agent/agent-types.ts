@@ -1,7 +1,8 @@
 import type { CompactionConfig } from "./compaction-config.js";
 import type { PromptConfig } from "./prompt-config.js";
+import type { PersonasConfig } from "./persona-config.js";
 import type { ApprovalLevel } from "../../approval/approval-level.js";
-import type { AgentTaskConfig, ProviderWaitConfig } from "../agent-execution-config.js";
+import type { AgentGoalConfig, AgentTaskConfig, ProviderWaitConfig } from "../agent-execution-config.js";
 
 /**
  * Where a session's tools may READ (config v67).
@@ -56,6 +57,8 @@ export interface RuntimeAgentConfig {
   maxSteps: number;
   providerWait: ProviderWaitConfig;
   task: AgentTaskConfig;
+  /** Goal mode defaults (`agent.goal`, ATO-1036); absent reads as the defaults. */
+  goal?: AgentGoalConfig;
   toolTimeoutMs: number;
   /** Where reads may go: the working directory and user-named paths, or anywhere. */
   readScope: ReadScope;
@@ -136,6 +139,13 @@ export interface RuntimeAgentConfig {
   worldSnapshotMaxTokens: number;
   /** `agent.tools.search` (ATO-558); absent reads as `auto`. */
   tools?: AgentToolsConfig;
+  /** Mirrors `UserAgentConfig.personas`; absent when the file has none. */
+  personas?: PersonasConfig;
+  /**
+   * Persona name from `ATOMIC_AGENT_PERSONA`, above every file setting
+   * (`persona-resolve.ts`). `default` turns personas off for the run.
+   */
+  personaOverride?: string;
   /**
    * Max `### loaded-tools` rare-schema entries kept per session (LRU
    * by `loadedAt`). Env-only: `ATOMIC_AGENT_LOADED_TOOLS_CAP`.
@@ -227,6 +237,8 @@ export interface UserAgentConfig {
   providerWait: ProviderWaitConfig;
   /** Ceilings that actually end a task. See the runtime type above. */
   task: AgentTaskConfig;
+  /** Goal mode defaults (`agent.goal`, ATO-1036). */
+  goal?: AgentGoalConfig;
   /**
    * Budget of one tool call in ms; a call still running after it is stopped
    * and reported as timed out.
@@ -345,4 +357,10 @@ export interface UserAgentConfig {
    * valid; the parser always fills it.
    */
   tools?: AgentToolsConfig;
+  /**
+   * Named personas and their project bindings (ATO-54,
+   * `persona-config.ts`). Optional and not in the shipped defaults: a
+   * file without it reads exactly as before.
+   */
+  personas?: PersonasConfig;
 }

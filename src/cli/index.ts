@@ -13,21 +13,27 @@ import { skillCommand } from "./skill.js";
 import { pluginCommand } from "./plugin-command.js";
 import { configCommand } from "./config-command.js";
 import { serveCommand } from "./serve-command.js";
+import { mcpServerCommand } from "./mcp-server-command.js";
 import { traceCommand } from "./trace-command.js";
 import { exportCommand } from "./export-command.js";
 import { taskCommand } from "./task-command.js";
+import { ideasCommand } from "./ideas-command.js";
 import { overnightCommand } from "./overnight-command.js";
 import { fusionCommand } from "./fusion-command.js";
 import { memoryCommand } from "./memory-command.js";
 import { modelsCommand } from "./models-command.js";
 import { importCommand } from "./import-command.js";
 import { handoffCommand } from "./handoff-command.js";
+import { shareCommand } from "./share-command.js";
 import { uninstallCommand } from "./uninstall-command.js";
 import { updateCommand } from "./update-command.js";
 import { doctorCommand } from "./doctor-command.js";
 import { dataCommand } from "./data-command.js";
+import { idCommand } from "./id-command.js";
+import { pushCommand } from "./push-command.js";
 import { providersCommand } from "./providers-command.js";
 import { setupCommand } from "./setup-command.js";
+import { whisperCommand } from "./whisper-command.js";
 import { tuiCommand } from "../tui/index.js";
 import { recoverInterruptedFitTest, releaseSuspendedChatBeforeTui, warnLiveFitTestBeforeTui } from "./models-fit-test-restore.js";
 import { installTransportDeadlines } from "../llm/transport-deadlines.js";
@@ -132,6 +138,11 @@ const COMMANDS: CommandDescriptor[] = [
     run: serveCommand,
   },
   {
+    name: "mcp-server",
+    summary: "Serve memory search and skills to Claude Code, Codex, Cursor and other MCP clients (stdio, read-only by default)",
+    run: mcpServerCommand,
+  },
+  {
     name: "trace",
     summary: "Inspect append-only session traces (list|show|export)",
     run: traceCommand,
@@ -145,6 +156,11 @@ const COMMANDS: CommandDescriptor[] = [
     name: "task",
     summary: "Manage durable tasks (list|show|create|cancel|run)",
     run: taskCommand,
+  },
+  {
+    name: "ideas",
+    summary: "Suggestions from your failed tasks and stopped goals (list|refresh|accept|dismiss)",
+    run: ideasCommand,
   },
   {
     name: "overnight",
@@ -180,14 +196,30 @@ const COMMANDS: CommandDescriptor[] = [
     run: (args) => handoffCommand(args, { openTui: tuiCommand }),
   },
   {
+    name: "share",
+    summary:
+      "Save a chat as one redacted HTML/Markdown file for a colleague (--gist asks, then uploads a secret gist)",
+    run: (args) => shareCommand(args),
+  },
+  {
     name: "doctor",
     summary: "Check config, its file mode and MCP commands; --fix repairs (with backup), --undo",
     run: doctorCommand,
   },
   {
+    name: "id",
+    summary: "Print this install's support ID for bug reports (works with analytics off)",
+    run: idCommand,
+  },
+  {
     name: "data",
-    summary: "Back up, restore, move or reset the data folder (shared with the desktop app)",
+    summary: "Back up, restore, move or reset the data folder (shared with the desktop app); export chats as a dataset",
     run: dataCommand,
+  },
+  {
+    name: "push",
+    summary: "Phone notifications through ntfy, no bot needed (on|off|status|test)",
+    run: pushCommand,
   },
   {
     name: "providers",
@@ -198,6 +230,11 @@ const COMMANDS: CommandDescriptor[] = [
     name: "setup",
     summary: "Set up a preset in one step: fusion (a strong model plans, the local model executes)",
     run: setupCommand,
+  },
+  {
+    name: "whisper",
+    summary: "Speech to text: status, download whisper.cpp and the speech model, set the default model",
+    run: whisperCommand,
   },
   {
     name: "update",
@@ -240,7 +277,7 @@ function printHelp(): void {
     `  ATOMIC_AGENT_LLAMA_MAX_TOKENS  Max new tokens per completion (n_predict / max_tokens), default ${USER_CONFIG_DEFAULTS.localModels.completionMaxTokens}, clamped 64..131072`,
     "  ATOMIC_AGENT_BROWSER_CHANNEL           Preferred browser family: chrome | msedge | chromium (default chrome)",
     "  ATOMIC_AGENT_BROWSER_EXECUTABLE_PATH   Explicit path to a Chromium-family binary (overrides auto-detect)",
-    "  ATOMIC_AGENT_BROWSER_HEADLESS          1 to run headless (default 0)",
+    "  ATOMIC_AGENT_BROWSER_HEADLESS          1 / 0 to always / never run headless (default: config browser.headless, \"auto\")",
     "  ATOMIC_AGENT_BROWSER_NO_SANDBOX        1 to pass --no-sandbox (containers / CI only)",
     "  ATOMIC_AGENT_BROWSER_CDP_URL           Attach to an already-running browser via CDP instead of launching",
   ];

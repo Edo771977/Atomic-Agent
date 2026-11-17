@@ -52,7 +52,9 @@ describe("codingModeApprovalNote for the other categories auto leaves asking", (
     const note = codingModeApprovalNote("auto", { tool: "t", category });
     expect(note).toContain(`auto mode doesn't cover ${APPROVAL_CATEGORY_LABELS[category]}`);
     if (category === "fusion_fanout") expect(note).toContain("each one asks");
-    else if (category === "browser_commit" || category === "browser_offsite") expect(note).toBeTruthy();
+    // Site-scoped grants: without a page in the request there is no site
+    // to offer, so the line may say each one asks.
+    else if (category === "browser_commit" || category === "browser_offsite" || category === "browser_site_tool") expect(note).toBeTruthy();
     else expect(note).toContain("ctrl+f allows it for this session");
   });
 

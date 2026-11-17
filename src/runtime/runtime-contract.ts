@@ -14,8 +14,9 @@ import type { ChannelStatus } from "./channel-status.js";
 import type { TelegramChannel } from "../channels/telegram/index.js";
 import type { DiscordChannel } from "../channels/discord/index.js";
 import type { SwarmRegistry } from "../channels/swarm/index.js";
+import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { BotFactory } from "../channels/telegram/index.js";
-import type { McpManager } from "../mcp/index.js";
+import type { McpElicitationPort, McpManager } from "../mcp/index.js";
 import type { CompletionResult, StreamChunk } from "../llm/llama-server-client.js";
 import type { SlotManager } from "../llm/slot-manager.js";
 import type { EgressSnapshot } from "../llm/offline-network.js";
@@ -42,6 +43,7 @@ import type { ProjectDecision } from "../session/session-project.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import type { RuntimeProjectDecisionResult } from "./project-decision-contract.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
+import type { SessionProject } from "../session/session-project.js";
 import type { TaskRunner, TaskStore } from "../tasks/index.js";
 import type { Scheduler } from "../scheduler/index.js";
 import type { WebhookSessionStore } from "../http/webhook-session-store.js";
@@ -52,7 +54,7 @@ import type { MetricSink } from "../tracing/metrics-collector.js";
 import type { AgentMetrics } from "../tracing/agent-metrics.js";
 import type { TraceSink } from "../tracing/trace/index.js";
 import type { ApprovalRequest } from "../approval/approval-gate.js";
-import type { AnalyticsDisabledVia, AnalyticsSurface } from "../analytics/index.js";
+import type { AnalyticsDisabledVia, AnalyticsSurface, UiActionVia } from "../analytics/index.js";
 import type { BrokenPipePolicy } from "../error-reporting/index.js";
 
 
@@ -86,6 +88,17 @@ export interface RuntimeEventHandlers {
    * this handler keep working — the runtime never blocks on it.
    */
   onChannelStatus?: (status: ChannelStatus) => void;
+  /**
+   * How an MCP server's `elicitation/create` (pick an account, confirm,
+   * fill a small form) reaches a person (ATO-704). Only when set do MCP
+   * clients advertise the `elicitation` capability. The port declares
+   * its `surface`: `interactive` (desktop, TUI) waits until answered,
+   * `remote-chat` (Telegram, Discord) declines after 5 minutes, `none`
+   * (unattended task, headless) declines at once. The port is called
+   * outside any turn frame, so the host decides who is there; every
+   * failure is sent to the server as `decline` / `cancel`, never accept.
+   */
+  onMcpElicitation?: McpElicitationPort;
   logSinks?: LogSink[];
   metricSinks?: MetricSink[];
   /**
@@ -444,6 +457,14 @@ export interface AgentRuntime {
    */
   readonly swarm: SwarmRegistry | null;
   /**
+   * Every chat channel behind the shared `Channel` surface (ATO-1169):
+   * Telegram, Discord and the adapters from `channels/channel-catalog.ts`
+   * (Slack, Signal, ...). `null` until `connectRuntimeChannels` runs.
+   * Hosts list and report channels through it; the primaries keep their
+   * typed handles above for pairing and owner settings.
+   */
+  readonly channels: ChannelRegistry | null;
+  /**
    * MCP client manager. **Always non-null** — constructed even when
    * `config.mcp.servers[]` is empty so the live-control surface stays
    * uniform with the Telegram channel pattern. When no servers are
@@ -558,6 +579,12 @@ export interface AgentRuntime {
        * `fusion.delegate` narrows a worker's catalog with it.
        */
       toolFilter?: (name: string) => boolean;
+      /**
+       * Read memory, write none of it (see `RunTurnOptions.memoryReadOnly`):
+       * no reflection, no lesson bump, the `memory.*` write tools hidden.
+       * `skill eval` runs with it so its variants cannot leak into each other.
+       */
+      memoryReadOnly?: boolean;
       /** The turn's tool role (see `RunTurnOptions.toolRole`); a worker is a `builder`. */
       toolRole?: ToolRole;
       /** See `RunTurnOptions.reasoningEffort` — a fusion worker's setting. */
@@ -596,6 +623,12 @@ export interface AgentRuntime {
        * `### answer-style` and its polish (ATO-966, ATO-967).
        */
       answerChannel?: AnswerChannel;
+      /**
+       * ATO-42: the client's project for this chat, stamped on the
+       * freshly loaded session inside the turn lock before the turn runs
+       * (`session/session-project.ts`). null clears it; absent keeps it.
+       */
+      project?: SessionProject | null;
       /**
        * The client declared whether it can show a question card, so the
        * turn is offered `ask_user` (ATO-489). Absent: the TUI, the CLI
@@ -665,6 +698,8 @@ export interface AgentRuntime {
       /** Spend ceiling in USD (see `RunTurnOptions.taskMaxCostUsd`). */
       taskMaxCostUsd?: number;
       toolFilter?: (name: string) => boolean;
+      /** See `runTurn`'s `memoryReadOnly`. */
+      memoryReadOnly?: boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
       reasoningOverride?: ReasoningEffort;
@@ -700,8 +735,12 @@ export interface AgentRuntime {
   createEphemeralSession(meta: FusionWorkerMeta, workingDir?: string, inheritWorkspace?: boolean): SessionState;
   /** Session-scoped cloud skills/instructions; null retains the legacy local view. */
   getSessionWorkspace(session: SessionState | string): import("../session/workspace-context.js").SessionWorkspace | null;
-  /** Maintain context without creating a turn or a transcript message. */
-  compactSession(sessionId: string, options?: { signal?: AbortSignal }): Promise<CompactionResult>;
+  /**
+   * Maintain context without creating a turn or a transcript message.
+   * `instructions` (ATO-661) says what the summary must keep; it is data
+   * inside the summary prompt, trimmed and capped at 2000 characters.
+   */
+  compactSession(sessionId: string, options?: { signal?: AbortSignal; instructions?: string }): Promise<CompactionResult>;
   getSessionCompaction(sessionId: string): SessionCompaction | null;
   cancelSessionCompaction(sessionId: string): boolean;
   /**
@@ -715,6 +754,26 @@ export interface AgentRuntime {
     draft: string,
     options?: { sessionId?: string; signal?: AbortSignal },
   ): Promise<import("./prompt-enhancer.js").PromptEnhanceResult>;
+  /**
+   * `/btw <question>` (ATO-1152): answer a side question with the
+   * conversation as read-only context. A sub-call under its own `btw:`
+   * fallback partition, with no tools, output bound and deadline: it
+   * creates no turn and writes nothing to the session. Optional so hosts
+   * and test doubles that never offer it need not implement it.
+   */
+  askSideQuestion?(
+    question: string,
+    options?: { sessionId?: string; signal?: AbortSignal },
+  ): Promise<import("./side-question.js").SideQuestionResult>;
+  /**
+   * One plain request to the current model, no tools (`POST /api/complete`,
+   * the desktop Studio's "Improve prompt"). A sub-call under its own
+   * `complete:` fallback partition with an output bound and a deadline:
+   * no turn, nothing written to any session. Optional like `enhancePrompt`.
+   */
+  completePlain?(
+    input: import("./plain-complete.js").PlainCompleteInput,
+  ): Promise<import("./plain-complete.js").PlainCompleteResult>;
   /**
    * Build — never run, never persist — the prompt the next turn would
    * open with, for a composer's context readout before any message is
@@ -820,6 +879,32 @@ export interface AgentRuntime {
     stage: string;
     reasonCode: string;
   }): void;
+  /**
+   * Count a built-in TUI slash command (`ui_action`, ATO-1465). `action`
+   * is the command name only (`/report`), never its arguments; the TUI
+   * passes only names from the built-in registry. A no-op while
+   * analytics is off. Optional so test doubles and older hosts need not
+   * implement it.
+   */
+  reportUiAction?(action: string, via: UiActionVia): void;
+  /**
+   * The interview invite's view of analytics (ATO-1467): the anonymous
+   * shared install id and the whole days since install, or `null` while
+   * analytics is off (by config or the environment). Optional so test
+   * doubles and older hosts need not implement it.
+   */
+  interviewInviteIdentity?(): {
+    installId: string;
+    daysSinceInstall: number | undefined;
+  } | null;
+  /**
+   * Send `interview_invite_shown` / `_clicked` / `_dismissed` with fixed
+   * words only (`via`, `reason`). A no-op while analytics is off.
+   */
+  reportInterviewInvite?(
+    kind: "shown" | "clicked" | "dismissed",
+    props: { via?: string; reason?: string },
+  ): void;
   /**
    * Register what restarts the managed local model with a smaller context
    * window after it ran out of memory (ATO-334), or `null` to clear it.

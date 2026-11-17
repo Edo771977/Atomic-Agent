@@ -1,6 +1,10 @@
 import type { UserSubscriptionCliOptions } from "../../config/llm-config.js";
 import { usesExternalCliAuth } from "../../config/provider-auth-mode.js";
-import { resolveLlmProviderApiKey, sharedOpenAiKeyNotSent } from "../../config/resolve-llm-api-key.js";
+import {
+  resolveExtraApiKeys,
+  resolveLlmProviderApiKey,
+  sharedOpenAiKeyNotSent,
+} from "../../config/resolve-llm-api-key.js";
 import { isOtherComputerOnNetworkUrl } from "./openai/network-server-address.js";
 import { isLocalProviderUrl } from "./presets/is-local-provider-url.js";
 import { presetForEntryId } from "./presets/provider-presets.js";
@@ -20,8 +24,9 @@ import { presetForEntryId } from "./presets/provider-presets.js";
  * The rule, in order:
  *  1. `present`: a key resolves for the entry's endpoint (a shared
  *     OPENAI_* key counts only where it is sent: https://, or http:// on
- *     this machine), or a header named like a credential is set by hand
- *     (`Authorization`, `x-api-key`, the entry's own `apiKeyHeader`).
+ *     this machine), the entry has an `apiKeyCommand`, or a header named
+ *     like a credential is set by hand (`Authorization`, `x-api-key`, the
+ *     entry's own `apiKeyHeader`).
  *  2. `not-needed`: the entry signs in through a vendor CLI, or it is a
  *     local server: made from a `local` preset (LM Studio, Ollama, even on
  *     a LAN address), pointed at this machine, or (ATO-1066) a hand-made
@@ -83,8 +88,14 @@ export interface ProviderKeySubject {
   readonly kind: string;
   readonly baseUrl?: string;
   readonly apiKey?: string;
+  /**
+   * Env var names of more keys for the same service (ATO-471); any one
+   * that is set is a credential.
+   */
+  readonly extraApiKeyEnvVars?: readonly string[];
   readonly apiKeyEnvVar?: string;
   readonly apiKeyHeader?: string;
+  readonly apiKeyCommand?: readonly string[];
   readonly headers?: Readonly<Record<string, string>>;
   readonly subscriptionCli?: UserSubscriptionCliOptions;
 }
@@ -182,6 +193,12 @@ function hasCredential(
             : {}),
         });
   if (typeof key === "string" && key.trim().length > 0) return true;
+  if (resolveExtraApiKeys(entry).length > 0) return true;
+  // A key command (Vertex AI's `gcloud auth print-access-token`) prints
+  // the key per request; whether it works shows on the first call.
+  if (Array.isArray(entry.apiKeyCommand) && entry.apiKeyCommand.length > 0) {
+    return true;
+  }
   const named = entry.apiKeyHeader?.trim().toLowerCase();
   // Read defensively: this runs on every fallback pick, and a hand-edited
   // config with a non-string header value must not stop every turn.

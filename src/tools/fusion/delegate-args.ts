@@ -69,6 +69,8 @@ import {
 } from "./contract.js";
 import { readContractInputs } from "./contract-inputs.js";
 import { readCheckInputs } from "./candidate-check-inputs.js";
+import { parseProvideExample } from "./contract-example.js";
+import { readOutputEstimate } from "./worker-fit.js";
 import {
   FUSION_ROLES,
   type FusionRole,
@@ -107,6 +109,15 @@ export interface DelegateTask {
    * elapsed time, exactly as before.
    */
   etaSeconds?: number;
+  /**
+   * The planner's estimate of what the worker will WRITE (ATO-1363), in
+   * tokens or in lines (`outputTokens` wins when both are given). On a
+   * measured local leg it sizes the worker's time limit and is checked
+   * against it before the fan-out (`worker-fit.ts`); the result then
+   * reports it beside the actual tokens out. Absent: as before.
+   */
+  outputTokens?: number;
+  outputLines?: number;
   /** Paths the worker should start from. */
   files?: string[];
   /**
@@ -525,7 +536,7 @@ function readContract(
   if (value.provides !== undefined && value.provides !== null) {
     if (!Array.isArray(value.provides)) {
       problems.push(
-        "contract.provides must be an array of { task, kind, name, in?, shape? }",
+        "contract.provides must be an array of { task, kind, name, in?, shape?, example? }",
       );
     } else if (value.provides.length > MAX_CONTRACT_PROVIDES) {
       problems.push(
@@ -583,6 +594,8 @@ function readContract(
             : rawShape.length > MAX_PROVIDE_SHAPE_CHARS
               ? `${rawShape.slice(0, MAX_PROVIDE_SHAPE_CHARS - 1)}…`
               : rawShape;
+        const example = parseProvideExample(entry.example, label);
+        if (example.problem !== undefined) problems.push(example.problem);
         if (problems.length > before || kind === null || name === null) {
           continue;
         }
@@ -592,6 +605,7 @@ function readContract(
           name,
           ...(inPath === null ? {} : { in: inPath }),
           ...(shape === null ? {} : { shape }),
+          ...(example.example === undefined ? {} : { example: example.example }),
         });
       }
       if (provides.length > 0) contract.provides = provides;
@@ -746,6 +760,7 @@ export function parseDelegateArgs(
     const files = readFiles(entry.files, label, problems);
     const deliverable = readString(entry.deliverable);
     const etaSeconds = readEtaSeconds(entry.etaSeconds);
+    const outputEstimate = readOutputEstimate(entry, label, problems);
     const maxSteps = readBudget(entry.maxSteps, `${label}.maxSteps`, problems);
     const taskTimeoutMs = readBudget(
       entry.timeoutMs,
@@ -781,6 +796,7 @@ export function parseDelegateArgs(
       instructions,
       ...(deliverable === null ? {} : { deliverable }),
       ...(etaSeconds === null ? {} : { etaSeconds }),
+      ...outputEstimate,
       ...(files.length === 0 ? {} : { files }),
       ...(maxSteps === null ? {} : { maxSteps }),
       ...(taskTimeoutMs === null ? {} : { timeoutMs: taskTimeoutMs }),
