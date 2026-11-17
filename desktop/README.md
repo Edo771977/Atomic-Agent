@@ -54,7 +54,9 @@ the warning when it was drafted after outside content), the plan rows
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
 one stands), the view's `hints` (`ℹ` lines, as the TUI), the milestones
-(each with its `criteriaFacts` as `✓` / `✕` / `?` lines in the core's words), and under the plan the core's own note that
+(each with its `criteriaFacts` as `✓` / `✕` / `?` lines in the core's words,
+and its `attachments` as text only: how many, each caption with its criteria
+and the file's name; no file is read and no image or file link is drawn), and under the plan the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
 row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;

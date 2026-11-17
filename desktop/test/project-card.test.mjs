@@ -827,3 +827,22 @@ test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as 
     ['pc-fact is-failed', '✕ c3 failed (check exited 1)'],
   ]);
 });
+
+test('a milestone\'s pictures are listed as text: count, caption with its criteria, file name; no image, no file URL', () => {
+  const base = milestone();
+  const view = milestone({milestones: [Object.assign({}, base.milestones[0], {attachments: [
+    {path: '/state/fusion-runs/r1/shots/board.png', caption: 'The board', criteria: ['c1', 'c2']},
+    {path: 'C:\\state\\fusion-runs\\r1\\shots\\menu.png', caption: '<img src=x onerror=alert(1)>'},
+  ]}), base.milestones[1]]});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.milestones[0].pictures, ['The board [c1, c2] · board.png', '<img src=x onerror=alert(1)> · menu.png']);
+  assert.deepEqual(m.milestones[1].pictures, []);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.deepEqual(host.findAll((e) => e.className === 'pc-pictures-count').map((e) => e.textContent), ['2 pictures']);
+  assert.deepEqual(host.findAll((e) => e.className === 'pc-picture').map((e) => e.textContent), ['▣ The board [c1, c2] · board.png', '▣ <img src=x onerror=alert(1)> · menu.png']);
+  assert.ok(!doc.all.some((e) => e.tagName === 'IMG' || e.tagName === 'A'), 'no image and no link');
+  assert.ok(!doc.all.some((e) => Object.values(e.attrs).some((v) => /file:|\/state\//.test(v)) || /file:/.test(e.textContent)), 'no path or file URL');
+  assert.ok(!/\/state\/fusion-runs/.test(host.textContent), 'the full path is not shown');
+});

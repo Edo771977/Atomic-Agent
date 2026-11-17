@@ -254,6 +254,18 @@ function pcHardViolations(view) {
 /* ---------- what the card shows ---------- */
 
 /**
+ * A milestone's picture as a line (issue #40): its caption with the criteria
+ * it shows, as the core's attachmentLabel ("The board [c1, c2]"), then the
+ * file's name. Text only: the card reads no file and draws no image or file
+ * link; showing the picture needs a safe file read through main (a follow-up).
+ */
+function pcPictureLine(a) {
+  const ids = pcList(a.criteria).map(pcStr).filter(Boolean);
+  const name = pcStr(a.path).split(/[\\/]/).pop();
+  return pcStr(a.caption) + (ids.length ? ' [' + ids.join(', ') + ']' : '') + (name ? ' · ' + name : '');
+}
+
+/**
  * One criterion fact as a line, as the core's criterionFactLine words it
  * (issue #40): "✓ c1 passed: Runs offline", "? c2 unverified: Looks right
  * (no vision-capable reviewer)". The text is the brief's when it names the id.
@@ -356,6 +368,7 @@ function pcModel(state) {
     // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
     facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
       .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   return {
@@ -562,6 +575,13 @@ function pcDraw(doc, host, model, on) {
         facts.setAttribute('aria-label', 'Success criteria');
         for (const f of m.facts) facts.appendChild(pcEl(doc, 'li', 'pc-fact is-' + f.state, f.text));
         li.appendChild(facts);
+      }
+      if (m.pictures.length) {
+        const pics = pcEl(doc, 'ul', 'pc-pictures');
+        pics.setAttribute('aria-label', 'Pictures of the result');
+        pics.appendChild(pcEl(doc, 'li', 'pc-pictures-count', m.pictures.length + ' picture' + (m.pictures.length === 1 ? '' : 's')));
+        for (const p of m.pictures) pics.appendChild(pcEl(doc, 'li', 'pc-picture', '▣ ' + p));
+        li.appendChild(pics);
       }
       ul.appendChild(li);
     }
