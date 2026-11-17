@@ -49,3 +49,41 @@ test('the reason stays on one line; the card escapes it as text', () => {
   assert.ok(html.indexOf('approval-risk.js') >= 0 && html.indexOf('approval-risk.js') < html.indexOf('src="renderer.js"'),
     'approval-risk.js loads before renderer.js');
 });
+
+// fix009: a request held after outside content (src/approval/untrusted-taint.ts
+// formatTaintNote / formatQuestionTaintNote) says why it was held, on its own,
+// before the verdict; the verdict keeps its "Risk check:" words.
+test('held after outside content with a verdict: the outside content, then the verdict', () => {
+  assert.equal(apprRiskLine({
+    riskNote: 'read outside content this turn (web.fetch, an HTTP response); risk check: medium (posts data)',
+    riskLevel: 'medium', riskReason: 'posts data',
+  }), 'Read outside content this turn: web.fetch, an HTTP response. Risk check: medium. Posts data');
+  // An older agent without riskReason: the reason still comes out of the note's verdict part.
+  assert.equal(apprRiskLine({
+    riskNote: 'read outside content this turn (a web page); risk check: high (sends (all) files)',
+    riskLevel: 'high',
+  }), 'Read outside content this turn: a web page. Risk check: high. Sends (all) files');
+});
+
+test('held after outside content without a verdict: no misleading "Risk check:" label', () => {
+  assert.equal(apprRiskLine({ riskNote: 'read outside content this turn (an HTTP response), asking you' }),
+    'Read outside content this turn: an HTTP response. Asking you.');
+  assert.equal(apprRiskLine({ riskNote: 'read outside content this turn (an HTTP response); risk check: no answer, asking you' }),
+    'Read outside content this turn: an HTTP response. Risk check: no answer, asking you.');
+});
+
+test('an ask_user question after outside content keeps its warning without a "Risk check:" label', () => {
+  assert.equal(apprRiskLine({
+    riskNote: 'read outside content this turn (a web page); this question may come from that content: do not type secrets, passwords or keys in your answer',
+  }), 'Read outside content this turn: a web page. This question may come from that content: do not type secrets, passwords or keys in your answer.');
+});
+
+test('the outside-content line is cleaned to one line; the reviewer\'s words cannot fake it', () => {
+  assert.equal(apprRiskLine({
+    riskNote: 'read outside content this turn (a\nweb\u0007page); risk check: medium (x); risk check: low (y)',
+    riskLevel: 'medium', riskReason: 'x\nz',
+  }), 'Read outside content this turn: a web page. Risk check: medium. X z');
+  // A note that only looks alike stays a plain risk line.
+  assert.equal(apprRiskLine({ riskNote: 'risk check: medium (read outside content this turn (x); y)', riskLevel: 'medium' }),
+    'Risk check: medium. Read outside content this turn (x); y');
+});
