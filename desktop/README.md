@@ -307,8 +307,12 @@ after `PENDING_GRACE_MS` (the agent stores a first turn as its loop winds
 down). A chat with no session yet (before its first message, a chat marked
 for a project included) wears a provisional chip (dashed, `provisional`)
 worked out from the folder it will open in (the project's, else the
-window's) against this window's `projects.constraints`, the deepest entry
-holding it, for an agent on this computer only; its tooltip says the agent
+window's) by main (IPC `agent:folderConstraint`,
+[folder-constraint.ts](main/folder-constraint.ts)): config.json's
+`projects.constraints` matched as the agent matches them (normalised paths,
+real paths through links, a linked worktree's repository; the deepest entry
+wins), a port that `test/folder-constraint.test.mjs` runs against the
+agent's own `resolveProjectConstraint`; for an agent on this computer only; its tooltip says the agent
 confirms it once the first message is sent. When the stream names a new
 chat's session the window asks the agent at once, and until the agent
 answers for a chat it has not stored yet (item 27's pending row; its route

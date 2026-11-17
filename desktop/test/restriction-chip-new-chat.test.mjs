@@ -11,6 +11,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+
+// Main's own matcher answers the provisional chip (agent:folderConstraint), as on Windows.
+const FC = createRequire(import.meta.url)("../out/main/folder-constraint.js");
+const mainAnswer = (config, remote = false) => async (dir) => remote ? { known: false, constraint: null }
+  : { known: true, constraint: FC.folderConstraintFor(config.projects.constraints, dir, { platform: "win32", realpath: () => undefined, worktreeSource: () => undefined }) };
 
 const src = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const KEY = "C:\\Users\\me\\Downloads\\riservata";
@@ -26,8 +32,10 @@ function windowWith(answers, over = {}) {
     esc: (s) => String(s), ic: () => "", providerWord: (x) => x, rmNow: () => ({ effective: "local" }),
     document: { querySelector: () => null }, setTimeout, workingDir: () => "C:\\Users\\me\\eis",
     projectMarkedInfo: () => null, ProjectModels: { state: { loaded: true, remote: false } },
-    BR: { providerRestriction: async (sid) => { asked.push(sid); return answers.shift(); } }, ...over,
+    ...over,
   });
+  c.BR = { providerRestriction: async (sid) => { asked.push(sid); return answers.shift(); },
+    folderConstraint: mainAnswer(c.LIVE_CONFIG, over.remote === true) };
   vm.runInContext(src("../renderer/chat-restriction.js"), c);
   return { c, asked };
 }
@@ -50,28 +58,42 @@ test("only once: a second 404 leaves no chip and no third ask", async () => {
   assert.equal(c.restrictionChipHTML(), "");
 });
 
-test("a new chat marked for a restricted project wears a provisional chip before its first message", () => {
+const drawn = async (c) => { c.restrictionChipHTML(); await wait(5); return c.restrictionChipHTML(); };
+
+test("a new chat marked for a restricted project wears a provisional chip before its first message", async () => {
   const { c } = windowWith([], {
     S: { sessionId: null, agentSession: null },
     projectMarkedInfo: () => ({ id: "pris1234", name: "Riservata", folder: KEY + "\\notes" }),
   });
-  const html = c.restrictionChipHTML();
+  const html = await drawn(c);
   assert.match(html, /class="cchip restrictchip provisional"/);
   assert.match(html, /restricted to: local-llama/);
   assert.match(html, /title="This new chat's folder \(C:\\Users\\me\\Downloads\\riservata\\notes\) is restricted in projects\.constraints\. From this window's config: the agent confirms it once the first message is sent\.\nProviders allowed: local-llama\./);
 });
 
-test("the window's folder counts for a plain new chat; an open folder, a sibling or a remote agent gives none", () => {
+test("the window's folder counts for a plain new chat; an open folder, a sibling or a remote agent gives none", async () => {
   const plain = windowWith([], { S: { sessionId: null, agentSession: null }, workingDir: () => KEY });
-  assert.match(plain.c.restrictionChipHTML(), /restricted to: local-llama/);
+  assert.match(await drawn(plain.c), /restricted to: local-llama/);
   for (const over of [
     { workingDir: () => "C:\\Users\\me\\eis" },
     { workingDir: () => KEY + "-other" },
-    { workingDir: () => KEY, ProjectModels: { state: { loaded: true, remote: true } } },
+    { workingDir: () => KEY, remote: true },
   ]) {
     const w = windowWith([], { S: { sessionId: null, agentSession: null }, ...over });
-    assert.equal(w.c.restrictionChipHTML(), "", JSON.stringify(Object.keys(over)));
+    assert.equal(await drawn(w.c), "", JSON.stringify(Object.keys(over)));
   }
+});
+
+/* Review of #67 (third round), item 6: the agent's own rules, through main. */
+test("a folder reached through a link counts, as the agent counts it; a config change asks again", async () => {
+  const LINK = "E:\\links\\ris";
+  const w = windowWith([], { S: { sessionId: null, agentSession: null }, workingDir: () => LINK + "\\notes" });
+  w.c.BR.folderConstraint = async (dir) => ({ known: true, constraint: FC.folderConstraintFor(w.c.LIVE_CONFIG.projects.constraints, dir,
+    { platform: "win32", realpath: (p) => (p.toLowerCase().startsWith(LINK.toLowerCase()) ? KEY + p.slice(LINK.length) : undefined), worktreeSource: () => undefined }) });
+  assert.match(await drawn(w.c), /restricted to: local-llama/);
+  w.c.BR.folderConstraint = async () => ({ known: true, constraint: null });
+  await w.c.restrictionConfigChanged(w.c.LIVE_CONFIG, { projects: { constraints: {} } });
+  assert.equal(await drawn(w.c), "");
 });
 
 test("main passes the answer's status and whether the agent is remote", () => {

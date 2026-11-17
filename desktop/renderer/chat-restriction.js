@@ -82,38 +82,33 @@ function restrictionTip(info, opts) {
   return lines.join('\n');
 }
 
-/* Review of #67: a path as projects.constraints keys compare (core
-   normalizeConstraintPath, without resolving links): one separator, no
-   trailing one, lower case on Windows and macOS. */
-function restrictionPathKey(dir) {
-  let s = String(dir == null ? '' : dir).trim().replace(/[\\/]+/g, '/');
-  if (s.length > 1) s = s.replace(/\/+$/, '');
-  const fold = (typeof IS_WIN !== 'undefined' && IS_WIN) || (typeof IS_MAC !== 'undefined' && IS_MAC);
-  return fold ? s.toLowerCase() : s;
-}
-
 /* A chat with no session yet (before its first message, or while that turn
-   has not been named): the restriction its folder will carry, worked out from
-   this window's projects.constraints (the deepest entry holding the folder,
-   as the agent picks it), or null. Only for an agent on this computer, whose
-   config this is; marked `provisional`: the agent's answer replaces it. */
-function restrictionProvisional(dir, config) {
-  const pm = typeof ProjectModels !== 'undefined' && ProjectModels && ProjectModels.state;
-  if (!dir || !pm || !pm.loaded || pm.remote) return null;
-  const all = config && config.projects && config.projects.constraints;
-  if (!all || typeof all !== 'object') return null;
-  const d = restrictionPathKey(dir);
-  let best = null;
-  for (const [key, entry] of Object.entries(all)) {
-    const k = restrictionPathKey(key);
-    if (!k || !entry || !Array.isArray(entry.allowedProviders)) continue;
-    const inside = d === k || d.startsWith(k.endsWith('/') ? k : k + '/');
-    if (inside && (!best || k.length > best.len)) best = {key, entry, len: k.length};
-  }
-  if (!best) return null;
-  const allowed = best.entry.allowedProviders.filter((x) => typeof x === 'string');
-  return {known: true, provisional: true, dir: String(dir), channelsAllowed: null, remote: false,
-    restriction: {label: 'restricted to: ' + (allowed.length ? allowed.join(', ') : 'no provider'), allowedProviders: allowed, folder: best.key, readFrom: []}};
+   has not been named): the restriction its folder will carry, or null. Main
+   matches the folder against config.json's projects.constraints as the agent
+   does, real paths and linked worktrees included (IPC agent:folderConstraint,
+   main/folder-constraint.ts; never for a remote agent). The answer is kept per
+   folder (PROV) and the chip repainted when it lands; marked `provisional`:
+   the agent's answer for the chat replaces it. */
+const PROV = {dir: null, info: null, token: 0};
+function restrictionProvisional(dir) {
+  if (!dir) return null;
+  if (PROV.dir === dir) return PROV.info;
+  PROV.dir = dir; PROV.info = null;
+  const token = ++PROV.token;
+  if (typeof BR === 'undefined' || !BR || !BR.folderConstraint) return null;
+  Promise.resolve().then(() => BR.folderConstraint(dir)).then((res) => {
+    if (token !== PROV.token) return;
+    const c = res && res.known ? res.constraint : null;
+    const allowed = c && Array.isArray(c.allowedProviders) ? c.allowedProviders.filter((x) => typeof x === 'string') : [];
+    PROV.info = c && typeof c.key === 'string' ? {known: true, provisional: true, dir: String(dir), channelsAllowed: null, remote: false,
+      restriction: {label: 'restricted to: ' + (allowed.length ? allowed.join(', ') : 'no provider'), allowedProviders: allowed, folder: c.key, readFrom: []}} : null;
+    restrictionRepaint();
+  }, () => {});
+  return null;
+}
+/** The provisional answers go (a config change): asked again at the next draw. */
+function restrictionProvisionalForget() {
+  PROV.dir = null; PROV.info = null; PROV.token++;
 }
 
 /** The folder a chat with no session yet opens in: its project's, else the window's. */
@@ -127,14 +122,13 @@ function restrictionNewChatDir() {
 
 /** The chip for the chat on screen, or '' (renderer.js composer(), after the route chips). */
 function restrictionChipHTML() {
-  const config = typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null;
   const answered = S.agentSession && RESTRICT.sid && RESTRICT.sid === S.sessionId ? RESTRICT.info : null;
   /* Review of #67: a chat named mid first turn, which the agent has not
      stored yet (no answer, or a 404), keeps the provisional chip; a stored
      chat the agent gives no answer for (an older agent) has none. */
   const unstored = !!S.agentSession && !answered && typeof PENDING_CHATS !== 'undefined' && PENDING_CHATS.has(S.agentSession)
     && !(typeof SESSIONS !== 'undefined' && SESSIONS.some((x) => x.id === S.agentSession));
-  const info = !S.agentSession || unstored ? restrictionProvisional(restrictionNewChatDir(), config) : answered;
+  const info = !S.agentSession || unstored ? restrictionProvisional(restrictionNewChatDir()) : answered;
   if (!info || !info.restriction) return '';
   const label = restrictionChipLabel(info);
   const tip = restrictionTip(info, {
@@ -193,10 +187,11 @@ async function restrictionTurnEnded(sid) {
 async function restrictionConfigChanged(before, after) {
   const of = (c) => JSON.stringify((c && c.projects && c.projects.constraints) || null);
   if (of(before) === of(after)) return;
+  restrictionProvisionalForget();
   if (S.agentSession) await restrictionRefresh(S.agentSession);
   else restrictionRepaint();
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {restrictionChipLabel, restrictionTip, restrictionEgress, restrictionFusionLine, restrictionPathKey};
+  module.exports = {restrictionChipLabel, restrictionTip, restrictionEgress, restrictionFusionLine};
 }

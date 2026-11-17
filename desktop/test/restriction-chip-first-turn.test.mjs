@@ -10,6 +10,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+
+// Main's own matcher answers the provisional chip (agent:folderConstraint), as on Windows.
+const FC = createRequire(import.meta.url)("../out/main/folder-constraint.js");
+const folderConstraint = (constraints) => async (dir) => ({ known: true,
+  constraint: FC.folderConstraintFor(constraints, dir, { platform: "win32", realpath: () => undefined, worktreeSource: () => undefined }) });
+const settle = () => new Promise((r) => setImmediate(r));
 
 const src = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const RIS = "C:\\Users\\edoar\\Downloads\\riservata";
@@ -25,7 +32,8 @@ function windowWith(answers) {
     SESSIONS: [], PENDING_CHATS: new Map([["s-1", { id: "s-1", pending: true }]]), esc: (s) => String(s), ic: () => "", providerWord: (x) => x, rmNow: () => ({ effective: "local" }),
     document: { querySelector: () => null }, setTimeout: () => 0, chatWorkingDir: () => RIS, workingDir: () => "C:\\eis",
     ProjectModels: { state: { loaded: true, remote: false } },
-    BR: { providerRestriction: async (sid) => { asked.push(sid); return answers.shift(); } },
+    BR: { providerRestriction: async (sid) => { asked.push(sid); return answers.shift(); },
+      folderConstraint: folderConstraint({ [RIS]: { allowedProviders: ["local-llama"] } }) },
   });
   vm.runInContext(src("../renderer/chat-restriction.js"), c);
   return { c, asked };
@@ -33,6 +41,7 @@ function windowWith(answers) {
 
 test("a chat named mid first turn keeps its provisional chip until the agent answers for it", async () => {
   const { c } = windowWith([NOT_STORED, AGENT]);
+  c.restrictionChipHTML(); await settle();
   assert.match(c.restrictionChipHTML(), /restrictchip provisional/, "before any answer");
   await c.restrictionRefresh("s-1");
   assert.match(c.restrictionChipHTML(), /restrictchip provisional/, "the agent has not stored it yet");

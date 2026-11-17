@@ -12,6 +12,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+
+// Main's own matcher answers the provisional chip (agent:folderConstraint), as on Windows.
+const FC = createRequire(import.meta.url)("../out/main/folder-constraint.js");
+const folderConstraint = (constraints) => async (dir) => ({ known: true,
+  constraint: FC.folderConstraintFor(constraints, dir, { platform: "win32", realpath: () => undefined, worktreeSource: () => undefined }) });
+const settle = () => new Promise((r) => setImmediate(r));
 
 const src = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const renderer = src("../renderer/renderer.js");
@@ -37,6 +44,7 @@ function window() {
     providerWord: (x) => x, rmNow: () => ({ effective: "local" }), document: { querySelector: () => null, addEventListener: () => {} }, setTimeout,
     saveFolders: () => {},
   });
+  c.BR = { folderConstraint: folderConstraint(c.LIVE_CONFIG.projects.constraints) };
   for (const f of ["chat-list.js", "chat-folders.js", "chat-projects.js", "chat-restriction.js"]) vm.runInContext(src("../renderer/" + f), c);
   vm.runInContext("PROJECTS.state = {projects: [" + JSON.stringify(STORE) + "], chats: {}};", c);
   for (const n of ["wsName", "workingDir", "chatTitle", "noteFirstPrompt", "firstTurnSent", "firstTurnNamed", "firstTurnEnded",
@@ -58,11 +66,12 @@ function sendInProject(c) {
   c.firstTurnSent("t1", "Plan", STORE.id);
 }
 
-test("a restricted project's first turn keeps its folder on every surface while it runs", () => {
+test("a restricted project's first turn keeps its folder on every surface while it runs", async () => {
   const c = window();
   sendInProject(c);
   assert.equal(c.chatWorkingDir(), RIS);
   assert.equal(c.mdTermCwd(), RIS, "Terminal opens where the turn runs");
+  c.restrictionChipHTML(); await settle();
   assert.match(c.restrictionChipHTML(), /restricted to: local-llama/);
   const chip = c.workspaceChipHTML();
   assert.match(chip, /<span>riservata<\/span>/);
@@ -79,7 +88,7 @@ test("once the stream names the session, the chat's row keeps that folder until 
   assert.equal(c.mdTermCwd(), RIS);
 });
 
-test("an open window's plain new chat runs in the window's folder, with no restriction", () => {
+test("an open window's plain new chat runs in the window's folder, with no restriction", async () => {
   const c = window();
   assert.equal(c.firstTurnFolder(undefined, undefined), EIS);
   assert.equal(c.firstTurnFolder("s-old", undefined), "", "a chat with a session keeps its own");
@@ -87,6 +96,7 @@ test("an open window's plain new chat runs in the window's folder, with no restr
   c.S.log.push(item); c.S.turnId = "t2";
   c.LIVE_TURNS.set("t2", { item, log: c.S.log, folder: EIS, ended: null });
   assert.equal(c.chatWorkingDir(), EIS);
+  c.restrictionChipHTML(); await settle();
   assert.equal(c.restrictionChipHTML(), "");
 });
 
