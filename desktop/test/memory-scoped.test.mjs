@@ -11,6 +11,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
 
 const require = createRequire(import.meta.url);
@@ -74,9 +75,73 @@ test('a scoped note or fact page is read-only, with the reason', () => {
   assert.match(E.MEM_SCOPED_REASON, /kept for a restricted folder; manage it from that folder/i);
 });
 
-test('the tab carries the mark from the rows to the list and the page', () => {
+/* The memory tab's own row and page builders, lifted out of renderer.js by
+   name and run in a context with memory-edit.js and a stub memQ over the
+   statements main answers (memoryQuery on the fixture database). */
+function memoryTab(dir) {
   const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
-  for (const hook of ['scoped:memScopedRow(r)', 'scoped:memScopedRow(rows[0])', 'scoped:chainRows.some(']) {
-    assert.ok(src.includes(hook), hook);
-  }
+  const fn = (name) => {
+    const m = new RegExp('^(?:async )?function ' + name + '\\(', 'm').exec(src);
+    assert.ok(m, 'renderer.js has ' + name);
+    const rest = src.slice(m.index + 1);
+    return src.slice(m.index, m.index + 1 + rest.search(/\n(?:async )?function |\n(?:const|let|var) |\n\/\*/));
+  };
+  const names = ['memParseJsonList', 'memTrunc', 'renderNotePreview', 'memTagsMeta', 'memVote', 'memFact', 'memNoteEntry', 'memRowsNotes',
+    'memRowsProfile', 'memLink', 'formatNoteDetailBody', 'formatLinkSection', 'formatProfileHistoryBody', 'memTruncateDetail', 'memNoteDetail', 'memBuildDetail'];
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const ctx = vm.createContext({
+    esc, ic: (n) => '<i:' + n + '>', render: () => {}, BR: {},
+    memFlag: () => false,
+    memQ: async (name, params) => { const r = await memoryQuery(dir, name, params); if (!r.ok) throw new Error(r.error); return r.rows; },
+  });
+  vm.runInContext(readFileSync(new URL('../renderer/memory-edit.js', import.meta.url), 'utf8'), ctx);
+  const limit = /^const MEM_MAX_DETAIL_CHARS = .*$/m.exec(src);
+  assert.ok(limit, 'renderer.js has MEM_MAX_DETAIL_CHARS');
+  vm.runInContext(limit[0] + '\n' + names.map(fn).join('\n') + '\n;globalThis.T = {memRowsNotes, memRowsProfile, memBuildDetail};', ctx);
+  return {T: ctx.T, buttons: (d) => vm.runInContext('memEditButtonsHTML', ctx)(d)};
+}
+
+test('the tab marks the rows, and a scoped page has the reason and no Edit or Delete', async () => {
+  const dir = stateDir({ withScope: true });
+  const {T, buttons} = memoryTab(dir);
+  const notes = T.memRowsNotes((await memoryQuery(dir, 'notes.listActive', [50])).rows);
+  assert.deepEqual(notes.map((r) => [r.numericId, r.scoped]).sort(), [[1, false], [2, true]]);
+  const facts = T.memRowsProfile((await memoryQuery(dir, 'profile.list', [])).rows);
+  assert.equal(facts[0].scoped, true);
+  assert.match(facts[0].meta, /restricted folder/);
+
+  const scopedNote = await T.memBuildDetail(notes.find((r) => r.numericId === 2));
+  assert.equal(scopedNote.scoped, true);
+  const html = buttons(scopedNote);
+  assert.match(html, /Kept for a restricted folder; manage it from that folder/);
+  assert.doesNotMatch(html, /memory:edit|memory:delete/);
+
+  const openNote = await T.memBuildDetail(notes.find((r) => r.numericId === 1));
+  assert.equal(openNote.scoped, false);
+  assert.match(buttons(openNote), /data-act="memory:edit"/);
+  assert.match(buttons(openNote), /data-act="memory:delete"/);
+
+  const fact = await T.memBuildDetail(facts[0]);
+  assert.equal(fact.scoped, true);
+  assert.doesNotMatch(buttons(fact), /memory:edit|memory:delete/);
+});
+
+test('search (notes.recall, the m. alias) marks scoped rows and still answers on a database from before scopes', async () => {
+  const add = (dir) => {
+    const db = new DatabaseSync(join(dir, 'memory.sqlite'));
+    db.exec(`CREATE VIRTUAL TABLE memories_fts USING fts5(content, content='memories', content_rowid='id')`);
+    db.exec(`INSERT INTO memories_fts(memories_fts) VALUES ('rebuild')`);
+    db.close();
+  };
+  const scoped = stateDir({ withScope: true });
+  add(scoped);
+  const hits = await memoryQuery(scoped, 'notes.recall', ['"note"*', 10]);
+  assert.equal(hits.ok, true, hits.error);
+  assert.deepEqual(hits.rows.map((r) => [r.id, E.memScopedRow(r)]).sort(), [[1, false], [2, true]]);
+
+  const old = stateDir({ withScope: false });
+  add(old);
+  const oldHits = await memoryQuery(old, 'notes.recall', ['"note"*', 10]);
+  assert.equal(oldHits.ok, true, oldHits.error);
+  assert.deepEqual(oldHits.rows.map((r) => [r.id, E.memScopedRow(r)]), [[1, false]]);
 });
