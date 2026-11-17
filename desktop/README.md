@@ -50,7 +50,8 @@ card (`renderer/project-card.js`, drawn into `#projectcard`, never by
 order; a read answered after a frame is ignored; the version is the gate's
 own counter, never compared across gates) and shows the brief (with
 the warning when it was drafted after outside content), the plan rows
-(worker, reviewer, reason, measured or preset basis and samples, estimate),
+(worker, reviewer, reason, measured or preset basis and samples, estimate;
+a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
 one stands), the milestones, and under the plan the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are

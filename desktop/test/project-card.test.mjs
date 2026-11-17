@@ -765,3 +765,15 @@ test('a continue message still pending survives reset() for the same chat (the a
   c.card.follow('ses-1');
   assert.deepEqual(c.continued, [['ses-1', 'Go on.']]);
 });
+
+/* ---------------- gate-view fields the core added (issues #40, #54) ---------------- */
+
+test('a local row is priced "$0.00 (local)", as the TUI card says', () => {
+  const view = plan({plan: Object.assign(plan().plan, {rows: [row({local: true, estCostUsd: 0}), row({taskId: 't2', estCostUsd: 0})]})});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.rows.map((r) => r.estimate), ['$0.00 (local) · ~1m35s', '$0.00 · ~1m35s']);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.ok(host.textContent.includes('$0.00 (local) · ~1m35s'));
+});

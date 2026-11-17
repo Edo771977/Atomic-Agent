@@ -311,7 +311,8 @@ function pcModel(state) {
       changed: !!state.picks[r.taskId],
       reason: pcStr(r.reason),
       basis: r.basis === 'measured' ? 'measured (' + (pcNum(r.samples) || 0) + ' run' + (r.samples === 1 ? '' : 's') + ')' : 'preset',
-      estimate: pcUsd(pcNum(r.estCostUsd)) + ' · ' + pcDuration(pcNum(r.estMs)),
+      // A local member's row is $0 by its own mark (issue #54), worded as the TUI card.
+      estimate: (r.local === true ? '$0.00 (local)' : pcUsd(pcNum(r.estCostUsd))) + ' · ' + pcDuration(pcNum(r.estMs)),
       workers: pcWorkerOptions(r), reviewers: pcReviewerOptions(r),
     };
   });
