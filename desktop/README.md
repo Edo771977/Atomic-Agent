@@ -773,8 +773,9 @@ Honestly degraded, and labelled as such in the UI:
   `"local": true`: a `local=` parameter is taken only to be dropped, the card
   says so, and the copy the card writes is stripped of it again
   ([deeplink.js](renderer/deeplink.js), issue #65). Only the person marks a
-  server local, in Settings, since the mark lets it run in a folder with an
-  egress constraint.
+  server local, since the mark lets it run in a folder with an egress
+  constraint: there is no toggle for it in the window, so that is
+  `"local": true` on the server's entry in `config.json`.
 - **Find on my network** (under the llama.cpp URL and a custom provider's
   Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
   servers on this network and checks an address; it saves nothing. Once an

@@ -454,7 +454,7 @@ function remoteUrl(raw: string): { ok: true; url: string; host: string } | { ok:
 
 /** Said on the card when a link carried `local=` (issue #65); the server is added without it. */
 export const LINK_LOCAL_DROPPED =
-  "The link asked to mark this server as one that never uses the network. A link cannot mark that, so it is added without it; set it in Settings › MCP if you know the server stays on this computer.";
+  "The link asked to mark this server as one that never uses the network. A link cannot mark that, so it is added without it. If you know this server never uses the network, add \"local\": true to its entry in config.json.";
 
 export const mcpInstallRoute: DeeplinkRoute = (link) => {
   if (link.path.join("/") !== "install") return { ok: false, error: "The MCP link can only install a server (atomicagent://mcp/install)." };
@@ -469,7 +469,7 @@ export const mcpInstallRoute: DeeplinkRoute = (link) => {
     transport: { max: 1 },
     // Issue #65: taken only to be dropped. `"local": true` lets a stdio server
     // run in a folder with an egress constraint (core #60); only the person
-    // may say a server never reaches the network, in Settings, never a link.
+    // may say a server never reaches the network (config.json), never a link.
     local: { max: 8 },
   });
   if (!p.ok) return p;

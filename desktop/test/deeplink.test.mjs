@@ -652,3 +652,14 @@ test("card: a link's server that carries local (main or a stale queue) is added 
   assert.equal(Object.hasOwn(written[0].transport, "local"), false);
   assert.equal(req.server.local, true, "the request itself is not changed");
 });
+
+test("mcp: the dropped-local line points at what works (config.json), not a Settings control that does not exist", () => {
+  const r = mcp("name=files&command=npx&arg=pkg%401.0.0&local=true");
+  const line = r.request.warnings.find((w) => /cannot mark/.test(w));
+  assert.ok(line);
+  assert.doesNotMatch(line, /Settings/);
+  assert.match(line, /"local": true/);
+  assert.match(line, /config\.json/);
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.doesNotMatch(readme, /marks a\s+server local, in Settings/);
+});
