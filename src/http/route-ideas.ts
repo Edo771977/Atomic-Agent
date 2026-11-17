@@ -1,5 +1,6 @@
 import { getConfig } from "../config/index.js";
-import { createSessionProviderPolicy, retrySessionSeed, retrySourceOf } from "../runtime/session-provider-policy.js";
+import { hasProjectConstraints } from "../llm/provider-policy.js";
+import { RETRY_RESTRICTION_UNKNOWN, retrySourceOf, type RetrySource } from "../runtime/session-provider-policy.js";
 import { openaiError } from "./openai-errors.js";
 import {
   readJsonBody,
@@ -68,9 +69,13 @@ function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
   return sessionId !== null && serveWithheld(ctx, sessionId)();
 }
 
-/** The live per-folder policy, read against this server's session store. */
-function ideaRetryPolicy(ctx: HandlerContext) {
-  return createSessionProviderPolicy({ readConfig: getConfig, loadSession: (id) => ctx.runtime.sessionStore.load(id) });
+/** The runtime's seed (its live view of the original chat); without one, refused while constraints exist. */
+function ideaRetrySeed(ctx: HandlerContext, source: RetrySource, workingDir: string) {
+  const seed = ctx.runtime.retrySessionSeed;
+  if (seed !== undefined) return seed(source, workingDir);
+  return hasProjectConstraints(getConfig())
+    ? { ok: false as const, error: RETRY_RESTRICTION_UNKNOWN }
+    : { ok: true as const, metadata: {}, restricted: false };
 }
 
 function visibleIdeas(ctx: HandlerContext, list: IdeaRecord[]): IdeaRecord[] {
@@ -170,7 +175,7 @@ export function createAcceptIdeaHandler(): HttpHandler {
             if (source !== null) {
               const dir = carry?.workingDir ? checkWorkingDir(carry.workingDir) : null;
               const target = dir?.ok ? dir.dir : ctx.runtime.capabilities.workingDir;
-              const seed = retrySessionSeed(ideaRetryPolicy(ctx), source, target);
+              const seed = ideaRetrySeed(ctx, source, target);
               if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);
               if (dir?.ok || seed.restricted) {
                 const fresh = ctx.runtime.createSession({ metadata: { source: "http-task", ...seed.metadata }, persist: false });

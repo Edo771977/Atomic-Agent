@@ -295,6 +295,17 @@ describe("retrySessionSeed (issue #68)", () => {
   const config = { projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama"] } } } };
   const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
 
+  it("reads the original chat's live view: a taint its running turn has not saved yet is carried", () => {
+    const taint = { key: "/work/a", allowedProviders: ["local-llama"], allowedEgress: [], matchedDir: "/work/a", readFrom: ["/work/a"] };
+    const live = createSessionProviderPolicy({
+      readConfig: () => config,
+      loadSession: (id) => (id === "s-run" ? { workingDir: "/free" } : null),
+      liveSession: (id) => (id === "s-run" ? { workingDir: "/free", metadata: { providerReadTaint: taint } } : undefined),
+    });
+    const seed = retrySessionSeed(live, { kind: "session", session: { id: "s-run", workingDir: "/free" } }, "/free");
+    expect(seed).toMatchObject({ ok: true, restricted: true, metadata: { providerReadTaint: { key: "/work/a", allowedProviders: ["local-llama"] } } });
+  });
+
   it("carries the original chat's restriction, refuses a gone chat, and adds nothing otherwise", () => {
     const kept = retrySessionSeed(policy, { kind: "session", session: { id: "s", workingDir: "/work/a" } }, "/free");
     expect(kept).toMatchObject({ ok: true, restricted: true, metadata: { providerReadTaint: { key: "/work/a", allowedProviders: ["local-llama"] } } });

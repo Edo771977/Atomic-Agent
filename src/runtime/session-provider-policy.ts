@@ -272,10 +272,12 @@ export function moveSessionFolder<T extends { id: string; workingDir: string; me
   policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
   session: T,
   workingDir: string,
+  /** The session's policy right now, when the caller has a fresher view (a running turn's unsaved taint). */
+  currentPolicy?: ProviderPolicy,
 ): { session: T; kept: ProviderPolicy | undefined; policy: ProviderPolicy | undefined } {
   const plain = { ...session, workingDir };
   if (!policy.constraintsActive()) return { session: plain, kept: undefined, policy: undefined };
-  const current = policy.forSession(session);
+  const current = currentPolicy ?? policy.forSession(session);
   const destination = policy.forWorkingDir(workingDir);
   const previous = readTaintOf(session.metadata);
   // What the chat would hold after a plain move: the new folder and the
@@ -315,13 +317,15 @@ export const RETRY_RESTRICTION_UNKNOWN =
  * constraint configured nothing is added.
  */
 export function retrySessionSeed(
-  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir">,
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "forSession" | "forWorkingDir" | "effectivePolicyForSession">,
   source: RetrySource,
   workingDir: string,
 ): { ok: true; metadata: Record<string, unknown>; restricted: boolean } | { ok: false; error: string } {
   if (!policy.constraintsActive() || source.kind === "none") return { ok: true, metadata: {}, restricted: false };
   if (source.kind === "missing") return { ok: false, error: RETRY_RESTRICTION_UNKNOWN };
-  const moved = moveSessionFolder(policy, source.session, workingDir);
+  // The live view: the stored row, and a turn running for the chat now
+  // whose taint is not saved yet.
+  const moved = moveSessionFolder(policy, source.session, workingDir, policy.effectivePolicyForSession(source.session));
   const stamp = moved.session.metadata?.[READ_TAINT_METADATA_KEY];
   // Within the same constraint entry the original's stored taint (if any) still applies.
   const taint = stamp ?? source.session.metadata?.[READ_TAINT_METADATA_KEY];

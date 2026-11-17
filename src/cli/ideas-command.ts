@@ -164,6 +164,8 @@ function handleAccept(args: string[]): number {
           if (source !== null) {
             const inFolder = carry?.workingDir && isFolder(carry.workingDir) ? carry.workingDir : null;
             const target = inFolder ?? process.cwd();
+            // This process runs no turn, so the stored row is the live view here
+            // (`serve` uses the runtime's `retrySessionSeed`, which sees its turns).
             const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
             const seed = retrySessionSeed(policy, source, target);
             if (!seed.ok) throw new TaskValidationError("sessionId", seed.error);

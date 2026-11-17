@@ -1,4 +1,5 @@
 import type { ProviderRestriction } from "../llm/provider-policy.js";
+import type { RetrySource, retrySessionSeed } from "./session-provider-policy.js";
 import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import type { TurnCheckpointOptions } from "./turn-checkpoints.js";
 import type { InterruptedTurns } from "./interrupted-turns.js";
@@ -428,6 +429,14 @@ export interface AgentRuntime {
     session: T,
     workingDir: string,
   ) => { session: T; restriction: ProviderRestriction | null; restrictionKept: boolean };
+  /**
+   * The metadata a Retry card's new chat starts with (issue #68): the
+   * original chat's restriction, read through the live view (a running
+   * turn's unsaved taint included), or why the retry is refused.
+   * Optional so hand-built runtimes keep compiling (absent while
+   * constraints exist: the retry is refused).
+   */
+  readonly retrySessionSeed?: (source: RetrySource, workingDir: string) => ReturnType<typeof retrySessionSeed>;
   /**
    * Why a chat adapter may not send this session's content to its chat
    * right now (issue #33): a constrained folder, or a read taint, whose
