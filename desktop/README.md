@@ -72,7 +72,9 @@ closes the card. When the answer carries `continue_message`, the window sends
 it as that chat's next message (the agent never goes on by itself); a chat
 not on screen, or one running a turn, gets it the next time it is shown
 between turns; so does one `submit()` did not take (it answers true or false:
-a model test holding the local server, the starter download, dictation). Cancel project asks twice: the first press turns the button into Confirm
+a model test holding the local server, the starter download, dictation).
+The card follows the chat only while the chat room is on screen: over
+Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel project asks twice: the first press turns the button into Confirm
 cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
 opened again; while it stays open the chat header offers Show project.
 Everything is drawn with `textContent`: model text is never

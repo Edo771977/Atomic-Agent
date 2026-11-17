@@ -570,7 +570,7 @@ function continueWith(over = {}) {
   const fn = src.match(/function projectCardContinue\([\s\S]*?\n}\n/)[0];
   const calls = {submit: [], voiceStop: 0};
   const env = Object.assign({
-    S: {agentSession: 'ses-1', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
+    S: {agentSession: 'ses-1', room: 'chat', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
     VOICE: {state: 'idle'}, BSW: {gating: false},
     starterHoldsSend: () => false, fitHoldsSend: () => false, openHoldsComposer: () => false,
   }, over);
@@ -594,7 +594,8 @@ test('a continue message is not handed to submit() while it would not send, and 
     ['the starter model downloading', {starterHoldsSend: () => true}],
     ['a backend switch gating', {BSW: {gating: true}}],
     ['a model test holding the local server', {fitHoldsSend: () => true}],
-    ['a turn running', {S: {agentSession: 'ses-1', busy: true, live: {state: 'connected'}, draft: ''}}],
+    ['a turn running', {S: {agentSession: 'ses-1', room: 'chat', busy: true, live: {state: 'connected'}, draft: ''}}],
+    ['another room on screen (Studio)', {S: {agentSession: 'ses-1', room: 'studio', busy: false, live: {state: 'connected'}, draft: ''}}],
   ]) {
     const r = continueWith(over);
     assert.equal(r.sent, false, label + ': kept pending');
@@ -845,4 +846,18 @@ test('a milestone\'s pictures are listed as text: count, caption with its criter
   assert.ok(!doc.all.some((e) => e.tagName === 'IMG' || e.tagName === 'A'), 'no image and no link');
   assert.ok(!doc.all.some((e) => Object.values(e.attrs).some((v) => /file:|\/state\//.test(v)) || /file:/.test(e.textContent)), 'no path or file URL');
   assert.ok(!/\/state\/fusion-runs/.test(host.textContent), 'the full path is not shown');
+});
+
+test('the card follows the chat only while the chat room is on screen (not over Studio or another room)', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
+  const followed = [];
+  const S = {agentSession: 'ses-1', room: 'chat'};
+  const run = new Function('S', 'PCARD', 'PCARD_GEN', 'AGENT_GEN', 'PCWATCH', fn + '\nreturn projectCardFollow;')(
+    S, {follow: (sid) => followed.push(sid), reset() {}}, 0, 0, null);
+  run();
+  S.room = 'studio'; run();
+  S.room = 'tasks'; run();
+  S.room = 'chat'; run();
+  assert.deepEqual(followed, ['ses-1', null, null, 'ses-1']);
 });

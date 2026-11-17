@@ -650,11 +650,12 @@ function pcFind(root, test) {
  * Whether the window may send a continue message now. Everything that would
  * make submit() keep it out (or, for dictation, stop the recording instead
  * of sending) answers no, so the message stays pending rather than lost:
- * a model test holding the local server (`fitHolds`) among them. What this
+ * a model test holding the local server (`fitHolds`) among them, and any
+ * room but the chat on screen (`room`: Studio draws into the same column). What this
  * cannot foresee, submit() answers itself (false: not sent, still pending).
  */
 function pcCanContinue(env) {
-  return !!env && env.onScreen && !env.busy && !env.pending && env.connected && !env.opening
+  return !!env && env.onScreen && env.room === 'chat' && !env.busy && !env.pending && env.connected && !env.opening
     && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating;
 }
 

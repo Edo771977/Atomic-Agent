@@ -2383,20 +2383,23 @@ let PCARD = null, PCARD_GEN = -1, PCWATCH = null;
 function projectCardFollow() {
   if (!PCARD) return;
   if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
-  const sid = S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
+  /* Only over the chat room: Studio, Cron jobs and Skills draw into the same
+     #content (a narrow window's sheet would cover them), and a pending
+     continue waits until the chat is back. */
+  const sid = S.room === 'chat' && S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
   PCARD.follow(sid);
   // A narrow window's sheet ends where the composer starts: observed, not measured on every paint.
   if (PCWATCH) PCWATCH.sync();
 }
 function projectCardContinue(sid, text) {
-  /* Only into the chat it belongs to, between turns, on a live agent, and
-     only when submit() would send it: dictation, the starter download, a
+  /* Only into the chat it belongs to, with the chat room on screen, between
+     turns, on a live agent, and only when submit() would send it: dictation, the starter download, a
      model test holding the local server or a backend switch would keep it
      out (or stop the recording). Otherwise, or when submit() answers that
      it did not take it, it waits for the next look (project-card.js keeps
      it pending). */
   if (!pcCanContinue({
-    onScreen: S.agentSession === sid, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
+    onScreen: S.agentSession === sid, room: S.room, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
     opening: openHoldsComposer(), voice: VOICE.state,
     starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(),
     fitHolds: typeof fitHoldsSend === 'function' && fitHoldsSend(), gating: BSW.gating,
