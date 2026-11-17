@@ -84,6 +84,7 @@ import { PlaywrightBackend } from "../tools/browser/playwright-backend.js";
 import type { BrowserBackend } from "../tools/browser/browser-backend.js";
 import type { BrowserExtractModelRef } from "../tools/browser/extract-request.js";
 import { DeclaredInputsRegistry, ShellJobRegistry } from "../tools/os/index.js";
+import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
 import { ToolOutputSpill } from "../tools/index.js";
 import { registerSessionTools } from "../tools/sessions/index.js";
 import {
@@ -417,7 +418,10 @@ export async function createAgentRuntime(
     parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
   });
   toolOutputSpill.sweepStale();
-  installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
+  installRuntimeSessionDelete(
+    sessionStore, dropRecorder, shellJobs, toolOutputSpill,
+    new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
+  );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
   // narrows the session's provider policy at dispatch.
