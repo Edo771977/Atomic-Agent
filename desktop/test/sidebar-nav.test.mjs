@@ -196,3 +196,8 @@ test('a project header New chat is routed, keyboard-reachable and closes the dra
   assert.match(r, /if \(inside && t\.closest\('\[data-act\^="pchat:"\]'\)\) \{ setTimeout\(closeSidebarDrawer, 0\); return; \}/);
   assert.match(r, /const phk = e\.target\.closest && e\.target\.closest\('\.sb-fhead \[role="button"\]\[data-act\]'\);/);
 });
+
+test('a first turn main refuses hands its project mark back (review of #62, item 1)', () => {
+  const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(r, /if \(!res \|\| !res\.ok\) \{\n\s*projectNewTurnFailed\(forProject, live\.log\);/);
+});

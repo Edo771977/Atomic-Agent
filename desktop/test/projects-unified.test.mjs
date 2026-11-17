@@ -185,3 +185,20 @@ test("each project header has a New chat + that opens a new chat in that project
   vm.runInContext(`projectAct('pchat', 'pgone00')`, c);
   assert.deepEqual(c.acts, []);
 });
+
+// Review of #62, item 1: a first turn main refuses keeps the project for the retry.
+test("a refused first turn gives the project mark back, so the retry still opens in the project", () => {
+  const c = load();
+  vm.runInContext(`FOLDERS.state = foldersCoerce({folders: [{id: 'f1', name: 'Marketing'}]}); projectAct('pchat', 'f1');`, c);
+  const log = vm.runInContext("S.log", c);
+  assert.equal(vm.runInContext("projectForNewTurn()", c), "f1");
+  vm.runInContext("S.log.push({k: 'user'}, {k: 'system', text: 'could not start the turn'})", c);
+  vm.runInContext("projectNewTurnFailed('f1', S.log)", c);
+  assert.equal(vm.runInContext("S.log", c), log);
+  assert.equal(vm.runInContext("projectForNewTurn()", c), "f1", "the retry carries the project");
+  // A turn with no project, or one whose chat was left meanwhile, gives nothing back.
+  vm.runInContext("projectNewTurnFailed(undefined, S.log)", c);
+  assert.equal(vm.runInContext("PROJECTS.newFor", c), null);
+  vm.runInContext("projectNewTurnFailed('f1', ['another chat'])", c);
+  assert.equal(vm.runInContext("projectForNewTurn()", c), undefined);
+});

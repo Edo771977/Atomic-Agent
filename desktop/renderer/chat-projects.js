@@ -136,6 +136,15 @@ function projectForNewTurn() {
   return typeof FOLDERS !== 'undefined' && folderById(FOLDERS.state, n.id) ? n.id : undefined;
 }
 
+/* A first turn main refused ("could not start the turn"): the chat is still
+   new, so the mark goes back and the next send opens in the project again.
+   Not when the turn had none, the person has left that chat, or a newer mark
+   was set meanwhile. */
+function projectNewTurnFailed(pid, log) {
+  if (!pid || PROJECTS.newFor || typeof S === 'undefined' || S.agentSession || S.log !== log) return;
+  PROJECTS.newFor = {id: pid, log};
+}
+
 /* Open a new chat in project `id` (a store id `p…` or a chat folder `f…`):
    New chat, then the mark projectForNewTurn reads. As New chat, a turn
    running in the chat on screen keeps running there (session:new). */

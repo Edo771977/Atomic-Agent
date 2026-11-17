@@ -10365,6 +10365,7 @@ function startLiveTurn(text) {
   const forProject = session ? undefined : projectForNewTurn();
   BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session)).then((res) => {
     if (!res || !res.ok) {
+      projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
       S.log.push({id:nid(), k:'system', text:'could not start the turn: ' + esc((res && res.error) || 'unknown error')});
       render();

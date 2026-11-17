@@ -421,7 +421,9 @@ Real, driven by the running agent:
   hover and keyboard focus (Tab reaches them; Enter or Space presses them).
   None of them folds the project. **+** does what New project does once it has
   made the project: New chat, and that chat's first turn opens in the project
-  (its folder and instructions; a chat folder files the chat). As with New
+  (its folder and instructions; a chat folder files the chat). A first turn
+  main refuses ("could not start the turn") keeps that, so the retry still
+  opens in the project. As with New
   chat, a turn running in the chat on screen keeps running there, and in the
   narrow window's drawer the click closes the drawer. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
