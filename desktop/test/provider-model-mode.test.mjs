@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { runInNewContext } from "node:vm";
+import { loadCore } from "./core-ts.mjs";
 
 const stateDir = mkdtempSync(join(tmpdir(), "desktop-model-mode-"));
 process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
@@ -12,28 +12,9 @@ after(() => rmSync(stateDir, { recursive: true, force: true }));
 const require = createRequire(import.meta.url);
 const cli = require("../out/main/agent-cli.js");
 const { defaultProviderModelMode } = require("../out/main/provider-model-mode.js");
-const ts = require("typescript");
 
 // Load the actual core policy and presets without a prior agent build. This
 // test must fail if the separate desktop build drifts from the core contract.
-const coreModules = new Map();
-function loadCore(url) {
-  if (coreModules.has(url.href)) return coreModules.get(url.href);
-  const exports = {};
-  coreModules.set(url.href, exports);
-  const { outputText } = ts.transpileModule(readFileSync(url, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  });
-  runInNewContext(outputText, {
-    exports,
-    URL,
-    require: (specifier) => {
-      assert.ok(specifier.startsWith("."), `unexpected core dependency: ${specifier}`);
-      return loadCore(new URL(specifier.replace(/\.js$/, ".ts"), url));
-    },
-  }, { filename: url.pathname });
-  return exports;
-}
 
 test("desktop initial policy matches the core for every preset and provider kind", () => {
   const core = loadCore(new URL("../../src/config/model-mode.ts", import.meta.url));
@@ -50,7 +31,7 @@ test("desktop initial policy matches the core for every preset and provider kind
     { kind: "subscription-cli", subscriptionCli: { cli: "codex" } },
     { kind: "subscription-cli", subscriptionCli: { cli: "" } },
     { kind: "openai-compatible", subscriptionCli: { cli: "codex" } },
-    ...["https://custom.invalid", "not a url", "", "http://api.openai.com", "https://api.openai.com.evil.invalid", "https://api.openai.com:8443", "http://127.0.0.1:1337", "https://bedrock-runtime.eu-west-1.amazonaws.com", "http://bedrock-runtime.eu-west-1.amazonaws.com", "https://acme.services.ai.azure.com/models", "https://azure.com.evil.invalid"].map((baseUrl) => ({ kind: "openai-compatible", baseUrl })),
+    ...["https://custom.invalid", "not a url", "", "http://api.openai.com", "https://api.openai.com.evil.invalid", "https://api.openai.com:8443", "http://127.0.0.1:1337", "https://bedrock-runtime.eu-west-1.amazonaws.com", "http://bedrock-runtime.eu-west-1.amazonaws.com", "https://acme.services.ai.azure.com/models", "https://azure.com.evil.invalid", "https://europe-west4-aiplatform.googleapis.com/v1/projects/p/locations/europe-west4/endpoints/openapi", "http://aiplatform.googleapis.com", "https://aiplatform.googleapis.com.evil.invalid"].map((baseUrl) => ({ kind: "openai-compatible", baseUrl })),
   );
   for (const entry of entries) {
     assert.equal(defaultProviderModelMode(entry), core.defaultProviderModelMode(entry), JSON.stringify(entry));
