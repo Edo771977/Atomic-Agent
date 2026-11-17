@@ -67,6 +67,14 @@ describe("resolveStartupWorkingDir", () => {
     ).toEqual({ workingDir: HOME, restored: false });
   });
 
+  it("never reopens a folder too broad for a project: a root or home's parent stays home (issue #53)", () => {
+    for (const broad of [resolve("/"), resolve(HOME, "..")]) {
+      expect(
+        resolveStartupWorkingDir(input({ recentDirs: () => [broad, PROJECT] })),
+      ).toEqual({ workingDir: HOME, restored: false });
+    }
+  });
+
   it("skips a folder that no longer exists and takes the next one", () => {
     expect(
       resolveStartupWorkingDir(

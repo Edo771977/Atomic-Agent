@@ -1,6 +1,8 @@
 import { statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import { isTooBroadScope } from "../tools/fusion/scope-path.js";
+
 /** Flags that already say which folder (or which saved chat) to open. */
 const EXPLICIT_LOCATION_FLAGS = new Set(["--cwd", "--working-dir", "--session"]);
 
@@ -35,6 +37,10 @@ export interface StartupWorkingDir {
  * last session's folder is restored when it still exists. An explicit
  * `--cwd` / `--working-dir` / `--session` is never second-guessed, so
  * `--cwd .` (or `--cwd ~`) is the way to stay in home on purpose.
+ * A last folder too broad for a project (a drive or filesystem root,
+ * home's parent; issue #53) is not reopened either: the launch stays in
+ * home, like a last session that ran in home. Fusion and project tools
+ * refuse such a folder at dispatch whichever way it was reached.
  */
 export function resolveStartupWorkingDir(
   input: StartupWorkingDirInput,
@@ -55,7 +61,8 @@ export function resolveStartupWorkingDir(
     const dir = resolve(raw);
     if (isInside(dir, stateDir)) continue;
     if (!isDirectory(dir)) continue;
-    return dir === cwd ? keep : { workingDir: dir, restored: true };
+    if (dir === cwd || isTooBroadScope(dir, input.homeDir)) return keep;
+    return { workingDir: dir, restored: true };
   }
   return keep;
 }
