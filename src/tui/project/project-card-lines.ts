@@ -156,7 +156,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
           field("worker", short(worker), "worker"),
           { text: " · " },
           field("review", short(reviewer), "reviewer"),
-          { text: ` · ${formatUsd(row.estCostUsd)} · ${formatEstMs(row.estMs)}`, tone: "muted" },
+          { text: ` · ${row.local === true ? "$0.00 (local)" : formatUsd(row.estCostUsd)} · ${formatEstMs(row.estMs)}`, tone: "muted" },
         ] });
         const basis = row.basis === "measured" ? `measured (${row.samples} runs)` : "preset";
         for (const s of wrap(`${basis}: ${row.reason}`, inner - 7)) out.push(line(`       ${s}`, "muted"));
@@ -167,6 +167,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   }
 
   for (const v of view.violations) text(`${v.severity === "hard" ? "✕" : "!"} ${v.message}`, v.severity === "hard" ? "error" : "warn");
+  for (const hint of view.hints ?? []) text(`ℹ ${hint}`, "muted");
 
   if (view.milestones.length > 0 && view.gate.kind !== "brief") {
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;

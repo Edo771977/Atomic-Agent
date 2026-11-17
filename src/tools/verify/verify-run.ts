@@ -24,6 +24,7 @@ import type { ToolDefinition } from "../tool-registry.js";
 import type { BrowserLauncher } from "./run-page-kind.js";
 import { runVerify, type VerifyRunConfig, type VerifyRunContext } from "./run-verify.js";
 import { parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
+import { verifyCopyRoot } from "./verify-copy-root.js";
 export const VERIFY_RUN_TOOL = "verify.run";
 
 export interface VerifyRunToolOptions extends VerifyAuthorizationOptions {
@@ -73,8 +74,20 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       let knownSecrets: readonly KnownSecret[];
       try { knownSecrets = [...(options.knownSecrets ?? []), ...(options.resolveKnownSecrets?.() ?? [])]; }
       catch { return { tool: VERIFY_RUN_TOOL, status: "error", summary: "verification authorization credentials are unavailable", details: {}, truncated: false }; }
+      // Never ask to copy a root or the home folder (issue #53).
+      const copyRoot = verifyCopyRoot(rawArgs, args, ctx.workingDir);
+      // The approved project plan covers the session's folder: a local
+      // page probe approved there stands for the turn.
+      const turnGrantFolder = ctx.project?.plan?.status === "approved" ? ctx.workingDir : undefined;
+      if (!copyRoot.ok) {
+        return { tool: VERIFY_RUN_TOOL, status: "error", summary: copyRoot.message, details: { error: copyRoot.message, reason: "workdir-too-broad", description: maskVerificationSecrets(description, knownSecrets) }, truncated: false };
+      }
+      // A narrowed copy says so, on the prompt and in the result, so the
+      // model can widen it with `cwd`.
+      const copyNote = copyRoot.root === ctx.workingDir ? undefined : `copied ${copyRoot.root} only; pass cwd to widen`;
+      if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       try {
-        const approved = await authorizeVerifyBatch([rawArgs], { ...options, knownSecrets, allowFanoutScope: true }, ctx);
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
         args = parseVerifyRunArgs(approved[0]!);
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard
@@ -91,12 +104,13 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
         ...(options.launchBrowser === undefined ? {} : { launchBrowser: options.launchBrowser }),
         ...(options.workspace === undefined ? {} : { workspace: options.workspace }),
       });
-      const { summary, ...details } = result;
+      const { summary: runSummary, ...details } = result;
+      const summary = copyNote === undefined ? runSummary : `${runSummary}\n${copyNote}`;
       return {
         tool: VERIFY_RUN_TOOL,
         status: result.ok ? "ok" : "error",
         summary,
-        details: { ...details, description },
+        details: { ...details, description, ...(copyNote === undefined ? {} : { copyRoot: copyRoot.root }) },
         truncated: summary.endsWith("[clipped]"),
       };
     },

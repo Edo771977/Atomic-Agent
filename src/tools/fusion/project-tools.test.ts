@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { homedir } from "node:os";
+import { parse, resolve } from "node:path";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { ProjectState, ProjectUpdate } from "../../session/session-project.js";
@@ -51,6 +53,7 @@ function planContext(extra: Partial<ProjectPlanContext> = {}): ProjectPlanContex
     records: [taskRow("cloud", "model-b", 0.2, 4000), taskRow("cloud", "model-b", 0.4, 6000)],
     pricing: (member) => (member.providerId === "cloud" ? { input: 1, output: 2 } : undefined),
     tokensPerSecond: (member) => (member.providerId === "local" ? 20 : null),
+    isLocal: (member) => member.providerId === "local",
     minSamples: 2,
     days: 30,
     now: NOW,
@@ -146,7 +149,8 @@ describe("project.plan", () => {
     expect(update.milestones).toEqual(planArgs.milestones);
     expect(update.detail).toBe("compact");
     const [board, score] = update.rows;
-    // Default worker, no history: preset; local speed gives a time, no price.
+    // Default worker, no history: preset; local speed gives a time, and a
+    // local worker costs nothing (issue #54): priced at $0, not unpriced.
     expect(board).toMatchObject({
       taskId: "board",
       milestoneId: "base",
@@ -154,8 +158,12 @@ describe("project.plan", () => {
       reviewer: "cloud:model-r",
       basis: "preset",
       samples: 0,
-      estCostUsd: null,
+      estCostUsd: 0,
+      local: true,
     });
+    expect(score!.local).toBeUndefined();
+    expect(result.summary).toContain("board: local:model-a, review cloud:model-r; $0.00 (local)");
+    expect(result.summary).not.toContain("unpriced");
     expect(board!.reason).toContain(PRESET_REASON);
     expect(board!.estMs).toBeGreaterThan(0);
     // Named worker with two priced runs: measured medians.
@@ -291,5 +299,23 @@ describe("project.milestone", () => {
     expect(parseProjectMilestoneArgs({ id: "base", state: "reviewed", summary: "x" })).toMatchObject({ ok: false });
     expect(parseProjectMilestoneArgs({ id: "base", state: "approved", summary: "x" })).toMatchObject({ ok: false });
     expect(parseProjectMilestoneArgs({ id: "base", state: "done" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("project tools in a folder too broad for a project (issue #53)", () => {
+  it("refuse to draft a brief or a plan from the home folder or a root, saying how to choose a folder", async () => {
+    const t = tools();
+    for (const workingDir of [homedir(), parse(resolve(homedir())).root]) {
+      const at = { ...ctx, workingDir } as ToolContext;
+      for (const result of [
+        await t.brief.run(briefArgs, at),
+        await t.plan.run({ milestones: [{ id: "m1", title: "Build", kind: "build", tasks: [{ id: "t1", title: "x" }] }] }, at),
+      ]) {
+        expect(result.status).toBe("error");
+        expect(result.summary).toContain("too broad");
+        expect(result.summary).toContain("workspace chip");
+        expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
+      }
+    }
   });
 });

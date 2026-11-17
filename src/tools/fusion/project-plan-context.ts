@@ -66,6 +66,7 @@ export function projectPlanContextFrom(input: ProjectPlanContextInput): ProjectP
     records: input.records,
     pricing: (member) => input.pricing(member.providerId, member.model),
     tokensPerSecond: (member) => (input.isLocal(member.providerId) ? input.tokensPerSecond() : null),
+    isLocal: (member) => input.isLocal(member.providerId),
     minSamples: input.measured?.minSamples ?? PROJECT_ESTIMATE_MIN_SAMPLES,
     days: input.measured?.days ?? PROJECT_ESTIMATE_DAYS,
     ...(input.now === undefined ? {} : { now: input.now }),

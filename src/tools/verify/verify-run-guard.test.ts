@@ -178,9 +178,14 @@ describe("verify.run behind the shell guard", () => {
 
   it("asks a script fed to an interpreter on stdin as unreadable, with no grant shape", async () => {
     for (const cmd of ["python3", "node", "pwsh"]) {
-      const { gate, request } = fakeGate();
+      // Declined, so nothing is spawned: the assertions are about what the
+      // person is asked, and running three interpreters on a CI runner (pwsh
+      // may not even exist) made this test time out.
+      const { gate, request } = fakeGate({ approved: false });
       const tool = buildVerifyRunTool({ approvals: gate, approvalRequired: true, config: CONFIG });
-      await tool.run({ kind: "command", cmd, args: cmd === "pwsh" ? ["-"] : [], stdin: "print(1)", checks: ["exit 0"] }, ctx());
+      await tool
+        .run({ kind: "command", cmd, args: cmd === "pwsh" ? ["-"] : [], stdin: "print(1)", checks: ["exit 0"] }, ctx())
+        .catch(() => undefined);
       expect(request).toHaveBeenCalledTimes(1);
       expect(request.mock.calls[0]?.[0]).toMatchObject({ commandUnreadable: true });
       expect(request.mock.calls[0]?.[0]?.commandArgv).toBeUndefined();

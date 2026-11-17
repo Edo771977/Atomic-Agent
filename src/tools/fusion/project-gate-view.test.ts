@@ -105,3 +105,41 @@ describe("projectGateView (issue #39)", () => {
     expect(projectGateChanged(a, { ...a, cancelledAt: 1 })).toBe(true);
   });
 });
+
+describe("projectGateView hints and editable rows (issue #54)", () => {
+  const planGate = (): ProjectState => {
+    const approvedBrief = applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW });
+    if (!approvedBrief.ok) throw new Error("x");
+    return up(approvedBrief.project, plan);
+  };
+
+  it("hints at configuring reviewers when none are, and leaves review behaviour alone", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a", "cloud:b"], reviewers: [] }, reviewersConfigured: false });
+    expect(view.hints).toEqual(["no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"]);
+    expect(view.plan!.editable).toBe(true);
+    expect(view.plan!.rows.map((r) => r.reviewer)).toEqual(["cloud:r", "cloud:r"]);
+  });
+
+  it("is not editable, with a hint, when every row has only its own worker and no reviewer to pick", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: false });
+    expect(view.plan!.editable).toBe(false);
+    expect(view.hints).toContain("only one worker available: configure llm.runMode.fusion.team to choose");
+  });
+
+  it("says no other member is reachable, not to configure a team, when the team has members that cannot answer", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: true, otherMembersConfigured: true });
+    expect(view.plan!.editable).toBe(false);
+    expect(view.hints).toEqual(["no other team member is reachable now: the rows keep their worker"]);
+  });
+
+  it("is editable without hints when there is a choice and reviewers are configured", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
+    expect(view.plan!.editable).toBe(true);
+    expect(view.hints).toEqual([]);
+  });
+
+  it("gives no plan hints at the brief gate", () => {
+    const view = projectGateView({ sessionId: "s", project: up(undefined, brief), estimate: null, selectable: { workers: [], reviewers: [] }, reviewersConfigured: false });
+    expect(view.hints).toEqual([]);
+  });
+});

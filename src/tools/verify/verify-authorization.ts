@@ -9,7 +9,7 @@ import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-re
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
-import { parseVerifyRunArgs } from "./verify-run-args.js";
+import { parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
 
@@ -40,11 +40,34 @@ export interface VerifyAuthorizationOptions extends DangerousToolOptions {
   knownSecrets?: readonly KnownSecret[];
   /** Interactive checks may use a worker's approved scope; contract checks have their own preflight. */
   allowFanoutScope?: boolean;
+  /**
+   * The folder the session's approved project plan covers. A
+   * `verify_page_local` yes for that exact folder then stands for the rest
+   * of the turn (`ApprovalGate.grantVerifyPageForTurn`); absent: every
+   * probe asks as before.
+   */
+  turnGrantFolder?: string;
+  /** Said on the prompt (reason and preview), e.g. that only part of the session's folder is copied. */
+  copyNote?: string;
 }
 export interface VerifyAuthorizationContext extends ToolContext {
   /** Rules and displayed project paths belong to the original project, never a private copy. */
   ruleWorkdir?: string;
   checkInputs?: readonly string[];
+}
+
+/**
+ * A page probe that opens a file inside `folder` (`path` or a file: URL),
+ * starts nothing and has the network off: the only kind a turn's
+ * `verify_page_local` yes may cover. A loopback http(s) URL runs whatever
+ * that server serves now, so it always asks.
+ */
+function opensFileInside(args: VerifyRunArgs, folder: string): boolean {
+  if (args.kind !== "page" || args.start !== undefined || args.network) return false;
+  const file = args.path !== undefined ? resolve(folder, args.path) : args.url === undefined ? null : localFileOfUrl(args.url);
+  if (file === null) return false;
+  const rel = relative(resolve(folder), file);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export function resolveVerifyCwd(root: string, cwd: string | undefined): string {
@@ -141,12 +164,13 @@ export async function authorizeVerifyBatch(
     const preview = [
       ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)), previewKnown)),
       JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution: "in a private verification copy of this project; absolute project references are rebased into that copy" }, previewKnown), null, 2),
+      ...(options.copyNote === undefined ? [] : [options.copyNote]),
     ].join("\n");
     if (Buffer.byteLength(preview) > MAX_AUTHORIZATION_BYTES) throw new Error("verification authorization preview exceeds the size limit");
     const prompt = {
       sessionId: ctx.sessionId, tool: "verify.run",
       category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
-      reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox`,
+      reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`,
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
@@ -182,14 +206,32 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd } of plans) {
+  for (const { prompt, cwd, logical } of plans) {
     ctx.signal.throwIfAborted();
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "");
-    if (!scoped) await requireApproval(options, prompt, ctx.signal);
+    if (scoped) continue;
+    // A local page probe of a folder already approved this turn (in the
+    // approved plan's folder) runs unasked, unless a saved rule asks or
+    // denies, or the person declined the target (the gate also refuses it
+    // after outside content). Every other category keeps "Allow once".
+    const page = prompt.category === "verify_page_local" && opensFileInside(logical, cwd);
+    if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
+      !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
+      !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) continue;
+    // The gate records the turn grant only if a person approves this request.
+    const withdraw = page && options.approvalRequired && options.turnGrantFolder !== undefined &&
+      relative(resolve(options.turnGrantFolder), resolve(cwd)) === ""
+      ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
+      : undefined;
+    try {
+      await requireApproval(options, prompt, ctx.signal);
+    } finally {
+      withdraw?.();
+    }
   }
   ctx.signal.throwIfAborted();
   return snapshot;

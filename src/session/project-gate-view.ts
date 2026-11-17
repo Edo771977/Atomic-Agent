@@ -47,6 +47,13 @@ export interface ProjectGateView {
   milestones: ProjectGateMilestone[];
   /** Every limit the plan breaks, hard ones first; approve is refused while any hard one stands. */
   violations: ProjectGateViolation[];
+  /**
+   * One-line advice for the card (issue #54), shown as is: at the plan
+   * gate, that no reviewers are configured, or that there is only one
+   * worker to choose. Empty when there is nothing to say; never a limit
+   * (those are `violations`).
+   */
+  hints: string[];
 }
 
 /**
@@ -69,6 +76,13 @@ export interface ProjectGatePlan {
   rows: ProjectGateRow[];
   /** Wave-aware totals (`estimatePlan`): cost summed, time over milestones in order. */
   totals: ProjectPlanTotals;
+  /**
+   * Whether "edit rows" offers a choice (issue #54): false when every row
+   * has only its current worker selectable and no reviewer to pick. A
+   * surface hides or disables its edit action then; `edit` stays in
+   * `allowedVerdicts`.
+   */
+  editable: boolean;
 }
 
 export interface ProjectGateRow extends AssignmentRow {

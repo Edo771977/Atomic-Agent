@@ -152,6 +152,8 @@ export interface AssignmentRow {
   samples: number;
   estCostUsd: number | null;
   estMs: number | null;
+  /** The worker runs on a local server: `estCostUsd` is 0, shown as "$0.00 (local)" (issue #54). */
+  local?: true;
 }
 
 export interface ProjectPlanTotals {
@@ -660,6 +662,7 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     estCostUsd: raw.estCostUsd,
     estMs: raw.estMs,
     ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
+    ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
   };
 }
 
@@ -1195,7 +1198,7 @@ function editRows(
   if (replan !== undefined) return replan(rows, "edit");
   return rows.map((r) =>
     touched.has(r.taskId)
-      ? { ...r, reason: "edited by the person", basis: "preset" as const, samples: 0, estCostUsd: null, estMs: null }
+      ? (({ local: _local, ...rest }) => ({ ...rest, reason: "edited by the person", basis: "preset" as const, samples: 0, estCostUsd: null, estMs: null }))(r)
       : r,
   );
 }

@@ -18,6 +18,7 @@ import {
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor } from "./project-estimate.js";
+import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
 
@@ -65,6 +66,8 @@ export interface ProjectPlanContext {
   pricing: (member: TeamMember) => WorkerPricing | undefined;
   /** A local member's measured speed; null for a cloud one or before any measurement. */
   tokensPerSecond: (member: TeamMember) => number | null;
+  /** Whether the member runs on a local server: its tasks are priced at $0 (issue #54). Absent: none is. */
+  isLocal?: (member: TeamMember) => boolean;
   /** `measuredRouting.minSamples` / `.days`. */
   minSamples: number;
   days: number;
@@ -274,6 +277,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       days: context.days,
       ...(context.now === undefined ? {} : { now: context.now }),
       tokensPerSecond: context.tokensPerSecond(worker),
+      local: context.isLocal?.(worker) ?? false,
     });
     rows.push({
       taskId: task.id,
@@ -286,6 +290,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       samples: est.samples,
       estCostUsd: est.estCostUsd,
       estMs: est.estMs,
+      ...(est.local === true ? { local: true as const } : {}),
     });
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
@@ -340,6 +345,20 @@ function refuse(tool: string, problems: string[]): CompressedToolResult {
   return compressToolResult({ tool, status: "error", output: `${tool}: ${problems.join("; ")}.`, details: { field: "args" } });
 }
 
+/**
+ * A project works in a project folder (issue #53): refuse before a brief
+ * or plan is drafted from a root or the home folder, which fusion.delegate
+ * would refuse anyway once the person had approved it.
+ */
+function refuseBroadWorkdir(tool: string, workingDir: string): CompressedToolResult | null {
+  if (!isTooBroadScope(workingDir)) return null;
+  return compressToolResult({
+    tool, status: "error",
+    output: tooBroadWorkdirMessage(workingDir, `${tool} did not run: a project`),
+    details: { reason: "workdir-too-broad", workingDir },
+  });
+}
+
 function accepted(tool: string, output: string, update: ProjectUpdate): CompressedToolResult {
   return compressToolResult(
     { tool, status: "ok", output, details: { [PROJECT_UPDATE_DETAIL]: update } },
@@ -348,6 +367,7 @@ function accepted(tool: string, output: string, update: ProjectUpdate): Compress
 }
 
 const usd = (n: number | null): string => (n === null ? "cost unknown" : `~$${n.toFixed(2)}`);
+const rowUsd = (row: AssignmentRow): string => (row.local === true ? "$0.00 (local)" : usd(row.estCostUsd));
 const secs = (ms: number | null): string => (ms === null ? "time unknown" : `~${Math.max(1, Math.round(ms / 1000))}s`);
 
 const AWAIT_PERSON = "Now reply to the person: they approve, edit or cancel it between turns. Do not delegate until it is approved.";
@@ -358,6 +378,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the project brief (what, for whom, how, success criteria) for the person to approve.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_BRIEF_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectBriefArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_BRIEF_TOOL, parsed.problems);
       const update: ProjectUpdate = { kind: "brief", brief: parsed.brief, draftedAfterUntrusted: deps.outsideContent(ctx.sessionId) };
@@ -373,6 +395,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the plan (milestones and tasks) for the approved brief; each task gets a worker, a reviewer and an estimate.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_PLAN_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectPlanArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_PLAN_TOOL, parsed.problems);
       const context = deps.planContext();
@@ -387,7 +411,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           `${m.id} (${m.kind}): ${m.title}`,
           ...rows
             .filter((r) => r.milestoneId === m.id)
-            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${usd(r.estCostUsd)}, ${secs(r.estMs)}`),
+            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
         AWAIT_PERSON,
