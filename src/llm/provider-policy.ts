@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { defaultProviderModelMode } from "../config/model-mode.js";
 import { makeProviderPolicy, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
+import { classifiableHostOf, isLoopbackUrl } from "./provider/url-host.js";
 
 export type { ProviderPolicy, ProviderPolicyStamp } from "../config/project-constraint-match.js";
 export {
@@ -111,6 +113,11 @@ export function currentProviderPolicyCell(): ProviderPolicyCell | undefined {
  * row's); `readFrom` is the union. Same key: `a` unchanged.
  */
 export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy): ProviderPolicy {
+  const hosts = a.allowedProviderHosts.filter((host) => b.allowedProviderHosts.includes(host));
+  if (hosts.length !== a.allowedProviderHosts.length) {
+    // The other machines both allow (issue #60): same key or not.
+    a = makeProviderPolicy({ ...a, allowedProviderHosts: hosts });
+  }
   if (a.key === b.key || policyCovers(a, b)) {
     return b.readFrom === undefined || b.readFrom.every((dir) => a.readFrom?.includes(dir))
       ? a
@@ -120,6 +127,7 @@ export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy):
     key: `${a.key} + ${b.key}`,
     allowedProviders: a.allowedProviders.filter((id) => b.allowedProviders.includes(id)),
     allowedEgress: a.allowedEgress.filter((cls) => b.allowedEgress.includes(cls)),
+    allowedProviderHosts: hosts,
     matchedDir: a.matchedDir,
     readFrom: [...new Set([...(a.readFrom ?? []), ...(b.readFrom ?? [])])],
   });
@@ -202,23 +210,33 @@ function describeAllowed(policy: ProviderPolicy): string {
  * provider failing: the chain skips the link without a breaker failure,
  * cooldown or sticky override, and the turn never waits for it.
  */
+export type ProviderRefusalReason = "not-allowed" | "none-allowed" | "no-policy" | "remote-endpoint";
+
 export class ProviderNotAllowedError extends Error {
   readonly code = PROVIDER_NOT_ALLOWED_CODE;
-  readonly reason: "not-allowed" | "none-allowed" | "no-policy";
+  /**
+   * `remote-endpoint` (issue #60): the id is allowed, but the provider is
+   * a local server whose endpoint is another machine the folder does not
+   * list in `allowedProviderHosts`, or cannot be read.
+   */
+  readonly reason: ProviderRefusalReason;
   readonly providerId: string | undefined;
   readonly policy: ProviderPolicy | undefined;
   readonly role: string;
+  /** For `remote-endpoint`: the host refused, `null` when the endpoint cannot be read. */
+  readonly endpointHost: string | null | undefined;
 
   constructor(input: {
-    reason: "not-allowed" | "none-allowed" | "no-policy";
+    reason: ProviderRefusalReason;
     providerId?: string;
     policy?: ProviderPolicy;
     role?: string;
+    endpointHost?: string | null;
     cause?: unknown;
   }) {
     const role = input.role ?? DEFAULT_ROLE;
     super(
-      providerNotAllowedMessage(input.reason, role, input.policy, input.providerId),
+      providerNotAllowedMessage(input.reason, role, input.policy, input.providerId, input.endpointHost),
       input.cause === undefined ? undefined : { cause: input.cause },
     );
     this.name = "ProviderNotAllowedError";
@@ -226,14 +244,34 @@ export class ProviderNotAllowedError extends Error {
     this.providerId = input.providerId;
     this.policy = input.policy;
     this.role = role;
+    this.endpointHost = input.endpointHost;
   }
 }
 
+/**
+ * How to let `host` serve the folder(s) of `policy`: the
+ * `allowedProviderHosts` of each constraint entry its key names.
+ */
+export function remoteEndpointOptInHint(policy: ProviderPolicy, host: string): string {
+  const entries = policy.key.split(" + ").map((key) => `projects.constraints[${JSON.stringify(key)}].allowedProviderHosts`);
+  return `add ${JSON.stringify(host)} to ${entries.join(" and ")}`;
+}
+
+function remoteEndpointSentence(policy: ProviderPolicy, providerId: string, host: string | null | undefined): string {
+  if (host === null || host === undefined) {
+    return `provider "${providerId}" is allowed, but its endpoint cannot be read, so it may be another machine; nothing was sent. ` +
+      "Fix the provider's URL";
+  }
+  return `provider "${providerId}" is allowed, but its endpoint ${host} is another machine; nothing was sent. ` +
+    `To allow it, ${remoteEndpointOptInHint(policy, host)}`;
+}
+
 function providerNotAllowedMessage(
-  reason: "not-allowed" | "none-allowed" | "no-policy",
+  reason: ProviderRefusalReason,
   role: string,
   policy: ProviderPolicy | undefined,
   providerId: string | undefined,
+  endpointHost: string | null | undefined,
 ): string {
   if (reason === "no-policy" || policy === undefined) {
     return `provider constraints are configured (projects.constraints) but ${role} carries no folder policy; ` +
@@ -242,6 +280,7 @@ function providerNotAllowedMessage(
   const head = policy.readFrom !== undefined && policy.readFrom.length > 0
     ? `this session read files from ${policy.readFrom.join(", ")}, which ${policy.readFrom.length > 1 ? "are" : "is"} restricted to: ${describeAllowed(policy)}`
     : `folder ${policy.key} is restricted to: ${describeAllowed(policy)}`;
+  if (reason === "remote-endpoint") return `${head}; ${remoteEndpointSentence(policy, providerId ?? "(unknown)", endpointHost)}`;
   return reason === "none-allowed"
     ? `${head}; no allowed provider can serve ${role}`
     : `${head}; provider "${providerId ?? "(unknown)"}" may not serve ${role}, nothing was sent`;
@@ -274,13 +313,66 @@ export function noAllowedProviderError(
 }
 
 /**
+ * Where a provider sends its requests, as far as a folder constraint is
+ * concerned (issue #60). `local`: a server the operator runs
+ * (`llama-server`, or an `openai-compatible` / `qwen-openai-compatible`
+ * entry that is not a known cloud service), judged by `url` as well as
+ * by id. Cloud providers are matched by id alone.
+ */
+export interface ProviderEndpoint {
+  readonly local: boolean;
+  /** The URL it is reached at; `undefined` when none is configured. */
+  readonly url: string | undefined;
+}
+
+/**
+ * The endpoint of a configured provider entry. A `llama-server` entry
+ * without its own `url` reaches `localModelsUrl` (`localModels.url`, read
+ * live by the provider). An `openai-compatible` entry is local unless its
+ * base URL is a known cloud service (`defaultProviderModelMode`, the same
+ * test the default model mode uses): an unknown remote URL is judged by
+ * endpoint, fail closed.
+ */
+export function providerEndpointOf(
+  entry: { kind: string; url?: string | undefined; baseUrl?: string | undefined },
+  localModelsUrl: string | undefined,
+): ProviderEndpoint {
+  if (entry.kind === "llama-server") return { local: true, url: entry.url ?? localModelsUrl };
+  if (entry.kind !== "openai-compatible" && entry.kind !== "qwen-openai-compatible") return { local: false, url: entry.baseUrl ?? entry.url };
+  const cloud = entry.baseUrl !== undefined &&
+    defaultProviderModelMode({ kind: "openai-compatible", baseUrl: entry.baseUrl }) === "cloud";
+  return { local: !cloud, url: entry.baseUrl };
+}
+
+/**
+ * Why `policy` refuses `endpoint` although its provider id is allowed
+ * (issue #60), or `undefined` when it does not: a local provider whose
+ * URL is not loopback (`isLoopbackUrl`: 127/8, `::1`, `localhost`,
+ * `*.localhost`, the unspecified address) and whose host the folder does
+ * not list in `allowedProviderHosts`. `{ host: null }` when the URL
+ * cannot be read (fail closed). The same test `atomic-agent doctor` runs.
+ */
+export function providerEndpointRefusal(
+  policy: ProviderPolicy,
+  endpoint: ProviderEndpoint,
+): { host: string | null } | undefined {
+  if (!endpoint.local) return undefined;
+  const host = classifiableHostOf(endpoint.url);
+  if (host === null) return { host: null };
+  if (isLoopbackUrl(endpoint.url)) return undefined;
+  return policy.allowedProviderHosts.includes(host) ? undefined : { host };
+}
+
+/**
  * Throw unless the current frame lets `providerId` receive a request.
  * `providerId` must be the ACTUAL provider about to be called, not the
  * id a caller asked for (an unknown id resolves to the active provider).
+ * With `endpoint`, a provider allowed by id is also refused when it is a
+ * local server on another machine the folder does not list (issue #60).
  */
 export function assertProviderAllowed(
   providerId: string,
-  options: { constraintsActive: () => boolean; role?: string },
+  options: { constraintsActive: () => boolean; role?: string; endpoint?: () => ProviderEndpoint | undefined },
 ): void {
   const frame = frameStore.getStore();
   const role = options.role ?? frame?.role;
@@ -289,8 +381,20 @@ export function assertProviderAllowed(
     throw new ProviderNotAllowedError({ reason: "no-policy", providerId, ...(role === undefined ? {} : { role }) });
   }
   const { policy } = frame.cell;
-  if (policy === undefined || policy.allows(providerId)) return;
-  throw new ProviderNotAllowedError({ reason: "not-allowed", providerId, policy, ...(role === undefined ? {} : { role }) });
+  if (policy === undefined) return;
+  if (!policy.allows(providerId)) {
+    throw new ProviderNotAllowedError({ reason: "not-allowed", providerId, policy, ...(role === undefined ? {} : { role }) });
+  }
+  const endpoint = options.endpoint?.();
+  const refusal = endpoint === undefined ? undefined : providerEndpointRefusal(policy, endpoint);
+  if (refusal === undefined) return;
+  throw new ProviderNotAllowedError({
+    reason: "remote-endpoint",
+    providerId,
+    policy,
+    endpointHost: refusal.host,
+    ...(role === undefined ? {} : { role }),
+  });
 }
 
 /**
@@ -320,14 +424,15 @@ const GUARDED = new WeakSet<object>();
  * Wrap a provider so `complete`, `completeStream`, `describeImage` and
  * (when it has one) `describeAudio`
  * check the current frame first (`assertProviderAllowed` against the
- * provider's own id). Every other member passes through to the provider
+ * provider's own id and, given `endpoint`, where it is reached, read at
+ * each call so a changed URL is judged). Every other member passes through to the provider
  * itself. The registry wraps every provider it builds, so a direct
  * `getProvider(id).complete(...)` (escalation, judge, the fusion format
  * check, `vision.describe`) is covered as well as the fallback seam.
  */
 export function guardProvider(
   provider: LlmProvider,
-  options: { constraintsActive: () => boolean },
+  options: { constraintsActive: () => boolean; endpoint?: () => ProviderEndpoint | undefined },
 ): LlmProvider {
   if (GUARDED.has(provider)) return provider;
   const check = (): void => assertProviderAllowed(provider.id, options);

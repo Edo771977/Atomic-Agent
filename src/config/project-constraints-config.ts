@@ -1,4 +1,5 @@
 import { posix, win32 } from "node:path";
+import { classifiableHostOf } from "../llm/provider/url-host.js";
 import { editDistance, emitConfigNoticeOnce } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
 import type { ProjectConstraintsConfig } from "./tool-config.js";
@@ -8,7 +9,7 @@ export type { ProjectConstraintsConfig } from "./tool-config.js";
 const FIELD = "projects.constraints";
 
 /** The keys an entry may hold; anything else is warned about and ignored. */
-export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders", "allowedEgress"] as const;
+export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders", "allowedEgress", "allowedProviderHosts"] as const;
 
 /**
  * The egress classes `allowedEgress` may name: what a tool in a
@@ -44,11 +45,13 @@ function unknownEntryKeys(entry: Record<string, unknown>): string[] {
 
 /**
  * Parse `projects.constraints` (config v80): `{ "<absolute folder>":
- * { allowedProviders: string[], allowedEgress?: string[] } }`. Fail
+ * { allowedProviders: string[], allowedEgress?: string[],
+ * allowedProviderHosts?: string[] } }`. Fail
  * closed: anything malformed — a non-object block or entry, a relative
  * or empty folder, a missing or non-list `allowedProviders`, an empty or
  * non-string id, an `allowedEgress` that is not a list of known classes
- * (`EGRESS_CLASSES`, `mcp:<server>`) — is a `ConfigValidationError`, so a
+ * (`EGRESS_CLASSES`, `mcp:<server>`), an `allowedProviderHosts` entry that
+ * is not a bare host (`normalizeProviderHost`) — is a `ConfigValidationError`, so a
  * typo can never quietly lift a constraint. An empty `allowedProviders`
  * is valid and means no provider may serve the folder; an absent or
  * empty `allowedEgress` means no tool may send content off the machine.
@@ -100,7 +103,15 @@ export function parseProjectConstraints(
       if (!ids.includes(id)) ids.push(id);
     }
     const egress = parseAllowedEgress((entry as { allowedEgress?: unknown }).allowedEgress, `${field}.allowedEgress`);
-    out[folder] = egress === undefined ? { allowedProviders: ids } : { allowedProviders: ids, allowedEgress: egress };
+    const hosts = parseAllowedProviderHosts(
+      (entry as { allowedProviderHosts?: unknown }).allowedProviderHosts,
+      `${field}.allowedProviderHosts`,
+    );
+    out[folder] = {
+      allowedProviders: ids,
+      ...(egress === undefined ? {} : { allowedEgress: egress }),
+      ...(hosts === undefined ? {} : { allowedProviderHosts: hosts }),
+    };
   }
   return out;
 }
@@ -119,6 +130,47 @@ function parseAllowedEgress(raw: unknown, field: string): string[] | undefined {
       );
     }
     if (!out.includes(value)) out.push(value);
+  }
+  return out;
+}
+
+/**
+ * The one spelling a host in `allowedProviderHosts` is kept and compared
+ * in (issue #60): what `classifiableHostOf` makes of the host of a URL
+ * (lower case, no brackets, no trailing dot, an IPv4-mapped IPv6 address
+ * as its IPv4 address). `null` for anything that is not a bare host: a
+ * URL, a port, a path, a wildcard, an empty string.
+ */
+export function normalizeProviderHost(raw: string): string | null {
+  const text = raw.trim();
+  if (text.length === 0 || /[/*?#@\\\s]/.test(text)) return null;
+  // A bare IPv6 address has colons; anything else with one carries a port.
+  const bracketed = text.startsWith("[") ? text : text.includes(":") ? `[${text}]` : text;
+  let url: URL;
+  try {
+    url = new URL(`http://${bracketed}`);
+  } catch {
+    return null;
+  }
+  if (url.port !== "" || url.pathname !== "/" || url.username !== "" || url.password !== "") return null;
+  return classifiableHostOf(url.href);
+}
+
+function parseAllowedProviderHosts(raw: unknown, field: string): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new ConfigValidationError(field, "expected a list of host names or IP addresses (no scheme, port or path)");
+  }
+  const out: string[] = [];
+  for (const value of raw) {
+    const host = typeof value === "string" ? normalizeProviderHost(value) : null;
+    if (host === null) {
+      throw new ConfigValidationError(
+        field,
+        `${JSON.stringify(value)} is not a host; expected a host name or IP address such as "192.168.1.20" or "gpu-box.lan" (no scheme, port, path or wildcard)`,
+      );
+    }
+    if (!out.includes(host)) out.push(host);
   }
   return out;
 }

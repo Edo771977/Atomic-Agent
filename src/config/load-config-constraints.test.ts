@@ -27,4 +27,14 @@ describe("projects.constraints in the runtime config (issue #33)", () => {
     expect(config.projects.constraints["/work/client"]).toEqual({ allowedProviders: ["local-llama"], allowedEgress: ["channels", "github"] });
     expect(config.projects.constraints["/work/vault"]).toEqual({ allowedProviders: [] });
   });
+
+  it("keeps each entry's allowedProviderHosts (issue #60)", () => {
+    dir = mkdtempSync(join(tmpdir(), "atomic-constraints-"));
+    process.env.ATOMIC_AGENT_STATE_DIR = dir;
+    writeFileSync(join(dir, "config.json"), JSON.stringify({
+      projects: { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"] } } },
+    }));
+    resetConfigCache();
+    expect(loadConfig().projects.constraints["/work/client"]).toEqual({ allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"] });
+  });
 });

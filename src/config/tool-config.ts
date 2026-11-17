@@ -28,6 +28,13 @@ export interface ProjectConstraintEntry {
    * `composio`, `serve`, `mcp:<server>`). Absent or empty: none.
    */
   allowedEgress?: string[];
+  /**
+   * Other machines (host names or IP addresses, no port) a local provider
+   * allowed by id (`llama-server`, an `openai-compatible` server that is
+   * not a known cloud service) may be reached at. Absent or empty: such a
+   * provider serves this folder only on this machine (loopback).
+   */
+  allowedProviderHosts?: string[];
 }
 
 export interface RuntimeProjectsConfig {
