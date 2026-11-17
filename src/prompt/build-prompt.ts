@@ -2,6 +2,7 @@ import { projectSessionConversation } from "../session/session-compaction.js";
 import { buildCloudPrompt } from "./build-cloud-prompt.js";
 import {
   buildSkillCatalogSection,
+  cloudSkillCatalogBudget,
   reclipSkillCatalog,
 } from "../skills/skill-catalog.js";
 import { getConfig } from "../config/index.js";
@@ -53,6 +54,14 @@ import {
   SESSION_SECTIONS_CAP_AUTO,
   truncateToTokens,
 } from "./token-budget.js";
+import { readSessionProject, renderSessionProjectBody } from "../session/session-project.js";
+
+/**
+ * ATO-42: the most the `### project` block takes in the local prompt. The
+ * client caps the text at 16k characters; a small local window gets the
+ * start of it, the cloud prompt (its own `project` section) all of it.
+ */
+export const PROJECT_SECTION_MAX_TOKENS = 1_500;
 
 export type {
   BuildPromptInput,
@@ -202,7 +211,8 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
 
   const workspaceCatalog = input.workspace ? buildSkillCatalogSection(
     input.workspace.skills.entries.filter(e => !e.disabledReasons.length).map(e => e.record),
-    input.workspace.cloud ? { maxChars: Infinity } : { tokenBudget: catalogTokenBudget },
+    // A cloud workspace may ship many skills: a larger, window-scaled budget, still capped (ATO-312).
+    { tokenBudget: input.workspace.cloud ? cloudSkillCatalogBudget(catalogTokenBudget, catalogWindow) : catalogTokenBudget },
   ) : undefined;
   // A catalog built upstream used the configured budget; the compact
   // scaffold re-packs it against the window-scaled one.
@@ -238,6 +248,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
     fusion: resolveFusionMachineFacts(config, {
       workerSlots: input.liveWorkerSlots ?? null,
       tokensPerSecond: input.fusionTokensPerSecond ?? null,
+      pastRuns: input.fusionPastRuns ?? null,
     }),
     ...(turnFraming !== undefined
       ? { turnSystemOpen: turnFraming.systemOpen }
@@ -245,6 +256,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
     ...(input.systemPersona !== undefined
       ? { systemPersona: input.systemPersona }
       : {}),
+    ...(input.persona !== undefined ? { persona: input.persona } : {}),
     ...(input.toolTransport !== undefined
       ? { toolTransport: input.toolTransport }
       : {}),
@@ -266,6 +278,20 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   if (input.modelMode?.mode === "cloud") return buildCloudPrompt(input, stablePrefix);
 
   const sessionParts = buildSessionSectionParts(input.session, limits.session);
+  // ATO-42: the client's project instructions, fixed for the turn, so they
+  // sit ahead of the conversation; capped so a small window keeps room.
+  const projectFull = renderSessionProjectBody(input.session);
+  const project =
+    projectFull !== null ? truncateToTokens(projectFull, PROJECT_SECTION_MAX_TOKENS) : null;
+  const projectTokens = project !== null ? estimateTokens(project) : 0;
+  const projectReport =
+    projectFull !== null && project !== null
+      ? {
+          name: readSessionProject(input.session)?.name ?? null,
+          tokens: estimateTokens(projectFull),
+          truncated: project.length < projectFull.length,
+        }
+      : null;
   const loadedForTail = sessionParts.loaded;
   const factsForTail = sessionParts.facts;
   const sessionPartsForBudget = [loadedForTail, factsForTail]
@@ -383,7 +409,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
 
   // `contextWindow` was resolved above, before the stable prefix.
   const sessionTokenEstimate =
-    estimateTokens(sessionPartsForBudget) + loadedToolsTokens;
+    estimateTokens(sessionPartsForBudget) + loadedToolsTokens + projectTokens;
   const conversationCapEffective = computeEffectiveConversationCap({
     configuredCap: limits.conversation,
     ...(conversationCapAuto ? { autoFill: true } : {}),
@@ -466,6 +492,9 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   // conversation as real chat messages and the two halves as one final
   // user message.
   const tailBefore: string[] = [];
+  if (project !== null) {
+    tailBefore.push("### project", project, ``);
+  }
   if (memoryIndex !== null) {
     tailBefore.push("### memory-index", memoryIndex, ``);
   }
@@ -506,9 +535,11 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   }
   // The fusion project (issue #39): a director tool or the person's
   // decision changes it between steps, so it is tail, never prefix.
+  // `### fusion project`, not `### project`: that heading is the client's
+  // project instructions (ATO-42) ahead of the conversation.
   const projectDigest = renderProjectDigest(input.session.project);
   if (projectDigest !== null) {
-    tailAfter.push(`### project`, projectDigest, ``);
+    tailAfter.push(`### fusion project`, projectDigest, ``);
   }
   if (taskPolicy !== null) {
     tailAfter.push(`### task-policy`, taskPolicy.body, ``);
@@ -645,6 +676,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
     ...(profileSection?.clip !== undefined
       ? { profileClip: profileSection.clip }
       : {}),
+    ...(projectReport !== null ? { project: projectReport } : {}),
     contextWindow,
     conversationCapEffective,
     conversationCapAuto,

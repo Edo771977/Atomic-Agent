@@ -3,16 +3,27 @@
  *
  *   exit 0 | exit != 0 | exit == 0
  *   stdout contains "x" | stdout not contains "x"     (stderr likewise)
+ *   stdout matches /re/flags | stdout not matches /re/flags
+ *                                 (stderr likewise; `safe-regex.ts` policy)
  *   status 200                    every request answered with that status
  *   no errors                     page: no uncaught errors, no console errors
  *   missing selectors 0           page: that many failed lookups
  *   probe <name> decreases | increases
  *   probe <name> equals <v> | reaches <v> | stays <v>
+ *   games finish                  page `game`: every game reached `over`
+ *   game errors <n>               page `game`: errors over all games
+ *   game duration < <ms>          every game finished in under that
+ *   game moves < <n>              every game finished in fewer moves
+ *   game winner in [a, b, none]   every finished game's winner is listed
+ *   game winners vary             N >= 3 and not every game the same winner
  *
  * Small on purpose: a check is a sentence the brief's author can write
  * and the model can read back. Anything else fails as `unknown check`
  * rather than passing by accident.
  */
+
+import type { VerifyGameSummary } from "./page-game-harness.js";
+import { compileCheckRegex, testCheckRegex } from "./safe-regex.js";
 
 export interface CheckOutcome {
   readonly check: string;
@@ -33,6 +44,7 @@ export interface CheckSubject {
   readonly consoleErrors?: readonly string[];
   readonly missingSelectors?: readonly string[];
   readonly probes?: Readonly<Record<string, readonly (readonly [number, unknown])[]>>;
+  readonly games?: VerifyGameSummary;
 }
 
 const PROBE_OPS: ReadonlySet<string> = new Set(["decreases", "increases", "equals", "reaches", "stays"]);
@@ -84,13 +96,30 @@ function checkExit(check: string, tokens: string[], s: CheckSubject): CheckOutco
   return outcome(check, ok, actual);
 }
 
+/** `stdout [not] matches /re/flags`: the literal is read from the raw check, spaces and all. */
+function checkStreamMatches(check: string, s: CheckSubject): CheckOutcome {
+  const m = /^(stdout|stderr)\s+(not\s+)?matches\s+(.*)$/s.exec(check);
+  if (m === null) return outcome(check, false, "unknown check: expected `stdout [not] matches /pattern/flags`");
+  const stream = m[1] as "stdout" | "stderr";
+  const negated = m[2] !== undefined;
+  const regex = compileCheckRegex(m[3]!);
+  if ("error" in regex) return outcome(check, false, `pattern refused: ${regex.error} (expected \`${stream} [not] matches /pattern/flags\`)`);
+  const text = s[stream];
+  if (text === undefined) return outcome(check, false, `no ${stream} for a ${s.kind} run`);
+  const tested = testCheckRegex(regex, text);
+  if ("error" in tested) return outcome(check, false, `pattern not evaluated: ${tested.error}`);
+  const shown = `/${regex.source}/${regex.flags}`;
+  return outcome(check, negated ? !tested.matched : tested.matched, tested.matched ? `${stream} matches ${show(shown)}` : `${stream} does not match ${show(shown)}`);
+}
+
 function checkStream(check: string, tokens: string[], s: CheckSubject): CheckOutcome {
   const stream = tokens[0] as "stdout" | "stderr";
   const negated = tokens[1] === "not";
   const verb = negated ? tokens[2] : tokens[1];
+  if (verb === "matches") return checkStreamMatches(check, s);
   const needle = negated ? tokens[3] : tokens[2];
   if (verb !== "contains" || needle === undefined) {
-    return outcome(check, false, `unknown check: expected \`${stream} [not] contains "x"\``);
+    return outcome(check, false, `unknown check: expected \`${stream} [not] contains "x"\` or \`${stream} [not] matches /pattern/flags\``);
   }
   const text = s[stream];
   if (text === undefined) return outcome(check, false, `no ${stream} for a ${s.kind} run`);
@@ -154,6 +183,75 @@ function checkProbe(check: string, tokens: string[], s: CheckSubject): CheckOutc
   return outcome(check, false, `unknown check: probe op ${show(op)}`);
 }
 
+const GAME_SYNTAX = "unknown check: expected `games finish`, `game errors <n>`, `game duration < <ms>`, `game moves < <n>`, `game winner in [a, b]` or `game winners vary`";
+
+function gameLabel(index: number): string {
+  return `game ${index + 1}`;
+}
+
+/** `winner in [X, "O", none]` → `["X", "O", "none"]`. */
+function winnerList(raw: string): string[] | null {
+  const m = /^\[(.*)\]$/s.exec(raw.trim());
+  if (m === null) return null;
+  return m[1]!.split(",").map((w) => w.trim().replace(/^(["'])(.*)\1$/s, "$2")).filter((w) => w.length > 0);
+}
+
+function checkGame(check: string, tokens: string[], s: CheckSubject): CheckOutcome {
+  const games = s.games;
+  const unfinishedDetail = (runs: readonly { index: number; finished: boolean }[]): string =>
+    runs.filter((r) => !r.finished).map((r) => gameLabel(r.index)).slice(0, 5).join(", ");
+  const form = tokens[0] === "games" && tokens[1] === "finish" && tokens.length === 2 ? "finish"
+    : tokens[0] === "game" && tokens[1] === "errors" && tokens.length === 3 && /^\d+$/.test(tokens[2]!) ? "errors"
+    : tokens[0] === "game" && (tokens[1] === "duration" || tokens[1] === "moves") && tokens[2] === "<" && tokens.length === 4 && /^\d+(\.\d+)?$/.test(tokens[3]!) ? tokens[1]
+    : tokens[0] === "game" && tokens[1] === "winner" && tokens[2] === "in" ? "winner"
+    : tokens[0] === "game" && tokens[1] === "winners" && tokens[2] === "vary" && tokens.length === 3 ? "vary"
+    : null;
+  if (form === null) return outcome(check, false, GAME_SYNTAX);
+  if (games === undefined) return outcome(check, false, "no games were played (add `game` to a page run)");
+  if (games.missingApi !== undefined) return outcome(check, false, games.missingApi);
+  const runs = games.runs;
+  const all = `${games.finished} of ${games.n} games finished`;
+  switch (form) {
+    case "finish":
+      return outcome(check, games.finished === games.n && runs.length === games.n, games.finished === games.n ? all : `${all}; not over: ${unfinishedDetail(runs) || "(not started)"}`);
+    case "errors": {
+      const wanted = Number(tokens[2]);
+      const first = runs.flatMap((r) => r.errors.map((e) => `${gameLabel(r.index)}: ${e}`)).slice(0, 3);
+      return outcome(check, games.errors === wanted, games.errors === 0 ? "no errors in any game" : `${games.errors} error(s): ${first.join("; ")}`);
+    }
+    case "duration":
+    case "moves": {
+      const bound = Number(tokens[3]);
+      const value = (r: VerifyGameSummary["runs"][number]): number | null => (form === "duration" ? r.durationMs : r.moves);
+      const over = runs.filter((r) => !r.finished || value(r) === null || value(r)! >= bound);
+      const values = runs.flatMap((r) => (value(r) === null ? [] : [value(r)!]));
+      const longest = values.length === 0 ? null : Math.max(...values);
+      const unit = form === "duration" ? " ms" : " moves";
+      const stats = form === "duration" ? `longest ${longest ?? "?"} ms, median ${games.medianMs ?? "?"} ms` : `most ${longest ?? "?"} moves, median ${games.medianMoves ?? "?"}`;
+      if (runs.length < games.n) return outcome(check, false, `${runs.length} of ${games.n} games played; ${stats}`);
+      if (over.length === 0) return outcome(check, true, stats);
+      const shown = over.slice(0, 3).map((r) => `${gameLabel(r.index)}: ${r.finished ? `${value(r) ?? "?"}${unit}` : "not finished"}`);
+      return outcome(check, false, `${shown.join(", ")} (${stats})`);
+    }
+    case "winner": {
+      const raw = /^game\s+winner\s+in\s+(.*)$/s.exec(check)?.[1] ?? "";
+      const allowed = winnerList(raw);
+      if (allowed === null || allowed.length === 0) return outcome(check, false, "unknown check: expected `game winner in [a, b, none]`");
+      const off = runs.filter((r) => !r.finished || !allowed.includes(r.winner ?? "none"));
+      if (runs.length < games.n) return outcome(check, false, `${runs.length} of ${games.n} games played`);
+      return outcome(check, off.length === 0, off.length === 0 ? `winners: ${JSON.stringify(games.winners)}` : off.slice(0, 3).map((r) => `${gameLabel(r.index)}: ${r.finished ? (r.winner ?? "none") : "not finished"}`).join(", "));
+    }
+    case "vary": {
+      if (games.n < 3) return outcome(check, false, `\`game winners vary\` needs at least 3 games; ${games.n} asked for`);
+      const finished = runs.filter((r) => r.finished);
+      const distinct = new Set(finished.map((r) => r.winner ?? "none"));
+      if (finished.length < 3) return outcome(check, false, `only ${finished.length} game(s) finished; at least 3 are needed`);
+      return outcome(check, distinct.size > 1, distinct.size > 1 ? `winners: ${JSON.stringify(games.winners)}` : `the same winner every game: ${[...distinct][0]}`);
+    }
+  }
+  return outcome(check, false, GAME_SYNTAX);
+}
+
 export function evaluateCheck(spec: string, subject: CheckSubject): CheckOutcome {
   const check = spec.trim();
   const tokens = tokenizeCheck(check);
@@ -171,6 +269,9 @@ export function evaluateCheck(spec: string, subject: CheckSubject): CheckOutcome
       return checkMissing(check, tokens, subject);
     case "probe":
       return checkProbe(check, tokens, subject);
+    case "games":
+    case "game":
+      return checkGame(check, tokens, subject);
     default:
       return outcome(check, false, "unknown check");
   }

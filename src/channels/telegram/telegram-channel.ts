@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import { gateApprovalHandler } from "../channel-egress.js";
 import type { ChannelStatus } from "../../runtime/channel-status.js";
+import type { Channel } from "../channel.js";
 import { getUserConfigPath } from "../../config/index.js";
 import type { TurnStatusTracker } from "../../agent/status-snapshot.js";
 import {
@@ -46,6 +47,7 @@ import { sendWelcomeMessage } from "./welcome-message.js";
 import { formatTaskLiveStatus } from "./task-status-message.js";
 import { TASK_MESSAGE_MAX_CHARS } from "./task-report-format.js";
 import { TelegramProgressIndicator } from "./telegram-progress-indicator.js";
+import { resolveTelegramStreamReplies } from "./telegram-stream-mode.js";
 import {
   POLL_STALL_MS,
   TelegramReconnect,
@@ -160,7 +162,9 @@ export class OwnerAlreadyPairedError extends Error {
  * delegates to `telegram-settings.ts`; pairing logic to
  * `pairing-mode.ts`.
  */
-export class TelegramChannel {
+export class TelegramChannel implements Channel {
+  /** `Channel.id` (ATO-1169); also the `ChannelStatus.channel` it emits. */
+  readonly id = "telegram";
   private readonly deps: TelegramChannelDeps;
   private readonly sessionPointer: TelegramSessionPointer;
   private readonly lock: ChannelLock;
@@ -425,6 +429,10 @@ export class TelegramChannel {
         // flipping `telegram.progressIndicator` takes effect on the
         // next channel (re)start.
         progressIndicator: this.deps.config.telegram.progressIndicator,
+        // Env override wins; resolved once per (re)start like the above.
+        streamReplies: resolveTelegramStreamReplies(
+          this.deps.config.telegram.streamReplies,
+        ),
         inflight: this.inflight,
         liveTurns: this.liveTurns,
         statusSnapshot: this.deps.config.statusSnapshot ?? null,
@@ -463,6 +471,7 @@ export class TelegramChannel {
             description: "Show or switch the provider and model",
           },
           { command: "plan", description: "The fusion project gate: /plan approve <version> or /plan cancel" },
+          { command: "cron", description: "List, add, pause or delete scheduled tasks" },
           { command: "cancel", description: "Cancel this chat's current turn" },
         ]);
       } catch (err) {

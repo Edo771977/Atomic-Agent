@@ -174,6 +174,25 @@ const STDIN_INTERPRETER_RE = /^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascri
 /** `python3 -c`, `-m`, `node -e` / `-p`, `perl -E`, `php -r`: the code is on the line. */
 const INLINE_CODE_FLAG_RE = /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/;
 
+/** PowerShell: `-Command -`, `-File -`, a bare `-`, or no script at all reads stdin. */
+const POWERSHELL_RE = /^(?:pwsh|powershell)(?:\.exe)?$/i;
+const POWERSHELL_SCRIPT_FLAG_RE = /^-(?:c|command|f|file|e|ec|encodedcommand)$/i;
+const POWERSHELL_VALUE_FLAG_RE = /^-(?:ep|executionpolicy|wd|workingdirectory|of|outputformat|if|inputformat|wsf|windowstyle|config|configurationname|settingsfile)$/i;
+
+function powershellReadsStdin(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i += 1) {
+    const word = args[i]!;
+    if (word === "-") return true;
+    if (POWERSHELL_SCRIPT_FLAG_RE.test(word)) return args[i + 1] === undefined || args[i + 1] === "-";
+    if (POWERSHELL_VALUE_FLAG_RE.test(word)) {
+      i += 1;
+      continue;
+    }
+    if (!word.startsWith("-")) return false;
+  }
+  return true;
+}
+
 /** Whether this command runs a script read from stdin rather than one on the line. */
 function readsScriptFromStdin(words: readonly string[]): boolean {
   const head = words[0];
@@ -183,6 +202,7 @@ function readsScriptFromStdin(words: readonly string[]): boolean {
   if (NESTED_SHELL_PROGRAMS.includes(name)) {
     return scanNestedShellOptions(args, name).readsStdin;
   }
+  if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
   if (!STDIN_INTERPRETER_RE.test(name)) return false;
   if (args.some((a) => INLINE_CODE_FLAG_RE.test(a))) return false;
   const operand = args.find((a) => a === "-" || !a.startsWith("-"));
@@ -205,4 +225,26 @@ export function shellRunsUnreadableScript(
   if (!useShell) return false;
   if (!/[|<]/.test([cmd, ...execArgs].join(" "))) return false;
   return shellRuleSegments(cmd, execArgs, useShell).some(readsScriptFromStdin);
+}
+
+/**
+ * What a `stdin` given to a command runs, when the command reads its
+ * script from stdin (`verify.run` with `stdin`): a shell (`sh`, `bash -s`)
+ * runs it as a command line, so it is returned as one (`lines`) for the
+ * guard, egress and read checks to read like an `os.shell.run` line;
+ * any other interpreter (`python3`, `node`, `pwsh -`) runs code no rule
+ * can read (`unreadable`). `null` for plain data to a command that runs
+ * its own script.
+ */
+export function stdinScriptOf(
+  cmd: string,
+  execArgs: readonly string[],
+  useShell: boolean,
+  stdin: string | undefined,
+): { lines: string[]; unreadable: boolean } | null {
+  if (stdin === undefined || stdin.trim() === "") return null;
+  const readers = shellRuleSegments(cmd, execArgs, useShell).filter(readsScriptFromStdin);
+  if (readers.length === 0) return null;
+  const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
+  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length };
 }

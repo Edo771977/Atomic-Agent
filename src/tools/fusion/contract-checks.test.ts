@@ -248,12 +248,46 @@ describe("runContractChecks", () => {
     );
     expect(runner).toHaveBeenCalledWith(
       [{ kind: "command", cmd: "node" }, { kind: "command", cmd: "npm" }],
-      ctx,
+      // Each spec's task rides alongside, by index (screenshot names, issue #40).
+      { ...ctx, checkTasks: ["a", undefined] },
     );
     expect(out.outcomes).toEqual([
       { task: "a", ok: true, detail: "exit 0" },
       { ok: false, detail: "npm: exit code 1 line two" },
     ]);
+  });
+
+  it("passes a check's games, screenshots and criterion ids through to its outcome, game texts masked (issue #40)", async () => {
+    const secret = "sk-or-v1-" + "a".repeat(64);
+    const games = {
+      n: 3, played: 3, finished: 3, errors: 1, medianMs: 40, medianMoves: 9, winners: { X: 2, none: 1 },
+      runs: [
+        { index: 0, seed: 1, finished: true, winner: "X", moves: 9, durationMs: 40, errors: [] },
+        { index: 1, seed: 2, finished: true, winner: "X", moves: 8, durationMs: 30, errors: [`console: token ${secret}`] },
+        { index: 2, seed: 3, finished: true, winner: null, moves: 11, durationMs: 50, errors: [] },
+      ],
+    };
+    const screenshots = [{ path: "/state/fusion-runs/fr-1/shots/ui-1.jpg", bytes: 1234, width: 1280, height: 720 }];
+    const runner = vi.fn<ContractCheckRunner>(async () => ({ ok: true, results: [{ ok: true, summary: "verify.run page: ok", games, screenshots }, { ok: true }] }));
+    const out = await runContractChecks(
+      [{ task: "ui", criteria: ["c1", "c2"], kind: "page", path: "index.html" }, { kind: "command", cmd: "x" }],
+      runner,
+      ctx,
+    );
+    // The runner sees verify.run specs only: no task, no criteria.
+    expect(runner.mock.calls[0]![0]).toEqual([{ kind: "page", path: "index.html" }, { kind: "command", cmd: "x" }]);
+    expect(out.outcomes[0]).toMatchObject({ task: "ui", ok: true, criteria: ["c1", "c2"], screenshots });
+    expect(out.outcomes[0]!.games?.runs[1]!.errors[0]).toContain("[redacted");
+    expect(out.outcomes[0]!.games?.runs[1]!.errors[0]).not.toContain(secret);
+    expect(out.outcomes[0]!.games).toMatchObject({ n: 3, finished: 3, winners: { X: 2, none: 1 } });
+    expect(out.outcomes[1]).toEqual({ ok: true, detail: "passed" });
+  });
+
+  it("strips a visual check's judge before the runner and carries it, and the screenshot failures, to the outcome (issue #40)", async () => {
+    const runner = vi.fn<ContractCheckRunner>(async () => ({ ok: true, results: [{ ok: true, screenshotErrors: ["screenshot: page crashed"] }] }));
+    const out = await runContractChecks([{ task: "ui", criteria: ["c1"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }], runner, ctx);
+    expect(runner.mock.calls[0]![0]).toEqual([{ kind: "page", path: "index.html", screenshot: {} }]);
+    expect(out.outcomes[0]).toMatchObject({ task: "ui", ok: true, criteria: ["c1"], judge: "vision", screenshotErrors: ["screenshot: page crashed"] });
   });
 
   it("marks a check the runner returned nothing for as failed, and survives a runner that throws", async () => {

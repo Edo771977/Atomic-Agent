@@ -22,9 +22,11 @@ import {
   runLocalModelsPullWorker,
 } from "./models-downloads.js";
 import { runModelsSearch } from "./models-search-command.js";
+import { runModelsCatalog } from "./models-catalog-command.js";
 import { runLocalModelsCheck } from "./models-check.js";
 import { runModelsRecommend, runModelsUpgrade } from "./models-recommend.js";
 import { runLocalModelsPullAndRun } from "./models-pull-run.js";
+import { runModelsAsk, runModelsToolcallBench } from "./models-toolcall-bench.js";
 import { runModelsTasks } from "./models-tasks-command.js";
 import { runModelsFitTest } from "./models-fit-test-command.js";
 import { recoverInterruptedFitTest } from "./models-fit-test-restore.js";
@@ -70,6 +72,21 @@ const HELP =
     "  update                        Install the supported engine and inference backend",
     "                                (stops daemon first; does not auto-restart)",
     "  remove <id>                   Delete a downloaded model (refuses if active + daemon running)",
+    "  catalog [--refresh] [--json]  Models an external catalog adds (models-catalog.json in",
+    "                                the state dir, or our hosted catalog; ATOMIC_AGENT_MODEL_",
+    "                                CATALOG_URL overrides it), each with its fit for this",
+    "                                machine; --refresh fetches the URL",
+    "",
+    "Fit-test subcommands:",
+    "  tasks collect [--last <n>]    Write your last n tasks (default 10) as a test set;",
+    "        [--out <file>] [--json] tasks that sent mail, pushed or posted are left out",
+    "  fit-test --tasks <file>       Run the set on up to 3 models one at a time, score each",
+    "    --models <a,b> --judge-url  reply with the judge, print score / time / peak memory.",
+    "    <url> [--judge-model <id>]  Stops the local model while it runs and puts the",
+    "    [--judge-key-env <NAME>]    active one back after. Tasks run in temp folders",
+    "    [--timeout <s>] [--out <f>] with approvals refused.",
+    "  fit-test --compare <before>   Score, time and token change per task between two",
+    "    <after> [--json]            --out files of the same set (e.g. base vs base+LoRA)",
     "",
     "Fit-test subcommands:",
     "  tasks collect [--last <n>]    Write your last n tasks (default 10) as a test set;",
@@ -85,6 +102,12 @@ const HELP =
     "                                vendor and capability (`claude vision`, `free tools`,",
     "                                `1m cache`). Flags: --provider <id> --limit <n>",
     "                                --json --refresh (pull live lists first)",
+    "  toolcall-bench [--models a,b] Send fixed tool-call prompts to each model --tries times",
+    "            [--tries n] [--json] (default 3) and count valid JSON, right tool, required",
+    "                                args, parse failures. A model is <provider> or",
+    "                                <provider>:<model>; default the active provider",
+    '  ask "<question>" --models a,b  One question, no tools, to several models at once;',
+    "            [--json]            answers printed one after another",
     "",
     "GPU subcommands:",
     "  devices                       List GPU devices (llama-server --list-devices); active marked with *",
@@ -170,12 +193,18 @@ export async function modelsCommand(args: string[]): Promise<number> {
         return await modelsStopEmbedding();
       case "search":
         return await runModelsSearch(args.slice(1));
+      case "toolcall-bench":
+        return await runModelsToolcallBench(args.slice(1));
+      case "ask":
+        return await runModelsAsk(args.slice(1));
       case "tasks":
         return await runModelsTasks(args.slice(1));
       case "fit-test":
         return await runModelsFitTest(args.slice(1));
       case "list":
         return runLocalModelsList();
+      case "catalog":
+        return await runModelsCatalog(args.slice(1));
       case "pull":
         if (args.includes("--run")) return await runLocalModelsPullAndRun(args.slice(1));
         return runLocalModelsPull(args.slice(1));

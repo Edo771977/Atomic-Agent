@@ -21,7 +21,8 @@ export default class GaiaCampaignRunner extends VitestTestRunner {
       if (!file) throw error;
       file.result = { ...file.result, state: "fail", errors: [...(file.result?.errors ?? []),
         { name: "CampaignCompletionError", message: error instanceof Error ? error.message : String(error) }] };
-      updateTask(file, this);
+      // Vitest 4: updateTask(event, task, runner).
+      updateTask("suite-finished", file, this);
     }
   }
 }

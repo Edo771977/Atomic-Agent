@@ -144,6 +144,12 @@ export interface ApprovalRequest {
   /** The level behind `riskNote`; absent when the review gave no verdict. */
   riskLevel?: RiskLevel;
   /**
+   * The reviewer's reason on its own (`installs a package`), so a surface
+   * can draw `Risk check: medium. Installs a package` (`formatRiskLine`)
+   * without parsing `riskNote`. Absent when there is no verdict or no reason.
+   */
+  riskReason?: string;
+  /**
    * Set only on a `user_question` request (`ask_user`, ATO-489): the
    * question and its options. A surface that knows it draws option cards
    * and answers with `ApprovalDecision.answer`; one that does not still
@@ -422,6 +428,10 @@ export class ApprovalGate {
    * is held for what the parent read, and the parent for what it reads.
    */
   private readonly taintParentBySession = new Map<string, string>();
+  /** Folders a person approved a `verify_page_local` probe of in the session's current turn. */
+  private readonly verifyPageFoldersBySession = new Map<string, Set<string>>();
+  /** Folders a pending `verify_page_local` request may record a turn grant for (`offerVerifyPageTurnGrant`). */
+  private readonly verifyPageOffersBySession = new Map<string, string[]>();
   /** Approval ids re-entering `request` after the taint check: no silent approval. */
   private readonly taintHeld = new Set<string>();
   /** `agent.taintReview`, read live; off until bootstrap wires it. */
@@ -567,9 +577,69 @@ export class ApprovalGate {
     return this.taintSourcesOf(sessionId);
   }
 
-  /** Forget the outside content of `sessionId`'s last turn; called when a turn starts. */
+  /**
+   * Forget the outside content of `sessionId`'s last turn, and the
+   * folders its local page probes were approved for in that turn
+   * (`offerVerifyPageTurnGrant`); called when a turn starts.
+   */
   clearUntrustedContent(sessionId: string): void {
     this.taint.clear(sessionId);
+    this.verifyPageFoldersBySession.delete(sessionId);
+  }
+
+  /**
+   * Offer a turn grant for the `verify_page_local` request about to be
+   * made for `folder` (a folder the session's approved project plan
+   * covers). It is recorded only if a person approves that pending
+   * request (`resolve`): a level, a session grant, an allow rule or the
+   * risk reviewer approving it quietly records nothing. The grant stands
+   * until the session's next turn starts, for that category and that
+   * exact folder only. Call the returned function once the request
+   * settled to withdraw the offer.
+   */
+  offerVerifyPageTurnGrant(sessionId: string, folder: string): () => void {
+    const offer = resolvePath(folder);
+    const offers = this.verifyPageOffersBySession.get(sessionId) ?? [];
+    offers.push(offer);
+    this.verifyPageOffersBySession.set(sessionId, offers);
+    return () => {
+      const now = this.verifyPageOffersBySession.get(sessionId) ?? [];
+      const at = now.indexOf(offer);
+      if (at >= 0) now.splice(at, 1);
+      if (now.length === 0) this.verifyPageOffersBySession.delete(sessionId);
+    };
+  }
+
+  /** A person approved `request`: record the turn grant it was offered, if any. */
+  private recordVerifyPageTurnGrant(request: ApprovalRequest): void {
+    if (request.category !== "verify_page_local") return;
+    const offers = this.verifyPageOffersBySession.get(request.sessionId) ?? [];
+    const folders = (request.affectedResources ?? []).map((path) => resolvePath(path));
+    const granted = folders.filter((folder) => offers.some((offer) => relative(offer, folder) === ""));
+    if (granted.length === 0) return;
+    // Kept on the top orchestrator, whose turn start and session reset
+    // drop it: a worker's entry would outlive the fan-out.
+    const owner = this.taintAncestors(request.sessionId).at(-1) ?? request.sessionId;
+    const set = this.verifyPageFoldersBySession.get(owner) ?? new Set<string>();
+    for (const folder of granted) set.add(folder);
+    this.verifyPageFoldersBySession.set(owner, set);
+  }
+
+  /**
+   * Whether a `verify_page_local` probe of `folder` on `sessionId` is
+   * covered by this turn's yes: one given on the session or, for a Fusion
+   * worker, on its orchestrator (`followTaint`). Never after outside
+   * content was read in the turn, with or without `agent.taintReview`;
+   * the caller still checks
+   * saved rules and declined targets.
+   */
+  verifyPageGrantedForTurn(sessionId: string, folder: string): boolean {
+    // Any outside content this turn, on the session or its orchestrator,
+    // whatever `agent.taintReview` says: the yes was given before it.
+    if (this.taintSourcesOf(sessionId).length > 0) return false;
+    const target = resolvePath(folder);
+    return [sessionId, ...this.taintAncestors(sessionId)].some((id) =>
+      [...(this.verifyPageFoldersBySession.get(id) ?? [])].some((granted) => relative(granted, target) === ""));
   }
 
   /** Remove the session's policy so its requests prompt again. */
@@ -609,12 +679,16 @@ export class ApprovalGate {
       this.declinedBySession.clear();
       this.declinedParentBySession.clear();
       this.taintParentBySession.clear();
+      this.verifyPageFoldersBySession.clear();
+      this.verifyPageOffersBySession.clear();
       return;
     }
     this.grantsBySession.delete(sessionId);
     this.declinedBySession.delete(sessionId);
     this.declinedParentBySession.delete(sessionId);
     this.taintParentBySession.delete(sessionId);
+    this.verifyPageFoldersBySession.delete(sessionId);
+    this.verifyPageOffersBySession.delete(sessionId);
   }
 
   /**
@@ -814,12 +888,22 @@ export class ApprovalGate {
       };
     }
     this.riskReviewed.add(request.approvalId);
+    // The verdict fields are the gate's alone: whatever a caller put in
+    // them is dropped, so the prompt never shows a level or reason the
+    // review did not give (ATO-1268 draws them on every surface).
+    const unreviewed: ApprovalRequest = { ...request };
+    delete unreviewed.riskNote;
+    delete unreviewed.riskLevel;
+    delete unreviewed.riskReason;
     try {
       return this.request(
         {
-          ...request,
+          ...unreviewed,
           riskNote: formatRiskNote(verdict),
           ...(verdict !== null ? { riskLevel: verdict.risk } : {}),
+          ...(verdict !== null && verdict.reason.length > 0
+            ? { riskReason: verdict.reason }
+            : {}),
         },
         signal ? { signal } : {},
       );
@@ -1197,6 +1281,9 @@ export class ApprovalGate {
     if (decision.approved && decision.grant) {
       this.recordGrant(entry.request, decision.grant);
     }
+    if (decision.approved && decision.automatic !== true) {
+      this.recordVerifyPageTurnGrant(entry.request);
+    }
     // Only a person's no: a timeout or a dropped prompt is nobody's
     // decision, and must not stop the model asking again.
     if (!decision.approved && decision.automatic !== true) {
@@ -1401,6 +1488,27 @@ export function describeCategoryGrant(request: ApprovalRequest): string {
   const label = formatApprovalCategory(request.category);
   const host = siteGrantHost(request);
   return host !== null ? `${label} on ${host}` : label;
+}
+
+/**
+ * The prefix of an MCP tool's `grantKey` (`MCP tool <server>/<tool>`,
+ * built by `mcpGrantKey` in src/mcp). Server names cannot hold a `/`
+ * (`MCP_SERVER_NAME_RE`), so the first `/` splits the two.
+ */
+const MCP_TOOL_GRANT_PREFIX = "MCP tool ";
+
+/**
+ * What `[s]` grants for an MCP tool request, in the words a prompt
+ * shows after "allow": `create_issue from MCP server github`. `null`
+ * for any other request (ATO-1473).
+ */
+export function describeMcpToolGrant(request: ApprovalRequest): string | null {
+  const key = request.grantKey;
+  if (key === undefined || !key.startsWith(MCP_TOOL_GRANT_PREFIX)) return null;
+  const rest = key.slice(MCP_TOOL_GRANT_PREFIX.length);
+  const slash = rest.indexOf("/");
+  if (slash <= 0 || slash === rest.length - 1) return null;
+  return `${rest.slice(slash + 1)} from MCP server ${rest.slice(0, slash)}`;
 }
 
 function withSites(

@@ -77,6 +77,8 @@ export interface SpawnVerifyOptions {
   network: boolean;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** Written to the child's stdin, which is then closed. Absent: stdin is ignored (empty). */
+  stdin?: string;
 }
 
 export interface VerifyProcessExit {
@@ -130,7 +132,7 @@ export function spawnVerifyProcess(
       ...(options.env ?? {}),
     },
     detached,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,
     ...(invocation.windowsVerbatimArguments
       ? { windowsVerbatimArguments: true }
@@ -140,6 +142,12 @@ export function spawnVerifyProcess(
   const stderr = new TailBuffer();
   child.stdout?.on("data", (chunk: Buffer) => stdout.append(chunk));
   child.stderr?.on("data", (chunk: Buffer) => stderr.append(chunk));
+  if (options.stdin !== undefined && child.stdin !== null) {
+    // A child that exits without reading closes the pipe (EPIPE): its
+    // own exit status is the verdict, not the write.
+    child.stdin.on("error", () => {});
+    child.stdin.end(options.stdin, "utf8");
+  }
 
   let killed = false;
   let timedOut = false;

@@ -46,4 +46,49 @@ describe("serve on a network host with per-folder constraints", () => {
     harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
     expect((await chat(harness)).status).not.toBe(403);
   });
+
+  it("refuses an AG-UI run for a constrained folder without \"serve\" before the turn", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const res = await fetch(`${harness.baseUrl}/api/ag-ui`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ threadId: "agui-x", runId: "r1", messages: [{ id: "u", role: "user", content: "acme figures?" }] }),
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("serve");
+    expect(harness.runtime.sessionStore.load("agui-x")?.turns ?? []).toEqual([]);
+  });
+
+  it("leaves a restricted session's lines out of GET /api/sessions/search", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save({
+      ...session,
+      turns: [
+        { kind: "user", text: "what are the acme figures for march?", at: 1 },
+        { kind: "assistant_reply", text: "Acme made 4M in march.", at: 2 },
+      ],
+      updatedAt: session.updatedAt + 1,
+    });
+    const res = await fetch(`${harness.baseUrl}/api/sessions/search?q=acme%20march&scope=all`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hits: Array<{ sessionId: string }> };
+    expect(body.hits.map((h) => h.sessionId)).not.toContain(session.id);
+  });
+
+  it("lists no idea built from a restricted session on GET /api/ideas or its refresh", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save(session);
+    const store = harness.runtime.taskStore;
+    const t = store.create({ userMessage: "send the acme figures", origin: "cli", maxAttempts: 1, sessionId: session.id });
+    store.markRunning(t.id);
+    store.markFailed(t.id, { category: "transport", message: "provider timed out" });
+    const refreshed = await fetch(`${harness.baseUrl}/api/ideas/refresh`, { method: "POST" });
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.text()).not.toContain("acme");
+    const listed = await fetch(`${harness.baseUrl}/api/ideas`);
+    expect(await listed.text()).not.toContain("acme");
+  });
 });
+

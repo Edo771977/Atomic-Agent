@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { createHttpServer } from "./http-server.js";
+import { sendJson } from "./request-context.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
 describe("http-server", () => {
@@ -44,5 +46,31 @@ describe("http-server", () => {
       fetch(`${harness.baseUrl}/v1/models`, { signal: controller.signal }),
     ).rejects.toThrow();
     clearTimeout(timer);
+  });
+});
+
+describe("http-server networkServe (issue #33)", () => {
+  async function probe(options: { host: string; networkServe?: boolean }): Promise<boolean> {
+    const handle = await createHttpServer({
+      runtime: {} as never,
+      host: options.host,
+      port: 0,
+      apiKey: null,
+      loopbackGuard: false,
+      ...(options.networkServe === undefined ? {} : { networkServe: options.networkServe }),
+      routes: [{ method: "GET", path: "/probe", handler: async (_req, res, ctx) => sendJson(res, 200, { networkServe: ctx.networkServe === true }) }],
+    });
+    try {
+      const response = await fetch(`http://127.0.0.1:${handle.port}/probe`);
+      return ((await response.json()) as { networkServe: boolean }).networkServe;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  it("treats a loopback listener as local unless the host says it is reachable from the network", async () => {
+    expect(await probe({ host: "127.0.0.1" })).toBe(false);
+    // The webhook tunnel gateway: loopback, but cloudflared exposes it to the internet.
+    expect(await probe({ host: "127.0.0.1", networkServe: true })).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ Owner: repository maintainers
 
 ## Environment
 
-Use Node >=25.7 (the package/Volta floor supports ESM Node SEA) and `npm ci` with the lockfile. npm 12 runs a dependency's install script only when `allowScripts` in package.json decides it: `esbuild` is allowed (its platform-binary check); `better-sqlite3` 13.x ships prebuilt N-API binaries and is denied, because npm 12 still reports its implicit `node-gyp rebuild` (it carries a `binding.gyp`) and compiling would only replace the prebuilt binary; `@sentry/cli` (release sourcemap upload, whose binary comes from its optional platform package anyway) and `fsevents` (ships its prebuilt binary) are denied. Older npm ignores the field. `scripts/allow-scripts-policy.test.ts` fails when a lockfile package with `hasInstallScript`, or one shipping a `binding.gyp`, has no name-only decision, or an entry no longer matches one. Unit tests set an isolated ATOMIC_AGENT_STATE_DIR; never use personal state for fixtures. Root and local AGENTS.md govern contributor work; read the affected areas explicitly even if your client does not discover them automatically.
+Use Node >=25.7 (the package/Volta floor supports ESM Node SEA) and `npm ci` with the lockfile. npm 12 runs a dependency's install script only when `allowScripts` in package.json decides it: `esbuild` is allowed (its platform-binary check); `better-sqlite3` 13.x ships prebuilt N-API binaries and is denied, because npm 12 still reports its implicit `node-gyp rebuild` (it carries a `binding.gyp`) and compiling would only replace the prebuilt binary; `fsevents` (ships its prebuilt binary) is denied. (`@sentry/esbuild-plugin` 11 no longer pulls in `@sentry/cli`, so it needs no entry.) Older npm ignores the field. `scripts/allow-scripts-policy.test.ts` fails when a lockfile package with `hasInstallScript`, or one shipping a `binding.gyp`, has no name-only decision, or an entry no longer matches one. Unit tests set an isolated ATOMIC_AGENT_STATE_DIR; never use personal state for fixtures. Root and local AGENTS.md govern contributor work; read the affected areas explicitly even if your client does not discover them automatically.
 
 ## Check surfaces
 
@@ -27,6 +27,7 @@ Use Node >=25.7 (the package/Volta floor supports ESM Node SEA) and `npm ci` wit
 - Migration/default: [config instructions](../src/config/AGENTS.md), [compatibility](../src/config/docs/compatibility.md); run schema/load-config and affected-domain tests.
 - MCP UI: [TUI instructions](../src/tui/AGENTS.md), [MCP instructions](../src/mcp/AGENTS.md); [feature guide](../src/tui/mcp/README.md) locates all MCP views/state/input/tests. Run tui/mcp, shared config and HTTP route seam tests for persistence changes.
 - Model download: [local model instructions](../src/local-llm/AGENTS.md), [download ownership](../src/local-llm/docs/downloads.md); run local-llm download tests and affected TUI tests.
+- Terminal rendering (alt screen, mouse modes, resize, exit restore): [real-terminal tests](../src/tui/pty/tui-real-terminal.test.ts) run `atag tui` under node-pty + @xterm/headless. Not installed by `npm ci`; run `npm install --no-save node-pty@1.1.0 @xterm/headless@6.0.0 && npm run build && npx vitest run src/tui/pty` (CI: `TUI (real terminal)` workflow).
 
 ## Documentation
 

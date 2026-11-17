@@ -2,8 +2,10 @@ export { SessionStore, INTERRUPTED_TURN_ENDING } from "./session-store.js";
 export type {
   SessionStoreOptions,
   RecentWorkingDirRow,
+  SessionChatLine,
   TurnEnding,
 } from "./session-store.js";
+export { readRecentWorkingDirs } from "./recent-working-dirs.js";
 export {
   currentTurnOwnerProbe,
   hostIdentity,
@@ -26,6 +28,28 @@ export {
   isInterruptedTurnResumeMessage,
 } from "./interrupted-chat-turn.js";
 export type { InterruptedChatTurn } from "./interrupted-chat-turn.js";
+export {
+  bindSessionWorktree,
+  createSessionWorktree,
+  findRepoRoot,
+  isWorktreeBranchMerged,
+  listSessionWorktreeMarkers,
+  NOT_GIT_MESSAGE,
+  removeSessionWorktree,
+  SessionWorktreeError,
+  unbindSessionWorktree,
+  worktreeRemovalPreflight,
+} from "./session-worktree.js";
+export type {
+  RemovalPreflight,
+  SessionGitExec,
+  SessionWorktreeBinding,
+  SessionWorktreeErrorCode,
+  SessionWorktreeMarker,
+  SessionWorktreeOptions,
+} from "./session-worktree.js";
+export { cleanupIdleSessionWorktrees, DEFAULT_WORKTREE_IDLE_MS } from "./session-worktree-cleanup.js";
+export type { WorktreeCleanupOptions, WorktreeCleanupResult } from "./session-worktree-cleanup.js";
 export { LIVE_SESSION_STATUSES, pruneSessions } from "./session-retention.js";
 export type {
   PruneSessionsOptions,
@@ -162,6 +186,16 @@ export {
   SESSION_TITLE_USER_SET_AT_KEY,
 } from "./session-title.js";
 export {
+  NEXT_STEP_TIMEOUT_MS,
+  SESSION_NEXT_STEP_METADATA_KEY,
+  generateNextStep,
+  nextStepSuggestionsEnabled,
+  readSessionNextStep,
+  shouldSuggestNextStep,
+  turnInFlight,
+  type SessionNextStep,
+} from "./session-next-step.js";
+export {
   SESSION_USER_TITLE_MAX_CHARS,
   readUserTitleSetAt,
   validateUserSessionTitle,
@@ -177,6 +211,16 @@ export {
   readSessionArchivedSetAt,
   withSessionArchived,
 } from "./session-archived.js";
+
+export {
+  createDatasetScrubber,
+  exportDataset,
+  totalRedactions,
+} from "./dataset-export/index.js";
+export type {
+  DatasetRedactionCounts,
+  ExportDatasetResult,
+} from "./dataset-export/index.js";
 // ATO-1054: one chat as Markdown / HTML / DOCX.
 export {
   CHAT_EXPORT_MIME,

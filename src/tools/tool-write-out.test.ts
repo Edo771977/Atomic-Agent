@@ -38,6 +38,26 @@ describe("write-out guard (constrained content leaving its folder)", () => {
     expect(writeTargetsOf("os.fs.read", { path: "/x" }, "/w")).toEqual([]);
   });
 
+  it("names the targets of upstream's document and page writers (merge 6d1f14fcd)", () => {
+    expect(writeTargetsOf("os.fs.docx", { op: "append", path: "/x/a.docx" }, "/w")).toEqual(["/x/a.docx"]);
+    expect(writeTargetsOf("os.fs.xlsx", { op: "write", path: "b.xlsx" }, "/w")).toEqual(["/w/b.xlsx"]);
+    expect(writeTargetsOf("os.fs.xlsx", { op: "read", path: "/x/b.xlsx" }, "/w")).toEqual([]);
+    expect(writeTargetsOf("os.fs.write_pptx", { path: "/x/deck.pptx", slides: [] }, "/w")).toEqual(["/x/deck.pptx"]);
+    // Both save next to the session: the working folder (or `output` inside it).
+    expect(writeTargetsOf("video.render_html", { path: "p.html", output: "clip.mp4" }, "/w")).toEqual(["/w/clip.mp4"]);
+    expect(writeTargetsOf("video.render_html", { path: "p.html" }, "/w")).toEqual(["/w"]);
+    expect(writeTargetsOf("canvas.render", { kind: "chart" }, "/w")).toEqual(["/w"]);
+    // A structural rewrite writes only when applied, under `path` (default: the session folder).
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", path: "/x/src", apply: true }, "/w")).toEqual(["/x/src"]);
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", apply: true }, "/w")).toEqual(["/w"]);
+    expect(writeTargetsOf("os.code.rewrite", { pattern: "a", rewrite: "b", path: "/x/src" }, "/w")).toEqual([]);
+  });
+
+  it("refuses a tainted session's Word document in an open folder", () => {
+    const refusal = guardFor(tainted)("os.fs.docx", { op: "create", path: "/work/open/notes.docx" }, { sessionId: "s", workingDir: "/work/open" });
+    expect(refusal?.code).toBe(WRITE_OUT_NOT_ALLOWED_CODE);
+  });
+
   it("refuses a constrained session writing outside its folder", () => {
     const guard = guardFor(secret);
     const ctx = { sessionId: "s", workingDir: "/work/secret" };

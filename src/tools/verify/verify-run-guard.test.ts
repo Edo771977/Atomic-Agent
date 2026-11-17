@@ -103,6 +103,25 @@ describe("guardVerifyRun", () => {
     expect(out).toEqual({ blocked: null, dangerous: [] });
   });
 
+  it("guards a stdin script fed to a shell as the command line it is", () => {
+    const sh = guardVerifyRun(parseVerifyRunArgs({ kind: "command", cmd: "sh", stdin: "rm -rf ~" }), work);
+    expect(sh.blocked?.verdict).toMatchObject({ action: "block", rule: "hardline.rm_home" });
+    const bash = guardVerifyRun(parseVerifyRunArgs({ kind: "command", cmd: "bash", args: ["-s"], stdin: "echo ok\nrm -rf ./build" }), work);
+    expect(bash.dangerous.map((c) => c.verdict.rule)).toEqual(["dangerous.rm_recursive"]);
+    expect(verifyRunCommands(parseVerifyRunArgs({ kind: "command", cmd: "sh", stdin: "echo hi" }))).toEqual([
+      { cmd: "sh", args: [] },
+      { cmd: "echo hi", args: [] },
+    ]);
+  });
+
+  it("leaves plain stdin data to a non-interpreter, or to a shell running its own script, alone", () => {
+    for (const spec of [{ cmd: "cat", stdin: "rm -rf ~" }, { cmd: "sh", args: ["run.sh"], stdin: "rm -rf ~" }]) {
+      const args = parseVerifyRunArgs({ kind: "command", ...spec });
+      expect(guardVerifyRun(args, work)).toEqual({ blocked: null, dangerous: [] });
+      expect(verifyRunCommands(args)).toHaveLength(1);
+    }
+  });
+
   it("applies the operator's git policy when one is given", () => {
     const off = { isGitRemoteSyncEnabled: () => false };
     expect(guardVerifyCommand("git", ["push"], work, off).action).toBe("block");
@@ -155,6 +174,30 @@ describe("verify.run behind the shell guard", () => {
     const tainted = fakeGate({ scoped: true, tainted: true });
     await buildVerifyRunTool({ approvals: tainted.gate, approvalRequired: true, config: CONFIG }).run(run, ctx());
     expect(tainted.request.mock.calls[0]?.[0]).toMatchObject({ category: "shell" });
+  });
+
+  it("asks a script fed to an interpreter on stdin as unreadable, with no grant shape", async () => {
+    for (const cmd of ["python3", "node", "pwsh"]) {
+      // Declined, so nothing is spawned: the assertions are about what the
+      // person is asked, and running three interpreters on a CI runner (pwsh
+      // may not even exist) made this test time out.
+      const { gate, request } = fakeGate({ approved: false });
+      const tool = buildVerifyRunTool({ approvals: gate, approvalRequired: true, config: CONFIG });
+      await tool
+        .run({ kind: "command", cmd, args: cmd === "pwsh" ? ["-"] : [], stdin: "print(1)", checks: ["exit 0"] }, ctx())
+        .catch(() => undefined);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.calls[0]?.[0]).toMatchObject({ commandUnreadable: true });
+      expect(request.mock.calls[0]?.[0]?.commandArgv).toBeUndefined();
+    }
+  });
+
+  it("keeps stdin data to a plain command readable", async () => {
+    const { gate, request } = fakeGate();
+    const tool = buildVerifyRunTool({ approvals: gate, approvalRequired: true, config: CONFIG });
+    await tool.run({ kind: "command", cmd: "cat", stdin: "hello", checks: ["exit 0"] }, ctx());
+    expect(request.mock.calls[0]?.[0]?.commandUnreadable).toBeUndefined();
+    expect(request.mock.calls[0]?.[0]?.commandArgv).toEqual(["cat"]);
   });
 
   it("refuses a git push when the operator switched remote sync off", async () => {

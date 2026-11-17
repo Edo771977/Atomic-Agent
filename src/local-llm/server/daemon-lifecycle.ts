@@ -103,6 +103,13 @@ import {
 import { resolvePlatformAsset } from "../backend/platform-assets.js";
 import { assertBackendRunsOnThisMac } from "../backend/macos-min-version.js";
 import { assertPortFree, waitForOwnDaemon } from "./daemon-launch-guard.js";
+import {
+  loraAdapterArgs,
+  loraAdapterFileProblem,
+  loraAdapterKey,
+  loraAdapterShapeProblem,
+  type LoraAdapter,
+} from "./lora-adapter.js";
 import { noteReleaseTimeout, waitForProcessRelease } from "./process-release.js";
 import {
   buildDaemonEnv,
@@ -128,6 +135,14 @@ export interface DaemonStartOptions {
    * undefined for text-only operation.
    */
   mmprojFile?: string;
+  /**
+   * LoRA adapter for this model (`localModels.managed.loraAdapters`,
+   * ATO-1106): appended as `--lora <path>` or `--lora-scaled
+   * <path>:<scale>`. `startDaemon` refuses to launch when the file is
+   * missing or the shape is one llama.cpp would misread. Undefined keeps
+   * the launch byte-identical.
+   */
+  loraAdapter?: LoraAdapter;
   /**
    * Resolved compute device for offloading. A concrete backend device
    * id (e.g. `Vulkan0`) appends `--device <id>`; the literal `"cpu"`
@@ -433,6 +448,12 @@ export interface LaunchRecord {
    */
   autoContextCeiling?: number | null;
   /**
+   * `loraAdapterKey` of the adapter this server was launched with;
+   * `null` / absent for none. Port reclaim compares it with the adapter
+   * the next launch wants, so changing the adapter restarts the server.
+   */
+  loraAdapter?: string | null;
+  /**
    * The launch's prompt-cache fingerprint (`prompt-disk-cache.ts`) when
    * it runs with `localModels.managed.promptDiskCache`; what a stop
    * stamps its saves with.
@@ -470,6 +491,7 @@ export function readLaunchRecord(
           : null,
       launchedAt: toFiniteNumber(parsed.launchedAt) ?? 0,
       autoContextCeiling: toFiniteNumber(parsed.autoContextCeiling) ?? null,
+      loraAdapter: typeof parsed.loraAdapter === "string" ? parsed.loraAdapter : null,
       promptCacheFingerprint:
         typeof parsed.promptCacheFingerprint === "string" ? parsed.promptCacheFingerprint : null,
     };
@@ -727,6 +749,7 @@ export function buildLlamaServerArgs(
       "2048",
     );
   }
+  args.push(...loraAdapterArgs(opts.loraAdapter));
   return args;
 }
 
@@ -749,8 +772,11 @@ export function buildLlamaServerArgs(
  *   whether the model fits the device whole.
  * - `note`: why a unified-memory machine got less than its free figure
  *   would fit, for the daemon log.
+ *
+ * Exported for tests only (`context-24gb.test.ts` drives it with a mocked
+ * device table); `startDaemon` is the one caller.
  */
-async function resolveEffectiveContextSize(
+export async function resolveEffectiveContextSize(
   device: string | undefined,
   model: {
     fileSizeGb: number;
@@ -1315,6 +1341,13 @@ export async function startDaemon(
         : `model ${opts.modelId} not downloaded; run 'atomic-agent models pull ${opts.modelId}'`,
     );
   }
+  if (opts.loraAdapter) {
+    const problem =
+      loraAdapterShapeProblem(opts.loraAdapter) ?? loraAdapterFileProblem(opts.loraAdapter);
+    if (problem) {
+      throw new Error(`${problem} (localModels.managed.loraAdapters["${opts.modelId}"])`);
+    }
+  }
 
   // A configured tensor split flips `auto` device resolution to "leave
   // every GPU visible" — pinning one `--device` would defeat the split.
@@ -1513,7 +1546,7 @@ export async function startDaemon(
     });
     writeLaunchRecord(opts.dataDir, { pid: session.pid, modelId: model.id, contextSize,
       swaFull: swaFull.enabled, prefixReuse: effectivePrefixReuse, launchedAt: Date.now(), autoContextCeiling,
-      promptCacheFingerprint: promptCacheFp });
+      loraAdapter: loraAdapterKey(opts.loraAdapter), promptCacheFingerprint: promptCacheFp });
     if (promptCacheFp) {
       await restorePromptCaches({ dataDir: opts.dataDir, port: opts.port, apiKey: session.api_key,
         fingerprint: promptCacheFp, slots: launchSlotCount(args) });
@@ -1587,6 +1620,7 @@ export async function startDaemon(
       prefixReuse: effectivePrefixReuse,
       launchedAt: Date.now(),
       autoContextCeiling,
+      loraAdapter: loraAdapterKey(opts.loraAdapter),
       promptCacheFingerprint: promptCacheFp,
     });
     if (promptCacheFp) {

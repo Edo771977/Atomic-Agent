@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 import type { ProjectConstraintsConfig } from "./tool-config.js";
 
@@ -110,6 +110,13 @@ export interface ConstraintMatchOptions {
   platform?: NodeJS.Platform;
   /** Real path of an existing path, `undefined` when it cannot be read. Default `realpathSync.native`. */
   realpath?: (path: string) => string | undefined;
+  /**
+   * The path in the main repository that `path` stands for when it lies
+   * inside a linked git worktree (a `/new worktree` session, ATO-576, or
+   * any `git worktree add`), else `undefined`. Default: read the
+   * worktree's `.git` file (`gitdir: <repo>/.git/worktrees/<name>`).
+   */
+  worktreeSource?: (path: string) => string | undefined;
 }
 
 /**
@@ -169,11 +176,51 @@ function realForm(path: string, realpath: (p: string) => string | undefined, pla
   return undefined;
 }
 
-function formsOf(path: string, options: Required<ConstraintMatchOptions>): string[] {
+function formsOf(path: string, options: Required<ConstraintMatchOptions>, mapWorktree = false): string[] {
   const forms = new Set<string>([normalizeConstraintPath(path, options.platform)]);
   const real = realForm(path, options.realpath, options.platform);
   if (real !== undefined) forms.add(normalizeConstraintPath(real, options.platform));
+  if (mapWorktree) {
+    // A linked worktree holds its repository's files: the repository's
+    // constraint governs it (issue #33), wherever the worktree lives.
+    const source = options.worktreeSource(real ?? path);
+    if (source !== undefined) for (const form of formsOf(source, options)) forms.add(form);
+  }
   return [...forms];
+}
+
+const WORKTREE_GITDIR = /^gitdir:\s*(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?\s*$/;
+
+/**
+ * The main-repository path a path inside a linked git worktree stands
+ * for: the nearest ancestor whose `.git` is a file naming
+ * `<repo>/.git/worktrees/<name>` maps to `<repo>`, the rest appended. A
+ * `.git` directory (a main checkout) ends the walk with no mapping.
+ */
+function defaultWorktreeSource(path: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  const p = platform === "win32" ? win32 : posix;
+  let current = path;
+  const rest: string[] = [];
+  for (let i = 0; i < 64; i += 1) {
+    const dotGit = p.join(current, ".git");
+    try {
+      const stat = statSync(dotGit);
+      if (stat.isDirectory()) return undefined;
+      if (stat.isFile()) {
+        const match = WORKTREE_GITDIR.exec(readFileSync(dotGit, "utf8").split(/\r?\n/, 1)[0] ?? "");
+        if (match === null) return undefined;
+        const repo = p.resolve(current, match[1]!);
+        return rest.length === 0 ? repo : p.join(repo, ...rest.reverse());
+      }
+    } catch {
+      // No `.git` here: look one level up.
+    }
+    const parent = p.dirname(current);
+    if (parent === current) return undefined;
+    rest.push(p.basename(current));
+    current = parent;
+  }
+  return undefined;
 }
 
 /**
@@ -190,11 +237,13 @@ export function hasConstrainedFolderInside(
 ): boolean {
   const constraints = config.projects.constraints;
   if (constraints === undefined) return false;
+  const platform = options.platform ?? process.platform;
   const opts: Required<ConstraintMatchOptions> = {
-    platform: options.platform ?? process.platform,
+    platform,
     realpath: options.realpath ?? defaultRealpath,
+    worktreeSource: options.worktreeSource ?? ((path) => defaultWorktreeSource(path, platform)),
   };
-  const dirForms = formsOf(dir, opts);
+  const dirForms = formsOf(dir, opts, true);
   return Object.keys(constraints).some((key) =>
     formsOf(key, opts).some((entry) =>
       dirForms.some((d) => d !== entry && contains(d, entry, opts.platform)),
@@ -224,11 +273,13 @@ export function resolveProjectConstraint(
   if (constraints === undefined) return undefined;
   const entries = Object.entries(constraints);
   if (entries.length === 0) return undefined;
+  const platform = options.platform ?? process.platform;
   const opts: Required<ConstraintMatchOptions> = {
-    platform: options.platform ?? process.platform,
+    platform,
     realpath: options.realpath ?? defaultRealpath,
+    worktreeSource: options.worktreeSource ?? ((path) => defaultWorktreeSource(path, platform)),
   };
-  const dirForms = formsOf(workingDir, opts);
+  const dirForms = formsOf(workingDir, opts, true);
   let best: { key: string; allowedProviders: readonly string[]; allowedEgress: readonly string[]; length: number } | undefined;
   for (const [key, entry] of entries) {
     let length = -1;

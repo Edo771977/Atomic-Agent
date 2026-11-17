@@ -18,6 +18,7 @@ import {
   type PlanConstraints,
   type PlanEstimate,
   type VariantContext,
+  withRowEstimate,
 } from "../../tools/fusion/project-estimate.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import { projectGateChanged, projectGateView } from "../../tools/fusion/project-gate-view.js";
@@ -25,7 +26,7 @@ import type { ProjectPlanContext } from "../../tools/fusion/project-tools.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
-import { teamStrengthOf } from "../../llm/run-mode/fusion-team.js";
+import { teamMembers, teamStrengthOf } from "../../llm/run-mode/fusion-team.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { teamContextFromConfig } from "../../tools/fusion/team-routing.js";
@@ -58,6 +59,10 @@ export interface LiveProjectInputs {
   /** The member's tier (`teamStrengthOf`); null when it holds none. */
   strength: (member: TeamMember) => ModelTier | null;
   isLocal: (member: TeamMember) => boolean;
+  /** Whether `llm.runMode.fusion.team.reviewers` names anyone (the gate's hint, issue #54). */
+  reviewersConfigured?: boolean;
+  /** Whether the team names more than one worker or any reviewer (the gate's hint wording). */
+  otherMembersConfigured?: boolean;
 }
 
 export interface LiveProjectInputsSource {
@@ -91,8 +96,9 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
   };
   const providerOf = (ref: string): string => (ref.includes(":") ? ref.slice(0, ref.indexOf(":")) : ref);
+  const team = teamContextFromConfig(source.config, source.reachable);
   const plan = projectPlanContextFrom({
-    team: teamContextFromConfig(source.config, source.reachable),
+    team,
     ...(fusion?.judge === undefined ? {} : { judge: fusion.judge }),
     allows: source.allows,
     workerLeg:
@@ -119,6 +125,9 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     },
     strength: teamStrengthOf(resolved.providers),
     isLocal: (member) => localProvider(member.providerId),
+    reviewersConfigured: team !== undefined && teamMembers(team.team, "reviewers").length > 0,
+    otherMembersConfigured: team !== undefined &&
+      (teamMembers(team.team, "workers").length > 1 || teamMembers(team.team, "reviewers").length > 0),
   };
 }
 
@@ -172,6 +181,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       days: ctx.days,
       ...(ctx.now === undefined ? {} : { now: ctx.now }),
       tokensPerSecond: ctx.tokensPerSecond(member),
+      local: ctx.isLocal?.(member) ?? false,
     });
   const variant: VariantContext = {
     members: ctx.workers,
@@ -189,7 +199,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       const member = parseTeamMember(row.worker);
       if (member === null) return row;
       const est = estimate(member);
-      return { ...row, reason: `edited by the person; ${est.reason}`, basis: est.basis, samples: est.samples, estCostUsd: est.estCostUsd, estMs: est.estMs };
+      return withRowEstimate(row, est, `edited by the person; ${est.reason}`);
     });
   };
 }
@@ -206,6 +216,8 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         workers: inputs.plan.workers.map((m) => m.ref),
         reviewers: inputs.plan.reviewers.map((m) => m.ref),
       },
+      ...(inputs.reviewersConfigured === undefined ? {} : { reviewersConfigured: inputs.reviewersConfigured }),
+      ...(inputs.otherMembersConfigured === undefined ? {} : { otherMembersConfigured: inputs.otherMembersConfigured }),
     });
   };
   return {

@@ -7,6 +7,11 @@ import type { AgentMetrics } from "../tracing/agent-metrics.js";
 
 import { applyMigrations } from "./memory-schema.js";
 import { containsSecret, SECRET_REFUSAL } from "./memory-secret-guard.js";
+import {
+  MemoryChangeLog,
+  type MemoryChangeActor,
+  type NoteSnapshot,
+} from "./evolution/memory-change-log.js";
 import type { EmbeddingStore } from "./embeddings/embedding-store.js";
 import type { EmbeddingWriter } from "./embeddings/embedding-writer.js";
 import {
@@ -334,6 +339,9 @@ export class MemoryStore {
   private embeddingVectorWeight: number;
   private embeddingBruteForceCeiling: number;
   private embeddingMinCosine: number | undefined;
+  // `false` while the attached model's vectors are still being rebuilt:
+  // recall stays keyword-only until then (see `attachEmbeddings`).
+  private vectorRecallReady: (() => boolean) | undefined;
   private readonly now: () => number;
   private readonly insertStmt: Database.Statement;
   private readonly deleteStmt: Database.Statement;
@@ -345,6 +353,10 @@ export class MemoryStore {
   private readonly touchOnDedupStmt: Database.Statement;
   private readonly recallTouchStmt: Database.Statement;
   private readonly dedupCandidateStmt: Database.Statement;
+  private readonly restoreStmt: Database.Statement;
+  private readonly changeLog: MemoryChangeLog;
+  /** A row's scope and existence whatever the caller may see (journal and undo only). */
+  private readonly rawScopeStmt: Database.Statement;
 
   constructor(options: MemoryStoreOptions) {
     if (!Number.isInteger(options.maxEntries) || options.maxEntries <= 0) {
@@ -390,6 +402,20 @@ export class MemoryStore {
     this.embeddingBruteForceCeiling =
       options.embeddings?.bruteForceCeiling ?? DEFAULT_BRUTE_FORCE_CEILING;
     this.now = options.now ?? Date.now;
+    // ATO-1059: the journal of edits and deletions, in this same file.
+    this.changeLog = new MemoryChangeLog(this.db, this.now());
+    // An undo (ATO-1059) puts the note back in the scope it was journaled
+    // with (issue #33); a snapshot from before scopes were journaled takes
+    // the caller's, like `store`.
+    this.restoreStmt = this.db.prepare(
+      `INSERT INTO memories
+         (id, content, created_at, updated_at, source, session_id, working_dir, tags,
+          recall_count, last_recalled_at, consolidating_at, constraint_scope)
+       VALUES
+         (@id, @content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags,
+          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END)`,
+    );
+    this.rawScopeStmt = this.db.prepare(`SELECT constraint_scope AS scope FROM memories WHERE id = ?`);
     this.insertStmt = this.db.prepare(
       `INSERT INTO memories
          (content, created_at, updated_at, source, session_id, working_dir, tags,
@@ -849,16 +875,112 @@ export class MemoryStore {
     }
   }
 
+  /** The stored `constraint_scope` of row `id` (null: untagged or no row). */
+  private rawScope(id: number): string | null {
+    const row = this.rawScopeStmt.get(id) as { scope: string | null } | undefined;
+    return row?.scope ?? null;
+  }
+
   get(id: number): MemoryEntry | null {
     const normalizedId = validateId(id);
     const row = this.getStmt.get(normalizedId) as MemoryRow | undefined;
     return row ? rowToEntry(row) : null;
   }
 
-  remove(id: number): boolean {
+  /**
+   * Delete a note. The note as it was goes into the change journal
+   * first (ATO-1059), so the deletion can be undone; `by` says who asked.
+   */
+  remove(id: number, by: MemoryChangeActor = "agent"): boolean {
     const normalizedId = validateId(id);
-    const result = this.deleteStmt.run(normalizedId) as { changes: number };
-    return result.changes > 0;
+    return this.db.transaction((): boolean => {
+      const before = this.get(normalizedId);
+      if (before === null) return false;
+      const scope = this.rawScope(normalizedId);
+      const result = this.deleteStmt.run(normalizedId) as { changes: number };
+      if (result.changes === 0) return false;
+      this.changeLog.record(
+        { kind: "note", target: String(normalizedId), op: "remove", by, before: noteSnapshot(before, scope) },
+        this.now(),
+      );
+      return true;
+    })();
+  }
+
+  /** ATO-1059. The journal of note and profile edits and deletions. */
+  getChangeLog(): MemoryChangeLog {
+    return this.changeLog;
+  }
+
+  /**
+   * ATO-1059. Put a deleted note back, under its old id when that is
+   * still free (a later note never reuses it: the id column is
+   * AUTOINCREMENT), otherwise under a new one. Counters start from zero;
+   * a vector is written in the background.
+   */
+  restoreNote(snapshot: NoteSnapshot, now: number = this.now()): MemoryEntry {
+    const content = validateContent(snapshot.content);
+    const tags = validateTags(snapshot.tags);
+    const source = validateSource(snapshot.source === "user" ? "user" : "agent");
+    // Free means no row at all, not only none this call can see: a hidden
+    // note of another scope keeps its id.
+    const free = this.rawScopeStmt.get(validateId(snapshot.id)) === undefined;
+    const scopeKnown = snapshot.constraintScope !== undefined;
+    const result = this.restoreStmt.run({
+      id: free ? snapshot.id : null,
+      content,
+      created_at: snapshot.createdAt,
+      updated_at: now,
+      source,
+      session_id: snapshot.sessionId,
+      working_dir: snapshot.workingDir,
+      tags: tags.length > 0 ? JSON.stringify(tags) : null,
+      scope_known: scopeKnown ? 1 : 0,
+      constraint_scope: scopeKnown ? snapshot.constraintScope ?? null : null,
+    }) as { lastInsertRowid: number | bigint };
+    const id = Number(result.lastInsertRowid);
+    this.evictOverflow();
+    void this.writeEmbeddingFor(id, content);
+    const entry = this.get(id);
+    if (entry === null) throw new Error(`MemoryStore.restoreNote: row ${id} missing after insert`);
+    return entry;
+  }
+
+  /**
+   * ATO-1124. Replace a note's text: the person's own edit from the
+   * desktop's Memory tab, through `PATCH /api/memory/notes/{id}`. The
+   * FTS row follows through the `memories_au` trigger; the note's old
+   * vectors are dropped and one for the new text is written in the
+   * background (non-throwing, like `store`), so recall never matches the
+   * old wording. `source`, `session_id` and the counters are kept: they
+   * say where the note came from, which an edit does not change.
+   * Returns `null` when the id is not stored.
+   */
+  updateContent(
+    id: number,
+    content: string,
+    now: number = this.now(),
+    by: MemoryChangeActor = "agent",
+  ): MemoryEntry | null {
+    const normalizedId = validateId(id);
+    const text = validateContent(content);
+    const updated = this.db.transaction((): boolean => {
+      const before = this.get(normalizedId);
+      if (before === null) return false;
+      this.db
+        .prepare(`UPDATE memories SET content = ?, updated_at = ? WHERE id = ?`)
+        .run(text, now, normalizedId);
+      // ATO-1059: the old text goes into the journal, for an undo.
+      this.changeLog.record(
+        { kind: "note", target: String(normalizedId), op: "update", by, before: noteSnapshot(before, this.rawScope(normalizedId)), after: text },
+        now,
+      );
+      return true;
+    })();
+    if (!updated) return null;
+    this.embeddingStore?.deleteAllForMemory(normalizedId);
+    void this.writeEmbeddingFor(normalizedId, text);
+    return this.get(normalizedId);
   }
 
   /**
@@ -1265,8 +1387,19 @@ export class MemoryStore {
     bruteForceCeiling?: number;
     /** The model's floor for meaning-only recall; omitted ⇒ the default. */
     minCosine?: number;
+    /**
+     * Whether recall may use the vectors yet. The runtime passes one that
+     * is `false` while the background reindex of this model runs (a model
+     * switch, or embeddings turned on over older notes): a half-indexed
+     * corpus would rank the notes that already have a vector above the
+     * ones that do not, so recall stays keyword-only (BM25) until the
+     * reindex ends. New notes are still embedded meanwhile. Omitted ⇒
+     * always ready.
+     */
+    vectorRecallReady?: () => boolean;
   }): void {
     this.embeddingMinCosine = args.minCosine;
+    this.vectorRecallReady = args.vectorRecallReady;
     this.embeddingWriter = args.writer;
     this.embeddingStore = args.store;
     if (args.fts5Weight !== undefined) this.embeddingFts5Weight = args.fts5Weight;
@@ -1277,6 +1410,7 @@ export class MemoryStore {
   detachEmbeddings(): void {
     this.embeddingWriter = undefined;
     this.embeddingStore = undefined;
+    this.vectorRecallReady = undefined;
   }
 
   /**
@@ -1333,9 +1467,10 @@ export class MemoryStore {
       k * 4,
       excludeSuperseded,
     );
-    if (!this.embeddingWriter || !this.embeddingStore) {
-      // No hybrid wiring — return BM25 top-K and bump recall_count
-      // the same way `recall()` does.
+    if (!this.embeddingWriter || !this.embeddingStore || this.vectorRecallReady?.() === false) {
+      // No hybrid wiring, or the model's vectors are still being
+      // rebuilt — return BM25 top-K and bump recall_count the same way
+      // `recall()` does.
       const sliced = bm25Hits.slice(0, k);
       if (sliced.length > 0) this.touchOnRecall(sliced);
       return sliced;
@@ -1792,4 +1927,18 @@ function buildFtsQuery(query: string): string {
     .filter((t) => t.length > 0);
   if (tokens.length === 0) return "";
   return tokens.map((t) => `"${t}"*`).join(" OR ");
+}
+
+function noteSnapshot(entry: MemoryEntry, constraintScope: string | null): NoteSnapshot {
+  return {
+    constraintScope,
+    id: entry.id,
+    content: entry.content,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    source: entry.source,
+    sessionId: entry.sessionId,
+    workingDir: entry.workingDir,
+    tags: entry.tags,
+  };
 }

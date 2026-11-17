@@ -17,6 +17,7 @@ import type { AtomicAgentConfig } from "../config/config-schema.js";
 import { COMPOSIO_SEARCH_TOOL } from "./composio-guidance.js";
 import { buildStablePrefix, type ToolDescriptor } from "./stable-prefix.js";
 import type { CapabilitiesSummary } from "./capabilities.js";
+import { DEFAULT_TOOL_DESCRIPTORS } from "./tool-descriptors.js";
 
 function descriptor(name: string): ToolDescriptor {
   return { name, summary: `${name} summary`, argsSchema: "{}" };
@@ -183,8 +184,21 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/reply and stop/);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.plan`/);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.milestone`/);
-    expect(PROJECT_FLOW_GUIDANCE).toMatch(/### project/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/### fusion project/);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/never delegate while a gate waits/i);
+  });
+
+  it("asks for every success criterion to be mapped to contract checks by id, of the four kinds (issue #40)", () => {
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`criteria: \[ids\]`/);
+    for (const kind of ["e2e", "page", "game", "visual"]) expect(PROJECT_FLOW_GUIDANCE).toContain(kind);
+  });
+
+  it("the project.brief descriptor states the fixed game API (issue #40)", () => {
+    const brief = DEFAULT_TOOL_DESCRIPTORS.find((d) => d.name === "project.brief")!;
+    expect(brief.summary).toContain("window.__game");
+    expect(brief.summary).toMatch(/start\(\{ ?seed, mode: "auto" ?\}\)/);
+    expect(brief.summary).toMatch(/step\(\)/);
+    expect(brief.summary).toMatch(/state\(\) → \{ ?over, winner, moves, error\? ?\}/);
   });
 
   it("is static: the same bytes whatever the project's state, and absent without the project tools", () => {
@@ -367,5 +381,44 @@ describe("the orchestrator as a task target", () => {
         'Hard parts, or one that failed twice, go to `model: "orchestrator"` (a worker turn on your model); keep the bulk on workers.',
       );
     }
+  });
+});
+
+describe("a local worker's limits in the ### fusion block (ATO-1363)", () => {
+  const LIMITS: FusionMachineFacts = {
+    ...FACTS,
+    workerMaxSteps: 60,
+    workerTimeoutMs: 2_700_000,
+  };
+
+  it("states the step budget and the time limit, and the late guards", () => {
+    const block = buildFusionGuidance(LIMITS);
+    expect(block).toContain("Each local worker gets 60 steps and 45 min");
+    expect(block).toContain("`maxSteps` / `timeoutMs`");
+    expect(block).toContain("no write by half its steps is handed back");
+    expect(block).toContain("split big files first");
+    // No measured speed: nothing to check an estimate against, so no ask.
+    expect(block).not.toContain("outputTokens");
+  });
+
+  it("asks for an output estimate once the speed is measured", () => {
+    const block = buildFusionGuidance({ ...LIMITS, tokensPerSecond: 6.4 });
+    expect(block).toContain("Set `outputTokens` (or `outputLines`)");
+    expect(block).toContain("is flagged on its row");
+    // The estimate line never refuses a task (the base block's "Tools that
+    // change things are refused for you" is about the orchestrator).
+    const estimateLine = block.split("\n").find((line) => line.includes("outputTokens"));
+    expect(estimateLine).not.toContain("refused");
+  });
+
+  it("renders as before when the limits are absent", () => {
+    expect(buildFusionGuidance(FACTS)).not.toContain("Each local worker gets");
+    expect(buildFusionGuidance(NO_FUSION_MACHINE_FACTS)).toBe(FUSION_GUIDANCE);
+  });
+
+  it("stays inside the prefix budget with every fact known", () => {
+    expect(
+      buildFusionGuidance({ ...LIMITS, tokensPerSecond: 6.4 }).length,
+    ).toBeLessThan(2400);
   });
 });

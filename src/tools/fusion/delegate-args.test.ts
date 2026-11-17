@@ -16,6 +16,7 @@ import {
   parseDelegateArgs,
 } from "./delegate-args.js";
 import { MAX_CONTRACT_INPUTS } from "./contract-inputs.js";
+import { normalizeCriterionId } from "../../session/session-project.js";
 
 function task(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -401,6 +402,62 @@ describe("parseDelegateArgs — contract", () => {
     );
   });
 
+  it("carries the criterion ids a check verifies, validated (issue #40)", () => {
+    const parsed = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "page", path: "index.html", criteria: [" c1", "plays-well"] }, { kind: "command", cmd: "x", criteria: [] }] },
+    });
+    expect(parsed.ok && parsed.contract?.checks).toEqual([
+      { task: "main", criteria: ["c1", "plays-well"], kind: "page", path: "index.html" },
+      { kind: "command", cmd: "x" },
+    ]);
+    const bad = (criteria: unknown): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [{ kind: "command", cmd: "x", criteria }] } }));
+    expect(bad("c1")).toContain("contract.checks[0].criteria must be an array of criterion ids");
+    expect(bad(["c 1"])).toContain('contract.checks[0].criteria[0] "c 1" is not a criterion id');
+    // One rule with the brief (session-project): `_` is not an id character there.
+    expect(bad(["plays_well"])).toContain('contract.checks[0].criteria[0] "plays_well" is not a criterion id (a-z, 0-9 and -; at most 32)');
+    expect(bad(["c1", "c1"])).toContain('contract.checks[0].criteria repeats "c1"');
+    expect(bad(Array.from({ length: 21 }, (_, i) => `c${i}`))).toContain("contract.checks[0].criteria has 21 entries; at most 20");
+  });
+
+  it("normalizes criterion ids the way the brief does, so ids from both sides match (issue #40)", () => {
+    const parsed = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "command", cmd: "x", criteria: ["C1", " Plays-Well ", "c1"] }] },
+    });
+    // Lower-cased like the brief; a repeat after normalizing is still a repeat.
+    expect(parsed.ok).toBe(false);
+    const ok = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "command", cmd: "x", criteria: ["C1", " Plays-Well "] }] },
+    });
+    expect(ok.ok && ok.contract?.checks?.[0]?.criteria).toEqual(["c1", "plays-well"]);
+    for (const id of ["c1", "plays-well"]) expect(normalizeCriterionId(id)).toBe(id);
+  });
+
+  it("carries a visual check's vision judge, validated (issue #40)", () => {
+    const parsed = parseDelegateArgs({
+      tasks: TASKS,
+      contract: { checks: [{ task: "main", kind: "page", path: "index.html", screenshot: {}, judge: "vision", criteria: ["c1"] }] },
+    });
+    expect(parsed.ok && parsed.contract?.checks).toEqual([
+      { task: "main", criteria: ["c1"], judge: "vision", kind: "page", path: "index.html", screenshot: {} },
+    ]);
+    const bad = (check: Record<string, unknown>): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [check] } }));
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "eyes", criteria: ["c1"] })).toContain('contract.checks[0].judge must be "vision"');
+    expect(bad({ kind: "page", path: "index.html", judge: "vision", criteria: ["c1"] })).toContain("contract.checks[0].judge needs a page check with a `screenshot`");
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "vision" })).toContain("contract.checks[0].judge needs the `criteria` it judges");
+  });
+
+  it("refuses criteria or a judge on a call-level check: only a task's checks close criteria (issue #40)", () => {
+    const bad = (check: Record<string, unknown>): string =>
+      expectError(parseDelegateArgs({ tasks: TASKS, contract: { checks: [check] } }));
+    expect(bad({ kind: "command", cmd: "x", criteria: ["c1"] })).toContain("contract.checks[0].criteria needs the `task` whose check it is");
+    expect(bad({ kind: "page", path: "index.html", screenshot: {}, judge: "vision", criteria: ["c1"] })).toContain("contract.checks[0].criteria needs the `task` whose check it is");
+  });
+
   it("carries a require that no provide satisfies through as a warning — the fan-out still runs", () => {
     // The launch-btn / btn-launch mismatch used to refuse the call. It
     // is still caught before any worker runs — as a note every worker
@@ -674,6 +731,41 @@ describe("localTaskSizeWarnings", () => {
     });
     if (!big.ok) throw new Error(big.error);
     expect(localTaskSizeWarnings(big.tasks, () => true)[0]).toMatch(/^task "big" declares 4 files to write /);
+  });
+});
+
+describe("parseDelegateArgs output estimate (ATO-1363)", () => {
+  it("keeps outputTokens and outputLines, accepting a numeric string", () => {
+    const parsed = parseDelegateArgs({
+      tasks: [
+        { id: "a", instructions: "x", outputTokens: 18_000.7 },
+        { id: "b", instructions: "y", outputLines: "1500" },
+        { id: "c", instructions: "z" },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.tasks[0]).toMatchObject({ outputTokens: 18_000 });
+    expect(parsed.tasks[1]).toMatchObject({ outputLines: 1500 });
+    // Absent stays absent: an existing planner's call parses as before.
+    expect(parsed.tasks[2]).not.toHaveProperty("outputTokens");
+    expect(parsed.tasks[2]).not.toHaveProperty("outputLines");
+  });
+
+  it("refuses a non-positive or over-bound estimate, naming each", () => {
+    const parsed = parseDelegateArgs({
+      tasks: [
+        { id: "a", instructions: "x", outputTokens: 0 },
+        { id: "b", instructions: "y", outputLines: "lots" },
+        { id: "c", instructions: "z", outputTokens: 5_000_000 },
+        { id: "d", instructions: "w", outputLines: 200_000 },
+      ],
+    });
+    const error = expectError(parsed);
+    expect(error).toContain("tasks[0].outputTokens must be a positive number");
+    expect(error).toContain("tasks[1].outputLines must be a positive number");
+    expect(error).toContain("tasks[2].outputTokens is 5,000,000; at most 1,000,000");
+    expect(error).toContain("tasks[3].outputLines is 200,000; at most 100,000");
   });
 });
 

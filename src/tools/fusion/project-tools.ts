@@ -2,19 +2,25 @@ import { compressToolResult, type CompressedToolResult } from "../../compressor/
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
+  CRITERION_ID_PATTERN,
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   planTotals,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectCriterionInput,
+  type ProjectMilestone,
+  type ProjectMilestoneAttachment,
   type ProjectGameBrief,
   type ProjectUpdate,
 } from "../../session/session-project.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor } from "./project-estimate.js";
+import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
+import type { MilestoneEvidence } from "./run-criteria.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -60,6 +66,8 @@ export interface ProjectPlanContext {
   pricing: (member: TeamMember) => WorkerPricing | undefined;
   /** A local member's measured speed; null for a cloud one or before any measurement. */
   tokensPerSecond: (member: TeamMember) => number | null;
+  /** Whether the member runs on a local server: its tasks are priced at $0 (issue #54). Absent: none is. */
+  isLocal?: (member: TeamMember) => boolean;
   /** `measuredRouting.minSamples` / `.days`. */
   minSamples: number;
   days: number;
@@ -72,6 +80,13 @@ export interface ProjectToolDeps {
   planContext: () => ProjectPlanContext;
   /** Whether the session read outside content this turn (the approval gate's taint). */
   outsideContent: (sessionId: string) => boolean;
+  /**
+   * A milestone's evidence from its runs (issue #40, `run-criteria.ts`):
+   * the criteria facts its checks and the vision judge established, and
+   * its screenshots, newest first. A done report carries the facts, and
+   * the screenshots when it names no attachments. Absent: neither.
+   */
+  milestoneEvidence?: (milestone: ProjectMilestone, criteriaOrder: readonly string[]) => MilestoneEvidence;
 }
 
 type Parsed<T> = { ok: true } & T | { ok: false; problems: string[] };
@@ -84,6 +99,29 @@ function unknownKeys(raw: Record<string, unknown>, allowed: readonly string[], w
 }
 
 // ------------------------------------------------------------------ brief
+
+/** Each criterion is a sentence, or `{ id, text }` with a unique `[a-z0-9-]` id of at most 32 characters. */
+function criteriaProblems(criteria: readonly unknown[]): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const [i, c] of criteria.entries()) {
+    if (nonEmpty(c)) continue;
+    if (!isObject(c) || !nonEmpty(c.text) || typeof c.id !== "string") {
+      problems.push(`\`successCriteria\` ${i + 1} must be a short checkable sentence, or { id, text }`);
+      continue;
+    }
+    const extra = Object.keys(c).filter((k) => k !== "id" && k !== "text");
+    if (extra.length > 0) problems.push(`\`successCriteria\` ${i + 1}: unknown key \`${extra[0]}\``);
+    const id = c.id.trim().toLowerCase();
+    if (!CRITERION_ID_PATTERN.test(id)) {
+      problems.push(`\`successCriteria\` ${i + 1}: id ${JSON.stringify(c.id)} must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);
+    } else if (seen.has(id)) {
+      problems.push(`\`successCriteria\`: id ${id} is used twice`);
+    }
+    seen.add(id);
+  }
+  return problems;
+}
 
 export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ brief: ProjectBriefDraft }> {
   const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria"], "project.brief");
@@ -102,10 +140,12 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
     }
   }
   const criteria = raw.successCriteria;
-  if (!Array.isArray(criteria) || criteria.length === 0 || !criteria.every(nonEmpty)) {
+  if (!Array.isArray(criteria) || criteria.length === 0) {
     problems.push("`successCriteria` must be a list of short checkable sentences (at least one)");
   } else if (criteria.length > PROJECT_LIMITS.successCriteria) {
     problems.push(`\`successCriteria\`: at most ${PROJECT_LIMITS.successCriteria}`);
+  } else {
+    problems.push(...criteriaProblems(criteria));
   }
   if (problems.length > 0) return { ok: false, problems };
   return {
@@ -115,7 +155,7 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
       users: raw.users as string,
       how: raw.how as string,
       ...(game === undefined ? {} : { game }),
-      successCriteria: criteria as string[],
+      successCriteria: criteria as ProjectCriterionInput[],
     },
   };
 }
@@ -237,6 +277,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       days: context.days,
       ...(context.now === undefined ? {} : { now: context.now }),
       tokensPerSecond: context.tokensPerSecond(worker),
+      local: context.isLocal?.(worker) ?? false,
     });
     rows.push({
       taskId: task.id,
@@ -249,6 +290,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       samples: est.samples,
       estCostUsd: est.estCostUsd,
       estMs: est.estMs,
+      ...(est.local === true ? { local: true as const } : {}),
     });
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
@@ -257,19 +299,64 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
 // -------------------------------------------------------------- milestone
 
 export function parseProjectMilestoneArgs(raw: Record<string, unknown>): Parsed<{ report: Extract<ProjectUpdate, { kind: "milestone" }> }> {
-  const problems: string[] = unknownKeys(raw, ["id", "state", "summary"], "project.milestone");
+  const problems: string[] = unknownKeys(raw, ["id", "state", "summary", "attachments"], "project.milestone");
   const id = cleanId(raw.id);
   if (id === null) problems.push("`id` must name a milestone of the plan");
   if (raw.state !== "done" && raw.state !== "failed") problems.push('`state` must be "done" or "failed" (the person approves)');
   if (!nonEmpty(raw.summary)) problems.push("`summary` must say what the milestone produced and what is still wrong");
+  // Shape only: whether a path lies in a run's shots folder is checked
+  // against the milestone's runs when the report is folded.
+  let attachments: ProjectMilestoneAttachment[] | undefined;
+  if (raw.attachments !== undefined) {
+    if (!Array.isArray(raw.attachments) || raw.attachments.length > PROJECT_LIMITS.attachments) {
+      problems.push(`\`attachments\` must list at most ${PROJECT_LIMITS.attachments} { path, caption, criteria? }`);
+    } else {
+      attachments = [];
+      for (const [i, a] of raw.attachments.entries()) {
+        if (!isObject(a) || !nonEmpty(a.path) || !nonEmpty(a.caption)) {
+          problems.push(`attachment ${i + 1} needs a \`path\` (a screenshot of this milestone's runs) and a \`caption\``);
+          continue;
+        }
+        problems.push(...unknownKeys(a, ["path", "caption", "criteria"], `attachment ${i + 1}`));
+        if (a.criteria !== undefined && (!Array.isArray(a.criteria) || !a.criteria.every(nonEmpty))) {
+          problems.push(`attachment ${i + 1}: \`criteria\` must list success criterion ids`);
+          continue;
+        }
+        attachments.push({ path: a.path, caption: a.caption, ...(a.criteria === undefined ? {} : { criteria: a.criteria as string[] }) });
+      }
+    }
+  }
   if (problems.length > 0) return { ok: false, problems };
-  return { ok: true, report: { kind: "milestone", id: id!, state: raw.state as "done" | "failed", summary: raw.summary as string } };
+  return {
+    ok: true,
+    report: {
+      kind: "milestone",
+      id: id!,
+      state: raw.state as "done" | "failed",
+      summary: raw.summary as string,
+      ...(attachments === undefined ? {} : { attachments }),
+    },
+  };
 }
 
 // ------------------------------------------------------------------ tools
 
 function refuse(tool: string, problems: string[]): CompressedToolResult {
   return compressToolResult({ tool, status: "error", output: `${tool}: ${problems.join("; ")}.`, details: { field: "args" } });
+}
+
+/**
+ * A project works in a project folder (issue #53): refuse before a brief
+ * or plan is drafted from a root or the home folder, which fusion.delegate
+ * would refuse anyway once the person had approved it.
+ */
+function refuseBroadWorkdir(tool: string, workingDir: string): CompressedToolResult | null {
+  if (!isTooBroadScope(workingDir)) return null;
+  return compressToolResult({
+    tool, status: "error",
+    output: tooBroadWorkdirMessage(workingDir, `${tool} did not run: a project`),
+    details: { reason: "workdir-too-broad", workingDir },
+  });
 }
 
 function accepted(tool: string, output: string, update: ProjectUpdate): CompressedToolResult {
@@ -280,6 +367,7 @@ function accepted(tool: string, output: string, update: ProjectUpdate): Compress
 }
 
 const usd = (n: number | null): string => (n === null ? "cost unknown" : `~$${n.toFixed(2)}`);
+const rowUsd = (row: AssignmentRow): string => (row.local === true ? "$0.00 (local)" : usd(row.estCostUsd));
 const secs = (ms: number | null): string => (ms === null ? "time unknown" : `~${Math.max(1, Math.round(ms / 1000))}s`);
 
 const AWAIT_PERSON = "Now reply to the person: they approve, edit or cancel it between turns. Do not delegate until it is approved.";
@@ -290,6 +378,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the project brief (what, for whom, how, success criteria) for the person to approve.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_BRIEF_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectBriefArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_BRIEF_TOOL, parsed.problems);
       const update: ProjectUpdate = { kind: "brief", brief: parsed.brief, draftedAfterUntrusted: deps.outsideContent(ctx.sessionId) };
@@ -305,6 +395,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     description: "Draft or revise the plan (milestones and tasks) for the approved brief; each task gets a worker, a reviewer and an estimate.",
     readonly: true,
     async run(rawArgs, ctx) {
+      const broad = refuseBroadWorkdir(PROJECT_PLAN_TOOL, ctx.workingDir);
+      if (broad !== null) return broad;
       const parsed = parseProjectPlanArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_PLAN_TOOL, parsed.problems);
       const context = deps.planContext();
@@ -319,7 +411,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           `${m.id} (${m.kind}): ${m.title}`,
           ...rows
             .filter((r) => r.milestoneId === m.id)
-            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${usd(r.estCostUsd)}, ${secs(r.estMs)}`),
+            .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
         AWAIT_PERSON,
@@ -337,13 +429,49 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
     name: PROJECT_MILESTONE_TOOL,
     description: "Report an approved milestone's result (done or failed, with a summary) for the person to review before the next one.",
     readonly: true,
-    async run(rawArgs) {
+    async run(rawArgs, ctx) {
       const parsed = parseProjectMilestoneArgs(rawArgs);
       if (!parsed.ok) return refuse(PROJECT_MILESTONE_TOOL, parsed.problems);
+      let report: Extract<ProjectUpdate, { kind: "milestone" }> = parsed.report;
+      const lines: string[] = [];
+      // A done milestone carries its runs' criteria facts (issue #40),
+      // and their screenshots when the report names none: the runtime's,
+      // never the model's (its arguments cannot carry facts).
+      const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
+      if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
+        const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
+        const evidence = deps.milestoneEvidence(milestone, order);
+        // A milestone closes only when its tests AND criteria pass: the
+        // person never sees "done" over a red or unverified criterion.
+        const open = evidence.facts.filter((f) => f.state !== "passed");
+        if (open.length > 0) {
+          return refuse(PROJECT_MILESTONE_TOOL, [
+            `milestone ${report.id} cannot be reported done: ${open.map((f) => `${f.id} ${f.state}${f.why === undefined ? "" : ` (${f.why})`}`).join(", ")}. Fix it and re-delegate, or report "failed" with the reasons`,
+          ]);
+        }
+        if (evidence.facts.length > 0) {
+          report = { ...report, criteriaFacts: evidence.facts };
+          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
+        }
+        if (evidence.uncovered.length > 0) {
+          // On the report itself, so the person sees it at the gate.
+          const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;
+          report = { ...report, summary: `${report.summary}\n${warning}` };
+          lines.push(warning);
+        }
+        if (report.attachments === undefined && evidence.attachments.length > 0) {
+          report = { ...report, attachments: evidence.attachments };
+          lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
+        }
+      }
       return accepted(
         PROJECT_MILESTONE_TOOL,
-        `Milestone ${parsed.report.id} reported ${parsed.report.state}. Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.`,
-        parsed.report,
+        [
+          `Milestone ${report.id} reported ${report.state}.`,
+          ...lines,
+          "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
+        ].join(" "),
+        report,
       );
     },
   };

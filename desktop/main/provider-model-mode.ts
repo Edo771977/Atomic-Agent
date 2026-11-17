@@ -31,11 +31,13 @@ const CLOUD_ORIGINS = new Set([
   "https://api.x.ai",
 ]);
 
-// Per-account endpoints (an Azure resource, a Bedrock Region) match by host,
+// Per-account endpoints (an Azure resource, a Bedrock Region, a Vertex AI
+// project/region) match by host,
 // as the core's presets do through `perAccountEndpoint.hostPattern`.
 const CLOUD_HOST_PATTERNS: readonly RegExp[] = [
   /^bedrock-(?:mantle|runtime)\.[a-z0-9-]+\.(?:api\.aws|amazonaws\.com)$/i,
   /\.(?:openai|services\.ai|cognitiveservices)\.azure\.com$/i,
+  /^(?:[a-z0-9-]+-)?aiplatform\.googleapis\.com$/i,
 ];
 
 /** Only for a new connection. Existing choices, including inherit, stay put. */

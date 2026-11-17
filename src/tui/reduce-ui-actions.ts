@@ -8,6 +8,8 @@ import { clampMenuCursor } from "./menu/menu-selectors.js";
 import { filterSlashCommands, skillSlashCommands } from "./commands/slash-commands.js";
 import { selectSidebarTasks } from "./sidebar-tasks-selector.js";
 import { THEME_NAMES } from "./theme/theme.js";
+import { reduceRewindPicker } from "./rewind/rewind-picker-state.js";
+import { pushRing } from "./reducer-helpers.js";
 import { goalSummaryLine } from "../agent/goal/goal-state.js";
 import { lastTurnFoldId, turnFoldsOf } from "./render/turn-collapse.js";
 import type { TuiAction } from "./tui-action.js";
@@ -118,6 +120,10 @@ export function reduceUiAction(
     }
     case "show_steps_set":
       return { ...state, showSteps: action.on };
+    case "verbose_steps_set":
+      return { ...state, verboseSteps: action.on };
+    case "vim_mode_set":
+      return { ...state, vimMode: action.on };
     case "menu_opened":
       // Always reopen at the root with an empty query: a menu that resumes
       // where it was last left makes the same keypress mean different
@@ -218,6 +224,22 @@ export function reduceUiAction(
     }
     case "input_history_navigated":
       return navigateInputHistory(state, action.delta);
+    case "input_draft_stashed":
+      if (state.inputValue.length === 0) return state;
+      return {
+        ...state,
+        inputHistory: pushRing(
+          state.inputHistory,
+          state.inputValue,
+          state.ringBufferSize,
+        ),
+        inputValue: "",
+        inputHistoryCursor: null,
+        inputHistoryDraft: null,
+        slashPaletteOpen: false,
+        slashQuery: "",
+        slashPaletteCursor: 0,
+      };
     case "message_queued":
       return {
         ...state,
@@ -343,6 +365,8 @@ export function reduceUiAction(
         // gone too. Leaving the old figure up would claim tokens that
         // no longer exist.
         contextUsage: EMPTY_CONTEXT_USAGE,
+        // The worker rows under the last reply go with the reply.
+        fusionLiveWorkers: [],
       };
     case "chat_messages_truncated": {
       const cut = state.messages.findIndex(
@@ -357,14 +381,32 @@ export function reduceUiAction(
         contextUsage: EMPTY_CONTEXT_USAGE,
       };
     }
+    case "rewind_picker_opened":
+    case "rewind_picker_closed":
+    case "rewind_picker_cursor_moved":
+    case "rewind_picker_cursor_set":
+      return {
+        ...state,
+        rewindPicker: reduceRewindPicker(state.rewindPicker ?? null, action),
+      };
     case "session_picker_opened":
       return {
         ...state,
         sessionPickerOpen: true,
         sessionPickerList: action.sessions,
         sessionPickerCursor: 0,
+        sessionPickerDraft: state.inputValue,
       };
     case "session_picker_closed":
+      // ATO-1153: Esc or a click outside drops the picker's search and
+      // leaves the composer with the draft it opened over.
+      if (state.sessionPickerOpen && state.inputValue !== state.sessionPickerDraft) {
+        return {
+          ...state,
+          sessionPickerOpen: false,
+          inputValue: state.sessionPickerDraft,
+        };
+      }
       return { ...state, sessionPickerOpen: false };
     case "session_picker_cursor_moved": {
       const max = Math.max(0, state.sessionPickerList.length - 1);
@@ -492,7 +534,7 @@ export function reduceUiAction(
     case "chat_scroll_reset":
       return { ...state, chatScrollOffset: 0 };
     case "session_switched": {
-      state = { ...state, pendingModelMessage: null };
+      state = { ...state, pendingModelMessage: null, nextStepSuggestion: null };
       // Any pending approval closes with the transcript it asked
       // about. The one the LEFT thread owned is denied at the gate by
       // the orchestrator on switch-away; one owned by the thread being
@@ -536,6 +578,8 @@ export function reduceUiAction(
         messages: [...action.messages],
         // Rebuilt from the session: nothing of it is hidden any more.
         clearedQuestions: 0,
+        // Worker rows belong to the thread they ran on.
+        fusionLiveWorkers: [],
         reasoning: [],
         feed: [],
         logs: [],
@@ -555,6 +599,8 @@ export function reduceUiAction(
         runHistory: [],
         sessionPickerOpen: false,
         sessionPickerCursor: 0,
+        // The rows it lists belong to the thread being replaced.
+        rewindPicker: null,
         chatScrollOffset: 0,
         chatFocus: "editor",
         sidebarSection: "sessions",

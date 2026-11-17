@@ -131,6 +131,32 @@ describe("runVerify — command", () => {
     expect(out.summary.split("\n")[0]).toBe("verify.run command: ok");
   });
 
+  it("feeds `stdin` to the command and checks stdout with a regex (issue #40)", async () => {
+    const out = await runVerify(
+      {
+        kind: "command",
+        cmd: NODE,
+        args: ["-e", "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{process.stdout.write(d.toUpperCase())})"],
+        stdin: "hello\nworld\n",
+        checks: ["exit 0", "stdout matches /^HELLO\\nWORLD$/m"],
+      },
+      ctx(),
+    );
+    expect(out.checks).toEqual([
+      { check: "exit 0", ok: true, detail: "exit 0" },
+      { check: "stdout matches /^HELLO\\nWORLD$/m", ok: true, detail: expect.stringContaining("matches") },
+    ]);
+    expect(out.ok).toBe(true);
+  });
+
+  it("gives a command without `stdin` an empty, closed stdin as before", async () => {
+    const out = await runVerify(
+      { kind: "command", cmd: NODE, args: ["-e", "let n=0;process.stdin.on('data',c=>n+=c.length).on('end',()=>console.log('read '+n))"], checks: ['stdout contains "read 0"'] },
+      ctx(),
+    );
+    expect(out.ok).toBe(true);
+  });
+
   it("does not hand the agent's keys to the command, but keeps the run's own env (ATO-347)", async () => {
     process.env.ATO347_VERIFY_API_KEY = "leaked-key-value";
     process.env.ATO347_VERIFY_PLAIN = "plain-value";

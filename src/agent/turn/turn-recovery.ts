@@ -1,6 +1,7 @@
 import { isSubscriptionCliSetupError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { isDailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
 import { findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
+import { findOfflineNetworkError, isOfflineRefusal, offlineTurnSentence } from "../../llm/offline-network.js";
 import type { AgentLoopDependencies, LocalEngineVerdict, RunTurnOptions } from "../agent-contract.js";
 import type { SessionState } from "../../session/session-state.js";
 import type { ToolCallTransport } from "../../llm/provider/completion-types.js";
@@ -19,7 +20,6 @@ import { PARSE_RECOVERY_BUDGET, composeParseFailureNotice, isRecoverableParseFai
 import { EMPTY_COMPLETION_RECOVERY_BUDGET, composeEmptyCompletionNotice, isRecoverableEmptyCompletion, repeatedEmptyCompletionError } from "./empty-completion-recovery.js";
 import { FINALIZATION_REQUEST_DEADLINE_MS, type RequestDeadline } from "../request-deadline.js";
 import { getConfig } from "../../config/index.js";
-import { isOfflineRefusal } from "../../llm/offline-network.js";
 import { isProviderNotAllowed } from "../../llm/provider-policy.js";
 import type { TurnLoopState } from "./turn-state.js";
 
@@ -83,6 +83,12 @@ export function recoverTurnStep(
   const modelMode = context.modelMode ?? "local";
   requestDeadline.dispose();
   let runError: Error | null = err instanceof Error ? err : new Error(String(err));
+  // W2 QA: offline mode refused the model request. Nothing to wait for:
+  // the turn ends at once and says why, instead of "no connection".
+  const offlineRefused = findOfflineNetworkError(err);
+  if (offlineRefused !== null) {
+    runError = new Error(offlineTurnSentence(offlineRefused.host), { cause: err });
+  }
   let category = classifyFailure(err);
   // The task's duration ceiling fired inside the request. It
   // surfaces as an abort — the same shape as Ctrl+C — but it is
@@ -940,9 +946,12 @@ export function reportTurnFailure(
     },
     failure: classifyFailureCause(runError, category),
   });
+  // ATO-646: the link that threw, so `/metrics` can split errors by provider.
+  const failedProvider = readFailingLink(runError);
   deps.metrics?.recordLlmFailure({
     sessionId: state.id,
     category,
+    ...(failedProvider !== undefined ? { provider: failedProvider } : {}),
   });
   return { kind: "failure", cancelled, category, runError, creditRefused };
 }
@@ -977,7 +986,7 @@ function isWaitableOutage(err: unknown): boolean {
   if (isDailySpendLimitError(err)) return false;
   // Offline mode (ATO-1084): this machine refused the request; it stays
   // refused until the person turns the switch off, so waiting is no use.
-  if (isOfflineRefusal(err)) return false;
+  if (isOfflineRefusal(err) || findOfflineNetworkError(err) !== null) return false;
   // A folder's provider constraint (issue #33): only a config edit lifts it.
   if (isProviderNotAllowed(err)) return false;
   // Our own clock ran out. Never evidence about the provider, so it is

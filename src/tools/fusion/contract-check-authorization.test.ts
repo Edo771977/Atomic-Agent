@@ -84,6 +84,29 @@ describe("contract check authorization", () => {
     expect(preview).not.toContain("fixture-secret-value");
   });
 
+  it("accepts a command's stdin as a declared field and shows it in the approval preview (issue #40)", async () => {
+    const { hold, runner, requests } = setup({ tainted: true });
+    await run(hold, [{ kind: "command", cmd: "node", args: ["cli.js"], stdin: "move e2e4\nquit\n" }]);
+    expect(requests.map(r => r.preview).join("\n")).toContain("move e2e4");
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a page check's game spec as a declared field (issue #40)", async () => {
+    const { hold, runner } = setup({ tainted: true });
+    await run(hold, [{ kind: "page", path: "index.html", game: { games: 3, maxMsPerGame: 10_000 }, checks: ["games finish"] }]);
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it("authorizes a declared batch whose checks name the criteria they verify (issue #40)", async () => {
+    const { hold } = setup({ tainted: true });
+    expect(await hold.decide(signal, [{ task: "ui", criteria: ["c1"], kind: "page", path: "index.html", screenshot: { fullPage: true } }])).toBeUndefined();
+  });
+
+  it("does not refuse a visual check that asks for a vision judgement under approval (issue #40)", async () => {
+    const { hold } = setup({ tainted: true });
+    expect(await hold.decide(signal, [{ task: "ui", criteria: ["c1"], judge: "vision", kind: "page", path: "index.html", screenshot: {} }])).toBeUndefined();
+  });
+
   it("retains input-integrity capability and passes its guard unchanged", async () => {
     const { hold, runner } = setup();
     const inputIntegrity = { paths: ["test.js"], begin: async () => async () => {} };

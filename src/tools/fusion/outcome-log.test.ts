@@ -19,8 +19,14 @@ import {
   judgeOutcome,
   outcomeLogFiles,
   outcomeLogPath,
+  criteriaOutcome,
+  gamesOutcome,
+  readCriteriaOutcome,
+  readGamesOutcome,
   readReviewOutcome,
+  readShotsOutcome,
   readWatchOutcome,
+  shotsOutcome,
   watchOutcome,
   reviewOutcome,
   rowCostUsd,
@@ -248,6 +254,37 @@ describe("fusion outcome records", () => {
     expect(record.failure).toBe("stuck");
     expect(JSON.stringify(record)).not.toContain("SECRET");
     expect("watch" in taskOutcomeRecord(row(), CONTEXT, "s", new Date())).toBe(false);
+  });
+
+  it("builds the quality counts from facts, game runs and screenshots (issue #40)", () => {
+    expect(criteriaOutcome([{ state: "passed" }, { state: "unverified" }, { state: "failed" }, { state: "passed" }])).toEqual({ passed: 2, failed: 1, unverified: 1 });
+    expect(gamesOutcome([])).toBeUndefined();
+    expect(gamesOutcome([{ n: 0, errors: 0, medianMs: 0 }])).toBeUndefined();
+    expect(gamesOutcome([{ n: 3, errors: 1, medianMs: 1200 }, { n: 5, errors: 0, medianMs: 800 }, { n: 2, errors: 0, medianMs: 3000 }]))
+      .toEqual({ n: 10, errors: 1, medianMs: 1200 });
+    expect(gamesOutcome([{ n: 2.7, errors: -1, medianMs: Number.NaN }])).toEqual({ n: 2, errors: 0, medianMs: 0 });
+    expect(shotsOutcome([[{}, {}], undefined, [{}]])).toBe(3);
+  });
+
+  it("writes the quality counts from the context only, never text", () => {
+    const record = taskOutcomeRecord(row(), { ...CONTEXT, criteria: { passed: 1, failed: 0, unverified: 2 }, games: { n: 4, errors: 0, medianMs: 900 }, shots: 2 }, "s", new Date());
+    expect(record).toMatchObject({ criteria: { passed: 1, failed: 0, unverified: 2 }, games: { n: 4, errors: 0, medianMs: 900 }, shots: 2 });
+    const plain = taskOutcomeRecord(row(), CONTEXT, "s", new Date());
+    expect("criteria" in plain || "games" in plain || "shots" in plain).toBe(false);
+  });
+
+  it("reads old and malformed quality fields as absent", () => {
+    const base = taskOutcomeRecord(row(), CONTEXT, "s", new Date());
+    expect([readCriteriaOutcome(base), readGamesOutcome(base), readShotsOutcome(base)]).toEqual([undefined, undefined, undefined]);
+    const good = { ...base, criteria: { passed: 1, failed: 2, unverified: 0 }, games: { n: 3, errors: 1, medianMs: 50 }, shots: 4 } as TaskOutcomeRecord;
+    expect([readCriteriaOutcome(good), readGamesOutcome(good), readShotsOutcome(good)]).toEqual([good.criteria, good.games, 4]);
+    for (const bad of [null, 3, {}, { passed: 1, failed: -1, unverified: 0 }, { passed: 1.5, failed: 0, unverified: 0 }]) {
+      expect(readCriteriaOutcome({ ...base, criteria: bad } as unknown as TaskOutcomeRecord)).toBeUndefined();
+    }
+    for (const bad of [null, "x", { n: 1, errors: 0 }, { n: -1, errors: 0, medianMs: 0 }]) {
+      expect(readGamesOutcome({ ...base, games: bad } as unknown as TaskOutcomeRecord)).toBeUndefined();
+    }
+    for (const bad of [-1, 1.5, "2", null]) expect(readShotsOutcome({ ...base, shots: bad } as unknown as TaskOutcomeRecord)).toBeUndefined();
   });
 
   it("reads old and malformed watch fields as no watch", () => {

@@ -53,6 +53,16 @@ describe("guardProvider", () => {
     expect(serve).not.toHaveBeenCalled();
   });
 
+  it("refuses describeAudio of a disallowed provider, and keeps it absent where the provider has none (audio.listen)", async () => {
+    const heard = vi.fn(async () => ({ text: "the recording", durationMs: 1 }));
+    const p = guardProvider({ ...fakeProvider("openai", "native_tools", serve), describeAudio: heard } as never, { constraintsActive: () => true });
+    await runWithProviderPolicy(policy, async () => {
+      await expect(p.describeAudio!({ prompt: "x", audio: [] } as never)).rejects.toBeInstanceOf(ProviderNotAllowedError);
+    });
+    expect(heard).not.toHaveBeenCalled();
+    expect(openai().describeAudio).toBeUndefined();
+  });
+
   it("refuses a call with no frame while constraints exist (fail closed)", async () => {
     serve.mockClear();
     await expect(openai().complete({ prompt: "x" } as never)).rejects.toThrow(/carries no folder policy/);

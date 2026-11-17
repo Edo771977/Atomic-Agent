@@ -170,7 +170,9 @@ async function writeBlob(path: string, snapshot: PrivateGitSnapshot, before: Sta
       if (!sameFile(before, await descriptor.stat()) || !sameFile(before, await lstat(path))) throw new Error("tracked source changed during private snapshot");
     };
     const bounded = new Transform({ transform(chunk: Buffer, _encoding, callback) { try { charge(snapshot.budget, chunk.length); callback(null, chunk); } catch (reason) { callback(reason as Error); } } });
-    await pipeline(content(), createDeflate(), bounded, createWriteStream(temporary, { flags: "wx", mode: 0o600 }), { ...(snapshot.budget.signal === undefined ? {} : { signal: snapshot.budget.signal }) });
+    // An aborted pipeline rejects with a generic AbortError; surface the reason.
+    await pipeline(content(), createDeflate(), bounded, createWriteStream(temporary, { flags: "wx", mode: 0o600 }), { ...(snapshot.budget.signal === undefined ? {} : { signal: snapshot.budget.signal }) })
+      .catch((reason: unknown) => { snapshot.budget.signal?.throwIfAborted(); throw reason; });
     const oid = hash.digest("hex"), directory = join(snapshot.seed, "objects", oid.slice(0, 2));
     await mkdir(directory, { recursive: true }); await rename(temporary, join(directory, oid.slice(2))); return oid;
   } finally { await descriptor.close(); await rm(temporary, { force: true }).catch(() => undefined); }
@@ -197,6 +199,7 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
   if (process.env.GIT_CONFIG_GLOBAL !== undefined) sourceEnv.GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL;
   if (process.env.GIT_CONFIG_NOSYSTEM !== undefined) sourceEnv.GIT_CONFIG_NOSYSTEM = process.env.GIT_CONFIG_NOSYSTEM;
   const global = await runCommand("git", [...prefix, "config", "--path", "--null", "--get", "core.excludesFile"], { cwd: input.source, env: sourceEnv, timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, signal });
+  signal.throwIfAborted();
   if ((global.exitCode !== 0 && global.exitCode !== 1) || global.truncated || global.timedOut) throw new Error("cannot freeze source Git global exclusions");
   const configured = global.stdout.replace(/\0$/, "");
   const globalPath = global.exitCode === 0 ? configured === "" ? null : resolve(input.source, configured) : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");

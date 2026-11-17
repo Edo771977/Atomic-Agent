@@ -31,6 +31,7 @@ export async function runCommandKind(
     network: args.network,
     timeoutMs: args.timeoutMs,
     signal: ctx.signal,
+    ...(args.stdin === undefined ? {} : { stdin: args.stdin }),
   });
   const exit = await proc.exited;
   return {

@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { parse, relative, resolve } from "node:path";
 
 const DEVICE_PREFIX = /^[\\/]{2}[?.](?:[\\/]|$)/;
 const RESERVED_COMPONENT = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
@@ -40,4 +41,31 @@ export function comparableScopePath(path: string): string | null {
   }
   if (parts.some((part, i) => part === "" ? i !== parts.length - 1 : unsupportedComponent(part))) return null;
   return ordinary;
+}
+
+/**
+ * A drive or filesystem root, the home folder or its parent: too broad to
+ * hand to a fan-out as a write scope, to run a project in, or to copy for
+ * a verification. Native path equality also covers Windows drive/UNC
+ * roots, separator aliases and case differences. A path with no safe
+ * comparison counts as too broad.
+ */
+export function isTooBroadScope(dir: string, home: string = homedir()): boolean {
+  const comparableHome = comparableScopePath(home);
+  const comparable = comparableScopePath(dir);
+  if (comparableHome === null || comparable === null) return true;
+  const absolute = resolve(comparable);
+  return [parse(absolute).root, comparableHome, resolve(comparableHome, "..")].some(
+    (broad) => relative(broad, absolute) === "",
+  );
+}
+
+/**
+ * Why work that needs a project folder did not start in `dir`, and what
+ * the person does about it on each surface.
+ */
+export function tooBroadWorkdirMessage(dir: string, what: string): string {
+  return `${what} needs a project folder, and this session's folder ${dir} is too broad ` +
+    "(a drive or filesystem root, the home folder or its parent). Choose or create a project folder for it: " +
+    "in the desktop app with the workspace chip, in the TUI or CLI by starting from that folder (cd into it) or with --cwd.";
 }

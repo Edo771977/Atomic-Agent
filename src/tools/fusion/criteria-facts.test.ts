@@ -1,0 +1,113 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import type { ContractCheckOutcome } from "./contract-checks.js";
+import type { DelegateContract } from "./contract.js";
+import type { DelegateTask } from "./delegate-args.js";
+import { criteriaFactsFor, taskCriteria } from "./criteria-facts.js";
+import { applyJudgeVerdict, buildAcceptanceChecklist, judgeTask } from "./judge.js";
+import type { WorkerTaskResult } from "./worker-result.js";
+
+const CRITERIA = new Map([
+  ["c1", { id: "c1", text: "the CLI prints the board" }],
+  ["c2", { id: "c2", text: "the board looks like a chess board" }],
+  ["c3", { id: "c3", text: "games end with varied winners" }],
+]);
+const task: DelegateTask = { id: "ui", title: "UI", instructions: "build the game", files: ["a.txt"] };
+const contract: DelegateContract = {
+  checks: [
+    { task: "ui", criteria: ["c1"], kind: "command", cmd: "node", args: ["cli.js"] },
+    { task: "ui", criteria: ["c1", "c2"], judge: "vision", kind: "page", path: "index.html", screenshot: {} },
+    { task: "other", criteria: ["c3"], kind: "command", cmd: "x" },
+  ],
+};
+const shot = { path: "/state/fusion-runs/fr-1/shots/ui-1.jpg", bytes: 10, width: 1280, height: 720 };
+const green = (over: Partial<ContractCheckOutcome> = {}): ContractCheckOutcome => ({ task: "ui", ok: true, detail: "passed", ...over });
+const ACCEPT = JSON.stringify({ decision: "accept", issues: [] });
+const dir = mkdtempSync(join(tmpdir(), "criteria-facts-"));
+writeFileSync(join(dir, "a.txt"), "x");
+
+async function judge(outcomes: (ContractCheckOutcome | undefined)[], vision?: Map<string, { state: "passed" | "failed" | "unverified"; why: string }>, c: DelegateContract = contract) {
+  let called = 0;
+  const items = buildAcceptanceChecklist(task, c, CRITERIA);
+  const verdict = await judgeTask({
+    task, items, facts: { checkOutcomes: outcomes, findings: [], ...(vision === undefined ? {} : { vision }) },
+    reply: "", contract: c, workingDir: dir, target: { providerId: "cloud", model: "model-a" }, pricing: undefined,
+    complete: async () => { called += 1; return { content: ACCEPT }; },
+    signal: new AbortController().signal,
+  });
+  return { verdict, called, items };
+}
+
+describe("criteria facts (issue #40)", () => {
+  it("maps the criteria a task's checks name, in first-mention order, texts from the brief", () => {
+    expect(taskCriteria("ui", contract, CRITERIA)).toEqual([
+      { id: "c1", text: "the CLI prints the board", checkIndexes: [0, 1] },
+      { id: "c2", text: "the board looks like a chess board", checkIndexes: [1] },
+    ]);
+    const items = buildAcceptanceChecklist(task, contract, CRITERIA);
+    expect(items.filter((i) => i.kind === "criterion").map((i) => i.criterion?.id)).toEqual(["c1", "c2"]);
+    // Without a brief no criterion items are listed.
+    expect(buildAcceptanceChecklist(task, contract).some((i) => i.kind === "criterion")).toBe(false);
+  });
+
+  it("passes a criterion whose checks are green, the visual one judged met", () => {
+    const facts = criteriaFactsFor(taskCriteria("ui", contract, CRITERIA), contract, [green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    expect(facts.map((f) => [f.id, f.state])).toEqual([["c1", "passed"], ["c2", "passed"]]);
+  });
+
+  it("closes a task only when its checks, review and criteria are green", async () => {
+    const { verdict, called } = await judge([green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    expect(called).toBe(1);
+    expect(verdict.green).toBe(true);
+    expect(verdict.criteria?.map((f) => f.state)).toEqual(["passed", "passed"]);
+  });
+
+  it("fails a criterion any of its checks fails, as a blocker fact naming its id and text", async () => {
+    const { verdict, called } = await judge([green({ ok: false, detail: "exit 1" }), green({ judge: "vision", screenshots: [shot] })], new Map([["c2", { state: "passed", why: "ok" }]]));
+    expect(called).toBe(0);
+    expect(verdict.green).toBe(false);
+    const issue = verdict.review.issues.find((i) => i.why.includes("[c1]"));
+    expect(issue).toMatchObject({ severity: "blocker", by: "fact" });
+    expect(issue!.why).toContain("the CLI prints the board");
+    expect(issue!.why).toContain("exit 1");
+    expect(verdict.criteria?.find((f) => f.id === "c1")?.state).toBe("failed");
+  });
+
+  it("names the criteria a failing game check verifies", async () => {
+    const games: DelegateContract = { checks: [{ task: "ui", criteria: ["c3"], kind: "page", path: "index.html", game: { games: 3, maxMsPerGame: 1000 }, checks: ["game winners vary"] }] };
+    const { verdict } = await judge([green({ ok: false, detail: "game winners vary: every game won by X" })], undefined, games);
+    expect(verdict.review.issues.map((i) => i.why).join("\n")).toMatch(/\[c3\] "games end with varied winners".*every game won by X/);
+  });
+
+  it("leaves a visual criterion with no vision judgement unverified: the task goes to the director", async () => {
+    const { verdict, called } = await judge([green(), green({ judge: "vision", screenshots: [shot] })]);
+    expect(called).toBe(1);
+    expect(verdict.green).toBe(false);
+    expect(verdict.review.decision).toBe("unverified");
+    expect(verdict.unverified).toContain("[c2]");
+    expect(verdict.unverified).toContain("the board looks like a chess board");
+    expect(verdict.criteria?.map((f) => [f.id, f.state])).toEqual([["c1", "unverified"], ["c2", "unverified"]]);
+    const row: WorkerTaskResult = { id: "ui", title: "UI", status: "ok", reply: "", durationMs: 1, providerId: "p", model: "m" } as unknown as WorkerTaskResult;
+    expect(applyJudgeVerdict(row, verdict, false).status).toBe("needs_orchestrator");
+  });
+
+  it("vision can only add red or unverified: never turns a red check green", async () => {
+    const { verdict } = await judge([green(), green({ ok: false, detail: "pageerror", judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    expect(verdict.criteria?.map((f) => f.state)).toEqual(["failed", "failed"]);
+  });
+
+  it("fails a criterion vision judged not met", async () => {
+    const { verdict } = await judge([green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "failed", why: "the squares are not alternating" }]]));
+    expect(verdict.green).toBe(false);
+    expect(verdict.unverified).toBeUndefined();
+    expect(verdict.review.issues.find((i) => i.why.includes("[c2]"))?.why).toContain("the squares are not alternating");
+  });
+
+  it("leaves a visual criterion unverified when its screenshot is missing, whatever vision said", () => {
+    const facts = criteriaFactsFor(taskCriteria("ui", contract, CRITERIA), contract, [green(), green({ judge: "vision", screenshotErrors: ["screenshot: page crashed"] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    expect(facts.find((f) => f.id === "c2")).toMatchObject({ state: "unverified" });
+    expect(facts.find((f) => f.id === "c2")?.why).toContain("page crashed");
+  });
+});

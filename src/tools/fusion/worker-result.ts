@@ -24,6 +24,7 @@ import {
   FUSION_WORKER_OPERATOR_ONLY_MARKER,
 } from "./worker-tool-policy.js";
 import type { JudgeSummary, ReviewDecision, ReviewIssue } from "./judge.js";
+import type { ProjectCriterionFact } from "../../session/session-project.js";
 import { CHECK_OUTPUT_CHARS, tailClip } from "./contract-checks.js";
 import { describeChanges, FileChangeLog, type FileChange } from "./worker-changes.js";
 import { describeSyntax, type TaskSyntaxSummary } from "./syntax-pass.js";
@@ -275,6 +276,11 @@ export interface WorkerTaskResult {
   replacedInputs?: ReplacedInput[];
   /** The judge's verdict on this task's acceptance list (ATO-944), when it ran. */
   judge?: JudgeSummary;
+  /**
+   * The task's success-criteria facts (issue #40), one per criterion its
+   * checks name, whether or not a judge ran (`holdOnCriteria`).
+   */
+  criteria?: ProjectCriterionFact[];
   /**
    * Why a `failed` row failed, when a status and error alone cannot say:
    * `review-exhausted` (issue #38), a fusion team's review still asked
@@ -910,7 +916,7 @@ export const WORKER_HINT_SATURATED =
 export const WORKER_HINT_CONTENDED =
   "the local server was working but slow or contended: close other programs using the GPU, or run fewer parallel workers";
 export const WORKER_HINT_QUOTA =
-  "provider credit/quota exhausted — retrying will not help";
+  "provider credit/quota exhausted — retrying will not help: top up the provider's credit, or switch the workers to another provider or a local model";
 /**
  * The client's watchdog proved the server answers nothing at all —
  * either no connection was made (`first-token-unreachable`) or one was
@@ -1422,7 +1428,7 @@ function renderStatusTable(
       ...(r.replacedInputs ?? []).map((input) =>
         oneLine(describeReplacedInput(input), TABLE_DETAIL_CHARS),
       ),
-      ...(r.error ? [`error: ${oneLine(r.error, TABLE_DETAIL_CHARS)}`] : []),
+      ...(r.error ? tableErrorParts(r, r.error) : []),
       // The question in full (it is already bounded): the orchestrator
       // answers it from this line, so a clipped one is a worse brief.
       ...(r.question ? [`question: ${oneLine(r.question, MAX_WORKER_QUESTION_CHARS)}`] : []),
@@ -1493,6 +1499,27 @@ function syntaxClause(r: WorkerTaskResult): string[] {
   if (r.syntax === undefined) return [];
   const clause = describeSyntax(r.syntax, r.error);
   return clause === null ? [] : [oneLine(clause, TABLE_DETAIL_CHARS)];
+}
+
+/**
+ * A row's error, for the status table.
+ *
+ * Clipped to `TABLE_DETAIL_CHARS` like the rest of the row, except for
+ * a blocker (out of credit, CLI missing, key refused): there the
+ * provider's own sentence is the whole content of the row and names
+ * what to do, and a row once read `"openrouter" is out of credit: This
+ * request would exceed your available credits given y` (ATO-309). A
+ * blocker stops the fan-out, so there is one such row per delegation,
+ * and it carries its hint beside it.
+ */
+function tableErrorParts(r: WorkerTaskResult, error: string): string[] {
+  if (classifyWorkerFailure(r)?.blocker !== true) {
+    return [`error: ${oneLine(error, TABLE_DETAIL_CHARS)}`];
+  }
+  return [
+    `error: ${oneLine(error, ERROR_HEAD_CHARS)}`,
+    ...(r.hint ? [`hint: ${r.hint}`] : []),
+  ];
 }
 
 function oneLine(text: string, cap: number): string {

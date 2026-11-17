@@ -7,6 +7,7 @@ import {
   EgressNotAllowedError,
   createEgressGuard,
   egressTargetOf,
+  shellNetworkUseOf,
 } from "./tool-egress.js";
 import { ToolRegistry, type ToolContext } from "./tool-registry.js";
 
@@ -29,6 +30,10 @@ const mcpEgress = (tool: string, args: Record<string, unknown>) => {
 const CASES: Array<[string, Record<string, unknown>, string]> = [
   ["os.web.search", { query: "x" }, "web"],
   ["os.web.fetch", { url: "https://example.com/" }, "web"],
+  // Upstream's crawler (merge 6d1f14fcd): every page it reads is a fetch.
+  ["os.web.crawl", { url: "https://example.com/docs" }, "web"],
+  // Records a page in a headless browser, which can load remote resources.
+  ["video.render_html", { path: "/tmp/page.html" }, "browser"],
   ["os.http.request", { url: "https://api.example.com/v1", method: "POST" }, "http"],
   ["browser.navigate", { url: "https://example.com/" }, "browser"],
   ["browser.click", { ref: "e1" }, "browser"],
@@ -71,6 +76,11 @@ describe("egress inventory (issue #33)", () => {
     ["mcp.files.read", {}],
     ["mcp.resource.list", { server: "files" }],
     ["os.web.fetch", { url: "http://127.0.0.1:8080/" }],
+    ["os.web.crawl", { url: "http://localhost:4000/" }],
+    // Local whisper.cpp; the model download sends nothing of the folder.
+    ["audio.transcribe", { path: "/tmp/a.wav" }],
+    ["audio.listen", { path: "/tmp/a.wav" }],
+    ["canvas.render", { kind: "chart" }],
     ["os.http.request", { url: "http://localhost:3000/health" }],
     ["reply", { text: "hi" }],
     ["verify.run", { kind: "command", cmd: "npm", args: ["test"] }],
@@ -110,6 +120,11 @@ describe("egress guard", () => {
     const guard = createEgressGuard({ policyForSession: () => constrained(["mcp:docs"]), mcpEgress });
     expect(guard("mcp.docs.search", {}, { sessionId: "s1" })).toBeNull();
     expect(guard("mcp.remote.search", {}, { sessionId: "s1" })).toBeInstanceOf(EgressNotAllowedError);
+  });
+
+  it("sees a network client in a stdin script fed to a shell", () => {
+    expect(shellNetworkUseOf("verify.run", { kind: "command", cmd: "sh", stdin: "curl https://x.example" })).not.toBeNull();
+    expect(shellNetworkUseOf("verify.run", { kind: "command", cmd: "cat", stdin: "curl https://x.example" })).toBeNull();
   });
 
   it("refuses a shell or verify.run network client unless its class is listed (best effort)", () => {

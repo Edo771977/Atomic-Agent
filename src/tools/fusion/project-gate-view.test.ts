@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { join, resolve } from "node:path";
+
+import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, withMilestoneCriteriaFacts, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { estimatePlan } from "./project-estimate.js";
 import { projectGateChanged, projectGateView } from "./project-gate-view.js";
 
@@ -31,6 +34,32 @@ describe("projectGateView (issue #39)", () => {
       brief: { draftedAfterUntrusted: true, status: "draft" },
       expectation: { kind: "await_person", gate: { kind: "brief" } },
     });
+  });
+
+  it("the brief keeps its criteria texts for older surfaces and carries the ids beside them", () => {
+    const project = up(undefined, { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs", { id: "keys", text: "Keys steer" }] }, draftedAfterUntrusted: false });
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.brief!.successCriteria).toEqual(["Runs", "Keys steer"]);
+    expect(view.brief!.criteria).toEqual([{ id: "c1", text: "Runs" }, { id: "keys", text: "Keys steer" }]);
+  });
+
+  it("a milestone carries its attachments and criteria facts (issue #40)", () => {
+    expect(PROJECT_RUNS_DIR_NAME).toBe(FUSION_RUNS_DIR_NAME);
+    const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error(JSON.stringify(r)); return (r as unknown as { project: ProjectState }).project; };
+    let project = ok(applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW }));
+    project = up(project, plan);
+    project = ok(applyProjectDecision(project, { gate: { kind: "plan" }, version: gateVersion(project)!, verdict: "approve" }, { now: NOW }));
+    project = up(project, { kind: "milestone_run", id: "m1", runId: "run-1" });
+    const stateDir = resolve("/state");
+    const path = join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.jpg");
+    project = ok(applyProjectUpdate(project, { kind: "milestone", id: "m1", state: "done", summary: "s", attachments: [{ path, caption: "Board", criteria: ["c1"] }] }, NOW, { stateDir }));
+    project = withMilestoneCriteriaFacts(project, "m1", [{ id: "c1", state: "unverified", why: "no vision reviewer" }], NOW);
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]).toMatchObject({
+      attachments: [{ path, caption: "Board", criteria: ["c1"] }],
+      criteriaFacts: [{ id: "c1", state: "unverified", why: "no vision reviewer" }],
+    });
+    expect(view.milestones[1]!.attachments).toBeUndefined();
   });
 
   it("a plan gate carries the plan's taint flag", () => {
@@ -74,5 +103,43 @@ describe("projectGateView (issue #39)", () => {
     expect(projectGateChanged(a, up(a, brief))).toBe(true);
     expect(projectGateChanged(a, { ...a, gate: { kind: "none" } })).toBe(true);
     expect(projectGateChanged(a, { ...a, cancelledAt: 1 })).toBe(true);
+  });
+});
+
+describe("projectGateView hints and editable rows (issue #54)", () => {
+  const planGate = (): ProjectState => {
+    const approvedBrief = applyProjectDecision(up(undefined, brief), { gate: { kind: "brief" }, version: 1, verdict: "approve" }, { now: NOW });
+    if (!approvedBrief.ok) throw new Error("x");
+    return up(approvedBrief.project, plan);
+  };
+
+  it("hints at configuring reviewers when none are, and leaves review behaviour alone", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a", "cloud:b"], reviewers: [] }, reviewersConfigured: false });
+    expect(view.hints).toEqual(["no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"]);
+    expect(view.plan!.editable).toBe(true);
+    expect(view.plan!.rows.map((r) => r.reviewer)).toEqual(["cloud:r", "cloud:r"]);
+  });
+
+  it("is not editable, with a hint, when every row has only its own worker and no reviewer to pick", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: false });
+    expect(view.plan!.editable).toBe(false);
+    expect(view.hints).toContain("only one worker available: configure llm.runMode.fusion.team to choose");
+  });
+
+  it("says no other member is reachable, not to configure a team, when the team has members that cannot answer", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: true, otherMembersConfigured: true });
+    expect(view.plan!.editable).toBe(false);
+    expect(view.hints).toEqual(["no other team member is reachable now: the rows keep their worker"]);
+  });
+
+  it("is editable without hints when there is a choice and reviewers are configured", () => {
+    const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
+    expect(view.plan!.editable).toBe(true);
+    expect(view.hints).toEqual([]);
+  });
+
+  it("gives no plan hints at the brief gate", () => {
+    const view = projectGateView({ sessionId: "s", project: up(undefined, brief), estimate: null, selectable: { workers: [], reviewers: [] }, reviewersConfigured: false });
+    expect(view.hints).toEqual([]);
   });
 });

@@ -21,6 +21,9 @@ export {
   MAX_CONTRACT_CHECKS,
   MAX_CONTRACT_PROVIDES,
   MAX_CONTRACT_RENDERED_CHARS,
+  CRITERION_ID_PATTERN,
+  normalizeCriterionId,
+  MAX_CHECK_CRITERIA,
   contractWarnings,
   describeProvide,
   describeUncheckableProvide,
@@ -58,6 +61,7 @@ export {
 export type {
   ContractCheckOutcome,
   ContractCheckResult,
+  ContractCheckRun,
   ContractCheckRunner,
   ContractFinding,
   ContractProvideReport,
@@ -145,7 +149,9 @@ export type { LiveWorkerControls, EscalationComplete } from "./escalation.js";
 export { SPLIT_PROPOSAL_TAG, TaskTreeState } from "./task-tree.js";
 export type { TaskTreeNode, TaskTreeReport } from "./task-tree.js";
 export {
+  fusionRunShotTarget,
   FusionRunStore,
+  FUSION_RUN_SHOTS_DIR_NAME,
   FUSION_RUNS_DIR_NAME,
   FUSION_RUN_RETENTION_MS,
   toolHasSideEffects,
@@ -223,3 +229,10 @@ export { projectPlanContextFrom } from "./project-plan-context.js";
 export type { ProjectPlanContextInput } from "./project-plan-context.js";
 export { teamContextFromConfig } from "./team-routing.js";
 export type { FusionTeamContext } from "./team-routing.js";
+export {
+  FUSION_OUTCOME_JOURNAL_FILE_NAME,
+  FusionOutcomeJournal,
+  outcomeRowFor,
+} from "./outcome-journal.js";
+export type { FusionOutcomeRow, OutcomeSize } from "./outcome-journal.js";
+export { summarizeOutcomes } from "./outcome-summary.js";

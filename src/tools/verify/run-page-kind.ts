@@ -22,6 +22,9 @@ import {
   type ProbeSample,
   sampleProbes,
 } from "./page-probe-script.js";
+import { capturePageJpeg } from "../browser/page-capture.js";
+import { GAME_ERROR_CHARS, GAME_INIT_SCRIPT, playGames, type VerifyGameSummary } from "./page-game-harness.js";
+import { defaultShotTarget, VERIFY_MAX_SCREENSHOTS, writeShot, type VerifyScreenshot, type VerifyShotTarget } from "./page-screenshots.js";
 import type { VerifyRunArgs, VerifyScriptStep } from "./verify-run-args.js";
 
 export type BrowserLauncher = () => Promise<Browser>;
@@ -38,10 +41,20 @@ export interface PageRunOutcome {
   readonly requestFailures: readonly string[];
   readonly missingSelectors: readonly string[];
   readonly probes: Readonly<Record<string, ProbeSample[]>>;
+  /** The games played through `window.__game` (`args.game`), after the script steps. */
+  readonly games?: VerifyGameSummary;
+  /** `args.screenshot`: the shots taken (at the end, or after each game). */
+  readonly screenshots?: readonly VerifyScreenshot[];
+  /** Shots that could not be taken or saved; the run's own verdict stands. */
+  readonly screenshotErrors?: readonly string[];
   readonly durationMs: number;
 }
 
 const LIST_CAP = 50;
+/** Page errors kept for attributing them to games; only the count past it is lost. */
+const ERROR_FEED_CAP = 10_000;
+/** One page or console error a game keeps, at most this long. */
+const ERROR_FEED_ENTRY_CHARS = GAME_ERROR_CHARS;
 const STEP_TIMEOUT_MS = 5_000;
 const LOAD_TIMEOUT_MS = 30_000;
 
@@ -119,7 +132,13 @@ function describeStep(step: VerifyScriptStep): string {
 
 export async function runPageKind(
   args: VerifyRunArgs,
-  ctx: { cwd: string; signal?: AbortSignal; launch: BrowserLauncher },
+  ctx: {
+    cwd: string;
+    signal?: AbortSignal;
+    launch: BrowserLauncher;
+    /** Where `args.screenshot` shots go; the temp screenshot folder when absent. */
+    shots?: VerifyShotTarget;
+  },
 ): Promise<PageRunOutcome> {
   const started = Date.now();
   const errors: string[] = [];
@@ -128,8 +147,21 @@ export async function runPageKind(
   const requestFailures: string[] = [];
   let missingSelectors: string[] = [];
   let probes: Record<string, ProbeSample[]> = {};
+  let games: VerifyGameSummary | undefined;
+  const screenshots: VerifyScreenshot[] = [];
+  const screenshotErrors: string[] = [];
+  const shotTarget = args.screenshot === undefined ? undefined : (ctx.shots ?? defaultShotTarget());
+  // Every uncaught error and console error, in order: a game owns the
+  // ones raised while it ran.
+  const errorFeed: string[] = [];
+  const feed = (entry: string): void => {
+    if (errorFeed.length < ERROR_FEED_CAP) errorFeed.push(entry.length > ERROR_FEED_ENTRY_CHARS ? `${entry.slice(0, ERROR_FEED_ENTRY_CHARS - 1)}…` : entry);
+  };
   const done = (partial: Partial<PageRunOutcome> & { target: string; launched: boolean; loaded: boolean }): PageRunOutcome => ({
     errors, consoleErrors, consoleWarnings, requestFailures, missingSelectors, probes,
+    ...(games === undefined ? {} : { games }),
+    ...(args.screenshot === undefined ? {} : { screenshots }),
+    ...(screenshotErrors.length === 0 ? {} : { screenshotErrors }),
     durationMs: Date.now() - started,
     ...partial,
   });
@@ -151,10 +183,21 @@ export async function runPageKind(
   } catch (err) {
     return done({ target, launched: false, loaded: false, error: err instanceof Error ? err.message : String(err) });
   }
+  // Closed once, whichever of the deadline, a cancel or the end comes first.
+  let closing: Promise<void> | undefined;
+  const closeBrowser = (): Promise<void> => (closing ??= browser.close().catch(() => {}));
   const deadline = setTimeout(() => {
     push(errors, `run exceeded timeoutMs (${args.timeoutMs})`);
-    void browser.close().catch(() => {});
+    void closeBrowser();
   }, args.timeoutMs);
+  // A cancel closes the browser: whatever the page is doing (a game step
+  // that never ends, a probe) stops with it.
+  const onAbort = (): void => {
+    push(errors, "the run was cancelled");
+    void closeBrowser();
+  };
+  if (ctx.signal?.aborted) onAbort();
+  else ctx.signal?.addEventListener("abort", onAbort, { once: true });
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     if (!args.network) {
@@ -168,10 +211,15 @@ export async function runPageKind(
     const page = await context.newPage();
     page.on("pageerror", (err) => {
       const message = err.message.split("\n")[0] ?? String(err);
-      push(errors, err.name.length > 0 && !message.startsWith(err.name) ? `${err.name}: ${message}` : message);
+      const text = err.name.length > 0 && !message.startsWith(err.name) ? `${err.name}: ${message}` : message;
+      push(errors, text);
+      feed(`uncaught: ${text}`);
     });
     page.on("console", (msg) => {
-      if (msg.type() === "error") push(consoleErrors, msg.text());
+      if (msg.type() === "error") {
+        push(consoleErrors, msg.text());
+        feed(`console: ${msg.text()}`);
+      }
       else if (msg.type() === "warning") push(consoleWarnings, msg.text());
     });
     page.on("requestfailed", (req) => {
@@ -179,6 +227,7 @@ export async function runPageKind(
       if (!why.includes("BLOCKED_BY_CLIENT")) push(requestFailures, `${req.url()} ${why}`);
     });
     await page.addInitScript(MISSING_SELECTOR_INIT_SCRIPT);
+    if (args.game !== undefined) await page.addInitScript(GAME_INIT_SCRIPT);
     try {
       await page.goto(target, { waitUntil: "load", timeout: Math.min(LOAD_TIMEOUT_MS, args.timeoutMs) });
     } catch (err) {
@@ -192,7 +241,27 @@ export async function runPageKind(
         push(errors, `script step ${describeStep(step)} failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       }
     }
+    const shoot = async (game?: number): Promise<void> => {
+      if (args.screenshot === undefined || shotTarget === undefined || screenshots.length >= VERIFY_MAX_SCREENSHOTS || ctx.signal?.aborted) return;
+      try {
+        const shot = await capturePageJpeg(page, { fullPage: args.screenshot.fullPage });
+        const path = await writeShot(shotTarget, shot.buffer);
+        screenshots.push({
+          path, bytes: shot.buffer.length, width: shot.width, height: shot.height,
+          ...(shot.clipped ? { clipped: true as const } : {}),
+          ...(game === undefined ? {} : { game }),
+        });
+      } catch (err) {
+        push(screenshotErrors, `screenshot${game === undefined ? "" : ` after game ${game + 1}`}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+      }
+    };
+    if (args.game !== undefined && !ctx.signal?.aborted) {
+      games = await playGames(page, args.game, { seen: () => errorFeed }, ctx.signal, (index) => shoot(index));
+    }
     probes = await sampleProbes(args.probes ?? [], args.seconds, (expr) => page.evaluate(expr), ctx.signal);
+    // Without games, one shot at the end of the run (after the script
+    // steps and the probes' runtime).
+    if (args.game === undefined) await shoot();
     try {
       const recorded = await page.evaluate(`window[${JSON.stringify(MISSING_SELECTOR_GLOBAL)}]`);
       missingSelectors = Array.isArray(recorded) ? recorded.map(String) : [];
@@ -204,6 +273,7 @@ export async function runPageKind(
     return done({ target, launched: true, loaded: false, error: err instanceof Error ? err.message.split("\n")[0] : String(err) });
   } finally {
     clearTimeout(deadline);
-    await browser.close().catch(() => {});
+    ctx.signal?.removeEventListener("abort", onAbort);
+    await closeBrowser();
   }
 }

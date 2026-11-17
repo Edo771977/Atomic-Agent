@@ -68,9 +68,19 @@ export function normaliseOpenAiUsage(
   const usage = raw ?? {};
   const details = usage.prompt_tokens_details;
   const hasDetails = details !== null && typeof details === "object";
-  const cached = hasDetails
+  // Moonshot (Kimi) reports hits as a top-level `usage.cached_tokens`,
+  // and its `prompt_tokens_details` may carry only `cache_write_tokens`;
+  // a details block without a hit count must not hide the top-level one
+  // (ATO-912), or every hit is priced at the full input rate.
+  const detailsCached = hasDetails
     ? (details as Record<string, unknown>).cached_tokens
-    : usage.cache_read_input_tokens;
+    : undefined;
+  const cached =
+    typeof detailsCached === "number"
+      ? detailsCached
+      : typeof usage.cached_tokens === "number"
+        ? usage.cached_tokens
+        : usage.cache_read_input_tokens;
   // Kimi reports cache writes beside the hits (ATO-912); they are billed
   // at their own rate, so keep the count for the cost estimate. An
   // Anthropic-shaped block names them `cache_creation_input_tokens`.
@@ -83,7 +93,10 @@ export function normaliseOpenAiUsage(
   const output = readOutputTokens(usage, reportedPrompt, reportedCompletion, totalTokens);
   const promptTokens = hasDetails
     ? reportedPrompt
-    : reportedPrompt + anthropicCacheOutsidePrompt(cached, written, reportedPrompt, reportedCompletion, totalTokens);
+    : reportedPrompt +
+      // Only Anthropic-shaped counts sit outside `prompt_tokens`; a
+      // top-level Moonshot `cached_tokens` is part of the prompt.
+      anthropicCacheOutsidePrompt(usage.cache_read_input_tokens, written, reportedPrompt, reportedCompletion, totalTokens);
   return {
     ...([usage.prompt_tokens, usage.completion_tokens].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
       ? {} : { incomplete: true as const }),

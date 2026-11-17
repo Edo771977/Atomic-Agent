@@ -12,6 +12,14 @@ import type { EscalationComplete } from "./escalation.js";
 import type { WorkerPricing, WorkerTaskResult } from "./worker-result.js";
 import type { WorkspaceChange } from "./branch-diff.js";
 import { outcomeLabel } from "./outcome-log.js";
+import type { ProjectCriterionFact } from "../../session/session-project.js";
+import {
+  criteriaFactsFor,
+  criterionLabel,
+  taskCriteria,
+  type TaskCriterion,
+  type VisionJudgements,
+} from "./criteria-facts.js";
 import {
   knownSecretsFromEnv,
   maskSecrets,
@@ -45,6 +53,11 @@ import {
  *     The judge can only add red: it never turns a failed fact green.
  *     An item it gives no verdict for is red. An answer that cannot be
  *     read leaves the node unverified, never green.
+ *     The success criteria its checks name (issue #40,
+ *     `criteria-facts.ts`) are items too, ruled by facts only: a red
+ *     one is a blocker naming the criterion; an unverified one (a
+ *     visual check with no vision judgement) keeps the task from closing
+ *     on its own — it goes to the director, like a review that ran out.
  *  3. A red list re-runs the task once with the judge's findings; a list
  *     still red after that is reported as failed, item by item.
  *
@@ -93,7 +106,8 @@ export type AcceptanceItemKind =
   | "provide"
   | "file"
   | "deliverable"
-  | "instructions";
+  | "instructions"
+  | "criterion";
 
 export interface AcceptanceItem {
   id: string;
@@ -107,6 +121,8 @@ export interface AcceptanceItem {
   judged: boolean;
   /** `file`: the declared path. */
   path?: string;
+  /** `criterion`: the success criterion and the checks naming it (issue #40). */
+  criterion?: TaskCriterion;
 }
 
 const INSTRUCTIONS_ITEM_CHARS = 300;
@@ -123,6 +139,8 @@ export const JUDGE_MAX_OUTPUT_TOKENS = 2_000;
 export function buildAcceptanceChecklist(
   task: DelegateTask,
   contract: DelegateContract | undefined,
+  /** The approved brief's criteria by id (issue #40): those the task's checks name become items. */
+  criteria?: ReadonlyMap<string, { id: string; text: string }>,
 ): AcceptanceItem[] {
   const items: AcceptanceItem[] = [];
   const next = (): string => `a${items.length + 1}`;
@@ -137,6 +155,17 @@ export function buildAcceptanceChecklist(
       judged: false,
     });
   });
+  if (criteria !== undefined) {
+    for (const criterion of taskCriteria(task.id, contract, criteria)) {
+      items.push({
+        id: next(),
+        kind: "criterion",
+        text: `the success criterion ${criterionLabel(criterion)} holds`,
+        criterion,
+        judged: false,
+      });
+    }
+  }
   for (const provide of contract?.provides ?? []) {
     if (provide.task !== task.id) continue;
     items.push({
@@ -208,15 +237,36 @@ export interface JudgeVerdict {
   costUsd: number | null;
   /** The structured review (issue #38); `green` is `review.decision === "accept"`. */
   review: ReviewVerdict;
+  /** The task's success-criteria facts (issue #40), item order; absent when its checks name none. */
+  criteria?: ProjectCriterionFact[];
 }
 
 export interface JudgeFacts {
   /** Outcomes in `contract.checks` order (`runContractChecks`). */
   checkOutcomes: readonly (ContractCheckOutcome | undefined)[];
   findings: readonly ContractFinding[];
+  /** The task's vision judgements by criterion id (`vision-judge.ts`, issue #40). */
+  vision?: VisionJudgements;
 }
 
 /** The facts' verdicts; `undefined` for an item only the judge can rule on. */
+/**
+ * Whether a scripted (non-criterion) item of the list is already red:
+ * the list cannot be green, so nothing is paid to judge it further.
+ */
+export async function hasRedFact(
+  items: readonly AcceptanceItem[],
+  facts: JudgeFacts,
+  workingDir: string,
+): Promise<boolean> {
+  for (const item of items) {
+    if (item.kind === "criterion") continue;
+    const verdict = await factVerdict(item, facts, workingDir);
+    if (verdict !== undefined && !verdict.pass) return true;
+  }
+  return false;
+}
+
 async function factVerdict(
   item: AcceptanceItem,
   facts: JudgeFacts,
@@ -423,7 +473,7 @@ export function renderJudgePrompt(input: {
   successCriteria?: readonly string[];
 }): string {
   const judged = input.items.filter(
-    (item) => !input.facts.some((fact) => fact.id === item.id),
+    (item) => item.kind !== "criterion" && !input.facts.some((fact) => fact.id === item.id),
   );
   return [
     "You are a strict acceptance judge. A worker says it finished the task below. Do not trust it: find where the work does NOT meet each item. Rule only from the evidence shown. If the evidence does not show an item is met, it is not met.",
@@ -585,11 +635,32 @@ export async function judgeTask(input: {
   const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
   const factVerdicts: ItemVerdict[] = [];
   for (const item of input.items) {
+    if (item.kind === "criterion") continue;
     const verdict = await factVerdict(item, input.facts, input.workingDir);
     if (verdict !== undefined) factVerdicts.push(verdict);
   }
+  // Success criteria are facts only (issue #40); an unverified one is
+  // held apart: it neither reds the list nor lets it close.
+  const criterionItems = input.items.filter((item) => item.kind === "criterion" && item.criterion !== undefined);
+  const criteria = criterionItems.length === 0
+    ? undefined
+    : criteriaFactsFor(criterionItems.map((item) => item.criterion!), input.contract, input.facts.checkOutcomes, input.facts.vision);
+  const pending: ItemVerdict[] = [];
+  const pendingLines: string[] = [];
+  criterionItems.forEach((item, i) => {
+    const fact = criteria![i]!;
+    const label = criterionLabel(item.criterion!);
+    if (fact.state === "passed") factVerdicts.push({ id: item.id, pass: true, why: fact.why ?? "passed", by: "fact" });
+    else if (fact.state === "failed") factVerdicts.push({ id: item.id, pass: false, why: `criterion ${label} not met: ${fact.why ?? "failed"}`, by: "fact" });
+    else {
+      pending.push({ id: item.id, pass: false, why: `unverified: criterion ${label} — ${fact.why ?? "not judged"}`, by: "skipped" });
+      pendingLines.push(`${label} — ${fact.why ?? "not judged"}`);
+    }
+  });
+  const finish = (verdict: JudgeVerdict): JudgeVerdict =>
+    withCriteria(verdict, criteria, pending, pendingLines);
   const needsJudge = input.items.filter(
-    (item) => !factVerdicts.some((fact) => fact.id === item.id),
+    (item) => item.kind !== "criterion" && !factVerdicts.some((fact) => fact.id === item.id),
   );
   // A red fact makes the list red whatever the judge would say, so the
   // judge is not paid to say it; its items are listed as not judged.
@@ -603,7 +674,7 @@ export async function judgeTask(input: {
       }),
     );
     const green = factVerdicts.every((v) => v.pass) && skipped.length === 0;
-    return {
+    return finish({
       green,
       items: [...factVerdicts, ...skipped].sort(
         (a, b) => itemOrder(a.id) - itemOrder(b.id),
@@ -614,7 +685,7 @@ export async function judgeTask(input: {
         issues: factIssues(input.items, factVerdicts),
         reviewer: null,
       },
-    };
+    });
   }
   const evidence = await gatherEvidence(
     input.task,
@@ -645,23 +716,23 @@ export async function judgeTask(input: {
       costUsd = completionCostUsd(answer.usage, input.pricing) ?? null;
     }
   } catch (err) {
-    return {
+    return finish({
       green: false,
       items: factVerdicts,
       unverified: `the judge could not run: ${err instanceof Error ? err.message : String(err)}`,
       costUsd,
       review: { decision: "unverified", issues: [], reviewer },
-    };
+    });
   }
   const ruled = parseJudgeAnswer(content);
   if (!ruled.ok) {
-    return {
+    return finish({
       green: false,
       items: factVerdicts,
       unverified: `the judge's answer could not be read (${ruled.error})`,
       costUsd,
       review: { decision: "unverified", issues: [], reviewer },
-    };
+    });
   }
   const issues: ReviewIssue[] = ruled.issues.map((issue) => ({ ...issue, by: "reviewer" }));
   // An issue on an item the facts ruled on, on no item, or on an unknown
@@ -692,11 +763,39 @@ export async function judgeTask(input: {
   const green = all.every((v) => v.pass);
   // The decision follows the issues: a blocking one, whatever the
   // reviewer decided, is needs-changes; minors alone are an accept.
-  return {
+  return finish({
     green,
     items: all,
     costUsd,
     review: { decision: green ? "accept" : "needs-changes", issues, reviewer },
+  });
+}
+
+/**
+ * A verdict with the task's criteria facts on it (issue #40). An
+ * unverified criterion is listed as not judged; on a list otherwise
+ * green it leaves the task unverified, for the director to decide —
+ * never green without its judgement.
+ */
+function withCriteria(
+  verdict: JudgeVerdict,
+  criteria: ProjectCriterionFact[] | undefined,
+  pending: readonly ItemVerdict[],
+  pendingLines: readonly string[],
+): JudgeVerdict {
+  if (criteria === undefined) return verdict;
+  const out: JudgeVerdict = {
+    ...verdict,
+    items: [...verdict.items, ...pending].sort((a, b) => itemOrder(a.id) - itemOrder(b.id)),
+    criteria,
+  };
+  if (pending.length === 0 || !verdict.green) return out;
+  const named = pendingLines.join("; ");
+  return {
+    ...out,
+    green: false,
+    unverified: `${pending.length} success criteri${pending.length === 1 ? "on" : "a"} not verified: ${named}. The director decides: add a vision-capable reviewer, accept it with reasons, or ask the person`,
+    review: { ...verdict.review, decision: "unverified" },
   };
 }
 
@@ -765,6 +864,8 @@ export interface JudgeSummary {
   items: ItemVerdict[];
   /** The structured review (issue #38); absent on summaries from before it. */
   review?: ReviewVerdict;
+  /** The task's success-criteria facts (issue #40); absent when its checks name none. */
+  criteria?: ProjectCriterionFact[];
 }
 
 /** Fold a verdict into the task's row: a node closes only on a green list. */
@@ -786,6 +887,7 @@ export function applyJudgeVerdict(
     costUsd: verdict.costUsd,
     items: verdict.items,
     review: verdict.review,
+    ...(verdict.criteria === undefined ? {} : { criteria: verdict.criteria }),
   };
   const after =
     passes === undefined

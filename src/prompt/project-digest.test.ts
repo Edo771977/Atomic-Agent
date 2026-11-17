@@ -39,7 +39,7 @@ describe("renderProjectDigest (issue #39)", () => {
   it("a brief waiting for the person says so and not to delegate", () => {
     const text = renderProjectDigest(up(undefined, brief))!;
     expect(text).toContain("brief: draft v1 — A snake game");
-    expect(text).toContain("success criteria:\n- Runs offline\n- Arrow keys steer");
+    expect(text).toContain("success criteria (ids for contract checks' `criteria`):\n- c1: Runs offline\n- c2: Arrow keys steer");
     expect(text).toMatch(/gate: the brief waits for the person/);
     expect(text).toMatch(/do not delegate/i);
   });
