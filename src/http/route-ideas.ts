@@ -6,6 +6,7 @@ import {
   type HttpHandler,
   type HandlerContext,
 } from "./request-context.js";
+import { serveWithheld } from "./serve-egress.js";
 import { checkWorkingDir } from "./session-working-dir.js";
 import {
   IDEA_STATUSES,
@@ -15,6 +16,7 @@ import {
   acceptIdea,
   ideaToJson,
   refreshIdeas,
+  type IdeaRecord,
   type IdeaStatus,
 } from "../tasks/index.js";
 
@@ -49,6 +51,22 @@ function withIdeaStore(
   }
 }
 
+/**
+ * Issue #33: on a network server an idea built from a restricted
+ * session (a goal's criteria, a failed task's message) is not shown,
+ * accepted or dismissed: it reads as unknown.
+ */
+function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
+  const sessionId = idea.evidence.source === "goal"
+    ? idea.evidence.ref
+    : ctx.runtime.taskStore.get(idea.evidence.ref)?.sessionId ?? idea.sessionId;
+  return sessionId !== null && serveWithheld(ctx, sessionId)();
+}
+
+function visibleIdeas(ctx: HandlerContext, list: IdeaRecord[]): IdeaRecord[] {
+  return list.filter((idea) => !ideaWithheld(ctx, idea));
+}
+
 function tasksDisabled(ctx: HandlerContext): boolean {
   return !ctx.runtime.config.tasks.enabled;
 }
@@ -73,7 +91,7 @@ export function createListIdeasHandler(): HttpHandler {
     }
     withIdeaStore(ctx, (ideas) => {
       const list = ideas.list({ ...(status ? { status } : {}), limit });
-      sendJson(res, 200, { ideas: list.map(ideaToJson) });
+      sendJson(res, 200, { ideas: visibleIdeas(ctx, list).map(ideaToJson) });
     });
   };
 }
@@ -91,8 +109,8 @@ export function createRefreshIdeasHandler(): HttpHandler {
         sessions: ctx.runtime.sessionStore,
       });
       sendJson(res, 200, {
-        ideas: ideas.list({ status: "new" }).map(ideaToJson),
-        added: result.added.map((i) => i.id),
+        ideas: visibleIdeas(ctx, ideas.list({ status: "new" })).map(ideaToJson),
+        added: visibleIdeas(ctx, result.added).map((i) => i.id),
         retired: result.retired,
       });
     });
@@ -123,6 +141,11 @@ export function createAcceptIdeaHandler(): HttpHandler {
     }
     const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
     withIdeaStore(ctx, (ideas) => {
+      const known = ideas.get(id);
+      if (known !== null && ideaWithheld(ctx, known)) {
+        sendError(res, 404, openaiError(`idea not found: ${id}`));
+        return;
+      }
       try {
         const accepted = acceptIdea(
           ideas,
@@ -199,6 +222,11 @@ export function createDismissIdeaHandler(): HttpHandler {
       return;
     }
     withIdeaStore(ctx, (ideas) => {
+      const known = ideas.get(id);
+      if (known !== null && ideaWithheld(ctx, known)) {
+        sendError(res, 404, openaiError(`idea not found: ${id}`));
+        return;
+      }
       try {
         const dismissed = ideas.dismiss(id);
         if (dismissed === null) {

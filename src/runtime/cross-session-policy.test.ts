@@ -7,6 +7,7 @@ import { currentProviderPolicy, runWithProviderPolicy } from "../llm/provider-po
 import { createEmptySessionState } from "../session/index.js";
 import { buildSessionsSearchTool } from "../tools/memory/sessions-search.js";
 import { buildSessionsCheckTool } from "../tools/sessions/sessions-check.js";
+import { buildSessionsListTool } from "../tools/sessions/sessions-list.js";
 import { buildSessionsReadTool } from "../tools/sessions/sessions-read.js";
 import { buildSessionsSendTool } from "../tools/sessions/sessions-send.js";
 import { frameCrossSessionMessage } from "../tools/sessions/session-access.js";
@@ -116,6 +117,25 @@ describe("cross-session policy", () => {
     expect(inside.summary).toContain("s-other");
     await t.inOpenTurn(() => tool.run({ sessionId: "s-secret" }, t.ctx("s-open", t.open)));
     expect(readTaintOf(t.stored.get("s-open")!.metadata)?.key).toBe(t.secret);
+  });
+
+  it("sessions.list names no chat the caller may not see, and a query does not match its words", async () => {
+    const t = setup();
+    t.stored.get("s-secret")!.metadata = { title: "Acme contract" };
+    const rows = [
+      { id: "s-secret", status: "idle", updatedAt: 2, title: "Acme contract", firstPrompt: "read the Acme contract" },
+      { id: "s-other", status: "idle", updatedAt: 1, title: "Acme lunch", firstPrompt: null },
+    ];
+    const tool = buildSessionsListTool({
+      sessionStore: { listSummaryPage: () => rows as never },
+      crossSession: t.cross,
+    });
+    const listed = await t.inOpenTurn(() => tool.run({}, t.ctx("s-open", t.open)));
+    expect(listed.summary).toContain("Acme lunch");
+    expect(listed.summary).not.toContain("Acme contract");
+    expect(listed.summary).toContain("s-secret");
+    const found = await t.inOpenTurn(() => tool.run({ query: "contract" }, t.ctx("s-open", t.open)));
+    expect(found.summary).not.toContain("s-secret");
   });
 
   it("sessions.send carries a constrained sender's constraint into the chat it queues into", async () => {

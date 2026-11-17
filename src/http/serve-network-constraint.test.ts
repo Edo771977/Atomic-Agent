@@ -75,5 +75,20 @@ describe("serve on a network host with per-folder constraints", () => {
     const body = (await res.json()) as { hits: Array<{ sessionId: string }> };
     expect(body.hits.map((h) => h.sessionId)).not.toContain(session.id);
   });
+
+  it("lists no idea built from a restricted session on GET /api/ideas or its refresh", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save(session);
+    const store = harness.runtime.taskStore;
+    const t = store.create({ userMessage: "send the acme figures", origin: "cli", maxAttempts: 1, sessionId: session.id });
+    store.markRunning(t.id);
+    store.markFailed(t.id, { category: "transport", message: "provider timed out" });
+    const refreshed = await fetch(`${harness.baseUrl}/api/ideas/refresh`, { method: "POST" });
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.text()).not.toContain("acme");
+    const listed = await fetch(`${harness.baseUrl}/api/ideas`);
+    expect(await listed.text()).not.toContain("acme");
+  });
 });
 

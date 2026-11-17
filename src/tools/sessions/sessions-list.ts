@@ -5,11 +5,19 @@ import {
   type SessionSummary,
 } from "../../session/index.js";
 import type { ToolDefinition } from "../tool-registry.js";
-import { chatName, limitArg, stringArg } from "./session-access.js";
+import { chatName, limitArg, stringArg, type CrossSessionGuard } from "./session-access.js";
 
 export interface SessionsListToolOptions {
   sessionStore: Pick<SessionStore, "listSummaryPage">;
+  /**
+   * Per-folder constraints (issue #33): a chat the call may not see is
+   * listed by id only, its name withheld and never matched by a query.
+   */
+  crossSession?: Pick<CrossSessionGuard, "visible">;
 }
+
+/** What a list shows instead of the name of a chat the caller may not see. */
+export const RESTRICTED_CHAT_NAME = "(a chat in a restricted folder)";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
@@ -33,10 +41,14 @@ export function buildSessionsListTool(options: SessionsListToolOptions): ToolDef
     async run(rawArgs, ctx) {
       const limit = limitArg(rawArgs.limit, DEFAULT_LIMIT, MAX_LIMIT);
       const query = stringArg(rawArgs.query)?.toLowerCase();
+      const nameOf = (row: SessionSummary): string =>
+        row.id === ctx.sessionId || options.crossSession === undefined || options.crossSession.visible(row.id)
+          ? chatName(row)
+          : RESTRICTED_CHAT_NAME;
       const rows = query
-        ? scanForQuery(options.sessionStore, query, limit)
+        ? scanForQuery(options.sessionStore, query, limit, nameOf)
         : options.sessionStore.listSummaryPage({ limit });
-      const lines = rows.map((row) => renderRow(row, ctx.sessionId));
+      const lines = rows.map((row) => renderRow(row, ctx.sessionId, nameOf));
       const output =
         lines.length === 0
           ? query
@@ -54,7 +66,7 @@ export function buildSessionsListTool(options: SessionsListToolOptions): ToolDef
               id: row.id,
               status: row.status,
               updatedAt: row.updatedAt,
-              name: chatName(row),
+              name: nameOf(row),
               current: row.id === ctx.sessionId,
             })),
           },
@@ -69,13 +81,15 @@ function scanForQuery(
   store: Pick<SessionStore, "listSummaryPage">,
   query: string,
   limit: number,
+  nameOf: (row: SessionSummary) => string,
 ): SessionSummary[] {
   const found: SessionSummary[] = [];
   let scanned = 0;
   let page = store.listSummaryPage({ limit: PAGE });
   while (page.length > 0 && found.length < limit && scanned < QUERY_SCAN_ROWS) {
     for (const row of page) {
-      if (chatName(row).toLowerCase().includes(query)) found.push(row);
+      const name = nameOf(row);
+      if (name !== RESTRICTED_CHAT_NAME && name.toLowerCase().includes(query)) found.push(row);
       if (found.length >= limit) break;
     }
     scanned += page.length;
@@ -86,8 +100,8 @@ function scanForQuery(
   return found;
 }
 
-function renderRow(row: SessionSummary, callerId: string): string {
+function renderRow(row: SessionSummary, callerId: string, nameOf: (row: SessionSummary) => string): string {
   const when = new Date(row.updatedAt).toISOString().slice(0, 16).replace("T", " ");
   const mine = row.id === callerId ? " (this chat)" : "";
-  return `- ${row.id} · ${row.status} · ${when} · ${chatName(row)}${mine}`;
+  return `- ${row.id} · ${row.status} · ${when} · ${nameOf(row)}${mine}`;
 }

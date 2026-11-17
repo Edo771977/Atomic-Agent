@@ -57,7 +57,7 @@ export function registerSessionTools(
     approvalRequired: options.approvalRequired,
   };
   const cross = options.crossSession === undefined ? {} : { crossSession: options.crossSession };
-  registry.register(buildSessionsListTool({ sessionStore: options.sessionStore }));
+  registry.register(buildSessionsListTool({ sessionStore: options.sessionStore, ...cross }));
   registry.register(
     buildSessionsReadTool({ ...dangerous, sessionStore: options.sessionStore, ...cross }),
   );
