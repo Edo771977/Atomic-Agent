@@ -379,6 +379,16 @@ export function providerEndpointRefusal(
 }
 
 /**
+ * Whether `url` is a computer on the local network that `policy` lists
+ * in `allowedProviderHosts` (issue #60), for a sender with no provider id
+ * to match (memory embeddings): a private-network host only, so a public
+ * host is never let through by this list, and an unreadable URL is not.
+ */
+export function networkEndpointListed(policy: ProviderPolicy, url: string | undefined): boolean {
+  return isLocalServerUrl(url) && providerEndpointRefusal(policy, { local: true, url }) === undefined;
+}
+
+/**
  * Throw unless the current frame lets `providerId` receive a request.
  * `providerId` must be the ACTUAL provider about to be called, not the
  * id a caller asked for (an unknown id resolves to the active provider).
