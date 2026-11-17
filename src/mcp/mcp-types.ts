@@ -70,6 +70,17 @@ export interface McpServerConfig {
    */
   env?: Record<string, string>;
   /**
+   * `true`: this `stdio` server never reaches the network (issue #60).
+   * Only then does a folder with an egress constraint treat its tools
+   * as local; any other stdio server is classed `mcp:<name>`, like a
+   * remote one, and is refused there unless the folder's
+   * `allowedEgress` lists `mcp:<name>`. Absent or `false`: may use the
+   * network (fail closed). Rejected on HTTP / SSE transports. No effect
+   * in a folder without a constraint. See
+   * ../llm/docs/provider-policy.md.
+   */
+  local?: boolean;
+  /**
    * Raw tool names to offer from this server. Absent: every tool the
    * server lists. Present (even empty): only these. See
    * `mcp-tool-filter.ts`.

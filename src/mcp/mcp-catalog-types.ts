@@ -26,6 +26,13 @@ export interface McpCatalogServer {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /**
+   * Written as `mcp.servers[].local` (issue #60): this command server
+   * never reaches the network, so a folder with an egress constraint
+   * lets its tools through. Only on servers that work on local data;
+   * when unsure, leave it out. Command servers only.
+   */
+  local?: true;
 }
 
 export interface McpCatalogEntry {
