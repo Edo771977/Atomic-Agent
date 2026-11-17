@@ -148,3 +148,40 @@ test("a project with no disk folder edits and removes like any other", () => {
   assert.equal(vm.runInContext("FOLDERS.state.folders.length", c), 0);
   assert.equal(vm.runInContext("FOLDERS.state.chats.s2", c), null);
 });
+
+// Issue #62: a project's header starts a new chat in that project.
+test("each project header has a New chat + that opens a new chat in that project without folding it", () => {
+  const c = load();
+  vm.runInContext(`
+    PROJECTS.state = projectsCoerce({projects: [{id: 'paaaaaa', name: 'app', folder: '/src/app'}]});
+    FOLDERS.state = foldersCoerce({folders: [{id: 'f1', name: 'Marketing'}]});
+  `, c);
+  const html = vm.runInContext(`projectsSidebarHTML([{project: PROJECTS.state.projects[0], rows: []}], [{folder: FOLDERS.state.folders[0], rows: []}])`, c);
+  for (const [id, name] of [["paaaaaa", "app"], ["f1", "Marketing"]]) {
+    assert.match(html, new RegExp('<span class="sesmore iconbtn" data-act="pchat:' + id + '" title="New chat in ' + name + '" aria-label="New chat in ' + name + '" role="button" tabindex="0">'),
+      "the header of " + id + " has a New chat control");
+    // Inside the header button, ahead of Edit: the delegate resolves the innermost [data-act], so a click on it never toggles the fold.
+    const head = html.slice(html.indexOf('data-act="' + (id[0] === "f" ? "ftoggle:" : "ptoggle:") + id + '"'));
+    assert.ok(head.indexOf('data-act="pchat:' + id + '"') < head.indexOf('data-act="pedit:' + id + '"'));
+    assert.ok(head.indexOf('data-act="pchat:' + id + '"') < head.indexOf("</button>"));
+  }
+  assert.match(html, /No chats yet\. Start one with \+ or drag a chat here/);
+
+  for (const id of ["paaaaaa", "f1"]) {
+    c.acts.length = 0;
+    const before = vm.runInContext(`[...PROJECTS.collapsed].join()`, c);
+    vm.runInContext(`S.log = ['old chat']; S.agentSession = 'sOld'; act = (a) => { acts.push(a); if (a === 'session:new') { S.log = []; S.agentSession = null; } };`, c);
+    assert.equal(vm.runInContext(`projectAct('pchat', '${id}')`, c), true);
+    assert.deepEqual(c.acts, ["session:new"]);
+    assert.equal(vm.runInContext("PROJECTS.newFor.id", c), id);
+    assert.equal(vm.runInContext("PROJECTS.newFor.log === S.log", c), true, "marked on the new chat's transcript");
+    assert.equal(vm.runInContext(`[...PROJECTS.collapsed].join()`, c), before, "the fold is untouched");
+    assert.equal(vm.runInContext("FOLDERS.state.folders[0].collapsed", c), false);
+    assert.equal(vm.runInContext("projectForNewTurn()", c), id, "the next first turn opens in that project");
+    assert.equal(vm.runInContext("projectForNewTurn()", c), undefined, "read once");
+  }
+  // A project that is gone opens nothing.
+  c.acts.length = 0;
+  vm.runInContext(`projectAct('pchat', 'pgone00')`, c);
+  assert.deepEqual(c.acts, []);
+});

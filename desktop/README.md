@@ -415,6 +415,17 @@ Real, driven by the running agent:
   the lockup and the workspace chip — carries no plus at all; the user asked
   for it there and nowhere else. The dot on a row is a 6px ring seated on the
   label's optical centre rather than on its line box.
+  **Projects** (`renderer/chat-projects.js`) list both kinds of project, a
+  store project with a folder on disk and a chat folder, each header folding
+  its chats. A header carries **+** (New chat in <name>), Edit and Remove, on
+  hover and keyboard focus (Tab reaches them; Enter or Space presses them).
+  None of them folds the project. **+** does what New project does once it has
+  made the project: New chat, and that chat's first turn opens in the project
+  (its folder and instructions; a chat folder files the chat). As with New
+  chat, a turn running in the chat on screen keeps running there, and in the
+  narrow window's drawer the click closes the drawer. An empty project says
+  "No chats yet. Start one with + or drag a chat here". The collapsed rail
+  hides the headers; the drawer (⌘ \) shows them.
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per
   machine, per viewer — because the agent has no route and no store field for
   either, and its `config.json` is the operator's file. On a machine that has

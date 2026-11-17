@@ -15,6 +15,9 @@
      the chat in the project before the turn starts.
    - The sidebar shows each project with its chats, folding like a chat
      folder. A chat filed in an ATO-1034 chat folder stays in that folder.
+   - New chat (the plus on a project's header, issue #62) opens a new chat in
+     that project the way New project does once it has made one
+     (projectNewChat): the first turn carries the project's id.
    - Edit (the pencil on a project's header): its name and its instructions,
      which main hands the agent with every turn of the project's chats.
    - Removing a project leaves its chats (under Chats) and the folder on disk.
@@ -133,6 +136,15 @@ function projectForNewTurn() {
   return typeof FOLDERS !== 'undefined' && folderById(FOLDERS.state, n.id) ? n.id : undefined;
 }
 
+/* Open a new chat in project `id` (a store id `p…` or a chat folder `f…`):
+   New chat, then the mark projectForNewTurn reads. As New chat, a turn
+   running in the chat on screen keeps running there (session:new). */
+function projectNewChat(id) {
+  act('session:new');
+  PROJECTS.newFor = {id, log: S.log};
+  render();
+}
+
 /* A new chat New project opened in a project with no disk folder: main reads
    that project's instructions for the first turn by its id, and the chat is
    filed in it here once the turn says its session id (renderer.js). */
@@ -241,9 +253,7 @@ async function projectCreateSave() {
     render();
     return;
   }
-  act('session:new');
-  PROJECTS.newFor = {id, log: S.log};
-  render();
+  projectNewChat(id);
 }
 
 /** The New project sheet (S.overlay === 'pnew'). */
@@ -389,6 +399,7 @@ function projectAct(k, v) {
   if (k === 'pnewpick') { projectCreatePick(); return true; }
   if (k === 'pnewclear') { projectCreateRedraw({folder: ''}); return true; }
   if (k === 'pnewsave') { projectCreateSave(); return true; }
+  if (k === 'pchat') { if (projectAny(v)) projectNewChat(v); return true; }
   if (k === 'ptoggle') { projectToggle(v); render(); if (typeof nameVisibleSessions === 'function') nameVisibleSessions(); return true; }
   if (k === 'pmore') { PROJECTS.showAll = PROJECTS.showAll !== true; render(); if (typeof nameVisibleSessions === 'function') nameVisibleSessions(); return true; }
   if (k === 'pdelask') {
@@ -427,6 +438,7 @@ function projectsSidebarHTML(groups, folders) {
       const folder = g.kind === 'folder';
       const shut = folder ? g.item.collapsed : projectCollapsed(g.id);
       const where = folder ? '' : ' · ' + g.item.folder;
+      const newChat = g.name ? 'New chat in ' + g.name : 'New chat in this project';
       const head = folder
         ? '<button class="sb-fhead" data-act="ftoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"'
         : '<button class="sb-fhead" data-act="ptoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"';
@@ -437,10 +449,15 @@ function projectsSidebarHTML(groups, folders) {
           + '<span class="sb-fic">' + ic('folder') + '</span>'
           + '<span class="sb-fname">' + esc(g.name) + '</span>'
           + (g.rows.length ? '<span class="ct tnum">' + g.rows.length + '</span>' : '')
-          + '<span class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project" role="button">' + ic('edit') + '</span>'
-          + '<span class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project" role="button">' + ic('x') + '</span>'
+          /* Spans with role="button", not buttons: the header is the button. The
+             click delegate resolves the innermost [data-act], so none of them
+             folds the project; tabindex and the keydown handler make Enter and
+             Space work on them (renderer.js). */
+          + '<span class="sesmore iconbtn" data-act="pchat:' + esc(g.id) + '" title="' + esc(newChat) + '" aria-label="' + esc(newChat) + '" role="button" tabindex="0">' + ic('plus') + '</span>'
+          + '<span class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project" role="button" tabindex="0">' + ic('edit') + '</span>'
+          + '<span class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project" role="button" tabindex="0">' + ic('x') + '</span>'
         + '</button>'
-        + (shut ? '' : g.rows.length ? g.rows.map(chatRow).join('') : '<div class="sb-empty sb-fempty">No chats yet. Drag a chat here</div>')
+        + (shut ? '' : g.rows.length ? g.rows.map(chatRow).join('') : '<div class="sb-empty sb-fempty">No chats yet. Start one with + or drag a chat here</div>')
         + '</div>';
     }).join('')
     + toggle
