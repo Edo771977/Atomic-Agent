@@ -82,3 +82,41 @@ test('the notifier also learns the session from the caller (a known chat sends n
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(shown[0].sessionId, 's-2');
 });
+
+test('a turn refused before the stream (one bare error frame, caller\'s record already gone) keeps the session begin was given', async () => {
+  const live = new Map();
+  const shown = [];
+  const asked = [];
+  const n = new M.TurnNotifier({
+    isFocused: () => false,
+    readConfig: async () => ({enabled: true, minDurationMs: 0}),
+    workingDirName: (sid) => { asked.push(sid); return sid ? 'site' : 'default-dir'; },
+    sessionOf: (turnId) => live.get(turnId)?.sessionId ?? null,
+    show: (note, turn) => shown.push({note, turn}),
+  });
+  // main.ts: begin() runs before liveTurns.set(), and main's own listener deletes the record before observe() sees the frame.
+  n.begin('t3', 's-known');
+  live.set('t3', {sessionId: 's-known'});
+  live.delete('t3');
+  n.observe({turnId: 't3', kind: 'error', error: 'project model not allowed'});
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].turn.sessionId, 's-known');
+  assert.deepEqual(asked, ['s-known']);
+  assert.match(shown[0].note.body, /site$/);
+});
+
+test('a new chat\'s id fixed after begin (a project chat) is learned through knowSession', async () => {
+  const shown = [];
+  const n = new M.TurnNotifier({
+    isFocused: () => false,
+    readConfig: async () => ({enabled: true, minDurationMs: 0}),
+    workingDirName: () => undefined,
+    show: (note, turn) => shown.push(turn),
+  });
+  n.begin('t4', null);
+  n.knowSession('t4', 's-new');
+  n.observe({turnId: 't4', kind: 'error', error: 'x'});
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(shown[0].sessionId, 's-new');
+});

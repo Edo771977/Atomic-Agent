@@ -167,9 +167,26 @@ export class TurnNotifier {
     return (this.deps.now ?? Date.now)();
   }
 
-  /** The turn was sent. Called by the chat IPC so the clock starts at the request. */
-  begin(turnId: string): void {
-    this.turns.set(turnId, { startedAt: this.now(), sessionId: this.deps.sessionOf?.(turnId) ?? null, steps: 0, heldError: null, workAfterError: false });
+  /**
+   * The turn was sent. Called by the chat IPC so the clock starts at the
+   * request, with the chat when it is known: a turn refused before the
+   * stream sends one bare `error` frame and no `session_id`, and by then
+   * main's own record of it is gone.
+   */
+  begin(turnId: string, sessionId?: string | null): void {
+    this.turns.set(turnId, {
+      startedAt: this.now(),
+      sessionId: sessionId || this.deps.sessionOf?.(turnId) || null,
+      steps: 0,
+      heldError: null,
+      workAfterError: false,
+    });
+  }
+
+  /** The chat of a turn already begun, fixed after `begin` (a new chat filed in a project). */
+  knowSession(turnId: string, sessionId: string | null | undefined): void {
+    const t = this.turns.get(turnId);
+    if (t && sessionId) t.sessionId = sessionId;
   }
 
   observe(ev: { turnId?: unknown; kind?: unknown; error?: unknown; payload?: unknown }): void {
