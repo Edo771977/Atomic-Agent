@@ -134,7 +134,7 @@ function pcReduce(state, action) {
       });
     }
     case 'edit':
-      if (!s.view || s.view.gate.kind !== 'plan' || !pcList(s.view.allowedVerdicts).includes('edit')) return s;
+      if (!s.view || s.view.gate.kind !== 'plan' || !pcList(s.view.allowedVerdicts).includes('edit') || !pcPlanEditable(s.view)) return s;
       return Object.assign(s, {mode: 'edit', error: null, notice: null});
     case 'correct':
       if (!s.view || s.view.gate.kind !== 'milestone' || !pcList(s.view.allowedVerdicts).includes('edit')) return s;
@@ -263,10 +263,21 @@ function pcHeadline(view) {
   }
 }
 
+/**
+ * Whether the plan's "Edit rows" offers a choice (issue #54): the view says
+ * false when no row has another worker or a reviewer to pick. An older agent
+ * sends no `editable`; that reads as true.
+ */
+function pcPlanEditable(view) {
+  return !(view && view.plan && view.plan.editable === false);
+}
+
 /** The buttons, in the order the agent allows them; labels as the TUI's card. */
 function pcActions(view, state) {
   const hard = pcHardViolations(view).length > 0;
-  return pcList(view.allowedVerdicts).map((verdict) => {
+  // Edit rows with nothing to choose is hidden, as in the TUI (the view's hint says why); `edit` stays allowed.
+  const verdicts = pcList(view.allowedVerdicts).filter((v) => !(v === 'edit' && view.gate.kind === 'plan' && !pcPlanEditable(view)));
+  return verdicts.map((verdict) => {
     switch (verdict) {
       case 'approve': return {verdict, label: view.gate.kind === 'milestone' ? 'Approve milestone' : 'Approve', primary: true,
         disabled: hard || state.busy, why: hard ? 'Over a hard limit: change the plan first' : ''};
@@ -334,6 +345,7 @@ function pcModel(state) {
     warnings, brief: briefLines, criteria, rows, totals,
     scopeNote: gate === 'plan' && rows.length ? PC_WRITE_SCOPE_NOTE : null,
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
+    hints: pcList(view.hints).map(pcStr).filter(Boolean),
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -520,6 +532,8 @@ function pcDraw(doc, host, model, on) {
     for (const v of model.violations) ul.appendChild(pcEl(doc, 'li', v.hard ? 'pc-hard' : 'pc-soft', (v.hard ? '✕ Over a hard limit: ' : '! ') + v.text));
     body.appendChild(ul);
   }
+  // One-line advice from the agent (issue #54), worded as the TUI card.
+  for (const h of model.hints) body.appendChild(pcEl(doc, 'p', 'pc-hint', 'ℹ ' + h));
   if (model.milestones.length) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
     for (const m of model.milestones) {

@@ -53,10 +53,11 @@ the warning when it was drafted after outside content), the plan rows
 (worker, reviewer, reason, measured or preset basis and samples, estimate;
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
-one stands), the milestones, and under the plan the core's own note that
+one stands), the view's `hints` (`ℹ` lines, as the TUI), the milestones, and under the plan the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
-row, chosen only among the row's `selectableWorkers` / `selectableReviewers`),
+row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;
+hidden when `plan.editable` is false),
 Cheaper, Better quality and Cancel project at the plan; Approve milestone,
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through

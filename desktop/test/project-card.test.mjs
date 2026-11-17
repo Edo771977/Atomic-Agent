@@ -777,3 +777,23 @@ test('a local row is priced "$0.00 (local)", as the TUI card says', () => {
   C.pcDraw(doc, host, m, () => {});
   assert.ok(host.textContent.includes('$0.00 (local) · ~1m35s'));
 });
+
+test('the view\'s hints are shown; Edit rows is hidden when the plan offers no choice', () => {
+  const hint = 'only one worker available: configure llm.runMode.fusion.team to choose';
+  const view = plan({hints: [hint], plan: Object.assign(plan().plan, {editable: false})});
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.hints, [hint]);
+  assert.deepEqual(m.actions.map((a) => a.verdict), ['approve', 'cheaper', 'quality', 'cancel'], 'edit stays allowed but has nothing to offer');
+  assert.equal(C.pcReduce(C.pcInitial(view), {type: 'edit'}).mode, 'view', 'edit mode does not open');
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  assert.ok(host.findAll((e) => e.className === 'pc-hint').some((e) => e.textContent === 'ℹ ' + hint));
+  assert.ok(!host.findAll((e) => e.tagName === 'BUTTON').some((b) => b.textContent === 'Edit rows…'));
+  // An older agent sends neither field: nothing changes.
+  const old = C.pcModel(C.pcInitial(plan()));
+  assert.deepEqual(old.hints, []);
+  assert.ok(old.actions.some((a) => a.verdict === 'edit'));
+  // A milestone's edit (Correct…) is not the plan's.
+  assert.ok(C.pcModel(C.pcInitial(milestone({plan: Object.assign(plan().plan, {editable: false})}))).actions.some((a) => a.verdict === 'edit'));
+});
