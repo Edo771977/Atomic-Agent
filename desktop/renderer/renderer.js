@@ -2721,7 +2721,7 @@ function workspaceChipHTML() {
   const w = workspaceChipInfo();
   const tip = w.kind === 'chat'
     ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. '
-      + (SK.workingDir ? 'Choosing a folder opens a new chat there.' : 'Choosing a folder moves this chat there; new chats open there too.')
+      + (SK.workingDir ? 'Choosing a folder opens a new chat there.' : 'Choosing a folder moves this chat there; a restricted chat keeps its restriction.')
     : w.kind === 'project-new'
       ? 'This new chat in ' + w.project + ' opens in ' + w.dir + '. Choosing a folder changes where other new chats open.'
       : w.dir ? 'New chats open in ' + w.dir + '. Choose another folder.' : 'Choose the folder new chats open in.';

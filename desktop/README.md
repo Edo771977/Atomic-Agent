@@ -108,7 +108,8 @@ screen works in while a chat with a session is open (issue #67,
 `chatWorkingDir` / `workspaceChipInfo` in renderer.js): as the agent stored
 it or the chip moved it, else its list row's `workingDir`, else its
 project's folder; the tooltip says "This chat works in <path>" with its
-project, and that choosing a folder moves this chat there (a cloud chat: opens
+project, and that choosing a folder moves this chat there and that a
+restricted chat keeps its restriction (core issue #68) (a cloud chat: opens
 a new chat there). With no chat on screen or a new chat it names the folder
 for new chats; a new chat marked for a project names the project folder it
 will open in. The code block's Terminal button and the chat's file list use

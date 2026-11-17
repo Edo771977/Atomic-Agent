@@ -48,7 +48,7 @@ test("an open project chat's chip names that chat's folder and its project", () 
   assert.equal(typeof c.workspaceChipHTML, "function");
   const html = c.workspaceChipHTML();
   assert.match(html, /<span>riservata<\/span>/);
-  assert.match(html, /title="This chat works in C:\\Users\\edoar\\Downloads\\riservata \(project Riservata\)\. Choosing a folder moves this chat there; new chats open there too\."/);
+  assert.match(html, /title="This chat works in C:\\Users\\edoar\\Downloads\\riservata \(project Riservata\)\. Choosing a folder moves this chat there; a restricted chat keeps its restriction\."/);
   assert.equal(c.chatWorkingDir(), RIS);
 });
 
