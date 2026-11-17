@@ -61,7 +61,7 @@ approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
 row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;
 hidden when `plan.editable` is false),
-Cheaper, Better quality and Cancel project at the plan; Approve milestone,
+Cheaper, Better quality and Cancel Fusion project at the plan; Approve milestone,
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through
 `agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
@@ -74,9 +74,12 @@ not on screen, or one running a turn, gets it the next time it is shown
 between turns; so does one `submit()` did not take (it answers true or false:
 a model test holding the local server, the starter download, dictation).
 The card follows the chat only while the chat room is on screen: over
-Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel project asks twice: the first press turns the button into Confirm
+Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel Fusion project asks twice: the first press turns the button into Confirm
 cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
-opened again; while it stays open the chat header offers Show project.
+opened again; while it stays open the chat header offers Show Fusion project.
+The card's words say "Fusion project" (Cancel Fusion project, Show Fusion
+project), apart from the sidebar's Projects folders; IPC and bridge names
+stay `project`.
 Everything is drawn with `textContent`: model text is never
 markup. Covered by `test/project-gate-routing.test.mjs`,
 `test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.

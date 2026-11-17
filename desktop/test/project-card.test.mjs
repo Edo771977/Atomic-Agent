@@ -85,7 +85,7 @@ test('the store takes views in arrival order; versions are per gate, not a proje
 
 test('the plan card: rows with worker, reviewer, reason, basis and estimate, totals, the write-scope note, milestones', () => {
   const m = C.pcModel(C.pcInitial(plan()));
-  assert.equal(m.headline, 'The project plan waits for your approval');
+  assert.equal(m.headline, 'The Fusion project plan waits for your approval');
   assert.equal(m.version, 3);
   assert.deepEqual(m.rows.map((r) => [r.taskId, r.worker, r.reviewer, r.basis, r.estimate]), [
     ['t1', 'openrouter:w-a', 'openrouter:r-a', 'measured (3 runs)', '$0.12 · ~1m35s'],
@@ -101,12 +101,12 @@ test('the plan card: rows with worker, reviewer, reason, basis and estimate, tot
 
 test('only the verdicts the view allows become buttons', () => {
   const m = C.pcModel(C.pcInitial(plan({allowedVerdicts: ['approve', 'cancel']})));
-  assert.deepEqual(m.actions.map((a) => a.label), ['Approve', 'Cancel project']);
+  assert.deepEqual(m.actions.map((a) => a.label), ['Approve', 'Cancel Fusion project']);
   assert.equal(C.pcModel(C.pcInitial(closed())), null, 'nothing to decide, no card');
   const b = C.pcModel(C.pcInitial(brief()));
-  assert.deepEqual(b.actions.map((a) => a.label), ['Approve', 'Revise in chat', 'Cancel project']);
+  assert.deepEqual(b.actions.map((a) => a.label), ['Approve', 'Revise in chat', 'Cancel Fusion project']);
   const ms = C.pcModel(C.pcInitial(milestone()));
-  assert.deepEqual(ms.actions.map((a) => a.label), ['Approve milestone', 'Correct…', 'Cancel project']);
+  assert.deepEqual(ms.actions.map((a) => a.label), ['Approve milestone', 'Correct…', 'Cancel Fusion project']);
 });
 
 test('the brief card warns when it was drafted after outside content, and shows the whole brief', () => {
@@ -214,7 +214,7 @@ test('refusals: stale and wrong gate redraw the current view, a running turn and
   assert.match(C.pcOutcome({ok: false, status: 409, code: 'wrong-gate', view: v4}).notice, /changed/);
   assert.match(C.pcOutcome({ok: false, status: 409, code: 'turn-running', view: v4}).error, /turn is running/);
   assert.equal(C.pcOutcome({ok: false, status: 422, code: 'over-cap', error: 'over the turn budget', view: v4}).error, 'over the turn budget');
-  assert.deepEqual(C.pcOutcome({ok: false, status: 404, code: null, error: 'no project', view: null}), {closed: true, notice: 'This chat has no project any more.'});
+  assert.deepEqual(C.pcOutcome({ok: false, status: 404, code: null, error: 'no project', view: null}), {closed: true, notice: 'This chat has no Fusion project any more.'});
   assert.equal(C.pcOutcome({ok: false, status: 400, code: null, error: 'verdict must be', view: null}).error, 'verdict must be');
   assert.match(C.pcOutcome({supported: false}).error, /update it/);
 });
@@ -258,7 +258,7 @@ test('the card is built from text nodes and listeners; model text is never marku
   assert.ok(host.textContent.includes(C.PC_WRITE_SCOPE_NOTE));
   assert.ok(!doc.all.some((e) => Object.keys(e.attrs).some((k) => k.startsWith('on'))), 'no inline handlers');
   const buttons = host.findAll((e) => e.tagName === 'BUTTON');
-  assert.deepEqual(buttons.map((b) => b.textContent), ['Hide', 'Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel project']);
+  assert.deepEqual(buttons.map((b) => b.textContent), ['Hide', 'Approve', 'Edit rows…', 'Cheaper', 'Better quality', 'Cancel Fusion project']);
   buttons.find((b) => b.textContent === 'Cheaper').fire('click');
   buttons.find((b) => b.textContent === 'Edit rows…').fire('click');
   assert.deepEqual(acts, [{type: 'verdict', verdict: 'cheaper'}, {type: 'edit'}]);
@@ -541,12 +541,12 @@ test('Hide is keyed on the gate, not only its number: another gate at the same v
   assert.equal(c.last().model.gate, 'milestone', 'the milestone gate at v1 is not the plan the person hid');
 });
 
-test('Hide is undone by leaving the chat, and by Show project while the gate is open', () => {
+test('Hide is undone by leaving the chat, and by Show Fusion project while the gate is open', () => {
   const c = controller();
   c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
   assert.equal(c.card.hiddenOpen(), false);
   c.last().on({type: 'hide'});
-  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show project');
+  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show Fusion project');
   assert.ok(c.changes.length > 0, 'the page is told, so it redraws the header');
   c.card.show();
   assert.equal(c.last().model.version, 3);
@@ -556,7 +556,7 @@ test('Hide is undone by leaving the chat, and by Show project while the gate is 
   assert.equal(c.last().model.version, 3, 'opening the chat again shows the card');
 });
 
-test('the page draws Show project in the chat header and acts on it', () => {
+test('the page draws Show Fusion project in the chat header and acts on it', () => {
   const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(renderer, /PCARD\.hiddenOpen\(\)[^\n]*data-act="project:show"/);
   assert.match(renderer, /a === 'project:show'[^\n]*PCARD\.show\(\)/);
@@ -702,19 +702,19 @@ test('the frame of my own edit arriving before its HTTP answer is not "your chan
   assert.equal(c.last().model.mode, 'view');
 });
 
-test('Cancel project asks twice: the button turns into Confirm cancel for a few seconds, keeping its focus', async () => {
+test('Cancel Fusion project asks twice: the button turns into Confirm cancel for a few seconds, keeping its focus', async () => {
   const sent = [];
   const c = controller({decide: async (body) => { sent.push(body); return {supported: true, ok: true, view: closed(), continueMessage: null}; },
     read: async () => ({supported: true, ok: true, view: plan()}), extra: {confirmMs: 40}});
   c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
   const label = () => c.last().model.actions.find((a) => a.verdict === 'cancel').label;
-  assert.equal(label(), 'Cancel project');
+  assert.equal(label(), 'Cancel Fusion project');
   c.last().on({type: 'verdict', verdict: 'cancel'});
   await tick();
   assert.deepEqual(sent, [], 'the first press sends nothing');
   assert.equal(label(), 'Confirm cancel');
   await new Promise((r) => setTimeout(r, 70));
-  assert.equal(label(), 'Cancel project', 'the confirmation lapses');
+  assert.equal(label(), 'Cancel Fusion project', 'the confirmation lapses');
   c.last().on({type: 'verdict', verdict: 'cancel'});
   c.last().on({type: 'verdict', verdict: 'cancel'});
   await tick(); await tick();
@@ -860,4 +860,23 @@ test('the card follows the chat only while the chat room is on screen (not over 
   S.room = 'tasks'; run();
   S.room = 'chat'; run();
   assert.deepEqual(followed, ['ses-1', null, null, 'ses-1']);
+});
+
+test('the card says "Fusion project", not the sidebar\'s folder "project"', () => {
+  assert.equal(C.pcModel(C.pcInitial(brief())).headline, 'The Fusion project brief waits for your approval');
+  assert.equal(C.pcDecision(C.pcInitial(closed()), 'ses-1', 'approve').error, 'Nothing in the Fusion project waits for you');
+  const armed = C.pcModel(Object.assign(C.pcInitial(plan()), {confirmCancel: true})).actions.find((a) => a.verdict === 'cancel');
+  assert.match(armed.why, /cancel the Fusion project/);
+  assert.match(C.pcOutcome({supported: false}).error, /Fusion project decisions/);
+  assert.match(C.pcOutcome({ok: false, code: 'stale-version', view: null}).notice, /^The Fusion project changed/);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, C.pcModel(C.pcInitial(plan())), () => {});
+  assert.equal(host.children[0].getAttribute('aria-label'), 'Fusion project');
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(renderer, /data-act="project:show" title="Show the Fusion project card again">Show Fusion project<\/button>/);
+  // Every user-facing sentence of the card that names a project names the Fusion one.
+  const card = readFileSync(new URL('../renderer/project-card.js', import.meta.url), 'utf8');
+  const strings = [...card.matchAll(/'([^'\n]*)'/g)].map((x) => x[1]).filter((t) => /\bproject\b/i.test(t) && /\s/.test(t));
+  assert.deepEqual(strings.filter((t) => !/Fusion project/.test(t)), []);
 });

@@ -132,7 +132,7 @@ function pcReduce(state, action) {
       if (action.inFlight) return Object.assign(pcInitial(next), {busy: true});
       const wasEditing = s.mode !== 'view' && (Object.keys(s.picks).length > 0 || s.note.trim());
       return Object.assign(pcInitial(next), {
-        notice: action.notice || (wasEditing && next ? 'The project changed while you were editing (now version ' + next.version + '); your changes were set aside.' : null),
+        notice: action.notice || (wasEditing && next ? 'The Fusion project changed while you were editing (now version ' + next.version + '); your changes were set aside.' : null),
       });
     }
     case 'edit':
@@ -202,7 +202,7 @@ function pcEditRows(state) {
  */
 function pcDecision(state, sid, verdict) {
   const view = state.view;
-  if (!pcOpen(view)) return {error: 'Nothing in this project waits for you'};
+  if (!pcOpen(view)) return {error: 'Nothing in the Fusion project waits for you'};
   if (!pcList(view.allowedVerdicts).includes(verdict)) return {error: 'This gate does not take that'};
   const body = {session: sid, gate: view.gate.kind === 'milestone' ? {kind: 'milestone', id: view.gate.id} : {kind: view.gate.kind}, version: view.version, verdict};
   if (verdict === 'approve' && pcHardViolations(view).length) return {error: 'Approve waits until the plan is within its hard limits'};
@@ -229,20 +229,20 @@ function pcDecision(state, sid, verdict) {
  * `continueMessage` to send, `error` / `notice` for the card.
  */
 function pcOutcome(res) {
-  if (!res || res.supported === false) return {error: 'This agent cannot take project decisions; update it.'};
+  if (!res || res.supported === false) return {error: 'This agent cannot take Fusion project decisions; update it.'};
   if (res.ok) return {view: res.view || null, continueMessage: typeof res.continueMessage === 'string' && res.continueMessage.trim() ? res.continueMessage : null};
   const view = res.view || null;
   switch (res.code) {
     case 'stale-version':
     case 'wrong-gate':
-      return {view, notice: 'The project changed before your answer landed. Read this version and decide again.'};
+      return {view, notice: 'The Fusion project changed before your answer landed. Read this version and decide again.'};
     case 'turn-running':
       return {view, error: 'A turn is running in this chat. Decide once it has finished.'};
     case 'over-cap':
     case 'needs-estimates':
       return {view, error: res.error || 'The plan breaks a hard limit'};
     default:
-      if (res.status === 404) return {closed: true, notice: 'This chat has no project any more.'};
+      if (res.status === 404) return {closed: true, notice: 'This chat has no Fusion project any more.'};
       return {view, error: res.error || 'The decision did not go through'};
   }
 }
@@ -280,13 +280,13 @@ function pcFactLine(fact, criteria) {
 
 function pcHeadline(view) {
   switch (view.gate.kind) {
-    case 'brief': return 'The project brief waits for your approval';
-    case 'plan': return 'The project plan waits for your approval';
+    case 'brief': return 'The Fusion project brief waits for your approval';
+    case 'plan': return 'The Fusion project plan waits for your approval';
     case 'milestone': {
       const m = pcList(view.milestones).find((x) => x.id === view.gate.id);
       return 'Milestone “' + pcStr(m && m.title || view.gate.id) + '” ' + (m && m.state === 'failed' ? 'failed' : 'is done') + ' and waits for your review';
     }
-    default: return 'Nothing in the project waits for you';
+    default: return 'Nothing in the Fusion project waits for you';
   }
 }
 
@@ -315,8 +315,8 @@ function pcActions(view, state) {
       case 'cheaper': return {verdict, label: 'Cheaper', disabled: state.busy};
       case 'quality': return {verdict, label: 'Better quality', disabled: state.busy};
       case 'cancel': return state.confirmCancel
-        ? {verdict, label: 'Confirm cancel', danger: true, disabled: state.busy, why: 'Press again to cancel the project; it stops asking in a few seconds'}
-        : {verdict, label: 'Cancel project', danger: true, disabled: state.busy};
+        ? {verdict, label: 'Confirm cancel', danger: true, disabled: state.busy, why: 'Press again to cancel the Fusion project; it stops asking in a few seconds'}
+        : {verdict, label: 'Cancel Fusion project', danger: true, disabled: state.busy};
       default: return null;
     }
   }).filter(Boolean);
@@ -502,7 +502,7 @@ function pcDraw(doc, host, model, on) {
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
   const card = pcEl(doc, 'section', 'pc-card');
-  card.setAttribute('aria-label', 'Project');
+  card.setAttribute('aria-label', 'Fusion project');
   const head = pcEl(doc, 'div', 'pc-head');
   head.appendChild(pcEl(doc, 'div', 'pc-title', model.headline));
   head.appendChild(pcEl(doc, 'span', 'pc-ver', 'v' + model.version));
@@ -770,9 +770,9 @@ function createProjectCard(opts) {
        one said is not this one's, except a continue message still owed to a
        chat, which the person's decision already recorded. */
     reset() { const keep = sid; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
-    /** Whether the chat on screen has an open gate the person hid (the header offers Show project). */
+    /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
-    /** Show project: the hidden card again. */
+    /** Show Fusion project: the hidden card again. */
     show() { if (hidden.delete(key())) { paint(); changed(); } },
     state: () => state,
     store,

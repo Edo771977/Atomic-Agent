@@ -2461,7 +2461,7 @@ function renderToolbar() {
     + (t ? '<div class="tb-title"><b title="' + esc(t) + '">' + esc(t) + '</b></div>' : '')
     + '<div class="tb-right">'
       /* Issue #39: the project card the person hid, while its gate is still open. */
-      + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the project card again">Show project</button>' : '')
+      + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the Fusion project card again">Show Fusion project</button>' : '')
       /* ATO-1256: this chat's files in the panel beside it (chat-files.js, file-preview.js). */
       + (S.room === 'chat' ? '<button class="iconbtn' + (filesPanelOpen() ? ' on' : '') + '" data-act="toggle:files"'
         + ' aria-pressed="' + filesPanelOpen() + '"'
