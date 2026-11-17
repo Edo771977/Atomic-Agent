@@ -1,4 +1,4 @@
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { getConfig, LOCAL_PROVIDER_KIND, type AtomicAgentConfig } from "../config/index.js";
@@ -20,7 +20,10 @@ import {
   type HandoffCandidate,
   type HandoffTarget,
 } from "../import/index.js";
-import { SessionStore } from "../session/index.js";
+import { maskSecrets, type KnownSecret } from "../error-reporting/secret-detector.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { isIncognitoSession, SessionStore } from "../session/index.js";
+import { writeExportFile } from "./export-command.js";
 
 export const HANDOFF_HELP =
   [
@@ -53,7 +56,8 @@ export const HANDOFF_HELP =
     "Back the other way (--to):",
     "  --to <agent>          claude or codex: write a Markdown handoff of an Atomic",
     "                        Agent chat (task, decisions, open items, changed files)",
-    "  --out <file>          Write it to this file (default: print it to stdout).",
+    "  --out <file>          Write it to this file (default: print it to stdout);",
+    "                        an existing file is kept unless --force",
     "                        Nothing is written into ~/.claude or ~/.codex",
     "  --session <id>        latest (default: the newest chat in this folder, else",
     "                        the newest anywhere) or the chat id",
@@ -198,6 +202,8 @@ interface HandoffToArgs {
   out: string | null;
   session: string;
   cwd: string | null;
+  /** Overwrite an existing `--out` file. */
+  force: boolean;
 }
 
 /** `atag handoff --to …` (ATO-1158). */
@@ -208,6 +214,7 @@ export function parseHandoffToArgs(
   let out: string | null = null;
   let session = "latest";
   let cwd: string | null = null;
+  let force = false;
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i]!;
     const value = (): string | null => {
@@ -245,6 +252,9 @@ export function parseHandoffToArgs(
         cwd = resolve(v);
         break;
       }
+      case "--force":
+        force = true;
+        break;
       case "--from":
         return { error: "use either --from or --to, not both" };
       default:
@@ -254,7 +264,7 @@ export function parseHandoffToArgs(
   if (to === null) return { error: "--to is required (claude or codex)" };
   const target = parseHandoffTarget(to);
   if (target === null) return { error: `--to must be claude or codex, not ${to}` };
-  return { to: target, out, session, cwd };
+  return { to: target, out, session, cwd, force };
 }
 
 /** The sessions the `--to` path reads; never written to. */
@@ -274,6 +284,8 @@ export async function handoffToCommand(
     stdout?: (text: string) => void;
     stderr?: (text: string) => void;
     now?: Date;
+    /** Values masked in the brief; default the runtime's (`.env` and stored keys). */
+    knownSecrets?: readonly KnownSecret[];
   } = {},
 ): Promise<number> {
   const stdout = deps.stdout ?? ((text: string) => void process.stdout.write(text));
@@ -308,18 +320,32 @@ export async function handoffToCommand(
     );
     return 1;
   }
-  const brief = buildHandoffBrief({
-    session,
-    to: parsed.to,
-    ...(deps.now ? { now: deps.now } : {}),
-  });
+  if (isIncognitoSession(session)) {
+    // ATO-586: an incognito chat leaves nothing behind; a brief of it would.
+    stderr(`${session.id} is an incognito chat; it cannot be handed off\n`);
+    return 1;
+  }
+  // Like `export`: the brief leaves the agent, so known keys are masked.
+  const brief = maskSecrets(
+    buildHandoffBrief({
+      session,
+      to: parsed.to,
+      ...(deps.now ? { now: deps.now } : {}),
+    }),
+    deps.knownSecrets ?? runtimeKnownSecrets(getConfig()),
+  );
   if (parsed.out === null) {
     stdout(brief);
     return 0;
   }
-  // Relative to where the command ran, not to --cwd.
+  // Relative to where the command ran, not to --cwd. A new file only,
+  // unless --force, like `export --out`.
   const outPath = resolve(deps.cwd ?? process.cwd(), parsed.out);
-  writeFileSync(outPath, brief, "utf8");
+  const failed = writeExportFile(outPath, brief, parsed.force);
+  if (failed !== null) {
+    stderr(`${failed}\n`);
+    return 1;
+  }
   stderr(`Wrote the ${HANDOFF_TARGET_LABEL[parsed.to]} handoff for chat ${session.id} to ${outPath}\n`);
   return 0;
 }

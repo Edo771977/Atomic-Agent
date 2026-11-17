@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,6 +41,7 @@ describe("parseHandoffToArgs (ATO-1158)", () => {
       out: "x.md",
       session: "latest",
       cwd: null,
+      force: false,
     });
   });
 });
@@ -96,5 +97,45 @@ describe("handoffToCommand (ATO-1158)", () => {
     });
     expect(code).toBe(1);
     expect(err).toContain("s-missing");
+  });
+});
+
+describe("handoffToCommand keeps what export keeps out", () => {
+  const quiet = { stdout: () => undefined, stderr: () => undefined };
+
+  it("refuses an incognito chat", async () => {
+    const state = chat();
+    state.incognito = { createdAt: 1 } as never;
+    let printed = "";
+    const code = await handoffToCommand(["--to", "claude"], {
+      ...quiet,
+      store: storeWith(state),
+      stdout: (text) => { printed += text; },
+    });
+    expect(code).toBe(1);
+    expect(printed).toBe("");
+  });
+
+  it("masks the runtime's known secrets", async () => {
+    const state = chat();
+    state.turns = [{ kind: "user", text: "use key plainshapelesskey42 for it", at: 1 }];
+    let printed = "";
+    const code = await handoffToCommand(["--to", "codex"], {
+      ...quiet,
+      store: storeWith(state),
+      knownSecrets: [{ label: "OPENROUTER_API_KEY", value: "plainshapelesskey42" }],
+      stdout: (text) => { printed += text; },
+    });
+    expect(code).toBe(0);
+    expect(printed).not.toContain("plainshapelesskey42");
+  });
+
+  it("never overwrites --out unless --force", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "x.md"), "mine");
+    expect(await handoffToCommand(["--to", "claude", "--out", "x.md"], { ...quiet, store: storeWith(), cwd: dir })).toBe(1);
+    expect(readFileSync(join(dir, "x.md"), "utf8")).toBe("mine");
+    expect(await handoffToCommand(["--to", "claude", "--out", "x.md", "--force"], { ...quiet, store: storeWith(), cwd: dir })).toBe(0);
+    expect(readFileSync(join(dir, "x.md"), "utf8")).toContain("Ship the fix");
   });
 });
