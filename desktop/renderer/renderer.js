@@ -2390,19 +2390,22 @@ function projectCardFollow() {
 }
 function projectCardContinue(sid, text) {
   /* Only into the chat it belongs to, between turns, on a live agent, and
-     only when submit() would send it: dictation, the starter download or a
-     backend switch would keep it out (or stop the recording). Otherwise it
-     waits for the next look (project-card.js keeps it pending). */
+     only when submit() would send it: dictation, the starter download, a
+     model test holding the local server or a backend switch would keep it
+     out (or stop the recording). Otherwise, or when submit() answers that
+     it did not take it, it waits for the next look (project-card.js keeps
+     it pending). */
   if (!pcCanContinue({
     onScreen: S.agentSession === sid, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
     opening: openHoldsComposer(), voice: VOICE.state,
-    starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(), gating: BSW.gating,
+    starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(),
+    fitHolds: typeof fitHoldsSend === 'function' && fitHoldsSend(), gating: BSW.gating,
   })) return false;
   const e = $('#entry'), keep = S.draft;
-  submit(text, {plain: true});
+  const sent = submit(text, {plain: true}) === true;
   // The person's own draft stays in the box.
-  if (keep && !S.draft) { S.draft = keep; if (e) { e.value = keep; autosize(e); } }
-  return true;
+  if (sent && keep && !S.draft) { S.draft = keep; if (e) { e.value = keep; autosize(e); } }
+  return sent;
 }
 function projectCardStart() {
   if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
@@ -8015,23 +8018,28 @@ async function submitSkillCommand(text) {
   } finally { SK_SUBMITTING = false; }
 }
 
+/* Answers whether the message was taken (true: sent, steered, queued, held
+   at the local gate or run as a command) or stays where it was (false: a
+   hold, a refusal, nothing to send). Callers that only send what the person
+   typed ignore it; the project card's continue (projectCardContinue) keeps
+   its message pending on false. */
 function submit(preparedSkillText, opts) {
   // Item 2 (voice input): Enter, the Send button and Ctrl+Enter all land
   // here. While the microphone is open they stop the recording and insert
   // the text instead of sending — sending would post the draft as it stood
   // before the user spoke and throw the transcript away. The strip says so,
   // and a second Enter sends.
-  if (VOICE.state === 'recording' || VOICE.state === 'starting') { voiceStop(); return; }
+  if (VOICE.state === 'recording' || VOICE.state === 'starting') { voiceStop(); return false; }
   // `finishing` is the up-to-2.5 s window where the helper is still emitting
   // the last segment and the strip is still on screen saying "it does not
   // send". Falling through here would do exactly what that sentence
   // promises it will not: post the pre-dictation draft and land the
   // transcript in an empty composer afterwards. So Enter waits.
-  if (VOICE.state === 'finishing') return;
+  if (VOICE.state === 'finishing') return false;
   // ATO-1042: the starter model is still on its way; the draft stays and the line above says how far it is.
-  if (typeof starterHoldsSend === 'function' && starterHoldsSend()) { toast('The model is still downloading', 'Your message stays here; send it once the line above says Ready.', 'bad'); return; }
+  if (typeof starterHoldsSend === 'function' && starterHoldsSend()) { toast('The model is still downloading', 'Your message stays here; send it once the line above says Ready.', 'bad'); return false; }
   // ATO-1091: a model test has the local model server; the draft stays (fit-test.js fitHoldsSend).
-  if (typeof fitHoldsSend === 'function' && fitHoldsSend()) { toast(FIT_HOLD_TITLE, FIT_HOLD_TEXT, 'bad'); return; }
+  if (typeof fitHoldsSend === 'function' && fitHoldsSend()) { toast(FIT_HOLD_TITLE, FIT_HOLD_TEXT, 'bad'); return false; }
   const e = $('#entry');
   const typed = typeof preparedSkillText === 'string' ? preparedSkillText : (e ? e.value : S.draft).trim();
   /* ATO-405: files in the composer ride in the message itself, as the
@@ -8040,19 +8048,19 @@ function submit(preparedSkillText, opts) {
   const rawSlash = typeof preparedSkillText !== 'string' && typed.startsWith('/');
   // Continue and the plan hand-off send their own fixed words (`plain`): the chips wait for a message of the person's.
   const withFiles = !rawSlash && !(opts && opts.plain);
-  if (withFiles && attPreparing()) { toast('Attachments are still being prepared', 'Send once every chip is ready. Your message stays in the box', 'bad'); return; }
+  if (withFiles && attPreparing()) { toast('Attachments are still being prepared', 'Send once every chip is ready. Your message stays in the box', 'bad'); return false; }
   const text = withFiles ? attComposeMessage(typed) : typed;
-  if (!text) return;
+  if (!text) return false;
   // Lane B — backend switch: a turn is waiting on the local gate's disk
   // snapshot; the draft stays where it is until that one has been decided.
-  if (BSW.gating) return;
+  if (BSW.gating) return false;
   /* r5 review (minor): the slash branch comes FIRST. `/help`, `/clear`,
      `/model` are not messages — nothing about them runs at the provider or
      the model, so holding them for the 3-11 s of a switch (with a toast
      whose words are about a message staying in the box) was wrong copy for
      the wrong thing. They go through untouched. */
-  if (text.startsWith('/') && SK.workingDir && !preparedSkillText && !SLASH.some(row => row[0] === text.slice(1).split(/\s+/)[0] || (row[3] || []).includes(text.slice(1).split(/\s+/)[0]))) { submitSkillCommand(text); return; }
-  if (text.startsWith('/')) { runSlash(text.slice(1).split(/\s+/)); S.draft = ''; if (e) { e.value = ''; autosize(e); } S.slash = false; ctxDraftChanged(); render(); return; }
+  if (text.startsWith('/') && SK.workingDir && !preparedSkillText && !SLASH.some(row => row[0] === text.slice(1).split(/\s+/)[0] || (row[3] || []).includes(text.slice(1).split(/\s+/)[0]))) { submitSkillCommand(text); return true; }
+  if (text.startsWith('/')) { runSlash(text.slice(1).split(/\s+/)); S.draft = ''; if (e) { e.value = ''; autosize(e); } S.slash = false; ctxDraftChanged(); render(); return true; }
   /* Backlog 24 — Enter while the chat on screen is still opening, or after
      it failed to. The draft STAYS in the box, as it does for a switch below:
      nothing here knows yet which session the message would go with, and
@@ -8062,15 +8070,15 @@ function submit(preparedSkillText, opts) {
      first and presses Enter again. The toast is the refusal kind, as "A turn
      is already running" is: nothing went out. */
   // ATO-1125: a version the update feed lists as broken starts no new chat (app-update.js); an open chat goes on.
-  if (typeof updHoldsNewChat === 'function' && updHoldsNewChat(S.log.length, S.busy || S.pending)) { toast('Update required', 'This version has a known problem. Update to start a new chat. Your message stays in the box', 'bad'); return; }
+  if (typeof updHoldsNewChat === 'function' && updHoldsNewChat(S.log.length, S.busy || S.pending)) { toast('Update required', 'This version has a known problem. Update to start a new chat. Your message stays in the box', 'bad'); return false; }
   if (openHoldsComposer()) {
     if (OPENING.failed) toast('This chat did not open', 'Your message is still in the box. Open the chat again, or start a new one', 'bad');
     else toast('This chat is still loading', 'Your message is still in the box. Send it once the chat has loaded', 'bad');
-    return;
+    return false;
   }
   if (swxWaitsForRoute() || (!S.busy && !S.pending && (DRAIN_OWED || SWX.sendError))) {
     if (S.queued.length >= MAX_QUEUED) {
-      toast('Message queue is full', 'Your message stays in the box', 'bad'); return;
+      toast('Message queue is full', 'Your message stays in the box', 'bad'); return false;
     }
     // Give an unsaved chat an identity before accepting its first message.
     // The HTTP API creates this session on the first dispatched turn.
@@ -8084,7 +8092,7 @@ function submit(preparedSkillText, opts) {
     if (withFiles) attClearSent();
     ctxDraftChanged(); S.slash = false;
     toast('Message sent', SWX.sendError || 'The model is switching, so the reply may take longer');
-    render(); drainOwed(); return;
+    render(); drainOwed(); return true;
   }
   /* A new message with no agent up — the app just opened (after a Force Quit
      the agent is respawned and takes seconds to answer /health), or the
@@ -8101,7 +8109,7 @@ function submit(preparedSkillText, opts) {
     } else {
       toast('The agent is not running', (S.live.error ? S.live.error + '. ' : '') + 'Your message is still in the box', 'bad');
     }
-    return;
+    return false;
   }
   S.draft = ''; if (e) { e.value = ''; autosize(e); }
   if (withFiles) attClearSent();
@@ -8126,7 +8134,7 @@ function submit(preparedSkillText, opts) {
     const card = approvalOpen(S.pending);
     steerOrQueue(text, {sid:S.agentSession, key:queueKey(), card});
     if (card) toast('The request still waits for your answer', 'Your message goes to the agent. Allow once (' + apprKeyLabel('y') + ') or Deny (' + apprKeyLabel('n') + ')');
-    return;
+    return true;
   }
   // Item 1 (plan hand-off): the second half of the ordering proof. executePlan
   // records 'mode:<m>' only after the agent has confirmed the new stance, and
@@ -8160,9 +8168,10 @@ function submit(preparedSkillText, opts) {
       if (S.log !== typedIn.log) S.log.push({id:nid(), k:'user', text});
       bswGatedTurn(text);
     });
-    return;
+    return true;
   }
   bswGatedTurn(text);
+  return true;
 }
 /** Backlog 24: a message held at the local gate whose chat changed before
     the gate answered (another chat, a new one, or this one still loading).

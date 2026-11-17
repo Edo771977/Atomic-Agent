@@ -570,16 +570,17 @@ function continueWith(over = {}) {
   const env = Object.assign({
     S: {agentSession: 'ses-1', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
     VOICE: {state: 'idle'}, BSW: {gating: false},
-    starterHoldsSend: () => false, openHoldsComposer: () => false,
+    starterHoldsSend: () => false, fitHoldsSend: () => false, openHoldsComposer: () => false,
   }, over);
   const submit = (text, opts) => {
     // submit()'s own first steps: dictation is stopped, a hold keeps the message out.
-    if (env.VOICE.state === 'recording' || env.VOICE.state === 'starting') { calls.voiceStop++; return; }
-    if (env.VOICE.state === 'finishing' || env.starterHoldsSend() || env.BSW.gating) return;
+    if (env.VOICE.state === 'recording' || env.VOICE.state === 'starting') { calls.voiceStop++; return false; }
+    if (env.VOICE.state === 'finishing' || env.starterHoldsSend() || env.fitHoldsSend() || env.BSW.gating) return false;
     calls.submit.push([text, opts]);
+    return env.submitRefuses ? false : true;
   };
-  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'openHoldsComposer', 'submit', '$', 'autosize', 'pcCanContinue',
-    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.openHoldsComposer, submit, () => null, () => {}, C.pcCanContinue);
+  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'submit', '$', 'autosize', 'pcCanContinue',
+    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, submit, () => null, () => {}, C.pcCanContinue);
   return {sent: run('ses-1', 'Go on.'), calls};
 }
 
@@ -590,6 +591,7 @@ test('a continue message is not handed to submit() while it would not send, and 
     ['dictation finishing', {VOICE: {state: 'finishing'}}],
     ['the starter model downloading', {starterHoldsSend: () => true}],
     ['a backend switch gating', {BSW: {gating: true}}],
+    ['a model test holding the local server', {fitHoldsSend: () => true}],
     ['a turn running', {S: {agentSession: 'ses-1', busy: true, live: {state: 'connected'}, draft: ''}}],
   ]) {
     const r = continueWith(over);
@@ -600,6 +602,29 @@ test('a continue message is not handed to submit() while it would not send, and 
   const ok = continueWith();
   assert.equal(ok.sent, true);
   assert.deepEqual(ok.calls.submit, [['Go on.', {plain: true}]]);
+});
+
+test('a continue message submit() did not send stays pending: the card is told false', () => {
+  const r = continueWith({submitRefuses: true});
+  assert.deepEqual(r.calls.submit, [['Go on.', {plain: true}]]);
+  assert.equal(r.sent, false, 'submit() answered false: the continue stays pending');
+});
+
+test('submit() answers whether it took the message: no bare return, every caller may ignore it', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/\nfunction submit\(preparedSkillText, opts\) \{[\s\S]*?\n}\n/)[0];
+  // The local gate's snapshot callback returns from itself, not from submit().
+  const own = fn.replace(/bswSnapshot\(\)\.then\(\(\) => \{[\s\S]*?\n    \}\);/, '');
+  assert.notEqual(own, fn, 'the gate callback is found');
+  assert.deepEqual(own.match(/return\s*;/g) || [], [], 'every return says true or false');
+  assert.match(fn, /fitHoldsSend\(\)\) \{[^\n]*return false; \}/, 'a model test holding the server: not sent');
+  assert.match(fn, /bswGatedTurn\(text\);\n  return true;\n}\n$/, 'a turn started: sent');
+});
+
+test('pcCanContinue waits while a model test holds the local server', () => {
+  const env = {onScreen: true, room: 'chat', busy: false, pending: null, connected: true, opening: false, voice: 'idle', starterHolds: false, gating: false, fitHolds: false};
+  assert.equal(C.pcCanContinue(env), true);
+  assert.equal(C.pcCanContinue({...env, fitHolds: true}), false);
 });
 
 /* ---------------- focus and announcements ---------------- */
