@@ -3,7 +3,8 @@ import { defaultProviderModelMode } from "../config/model-mode.js";
 import { makeProviderPolicy, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
 import { isLocalServerUrl } from "./provider/openai/local-server-url.js";
-import { classifiableHostOf, isLoopbackUrl } from "./provider/url-host.js";
+import { isLoopbackHost } from "./offline-network.js";
+import { constraintHostOf } from "./provider/url-host.js";
 
 export type { ProviderPolicy, ProviderPolicyStamp } from "../config/project-constraint-match.js";
 export {
@@ -350,8 +351,9 @@ export function providerEndpointOf(
 /**
  * Why `policy` refuses `endpoint` although its provider id is allowed
  * (issue #60), or `undefined` when it does not: a local provider whose
- * URL is a private-network form other than this machine
- * (`isLocalServerUrl`: RFC 1918, link-local, CGNAT 100.64/10, IPv6
+ * URL is a private-network form other than literal loopback
+ * (`isLocalServerUrl`, which also counts `*.localhost`, `0.0.0.0` and an
+ * IPv6 form embedding a private or loopback IPv4 address: RFC 1918, link-local, CGNAT 100.64/10, IPv6
  * unique- and link-local, own-network names such as `.local`, `.lan`,
  * `.home.arpa`, `.internal`, single-label names) and whose host the
  * folder does not list in `allowedProviderHosts`. A public host keeps the
@@ -365,9 +367,13 @@ export function providerEndpointRefusal(
   endpoint: ProviderEndpoint,
 ): { host: string | null } | undefined {
   if (!endpoint.local) return undefined;
-  const host = classifiableHostOf(endpoint.url);
+  const host = constraintHostOf(endpoint.url);
   if (host === null) return { host: null };
-  if (isLoopbackUrl(endpoint.url)) return undefined;
+  // This machine by literal address only (`isLoopbackHost`: `localhost`,
+  // 127/8, `::1`, IPv4-mapped 127/8): not `*.localhost` or `0.0.0.0`,
+  // which name nothing a lookup cannot repoint, nor 6to4 / NAT64 /
+  // IPv4-compatible spellings of 127.0.0.1, which reach other machines.
+  if (isLoopbackHost(host)) return undefined;
   if (!isLocalServerUrl(endpoint.url)) return undefined;
   return policy.allowedProviderHosts.includes(host) ? undefined : { host };
 }

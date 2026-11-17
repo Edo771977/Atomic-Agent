@@ -144,7 +144,7 @@ describe("a local provider whose endpoint is another machine (issue #60)", () =>
   });
 
   it.each([
-    "http://127.0.0.1:8080", "http://127.4.5.6:1", "http://localhost:11434", "http://llama.localhost:8080", "http://[::1]:8080",
+    "http://127.0.0.1:8080", "http://127.4.5.6:1", "http://localhost:11434", "http://[::1]:8080",
   ])("lets a loopback endpoint through (%s)", async (url) => {
     await expect(runWithProviderPolicy(policy, () => at(url).complete({ prompt: "x" } as never))).resolves.toBe(ok);
   });
@@ -282,5 +282,27 @@ describe("only a private-network endpoint is judged by place (issue #60 review)"
     expect(refusalFor("http://192.168.1.20:8080", { modelMode: "cloud" })).toBeUndefined();
     expect(refusalFor("http://192.168.1.20:8080", { modelMode: "local" })).toEqual({ host: "192.168.1.20" });
     expect(refusalFor("not a url")).toEqual({ host: null });
+  });
+});
+
+describe("this machine is judged by literal loopback only (issue #60 review)", () => {
+  const folder = makeProviderPolicy({ key: "/w", allowedProviders: ["x"], matchedDir: "/w" });
+  const refusalFor = (baseUrl: string) =>
+    providerEndpointRefusal(folder, providerEndpointOf({ kind: "openai-compatible", baseUrl }, undefined));
+
+  it.each([
+    "http://localhost:8080", "http://127.0.0.1:8080", "http://127.9.9.9", "http://[::1]:8080", "http://[::ffff:127.0.0.1]:8080",
+  ])("lets %s through", (url) => {
+    expect(refusalFor(url)).toBeUndefined();
+  });
+
+  it.each([
+    "http://[2002:7f00:1::1]:8080",
+    "http://[64:ff9b::7f00:1]:8080",
+    "http://[::127.0.0.1]:8080",
+    "http://gpu.localhost:8080",
+    "http://0.0.0.0:8080",
+  ])("does not take %s for this machine", (url) => {
+    expect(refusalFor(url)).not.toBeUndefined();
   });
 });

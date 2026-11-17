@@ -1,5 +1,5 @@
 import { posix, win32 } from "node:path";
-import { classifiableHostOf } from "../llm/provider/url-host.js";
+import { constraintHostOf } from "../llm/provider/url-host.js";
 import { editDistance, emitConfigNoticeOnce } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
 import type { ProjectConstraintsConfig } from "./tool-config.js";
@@ -136,7 +136,7 @@ function parseAllowedEgress(raw: unknown, field: string): string[] | undefined {
 
 /**
  * The one spelling a host in `allowedProviderHosts` is kept and compared
- * in (issue #60): what `classifiableHostOf` makes of the host of a URL
+ * in (issue #60): what `constraintHostOf` makes of the host of a URL
  * (lower case, no brackets, no trailing dot, an IPv4-mapped IPv6 address
  * as its IPv4 address). `null` for anything that is not a bare host: a
  * URL, a port, a path, a wildcard, an empty string.
@@ -153,7 +153,7 @@ export function normalizeProviderHost(raw: string): string | null {
     return null;
   }
   if (url.port !== "" || url.pathname !== "/" || url.username !== "" || url.password !== "") return null;
-  return classifiableHostOf(url.href);
+  return constraintHostOf(url.href);
 }
 
 function parseAllowedProviderHosts(raw: unknown, field: string): string[] | undefined {
