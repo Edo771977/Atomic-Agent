@@ -50,6 +50,10 @@
 .pc-soft{color:var(--warn)}
 .pc-milestone.is-current{font-weight:600}
 .pc-milestone.is-failed{color:var(--critical)}
+.pc-facts{list-style:none;margin:2px 0 0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:2px;font-weight:400;color:var(--ink-2);overflow-wrap:anywhere}
+.pc-fact.is-passed{color:var(--success)}
+.pc-fact.is-failed{color:var(--critical)}
+.pc-fact.is-unverified{color:var(--warn)}
 .pc-error{margin:0;color:var(--critical);font-size:var(--fs-cap)}
 .pc-note{width:100%;min-height:80px;resize:vertical;padding:8px 10px;border-radius:var(--r-well);background:var(--well);color:var(--ink);font:inherit}
 .pc-count{align-self:flex-end;font-size:var(--fs-label);color:var(--ink-3);font-variant-numeric:tabular-nums}

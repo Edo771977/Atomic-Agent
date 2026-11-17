@@ -33,6 +33,8 @@ const PC_PLAN_UNTRUSTED = "⚠ The plan was drafted after outside content entere
 const PC_BRIEF_UNTRUSTED = '⚠ The brief was drafted after outside content entered the chat. Read it before approving.';
 
 const PC_MARK = {planned: '·', approved: '▸', in_progress: '◐', done: '✓', failed: '✕', reviewed: '✔'};
+/* A criterion fact's mark (project-gate-text.ts FACT_MARK; the test keeps them equal). */
+const PC_FACT_MARK = {passed: '✓', failed: '✕', unverified: '?'};
 
 const pcStr = (v) => (typeof v === 'string' ? v : '');
 const pcList = (v) => (Array.isArray(v) ? v : []);
@@ -251,6 +253,19 @@ function pcHardViolations(view) {
 
 /* ---------- what the card shows ---------- */
 
+/**
+ * One criterion fact as a line, as the core's criterionFactLine words it
+ * (issue #40): "✓ c1 passed: Runs offline", "? c2 unverified: Looks right
+ * (no vision-capable reviewer)". The text is the brief's when it names the id.
+ */
+function pcFactLine(fact, criteria) {
+  const id = pcStr(fact && fact.id), state = pcStr(fact && fact.state);
+  const c = pcList(criteria).find((x) => x && x.id === id);
+  const text = c ? pcStr(c.text) : '';
+  const why = pcStr(fact && fact.why);
+  return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
+}
+
 function pcHeadline(view) {
   switch (view.gate.kind) {
     case 'brief': return 'The project brief waits for your approval';
@@ -338,6 +353,9 @@ function pcModel(state) {
     id: pcStr(m.id), title: pcStr(m.title), state: pcStr(m.state), mark: PC_MARK[m.state] || '·',
     current: m.id === gateId,
     estimate: pcNum(m.estCostUsd) === null && pcNum(m.estMs) === null ? '' : pcUsd(pcNum(m.estCostUsd)) + ' · ' + pcDuration(pcNum(m.estMs)),
+    // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
+    facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
+      .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   return {
@@ -539,6 +557,12 @@ function pcDraw(doc, host, model, on) {
     for (const m of model.milestones) {
       const li = pcEl(doc, 'li', 'pc-milestone is-' + m.state.replace(/[^a-z_]/g, '') + (m.current ? ' is-current' : ''),
         m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+      if (m.facts.length) {
+        const facts = pcEl(doc, 'ul', 'pc-facts');
+        facts.setAttribute('aria-label', 'Success criteria');
+        for (const f of m.facts) facts.appendChild(pcEl(doc, 'li', 'pc-fact is-' + f.state, f.text));
+        li.appendChild(facts);
+      }
       ul.appendChild(li);
     }
     body.appendChild(ul);
@@ -736,7 +760,7 @@ function createProjectCard(opts) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
+    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };

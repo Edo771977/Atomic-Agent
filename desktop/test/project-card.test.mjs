@@ -57,6 +57,8 @@ test('the write-scope note and the untrusted warnings are the core\'s sentences'
   assert.equal(C.PC_WRITE_SCOPE_NOTE, constant('PROJECT_WRITE_SCOPE_NOTE'));
   assert.equal(C.PC_PLAN_UNTRUSTED, constant('PLAN_UNTRUSTED_WARNING'));
   assert.ok(core.includes(C.PC_BRIEF_UNTRUSTED.slice(2)), 'brief warning');
+  const marks = core.match(/const FACT_MARK[^=]*= \{([^}]*)\}/)[1];
+  assert.deepEqual(Object.fromEntries([...marks.matchAll(/(\w+): "([^"]*)"/g)].map((x) => [x[1], x[2]])), C.PC_FACT_MARK, 'criterion fact marks');
   const parse = readFileSync(new URL('../../src/session/project-decision-parse.ts', import.meta.url), 'utf8');
   assert.equal(C.PC_NOTE_MAX, Number(parse.match(/MAX_PROJECT_NOTE_CHARS = (\d+)/)[1]));
 });
@@ -796,4 +798,32 @@ test('the view\'s hints are shown; Edit rows is hidden when the plan offers no c
   assert.ok(old.actions.some((a) => a.verdict === 'edit'));
   // A milestone's edit (Correct…) is not the plan's.
   assert.ok(C.pcModel(C.pcInitial(milestone({plan: Object.assign(plan().plan, {editable: false})}))).actions.some((a) => a.verdict === 'edit'));
+});
+
+test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as the TUI card', () => {
+  const base = milestone();
+  const view = milestone({
+    brief: Object.assign({}, base.brief, {criteria: [{id: 'c1', text: 'legal moves only'}, {id: 'c2', text: 'Looks right'}]}),
+    milestones: [Object.assign({}, base.milestones[0], {criteriaFacts: [
+      {id: 'c1', state: 'passed'},
+      {id: 'c2', state: 'unverified', why: 'no vision-capable reviewer'},
+      {id: 'c3', state: 'failed', why: 'check exited 1'},
+    ]}), base.milestones[1]],
+  });
+  const m = C.pcModel(C.pcInitial(view));
+  assert.deepEqual(m.milestones[0].facts, [
+    {state: 'passed', text: '✓ c1 passed: legal moves only'},
+    {state: 'unverified', text: '? c2 unverified: Looks right (no vision-capable reviewer)'},
+    {state: 'failed', text: '✕ c3 failed (check exited 1)'},
+  ]);
+  assert.deepEqual(m.milestones[1].facts, []);
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, m, () => {});
+  const lines = host.findAll((e) => /\bpc-fact\b/.test(e.className));
+  assert.deepEqual(lines.map((e) => [e.className, e.textContent]), [
+    ['pc-fact is-passed', '✓ c1 passed: legal moves only'],
+    ['pc-fact is-unverified', '? c2 unverified: Looks right (no vision-capable reviewer)'],
+    ['pc-fact is-failed', '✕ c3 failed (check exited 1)'],
+  ]);
 });
