@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -183,7 +183,8 @@ describe("/api/ideas accept keeps the original chat's restriction (issue #68)", 
     expect(task.sessionId).not.toBeNull();
     expect(harness.runtime.egressRefusal?.(task.sessionId!, "web")).toContain("restricted");
     const fresh = harness.runtime.sessionStore.load(task.sessionId!)!;
-    expect(fresh.workingDir).toBe(harness.workingDir);
+    // The same folder `atomic-agent ideas accept` opens it in: the home folder.
+    expect(fresh.workingDir).toBe(homedir());
     expect(harness.runtime.providerRestrictionFor?.(fresh)?.allowedProviders).toEqual(["local-llama"]);
   });
 

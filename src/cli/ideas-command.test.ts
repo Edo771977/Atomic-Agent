@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getConfig, resetConfigCache } from "../config/index.js";
@@ -126,6 +126,7 @@ describe("ideasCommand", () => {
       expect(printed.task.sessionId).not.toBeNull();
       const sessions = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
       try {
+        expect(sessions.load(printed.task.sessionId!)?.workingDir).toBe(homedir());
         expect(sessions.load(printed.task.sessionId!)?.metadata?.providerReadTaint).toMatchObject({ key: secret, allowedProviders: ["local-llama"] });
       } finally {
         sessions.close();

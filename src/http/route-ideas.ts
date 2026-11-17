@@ -18,6 +18,7 @@ import {
   IdeaUnavailableError,
   TaskValidationError,
   acceptIdea,
+  ideaRetryFallbackDir,
   ideaToJson,
   refreshIdeas,
   type IdeaRecord,
@@ -36,10 +37,12 @@ import {
  *    `{ idea, task }`; `409 idea_decided` when the card was already
  *    accepted or dismissed. A Retry card's task keeps the original's
  *    `maxSteps`, `maxCostUsd`, `maxDurationMs` and `notify`, and runs in
- *    a new chat opened in the original chat's folder (the default one
- *    when it is gone) that keeps the original chat's provider restriction
- *    (issue #68); `400` (param `sessionId`) when the original chat is
- *    gone while constraints exist, since its restriction is unknown.
+ *    a new chat opened in the original chat's folder that keeps the
+ *    original chat's provider restriction (issue #68); when that folder
+ *    is gone, a restricted retry opens in the home folder and an
+ *    unrestricted one runs where the task runner works. `400` (param
+ *    `sessionId`, card retired) when the original chat is gone with no
+ *    policy recorded while constraints exist.
  *  - `POST /api/ideas/{id}/dismiss` retires the card for good.
  *
  * All four answer 404 when `tasks.enabled` is false. The store is opened
@@ -169,14 +172,14 @@ export function createAcceptIdeaHandler(): HttpHandler {
           ({ sessionId, userMessage, carry, retry, recordedPolicy }) => {
             // A Retry card reruns in a fresh chat opened in the original's folder,
             // the way `POST /api/tasks` with `workingDir` does; a folder that is
-            // gone falls back to the default one. Either way the new chat keeps
-            // the original chat's restriction (issue #68).
+            // gone falls back to the home folder when a restriction must be
+            // carried (issue #68), else to the task runner's folder.
             let taskSessionId = sessionId;
             let opened: string | null = null;
             const source = taskSessionId ? null : retrySourceOf(retry, carry, recordedPolicy);
             if (source !== null) {
               const dir = carry?.workingDir ? checkWorkingDir(carry.workingDir) : null;
-              const target = dir?.ok ? dir.dir : ctx.runtime.capabilities.workingDir;
+              const target = dir?.ok ? dir.dir : ideaRetryFallbackDir();
               const seed = ideaRetrySeed(ctx, source, target);
               if (!seed.ok) throw new IdeaUnavailableError(`${seed.error}; the card is retired`);
               if (dir?.ok || seed.restricted) {

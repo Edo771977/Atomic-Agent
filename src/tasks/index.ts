@@ -143,6 +143,7 @@ export {
   IDEA_REFRESH_TASK_SCAN,
   IdeaUnavailableError,
   acceptIdea,
+  ideaRetryFallbackDir,
   ideaSourceTaskId,
   ideaTaskCarry,
   ideaToJson,

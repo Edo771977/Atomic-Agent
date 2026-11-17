@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+
 import type { SessionState } from "../session/index.js";
 
 import { goalIdeaInputs } from "./idea-goal-source.js";
@@ -226,4 +228,15 @@ export function ideaToJson(idea: IdeaRecord): Record<string, unknown> {
     updatedAt: idea.updatedAt,
     decidedAt: idea.decidedAt,
   };
+}
+
+/**
+ * Where a Retry card's new chat opens when its original folder is gone
+ * and a restriction must be carried (issue #68): the home folder, the
+ * same for `serve` and `atomic-agent ideas accept` (neither knows which
+ * folder the process draining the task will use). An unrestricted retry
+ * opens no chat there; its task runs where the draining runtime works.
+ */
+export function ideaRetryFallbackDir(): string {
+  return homedir();
 }

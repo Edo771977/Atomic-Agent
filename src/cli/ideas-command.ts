@@ -12,6 +12,7 @@ import {
   TaskStore,
   TaskValidationError,
   acceptIdea,
+  ideaRetryFallbackDir,
   ideaToJson,
   refreshIdeas,
   type IdeaRecord,
@@ -161,14 +162,14 @@ function handleAccept(args: string[]): number {
         ideas,
         ({ sessionId, userMessage, carry, retry, recordedPolicy }) => {
           // A Retry card reruns in a fresh chat opened in the original's folder
-          // (when that folder still exists, else this one), with the original's
+          // (when that folder still exists, else the home folder), with the original's
           // limits and notify, and its provider restriction (issue #68).
           let taskSessionId = sessionId;
           let opened: string | null = null;
           const source = taskSessionId ? null : retrySourceOf(retry, carry, recordedPolicy);
           if (source !== null) {
             const inFolder = carry?.workingDir && isFolder(carry.workingDir) ? carry.workingDir : null;
-            const target = inFolder ?? process.cwd();
+            const target = inFolder ?? ideaRetryFallbackDir();
             // This process runs no turn, so the stored row is the live view here
             // (`serve` uses the runtime's `retrySessionSeed`, which sees its turns).
             const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
