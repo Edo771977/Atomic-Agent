@@ -118,6 +118,9 @@ function restrictionProvisional(dir, config) {
 
 /** The folder a chat with no session yet opens in: its project's, else the window's. */
 function restrictionNewChatDir() {
+  // Review of #67: its first turn's own folder once sent (the mark is used up at the send).
+  const running = typeof chatWorkingDir === 'function' ? chatWorkingDir() : '';
+  if (running) return running;
   const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
   return (mark && mark.folder) || (typeof workingDir === 'function' ? workingDir() : '');
 }

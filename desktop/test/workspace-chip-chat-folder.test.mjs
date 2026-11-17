@@ -30,12 +30,12 @@ function window(over = {}) {
   const c = vm.createContext({
     WORKSPACE: EIS, IS_WIN: true, SEP_RE: /[\\/]+/, S: { room: "chat", agentSession: null, sessionId: null, live: {} },
     SET: {}, SK: {}, BR: {}, SESSIONS: [], esc: (s) => String(s), ic: () => "", homeDir: () => "C:\\Users\\edoar",
-    ProjectModels: { state: { chats: {} } }, ...over,
+    ProjectModels: { state: { chats: {} } }, PENDING_CHATS: new Map(), LIVE_TURNS: new Map(), ...over,
   });
   for (const f of ["chat-list.js", "chat-folders.js", "chat-projects.js"]) vm.runInContext(src("../renderer/" + f), c);
   vm.runInContext("PROJECTS.state = {projects: [{id: 'pris1234', name: 'Riservata', folder: " + JSON.stringify(RIS)
     + ", instructions: '', createdAt: 1}], chats: {'s-1': 'pris1234'}};", c);
-  for (const n of ["wsName", "workingDir", "workingDirLabel", "chatWorkingDir", "workspaceChipInfo", "workspaceChipHTML"]) {
+  for (const n of ["wsName", "workingDir", "workingDirLabel", "screenTurnFolder", "chatWorkingDir", "workspaceChipInfo", "workspaceChipHTML"]) {
     const s = fn(n); if (s) vm.runInContext(s, c);
   }
   return c;
@@ -82,9 +82,22 @@ test("a new chat marked for a project names the project folder it will open in",
 
 test("the sidebar draws that chip; Terminal and the file list follow the open chat; Settings and Diagnostics keep the new-chat folder", () => {
   assert.match(renderer, /\+ '<div class="sb-head">' \+ MARK_COLOR\n\s*\+ workspaceChipHTML\(\)/);
-  assert.match(renderer, /terminalOpenWithCommand\(\{ command: text, cwd: chatWorkingDir\(\) \|\| workingDir\(\) \|\| null \}\)/);
-  assert.match(src("../renderer/chat-files.js"), /typeof chatWorkingDir === 'function' \? chatWorkingDir\(\)/);
+  assert.match(renderer, /terminalOpenWithCommand\(\{ command: text, cwd: mdTermCwd\(\) \}\)/);
   assert.match(fn("generalPane"), /const ws = BR \? workingDir\(\) : ''/);
   assert.match(fn("generalPane"), /New chats open in this folder\./);
   assert.match(fn("diagnosticsPane"), /const wd = workingDir\(\);/);
+});
+
+/* Review of #67 (third round), item 7: the chat's file list run, not read. */
+test("the chat's file list resolves paths against the open chat's folder, else the window's", () => {
+  const seen = [];
+  const c = vm.createContext({ S: { room: "chat", log: [] }, document: { addEventListener: () => {} } });
+  vm.runInContext(src("../renderer/chat-files.js"), c);
+  c.chatFilesOf = (log, opts) => { seen.push(opts.workingDir); return []; };
+  c.workingDir = () => EIS;
+  c.chatWorkingDir = () => RIS;
+  c.chatFilesNow();
+  c.chatWorkingDir = () => "";
+  c.chatFilesNow();
+  assert.deepEqual(seen, [RIS, EIS]);
 });

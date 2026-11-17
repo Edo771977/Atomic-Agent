@@ -60,7 +60,7 @@ test("the click sends the block's text as Copy reads it, with the working folder
   assert.ok(at >= 0, "the click handler is in renderer.js");
   const body = source.slice(at, source.indexOf("\n    return;\n  }\n", at));
   assert.match(body, /textContent\.replace\(\/\\r\\n\?\/g, '\\n'\)\.replace\(\/\\n\$\/, ''\)/);
-  assert.match(body, /BR\.terminalOpenWithCommand\(\{ command: text, cwd: chatWorkingDir\(\) \|\| workingDir\(\) \|\| null \}\)/);
+  assert.match(body, /BR\.terminalOpenWithCommand\(\{ command: text, cwd: mdTermCwd\(\) \}\)/);
   assert.match(body, /toast\("Couldn't open Terminal"/);
   // Anything but {ok:true} is a failure, and main's message goes into the toast.
   assert.match(body, /if \(!r \|\| r\.ok !== true\) fail\(r && r\.message\)/);

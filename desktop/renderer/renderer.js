@@ -2688,11 +2688,12 @@ function workingDir() {
    (chooseWorkspace: ProjectModels' map), else its list row's, else the folder
    of the project it is filed in. */
 function chatWorkingDir() {
-  if (S.room !== 'chat' || !S.agentSession) return '';
+  if (S.room !== 'chat') return '';
+  if (!S.agentSession) return screenTurnFolder();   // review of #67: a new chat's first turn on screen
   const sid = S.agentSession;
   const kept = typeof ProjectModels !== 'undefined' && ProjectModels.state && ProjectModels.state.chats ? ProjectModels.state.chats[sid] : '';
   if (kept) return String(kept);
-  const row = SESSIONS.find((x) => x.id === sid);
+  const row = SESSIONS.find((x) => x.id === sid) || PENDING_CHATS.get(sid);
   if (row && row.workingDir) return String(row.workingDir);
   const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[sid] : null;
   const p = pid ? PROJECTS.state.projects.find((x) => x.id === pid) : null;
@@ -2703,6 +2704,8 @@ function chatWorkingDir() {
    folder it opens in) or 'new' (the folder for new chats, workingDir()). */
 function workspaceChipInfo() {
   const own = chatWorkingDir();
+  // Review of #67: a new chat's first turn on screen, no session yet: the click changes the folder for new chats.
+  if (own && !S.agentSession) return {kind: 'first-turn', dir: own, project: ''};
   if (own) {
     const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[S.agentSession] : null;
     const folder = !pid && typeof FOLDERS !== 'undefined' && typeof folderOf === 'function' ? folderOf(FOLDERS.state, S.agentSession) : null;
@@ -2722,6 +2725,8 @@ function workspaceChipHTML() {
   const tip = w.kind === 'chat'
     ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. '
       + (SK.workingDir ? 'Choosing a folder opens a new chat there.' : 'Choosing a folder moves this chat there; a restricted chat keeps its restriction.')
+    : w.kind === 'first-turn'
+      ? 'This new chat works in ' + w.dir + '. Choosing a folder changes where other new chats open.'
     : w.kind === 'project-new'
       ? 'This new chat in ' + w.project + ' opens in ' + w.dir + '. Choosing a folder changes where other new chats open.'
       : w.dir ? 'New chats open in ' + w.dir + '. Choose another folder.' : 'Choose the folder new chats open in.';
@@ -8589,7 +8594,7 @@ document.addEventListener('click', (e) => {
     const fail = (why) => toast("Couldn't open Terminal", typeof why === 'string' ? why : '', 'bad');
     if (!text || !BR || typeof BR.terminalOpenWithCommand !== 'function') { fail(); return; }
     // ATO-1424 answers {ok:true, cwd, usedHome} or {ok:false, error, message}.
-    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: chatWorkingDir() || workingDir() || null }))
+    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: mdTermCwd() }))
       .then((r) => { if (!r || r.ok !== true) fail(r && r.message); }, () => fail());
     return;
   }
@@ -10409,6 +10414,7 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
+  live.folder = firstTurnFolder(session, forProject);   // review of #67: the folder this new chat's turn runs in
   BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject)).then((res) => {
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
@@ -10441,8 +10447,29 @@ function firstTurnSent(turnId, text, forProject) {
   FIRST_TURNS.set(turnId, text);
   projectStandInNote(turnId, forProject, text);
 }
+/* Review of #67: the folder a new chat's first turn runs in, as main picks
+   it (startTurn: the project's folder, else the window's), or '' for a chat
+   that has a session (it keeps its own). Kept in the turn's record, as the
+   project mark is used up at the send. */
+function firstTurnFolder(session, forProject) {
+  if (session) return '';
+  return (typeof projectTurnFolder === 'function' ? projectTurnFolder(forProject) : '') || workingDir();
+}
+/** The folder of the new chat's first turn on screen (no session yet), or ''. */
+function screenTurnFolder() {
+  const rec = S.turnId ? LIVE_TURNS.get(S.turnId) : null;
+  return rec && !rec.ended && rec.folder && S.log.includes(rec.item) ? String(rec.folder) : '';
+}
+/* The Terminal button of a code block opens in the open chat's folder, else the window's. */
+function mdTermCwd() {
+  return chatWorkingDir() || workingDir() || null;
+}
 function firstTurnNamed(turnId, sid) {
   noteFirstPrompt(turnId, sid);   // item 27: a new chat is on the list from here
+  // Review of #67: its row keeps the folder the turn runs in until the agent stores the chat.
+  const rec = LIVE_TURNS.get(turnId);
+  const row = sid ? PENDING_CHATS.get(sid) : null;
+  if (rec && rec.folder && row && !row.workingDir) row.workingDir = rec.folder;
   projectFileNewChat(turnId, sid);
   projectStandInSession(turnId, sid);
 }

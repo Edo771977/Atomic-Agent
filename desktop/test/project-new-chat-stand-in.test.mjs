@@ -101,7 +101,7 @@ test("a turn that ends before naming a session takes its stand-in with it; a pla
    reading their source: one row under the project at every step. */
 test("send, session_id, stored row and the turn's end leave exactly one row under the project", () => {
   const { c, view } = sidebar();
-  vm.runInContext("var FIRST_TURNS = new Map(); var renderSidebar = () => {}; var moveQueue = () => {}; var saveFolders = () => {};", c);
+  vm.runInContext("var FIRST_TURNS = new Map(); var LIVE_TURNS = new Map(); var renderSidebar = () => {}; var moveQueue = () => {}; var saveFolders = () => {};", c);
   for (const n of ["noteFirstPrompt", "firstTurnSent", "firstTurnNamed", "firstTurnEnded"]) vm.runInContext(fn(n), c);
   c.firstTurnSent("t1", "Plan the release", STORE.id);
   assert.deepEqual(view(), { project: ["turn:t1"], folder: [], loose: [] });
