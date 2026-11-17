@@ -26404,21 +26404,22 @@ function renderNotePreview(content, maxChars) {
 /* Row mappers: the stores' rowTo* + memory-summary.ts to*SummaryRows. */
 function memFact(r) {
   return {id:r.id, key:r.key, value:r.value, validFrom:r.valid_from, updatedAt:r.updated_at, pinned:r.pinned !== 0,
-    keywords:memParseJsonList(r.keywords).filter((k) => typeof k === 'string'), supersedes:r.supersedes, supersededBy:r.superseded_by, voteScore:r.vote_score || 0};
+    keywords:memParseJsonList(r.keywords).filter((k) => typeof k === 'string'), supersedes:r.supersedes, supersededBy:r.superseded_by, voteScore:r.vote_score || 0,
+    scoped:memScopedRow(r)}; // issue #33: kept for a restricted folder (memory-edit.js)
 }
 function memNoteEntry(r) {
   return {id:r.id, content:r.content, createdAt:r.created_at, updatedAt:r.updated_at, source:r.source === 'user' ? 'user' : 'agent',
     sessionId:r.session_id, workingDir:r.working_dir, tags:memParseJsonList(r.tags).filter((t) => typeof t === 'string'),
-    consolidatedInto:typeof r.consolidated_into === 'number' ? r.consolidated_into : null};
+    consolidatedInto:typeof r.consolidated_into === 'number' ? r.consolidated_into : null, scoped:memScopedRow(r)};
 }
 function memLink(r) { return {fromId:r.from_id, toId:r.to_id, kind:r.kind, weight:r.weight, createdAt:r.created_at}; }
 function memRowsProfile(rows) {
   return rows.map(memFact).map((f) => ({rowKey:'profile:' + f.key, channel:'profile', primary:f.key, secondary:memTrunc(f.value, 56),
-    meta:[f.pinned ? 'pinned' : 'contextual', f.voteScore !== 0 ? 'vote ' + memVote(f.voteScore) : null].filter(Boolean).join(' · '), profileKey:f.key}));
+    meta:[f.pinned ? 'pinned' : 'contextual', f.voteScore !== 0 ? 'vote ' + memVote(f.voteScore) : null, f.scoped ? 'restricted folder' : null].filter(Boolean).join(' · '), profileKey:f.key, scoped:f.scoped}));
 }
 function memRowsNotes(rows) {
   return rows.map(memNoteEntry).map((e) => ({rowKey:'note:' + e.id, channel:'notes', primary:'#' + e.id,
-    secondary:memTrunc(renderNotePreview(e.content, 80), 56), meta:memTagsMeta(e.tags), numericId:e.id}));
+    secondary:memTrunc(renderNotePreview(e.content, 80), 56), meta:memTagsMeta(e.tags), numericId:e.id, scoped:e.scoped}));
 }
 function memRowsLessons(rows) {
   return rows.map((r) => ({rowKey:'lesson:' + r.id, channel:'lessons', primary:'>' + r.id, secondary:memTrunc(r.activation, 56),
@@ -26576,7 +26577,8 @@ function memListHTML() {
     const tagged = MEM.channel === 'notes' || MEM.channel === 'lessons' || MEM.channel === 'procedures';
     list = '<div class="tk-list">' + page.map((r, idx) => {
       const i = idx + start, sel = i === cur;
-      const tags = tagged && r.meta ? r.meta.split(', ').map((t) => '<span class="tk-chip tk-chip--sm">' + esc(t) + '</span>').join('') : '';
+      const tags = (tagged && r.scoped ? '<span class="tk-chip tk-chip--sm" title="' + esc(MEM_SCOPED_REASON) + '">' + ic('lock') + 'restricted folder</span>' : '')
+        + (tagged && r.meta ? r.meta.split(', ').map((t) => '<span class="tk-chip tk-chip--sm">' + esc(t) + '</span>').join('') : '');
       return '<button class="tk-li sd-memrow' + (sel ? ' on' : '') + '" data-mem-row="' + esc(r.rowKey) + '" data-act="memory:open:' + i + '">'
         + '<span class="sd-id">' + esc(r.primary) + '</span>'
         + '<span class="body"><span class="t">' + esc(r.secondary) + '</span>' + (tags ? '<span class="d sd-tags">' + tags + '</span>' : '') + '</span>'
@@ -26742,7 +26744,7 @@ async function memNoteDetail(id, expanded) {
   const linksOn = memFlag('links') === true;
   const outgoing = linksOn ? (await memQ('links.outgoing', [id])).map(memLink) : [];
   const incoming = linksOn ? (await memQ('links.incoming', [id])).map(memLink) : [];
-  return {channel:'notes', id, body:formatNoteDetailBody(entry, entry.consolidatedInto, outgoing, incoming, expanded), tags:entry.tags,
+  return {channel:'notes', id, scoped:memScopedRow(rows[0]), body:formatNoteDetailBody(entry, entry.consolidatedInto, outgoing, incoming, expanded), tags:entry.tags,
     consolidatedInto:entry.consolidatedInto,
     outgoing:outgoing.map((e) => ({memoryId:e.toId, kind:e.kind, direction:'out'})),
     incoming:incoming.map((e) => ({memoryId:e.fromId, kind:e.kind, direction:'in'})), expandedNeighbors:expanded};
@@ -26759,8 +26761,11 @@ async function memVoteTargetPreview(event) {
 async function memBuildDetail(row) {
   if (row.channel === 'profile') {
     if (!row.profileKey) return null;
-    const chain = (await memQ('profile.history', [row.profileKey])).map(memFact);
-    return {channel:'profile', key:row.profileKey, body:formatProfileHistoryBody(row.profileKey, chain)};
+    const chainRows = await memQ('profile.history', [row.profileKey]);
+    const chain = chainRows.map(memFact);
+    // Issue #33: a fact whose active value is kept for a restricted folder is read-only here.
+    return {channel:'profile', key:row.profileKey, body:formatProfileHistoryBody(row.profileKey, chain),
+      scoped:chainRows.some((r) => (r.superseded_by === null || r.superseded_by === undefined) && memScopedRow(r))};
   }
   if (row.channel === 'notes') return row.numericId === undefined ? null : memNoteDetail(row.numericId, []);
   if (row.channel === 'lessons') {

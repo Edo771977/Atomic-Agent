@@ -1414,10 +1414,16 @@ function wireIpc(client: AgentClient): void {
       const res = await configGetKey("tui.notify");
       return res.ok ? readNotifyConfig(res.value) : NOTIFY_DEFAULTS;
     },
-    workingDirName: () => lastSegment(process.platform, client.status.workingDir),
-    show: (note) => {
-      // ATO-1129: and the phone, when Settings › Phone push is on.
-      void pushTurnNote(note);
+    sessionOf: (turnId) => liveTurns.get(turnId)?.sessionId ?? null,
+    // The chat's own folder; the agent's only for a turn whose chat is unknown.
+    workingDirName: async (sessionId) => {
+      if (!sessionId) return lastSegment(process.platform, client.status.workingDir);
+      const s = (await client.session(sessionId).catch(() => null)) as { workingDir?: unknown } | null;
+      return typeof s?.workingDir === "string" && s.workingDir ? lastSegment(process.platform, s.workingDir) : undefined;
+    },
+    show: (note, turn) => {
+      // ATO-1129: and the phone, when Settings › Phone push is on and the chat's folder lets it (issue #33).
+      void pushTurnNote(turn, (sid) => client.sessionRoute(sid, "provider-restriction", "GET", undefined, 5_000));
       if (!Notification.isSupported()) return;
       const n = new Notification({ title: note.title, body: note.body });
       n.on("click", () => {

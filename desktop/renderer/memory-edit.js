@@ -16,13 +16,26 @@
    text is kept here on every keystroke, so a repaint of the pane while the
    operator types does not lose it. After a write the list or the note is
    read again. An agent without the routes answers "Update the agent to
-   edit memory here". */
+   edit memory here".
+
+   Issue #33: a note or a fact written under a folder constraint is listed
+   here (the tab reads the database) but the agent's routes, which carry no
+   folder policy, cannot see it, so an edit would answer "gone" while the
+   row stays. Such a row (`scoped`, main/memory-db.ts) is marked in the
+   list and its page is read-only, with the reason. */
 
 const MEMEDIT = {key: null, mode: null, text: '', original: null, busy: false, error: null};
 
-/* The page's identity for an edit: 'note:<id>' or 'profile:<key>', null for the others. */
+const MEM_SCOPED_REASON = 'Kept for a restricted folder; manage it from that folder';
+
+/* A row from main's memory statements kept for a restricted folder (its `scoped` flag). */
+function memScopedRow(r) {
+  return !!r && (r.scoped === 1 || r.scoped === true);
+}
+
+/* The page's identity for an edit: 'note:<id>' or 'profile:<key>', null for the others and for a scoped page. */
 function memEditKey(d) {
-  if (!d) return null;
+  if (!d || d.scoped) return null;
   if (d.channel === 'notes' && typeof d.id === 'number') return 'note:' + d.id;
   if (d.channel === 'profile' && typeof d.key === 'string') return 'profile:' + d.key;
   return null;
@@ -76,6 +89,9 @@ function memEditReset() { MEMEDIT.key = null; MEMEDIT.mode = null; MEMEDIT.text 
 
 /* The detail bar's buttons for this page. */
 function memEditButtonsHTML(d) {
+  if (d && d.scoped && (d.channel === 'notes' || d.channel === 'profile')) {
+    return '<span class="tk-chip tk-chip--sm" title="' + esc(MEM_SCOPED_REASON) + '">' + ic('lock') + esc(MEM_SCOPED_REASON) + '</span>';
+  }
   const key = memEditKey(d);
   if (!key) return '';
   const busy = MEMEDIT.key === key && MEMEDIT.busy;
@@ -181,4 +197,4 @@ if (typeof document !== 'undefined') {
   }, true);
 }
 
-if (typeof module !== 'undefined') module.exports = {memEditKey, memEditCheckText, memEditActiveValue, memEditOp, memEditOutcome};
+if (typeof module !== 'undefined') module.exports = {MEM_SCOPED_REASON, memScopedRow, memEditKey, memEditCheckText, memEditActiveValue, memEditOp, memEditOutcome};
