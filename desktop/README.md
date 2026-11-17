@@ -464,7 +464,14 @@ Real, driven by the running agent:
   while the mark holds; Clear Transcript before the first turn keeps it, a
   plain New chat or opening another chat drops it. As with New
   chat, a turn running in the chat on screen keeps running there, and in the
-  narrow window's drawer the click closes the drawer. An empty project says
+  narrow window's drawer the click closes the drawer. That chat is listed
+  under the project as soon as its first message is sent (issue #67): a
+  stand-in row keyed by the turn (`turn:<turnId>`, carrying the project)
+  stands there until the stream names the chat's session, and then the
+  chat's own row, filed by its id, takes its place, so it is never listed
+  twice. A turn that ends before naming one takes its stand-in with it. The
+  stand-in shows the new chat when clicked, and has no menu, rename or drag
+  until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
   hides the headers; the drawer (⌘ \) shows them.
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per

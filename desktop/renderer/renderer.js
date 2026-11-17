@@ -2710,7 +2710,8 @@ function sidebarTasks() {
     order itself is chat-list.js orderChats (unit-tested). */
 function sidebarChats() {
   const stored = new Set(SESSIONS.map((s) => s.id));
-  const pending = [...PENDING_CHATS.values()].filter((p) => !stored.has(p.id)).reverse();
+  const pending = projectStandInRows()   // issue #67: a new chat in a project, before its session is named
+    .concat([...PENDING_CHATS.values()].filter((p) => !stored.has(p.id)).reverse());
   // ATO-1150: archived chats leave every list but their own section (chat-search.js).
   const arch = splitArchived(SESSIONS, chatArchivedIds());
   const order = orderChats(arch.live, pending, PREFS.pinned);
@@ -2815,7 +2816,8 @@ function chatRow(s) {
   const age = queued ? '' : chatAgeShort(s.updatedAt);
   if (age) ensureChatAgeTick();
   // ATO-1034: draggable onto a folder (chat-folders.js).
-  return '<button class="sesrow' + (s.id === S.sessionId && S.room !== 'studio' ? ' on' : '') + (pinned ? ' pinned' : '') + '" data-ses="' + esc(s.id) + '" draggable="true"'
+  // Issue #67: a stand-in (chat-projects.js) has no chat to drag into another project yet.
+  return '<button class="sesrow' + (s.id === S.sessionId && S.room !== 'studio' ? ' on' : '') + (pinned ? ' pinned' : '') + '" data-ses="' + esc(s.id) + '"' + (s.standIn ? '' : ' draggable="true"')
     + (queued ? ' data-m="' + queued + ' queued" data-queued="' + queued + '"' : age ? ' data-m="' + age + '" data-age="1" data-at="' + Number(s.updatedAt) + '"' : '')
     + (glyph ? ' data-g="' + esc(glyph) + '"' : '')
     + ' title="' + esc(s.t + ' · ' + tip + (queued ? ' · ' + queued + ' queued' : '') + (pinned ? ' · pinned' : '')) + '">'
@@ -10379,7 +10381,8 @@ function startLiveTurn(text) {
     streaming.turn = res.turnId;
     // item 6: the sidebar's running dot follows the stream, not S.busy.
     RUNNING.set(res.turnId, session || null);
-    if (opensChat) FIRST_TURNS.set(res.turnId, text);
+    // Issue #67: a new chat in a project is under it from here (chat-projects.js).
+    if (opensChat) { FIRST_TURNS.set(res.turnId, text); projectStandInNote(res.turnId, forProject, text); }
     projectNoteTurn(res.turnId, forProject);   // W2 QA: a new chat in a project with no disk folder is filed once it has an id
     liveTurnStarted(res.turnId, live, session || null);   // Item 38
     renderSidebar();
@@ -11351,6 +11354,7 @@ function onChatEvent(ev) {
       moveQueue('turn:' + ev.turnId, sid);
       noteFirstPrompt(ev.turnId, sid);   // item 27: a new chat is on the list from here
       projectFileNewChat(ev.turnId, sid);
+      projectStandInSession(ev.turnId, sid);   // issue #67: the chat's own row takes the stand-in's place
       renderSidebar();
     }
     if (ev.kind === 'done' || ev.kind === 'aborted' || ev.kind === 'error') {
@@ -11358,6 +11362,7 @@ function onChatEvent(ev) {
       RUNNING.delete(ev.turnId);
       queueTurnEnded(sid, ev.turnId);   // Backlog 26
       FIRST_TURNS.delete(ev.turnId);   // item 27: a turn that ended before its stream named a session
+      projectStandInEnded(ev.turnId);  // issue #67: and its stand-in under the project
       if (sid) notePendingEnded(sid);  // item 27: its stand-in waits for the agent to store the turn
       if (sid && typeof goalTurnEnded === 'function') void goalTurnEnded(sid);  // ATO-1040: a pause / clear asked of its goal has landed
       if (ev.kind === 'error' && sid) ATTN.add(sid);
@@ -21826,6 +21831,10 @@ let OPEN_SEQ = 0;
 let OPEN_CLEARED = 0;
 async function openSession(id) {
   if (!BR || !id) return;
+  /* Issue #67: a new chat's stand-in under its project has no session to
+     load yet: it shows that chat when the window still has it on screen. */
+  const standIn = projectStandIn(id);
+  if (standIn) { if (S.turnId === standIn.turnId && !S.agentSession) { S.room = 'chat'; render(); } return; }
   // item 6: is a turn of this session streaming into this window right now?
   const live = [...RUNNING.values()].includes(id);
   // The TUI's switchSession is a no-op ("already on session <id>") for the
@@ -23780,6 +23789,7 @@ document.addEventListener('contextmenu', (e) => {
   const row = e.target.closest('[data-ses]');
   if (row) {
     e.preventDefault();
+    if (projectStandIn(row.dataset.ses)) return;   // issue #67: no chat to act on yet
     const s = chatById(row.dataset.ses);   // item 27: a stand-in's state too
     sendSessionMenu(row.dataset.ses, PREFS.pinned.includes(row.dataset.ses),
                     !!s && chatUnread(s, PREFS.seen[row.dataset.ses]),
@@ -23804,7 +23814,7 @@ document.addEventListener('dblclick', (e) => {
   const fh = t.closest('#sidebar .sb-fhead[data-ftoggle]');   // ATO-1034
   if (fh) { e.preventDefault(); renameStart(fh.dataset.ftoggle, 'folder'); return; }
   const row = t.closest('#sidebar .sesrow[data-ses]');
-  if (row) { e.preventDefault(); renameStart(row.dataset.ses, 'row'); return; }
+  if (row) { e.preventDefault(); if (!projectStandIn(row.dataset.ses)) renameStart(row.dataset.ses, 'row'); return; }
   if (S.room === 'chat' && S.sessionId && t.closest('#toolbar .tb-title b')) {
     e.preventDefault(); renameStart(S.sessionId, 'title');
   }

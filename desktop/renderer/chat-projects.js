@@ -17,7 +17,9 @@
      folder. A chat filed in an ATO-1034 chat folder stays in that folder.
    - New chat (the plus on a project's header, issue #62) opens a new chat in
      that project the way New project does once it has made one
-     (projectNewChat): the first turn carries the project's id.
+     (projectNewChat): the first turn carries the project's id. Either way the
+     chat is under the project from its first message (issue #67, a stand-in
+     row keyed by the turn: projectStandInNote).
    - Edit (the pencil on a project's header): its name and its instructions,
      which main hands the agent with every turn of the project's chats.
    - Removing a project leaves its chats (under Chats) and the folder on disk.
@@ -35,7 +37,7 @@
    name, a folder on disk if you want one, instructions. */
 
 const PROJECTS = {state: {projects: [], chats: {}}, loaded: false, collapsed: new Set(), newFor: null, edit: null, create: null,
-  fileTurns: new Map(), showAll: false};
+  fileTurns: new Map(), showAll: false, standIns: new Map()};
 const PROJECT_INSTRUCTIONS_MAX = 16000;
 const PROJECT_NAME_MAX = 80;
 const PROJECTS_COLLAPSED_KEY = 'atomic.projects.collapsed';
@@ -202,6 +204,54 @@ function projectFileNewChat(turnId, sid) {
   if (!fid) return;
   PROJECTS.fileTurns.delete(turnId);
   if (sid && typeof FOLDERS !== 'undefined' && folderPut(FOLDERS.state, sid, fid)) saveFolders();
+}
+
+/* Issue #67: a new chat in a project is under the project from its first
+   message. Item 27's stand-in (renderer.js noteFirstPrompt) waits for the
+   stream to name the chat's session, and the chat is filed by that id (main's
+   projects:changed for a store project, projectFileNewChat for a chat folder),
+   so until then the chat was nowhere, and the person saw it only once its
+   turn was stored. PROJECTS.standIns: `turn:<turnId>` → {turnId, pid, row}, a
+   row that carries its project (`projectId` for a store project, `folderId`
+   for a chat folder: chat-list.js projectOf, chat-folders.js folderGroups),
+   until projectStandInSession hands over to the chat's own row, or the turn
+   ends without one. A turn not opened in a project gets none. */
+function projectStandInNote(turnId, pid, text) {
+  if (!turnId || typeof pid !== 'string' || !pid) return;
+  const store = pid[0] === 'p' && PROJECTS.state.projects.some((p) => p.id === pid);
+  const folder = pid[0] === 'f' && typeof FOLDERS !== 'undefined' && !!folderById(FOLDERS.state, pid);
+  if (!store && !folder) return;
+  const id = 'turn:' + turnId;
+  const title = (typeof chatTitle === 'function' ? chatTitle(text) : String(text || '').trim()) || '(empty)';
+  PROJECTS.standIns.set(id, {turnId, pid, row: {id, t: title, named: true, titled: false, updatedAt: Date.now(), status: '',
+    turnCount: 0, pending: true, standIn: true, endedAt: null, ...(store ? {projectId: pid} : {folderId: pid})}});
+}
+
+/** The stand-in row `id` stands for, or null. */
+function projectStandIn(id) {
+  const e = typeof id === 'string' ? PROJECTS.standIns.get(id) : null;
+  return e || null;
+}
+
+/** The stand-in rows, newest first (renderer.js sidebarChats). */
+function projectStandInRows() {
+  return [...PROJECTS.standIns.values()].map((e) => e.row).reverse();
+}
+
+/* The stream named turn `turnId`'s session: its stand-in goes, and the chat
+   is in the project by its id from here. A store project's assignment is
+   main's (startTurn, then projects:changed); it is mirrored here so the row
+   does not leave the project while that read is on its way. */
+function projectStandInSession(turnId, sid) {
+  const e = PROJECTS.standIns.get('turn:' + turnId);
+  if (!e) return;
+  PROJECTS.standIns.delete('turn:' + turnId);
+  if (sid && e.pid[0] === 'p' && !PROJECTS.state.chats[sid]) PROJECTS.state.chats[sid] = e.pid;
+}
+
+/** Turn `turnId` ended: a stand-in still waiting for its session goes. */
+function projectStandInEnded(turnId) {
+  PROJECTS.standIns.delete('turn:' + turnId);
 }
 
 /* New project (W2 QA): a sheet with a name, a folder on disk if wanted, and
