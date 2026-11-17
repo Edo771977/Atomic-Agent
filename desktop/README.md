@@ -775,7 +775,9 @@ Honestly degraded, and labelled as such in the UI:
   ([deeplink.js](renderer/deeplink.js), issue #65). Only the person marks a
   server local, since the mark lets it run in a folder with an egress
   constraint: there is no toggle for it in the window, so that is
-  `"local": true` on the server's entry in `config.json`.
+  `"local": true` on the server's entry in `config.json`, or in the JSON
+  pasted into the Add box, whose review then shows a "Marked local" row
+  before Add ([mcp-smart-add.js](renderer/mcp-smart-add.js)).
 - **Find on my network** (under the llama.cpp URL and a custom provider's
   Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
   servers on this network and checks an address; it saves nothing. Once an

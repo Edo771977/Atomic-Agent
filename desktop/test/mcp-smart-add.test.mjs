@@ -204,3 +204,19 @@ test('claude mcp add: --client-id and --callback-port take a value, not the name
   assert.equal(r.server.name, 'linear');
   assert.equal(r.server.transport.url, 'https://mcp.linear.app/mcp');
 });
+
+// Review of issue #65: "local": true lets a server run in a folder with an
+// egress constraint, so a pasted config carrying it says so before Add.
+test('review: a pasted "local": true is shown before Add, and nothing is said without it', () => {
+  const marked = M.mcpParseAddInput('{"mcpServers":{"files":{"command":"npx","args":["-y","pkg@1"],"local":true}}}');
+  assert.equal(marked.ok, true);
+  assert.equal(marked.server.local, true);
+  const html = M.mcpAddPreviewHTML(marked, null, {esc});
+  assert.match(html, /<dt>local<\/dt><dd>Marked local: allowed in folders with an egress constraint\. Only if it never uses the network\.<\/dd>/);
+  for (const json of ['{"name":"files","command":"npx","args":["pkg@1"]}', '{"name":"files","command":"npx","local":false}']) {
+    assert.doesNotMatch(M.mcpAddPreviewHTML(M.mcpParseAddInput(json), null, {esc}), /Marked local/, json);
+  }
+  // On a remote server the agent refuses the mark; the review says that instead.
+  const remote = M.mcpAddPreviewHTML(M.mcpParseAddInput('{"name":"docs","url":"https://example.com/mcp","local":true}'), null, {esc});
+  assert.match(remote, /only for a local command/);
+});
