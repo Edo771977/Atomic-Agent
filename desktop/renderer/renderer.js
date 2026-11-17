@@ -4480,6 +4480,7 @@ function composer() {
          smoke compare. */
       + '<div class="cfoot' + (selHasKind('workers') ? ' is-fusion' : '') + '">'
         + (composerNeedsSetup() ? setupSlotHtml() : routeChipsHtml(backend))
+        + restrictionChipHTML()   // Issue #67: "restricted to: …" (chat-restriction.js)
         + '<span class="cgrow"></span>'
         + contextChip()
         // W2: Chat · Goal · Run overnight · Voice conversation, one chip (composer-mode.js).
@@ -11361,6 +11362,7 @@ function onChatEvent(ev) {
       if (sid && typeof goalTurnEnded === 'function') void goalTurnEnded(sid);  // ATO-1040: a pause / clear asked of its goal has landed
       if (ev.kind === 'error' && sid) ATTN.add(sid);
       nextStepTurnEnded(sid, ev.kind);   // ATO-1094: retire the old suggestion; a finished turn asks for a new one
+      if (sid && sid === S.sessionId) void restrictionRefresh(sid);   // Issue #67: a read may have restricted the chat
       const endedSince = (LIVE_TURNS.get(ev.turnId) || {}).startedAt || 0;   // B01: closeChatApprovals, read before liveTurnEnded drops it
       const endedTools = turnToolNames(LIVE_TURNS.get(ev.turnId));          // ATO-203: and the calls it made
       liveTurnEnded(ev, sid);          // item 38: a failed or stopped turn is kept for its chat
@@ -21854,6 +21856,7 @@ async function openSession(id) {
   if (S.sessionId !== id) dropChatToasts();   // ATO-186: "New session" and the like were about the chat being left
   S.sessionId = id;
   refreshSkillList();
+  void restrictionRefresh(id);   // Issue #67: the composer's "restricted to: …" chip
   // Backlog 24: and until the answer lands, the composer holds what is sent here.
   const opening = {id, failed:false};
   OPENING = opening;

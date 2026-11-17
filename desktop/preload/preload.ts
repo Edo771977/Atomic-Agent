@@ -395,6 +395,8 @@ contextBridge.exposeInMainWorld("atomic", {
   telegramChannel: () => ipcRenderer.invoke("agent:telegramChannel"),
   /** ATO-1094: the next-step suggestion stored after a chat's last turn (`{supported, text}`). */
   nextStep: (sessionId: string) => ipcRenderer.invoke("agent:nextStep", sessionId),
+  /** Issue #67: the chat's per-folder provider restriction, for the composer chip (main/provider-restriction.ts). */
+  providerRestriction: (sessionId: string) => ipcRenderer.invoke("agent:providerRestriction", sessionId),
   taskCreate: (input: { message: string; kind: string; expression: string; tz?: string }) =>
     ipcRenderer.invoke("cli:taskCreate", input),
   taskPreview: (form: Record<string, string>, now?: number) =>

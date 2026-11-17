@@ -255,6 +255,22 @@ agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
 be used here." (`constraintTurnLine` in renderer.js, ahead of every other
 wording of a failed turn).
 
+A restricted chat wears a "restricted to: <providers>" chip after the
+composer's route chips, as the TUI composer does
+([chat-restriction.js](renderer/chat-restriction.js)). It is the agent's
+`GET /api/sessions/{id}/provider-restriction` (IPC
+`agent:providerRestriction`, read by
+[provider-restriction.ts](main/provider-restriction.ts)), asked when a chat
+is opened and when each of its turns ends (a read inside a restricted
+folder narrows the chat mid-turn). The tooltip says why (the chat's folder,
+or the restricted folders it read from), the providers allowed, the egress
+classes allowed (the intersection of the config's `allowedEgress` for the
+entries the agent names; when one is not in the config, only whether chat
+channels and phone push are allowed, from `channelsAllowed`) and what
+Fusion does: both sides, the orchestrator alone, the workers' model alone,
+or neither. No answer, an error, a 404 (an older agent, or a chat not
+stored yet) or an unrestricted chat: no chip.
+
 ## Process model
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`.

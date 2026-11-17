@@ -3,6 +3,7 @@ import { ipcMain, shell } from "electron";
 import type { AgentClient } from "./agent-client.js";
 import { withConfigLock } from "./agent-cli.js";
 import { isSafeSignInUrl } from "./mcp-auth-url.js";
+import { readProviderRestriction, type ProviderRestrictionAnswer } from "./provider-restriction.js";
 import { isTelegramPairingOp } from "./telegram-pairing.js";
 
 /**
@@ -127,5 +128,15 @@ export function wireAgentLiveIpc(client: AgentClient): void {
   ipcMain.handle("agent:nextStep", (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { supported: true, text: null };
     return client.nextStep(sessionId);
+  });
+  /* Issue #67: the composer's "restricted to: …" chip (renderer/chat-restriction.js).
+     Read-only; the folder it names goes to the window and nowhere else. */
+  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer> => {
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return readProviderRestriction(null);
+    try {
+      return readProviderRestriction(await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000));
+    } catch {
+      return readProviderRestriction(null);
+    }
   });
 }
