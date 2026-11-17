@@ -7,7 +7,8 @@ import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
 import { Database } from "../native/index.js";
-import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { makeProviderPolicy, resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { providerEndpointOf, providerEndpointRefusal, remoteEndpointOptInHint } from "../llm/provider-policy.js";
 import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 import { checkConsoleCodePage } from "./doctor-console-code-page.js";
@@ -127,12 +128,46 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
   }));
   return [
     ...coverage,
+    ...remoteEndpointWarnings(parsed),
     ...projectConstraintNotices(raw, known).map((line) => ({
       check: "project-constraints",
       status: "warn" as const,
       message: line.replace(/^\[atomic-agent\] /, ""),
     })),
   ];
+}
+
+/**
+ * Issue #60: a local provider a constrained folder allows by id, whose
+ * endpoint is another machine the folder does not list in
+ * `allowedProviderHosts` (or cannot be read). Dispatch refuses it there
+ * (`providerEndpointRefusal`); say so before a turn finds out.
+ */
+function remoteEndpointWarnings(parsed: ReturnType<typeof parseUserConfigFile>): DoctorFinding[] {
+  const providers = parsed.llm?.providers ?? [{ id: "local-llama", kind: "llama-server", url: parsed.localModels.url }];
+  const out: DoctorFinding[] = [];
+  for (const [folder, entry] of Object.entries(parsed.projects.constraints)) {
+    const policy = makeProviderPolicy({
+      key: folder,
+      allowedProviders: entry.allowedProviders,
+      allowedProviderHosts: entry.allowedProviderHosts ?? [],
+      matchedDir: folder,
+    });
+    for (const provider of providers) {
+      if (!entry.allowedProviders.includes(provider.id)) continue;
+      const refusal = providerEndpointRefusal(policy, providerEndpointOf(provider, parsed.localModels.url));
+      if (refusal === undefined) continue;
+      out.push({
+        check: "project-constraints",
+        status: "warn",
+        message: refusal.host === null
+          ? `${folder} allows provider ${JSON.stringify(provider.id)}, whose endpoint cannot be read; it is refused there until its URL is fixed`
+          : `${folder} allows provider ${JSON.stringify(provider.id)}, whose endpoint ${refusal.host} is another machine; ` +
+            `it is refused there until you ${remoteEndpointOptInHint(policy, refusal.host)}`,
+      });
+    }
+  }
+  return out;
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;

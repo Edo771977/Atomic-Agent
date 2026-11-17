@@ -81,6 +81,34 @@ describe("atag doctor (ATO-577)", () => {
     expect(out).toMatch(/warn {2}project-constraints: .*allows provider "ghost", which is not configured/);
   });
 
+  it("warns when a constrained folder allows a local provider whose endpoint is another machine (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.llm = {
+      ...tree.llm,
+      activeTextProvider: "local-llama",
+      providers: [
+        { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
+        { id: "lan-box", kind: "openai-compatible", baseUrl: "http://192.168.1.20:11434", defaultChatModel: "m" },
+        { id: "gpu", kind: "openai-compatible", baseUrl: "http://gpu-box.lan:8000", defaultChatModel: "m" },
+        { id: "groq", kind: "openai-compatible", baseUrl: "https://api.groq.com/openai", defaultChatModel: "m" },
+      ],
+    };
+    tree.projects = {
+      roots: [],
+      constraints: {
+        "/work/client": { allowedProviders: ["local-llama", "lan-box", "gpu", "groq"], allowedProviderHosts: ["gpu-box.lan"] },
+        "/work/open": { allowedProviders: ["local-llama"] },
+      },
+    };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).toContain(
+      'warn  project-constraints: /work/client allows provider "lan-box", whose endpoint 192.168.1.20 is another machine; ' +
+        'it is refused there until you add "192.168.1.20" to projects.constraints["/work/client"].allowedProviderHosts',
+    );
+    expect(out).not.toMatch(/provider "(gpu|groq|local-llama)", whose endpoint/);
+  });
+
   it("a valid config is ok and exits 0", async () => {
     save(USER_CONFIG_DEFAULTS);
     expect(await run([])).toBe(0);
