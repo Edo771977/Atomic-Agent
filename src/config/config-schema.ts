@@ -938,14 +938,12 @@ export interface UserConfigFile {
    */
   composio: ComposioConfig;
   /**
-   * MCP client servers. Added in config v23. Each entry declares one
-   * external MCP server the runtime will connect to at bootstrap and
-   * whose tools / resources / prompts will be exposed through the
-   * agent's tool registry (namespaced as `mcp.<server>.<tool>`).
-   * A stdio entry may carry `"local": true` (never reaches the network):
-   * only then does a folder with an egress constraint let its tools
-   * through without `mcp:<server>` in `allowedEgress`.
-   * Older files are transparently upgraded with `mcp: { servers: [] }`.
+   * MCP client servers. Added in config v23. One entry per external
+   * MCP server, connected at bootstrap, its tools exposed as
+   * `mcp.<server>.<tool>`. `local: true` on a stdio entry: it never
+   * reaches the network, so an egress-constrained folder allows it
+   * without `mcp:<server>` in `allowedEgress`. Older files are
+   * transparently upgraded with `mcp: { servers: [] }`.
    */
   mcp: {
     servers: McpServerConfig[];
