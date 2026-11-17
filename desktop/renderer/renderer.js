@@ -11573,6 +11573,7 @@ function onChatEvent(ev) {
       S.agentSession = pick(ev.payload, 'sessionId', 'session_id', 'id');
       S.sessionId = S.agentSession;
       reasoningAdoptDraft(S.agentSession);   // ATO-490: a new chat's reasoning pick is its own now
+      void restrictionRefresh(S.agentSession);   // review of #67: the chip asks for the chat now named
       // Q60 review: a request this turn raised before it said its session waited for it (approvalOnScreen).
       if (showKeptApproval(S.agentSession)) render();
     }

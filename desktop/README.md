@@ -305,7 +305,10 @@ for a project included) wears a provisional chip (dashed, `provisional`)
 worked out from the folder it will open in (the project's, else the
 window's) against this window's `projects.constraints`, the deepest entry
 holding it, for an agent on this computer only; its tooltip says the agent
-confirms it once the first message is sent.
+confirms it once the first message is sent. When the stream names a new
+chat's session the window asks the agent at once, and until the agent
+answers for a chat it has not stored yet (item 27's pending row; its route
+answers 404 until then) the provisional chip stays.
 
 ## Process model
 

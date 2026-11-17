@@ -127,9 +127,14 @@ function restrictionNewChatDir() {
 
 /** The chip for the chat on screen, or '' (renderer.js composer(), after the route chips). */
 function restrictionChipHTML() {
-  const info = !S.agentSession
-    ? restrictionProvisional(restrictionNewChatDir(), typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null)
-    : RESTRICT.sid && RESTRICT.sid === S.sessionId ? RESTRICT.info : null;
+  const config = typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null;
+  const answered = S.agentSession && RESTRICT.sid && RESTRICT.sid === S.sessionId ? RESTRICT.info : null;
+  /* Review of #67: a chat named mid first turn, which the agent has not
+     stored yet (no answer, or a 404), keeps the provisional chip; a stored
+     chat the agent gives no answer for (an older agent) has none. */
+  const unstored = !!S.agentSession && !answered && typeof PENDING_CHATS !== 'undefined' && PENDING_CHATS.has(S.agentSession)
+    && !(typeof SESSIONS !== 'undefined' && SESSIONS.some((x) => x.id === S.agentSession));
+  const info = !S.agentSession || unstored ? restrictionProvisional(restrictionNewChatDir(), config) : answered;
   if (!info || !info.restriction) return '';
   const label = restrictionChipLabel(info);
   const tip = restrictionTip(info, {
