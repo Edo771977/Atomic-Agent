@@ -21882,6 +21882,28 @@ function sessionTurnsToLog(turns) {
 /* Backlog 22: bumped by every openSession that starts a load, so an answer
    that a newer load overtook can tell (see the check after the await). */
 let OPEN_SEQ = 0;
+/* Review of #67: a project chat's stand-in clicked (its first turn running,
+   no session named yet). On screen: shown. Left for another chat: the turn
+   this window keeps for it (LIVE_TURNS) is the window's again, its rows and
+   what came meanwhile drawn, as openSession does for a chat whose turn runs
+   here (liveRebuild), with no stored transcript; the stream's session_id
+   frame then names the chat on screen. False when the turn is over or not
+   this window's (the stand-in goes with it). */
+function projectStandInShow(standIn) {
+  const rec = standIn ? LIVE_TURNS.get(standIn.turnId) : null;
+  if (!rec || rec.ended) return false;
+  if (S.turnId === standIn.turnId && !S.agentSession && S.log.includes(rec.item)) { S.room = 'chat'; render(); return true; }
+  stashQueue();   // Backlog 26: what was queued in the chat being left waits for it
+  liveLeave();    // Item 38: and a turn running there keeps its view
+  clearPlanOffer(); forgetApprovalCard(); dropChatToasts();
+  ++OPEN_SEQ;     // Backlog 22: a load still out for another chat does not land
+  S.room = 'chat'; S.sessionId = ''; S.agentSession = null; S.history = []; S.settings = null;
+  liveRebuild({turnId: standIn.turnId, rec}, []);
+  restoreQueue('turn:' + standIn.turnId);
+  S.busy = true; S.stick = true;
+  render();
+  return true;
+}
 /* ATO-131: the load (its OPEN_SEQ) that Clear Transcript was pressed under,
    or 0. Clear set S.log while the chat was still loading, and the answer
    then wrote the whole transcript back over it. Unlike New chat (item 22),
@@ -21892,9 +21914,9 @@ let OPEN_CLEARED = 0;
 async function openSession(id) {
   if (!BR || !id) return;
   /* Issue #67: a new chat's stand-in under its project has no session to
-     load yet: it shows that chat when the window still has it on screen. */
+     load yet: projectStandInShow puts that chat on screen. */
   const standIn = projectStandIn(id);
-  if (standIn) { if (S.turnId === standIn.turnId && !S.agentSession) { S.room = 'chat'; render(); } return; }
+  if (standIn) { projectStandInShow(standIn); return; }
   // item 6: is a turn of this session streaming into this window right now?
   const live = [...RUNNING.values()].includes(id);
   // The TUI's switchSession is a no-op ("already on session <id>") for the

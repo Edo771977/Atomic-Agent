@@ -498,7 +498,9 @@ Real, driven by the running agent:
   stands there until the stream names the chat's session, and then the
   chat's own row, filed by its id, takes its place, so it is never listed
   twice. A turn that ends before naming one takes its stand-in with it. The
-  stand-in shows the new chat when clicked, and has no menu, rename or drag
+  stand-in shows the new chat when clicked, from another chat too: the turn
+  the window keeps for it (item 38's `LIVE_TURNS`) is put back on screen with
+  what came meanwhile (`projectStandInShow`); it has no menu, rename or drag
   until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
   hides the headers; the drawer (⌘ \) shows them.
