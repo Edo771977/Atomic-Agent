@@ -103,6 +103,18 @@ begun meanwhile in another chat, a scheduled task or a Telegram reply,
 `main/workspace-busy.ts`, ATO-733). Then the folder stays as it was and the
 window shows "Not while a turn is running".
 
+The workspace chip at the top of the sidebar names the folder the chat on
+screen works in while a chat with a session is open (issue #67,
+`chatWorkingDir` / `workspaceChipInfo` in renderer.js): as the agent stored
+it or the chip moved it, else its list row's `workingDir`, else its
+project's folder; the tooltip says "This chat works in <path>" with its
+project, and that choosing a folder moves this chat there (a cloud chat: opens
+a new chat there). With no chat on screen or a new chat it names the folder
+for new chats; a new chat marked for a project names the project folder it
+will open in. The code block's Terminal button and the chat's file list use
+the open chat's folder; the start screen, Settings › General ("New chats
+open in this folder.") and Diagnostics keep the folder for new chats.
+
 | Surface | Route |
 |---|---|
 | Liveness, llama-server reachability | `GET /health` |

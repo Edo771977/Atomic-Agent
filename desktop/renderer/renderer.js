@@ -2537,7 +2537,7 @@ function renderSidebar() {
     (sidebarExpanded() ? '<div class="sb-top">' + searchBtnHTML(true) + sidebarToggleHTML() + '</div>'
       : drawer ? '<div class="sb-top">' + searchBtnHTML(true) + '</div>' : '')
     + '<div class="sb-head">' + MARK_COLOR
-      + '<button class="wschip" data-act="workspace" title="' + esc(BR ? WORKSPACE : '~/Teletubbies') + '"><span>' + esc(wsName(BR ? WORKSPACE : '~/Teletubbies')) + '</span>' + ic('chevD') + '</button>'
+      + workspaceChipHTML()   // issue #67: the open chat's folder, else the folder for new chats
       // ATO-1185: the downloads icon (renderDlcard paints it between renders).
       + '<span class="sb-dl" data-k="' + esc(DLC.indKey) + '">' + DLC.ind + '</span></div>'
     // ATO-1032: the chord is shown on the row (drawn by CSS from data-kbd, so the row's text stays "New chat").
@@ -2682,6 +2682,50 @@ function wsName(p) {
    account's name) told people nothing. */
 function workingDir() {
   return String(WORKSPACE || S.live.workingDir || (SET.health && SET.health.workingDir) || '');
+}
+/* Issue #67: the folder the chat on screen works in, or '' when no chat with
+   a session is on screen. As the agent stored it (openSession) or moved it
+   (chooseWorkspace: ProjectModels' map), else its list row's, else the folder
+   of the project it is filed in. */
+function chatWorkingDir() {
+  if (S.room !== 'chat' || !S.agentSession) return '';
+  const sid = S.agentSession;
+  const kept = typeof ProjectModels !== 'undefined' && ProjectModels.state && ProjectModels.state.chats ? ProjectModels.state.chats[sid] : '';
+  if (kept) return String(kept);
+  const row = SESSIONS.find((x) => x.id === sid);
+  if (row && row.workingDir) return String(row.workingDir);
+  const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[sid] : null;
+  const p = pid ? PROJECTS.state.projects.find((x) => x.id === pid) : null;
+  return p && p.folder ? p.folder : '';
+}
+/* Issue #67: what the sidebar's workspace chip names. `kind`: 'chat' (the open
+   chat's own folder), 'project-new' (a new chat marked for a project: the
+   folder it opens in) or 'new' (the folder for new chats, workingDir()). */
+function workspaceChipInfo() {
+  const own = chatWorkingDir();
+  if (own) {
+    const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[S.agentSession] : null;
+    const folder = !pid && typeof FOLDERS !== 'undefined' && typeof folderOf === 'function' ? folderOf(FOLDERS.state, S.agentSession) : null;
+    const p = pid && typeof projectAny === 'function' ? projectAny(pid) : folder;
+    return {kind: 'chat', dir: own, project: p ? p.name : ''};
+  }
+  const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
+  if (mark && mark.folder) return {kind: 'project-new', dir: mark.folder, project: mark.name};
+  return {kind: 'new', dir: workingDir(), project: ''};
+}
+/* The chip itself. Choosing a folder from it is the same act as before
+   (workspace → app:chooseWorkspace with the chat's session); the tooltip
+   says which folder that changes. */
+function workspaceChipHTML() {
+  if (!BR) return '<button class="wschip" data-act="workspace" title="~/Teletubbies"><span>' + esc(wsName('~/Teletubbies')) + '</span>' + ic('chevD') + '</button>';
+  const w = workspaceChipInfo();
+  const tip = w.kind === 'chat'
+    ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. '
+      + (SK.workingDir ? 'Choosing a folder opens a new chat there.' : 'Choosing a folder moves this chat there; new chats open there too.')
+    : w.kind === 'project-new'
+      ? 'This new chat in ' + w.project + ' opens in ' + w.dir + '. Choosing a folder changes where other new chats open.'
+      : w.dir ? 'New chats open in ' + w.dir + '. Choose another folder.' : 'Choose the folder new chats open in.';
+  return '<button class="wschip" data-act="workspace" data-kind="' + w.kind + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"><span>' + esc(wsName(w.dir)) + '</span>' + ic('chevD') + '</button>';
 }
 function workingDirLabel(p) {
   const s = String(p || '').replace(IS_WIN ? /(?<=.)[\\/]+$/ : /(?<=.)\/+$/, '');
@@ -6684,7 +6728,8 @@ function generalPane() {
       + '</div>'
       + '<div class="tk-setrow">'
         + '<div class="body"><div class="t">Working folder</div>'
-          + '<div class="d">' + (ws ? '<span class="mono set-path" title="' + esc(ws) + '">' + esc(workingDirLabel(ws)) + '</span>' : 'Not chosen yet.') + '</div></div>'
+          + '<div class="d">' + (ws ? '<span class="mono set-path" title="' + esc(ws) + '">' + esc(workingDirLabel(ws)) + '</span>' : 'Not chosen yet.')
+            + ' New chats open in this folder.</div></div>'
         + '<button class="btn btn-s sm" data-act="workspace:choose"' + (BR ? '' : ' disabled') + '>Change…</button>'
       + '</div>'
       + tpNotifyRowHTML()
@@ -8544,7 +8589,7 @@ document.addEventListener('click', (e) => {
     const fail = (why) => toast("Couldn't open Terminal", typeof why === 'string' ? why : '', 'bad');
     if (!text || !BR || typeof BR.terminalOpenWithCommand !== 'function') { fail(); return; }
     // ATO-1424 answers {ok:true, cwd, usedHome} or {ok:false, error, message}.
-    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: workingDir() || null }))
+    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: chatWorkingDir() || workingDir() || null }))
       .then((r) => { if (!r || r.ok !== true) fail(r && r.message); }, () => fail());
     return;
   }
