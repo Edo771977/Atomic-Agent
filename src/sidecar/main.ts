@@ -497,7 +497,10 @@ export async function bootstrapSidecar(): Promise<{
 
   // Issue #33: the provider restriction on a session (folder constraint
   // or read taint), `null` when none applies or the session is unknown.
-  router.register<GetSessionPayload, ProviderRestriction | null>(
+  // Like the HTTP route, a restriction carries `channelsAllowed`: whether
+  // the session's content may go to a chat channel or phone push now
+  // (false without the runtime's egress check: fail closed).
+  router.register<GetSessionPayload, (ProviderRestriction & { channelsAllowed: boolean }) | null>(
     "get_provider_restriction",
     (request) => {
       if (!active) throw new Error("no active runtime — call start_session first");
@@ -506,7 +509,11 @@ export async function bootstrapSidecar(): Promise<{
       const session = active.session.id === id
         ? (active.runtime.sessionStore.load(id) ?? active.session)
         : active.runtime.sessionStore.load(id);
-      return session === null ? null : (active.runtime.providerRestrictionFor?.(session) ?? null);
+      if (session === null) return null;
+      const restriction = active.runtime.providerRestrictionFor?.(session) ?? null;
+      if (restriction === null) return null;
+      const refusal = active.runtime.egressRefusal ? active.runtime.egressRefusal(session, "channels") : "no egress check";
+      return { ...restriction, channelsAllowed: refusal === null };
     },
   );
 

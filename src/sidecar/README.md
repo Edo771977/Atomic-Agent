@@ -19,7 +19,7 @@ Approvals ([approval-payload.ts](approval-payload.ts)): `approval_request` carri
 
 `cancel` (`{sessionId}`) aborts the running `send_message` turn and the ones queued behind it, as the TUI's Esc drops its parked messages; the session stays usable, and a `send_message` sent after the cancel runs normally. It also cancels that session's compaction.
 
-`get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom}`) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
+`get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom, channelsAllowed}`; `channelsAllowed`: its content may go to a chat channel or phone push) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
 
 `budget_notice` carries `{sessionId, providerId, reason, text}` when a request uses soft/meter budget enforcement or its output ceiling is reduced to fit. The notice belongs to that session and owning turn; retries do not repeat the same provider/reason warning.
 
