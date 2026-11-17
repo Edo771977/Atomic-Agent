@@ -985,3 +985,21 @@ test('the Settings window (Cron jobs and Skills open there; S.room stays chat) h
   assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), true);
   assert.deepEqual(r.turns, ['Go on.']);
 });
+
+test('reset(next) follows the chat the page shows now: no read for a chat Studio covers', async () => {
+  const c = controller({read: async () => ({supported: true, ok: true, view: plan()})});
+  c.card.follow('ses-1'); await tick();
+  assert.deepEqual(c.reads, ['ses-1']);
+  c.card.reset(null); await tick();
+  assert.deepEqual(c.reads, ['ses-1'], 'Studio is on screen: nothing to read');
+  c.card.reset('ses-1'); await tick();
+  assert.deepEqual(c.reads, ['ses-1', 'ses-1'], 'back on the chat: read again from the new agent');
+  // The page hands its own room-aware sid to reset.
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const fn = src.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
+  const calls = [];
+  const S = {agentSession: 'ses-1', room: 'studio'};
+  new Function('S', 'PCARD', 'PCARD_GEN', 'AGENT_GEN', 'PCWATCH', fn + '\nreturn projectCardFollow;')(
+    S, {follow: (sid) => calls.push(['follow', sid]), reset: (sid) => calls.push(['reset', sid])}, 1, 2, null)();
+  assert.deepEqual(calls[0], ['reset', null]);
+});

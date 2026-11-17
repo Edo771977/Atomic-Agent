@@ -773,8 +773,9 @@ function createProjectCard(opts) {
     },
     /* Another agent is on the wire (a restart, a remote one): what the last
        one said is not this one's, except a continue message still owed to a
-       chat, which the person's decision already recorded. */
-    reset() { const keep = sid; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+       chat, which the person's decision already recorded. `next` is the chat
+       the page shows now (null: none); left out, the one followed so far. */
+    reset(next) { const keep = next === undefined ? sid : next; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */

@@ -2382,12 +2382,13 @@ function render() {
 let PCARD = null, PCARD_GEN = -1, PCWATCH = null;
 function projectCardFollow() {
   if (!PCARD) return;
-  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
   /* Only over the chat room: Studio draws into the same #content (a narrow
      window's sheet would cover it), and a pending continue waits until the
      chat is back. Cron jobs and Skills are Settings tabs (S.room stays
      'chat'); Settings covers the card, and projectCardContinue waits. */
   const sid = S.room === 'chat' && S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
+  // Another agent: reset straight onto the chat shown now (none over Studio: no read for it).
+  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(sid); }
   PCARD.follow(sid);
   // A narrow window's sheet ends where the composer starts: observed, not measured on every paint.
   if (PCWATCH) PCWATCH.sync();
