@@ -141,6 +141,37 @@ export interface RiskLineFields {
   riskReason?: string;
 }
 
+/** The opening of `formatTaintNote` / `formatQuestionTaintNote` (untrusted-taint.ts). */
+const TAINT_NOTE_HEAD = "read outside content this turn (";
+const TAINT_QUESTION = "this question may come from that content";
+
+/**
+ * A taint note split into its sources and what follows them: the verdict
+ * note (`risk check: …`), the question's warning, or `""` for `asking you`
+ * (no review ran). Split at the FIRST marker: the sources are the agent's
+ * own labels, the text after them may carry the reviewer's words. `null`
+ * for any other note.
+ */
+function splitTaintNote(note: string): { sources: string; rest: string } | null {
+  if (note.slice(0, TAINT_NOTE_HEAD.length).toLowerCase() !== TAINT_NOTE_HEAD) return null;
+  const body = note.slice(TAINT_NOTE_HEAD.length);
+  const lower = body.toLowerCase();
+  const marks = ["); risk check:", `); ${TAINT_QUESTION}`]
+    .map((marker) => lower.indexOf(marker))
+    .filter((index) => index >= 0);
+  if (marks.length > 0) {
+    const at = Math.min(...marks);
+    return { sources: body.slice(0, at), rest: body.slice(at + 3).trim() };
+  }
+  const asking = "), asking you";
+  if (lower.endsWith(asking)) return { sources: body.slice(0, -asking.length), rest: "" };
+  return null;
+}
+
+function asSentence(text: string): string {
+  return `${capitalise(text)}${/[.!?…]$/.test(text) ? "" : "."}`;
+}
+
 /**
  * The line an approval prompt shows for smart approval's verdict
  * (ATO-1268): `Risk check: medium. Installs a package`, or `Risk check:
@@ -151,10 +182,28 @@ export interface RiskLineFields {
  *
  * The reason comes from `riskReason`; a request without it (built before
  * the field) has it read back out of `riskNote` (`formatRiskNote`).
+ *
+ * A request held after outside content (or an `ask_user` question asked
+ * after it) carries a taint note (untrusted-taint.ts); the line then
+ * starts with its own sentence, `Read outside content this turn:
+ * <sources>.`, followed by the verdict, the question's warning, or
+ * `Asking you.` when no review ran.
  */
 export function formatRiskLine(fields: RiskLineFields): string | null {
-  const level = fields.riskLevel;
   const note = typeof fields.riskNote === "string" ? fields.riskNote.trim() : "";
+  const taint = splitTaintNote(note);
+  if (taint === null) return formatVerdictLine(fields, note);
+  const sources = sanitizeRiskReason(taint.sources) || "an outside source";
+  const head = `Read outside content this turn: ${sources}${/[.!?…]$/.test(sources) ? "" : "."}`;
+  const tail = taint.rest.toLowerCase().startsWith(TAINT_QUESTION)
+    ? asSentence(sanitizeRiskReason(taint.rest))
+    : (formatVerdictLine(fields, taint.rest) ?? "Asking you.");
+  return `${head} ${tail}`;
+}
+
+/** The verdict alone, from the level and reason or the bare verdict note. */
+function formatVerdictLine(fields: RiskLineFields, note: string): string | null {
+  const level = fields.riskLevel;
   if (level !== undefined && RISK_LEVELS.includes(level)) {
     let reason = typeof fields.riskReason === "string" ? fields.riskReason : "";
     if (reason.length === 0) {

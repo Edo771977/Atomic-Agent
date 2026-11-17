@@ -970,10 +970,16 @@ export class ApprovalGate {
     }
     this.taintHeld.add(request.approvalId);
     this.riskReviewed.add(request.approvalId);
+    // As in requestAfterReview: the verdict fields are the gate's alone, so
+    // a level or reason this review did not give never reaches the prompt.
+    const unreviewed: ApprovalRequest = { ...request };
+    delete unreviewed.riskNote;
+    delete unreviewed.riskLevel;
+    delete unreviewed.riskReason;
     try {
       return this.request(
         {
-          ...request,
+          ...unreviewed,
           riskNote: formatTaintNote(sources, consulted ? formatRiskNote(verdict) : null),
           ...(verdict !== null ? { riskLevel: verdict.risk } : {}),
           ...(verdict !== null && verdict.reason.length > 0
