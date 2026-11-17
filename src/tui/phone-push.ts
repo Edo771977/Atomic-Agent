@@ -44,42 +44,63 @@ export function firePush(push: PushNotifyConfig, message: PushMessage): void {
   void sendPush({ push, message }).catch(() => undefined);
 }
 
-export function pushTurnEnd(
-  push: PushNotifyConfig,
-  p: {
-    outcome: RunOutcome;
-    reason: string;
-    stepCount: number;
-    durationMs: number;
-    messages: readonly ChatMessage[];
-    workingDirName?: string | undefined;
-  },
-): void {
-  firePush(
-    push,
-    formatTurnPush({
-      outcome: p.outcome,
-      reply: p.outcome === "completed" ? lastReplyOfTurn(p.messages) : null,
-      reason: p.reason,
-      stepCount: p.stepCount,
-      durationMs: p.durationMs,
-      workingDirName: p.workingDirName,
-    }),
-  );
+/** What the turn-end push says. */
+export interface TurnPushFacts {
+  outcome: RunOutcome;
+  reason: string;
+  stepCount: number;
+  durationMs: number;
+  messages: readonly ChatMessage[];
+  workingDirName?: string | undefined;
+}
+
+/**
+ * Whether a push about this session goes out generic: an incognito chat
+ * (ATO-586) or one under a per-folder constraint or read taint (issue
+ * #33). The push leaves the machine through a third-party service, so it
+ * then carries no reply, failure text, folder name or tool, like the
+ * approval-pending reminder (`isPrivate`).
+ */
+export interface PushPrivacy {
+  private: boolean;
+}
+
+export function turnPushMessage(p: TurnPushFacts, privacy: PushPrivacy): PushMessage {
+  return formatTurnPush({
+    outcome: p.outcome,
+    reply: !privacy.private && p.outcome === "completed" ? lastReplyOfTurn(p.messages) : null,
+    reason: privacy.private ? "open Atomic Agent to see why" : p.reason,
+    stepCount: p.stepCount,
+    durationMs: p.durationMs,
+    workingDirName: privacy.private ? undefined : p.workingDirName,
+  });
+}
+
+export function approvalPushMessage(tool: string, privacy: PushPrivacy): PushMessage {
+  const message = formatApprovalPush(tool);
+  return privacy.private ? { ...message, body: "An approval is waiting. Open Atomic Agent to answer." } : message;
+}
+
+export function pushTurnEnd(push: PushNotifyConfig, p: TurnPushFacts, privacy: PushPrivacy = { private: false }): void {
+  firePush(push, turnPushMessage(p, privacy));
 }
 
 /**
  * Ping about an approval only once it has waited `delayMs`: someone at
  * the keyboard answers first and the phone stays quiet. Returns the
- * cancel to call when the approval is answered.
+ * cancel to call when the approval is answered. One ping per approval on
+ * this channel: the approval-pending reminder (`notifications.approvalPending`)
+ * goes to Telegram or Discord, never to the push topic, so the two never
+ * repeat each other on one channel.
  */
 export function schedulePushForApproval(
   tool: string,
   delayMs: number,
+  privacy: PushPrivacy = { private: false },
 ): () => void {
   const timer = setTimeout(() => {
     const push = readReadyPush();
-    if (push) firePush(push, formatApprovalPush(tool));
+    if (push) firePush(push, approvalPushMessage(tool, privacy));
   }, Math.max(0, delayMs));
   timer.unref?.();
   return () => clearTimeout(timer);

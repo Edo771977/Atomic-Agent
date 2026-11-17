@@ -1603,6 +1603,23 @@ export class ChatOrchestrator {
    * from it is saved to memory, the rail never lists it, and it is deleted
    * when the operator leaves it or quits.
    */
+  /**
+   * Whether a phone push (ATO-1129) about the visible session goes out
+   * generic: an incognito chat, or one whose content may not reach a
+   * chat service (a per-folder constraint or read taint without
+   * "channels", issue #33). A failing check counts as private.
+   */
+  isPushPrivate(): boolean {
+    const session = this.session;
+    if (session === null) return false;
+    if (isIncognitoSession(session)) return true;
+    try {
+      return (this.runtime.egressRefusal?.(session, "channels") ?? null) !== null;
+    } catch {
+      return true;
+    }
+  }
+
   newSession(prepared?: SessionState, options: { incognito?: boolean } = {}): void {
     if (this.quitting) return;
     this.cancelPromptEnhance();

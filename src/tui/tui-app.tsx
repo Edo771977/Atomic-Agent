@@ -243,6 +243,12 @@ export type LastTurnRollbackOutcome =
   | { ok: false; code: LastTurnRollbackRefusal };
 
 export interface TuiAppCallbacks {
+  /**
+   * Whether a phone push about the visible session must go out generic
+   * (incognito, or restricted by a per-folder constraint, issue #33).
+   * Absent: any provider restriction on the session counts.
+   */
+  isPushPrivate?(): boolean;
   onApprovalDecision(
     approvalId: string,
     approved: boolean,
@@ -1164,7 +1170,7 @@ export function TuiApp({
         durationMs: entry.durationMs,
         messages: state.messages,
         workingDirName: session.workingDir.split("/").filter(Boolean).pop(),
-      });
+      }, { private: callbacks.isPushPrivate?.() ?? state.session.providerRestriction != null });
     }
     if (!notify.enabled) return;
     // Escapes belong in a terminal. Piped or redirected stderr gets the
@@ -1205,8 +1211,11 @@ export function TuiApp({
   useEffect(() => {
     if (waitingApprovalId === null || waitingApprovalTool === null) return;
     if (!readReadyPush()) return;
-    return schedulePushForApproval(waitingApprovalTool, notify.minDurationMs);
-  }, [waitingApprovalId, waitingApprovalTool, notify.minDurationMs]);
+    const s = stateRef.current;
+    return schedulePushForApproval(waitingApprovalTool, notify.minDurationMs, {
+      private: callbacks.isPushPrivate?.() ?? s.session.providerRestriction != null,
+    });
+  }, [waitingApprovalId, waitingApprovalTool, notify.minDurationMs, callbacks]);
 
   useEffect(() => {
     if (state.uiMode === "debug" && state.activeTab === "tasks") {

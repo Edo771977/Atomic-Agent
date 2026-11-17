@@ -592,6 +592,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
           else orchestrator.newSession();
         },
         onIncognitoSessionRequested: () => orchestrator.newSession(undefined, { incognito: true }),
+        isPushPrivate: () => orchestrator.isPushPrivate(),
         onCompactionRequested: (verb, instructions) => { void orchestrator.compactContext(verb, instructions); },
         onTeamPickerRequested: (role) => { orchestrator.openTeamPicker(role); },
         onProjectViewRequested: () => { orchestrator.openProjectView(); },
