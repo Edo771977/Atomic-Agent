@@ -423,7 +423,9 @@ Real, driven by the running agent:
   and Space work natively. They show on hover and keyboard focus; none of
   them folds the project, and the whole row takes a dragged chat. **+** does what New project does once it has
   made the project: New chat, and that chat's first turn opens in the project
-  (its folder and instructions; a chat folder files the chat). A first turn
+  (its folder and instructions; a chat folder files the chat, and one the
+  import sorted by a project directory works in that directory when this
+  computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
   opens in the project. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn

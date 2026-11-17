@@ -145,10 +145,15 @@ function projectMarked() {
 
 /* The folder a new chat's first turn in project `pid` runs in, as main
    picks it (main.ts startTurn), or '' for the window's: a store project's
-   folder on disk. */
+   folder on disk, or the directory the import sorted a chat folder by
+   (main/chat-folders.ts folderTurnDir; main also checks it is there). */
 function projectTurnFolder(pid) {
   if (typeof pid !== 'string' || !pid) return '';
-  const p = pid[0] === 'p' ? PROJECTS.state.projects.find((x) => x.id === pid) : null;
+  if (pid[0] === 'f') {
+    const dir = typeof FOLDERS !== 'undefined' && FOLDERS.state.projects ? FOLDERS.state.projects[pid] : '';
+    return typeof dir === 'string' && dir && typeof isAbsPath === 'function' && isAbsPath(dir) ? dir : '';
+  }
+  const p = PROJECTS.state.projects.find((x) => x.id === pid);
   return p && p.folder ? p.folder : '';
 }
 

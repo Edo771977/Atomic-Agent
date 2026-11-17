@@ -324,3 +324,12 @@ test("a project header is a fold button with real New chat, Edit and Remove butt
   // And no keydown branch for spans is left to keep in step with it.
   assert.doesNotMatch(src, /\.sb-fhead \[role="button"\]/);
 });
+
+test("an import-sorted chat folder's new chat runs in its directory, as main picks it", () => {
+  const c = load();
+  vm.runInContext(`isAbsPath = (p) => String(p).startsWith('/');
+    FOLDERS.state = foldersCoerce({folders: [{id: 'fa', name: 'app'}, {id: 'fb', name: 'repo'}, {id: 'fc', name: 'Plain'}], projects: {fa: '/src/app', fb: 'worktree-repo/repo'}});`, c);
+  assert.equal(vm.runInContext("projectTurnFolder('fa')", c), "/src/app");
+  assert.equal(vm.runInContext("projectTurnFolder('fb')", c), "", "a repository name only");
+  assert.equal(vm.runInContext("projectTurnFolder('fc')", c), "");
+});
