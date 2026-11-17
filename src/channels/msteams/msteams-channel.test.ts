@@ -171,7 +171,8 @@ describe("TeamsChannel approval prompts in a restricted folder (issue #33)", () 
       preview: "cat /clienti/acme/contract.txt",
     });
     await vi.waitFor(() => expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("/activities"))).toBe(true));
-    const bodies = fetchImpl.mock.calls.map(([, init]) => String((init as RequestInit | undefined)?.body ?? "")).join("\n");
+    const bodies = (fetchImpl.mock.calls as unknown as Array<[unknown, RequestInit | undefined]>)
+      .map(([, init]) => String(init?.body ?? "")).join("\n");
     expect(bodies).not.toContain("/clienti/acme");
     expect(bodies).toContain("details withheld");
   });
