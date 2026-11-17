@@ -2403,6 +2403,8 @@ function projectCardContinue(sid, text) {
     opening: openHoldsComposer(), voice: VOICE.state,
     starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(),
     fitHolds: typeof fitHoldsSend === 'function' && fitHoldsSend(), gating: BSW.gating,
+    // The local gate would hand the message back to the editor (model not on disk): it waits instead.
+    localBlocked: localTurnGate().kind === 'block',
   })) return false;
   const e = $('#entry'), keep = S.draft;
   const sent = submit(text, {plain: true}) === true;
@@ -8212,7 +8214,14 @@ function bswGatedTurn(text) {
     // B02: one refusal on screen at a time; `gateNotice` lets it go once the route can run (dropStaleGateNotices).
     dropStaleGateNotices();
     S.log.push({id:nid(), k:'system', gateNotice:true, text: esc(gate.text + ' (message returned to the editor)')});
-    S.draft = attToEditor(text);
+    /* As gatedTurnLeft: above what is in the box. Empty after a typed send;
+       after the disk snapshot it can hold what was typed meanwhile, or the
+       draft the project card's continue put back (projectCardContinue). */
+    const e0 = $('#entry');
+    const typed = String((e0 ? e0.value : S.draft) || '');
+    const back = attToEditor(text);
+    S.draft = typed.trim() ? (back ? back + '\n\n' + typed : typed) : back;
+    if (e0) e0.value = S.draft;
     ctxDraftChanged();
     render(); // afterChat() puts S.draft back into #entry
     const e = $('#entry');

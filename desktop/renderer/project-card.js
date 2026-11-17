@@ -651,12 +651,15 @@ function pcFind(root, test) {
  * make submit() keep it out (or, for dictation, stop the recording instead
  * of sending) answers no, so the message stays pending rather than lost:
  * a model test holding the local server (`fitHolds`) among them, and any
- * room but the chat on screen (`room`: Studio draws into the same column). What this
+ * room but the chat on screen (`room`: Studio draws into the same column),
+ * and a local route whose model is not on disk (`localBlocked`: the gate
+ * would hand the message back to the editor). What this
  * cannot foresee, submit() answers itself (false: not sent, still pending).
  */
 function pcCanContinue(env) {
   return !!env && env.onScreen && env.room === 'chat' && !env.busy && !env.pending && env.connected && !env.opening
-    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating;
+    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating
+    && !env.localBlocked;
 }
 
 /* ---------- the controller: one card for the chat on screen ---------- */

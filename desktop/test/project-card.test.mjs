@@ -572,7 +572,7 @@ function continueWith(over = {}) {
   const env = Object.assign({
     S: {agentSession: 'ses-1', room: 'chat', busy: false, pending: null, live: {state: 'connected'}, draft: ''},
     VOICE: {state: 'idle'}, BSW: {gating: false},
-    starterHoldsSend: () => false, fitHoldsSend: () => false, openHoldsComposer: () => false,
+    starterHoldsSend: () => false, fitHoldsSend: () => false, openHoldsComposer: () => false, localTurnGate: () => ({kind: 'run'}),
   }, over);
   const submit = (text, opts) => {
     // submit()'s own first steps: dictation is stopped, a hold keeps the message out.
@@ -581,8 +581,8 @@ function continueWith(over = {}) {
     calls.submit.push([text, opts]);
     return env.submitRefuses ? false : true;
   };
-  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'submit', '$', 'autosize', 'pcCanContinue',
-    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, submit, () => null, () => {}, C.pcCanContinue);
+  const run = new Function('S', 'VOICE', 'BSW', 'starterHoldsSend', 'fitHoldsSend', 'openHoldsComposer', 'localTurnGate', 'submit', '$', 'autosize', 'pcCanContinue',
+    fn + '\nreturn projectCardContinue;')(env.S, env.VOICE, env.BSW, env.starterHoldsSend, env.fitHoldsSend, env.openHoldsComposer, env.localTurnGate, submit, () => null, () => {}, C.pcCanContinue);
   return {sent: run('ses-1', 'Go on.'), calls};
 }
 
@@ -594,6 +594,7 @@ test('a continue message is not handed to submit() while it would not send, and 
     ['the starter model downloading', {starterHoldsSend: () => true}],
     ['a backend switch gating', {BSW: {gating: true}}],
     ['a model test holding the local server', {fitHoldsSend: () => true}],
+    ['the local model not on disk', {localTurnGate: () => ({kind: 'block', text: 'x'})}],
     ['a turn running', {S: {agentSession: 'ses-1', room: 'chat', busy: true, live: {state: 'connected'}, draft: ''}}],
     ['another room on screen (Studio)', {S: {agentSession: 'ses-1', room: 'studio', busy: false, live: {state: 'connected'}, draft: ''}}],
   ]) {
@@ -879,4 +880,77 @@ test('the card says "Fusion project", not the sidebar\'s folder "project"', () =
   const card = readFileSync(new URL('../renderer/project-card.js', import.meta.url), 'utf8');
   const strings = [...card.matchAll(/'([^'\n]*)'/g)].map((x) => x[1]).filter((t) => /\bproject\b/i.test(t) && /\s/.test(t));
   assert.deepEqual(strings.filter((t) => !/Fusion project/.test(t)), []);
+});
+
+/* ---------------- the real submit() with stand-ins for the page ---------------- */
+
+/**
+ * renderer.js's own submit(), bswGatedTurn(), gatedTurnLeft() and
+ * projectCardContinue() run against stand-ins: every name they read that
+ * is not one of theirs comes from `env` (a `with` scope), so an assignment
+ * such as `DRAIN_OWED = true` lands there too.
+ */
+function realPage(over = {}) {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const take = (re) => src.match(re)[0];
+  const fns = [
+    take(/\nfunction submit\(preparedSkillText, opts\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction gatedTurnLeft\(text\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction bswGatedTurn\(text\) \{[\s\S]*?\n}\n/),
+    take(/\nfunction projectCardContinue\([\s\S]*?\n}\n/),
+  ].join('\n');
+  const toasts = [], turns = [], snapshots = [];
+  const env = Object.assign({
+    S: {agentSession: 'ses-1', sessionId: 'ses-1', room: 'chat', settings: null, busy: false, pending: null, live: {state: 'connected'}, draft: '', log: [], queued: [], slash: false},
+    VOICE: {state: 'idle'}, BSW: {gating: false}, SK: {workingDir: null}, SLASH: [], OPENING: {}, SWX: {sendError: null},
+    DRAIN_OWED: false, MAX_QUEUED: 20, EXECUTE_PLAN_MESSAGE: '\u0000', PLAN_TRACE: [], ANX: {messageAction() {}},
+    FIT_HOLD_TITLE: 'A model test is running', FIT_HOLD_TEXT: 'Your message stays here.',
+    voiceStop() {}, starterHoldsSend: () => false, fitHoldsSend: () => false, updHoldsNewChat: () => false,
+    openHoldsComposer: () => false, swxWaitsForRoute: () => false, attPreparing: () => false,
+    attComposeMessage: (t) => t, attClearSent() {}, attToEditor: (t) => t,
+    toast: (...a) => toasts.push(a), $: () => null, autosize() {}, ctxDraftChanged() {}, render() {}, refreshSend() {},
+    runSlash() {}, submitSkillCommand() {}, noteWaitingChat() {}, drainOwed() {}, dropStaleGateNotices() {},
+    approvalOpen: () => null, steerOrQueue() {}, queueKey: () => 'k', apprKeyLabel: (k) => k,
+    nid: (() => { let n = 0; return () => ++n; })(), esc: (t) => t,
+    gate: {kind: 'run'}, localTurnGate: () => env.gate,
+    bswSnapshot: () => new Promise((r) => snapshots.push(r)),
+    startLiveTurn: (t) => turns.push(t), pcCanContinue: C.pcCanContinue, crypto: globalThis.crypto,
+  }, over);
+  const scope = new Proxy(env, {has: (t, k) => k in t});
+  const page = new Function('scope', 'with (scope) {\n' + fns + '\nreturn {submit, projectCardContinue, bswGatedTurn};\n}')(scope);
+  return {page, env, toasts, turns, snapshots};
+}
+
+test('the real submit() answers false on a hold and leaves the box alone', () => {
+  const r = realPage({fitHoldsSend: () => true});
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.submit('Go on.', {plain: true}), false);
+  assert.equal(r.env.S.draft, 'my words');
+  assert.deepEqual(r.turns, []);
+  assert.equal(r.toasts[0][0], 'A model test is running');
+  const ok = realPage();
+  assert.equal(ok.page.submit('Go on.', {plain: true}), true);
+  assert.deepEqual(ok.turns, ['Go on.']);
+});
+
+test('a continue on a local route without its model stays pending and never touches the person\'s draft', async () => {
+  // The gate already knows: nothing is submitted, the continue waits.
+  const r = realPage({gate: {kind: 'block', text: 'local model m is not downloaded'}});
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false);
+  assert.equal(r.env.S.draft, 'my words');
+  assert.deepEqual(r.env.S.log, []);
+  // The gate learns it only after the disk snapshot: the continue went back to the editor, above the person's draft.
+  const a = realPage({gate: {kind: 'pending'}});
+  a.env.S.draft = 'my words';
+  assert.equal(a.page.projectCardContinue('ses-1', 'Go on.'), true);
+  assert.equal(a.env.S.draft, 'my words', 'restored while the snapshot runs');
+  a.env.gate = {kind: 'block', text: 'local model m is not downloaded'};
+  a.snapshots[0](); await tick();
+  assert.equal(a.env.S.draft, 'Go on.\n\nmy words', 'nothing the person typed is written over');
+  // A message the person typed comes back as before (the box was empty).
+  const t = realPage({gate: {kind: 'block', text: 'blocked'}});
+  t.env.S.draft = 'typed';
+  assert.equal(t.page.submit(), true);
+  assert.equal(t.env.S.draft, 'typed');
 });
