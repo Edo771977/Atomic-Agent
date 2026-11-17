@@ -1,6 +1,7 @@
 import type { ContextCompactionControl, CompactionEvent } from "./compaction-control.js";
 import type { SessionUsageState } from "../session/usage-meter.js";
 import type { ToolRole } from "../tools/tool-roles.js";
+import type { WorkerTaskStatus } from "../tools/fusion/worker-result.js";
 import type { CompletionResult, StreamChunk } from "../llm/llama-server-client.js";
 import type { SlotManager } from "../llm/slot-manager.js";
 import type { ReasoningEffort, ToolCallTransport } from "../llm/provider/completion-types.js";
@@ -26,6 +27,7 @@ import type { TruncationRetry } from "./turn/truncation-recovery.js";
 import type { AgentMetrics } from "../tracing/agent-metrics.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
 import type { ProfileClippedEvent } from "./profile-clip-warning.js";
+import type { PrefixDriftEvent, PrefixInvalidationLedger } from "./prefix-drift-warning.js";
 import type { HistoryTrimmedEvent } from "./history-trim-warning.js";
 import type { ToolDisabledEvent } from "./tool-disabled-notice.js";
 import type { ReviewStallSignal } from "./review-stall.js";
@@ -154,6 +156,13 @@ export interface AgentLoopDependencies {
    */
   isFusionMode?: () => boolean;
   /**
+   * What the runtime rebuilt on purpose (skills refreshed, MCP catalog
+   * rebuilt), so a prefix change it explains is labelled expected
+   * rather than warned about (ATO-316). Absent: every change that is
+   * not a model or route switch reads as unexpected.
+   */
+  prefixInvalidations?: PrefixInvalidationLedger;
+  /**
    * Drop the fan-out approval a previous turn on this session earned.
    * See `approval/fanout-scope.ts`: the answer is scoped to one job.
    */
@@ -208,6 +217,12 @@ export interface AgentLoopDependencies {
    * prefix moves with it, the same cost as a config write.
    */
   liveWorkerSlots?: () => number | null;
+  /**
+   * What past fusion runs on this machine showed (ATO-949): the outcome
+   * log's summary as `sessionId` started with it, for the `### fusion`
+   * facts. Held per session, so stable for that session's prefix.
+   */
+  fusionPastRuns?: (sessionId: string) => readonly string[];
   /**
    * The model server just revealed its real context window: a reply
    * stopped `context_window`-truncated after this many prompt + reply
@@ -585,6 +600,12 @@ export interface RunTurnOptions {
    */
   taskMaxCostUsd?: number;
   /**
+   * Re-plan cadence in steps (ATO-609). Defaults to
+   * `config.agent.task.replanEveryNSteps`; `0` is off. See
+   * `src/agent/plan/replan-cadence.ts`.
+   */
+  replanEveryNSteps?: number;
+  /**
    * Carry on past a leg boundary while the work progresses. Defaults to
    * `config.agent.task.autoContinue`; `false` restores the historical
    * "stop at `maxSteps`" behaviour for a caller that wants one leg only.
@@ -679,6 +700,15 @@ export interface RunTurnOptions {
    */
   ephemeral?: boolean;
   /**
+   * Memory is read as usual (recall, the profile in the prompt) but the
+   * turn writes nothing to it: no end-of-turn reflection (notes, lessons,
+   * procedures), no lesson lifecycle bump, and the `memory.*` write tools
+   * are hidden (`memoryReadOnlyToolFilter`, applied by the runtime turn
+   * service). For `skill eval` (ATO-1098): a run with a skill and a run
+   * without it must not reach each other through the person's memory.
+   */
+  memoryReadOnly?: boolean;
+  /**
    * Restrict tools for this turn. Applied to the descriptors handed to every
    * step, composed with the finalization-step filter, so under native
    * tools the hidden tool also leaves the wire payload — the step builds
@@ -721,7 +751,8 @@ export interface RunTurnOptions {
    * acceptance list is green. Not read by the loop itself: the runtime
    * wraps the loop's turns in the goal controller (`./goal/`), which runs
    * `checks` after each round, asks a judge about `criteria`, and starts
-   * the next round with what is still open, up to `maxRounds`.
+   * the next round with what is still open, up to `maxRounds` rounds and
+   * `maxTokens` tokens (ATO-1036; `0` or absent, no token cap).
    */
   goal?: import("./goal/goal-types.js").GoalSpec;
 }
@@ -777,6 +808,12 @@ export type AgentLoopEvent =
    */
   | { type: "steer_applied"; text: string; stepIndex: number }
   | { type: "turn_started"; turnIndex: number }
+  /**
+   * A one-line guess at what the user will want next, written after the
+   * turn ended (ATO-995). Surfaces show it greyed in an empty composer;
+   * Tab puts it in the buffer. Never sent to the model by itself.
+   */
+  | { type: "next_step_suggestion"; text: string }
   | {
       type: "turn_finished";
       turnIndex: number;
@@ -1046,6 +1083,29 @@ export type AgentLoopEvent =
        */
       tokens?: number;
       spentUsd?: number;
+      /**
+       * `phase: "usage"`: the reply part of `tokens` — what this worker
+       * generated, every completion summed (ATO-78). The prompt part is
+       * re-read on every step, so `tokens` alone mostly measures context.
+       */
+      tokensOut?: number;
+      /**
+       * The step budget this worker runs under (`maxSteps`, clamped), on
+       * `started`, `usage` and the end line, so the row can say
+       * `12/40 steps` (ATO-1364).
+       */
+      stepBudget?: number;
+      /**
+       * Distinct files this worker has written so far, on `usage` and
+       * the end line (ATO-1364, `worker-files-written.ts`).
+       */
+      filesWritten?: number;
+      /**
+       * End lines (`finished` / `failed` / `cancelled`): the task's own
+       * status, so the row can say why it came back — `needs_orchestrator`,
+       * `max_steps`, `timeout` — where the phase only says it ended.
+       */
+      status?: WorkerTaskStatus;
       /** `phase: "tool"` only: the tool this leg just started. */
       tool?: string;
       /**
@@ -1055,6 +1115,7 @@ export type AgentLoopEvent =
        * slow. Nothing is scheduled or timed out against it.
        */
       etaSeconds?: number;
+      /** Steps completed: the end line's total, and live on `usage`. */
       stepCount?: number;
       durationMs?: number;
       /** One line about the outcome; the worker's reply, clipped. */
@@ -1067,6 +1128,11 @@ export type AgentLoopEvent =
     }
   /** `### profile` was clipped at `memory.profile.maxTokens` (issue #407). */
   | ProfileClippedEvent
+  /**
+   * The stable prefix differs from the previous step of the same
+   * session (ATO-316): which sections, and whether the runtime caused it.
+   */
+  | PrefixDriftEvent
   /** The packer left older history out of the prompt (ATO-295). */
   | HistoryTrimmedEvent
   /**

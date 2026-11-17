@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { isSea } from "node:sea";
 import { render } from "ink";
 import React from "react";
@@ -39,10 +40,16 @@ import {
 import {
   persistUserTuiMouse,
   persistUserTuiShowSteps,
+  persistUserTuiVimMode,
   persistUserTuiTheme,
   persistUserWhileBusySubmit,
 } from "./persist-user-tui-config.js";
 import { createMouseStdin } from "./mouse/mouse-stdin.js";
+import {
+  createTerminalPause,
+  defaultExternalEditorDeps,
+  editInExternalEditor,
+} from "./editor/index.js";
 import { makeMouseSource } from "./mouse/mouse-source.js";
 import {
   enableMouseTracking,
@@ -64,10 +71,12 @@ import {
   currentTerminalLaunchInput,
   openAgentTerminalWindow,
 } from "./open-terminal-window.js";
-import { openUrlInBrowser } from "./open-url.js";
+import { openLocalHtmlInBrowser, openUrlInBrowser } from "./open-url.js";
+import { createInterviewInviteController } from "./interview-invite/interview-invite-controller.js";
 import { detectKittyKeyboard } from "./detect-kitty-keyboard.js";
 import { setShiftEnterNewline } from "./shift-enter-support.js";
 import { makeTuiEventBus, TuiApp } from "./tui-app.js";
+import { createSessionPickerSearch } from "./session-rail/session-search.js";
 import { createHerdrReporter } from "./herdr-reporter.js";
 import {
   detectTerminalBackground,
@@ -80,6 +89,12 @@ import {
   parseReportArgs,
   renderOutcomeReport,
 } from "../tools/fusion/index.js";
+import {
+  formatRestoredWorkingDirNotice,
+  resolveStartupWorkingDir,
+} from "./startup-working-dir.js";
+import { readRecentWorkingDirs } from "../session/index.js";
+import { createMentionFileIndex, expandFileMentions } from "./file-mentions/index.js";
 import type { InitialTuiLayoutOptions, TuiSessionInfo } from "./tui-state.js";
 import {
   loadUninstallPreview,
@@ -120,6 +135,17 @@ export async function tuiCommand(args: string[]): Promise<number> {
   // when the TUI exits.
   const configNotices: string[] = [];
   setConfigNoticeSink((line) => configNotices.push(line));
+  // A bare launch from the home directory reopens the last session's
+  // folder (ATO-5); any other launch keeps the shell's folder. Decided
+  // before the runtime boots, because the runtime is built for one folder.
+  const startupDir = resolveStartupWorkingDir({
+    args,
+    cwd: parsed.workingDir,
+    homeDir: homedir(),
+    stateDir: getConfig().paths.stateDir,
+    recentDirs: () => readRecentWorkingDirs(getConfig().paths.sessionsDbFile),
+  });
+  const workingDir = startupDir.workingDir;
   // Theme selection BEFORE any Ink render or stdin listener (the first-run
   // flow and the main render). An explicit
   // `tui.theme` (a registered name) wins; otherwise `"auto"` (or an unknown
@@ -186,6 +212,8 @@ export async function tuiCommand(args: string[]): Promise<number> {
     // Finished turns fold into one line unless the operator asked to
     // always see their steps (ATO-963).
     showSteps: config.tui.showSteps,
+    // Vim keys in the composer, off unless `/vim` turned them on (ATO-662).
+    vimMode: config.tui.vimMode,
     // The composer's route controls read these on the home screen, and
     // the local-models slice only refreshes while the Models tab is
     // open — unseeded, a managed install mislabels itself `custom`
@@ -234,7 +262,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
   // emits its first transition.
   let orchestratorForChannelStatus: ChatOrchestrator | null = null;
   const runtime = await createAgentRuntime({
-    workingDir: parsed.workingDir,
+    workingDir,
     approvalLevel,
     traceDefault: true,
     // The TUI is the one entry point a person actually launches; the
@@ -272,7 +300,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
 
   const sessionInfo: TuiSessionInfo = {
     sessionId: null,
-    workingDir: parsed.workingDir,
+    workingDir,
     llamaUrl: config.localModels.url,
     browserChannel: config.browser.channel,
     browserHeadless: config.browser.headless,
@@ -292,6 +320,8 @@ export async function tuiCommand(args: string[]): Promise<number> {
     localBackendConfigured: isLocalBackendConfigured(),
   };
 
+  // One file list per working directory for the session (file-mentions/).
+  const mentionFiles = createMentionFileIndex();
   const orchestrator = new ChatOrchestrator(runtime, bus, {
     maxSteps,
     llamaUrl: config.localModels.url,
@@ -303,8 +333,17 @@ export async function tuiCommand(args: string[]): Promise<number> {
   // mouse reporting off, alt screen left — and exits hard, instead of
   // Node's default kill that skips `exit` hooks and leaves the shell
   // printing `[<0;64;21M` on every click. See `signal-escalation.ts`.
+  // The graceful path is the same transition as the second Ctrl+C:
+  // `quit_requested` moves the app to `quitting`, which calls `onQuit`
+  // and unmounts Ink, so `waitUntilExit` below returns and the `finally`
+  // hands the terminal back. `orchestrator.quit()` alone only stops
+  // work; with nothing unmounting Ink the raw-mode stdin kept the
+  // process alive until a second signal.
   const onSignal = makeEscalatingSignalHandler({
-    quit: () => orchestrator.quit(),
+    quit: () => {
+      orchestrator.quit();
+      bus.emit({ type: "quit_requested" });
+    },
     restoreTerminal: restoreTerminalNow,
     exit: (code) => process.exit(code),
   });
@@ -453,9 +492,34 @@ export async function tuiCommand(args: string[]): Promise<number> {
   // the React tree; null outside a herdr pane.
   const herdrReporter = createHerdrReporter();
 
+  // The interview invite (ATO-1467): `/feedback` always, and a rare quiet
+  // line at session start. A warning shown this launch (a `.env` that
+  // could not be read, any warn line) keeps the rare line away.
+  let sawStartupError = Boolean(config.dotenv.error);
+  bus.subscribe((action) => {
+    if (action.type === "system_message" && action.variant === "warn") sawStartupError = true;
+  });
+  const interviewInvite = createInterviewInviteController({
+    runtime,
+    stateDir: config.paths.stateDir,
+    emitLine: (text) => bus.emit({ type: "system_message", text }),
+    openUrl: (url) => openUrlInBrowser(url),
+    isBusy: () => runtime.turnController.busySessionIds().length > 0,
+    sawError: () => sawStartupError,
+  });
+
   // `--onboarding`'s stamp reset, deferred to here from the decision
   // above: the runtime is up and the next line mounts the flow.
   if (parsed.onboarding) persistOnboardingState(ONBOARDING_RERUN_RESET);
+  // `/edit` (ATO-655) hands the terminal to `$EDITOR`. The getter reads
+  // the live `mouseTracking` binding for the same reason the passthrough
+  // above does: `/mouse on|off` replaces the controller.
+  const externalEditorPause = createTerminalPause({
+    stdin: process.stdin,
+    stdout: process.stdout,
+    kittyKeyboard,
+    mouse: () => mouseTracking,
+  });
   const ink = render(
     React.createElement(TuiApp, {
       session: sessionInfo,
@@ -500,6 +564,10 @@ export async function tuiCommand(args: string[]): Promise<number> {
           orchestrator.steerMessage(message);
         },
         onMessageSubmitted: (text) => orchestrator.sendMessage(text),
+        // The `@` palette and its expansion (ATO-665) read the same folder
+        // the agent's own tools are rooted at.
+        listMentionFiles: () => mentionFiles.list(runtime.capabilities.workingDir),
+        expandFileMentions: (text) => expandFileMentions(text, runtime.capabilities.workingDir),
         onLastTurnRollbackRequested: (expect) => orchestrator.rollbackLastTurn(expect),
         onQueueClearRequested: () => orchestrator.clearQueue(),
         onMessageSteered: (text) => orchestrator.steerMessage(text),
@@ -516,19 +584,31 @@ export async function tuiCommand(args: string[]): Promise<number> {
           runtime.setPlanMode(resolved.planMode);
         },
         onSessionPickerRequested: () => orchestrator.openSessionPicker(),
+        onRewindPickerRequested: () => orchestrator.openRewindPicker(),
+        onRewindRequested: (turnIndex, expectText) =>
+          orchestrator.rewindTo(turnIndex, expectText),
         onSessionSwitchRequested: (id) => orchestrator.switchSession(id),
+        // ATO-1153: the picker's search reads message text from the store.
+        searchSessions: createSessionPickerSearch((id) =>
+          runtime.sessionStore.listChatLines(id),
+        ),
         onSessionPinToggled: (id) => orchestrator.togglePinned(id),
         onSessionMoveRequested: (id, toIndex) =>
           orchestrator.moveSession(id, toIndex),
         onSessionsEndReached: () => orchestrator.loadMoreSessions(),
-        onSessionNewRequested: () => orchestrator.newSession(),
-        onIncognitoSessionRequested: () => orchestrator.newSession({ incognito: true }),
-        onCompactionRequested: (verb) => { void orchestrator.compactContext(verb); },
+        onSessionNewRequested: (options) => {
+          if (options?.worktree) void orchestrator.newWorktreeSession();
+          else orchestrator.newSession();
+        },
+        onIncognitoSessionRequested: () => orchestrator.newSession(undefined, { incognito: true }),
+        isPushPrivate: () => orchestrator.isPushPrivate(),
+        onCompactionRequested: (verb, instructions) => { void orchestrator.compactContext(verb, instructions); },
         onTeamPickerRequested: (role) => { orchestrator.openTeamPicker(role); },
         onProjectViewRequested: () => { orchestrator.openProjectView(); },
         onGoalCommand: (command) => orchestrator.goalCommand(command),
         onPromptEnhanceRequested: (draft) => { void orchestrator.enhancePrompt(draft); },
         onPromptEnhanceCancel: () => orchestrator.cancelPromptEnhance(),
+        onSideQuestionRequested: (question) => { void orchestrator.askSideQuestion(question); },
         onSessionDeleteConfirmed: (sessionId) =>
           orchestrator.deleteSession(sessionId),
         onUninstallPlanRequested: () =>
@@ -540,8 +620,12 @@ export async function tuiCommand(args: string[]): Promise<number> {
           uninstallKeepDesktopData = choice.keepDesktopData;
           orchestrator.quit();
         },
-        onNewWindowRequested: () => openNewAgentWindow(parsed.workingDir, bus),
+        onNewWindowRequested: () => openNewAgentWindow(workingDir, bus),
+        onExternalEditorRequested: (draft) =>
+          editInExternalEditor(draft, defaultExternalEditorDeps(externalEditorPause)),
         onOpenUrlRequested: (url) => openUrlFromChat(url, bus),
+        onOpenLocalFileRequested: (path) => openLocalFileFromChat(path, bus),
+        onUiAction: (action, via) => runtime.reportUiAction?.(action, via),
         onMemoryDumpRequested: () => orchestrator.dumpProfile(),
         onSkillCatalogRequested: () => orchestrator.dumpSkillCatalog(),
         onPersistLlamaUrl: (nextUrl) =>
@@ -549,6 +633,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onThemePersistRequested: (themeName) =>
           persistThemeChoice(themeName, bus),
         onShowStepsPersistRequested: (on) => persistShowSteps(on, bus),
+        onVimModePersistRequested: (on) => persistVimMode(on, bus),
         onTasksAutoRefreshStart: () => orchestrator.tasks.startAutoRefresh(),
         onTasksRefreshRequested: () => orchestrator.tasks.refresh(),
         onTaskDetailRequested: (taskId) =>
@@ -786,12 +871,19 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onMcpRestartServer: (name) => orchestrator.mcp.restartServer(name),
         onMcpToggleServerEnabled: (name) =>
           orchestrator.mcp.toggleServerEnabled(name),
+        onMcpAuthRequested: (name, action) =>
+          action === "signin"
+            ? orchestrator.mcp.signIn(name)
+            : orchestrator.mcp.signOut(name),
         onDebugBundleExportRequested: (state) =>
           orchestrator.exportDebugBundle(state),
         onIssueReportRequested: () => orchestrator.issueReport.open(),
+        onFeedbackRequested: (verb, origin) => void interviewInvite.runFeedback(verb, origin),
         onIssueReportPickRequested: (level, state) =>
           void orchestrator.issueReport.pick(level, state),
         onIssueReportSendRequested: () => void orchestrator.issueReport.send(),
+        onIssueReportToggleRequested: (option) =>
+          orchestrator.issueReport.toggle(option),
         onIssueReportCloseRequested: () => orchestrator.issueReport.close(),
         onProjectDecision: (sessionId, decision) => void orchestrator.decideProject(sessionId, decision),
         onProjectReviseBrief: () => orchestrator.reviseProjectBrief(),
@@ -895,6 +987,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         // Only the `/analytics enable|disable` slash verbs call this.
         onAnalyticsSetEnabledRequested: (enabled) =>
           orchestrator.privacy.setAnalyticsEnabled(enabled, "slash"),
+        onOfflineToggleRequested: () => orchestrator.privacy.toggleOffline(),
         onPrivacyRefreshRequested: () => orchestrator.privacy.refresh(),
         onIntegrationsRefreshRequested: () =>
           orchestrator.integrations.refresh(),
@@ -979,6 +1072,12 @@ export async function tuiCommand(args: string[]): Promise<number> {
   });
   for (const line of configNotices) bus.emit({ type: "runtime_info", line });
   configNotices.length = 0;
+  if (startupDir.restored) {
+    bus.emit({
+      type: "system_message",
+      text: formatRestoredWorkingDirNotice(workingDir, homedir()),
+    });
+  }
 
   // Project skills and AGENTS.md/CLAUDE.md files of the opened folder load
   // only after the operator trusted them (ATO-298); ask once if any are new.
@@ -1023,6 +1122,13 @@ export async function tuiCommand(args: string[]): Promise<number> {
     firstRun: onboarding !== null || needsOnboarding(),
   });
   if (spotlightHint) bus.emit({ type: "system_message", text: spotlightHint });
+  // Last of the startup lines, and only when nothing above it was a
+  // first-run screen or a model hint (one quiet line, not a pile).
+  if (!spotlightHint) {
+    void interviewInvite.maybeShowAtStart({
+      onboarding: onboarding !== null || needsOnboarding(),
+    });
+  }
 
   // If the user is in managed mode and the backend + model are ready
   // on disk, start the daemon immediately so there is no extra
@@ -1207,6 +1313,22 @@ function openUrlFromChat(
   })();
 }
 
+/** `openUrlFromChat` for a local `.html` page's chip (ATO-1139). */
+function openLocalFileFromChat(
+  path: string,
+  bus: ReturnType<typeof makeTuiEventBus>,
+): void {
+  void (async () => {
+    const result = await openLocalHtmlInBrowser(path);
+    if (result.ok) return;
+    bus.emit({
+      type: "system_message",
+      variant: "warn",
+      text: `could not open ${path}: ${result.reason}`,
+    });
+  })();
+}
+
 function persistThemeChoice(
   themeName: string,
   bus: ReturnType<typeof makeTuiEventBus>,
@@ -1235,6 +1357,24 @@ function persistShowSteps(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     bus.emit({ type: "runtime_info", line: `steps setting not saved: ${msg}` });
+  }
+}
+
+function persistVimMode(
+  on: boolean,
+  bus: ReturnType<typeof makeTuiEventBus>,
+): void {
+  try {
+    persistUserTuiVimMode(on);
+    bus.emit({
+      type: "runtime_info",
+      line: on
+        ? "vim keys on: Esc for NORMAL, i to type again"
+        : "vim keys off",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    bus.emit({ type: "runtime_info", line: `vim setting not saved: ${msg}` });
   }
 }
 

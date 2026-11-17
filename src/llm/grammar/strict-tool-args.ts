@@ -59,8 +59,11 @@ export interface StrictArgsTool {
 export const STRICT_ARGS_LIMITS = {
   perToolRules: 96,
   perToolChars: 12_000,
-  totalRules: 800,
-  totalChars: 96_000,
+  // Room for the merged catalog (upstream's audio/canvas/office/browser
+  // tools beside the fork's project and fusion schemas): at 800 / 96k the
+  // last tools in name order (`verify.run`) fell back to the any-object path.
+  totalRules: 1_000,
+  totalChars: 120_000,
 } as const;
 
 /** The rule `tool-call` gains, listing every generated call rule. */

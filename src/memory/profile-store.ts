@@ -8,6 +8,10 @@ import type { AgentMetrics } from "../tracing/agent-metrics.js";
 import { applyMigrations } from "./memory-schema.js";
 import { currentWriteScope } from "./memory-constraint-scope.js";
 import {
+  MemoryChangeLog,
+  type MemoryChangeActor,
+} from "./evolution/memory-change-log.js";
+import {
   isNameGroundingStatus,
   isNameProfileKey,
   isProfileFactPromptVisible,
@@ -200,6 +204,7 @@ interface ProfileRow {
  */
 export class ProfileStore {
   private readonly db: Database.Database;
+  private readonly changeLog: MemoryChangeLog;
   private readonly metrics: AgentMetrics | undefined;
   private readonly evictor: ProfileEvictor | null;
   private readonly onEvicted:
@@ -235,6 +240,8 @@ export class ProfileStore {
         ? new ProfileEvictor(this.db, options.maxEntries)
         : null;
     this.onEvicted = options.onEvicted;
+    // ATO-1059: a deleted fact goes into the change journal for an undo.
+    this.changeLog = new MemoryChangeLog(this.db);
     this.insertStmt = this.db.prepare(
       `INSERT INTO profile_facts
          (key, value, pinned, keywords, valid_from, superseded_by,
@@ -519,16 +526,32 @@ export class ProfileStore {
    * had an active row (one `get(key)` could see), so
    * `memory.profile.remove` never reports success for a key that was not
    * there; leftover history alone is still purged, but reads as `false`.
+   * The active value goes into the change journal (ATO-1059); `by` says
+   * who asked.
    */
-  remove(key: string): boolean {
+  remove(key: string, by: MemoryChangeActor = "agent"): boolean {
     const normalisedKey = validateKey(key);
     return this.db.transaction((): boolean => {
-      const hadActive =
-        this.selectVisibleActiveByKeyStmt.get(normalisedKey) !== undefined;
+      const before = this.get(normalisedKey);
+      const hadActive = before !== null;
       // A fact this session cannot see (another constraint scope) is not
       // its to forget.
       if (!hadActive && this.selectActiveByKeyStmt.get(normalisedKey) !== undefined) return false;
       this.forgetKey(normalisedKey);
+      if (before !== null) {
+        this.changeLog.record({
+          kind: "profile",
+          target: before.key,
+          op: "remove",
+          by,
+          before: {
+            key: before.key,
+            value: before.value,
+            pinned: before.pinned,
+            keywords: before.keywords,
+          },
+        });
+      }
       return hadActive;
     })();
   }

@@ -45,6 +45,12 @@ export function normalizeSessionState(raw: unknown): SessionState {
     if (plan === null) delete normalized.plan;
     else normalized.plan = plan;
   }
+  // The re-plan counter (ATO-609) is arithmetic on every step: anything
+  // but a non-negative integer is dropped and reads as 0.
+  if (normalized.stepsSinceReplan !== undefined) {
+    const n: unknown = normalized.stepsSinceReplan;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) delete normalized.stepsSinceReplan;
+  }
   // The fusion project (issue #39) gates delegation: a malformed one is
   // dropped whole rather than half-read.
   if (normalized.project !== undefined) {

@@ -10,21 +10,25 @@ import {
   isOfflineNetwork,
   setOfflineNetwork,
 } from "../../llm/offline-network.js";
+import type { Channel } from "../../channels/channel.js";
 import type { OfflineModeControl } from "../runtime-contract.js";
 
-/** The remote-control channels; each talks to the internet on its own. */
-interface RemoteChannel {
-  start(): Promise<void>;
-  stop(): Promise<void>;
+/** The slice of `ChannelRegistry` offline mode needs. */
+interface ChannelList {
+  list(): readonly Pick<Channel, "id" | "start" | "stop">[];
 }
 
 export interface OfflineModeDeps {
   /** Write `network.offline` to the user config file. */
   persist?: (enabled: boolean) => void;
-  /** Read at call time: the runtime fills these in after construction. */
+  /**
+   * Read at call time: the runtime fills these in after construction.
+   * `registry` is `runtime.channels` (ATO-1169): Telegram, Discord and
+   * every catalog adapter. Offline mode walks it rather than naming
+   * channels, so a new messenger is covered without touching this file.
+   */
   channels: () => {
-    telegram: RemoteChannel | null;
-    discord: RemoteChannel | null;
+    registry: ChannelList | null;
     swarm: { startEnabled(): Promise<void>; stopAll(): Promise<void> } | null;
   };
   /**
@@ -41,9 +45,17 @@ export interface OfflineModeDeps {
    * dispatcher cannot see). Their jobs stay resumable.
    */
   stopDownloads?: () => Promise<void>;
-  /** Whether the config asks for each channel, read after the write. */
-  channelEnabled?: () => { telegram: boolean; discord: boolean };
+  /** Whether the config asks for channel `id`, read after the write. */
+  channelEnabled?: (id: string) => boolean;
   warn?: (message: string, error: unknown) => void;
+}
+
+/** `telegram.enabled`, `discord.enabled`, else `channels.<id>.enabled`. */
+export function channelEnabledInConfig(id: string): boolean {
+  const config = getConfig();
+  if (id === "telegram") return config.telegram.enabled;
+  if (id === "discord") return config.discord.enabled;
+  return config.channels[id]?.enabled ?? false;
 }
 
 /**
@@ -54,23 +66,24 @@ export interface OfflineModeDeps {
  * `network.offline`: a failed write rejects with
  * `OfflineModePersistError` while the process stays offline.
  * `setEnabled(false)` persists first and only then goes online. The
- * HTTP pool and every tool read the flag per request. The Telegram bot
- * (its own HTTP client) and the Discord gateway (a socket opened before
- * the switch) are stopped when it turns on, and started again when it
- * turns off if their config asks for them. A Chrome the agent launched
- * and running model download workers are stopped too (it relaunches offline on the next browser call); turning it off stops that Chrome again so the next call relaunches it without the dead proxy. With `ATOMIC_AGENT_OFFLINE=1`
- * the process stays offline whatever is set here; `isEnabled` says so.
+ * HTTP pool and every tool read the flag per request. Chat channels keep
+ * their own clients and sockets (the Telegram bot, the Discord gateway,
+ * Slack, Signal, ...), so every channel in the registry is stopped when
+ * it turns on and started again when it turns off if its config asks
+ * for it. `ChannelRegistry.startInBackground` refuses to start any of
+ * them while offline. A Chrome the agent launched and running model
+ * download workers are stopped too (it relaunches offline on the next
+ * browser call); turning it off stops that Chrome again so the next call
+ * relaunches it without the dead proxy. With `ATOMIC_AGENT_OFFLINE=1` the
+ * process stays offline whatever is set here; `isEnabled` says so.
  */
 export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeControl {
   const persist = deps.persist ?? persistNetworkOffline;
-  const channelEnabled = deps.channelEnabled ?? (() => {
-    const config = getConfig();
-    return { telegram: config.telegram.enabled, discord: config.discord.enabled };
-  });
+  const channelEnabled = deps.channelEnabled ?? channelEnabledInConfig;
   const warn = deps.warn ?? (() => undefined);
-  const settle = async (label: string, work: Promise<void> | undefined) => {
+  const settle = async (label: string, work: () => Promise<void> | undefined) => {
     try {
-      await work;
+      await work();
     } catch (err) {
       warn(`offline mode: ${label} failed`, err);
     }
@@ -79,18 +92,20 @@ export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeCont
     isEnabled: () => isOfflineNetwork(),
     egress: () => egressSnapshot(),
     async setEnabled(enabled: boolean): Promise<void> {
-      const { telegram, discord, swarm } = deps.channels();
+      const { registry, swarm } = deps.channels();
+      const channels = registry?.list() ?? [];
       if (enabled) {
         // Fail closed: the switch and the channel stops come first, so
         // a config that cannot be written (read-only, invalid) still
         // leaves the process offline; the write failure is then
         // reported on its own.
         setOfflineNetwork(true);
-        await settle("telegram stop", telegram?.stop());
-        await settle("discord stop", discord?.stop());
-        await settle("swarm stop", swarm?.stopAll());
-        await settle("downloads stop", deps.stopDownloads?.());
-        await settle("browser stop", deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
+        for (const channel of channels) {
+          await settle(`${channel.id} stop`, () => channel.stop());
+        }
+        await settle("swarm stop", () => swarm?.stopAll());
+        await settle("downloads stop", () => deps.stopDownloads?.());
+        await settle("browser stop", () => deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
         try {
           persist(true);
         } catch (err) {
@@ -105,11 +120,13 @@ export function createOfflineModeControl(deps: OfflineModeDeps): OfflineModeCont
       if (isOfflineNetwork()) return;
       // A Chrome launched while offline keeps --proxy-server=127.0.0.1:9
       // for its lifetime; the next browser call relaunches it online.
-      await settle("browser stop", deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
-      const wanted = channelEnabled();
-      if (wanted.telegram) await settle("telegram start", telegram?.start());
-      if (wanted.discord) await settle("discord start", discord?.start());
-      await settle("swarm start", swarm?.startEnabled());
+      await settle("browser stop", () => deps.browser?.()?.stopLaunchedBrowser?.().then(() => undefined));
+      for (const channel of channels) {
+        if (channelEnabled(channel.id)) {
+          await settle(`${channel.id} start`, () => channel.start());
+        }
+      }
+      await settle("swarm start", () => swarm?.startEnabled());
     },
   };
 }

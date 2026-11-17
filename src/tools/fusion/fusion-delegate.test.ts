@@ -1474,6 +1474,106 @@ describe("fusion.delegate", () => {
       }
     });
 
+    it("calls a provide's example after the fan-out and fails its producer on a mismatch (ATO-1362)", async () => {
+      const dir = fixture();
+      try {
+        writeFileSync(join(dir, "js", "phys.js"), "export const PHYS = {};");
+        const runChecks = vi.fn(
+          async (specs: readonly Record<string, unknown>[]) => ({
+            ok: false,
+            results: specs.map((spec) =>
+              Array.isArray(spec.args) && spec.args[0] === "--input-type=module"
+                ? {
+                    ok: false,
+                    summary:
+                      'verify.run command: FAILED\nexample: expect was false for r = [{"o":{"x":9}}]',
+                  }
+                : { ok: true, summary: "exit 0" },
+            ),
+          }),
+        );
+        const tool = buildFusionDelegateTool(deps({ workingDir: dir, runChecks }));
+        const result = await tool.run(
+          {
+            tasks: TASKS,
+            contract: {
+              provides: [
+                {
+                  task: "t1",
+                  kind: "symbol",
+                  name: "PHYS",
+                  in: "js/phys.js",
+                  shape: "corners(b) -> [{w: world point, o: local offset}]",
+                  example: {
+                    call: "PHYS.corners({x:10,y:10,w:2,h:2,a:0})",
+                    expect: "r.every(c => Math.abs(c.w.x - 10) <= 1)",
+                  },
+                },
+              ],
+              requires: [{ task: "t2", name: "PHYS" }],
+              checks: [{ task: "t2", kind: "command", cmd: "node", args: ["--check", "js/phys.js"] }],
+            },
+          },
+          ctx({ workingDir: dir }),
+        );
+        // The declared check first, then the example — one runner call
+        // after the fan-out (the earlier one is t2's worker self-check of
+        // its own declared check).
+        const specs = runChecks.mock.calls.at(-1)![0];
+        expect(specs).toHaveLength(2);
+        expect(specs[0]).toEqual({ kind: "command", cmd: "node", args: ["--check", "js/phys.js"] });
+        expect(specs[1]).toMatchObject({ kind: "command", cmd: "node" });
+        const rows = result.details.tasks as WorkerTaskResult[];
+        expect(rows.map((r) => r.status)).toEqual(["failed", "ok"]);
+        expect(rows[0]!.error).toMatch(/^checks: .*expect was false/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("runs only the old name checks, with no failure and no warning, for a contract with no shape or example (ATO-1362)", async () => {
+      const dir = fixture();
+      try {
+        writeFileSync(join(dir, "js", "phys.js"), "export const PHYS = {};");
+        const runChecks = vi.fn(
+          async (specs: readonly Record<string, unknown>[]) => ({
+            ok: true,
+            results: specs.map(() => ({ ok: true, summary: "exit 0" })),
+          }),
+        );
+        const tool = buildFusionDelegateTool(deps({ workingDir: dir, runChecks }));
+        const result = await tool.run(
+          {
+            tasks: TASKS,
+            contract: {
+              provides: [{ task: "t1", kind: "symbol", name: "PHYS", in: "js/phys.js" }],
+              requires: [{ task: "t2", name: "PHYS" }],
+              checks: [{ task: "t2", kind: "command", cmd: "node", args: ["--check", "js/phys.js"] }],
+            },
+          },
+          ctx({ workingDir: dir }),
+        );
+        // Exactly the declared spec: no extra example run (the earlier
+        // call is t2's worker self-check of the same declared check).
+        for (const [specs] of runChecks.mock.calls) {
+          expect(specs.some((spec) => Array.isArray(spec.args) && spec.args[0] === "--input-type=module")).toBe(false);
+        }
+        expect(runChecks.mock.calls.at(-1)![0]).toEqual([
+          { kind: "command", cmd: "node", args: ["--check", "js/phys.js"] },
+        ]);
+        const rows = result.details.tasks as WorkerTaskResult[];
+        expect(rows.map((r) => r.status)).toEqual(["ok", "ok"]);
+        expect(rows.every((r) => r.error === undefined)).toBe(true);
+        // The name check ran and passed; nothing about a missing shape or example.
+        const report = result.details.contract as { findings: { present: boolean }[]; warnings?: string[] };
+        expect(report.findings).toEqual([expect.objectContaining({ name: "PHYS", present: true })]);
+        expect(report.warnings ?? []).toEqual([]);
+        expect(result.summary).not.toMatch(/shape|example/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it("does not accuse cancelled tasks of missing their provides", async () => {
       // Live, run2-attempt0: a 34.5-minute fan-out ended `all_failed`
       // with every task cancelled — three of them after 0 steps — and
@@ -2654,6 +2754,91 @@ describe("fusion.delegate — the delegate's own syntax pass", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("fusion.delegate — outcome journal (ATO-949)", () => {
+  it("logs one row per finished task, counts and labels only", async () => {
+    const append = vi.fn();
+    const tool = buildFusionDelegateTool(deps({ outcomeJournal: { append } }));
+    const result = await tool.run({ tasks: TASKS }, ctx());
+    expect(result.status).toBe("ok");
+    expect(append).toHaveBeenCalledTimes(2);
+    const rows = append.mock.calls.map((c) => c[0]);
+    for (const row of rows) {
+      expect(row).toMatchObject({ leg: "local", model: "small", size: "small", costUsd: null });
+      expect(JSON.stringify(row)).not.toMatch(/Do one|Do two|One|Two|t1|t2/);
+    }
+  });
+
+  it("calls a cloud leg cloud", async () => {
+    const append = vi.fn();
+    const tool = buildFusionDelegateTool(
+      deps({ outcomeJournal: { append }, workerSupportsSlotAffinity: () => false }),
+    );
+    await tool.run({ tasks: [TASKS[0]!] }, ctx());
+    expect(append.mock.calls[0]?.[0]).toMatchObject({ leg: "cloud" });
+  });
+});
+
+describe("fusion.delegate — output estimate vs the worker's limit (ATO-1363)", () => {
+  // Fixture: workerTimeoutMs 60 s, so the longest a task may ask for is
+  // 4 min; a local leg measured at 5 tok/s.
+  const measured = (over: Partial<FusionDelegateDeps> = {}) =>
+    deps({ localTokensPerSecond: () => 5, ...over });
+
+  it("dispatches a task no allowed limit could hold, with a warning and a planner note, never a worker-fit refusal", async () => {
+    const runTurn = vi.fn(async () => turnResult());
+    // 2,000 tokens at 5 tok/s = 6m40s even alone, over the 4 min max.
+    const result = await buildFusionDelegateTool(measured({ runTurn })).run(
+      { tasks: [{ id: "huge", instructions: "Write it all", outputTokens: 2_000 }] },
+      ctx(),
+    );
+    expect(runTurn).toHaveBeenCalledOnce();
+    expect(result.status).toBe("ok");
+    expect(result.details.reason).not.toBe("worker-fit");
+    expect(result.details.oversizedTasks).toEqual(["huge"]);
+    expect(result.summary).toContain("fit: ~2,000 tokens at 5 tok/s is ~6m40s even running alone");
+    expect(result.summary).toContain("split it into smaller tasks");
+    expect(result.summary).toContain("[huge] stated more output than any time limit");
+    expect(result.summary).toContain("it was dispatched anyway");
+  });
+
+  it("runs a task over its limit, warns on its row, and reports estimate vs actual", async () => {
+    const runTurn = vi.fn(async () => turnResult());
+    // 400 tokens at 5 tok/s = 80 s, over the 60 s limit, under 4 min.
+    const result = await buildFusionDelegateTool(measured({ runTurn })).run(
+      { tasks: [{ id: "big", instructions: "Write it", outputTokens: 400 }] },
+      ctx(),
+    );
+    expect(runTurn).toHaveBeenCalledOnce();
+    expect(result.summary).toContain("fit: ~400 tokens at 5 tok/s is ~1m20s, over its 1m00s limit");
+    expect(result.summary).toContain("Estimates vs actual");
+    expect(result.summary).toContain("- [big] estimated ~400 tokens, ~1m20s; actual");
+    expect(result.details.estimates).toEqual([
+      expect.objectContaining({ id: "big", estimatedTokens: 400, estimatedMs: 80_000 }),
+    ]);
+  });
+
+  it("says nothing without a measured speed or without an estimate", async () => {
+    const unmeasured = await buildFusionDelegateTool(
+      deps({ localTokensPerSecond: () => null }),
+    ).run(
+      { tasks: [{ id: "huge", instructions: "Write it all", outputTokens: 2_000 }] },
+      ctx(),
+    );
+    expect(unmeasured.status).toBe("ok");
+    expect(unmeasured.summary).not.toContain("fit:");
+    expect(unmeasured.details).not.toHaveProperty("oversizedTasks");
+    // The size is still reported back, without a time estimate.
+    expect(unmeasured.summary).toContain("- [huge] estimated ~2,000 tokens; actual");
+    const plain = await buildFusionDelegateTool(measured()).run(
+      { tasks: TASKS },
+      ctx(),
+    );
+    expect(plain.summary).not.toContain("fit:");
+    expect(plain.summary).not.toContain("Estimates vs actual");
+    expect(plain.details).not.toHaveProperty("estimates");
   });
 });
 

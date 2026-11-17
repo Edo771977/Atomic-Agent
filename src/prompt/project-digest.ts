@@ -9,7 +9,7 @@ const clip = (text: string, max: number): string => {
 };
 
 /**
- * The `### project` section (issue #39): where the fusion project
+ * The `### fusion project` section (issue #39): where the fusion project
  * stands, for the director. In the step-mutable tail, never the cached
  * prefix: a director tool or a person's decision changes it between
  * steps and turns. Null without a project.

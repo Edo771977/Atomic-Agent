@@ -132,6 +132,15 @@ export const supplementalFiles = [
  * file in those directories fails scopeDrift until it is added to one list.
  */
 export const deferredFiles = [
+  // Upstream's fusion tests arriving with the 6d1f14fcd merge (worker fit,
+  // provide examples, outcome journal, files written): not yet run on the
+  // Windows gate, so deferred until a Windows run promotes them.
+  'src/tools/fusion/contract-example.test.ts',
+  'src/tools/fusion/contract-waves-provided.test.ts',
+  'src/tools/fusion/outcome-journal.test.ts',
+  'src/tools/fusion/outcome-summary.test.ts',
+  'src/tools/fusion/worker-files-written.test.ts',
+  'src/tools/fusion/worker-fit.test.ts',
   // Needs a launchable headless Chromium; skips without one.
   'src/tools/verify/run-page-real-browser.test.ts',
   // Pure rules (issue #40): criteria facts and the vision judge's prompt and answer.
@@ -254,7 +263,7 @@ function main() {
       // the same test passed in 4 s on one run and hit the default 15 s on
       // another. A wider per-test ceiling keeps those from flaking without
       // changing what they assert.
-      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', '--minWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
+      const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args, '--maxWorkers=1', `--testTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`, `--hookTimeout=${WINDOWS_GATE_TEST_TIMEOUT_MS}`], {
         cwd: root, stdio: 'inherit', env: { ...process.env, ATOMIC_AGENT_STATE_DIR: state },
       });
       if (result.error) throw result.error;

@@ -49,11 +49,8 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_STARTER_SKILLS_DIR", null, "Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app."),
   env("ATOMIC_AGENT_RG_PATH", null, "Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH."),
   env("ATOMIC_AGENT_TREE_SITTER_DIR", null, "Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline."),
-
-  // Network.
-  env("ATOMIC_AGENT_OFFLINE", null, "Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved."),
-  env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins `serve` lets in when it runs without an API key; loopback origins are always allowed."),
-  env("ATOMIC_AGENT_SERVE_NO_PARENT_EXIT", null, "Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit)."),
+  env("ATOMIC_AGENT_AST_GREP_PATH", null, "Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH."),
+  env("ATOMIC_AGENT_SHARED_SKILLS_DIR", null, "Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills."),
 
   // Env variables that win over a config.json key.
   env("ATOMIC_AGENT_LLAMA_MAX_TOKENS", null, "Cap on tokens one local-model reply may produce, 64 to 131072. Wins over the config value when set.", "localModels.completionMaxTokens"),
@@ -93,6 +90,11 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_LOOP_WANDERING_THRESHOLD", ENV_DEFAULTS.LOOP_WANDERING_THRESHOLD, "Calls with varied arguments to one tool before the model is redirected."),
   env("ATOMIC_AGENT_LOOP_WANDERING_ESCALATION", ENV_DEFAULTS.LOOP_WANDERING_ESCALATION, "Calls with varied arguments to one tool before the agent is made to reply."),
   env("ATOMIC_AGENT_REPLY_POLISH", true, "Clean up the final reply before a chat surface shows it."),
+  env("ATOMIC_AGENT_SKILL_CURATOR", false, "Run the skill curator on its own, at most once a week. `atomic-agent skill curate` runs it by hand either way."),
+  env("ATOMIC_AGENT_JUDGE_URL", null, "OpenAI-compatible endpoint that judges `skill eval` runs (or --judge-url). Unset: a configured provider judges."),
+  env("ATOMIC_AGENT_JUDGE_MODEL", null, "Model the ATOMIC_AGENT_JUDGE_URL judge runs (or --judge-model)."),
+  env("ATOMIC_AGENT_JUDGE_API_KEY", null, "API key sent to the ATOMIC_AGENT_JUDGE_URL judge. Unset: OPENROUTER_API_KEY."),
+  env("ATOMIC_AGENT_JUDGE_TIMEOUT_MS", 60000, "Per-call timeout of the skill eval judge, in ms."),
 
   // Browser tools.
   env("ATOMIC_AGENT_BROWSER_ENABLED", ENV_DEFAULTS.BROWSER_ENABLED, "Register the browser tools."),
@@ -118,11 +120,29 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_STATUS_SNAPSHOT_EVERY_STEPS", ENV_DEFAULTS.STATUS_SNAPSHOT_EVERY_STEPS, "Post a status snapshot of a long run every this many steps; 0 turns it off."),
   env("ATOMIC_AGENT_STATUS_SNAPSHOT_EVERY_MS", ENV_DEFAULTS.STATUS_SNAPSHOT_EVERY_MS, "Post a status snapshot of a long run this often, in ms; 0 turns it off."),
 
+  env("ATOMIC_AGENT_SESSION_TOOLS_ENABLED", ENV_DEFAULTS.SESSION_TOOLS_ENABLED, "Let the agent list, read and message its other sessions (the sessions.* tools)."),
+  env("ATOMIC_AGENT_TASKS_KEEP_AWAKE", null, "Keep the computer awake for tasks and turns: off or while-working. Unset or any other value: off."),
+
   // Terminal UI.
   env("ATOMIC_AGENT_TUI_SKIP_LLAMA_SETUP", null, "Set to 1 to skip the first-run setup screen (same as --skip-llama-setup)."),
   env("ATOMIC_AGENT_TERMINAL", null, "Terminal emulator the TUI opens a new window in on Linux. Unset: $TERMINAL, then the first known terminal found."),
   env("ATOMIC_AGENT_CONHOST_GUARD", null, "1 forces, 0 disables the fallbacks for the legacy Windows console. Unset: detected."),
   env("ATOMIC_AGENT_NO_SYNC_OUTPUT", null, "Set to 1 to stop the TUI from wrapping frames in synchronized-output markers (for terminals that mishandle them)."),
+
+  // Persona, network and server.
+  env("ATOMIC_AGENT_PERSONA", null, "Persona name to use for this process, above every config.json setting."),
+  env("ATOMIC_AGENT_OFFLINE", null, "Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved."),
+  env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins that may call a keyless local `serve`, besides loopback ones."),
+  env("ATOMIC_AGENT_SERVE_NO_PARENT_EXIT", null, "Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit)."),
+  env("ATOMIC_AGENT_MODEL_CATALOG_URL", null, "URL of the extra local-model catalog JSON. Unset: the catalog hosted on atomicagent.io."),
+
+  // Channels and media.
+  env("ATOMIC_AGENT_TELEGRAM_STREAM_REPLIES", null, "Stream Telegram replies into the owner's DM (private) or not (off). Wins over telegram.streamReplies when set."),
+  env("ATOMIC_AGENT_WHISPER_BIN", null, "Path of the whisper.cpp CLI for audio transcription. Unset: the downloaded copy, then the PATH."),
+  env("ATOMIC_AGENT_WHISPER_MODEL", null, "Whisper model file or catalog id to transcribe with. Unset: the saved default (base)."),
+  env("ATOMIC_AGENT_FFMPEG_BIN", null, "Path of ffmpeg, used to convert audio before transcription. Unset: the PATH."),
+  env("ATOMIC_AGENT_INLINE_IMAGES", null, "Set to 1 to show images inline in the terminal (kitty and iTerm2 graphics)."),
+  env("ATOMIC_AGENT_NO_INLINE_IMAGES", null, "Set to 1 to never show inline images in the terminal; wins over ATOMIC_AGENT_INLINE_IMAGES."),
 
   // Updates and analytics.
   env("ATOMIC_AGENT_UPDATE_CHECK_ON_STARTUP", ENV_DEFAULTS.UPDATE_CHECK_ON_STARTUP, "Check GitHub Releases for a newer version when the TUI starts."),
@@ -148,6 +168,9 @@ export const INTERNAL_ENV_NAMES: ReadonlyMap<string, string> = new Map([
   ["ATOMIC_AGENT_SESSION_PARENT_PID", "set by the desktop app on every agent process it starts"],
   ["ATOMIC_AGENT_USER_PATH_B64", "used internally by the Windows uninstaller"],
   ["ATOMIC_AGENT_DEBUG_ARGV", "developer switch that prints the parsed command line"],
+  ["ATOMIC_AGENT_INSTALL_SOURCE", "set by the install scripts for analytics"],
+  ["ATOMIC_AGENT_KEYCHAIN_PROBE", "a throwaway keychain account name, not a variable"],
+  ["ATOMIC_AGENT_INK_INCREMENTAL", "a one-off switch for the session-swap render measurement, not a user setting"],
 ]);
 
 /** The env variable that wins over `configKey`, or null. */

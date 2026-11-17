@@ -3,6 +3,7 @@ import { getConfig } from "../../config/index.js";
 import type { AgentLoop } from "../../agent/agent-loop.js";
 import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
+import { memoryReadOnlyToolFilter } from "../../agent/tool-resource-class.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
 import type { SlotManager } from "../../llm/slot-manager.js";
@@ -15,16 +16,19 @@ import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, 
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
 import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
+import { applySessionProject, type SessionProject } from "../../session/session-project.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
 import { pickOriginalRequest, surfaceShowsProjectGates, withProjectToolVisibility } from "../../tools/fusion/index.js";
 import { PROJECT_GATES_METADATA_KEY, readProjectGatesCapability } from "../../session/session-project.js";
 import type { ToolRole } from "../../tools/tool-roles.js";
+import { currentBrowserScope, endBrowserWorker, isAttendedTurn, runInBrowserScope } from "../../tools/browser/browser-run-scope.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
 import { captureMessageSent, type AnalyticsStateStore, type LocalEngine, type TurnUsageMeter, type TurnUsageSnapshot } from "../../analytics/index.js";
 import type { SessionUsageLedger } from "../../session/usage-meter.js";
 import { providerIdIsLlamaServer } from "../../llm/provider/registry/active-text-provider.js";
 import { perTurnModelRefusal } from "../per-turn-model.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
+import type { AgentMetrics } from "../../tracing/agent-metrics.js";
 import type { TurnController, TurnEventHook, TurnOrigin } from "../turn-controller.js";
 import type { SteeringInbox } from "../steering-inbox.js";
 import { TurnsInFlight } from "../turns-in-flight.js";
@@ -36,6 +40,7 @@ import type { RuntimeProviders } from "./runtime-inference.js";
 import { captureModelModePolicy, resolveModelMode, type ModelModePolicy } from "../../llm/model-mode.js";
 import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
+import { createNextStepSuggester } from "./runtime-next-step.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
 import { assertProviderAllowed, currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
@@ -144,14 +149,17 @@ export interface RuntimeTurnDependencies {
     turnUsageMeter: TurnUsageMeter;
     /** Session spend and account limits (ATO-569); absent in narrow test rigs. */
     sessionUsage?: SessionUsageLedger;
+    /** Turn counts and durations (ATO-646); absent in narrow test rigs. */
+    metrics?: Pick<AgentMetrics, "recordTurn">;
   };
   state: RuntimeTurnState;
   lifecycle: { isShutdown(): boolean };
   logger: StructuredLogger;
   /**
-   * Session-scoped events the turn service itself raises (the fusion
-   * director notice, issue #37), routed like the loop's own. Absent in
-   * narrow test rigs: nothing is said.
+   * Session-scoped events the turn service itself raises, routed like the
+   * loop's own: the fusion director notice (issue #37) and events that land
+   * after the turn ended, such as the next-step suggestion (ATO-1093).
+   * Absent in narrow test rigs: nothing is said, the suggestion is only stored.
    */
   emitEvent?: (sessionId: string, event: AgentLoopEvent) => void;
   /**
@@ -192,6 +200,7 @@ export function createRuntimeTurnService(
     taskMaxDurationMs?: number;
     taskMaxCostUsd?: number;
     toolFilter?: (name: string) => boolean;
+    memoryReadOnly?: boolean;
     toolRole?: ToolRole;
     reasoningEffort?: ReasoningEffort;
     reasoningOverride?: ReasoningEffort;
@@ -233,9 +242,13 @@ export function createRuntimeTurnService(
     ...(runOptions.providerId === undefined || runOptions.model === undefined
       ? {}
       : { model: runOptions.model }),
-    ...(runOptions.toolFilter === undefined
-      ? {}
-      : { toolFilter: runOptions.toolFilter }),
+    // A read-only-memory turn (`skill eval`) also loses the memory write
+    // tools; the loop skips reflection and the lesson bump for it.
+    ...(runOptions.memoryReadOnly === true
+      ? { memoryReadOnly: true, toolFilter: memoryReadOnlyToolFilter(runOptions.toolFilter) }
+      : runOptions.toolFilter === undefined
+        ? {}
+        : { toolFilter: runOptions.toolFilter }),
     ...(runOptions.toolRole === undefined
       ? {}
       : { toolRole: runOptions.toolRole }),
@@ -352,6 +365,20 @@ export function createRuntimeTurnService(
       pendingSessionNamings.delete(abort);
     }
   };
+
+  // Next-step suggestion (ATO-1093): the namer's path, off unless
+  // `tui.nextStepSuggestions` turns it on. Shares the namer's teardown set.
+  const nextStep = createNextStepSuggester({
+    getConfig,
+    sessionStore,
+    llmComplete,
+    slotManager,
+    resolveTransport: () => resolveActiveLlmSlice().transport,
+    pending: pendingSessionNamings,
+    isShutdown: () => lifecycle.isShutdown(),
+    ...(deps.emitEvent ? { emitEvent: deps.emitEvent } : {}),
+    logger,
+  });
 
   /**
    * Mark the session's row `running` for the turn about to run, so the
@@ -523,6 +550,8 @@ export function createRuntimeTurnService(
       taskMaxDurationMs?: number;
       taskMaxCostUsd?: number;
       toolFilter?: (name: string) => boolean;
+      /** See `RunTurnOptions.memoryReadOnly` (a `skill eval` run). */
+      memoryReadOnly?: boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
       reasoningOverride?: ReasoningEffort;
@@ -621,12 +650,20 @@ export function createRuntimeTurnService(
           if (parentReply !== undefined) {
             turnPreviousReplies?.set(session.id, parentReply);
           }
-          return await loop.runTurn(session, {
+          // The browser treats a worker like the turn that fanned it out:
+          // a window when someone watches that chat (ATO-959). It browses
+          // in tabs of its own (ATO-961).
+          const browserScope = {
+            sessionId: session.id,
+            attended: currentBrowserScope()?.attended ?? false,
+            workerOf: worker.parentSessionId,
+          };
+          return await runInBrowserScope(browserScope, () => loop.runTurn(session, {
             userMessage,
             modelModePolicy,
             ephemeral: true,
             ...buildLoopTurnBudget(runOptions),
-          });
+          }));
         } finally {
           unbindBudgetNotices?.();
           releaseTeam?.();
@@ -639,6 +676,8 @@ export function createRuntimeTurnService(
           shellJobs.endSession(session.id);
           // A throwaway worker must not keep its server slot pinned.
           slotManager.release(session.id);
+          // Nor its browser tabs (ATO-961).
+          endBrowserWorker(session.id);
         }
       });
     }
@@ -811,7 +850,13 @@ export function createRuntimeTurnService(
         // Carry on from what the session persisted, so a reopened thread
         // keeps adding to its own total (ATO-569).
         sessionUsage?.seed(session.id, session.sessionUsage);
-        const result = await loop.runTurn(session, {
+        // Who the browser works for: a cron task or a bridge gets no
+        // window under `browser.headless: "auto"` (ATO-959).
+        const browserScope = {
+          sessionId: session.id,
+          attended: isAttendedTurn(runOptions.origin, runOptions.interactive),
+        };
+        const result = await runInBrowserScope(browserScope, () => loop.runTurn(session, {
           userMessage,
           modelModePolicy,
           // The same record the workers' briefs quote, pinned into the
@@ -830,7 +875,7 @@ export function createRuntimeTurnService(
           }),
           onStepCheckpoint: (state, step) =>
             checkpointStep(state, progress.atStep(step)),
-        });
+        }));
         // Stamp the turn's window occupancy so the stored session can
         // restore the TUI's context gauge when it is reopened. A turn
         // that built no prompt (failed before step 1) leaves whatever
@@ -873,6 +918,10 @@ export function createRuntimeTurnService(
           shouldNameSession(finished)
         ) {
           void nameSession(finished);
+        }
+        // Same contract as naming: fire-and-forget, never after a budget stop.
+        if (!stoppedForMoney(result.stopCause)) {
+          nextStep.maybeSuggest(finished, runOptions.origin);
         }
         // `finish` ended the whole session: its kept jobs go with it.
         if (finished.status === "completed") shellJobs.endSession(session.id);
@@ -961,6 +1010,29 @@ export function createRuntimeTurnService(
   const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
     inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
 
+  // ATO-646: every turn, whatever its origin, counted and timed for
+  // `/metrics`. Timed from the queue's hand-over, so the wait behind
+  // another turn on the same session is not counted as this one's.
+  const timeTurn = async (
+    sessionId: string,
+    origin: TurnOrigin,
+    run: () => Promise<RunTurnResult>,
+  ): Promise<RunTurnResult> => {
+    const metrics = deps.telemetry.metrics;
+    if (!metrics) return run();
+    const startedAt = Date.now();
+    const record = (outcome: string): void =>
+      metrics.recordTurn({ sessionId, origin, outcome, durationMs: Date.now() - startedAt });
+    try {
+      const result = await run();
+      record(result.reason);
+      return result;
+    } catch (error) {
+      record("error");
+      throw error;
+    }
+  };
+
   const runTurnInPolicy = async (
     session: SessionState,
     userMessage: string,
@@ -975,6 +1047,8 @@ export function createRuntimeTurnService(
       taskMaxDurationMs?: number;
       taskMaxCostUsd?: number;
       toolFilter?: (name: string) => boolean;
+      /** See `RunTurnOptions.memoryReadOnly` (a `skill eval` run). */
+      memoryReadOnly?: boolean;
       toolRole?: ToolRole;
       reasoningEffort?: ReasoningEffort;
       reasoningOverride?: ReasoningEffort;
@@ -986,6 +1060,8 @@ export function createRuntimeTurnService(
       onGoalProgress?: (goal: GoalState) => void;
       /** See `executeTurn`'s `answerChannel`. */
       answerChannel?: AnswerChannel;
+      /** ATO-42: see the runtime contract's `project`. */
+      project?: SessionProject | null;
       /** See `executeTurn`'s `questions`. */
       questions?: boolean;
       /** See `executeTurn`'s `projectGates`. */
@@ -1024,7 +1100,7 @@ export function createRuntimeTurnService(
     // A remote chat sends the reply (and progress) off this machine: in a
     // constrained folder it needs "channels" in allowedEgress (issue #33).
     // Refused here, before the queue and the model.
-    if ((origin === "telegram" || origin === "discord") && sessionPolicy !== undefined) {
+    if (CHAT_CHANNEL_ORIGINS.has(origin) && sessionPolicy !== undefined) {
       const policy = sessionPolicy.effectivePolicyForSession(session);
       if (policy !== undefined && !policy.allowsEgress("channels")) throw new ChannelRestrictedError(policy.key);
     }
@@ -1043,11 +1119,12 @@ export function createRuntimeTurnService(
       // parked) falls back to the caller's copy, the pre-existing
       // behaviour.
       run: () =>
-        executeTurn(
-          sessionStore.load(session.id) ?? session,
-          userMessage,
-          runOptions,
-        ),
+        timeTurn(session.id, origin, () => {
+          const fresh = sessionStore.load(session.id) ?? session;
+          // ATO-42: on the copy the turn runs and saves, never before the lock.
+          applySessionProject(fresh, runOptions.project);
+          return executeTurn(fresh, userMessage, runOptions);
+        }),
       ...(runOptions.eventHook ? { eventHook: runOptions.eventHook } : {}),
       ...(runOptions.signal ? { signal: runOptions.signal } : {}),
     } as const;
@@ -1148,6 +1225,15 @@ export function createRuntimeTurnService(
 
   return { executeTurn, steer, runTurn, controlGoal: goals.control };
 }
+
+/**
+ * Origins whose reply and progress go to a remote chat (issue #33): the
+ * primaries and every catalog adapter (ATO-1169). In a constrained folder
+ * their turns need "channels" in `allowedEgress`.
+ */
+const CHAT_CHANNEL_ORIGINS: ReadonlySet<TurnOrigin> = new Set<TurnOrigin>([
+  "telegram", "discord", "signal", "slack", "imessage", "matrix", "googlechat", "msteams",
+]);
 
 /**
  * Whether a turn ended because money ran out: its own budget, or the

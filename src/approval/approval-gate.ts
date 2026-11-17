@@ -144,6 +144,12 @@ export interface ApprovalRequest {
   /** The level behind `riskNote`; absent when the review gave no verdict. */
   riskLevel?: RiskLevel;
   /**
+   * The reviewer's reason on its own (`installs a package`), so a surface
+   * can draw `Risk check: medium. Installs a package` (`formatRiskLine`)
+   * without parsing `riskNote`. Absent when there is no verdict or no reason.
+   */
+  riskReason?: string;
+  /**
    * Set only on a `user_question` request (`ask_user`, ATO-489): the
    * question and its options. A surface that knows it draws option cards
    * and answers with `ApprovalDecision.answer`; one that does not still
@@ -882,12 +888,22 @@ export class ApprovalGate {
       };
     }
     this.riskReviewed.add(request.approvalId);
+    // The verdict fields are the gate's alone: whatever a caller put in
+    // them is dropped, so the prompt never shows a level or reason the
+    // review did not give (ATO-1268 draws them on every surface).
+    const unreviewed: ApprovalRequest = { ...request };
+    delete unreviewed.riskNote;
+    delete unreviewed.riskLevel;
+    delete unreviewed.riskReason;
     try {
       return this.request(
         {
-          ...request,
+          ...unreviewed,
           riskNote: formatRiskNote(verdict),
           ...(verdict !== null ? { riskLevel: verdict.risk } : {}),
+          ...(verdict !== null && verdict.reason.length > 0
+            ? { riskReason: verdict.reason }
+            : {}),
         },
         signal ? { signal } : {},
       );
@@ -1472,6 +1488,27 @@ export function describeCategoryGrant(request: ApprovalRequest): string {
   const label = formatApprovalCategory(request.category);
   const host = siteGrantHost(request);
   return host !== null ? `${label} on ${host}` : label;
+}
+
+/**
+ * The prefix of an MCP tool's `grantKey` (`MCP tool <server>/<tool>`,
+ * built by `mcpGrantKey` in src/mcp). Server names cannot hold a `/`
+ * (`MCP_SERVER_NAME_RE`), so the first `/` splits the two.
+ */
+const MCP_TOOL_GRANT_PREFIX = "MCP tool ";
+
+/**
+ * What `[s]` grants for an MCP tool request, in the words a prompt
+ * shows after "allow": `create_issue from MCP server github`. `null`
+ * for any other request (ATO-1473).
+ */
+export function describeMcpToolGrant(request: ApprovalRequest): string | null {
+  const key = request.grantKey;
+  if (key === undefined || !key.startsWith(MCP_TOOL_GRANT_PREFIX)) return null;
+  const rest = key.slice(MCP_TOOL_GRANT_PREFIX.length);
+  const slash = rest.indexOf("/");
+  if (slash <= 0 || slash === rest.length - 1) return null;
+  return `${rest.slice(slash + 1)} from MCP server ${rest.slice(0, slash)}`;
 }
 
 function withSites(

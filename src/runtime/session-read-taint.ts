@@ -138,19 +138,48 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       if (targets.length === 0) return undefined;
       const taint = taintFor(targets, currentProviderPolicy());
       if (taint === undefined) return undefined;
-      tightenCurrentProviderPolicy(taint);
-      persist(ctx.sessionId, taint);
-      // A worker's findings reach its orchestrator as text.
-      let session = live.get(ctx.sessionId)?.session;
-      for (let hops = 0; session !== undefined && hops < 4; hops += 1) {
-        const parent = readFusionWorkerMeta(session.metadata)?.parentSessionId;
-        if (parent === undefined) break;
-        persist(parent, taint);
-        session = live.get(parent)?.session;
-      }
+      apply(ctx.sessionId, taint);
       return taint;
     },
+
+    /**
+     * Content governed by `policy` (another session's transcript, issue
+     * #33 on the cross-chat tools) enters `sessionId`'s turn running now:
+     * the same taint a read inside that folder sets. Returns the taint
+     * applied, `undefined` when the session already carries it.
+     */
+    noteContent(sessionId: string, policy: ProviderPolicy): ProviderPolicy | undefined {
+      if (!hasProjectConstraints(deps.readConfig())) return undefined;
+      const current = currentProviderPolicy();
+      if (current !== undefined && policyCovers(current, policy)) return undefined;
+      const taint = makeProviderPolicy({ ...policy, readFrom: policy.readFrom ?? [policy.key] });
+      apply(sessionId, taint);
+      return taint;
+    },
+
+    /**
+     * Store `policy` as `sessionId`'s read taint without touching the
+     * frame running now: content from a session under `policy` was
+     * queued into it (a cross-chat send), so its next turn runs under it.
+     */
+    taintSession(sessionId: string, policy: ProviderPolicy): void {
+      if (!hasProjectConstraints(deps.readConfig())) return;
+      persist(sessionId, policy);
+    },
   };
+
+  function apply(sessionId: string, taint: ProviderPolicy): void {
+    tightenCurrentProviderPolicy(taint);
+    persist(sessionId, taint);
+    // A worker's findings reach its orchestrator as text.
+    let session = live.get(sessionId)?.session;
+    for (let hops = 0; session !== undefined && hops < 4; hops += 1) {
+      const parent = readFusionWorkerMeta(session.metadata)?.parentSessionId;
+      if (parent === undefined) break;
+      persist(parent, taint);
+      session = live.get(parent)?.session;
+    }
+  }
 }
 
 export type SessionReadTaint = ReturnType<typeof createSessionReadTaint>;

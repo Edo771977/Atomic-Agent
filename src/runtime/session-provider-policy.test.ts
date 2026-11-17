@@ -1,3 +1,4 @@
+import { PLAIN_COMPLETE_PARTITION } from "./plain-complete.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -201,3 +202,16 @@ describe("session provider policy (issue #33)", () => {
     });
   });
 });
+
+describe("the plain completion partition (POST /api/complete)", () => {
+  it("is refused everything while any constraint exists: it names no session (fail closed)", () => {
+    const config = { projects: { roots: [], constraints: { "/elsewhere/client": { allowedProviders: ["local-llama"] } } } };
+    const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+    const plain = policy.forSessionId(PLAIN_COMPLETE_PARTITION);
+    expect(plain?.allowedProviders).toEqual([]);
+    expect(plain?.allows("local-llama")).toBe(false);
+    const open = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: () => null });
+    expect(open.forSessionId(PLAIN_COMPLETE_PARTITION)).toBeUndefined();
+  });
+});
+

@@ -229,3 +229,10 @@ export { projectPlanContextFrom } from "./project-plan-context.js";
 export type { ProjectPlanContextInput } from "./project-plan-context.js";
 export { teamContextFromConfig } from "./team-routing.js";
 export type { FusionTeamContext } from "./team-routing.js";
+export {
+  FUSION_OUTCOME_JOURNAL_FILE_NAME,
+  FusionOutcomeJournal,
+  outcomeRowFor,
+} from "./outcome-journal.js";
+export type { FusionOutcomeRow, OutcomeSize } from "./outcome-journal.js";
+export { summarizeOutcomes } from "./outcome-summary.js";

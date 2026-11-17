@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -165,5 +165,27 @@ describe("hasConstrainedFolderInside (the LSP root check, ATO-503)", () => {
     expect(hasConstrainedFolderInside(config, "/work/repo/secret/src", opts)).toBe(false);
     expect(hasConstrainedFolderInside(config, "/work/other", opts)).toBe(false);
     expect(hasConstrainedFolderInside({ projects: {} }, "/work/repo", opts)).toBe(false);
+  });
+});
+
+describe("a git worktree keeps its repository's constraint (ATO-576, issue #33)", () => {
+  it("maps a path inside a linked worktree back to the repository it was made from", () => {
+    const root = mkdtempSync(join(tmpdir(), "pc-worktree-"));
+    try {
+      const repo = join(root, "clients", "acme");
+      const worktree = join(root, "state", "worktrees", "acme-1a2b", "s-123");
+      mkdirSync(join(repo, ".git", "worktrees", "s-123"), { recursive: true });
+      mkdirSync(join(worktree, "src"), { recursive: true });
+      writeFileSync(join(worktree, ".git"), `gitdir: ${join(repo, ".git", "worktrees", "s-123")}\n`);
+      const config = { projects: { constraints: { [repo]: { allowedProviders: ["local-llama"] } } } };
+      expect(resolveProjectConstraint(config, join(worktree, "src"))?.key).toBe(repo);
+      expect(resolveProjectConstraint(config, worktree)?.key).toBe(repo);
+      // A folder that is no worktree, or a worktree of an open repository, matches nothing.
+      expect(resolveProjectConstraint(config, join(root, "state"))).toBeUndefined();
+      writeFileSync(join(worktree, ".git"), `gitdir: ${join(root, "open", ".git", "worktrees", "s-123")}\n`);
+      expect(resolveProjectConstraint(config, join(worktree, "src"))).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

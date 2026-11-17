@@ -147,7 +147,12 @@ export interface BatchExecutionContext {
    * never reaches the registry; terminals are exempt as everywhere.
    */
   toolSet?: StepToolSet;
-  /** Turn admission policy; terminal tools retain their own-session closing semantics. */
+  /**
+   * Turn admission policy: the turn's `RunTurnOptions.toolFilter` (a fusion worker's policy and
+   * profile allowlist); terminal tools retain their own-session closing semantics. The prompt and grammar already hide what it
+   * rejects; this makes a call by name refused too, for a native-tool
+   * model that emits a hidden tool anyway. Terminals are exempt.
+   */
   toolFilter?: (name: string) => boolean;
   /**
    * Plan mode, read at dispatch time rather than passed as a boolean.

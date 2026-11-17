@@ -63,7 +63,14 @@ export async function createDirectoryIgnorePolicy(input: {
   signal?: AbortSignal;
 }): Promise<DirectoryIgnorePolicy | undefined> {
   const rawGit = input.git ?? defaultIgnoreGit;
-  const git: IgnoreGit = (args, options) => { input.signal?.throwIfAborted(); return rawGit(args, { ...options, ...(input.signal === undefined ? {} : { signal: input.signal }) }); };
+  // A Git child killed by the abort resolves like an unavailable or failing
+  // Git (null or a non-zero exit); report the cancellation, not that failure.
+  const git: IgnoreGit = async (args, options) => {
+    input.signal?.throwIfAborted();
+    const result = await rawGit(args, { ...options, ...(input.signal === undefined ? {} : { signal: input.signal }) });
+    input.signal?.throwIfAborted();
+    return result;
+  };
   const gitDir = join(input.probeDir, "metadata.git");
   const tree = join(input.probeDir, "tree");
   await mkdir(tree, { recursive: true });

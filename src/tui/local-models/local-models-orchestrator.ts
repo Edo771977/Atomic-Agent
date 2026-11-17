@@ -2,6 +2,7 @@ import { selectManagedEngine } from "../../local-llm/engine-selection.js";
 import { retireIdleCore } from "../../local-llm/core/core-sessions.js";
 import { CORE_FALLBACK_LINE, CoreUnavailableError, shouldFallBackFromCore, type CoreFailureInfo } from "../../local-llm/core/core-errors.js";
 import { ModelOperationQueue } from "./model-operation-queue.js";
+import { hostRamGb } from "../../local-llm/backend/host-ram.js";
 import { totalmem } from "node:os";
 
 import { getConfig, resetConfigCache } from "../../config/index.js";
@@ -102,6 +103,7 @@ import {
   fetchServedModelIds,
   describeServerFault,
   readRunningPid,
+  loraAdapterForModel,
 } from "../../local-llm/index.js";
 import {
   classifyVramFit,
@@ -115,7 +117,11 @@ import {
   persistMemoryEmbeddingsEnabled,
 } from "../persist-embedding-hybrid-recall.js";
 import { persistUserLocalModelsConfig } from "../persist-user-local-models-config.js";
-import { isDownloadNotifyChannelReady } from "../../notifications/index.js";
+import {
+  enablePushNotifications,
+  isDownloadNotifyChannelReady,
+  pushPrivacyNote,
+} from "../../notifications/index.js";
 import { persistDownloadNotifyChannel } from "./persist-download-notify.js";
 import type { LocalModelsNotifyChoice } from "./local-models-panel-state.js";
 import { restartLocalDaemon } from "./local-models-daemon-restart.js";
@@ -806,6 +812,15 @@ export class LocalModelsOrchestrator {
     return !!active && active !== "local-llama";
   }
 
+  /**
+   * ATO-378: whether the memory model may run without a local chat model
+   * beside it. Managed mode on a cloud chat route only: on the local route
+   * a stopped chat model means the operator stopped it (`s`, Stop).
+   */
+  private embeddingRunsAlone(): boolean {
+    return getConfig().localModels.mode === "managed" && this.cloudRouteActive();
+  }
+
   private holdLanding(landing: HeldLanding): void {
     // One slot: of two held downloads the later one would have won anyway.
     if (this.heldLanding && this.heldLanding.jobId !== landing.jobId) {
@@ -937,17 +952,15 @@ export class LocalModelsOrchestrator {
   }
 
   /**
-   * ATO-1045: after the starter lands, start the best model's background
-   * download and say so. Fire and forget: the landing never waits on the
-   * device probe, and a failure leaves the starter running as it is.
+   * ATO-1045: after the starter lands, name the best model for this
+   * machine and its size. ATO-1475: only a suggestion, the download starts
+   * when the person runs `/models pull`. Fire and forget: the landing never
+   * waits on the device probe, and a failure leaves the starter as it is.
    */
   private async followStarterWithUpgrade(def: LocalModelDef): Promise<void> {
     const line = await upgradeAfterStarter(def);
     if (!line) return;
     this.bus.emit({ type: "runtime_info", line });
-    // The job is a detached worker like `models pull --background`: the
-    // next refresh adopts it, so its progress shows in the top bar.
-    await this.refresh().catch(() => undefined);
   }
 
   /**
@@ -1186,6 +1199,18 @@ export class LocalModelsOrchestrator {
           watched.length > 0
             ? `local-llm: ${channelName(choice)} ping armed for ${label}`
             : `local-llm: ${channelName(choice)} ping armed for the next download`,
+      });
+      return;
+    }
+    if (choice === "push") {
+      // Push needs no credentials (ATO-1129): picking it turns it on with
+      // a fresh random topic, and the operator subscribes the phone to it.
+      const setup = enablePushNotifications();
+      for (const w of watched) writeDownloadNotify(dataDir, w.jobId, "push");
+      this.pendingNotify = null;
+      this.bus.emit({
+        type: "runtime_info",
+        line: `local-llm: phone push on — subscribe to ${setup.subscribeUrl} in the ntfy app. ${pushPrivacyNote(setup.push)}`,
       });
       return;
     }
@@ -1552,7 +1577,8 @@ export class LocalModelsOrchestrator {
     const cfg = getConfig();
     const dataDir = cfg.paths.localModelsDataDir;
     const chat = await getDaemonStatus(dataDir, cfg.localModels.managed.port);
-    if (chat.running) {
+    // On a cloud chat route only the memory model starts, never a chat one (ATO-378).
+    if (chat.running || this.embeddingRunsAlone()) {
       await this.startEmbeddingPairing();
       return;
     }
@@ -2340,6 +2366,9 @@ export class LocalModelsOrchestrator {
           parallel: cfg.localModels.managed.parallel,
           localLegRole,
           swaFull: cfg.localModels.managed.swaFull,
+          ...(loraAdapterForModel(cfg.localModels.managed.loraAdapters, mid)
+            ? { loraAdapter: loraAdapterForModel(cfg.localModels.managed.loraAdapters, mid) }
+            : {}),
           ...(device ? { device } : {}),
           // No multi-GPU split on the CPU-build retry.
           ...(multiGpu && device !== "cpu" ? { tensorSplit } : {}),
@@ -3025,7 +3054,11 @@ export class LocalModelsOrchestrator {
     const dataDir = cfg.paths.localModelsDataDir;
 
     const chat = await getDaemonStatus(dataDir, cfg.localModels.managed.port);
-    if (!chat.running) return;
+    // ATO-378 / ATO-1123: on a cloud chat route no local chat model runs,
+    // and the memory model runs alone (memory search embeds locally
+    // whatever the chat route).
+    const alone = !chat.running && this.embeddingRunsAlone();
+    if (!chat.running && !alone) return;
 
     const desired = this.buildEmbeddingStartOptions(cfg, dataDir);
     const embStatus = await getEmbeddingDaemonStatus(
@@ -3067,9 +3100,23 @@ export class LocalModelsOrchestrator {
 
     if (embStatus.running && !opts?.hotSwap) return;
 
+    // ATO-357: alone, the engine is never installed behind the operator's
+    // back. A local model's first start installs it, with its progress.
+    if (alone && !isBackendDownloaded(dataDir, cfg.localModels.managed.engine)) {
+      this.bus.emit({
+        type: "runtime_info",
+        line: "local-llm: the local engine is not installed yet — start a local model once to install it; memory search uses keywords until then",
+      });
+      return;
+    }
+
     // ATO-379: not started on a machine with little memory; recall stays on
     // keywords. Transient, so the opt-in is not touched (issue #465).
-    if (!embStatus.running && !(await holdEmbeddingForLowMemory(dataDir)).ok) {
+    // Alone, only the memory model's own floor applies.
+    const memory = !embStatus.running
+      ? await (alone ? holdEmbeddingForLowMemory(dataDir, { localChatRunning: false }) : holdEmbeddingForLowMemory(dataDir))
+      : null;
+    if (memory && !memory.ok) {
       this.noteLowMemoryEmbedding();
       return;
     }
@@ -3101,6 +3148,9 @@ export class LocalModelsOrchestrator {
       const { pid } = await this.trackCoreStart(this.operations.signal, signal =>
         startEmbeddingDaemon({ ...desired, signal, engine: cfg.localModels.managed.engine }));
       this.operations.signal?.throwIfAborted();
+      // Started alone on the cloud route: ours to stop at exit, as the
+      // one a cloud switch keeps (stopChatForCloudSelection).
+      if (alone) this.embeddingKeptForCloud = true;
       persistMemoryEmbeddingsEnabled(true);
       this.bus.emit({
         type: "runtime_info",
@@ -3289,7 +3339,8 @@ export class LocalModelsOrchestrator {
       resetConfigCache();
     }
     const chat = await getDaemonStatus(dataDir, cfg.localModels.managed.port);
-    if (!chat.running) {
+    // On a cloud chat route the memory model starts alone (ATO-378).
+    if (!chat.running && !this.embeddingRunsAlone()) {
       this.bus.emit({
         type: "runtime_info",
         line: "local-llm: chat daemon is down — press s to start chat+embedding together",
@@ -3590,6 +3641,9 @@ export class LocalModelsOrchestrator {
       cfg.llm?.activeTextProvider &&
       cfg.llm.activeTextProvider !== "local-llama"
     ) {
+      // ATO-378: no chat model on the cloud route, but the memory model
+      // when it is wanted, so memory search keeps its meaning-based half.
+      await this.startEmbeddingAloneAtLaunch();
       return;
     }
     if (cfg.localModels.mode !== "managed") return;
@@ -3650,6 +3704,31 @@ export class LocalModelsOrchestrator {
     // not run one, because the deferred pass below owns it.
     await this.startDaemon({ backendAlreadyChecked: true });
     this.scheduleBackendAutoUpdate(dataDir);
+  }
+
+  /**
+   * ATO-378, the launch on a cloud chat route: start the memory model
+   * alone when embeddings are on, a catalog model is picked and on disk,
+   * and the engine is installed. Nothing is downloaded (ATO-357) and
+   * nothing is said when one of these is missing: an ordinary launch.
+   * One found running (the desktop or an earlier session started it) is
+   * left as it is. Either way the runtime attaches memory to it now: it
+   * looked for the server once, as it booted.
+   */
+  private async startEmbeddingAloneAtLaunch(): Promise<void> {
+    if (!this.embeddingRunsAlone()) return;
+    const cfg = getConfig();
+    const dataDir = cfg.paths.localModelsDataDir;
+    if (!this.buildEmbeddingStartOptions(cfg, dataDir)) return;
+    const port = cfg.localModels.embeddings.port;
+    if (!(await getEmbeddingDaemonStatus(dataDir, port)).running) {
+      if (!isBackendDownloaded(dataDir, cfg.localModels.managed.engine)) return;
+      await this.ensureEmbeddingPaired();
+      if (this.operations.signal?.aborted) return;
+      if (!(await getEmbeddingDaemonStatus(dataDir, port)).running) return;
+      await this.refresh();
+    }
+    this.hooks?.onEmbeddingModelChanged?.();
   }
 
   /** How a start reports and persists what it did to a held port. */
@@ -3859,12 +3938,12 @@ function dataDirOf(cfg: ReturnType<typeof getConfig>): string {
 }
 
 /**
- * Host physical RAM in whole decimal GB (rounded down). Consumers use
- * this to decide which models are realistic candidates on this
- * machine — nothing fancy, just `os.totalmem() / 1e9`.
+ * Host RAM in whole GB as the machine is sold (ATO-1442: the same
+ * measure as onboarding and the desktop, so a 16 GB Mac reads 16, not 17).
+ * Consumers use this to decide which models are realistic candidates.
  */
 function detectHostRamGb(): number {
-  return Math.max(1, Math.floor(totalmem() / 1_000_000_000));
+  return hostRamGb();
 }
 
 /**
@@ -3907,7 +3986,9 @@ function channelName(channel: DownloadNotifyChannel): string {
     ? "Telegram"
     : channel === "discord"
       ? "Discord"
-      : "E-mail";
+      : channel === "push"
+        ? "Phone push"
+        : "E-mail";
 }
 
 /** The hub row a channel's credentials live on. */

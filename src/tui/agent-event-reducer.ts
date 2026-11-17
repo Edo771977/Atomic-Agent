@@ -1,6 +1,7 @@
 import type { AgentLoopEvent } from "../agent/agent-contract.js";
 import { HISTORY_TRIMMED_NOTICE } from "../agent/history-trim-warning.js";
 import { toolDisabledNotice } from "../agent/tool-disabled-notice.js";
+import { prefixDriftInfoLine, prefixDriftWarning } from "../agent/prefix-drift-warning.js";
 import { formatUsageReport } from "../session/usage-meter.js";
 import { describeFailedAttempts, falloverSentence } from "../llm/fallback/index.js";
 import {
@@ -87,8 +88,10 @@ import {
   isIssueReportAction,
   reduceIssueReport,
 } from "./issue-report/index.js";
+import { stepSpeedFromCompletion } from "../llm/step-speed.js";
 import { withReportHint } from "./chat/format-agent-error-for-chat.js";
 import { findConstraintRefusal, formatConstraintRefusal } from "../runtime/constraint-refusal.js";
+import { rejectedKeyProviderId } from "./chat/rejected-key-provider.js";
 import type { TuiAction } from "./tui-action.js";
 import type { RunOutcome, StreamingToolCall, TuiState } from "./tui-state.js";
 
@@ -190,10 +193,12 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
         ...(action.switchToSessionId
           ? { switchToSessionId: action.switchToSessionId }
           : {}),
+        ...(action.action ? { action: action.action } : {}),
       });
     case "session_created":
       return {
         ...state,
+        nextStepSuggestion: null,
         session: { ...state.session, sessionId: action.sessionId },
         // A different thread has a different window fill. Carrying the
         // old figure over would read as "this fresh session is already
@@ -203,6 +208,8 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
         plan: null,
         // Same for spend: a fresh thread has spent nothing.
         sessionUsage: null,
+        // The last turn's worker rows belong to the thread just left.
+        fusionLiveWorkers: [],
       };
     case "skill_count_changed":
       return {
@@ -353,6 +360,17 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
     case "composer_notice":
       if (state.composerNotice === action.text) return state;
       return { ...state, composerNotice: action.text };
+    case "next_step_suggestion_accepted":
+      if (state.nextStepSuggestion === null || state.inputValue.length > 0) {
+        return state;
+      }
+      return {
+        ...state,
+        inputValue: state.nextStepSuggestion,
+        nextStepSuggestion: null,
+        inputHistoryCursor: null,
+        inputHistoryDraft: null,
+      };
     case "composer_selection_changed":
       if (state.composerHasSelection === action.hasSelection) return state;
       return { ...state, composerHasSelection: action.hasSelection };
@@ -398,6 +416,8 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
       return {
         ...state,
         inputValue: action.value,
+        // Typing anything retires the suggestion (ATO-1095).
+        ...(action.value.length > 0 ? { nextStepSuggestion: null } : {}),
         inputHistoryCursor: null,
         inputHistoryDraft: null,
       };
@@ -506,7 +526,11 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
       return {
         ...state,
         updatePrompt: { current: action.current, latest: action.latest },
-        updateBanner: { current: action.current, latest: action.latest },
+        updateBanner: {
+          current: action.current,
+          latest: action.latest,
+          ...(action.required ? { required: action.required } : {}),
+        },
       };
     case "update_dismissed":
       return { ...state, updatePrompt: null };
@@ -542,6 +566,15 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
   }
 }
 
+/**
+ * One line of plain text, or `null` when nothing usable is left: the
+ * composer paints the suggestion as its single placeholder row.
+ */
+export function normaliseNextStepSuggestion(raw: string): string | null {
+  const text = raw.replace(/\s+/g, " ").trim();
+  return text.length > 0 ? text : null;
+}
+
 function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
   switch (event.type) {
     case "user_message": {
@@ -549,6 +582,11 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       const next = { ...state, pendingModelMessage: null };
       return pending?.sessionId === state.session.sessionId && pending?.text === event.text
         ? next : appendUserMessage(next, event.text);
+    }
+    case "next_step_suggestion": {
+      const text = normaliseNextStepSuggestion(event.text);
+      if (text === state.nextStepSuggestion) return state;
+      return { ...state, nextStepSuggestion: text };
     }
     case "steer_applied":
       // A message the operator sent mid-turn, folded into the prompt of
@@ -569,6 +607,8 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
     case "turn_started":
       return {
         ...state,
+        // A suggestion is about the turn that ended, never the next one.
+        nextStepSuggestion: null,
         status: "running",
         currentTurnToolSteps: 0,
         runStartedAt: Date.now(),
@@ -728,6 +768,10 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
               role: "system",
               variant: "warn",
               action: "configure-fallback",
+              ...(event.failure === "auth_rejected" ||
+              (event.failure === undefined && event.cause === "auth")
+                ? { fixKeyProviderId: event.from }
+                : {}),
               text: formatProviderFalloverNotice(
                 event.from,
                 event.to,
@@ -873,6 +917,10 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
             text: constraint !== null ? failureText : withReportHint(failureText),
             variant: "warn",
             retryText: failedPrompt.length > 0 ? failedPrompt : undefined,
+            // ATO-1457: a refused key gets a `[check key]` button.
+            ...(event.failure?.cause === "auth_rejected"
+              ? fixKeyFields(rejectedKeyProviderId(event.error))
+              : {}),
           },
         ),
         { outcome: "failed", reason: event.error.message, lastRunStatus },
@@ -1107,7 +1155,7 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       return state;
     case "compaction_completed":
       return appendChatMessage({ ...state, ...(event.contextUsage ? { contextUsage: event.contextUsage } : {}) }, {
-        role: "system", text: `Context compacted: ~${event.result.tokensBefore} → ~${event.result.tokensAfter} tokens. Summary usage: ${event.usage.totalTokens} tokens (${event.calls} calls)${event.result.costUsd !== undefined ? `, ~$${event.result.costUsd.toFixed(4)}` : ""}.`,
+        role: "system", text: `Context compacted: ~${event.result.tokensBefore} → ~${event.result.tokensAfter} tokens. Summary usage: ${event.usage.totalTokens} tokens (${event.calls} calls)${event.result.costUsd !== undefined ? `, ~$${event.result.costUsd.toFixed(4)}` : ""}.${event.result.message ? ` ${event.result.message}` : ""}`,
       });
     case "compaction_failed":
       return appendChatMessage(state, { role: "system", text: event.result.status === "cancelled"
@@ -1136,6 +1184,21 @@ function reduceAgentEvent(state: TuiState, event: AgentLoopEvent): TuiState {
       return event.sessionId === state.session.sessionId
         ? appendChatMessage(state, { role: "system", text: event.text })
         : state;
+    case "prefix_drift":
+      // ATO-316: the cached prompt prefix moved between steps. A change
+      // the runtime made on purpose (skills refreshed, a new model) is a
+      // dim feed line; one nothing explains is a chat warning, once per
+      // set of sections, then feed lines so a drift on every step does
+      // not fill the transcript.
+      if (event.expected || event.repeat) {
+        return appendFeed(state, {
+          kind: "runtime_info",
+          stepIndex: event.stepIndex,
+          line: event.expected ? prefixDriftInfoLine(event) : prefixDriftWarning(event),
+          color: event.expected ? "gray" : "yellow",
+        });
+      }
+      return appendChatMessage(state, { role: "system", text: prefixDriftWarning(event) });
     case "profile_clipped": {
       // Issue #407: the clip used to show only as a `[truncated]` inside
       // a prompt nobody reads. The loop fires this once per session, and
@@ -1446,10 +1509,18 @@ function reduceStepEvent(
       // Prefer it, and leave the estimate standing when nothing was
       // reported.
       const counted = event.completion.timing?.promptTokens ?? 0;
-      if (counted <= 0) return state;
+      // ATO-631: the step's speed for the composer bar. A completion
+      // that reported nothing leaves the last reading standing.
+      const speed = stepSpeedFromCompletion(event.completion);
+      if (counted <= 0 && speed === null) return state;
       return {
         ...state,
-        contextUsage: { ...state.contextUsage, tokens: counted },
+        ...(counted > 0
+          ? { contextUsage: { ...state.contextUsage, tokens: counted } }
+          : {}),
+        ...(speed !== null
+          ? { metrics: { ...state.metrics, stepSpeedLast: speed } }
+          : {}),
       };
     }
     case "llm_raw_completion":
@@ -1469,4 +1540,14 @@ function reduceStepEvent(
       return state;
     }
   }
+}
+
+/** The `[check key]` fields for a turn that failed on a refused key. */
+function fixKeyFields(providerId: string | undefined): {
+  action: "fix-key";
+  fixKeyProviderId?: string;
+} {
+  return providerId !== undefined
+    ? { action: "fix-key", fixKeyProviderId: providerId }
+    : { action: "fix-key" };
 }

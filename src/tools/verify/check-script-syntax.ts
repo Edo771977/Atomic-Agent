@@ -28,6 +28,7 @@ import { isSeaBuild } from "../../runtime/self-invocation.js";
 import { resolveWindowsCliInvocation } from "../../llm/provider/subscription-cli/windows-cli-shim.js";
 import { SubscriptionCliNotInstalledError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
+import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { checkFileParses } from "../os/fs/fs-parse-check.js";
 import { type SyntaxFileResult, tailOfOutput } from "./syntax-check-types.js";
 
@@ -81,8 +82,10 @@ export function runChecker(
     });
   }
   return new Promise((resolve) => {
-    // Belt and braces for any interpreter that caches bytecode.
-    const env: NodeJS.ProcessEnv = { ...process.env, PYTHONDONTWRITEBYTECODE: "1" };
+    // Belt and braces for any interpreter that caches bytecode. No provider
+    // keys (ATO-175): the checked file and its folder are model-written, and
+    // an interpreter can import from there before it ever compiles anything.
+    const env: NodeJS.ProcessEnv = { ...buildCommandEnv(process.env), PYTHONDONTWRITEBYTECODE: "1" };
     for (const [key, value] of Object.entries(options.env ?? {})) {
       if (value === undefined) delete env[key];
       else env[key] = value;

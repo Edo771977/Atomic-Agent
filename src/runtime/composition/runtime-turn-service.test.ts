@@ -24,6 +24,7 @@ import type { TurnProgress } from "../../session/turn-progress.js";
 import { RequestBudgetNotices } from "../request-budget-notices.js";
 import { CHANNEL_RESTRICTED_CODE, CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError, createSessionProviderPolicy } from "../session-provider-policy.js";
 import { currentProviderPolicy, currentProviderPolicyFrame } from "../../llm/provider-policy.js";
+import { currentBrowserScope, onBrowserWorkerEnd, runInBrowserScope, type BrowserRunScope } from "../../tools/browser/browser-run-scope.js";
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => { throw new Error("promise not initialized"); };
@@ -154,6 +155,19 @@ describe("runtime turn ownership recipes", () => {
     expect(Object.keys(options ?? {})).toEqual(["userMessage", "modelModePolicy", "originalRequest", "reasoningEffort", "maxOutputTokens", "reasoningBudgetTokens", "maxSteps", "taskMaxSteps", "taskMaxDurationMs", "toolFilter", "signal", "onStepCheckpoint"]);
     await fixture.service.executeTurn(session("other"), "request");
     expect(fixture.loop.runTurn.mock.calls[1]?.[1]).not.toHaveProperty("taskMaxSteps");
+  });
+
+  it("a memoryReadOnly turn (skill eval) reaches the loop with the memory write tools hidden", async () => {
+    await fixture.service.executeTurn(session(), "request", { memoryReadOnly: true, toolFilter: (name) => name !== "os.fs.read" });
+    const options = fixture.loop.runTurn.mock.calls[0]?.[1];
+    expect(options?.memoryReadOnly).toBe(true);
+    const filter = options?.toolFilter;
+    expect(filter?.("memory.notes.store")).toBe(false);
+    expect(filter?.("memory.profile.set")).toBe(false);
+    expect(filter?.("memory.notes.recall")).toBe(true);
+    expect(filter?.("os.fs.read")).toBe(false);
+    await fixture.service.executeTurn(session("other"), "request");
+    expect(fixture.loop.runTurn.mock.calls[1]?.[1]).not.toHaveProperty("memoryReadOnly");
   });
 
   it("hides ask_user from desktop turns and keeps it for the TUI, the CLI and Telegram (ATO-489)", async () => {
@@ -383,6 +397,32 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.turnRequests.size).toBe(0);
   });
 
+  it("a worker browses as its parent's worker and its browser tabs end with its turn, even when it throws (ATO-961)", async () => {
+    const ended: string[] = [];
+    const stop = onBrowserWorkerEnd(id => { ended.push(id); });
+    try {
+      const scopes: Array<{ scope: BrowserRunScope | undefined; endedSoFar: string[] }> = [];
+      fixture.loop.runTurn.mockImplementation(async (value, options) => {
+        scopes.push({ scope: currentBrowserScope(), endedSoFar: [...ended] });
+        if (options.userMessage === "throws") throw new Error("worker failed");
+        return result(value, options);
+      });
+      const watched = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "parent", taskId: "task" } });
+      await runInBrowserScope({ sessionId: "parent", attended: true }, () => fixture.service.executeTurn(watched, "brief"));
+      expect(scopes[0]?.scope).toEqual({ sessionId: watched.id, attended: true, workerOf: "parent" });
+      // Not before the turn ran: the worker still needed its tabs then.
+      expect(scopes[0]?.endedSoFar).toEqual([]);
+      expect(ended).toEqual([watched.id]);
+
+      const failing = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "parent", taskId: "task-2" } });
+      await expect(fixture.service.executeTurn(failing, "throws")).rejects.toThrow("worker failed");
+      expect(scopes[1]?.scope).toEqual({ sessionId: failing.id, attended: false, workerOf: "parent" });
+      expect(ended).toEqual([watched.id, failing.id]);
+    } finally {
+      stop();
+    }
+  });
+
   it("records the reply a turn answers for the input guard, hands it to workers, and clears both (ATO-860)", async () => {
     const parent = { ...session("parent"), turns: [userTurn("Clean sales.csv"), assistantReplyTurn("Replace sales.csv?")] };
     const worker = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "parent", taskId: "task" } });
@@ -601,6 +641,26 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.state.pendingSessionNamings.size).toBe(0);
   });
 
+  it("suggests a next step after an answered turn only when the setting is on (ATO-1093)", async () => {
+    const calls = vi.fn(async () => completion("Add tests for the parser"));
+    fixture.deps.execution.llmComplete = calls;
+    const emitted: Array<[string, unknown]> = [];
+    fixture.deps.emitEvent = (id, event) => { emitted.push([id, event]); };
+    let service = createRuntimeTurnService(fixture.config, fixture.deps);
+    await service.executeTurn(session("off"), "request");
+    await flushNaming();
+    expect(calls).not.toHaveBeenCalled();
+
+    (fixture.config.tui as unknown as { nextStepSuggestions: boolean }).nextStepSuggestions = true;
+    service = createRuntimeTurnService(fixture.config, fixture.deps);
+    const output = await service.executeTurn(session("on"), "request");
+    await flushNaming(); await flushNaming();
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect(fixture.rows.get(output.session.id)?.metadata?.nextStep).toMatchObject({ text: "Add tests for the parser" });
+    expect(emitted).toEqual([["on", { type: "next_step_suggestion", text: "Add tests for the parser" }]]);
+    expect(fixture.state.pendingSessionNamings.size).toBe(0);
+  });
+
   it("makes no naming call after a turn that stopped for money (ATO-1350)", async () => {
     vi.useFakeTimers(); fixture.config.agent.nameSessions = true;
     const naming = vi.fn(async () => completion("Generated title"));
@@ -660,7 +720,7 @@ describe("runtime turn ownership recipes", () => {
       expect(seen).toMatchObject({ policy: undefined, role: "the main model" });
     });
 
-    it.each(["telegram", "discord"] as const)("refuses a %s turn in a constrained folder before the model runs, with a fixed notice", async (origin) => {
+    it.each(["telegram", "discord", "slack", "signal", "imessage", "matrix", "googlechat", "msteams"] as const)("refuses a %s turn in a constrained folder before the model runs, with a fixed notice", async (origin) => {
       const before = fixture.loop.runTurn.mock.calls.length;
       const turn = serviceWith(["local-llama"]).runTurn(session(), "confidential question", { origin });
       await expect(turn).rejects.toBeInstanceOf(ChannelRestrictedError);

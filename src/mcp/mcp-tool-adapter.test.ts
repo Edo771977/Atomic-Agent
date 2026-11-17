@@ -398,8 +398,8 @@ describe("approval gating", () => {
       sessionId: "s-test",
       tool: "mcp.windows.app_launch",
       category: "other",
-      grantKey: "mcp.windows.app_launch",
       affectedResources: ["windows"],
+      grantKey: "MCP tool windows/app_launch",
     });
     expect(requests[0]!.preview).toContain('"calc.exe"');
     // The gate resolved before the server was contacted.

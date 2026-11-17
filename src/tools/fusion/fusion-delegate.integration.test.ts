@@ -613,7 +613,7 @@ describe("fusion.delegate end to end", () => {
       expect(existsSync(join(workingDir, "shell.txt"))).toBe(false);
       expect(workerPrompts[0]).toContain("PROFILE review");
       expect(
-        workerPrompts.slice(1).some((p) => p.includes("is not available in this turn; the call was not run")),
+        workerPrompts.slice(1).some((p) => p.includes("this tool is not available in this turn")),
       ).toBe(true);
       const delegateResults = events.flatMap((event) =>
         event.type === "llm_event" &&

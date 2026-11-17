@@ -23,12 +23,21 @@ describe("probeMachineForModels", () => {
     });
     expect(asked).toBe(false);
     expect(m).toEqual({
-      ramGb: 32,
+      ramGb: 30,
       gpuBudgetGb: 24,
       freeDiskGb: 200,
       cpuOnly: false,
       bandwidth: { gpuGbPerSec: 200, ramGbPerSec: 200, unified: true },
     });
+  });
+
+  it("reports RAM as the machine is sold: a 16 GB Mac is 16, not 17 (ATO-1442)", async () => {
+    const m = await probeMachineForModels({
+      ...seams,
+      totalRamBytes: 16 * 1024 ** 3,
+      platform: "darwin",
+    });
+    expect(m.ramGb).toBe(16);
   });
 
   it("reads the discrete GPU from the engine's device list", async () => {

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { AtomicAgentConfig } from "../../config/index.js";
-import { getConfig, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
+import { DEFAULT_MAX_AUDIO_BYTES, getConfig, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
@@ -13,6 +13,8 @@ import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ResolvedRunMode, TeamMember } from "../../llm/run-mode/index.js";
 import { visionCapableAlternatives } from "../../llm/provider/model-vision.js";
+import { providerIdIsLlamaServer } from "../../llm/provider/registry/active-text-provider.js";
+import { audioInputAllowedOn } from "../vision-route.js";
 import { resolveModelPricingFor } from "../resolve-model-pricing.js";
 import { createRequestBudgetScope, type RequestBudgetScope } from "../request-budget.js";
 import { verifiedAdmissionPricing } from "../link-spend-billing.js";
@@ -31,27 +33,34 @@ import type { CostAccumulator } from "../../llm/provider/cost-accumulator.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
 import { ToolRegistry, type ToolRegistryOptions } from "../../tools/tool-registry.js";
 import { runtimeKnownSecrets } from "../runtime-known-secrets.js";
+import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-checkpoint-store.js";
+import { checkpointBeforeInvoke } from "../../tools/os/fs/fs-checkpoint-targets.js";
 import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { finishTool } from "../../tools/finish.js";
 import { buildAskUserTool, replyTool } from "../../tools/conversation/index.js";
-import { buildBrowserTools, UserSiteApprovals } from "../../tools/browser/index.js";
+import { buildBrowserPageRenderer, buildBrowserTools, UserSiteApprovals, type BrowserExtractModelRef } from "../../tools/browser/index.js";
 import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
 import { registerOsScreenTools, registerOsTools, type RegisteredOsTools, type DeclaredInputsRegistry, type ShellJobRegistry, type WebSearchKeyHelp } from "../../tools/os/index.js";
 import { registerVerifyTools, runChecks, verifySyntax } from "../../tools/verify/index.js";
 import { registerGithubTools } from "../../tools/github/index.js";
 import { resolveGithubToken } from "../../github/index.js";
-import { registerSkillTools } from "../../tools/skill/index.js";
+import { registerSkillTools, skillNameForPath, trackSkillEdits } from "../../tools/skill/index.js";
+import { SkillChangeRecorder, skillCuratorPaths } from "../../skills/curator/index.js";
 import { isProjectFolderTrusted } from "../../skills/project-trust.js";
 import { isFusionWorkerTurn } from "./runtime-egress-guard.js";
 import { hasConstrainedFolderInside } from "../../config/project-constraint-match.js";
 import { buildToolViewTool } from "../../tools/tool-view/index.js";
 import { planUpdateTool } from "../../tools/plan/index.js";
+import { buildCanvasRenderTool } from "../../tools/canvas/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
-import { registerMemoryTools, type RegisterMemoryToolsOptions } from "../../tools/memory/index.js";
+import { buildSessionsSearchTool, registerMemoryTools, type RegisterMemoryToolsOptions } from "../../tools/memory/index.js";
+import type { CrossSessionGuard } from "../../tools/sessions/index.js";
+import type { EgressClass } from "../../tools/tool-egress.js";
 import { sessionGroundingSource, verifyProfileNameFacts } from "../../memory/name-grounding.js";
 import { registerVisionTools, type RegisterVisionToolsOptions } from "../../tools/vision/index.js";
 import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../../tools/image/index.js";
-import { registerVideoTools, VIDEO_GENERATE_TOOL } from "../../tools/video/index.js";
+import { registerVideoTools, VIDEO_GENERATE_TOOL, VIDEO_RENDER_HTML_TOOL } from "../../tools/video/index.js";
+import { AUDIO_TRANSCRIBE_TOOL, registerAudioListenTools, registerAudioTools } from "../../tools/audio/index.js";
 import { captureImageGenerated, captureVideoGenerated } from "../../analytics/analytics-events.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
@@ -129,6 +138,8 @@ export function createRuntimeToolRegistry(
   dangerous: DangerousToolOptions,
   outputSpill?: ToolOutputSpill,
   hooks: Pick<ToolRegistryOptions, "onDispatch" | "dispatchGuard"> = {},
+  /** The model `browser.extract` calls; bootstrap fills it in once the completer exists. */
+  browserExtract: BrowserExtractModelRef = {},
 ) {
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
@@ -142,6 +153,9 @@ export function createRuntimeToolRegistry(
     // for the rest of the turn when `agent.taintReview` is on (ATO-618).
     onUntrustedOutput: (sessionId, source) =>
       dangerous.approvals.noteUntrustedContent(sessionId, source),
+    // "Roll back here" (ATO-1056): what a file tool is about to change is
+    // saved first, per session, so a chat can be taken back with its files.
+    beforeInvoke: checkpointBeforeInvoke(new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir))),
   });
   toolRegistry.register(finishTool);
   toolRegistry.register(replyTool);
@@ -153,18 +167,37 @@ export function createRuntimeToolRegistry(
       ...(config.browser.connect === "user-chrome" ? { userSites: new UserSiteApprovals() } : {}),
       localPages: localPageCheck(runtimeReadConfinement(config, dangerous)),
     };
-    for (const tool of buildBrowserTools(browserBackend, dangerous, domainPolicy)) {
+    for (const tool of buildBrowserTools(browserBackend, dangerous, domainPolicy, browserExtract)) {
       toolRegistry.register(tool);
     }
   }
   return toolRegistry;
 }
 
+/**
+ * The `os.web.fetch` browser step (ATO-968): only the agent's own
+ * browser, only when the browser tools are on, under the same domain
+ * lists. The user's own Chrome is never read in the background.
+ */
+function webFetchRenderer(
+  config: AtomicAgentConfig,
+  backend: BrowserBackend | undefined,
+): { webFetchRenderPage?: ReturnType<typeof buildBrowserPageRenderer> } {
+  if (backend === undefined || !config.browser.enabled) return {};
+  if (config.browser.connect === "user-chrome") return {};
+  return {
+    webFetchRenderPage: buildBrowserPageRenderer(backend, {
+      blockedDomains: config.browser.blockedDomains,
+      allowedDomains: config.browser.allowedDomains,
+    }),
+  };
+}
+
 export function registerRuntimeCoreTools(input: {
   config: AtomicAgentConfig;
   toolRegistry: ToolRegistry;
   dangerous: DangerousToolOptions;
-  sessionStore: Pick<SessionStore, "listRecentWorkingDirs" | "listSummaryPage" | "listChatLines">
+  sessionStore: Pick<SessionStore, "listRecentWorkingDirs" | "listSummaryPage" | "listChatLines" | "searchTranscripts" | "listSearchableChatLines">
     & Partial<Pick<SessionStore, "isIncognito">>;
   logger: StructuredLogger;
   resolveOriginalRequest: (sessionId: string) => string | undefined;
@@ -176,10 +209,16 @@ export function registerRuntimeCoreTools(input: {
   skillRegistry: SkillRegistry;
   /** Where the user adds an Exa key, for the web-search error (ATO-345). */
   webSearchKeyHelp?: WebSearchKeyHelp;
+  /** The agent's browser, for the `os.web.fetch` bot-wall step (ATO-968). */
+  browserBackend?: BrowserBackend;
+  /** Per-folder constraints across chats for `memory.sessions.search` (issue #33). */
+  crossSession?: CrossSessionGuard;
+  /** Per-folder egress for `os.web.fetch`'s ladder steps (issue #33). */
+  webFetchEgressRefusal?: (sessionId: string, cls: EgressClass) => string | null;
 } & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): RegisteredOsTools {
   const { config, toolRegistry, dangerous, sessionStore, resolveOriginalRequest, resolvePreviousReply, declaredInputs,
     shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, logger,
-    webSearchKeyHelp, canAskUser } = input;
+    webSearchKeyHelp, canAskUser, crossSession, webFetchEgressRefusal } = input;
 
   const osTools = registerOsTools(toolRegistry, {
     ...dangerous,
@@ -212,6 +251,8 @@ export function registerRuntimeCoreTools(input: {
     },
     shellJobs,
     ...(webSearchKeyHelp === undefined ? {} : { webSearchKeyHelp }),
+    ...webFetchRenderer(config, input.browserBackend),
+    ...(webFetchEgressRefusal === undefined ? {} : { webFetchEgressRefusal }),
     // A folder the operator trusted to run its code (a project skill
     // said yes to; an instruction file alone is not enough) starts
     // language servers without a question
@@ -259,17 +300,41 @@ export function registerRuntimeCoreTools(input: {
   registerGithubTools(toolRegistry, dangerous);
   // Skill scripts inherit the shell's filtered environment and its
   // passthrough list (ATO-877): one answer to "which keys reach a child".
+  // Skill history (ATO-580): every `skill.view` / `skill.run_script` of a
+  // user-installed skill counts as a use, and the file tools snapshot a
+  // skill folder before the agent changes it and log the change after.
+  const skillHistory = new SkillChangeRecorder(config.paths.globalSkillsDir, skillCuratorPaths(config.paths.stateDir));
+  const reportSkillHistoryError = (err: unknown, tool: string): void => {
+    logger.warn("skill history: bookkeeping failed; the tool call was not affected", {
+      tool,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  };
   registerSkillTools(
     toolRegistry,
     skillRegistry,
     dangerous,
     config.tools.shell.envPassthrough,
     config.paths.stateDir,
+    (record) => {
+      if (record.source !== "global" || record.plugin !== undefined) return;
+      const name = skillNameForPath(config.paths.globalSkillsDir, record.rootDir);
+      if (name === null) return;
+      void skillHistory.recordUse(name).catch((err: unknown) => reportSkillHistoryError(err, "skill usage"));
+    },
   );
+  trackSkillEdits(toolRegistry, { recorder: skillHistory, onError: reportSkillHistoryError });
   // `tool.view` is registered with `tool.search` in the MCP catalog phase:
   // it reads the same live descriptor list.
   // The live checklist (ATO-486): pure, always on, no approval.
   toolRegistry.register(planUpdateTool);
+  // ATO-1137: a chart or HTML page saved as a new file in the working
+  // folder and shown in the chat as a canvas. Always on; the write goes
+  // through the fs approval funnel like `os.fs.write`.
+  toolRegistry.register(buildCanvasRenderTool({
+    ...dangerous,
+    trustConfigPaths: getTrustConfigPaths(config.paths),
+  }));
   // Clarifying questions with ready answers (ATO-489): through the
   // approval gate, so the turn waits like an approval and only the
   // person answers. Registered for the whole process, but each turn
@@ -310,6 +375,9 @@ export function registerRuntimeCoreTools(input: {
       ? { isIncognitoSession: (sessionId: string) => sessionStore.isIncognito!(sessionId) }
       : {}),
   });
+  // ATO-1151: search past chats word for word, then read around a hit.
+  // Read-only and always on; the index is built on the first search.
+  toolRegistry.register(buildSessionsSearchTool({ source: sessionStore, ...(crossSession === undefined ? {} : { crossSession }) }));
   return osTools;
 }
 
@@ -335,6 +403,22 @@ export function registerRuntimeVisionTools(input: {
       return entry ? visionCapableAlternatives(entry) : [];
     },
     logger,
+  });
+  // `audio.listen` (ATO-497, decision 62): registered unless
+  // `vision.audioInput` is `false`; the descriptor gate
+  // (`audioOnLiveRoute`) offers it. Unset (auto) means a local model
+  // that reports audio only, so a call on a cloud link is refused
+  // unless the operator set `true`. Each call also checks the model can hear.
+  const audioInput = config.vision.audioInput;
+  registerAudioListenTools(toolRegistry, {
+    provider: resolveCurrentVisionProvider,
+    enabled: audioInput !== false,
+    maxAudioBytes: config.vision.maxAudioBytes ?? DEFAULT_MAX_AUDIO_BYTES,
+    allowProvider: (provider) =>
+      audioInputAllowedOn(
+        providerIdIsLlamaServer(resolveLlmConfig(getConfig()), provider.id),
+        audioInput,
+      ),
   });
 }
 
@@ -369,6 +453,7 @@ export function registerRuntimeImageTools(input: {
  * `video.generate`: registered always, offered while an OpenRouter key is
  * configured (the `video` gate below), like `image.generate`. Its
  * progress reaches the session's UIs as `tool_progress` events.
+ * `video.render_html` (ATO-1164) rides along: local, free, ungated.
  */
 export function registerRuntimeVideoTools(input: {
   toolRegistry: ToolRegistry;
@@ -384,6 +469,36 @@ export function registerRuntimeVideoTools(input: {
     report: (event) => captureVideoGenerated(getAnalytics(), event),
     onProgress: (sessionId, update) => emitAgentLoopEventFor(sessionId, {
       type: "tool_progress", tool: VIDEO_GENERATE_TOOL, fraction: update.fraction, elapsedMs: update.elapsedMs, label: update.label,
+    }),
+    // ATO-1164: HTML page to .mp4 on the local browser and ffmpeg, ungated.
+    renderHtml: {
+      browserConfig: () => getConfig(),
+      trustConfigPaths: () => getTrustConfigPaths(getConfig().paths),
+      onProgress: (sessionId, update) => emitAgentLoopEventFor(sessionId, {
+        type: "tool_progress", tool: VIDEO_RENDER_HTML_TOOL, fraction: update.fraction, elapsedMs: update.elapsedMs, label: update.label,
+      }),
+    },
+  });
+}
+
+/**
+ * `audio.transcribe` (ATO-702): speech to text with whisper.cpp, always
+ * on. What it lacks on first use (the speech model; on Windows and Linux
+ * the whisper.cpp build) downloads into the models folder after an
+ * `http` approval; the download's progress reaches the session's UIs as
+ * `tool_progress` events, like `video.generate`.
+ */
+export function registerRuntimeAudioTools(input: {
+  toolRegistry: ToolRegistry;
+  dangerous: DangerousToolOptions;
+  emitAgentLoopEventFor: FusionDelegateDeps["emitEvent"];
+}): void {
+  const { toolRegistry, dangerous, emitAgentLoopEventFor } = input;
+  registerAudioTools(toolRegistry, {
+    ...dangerous,
+    dataDir: () => getConfig().paths.localModelsDataDir,
+    onProgress: (sessionId, update) => emitAgentLoopEventFor(sessionId, {
+      type: "tool_progress", tool: AUDIO_TRANSCRIBE_TOOL, fraction: update.fraction, elapsedMs: update.elapsedMs, label: update.label,
     }),
   });
 }
@@ -414,6 +529,8 @@ export async function connectRuntimeMcpCatalog(input: {
   llama: LlamaServerClient;
   initialGrammar: string;
   visionOnLiveRoute: () => boolean;
+  /** Live audio gate (`audioRouteAvailable`); absent reads as off. */
+  audioOnLiveRoute?: () => boolean;
   resolveCurrentRunMode: () => ResolvedRunMode;
   /**
    * Told every MCP tool-name rule this catalog applies, so a grammar held
@@ -431,6 +548,7 @@ export async function connectRuntimeMcpCatalog(input: {
 }) {
   const { config, options, toolRegistry, logger, dangerous, llama, initialGrammar,
     visionOnLiveRoute, resolveCurrentRunMode, onMcpToolNameRule, resolveContextWindow } = input;
+  const audioOnLiveRoute = input.audioOnLiveRoute ?? ((): boolean => false);
   let grammar = initialGrammar;
 
   // MCP client subsystem. The manager is always constructed so the
@@ -484,12 +602,21 @@ export async function connectRuntimeMcpCatalog(input: {
           constraintsActive: () => hasProjectConstraints(getConfig()),
         })
       : undefined,
+    // ATO-704: no host wires a port yet, so servers see no elicitation
+    // capability until one does (see docs/client.md).
+    ...(options.handlers?.onMcpElicitation
+      ? { elicitationPort: options.handlers.onMcpElicitation }
+      : {}),
+    // Browser sign-ins of remote servers live in `<stateDir>/mcp-oauth/`.
+    oauthStateDir: config.paths.stateDir,
     ...(options.handlers?.onChannelStatus
       ? {
           onStatus: (status) =>
             options.handlers!.onChannelStatus!({
               channel: `mcp:${status.name}`,
-              state: status.state,
+              // The channel contract has no sign-in state; "down" with
+              // "Sign in required" as the error says the same thing.
+              state: status.state === "needs_auth" ? "down" : status.state,
               ...(status.lastError ? { lastError: status.lastError } : {}),
             }),
         }
@@ -565,6 +692,9 @@ export async function connectRuntimeMcpCatalog(input: {
         enabled: config.vision.enabled,
         providerAvailable: visionOnLiveRoute(),
       },
+      // Live, like vision: unset `vision.audioInput` offers it only on a
+      // local model that reports audio (decision 62).
+      audio: { enabled: audioOnLiveRoute() },
       memory: {
         profile: { enabled: config.memory.profile.enabled },
         notes: { enabled: config.memory.notes.enabled },
@@ -574,6 +704,10 @@ export async function connectRuntimeMcpCatalog(input: {
       tasks: {
         agentToolsEnabled:
           config.tasks.enabled && config.tasks.agentToolsEnabled,
+      },
+      sessions: {
+        agentToolsEnabled:
+          config.tasks.enabled && config.tasks.sessionToolsEnabled === true,
       },
       email: {
         available:
@@ -646,7 +780,7 @@ export async function connectRuntimeMcpCatalog(input: {
       resolveContextWindow?.(),
     );
   const liveDescriptorGates = (): string =>
-    `${resolveCurrentRunMode().effective === "fusion"}|${visionOnLiveRoute()}|${openRouterImageKey(getConfig()) !== undefined}|${toolSearchOn()}`;
+    `${resolveCurrentRunMode().effective === "fusion"}|${visionOnLiveRoute()}|${audioOnLiveRoute()}|${openRouterImageKey(getConfig()) !== undefined}|${toolSearchOn()}`;
   let cachedDescriptorGates = liveDescriptorGates();
   let cachedToolDescriptors = applyToolSearch(fullToolDescriptors, toolSearchOn());
   const rebuildToolDescriptors = (): readonly ToolDescriptor[] => {
@@ -772,6 +906,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   orchestratorTurnSpendUsd?: FusionDelegateDeps["orchestratorTurnSpendUsd"];
   runCheckpoints?: FusionDelegateDeps["runCheckpoints"];
   outcomeLog?: FusionDelegateDeps["outcomeLog"];
+  /** Upstream's past-runs journal (ATO-949, `outcome-journal.ts`). */
+  outcomeJournal?: FusionDelegateDeps["outcomeJournal"];
   turnLedger?: FusionDelegateDeps["turnLedger"];
   /**
    * What the local legs' format check sends with (`fusion-format-check.ts`):
@@ -789,7 +925,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, teamMemberReachable } = input;
+    outcomeLog, outcomeJournal, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, teamMemberReachable } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -1009,6 +1145,7 @@ export function registerRuntimeFusionAndReadScope(input: {
       ...(runCheckpoints === undefined ? {} : { runCheckpoints }),
       // The outcome log and the turn receipt's tally (counts only).
       ...(outcomeLog === undefined ? {} : { outcomeLog }),
+      ...(outcomeJournal === undefined ? {} : { outcomeJournal }),
       ...(turnLedger === undefined ? {} : { turnLedger }),
       approvals,
       approvalRequired: dangerous.approvalRequired,

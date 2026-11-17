@@ -32,7 +32,9 @@ This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing i
 - [Coding stance and plan handoff](coding-mode/README.md)
 - [Fusion project card](project/README.md)
 - [Session selection and rail layout](session-rail/README.md)
+- [File mentions in the composer](file-mentions/README.md)
 - [Theme chooser](theme-picker/README.md)
+- [Rewind picker](rewind/README.md)
 - [Observation views](observe/README.md)
 - [Privacy settings](privacy/README.md)
 - [Integrations hub](integrations/README.md)
@@ -71,3 +73,7 @@ Compaction has a session-scoped live indicator: queued requests wait visibly for
 `/enhance <text>` is opt-in prompt refinement: the draft goes straight back into the composer, the runtime runs one rewrite pass ([prompt-enhancer.ts](../runtime/prompt-enhancer.ts), its own `enhance:` fallback partition, output bound and 60 s deadline, aborted on shutdown), and the rewrite replaces the draft only if it was not edited meanwhile. Bare `/enhance` from the menu enhances the draft already in the composer; typed or picked from the palette it prints usage and clears only the command itself. Sending, Esc, switching or starting a session cancels a running pass. Nothing is sent; on failure the draft stays and a composer notice says why.
 
 Fusion team pickers (issue #37, [fusion-team-picker.ts](fusion-team-picker.ts), [team rows](composer-switch/composer-switch-team-rows.ts)): with `llm.runMode.fusion.team`, the first submit of a fusion chat that has no director while several are usable returns the message to the composer and opens the `director` switch; `/director` and a bare `/worker` open the director and preferred-worker switches. A pick stamps the open chat's metadata (never the config) and is refused while a turn runs. One usable director is picked by the runtime, which says so in the chat.
+
+`/btw <question>` asks a quick side question beside the main task ([side-question.ts](../runtime/side-question.ts), ATO-1152). The model gets a digest of the recent conversation, runs no tools, and answers once under its own `btw:` fallback partition, output bound and 90 s deadline. Nothing is written to the session: the question and the answer show as chat notices only, are gone after a restart, and never reach later turns. It works while a turn is running; switching, starting a session or quitting cancels it.
+
+`/edit` (or `ctrl+g E`) opens the composer draft in `$VISUAL` / `$EDITOR` (Notepad on Windows when neither is set) and puts the saved text back in the composer; nothing is sent. `/edit <text>` starts from that text instead. The temp file lives in the OS temp dir and is removed afterwards. [editor/](editor/index.ts) runs the editor synchronously with the terminal inherited after releasing raw mode, mouse reporting, the kitty keyboard protocol and the alternate screen, and restores them on return; it is refused during a running turn because the whole process waits on the editor.
