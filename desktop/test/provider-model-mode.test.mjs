@@ -15,7 +15,6 @@ const { defaultProviderModelMode } = require("../out/main/provider-model-mode.js
 
 // Load the actual core policy and presets without a prior agent build. This
 // test must fail if the separate desktop build drifts from the core contract.
-
 test("desktop initial policy matches the core for every preset and provider kind", () => {
   const core = loadCore(new URL("../../src/config/model-mode.ts", import.meta.url));
   const { PROVIDER_PRESETS } = loadCore(new URL("../../src/llm/provider/presets/provider-presets.ts", import.meta.url));
@@ -57,6 +56,12 @@ test("desktop saves a context policy for new providers after the v75 migration",
       [{ id: "groq-2", kind: "openai-compatible", baseUrl: "https://api.groq.com/openai", defaultChatModel: "m" }, "cloud"],
       [{ id: "ollama", kind: "openai-compatible", baseUrl: "http://localhost:11434", defaultChatModel: "m" }, "local"],
       [{ id: "custom", kind: "openai-compatible", baseUrl: "https://custom.invalid", defaultChatModel: "m" }, "local"],
+      // ATO-931 / ATO-468: W&B's fixed root, and per-account Azure / Bedrock hosts.
+      [{ id: "wandb", kind: "openai-compatible", baseUrl: "https://api.inference.wandb.ai", defaultChatModel: "m" }, "cloud"],
+      [{ id: "azure-openai", kind: "openai-compatible", baseUrl: "https://my-team.openai.azure.com/openai", defaultChatModel: "m" }, "cloud"],
+      [{ id: "bedrock", kind: "openai-compatible", baseUrl: "https://bedrock-mantle.eu-west-1.api.aws", defaultChatModel: "m" }, "cloud"],
+      [{ id: "lookalike", kind: "openai-compatible", baseUrl: "https://openai.azure.com.example.com", defaultChatModel: "m" }, "local"],
+      [{ id: "lemonade", kind: "openai-compatible", baseUrl: "http://localhost:13305", defaultChatModel: "m" }, "local"],
       [{ id: "manual", kind: "gemini", modelMode: "local", modelModes: { exact: "cloud" } }, "local"],
     ];
     for (const [entry, expected] of entries) {

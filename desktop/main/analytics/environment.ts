@@ -6,7 +6,8 @@
  * under plain node.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { resolveRunMode, type RunModeConfig } from "../run-mode.js";
@@ -76,6 +77,40 @@ export function doNotTrackIn(env: NodeJS.ProcessEnv = process.env): boolean {
   return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
 }
 
+/**
+ * The environment turns the desktop's analytics and crash reports off:
+ * `DO_NOT_TRACK` (above), or the agent's own kill switch
+ * `ATOMIC_AGENT_ANALYTICS=off` (also 0 / false / no / disabled, the values
+ * src/analytics/read-analytics-kill-switch.ts accepts). A user who set the
+ * agent's switch got nothing from the agent but still got desktop events
+ * (ATO-760); one switch now covers both.
+ */
+export function analyticsOffByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (doNotTrackIn(env)) return true;
+  const raw = env.ATOMIC_AGENT_ANALYTICS;
+  if (typeof raw !== "string") return false;
+  return ["off", "0", "false", "no", "disabled"].includes(raw.trim().toLowerCase());
+}
+
+/**
+ * ATO-1247: our own machine or test run, the same rule as the agent's
+ * src/analytics/read-team-run-marker.ts (the desktop build cannot import
+ * from src/): `ATOMIC_AGENT_TEAM=1` (true / yes / on) in the environment, or
+ * a file `~/.atomic-agent-team`. Events are still sent, tagged `test_run`
+ * and with the person property `atomic_team`, so PostHog can leave them
+ * out. The agent this app spawns inherits the environment and reads the
+ * same file, so its events are tagged too.
+ */
+export function teamRunIn(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): boolean {
+  const raw = env.ATOMIC_AGENT_TEAM;
+  if (typeof raw === "string" && ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase())) return true;
+  try {
+    return existsSync(join(home, ".atomic-agent-team"));
+  } catch {
+    return false;
+  }
+}
+
 /** What the spawned agent must know about the shell's own gate (core.ts keeps it current). */
 export interface AgentGate {
   testRun: boolean;
@@ -106,7 +141,7 @@ export function agentAnalyticsEnv(stateDir: string): Record<string, string> {
     if (g.testRun) {
       out.ATOMIC_AGENT_ANALYTICS = "off";
       out.ATOMIC_AGENT_INSTALL_ID_FILE = join(stateDir, "install-id");
-    } else if (g.inheritedOff || doNotTrackIn()) {
+    } else if (g.inheritedOff || analyticsOffByEnv()) {
       out.ATOMIC_AGENT_ANALYTICS = "off";
     }
   } catch {

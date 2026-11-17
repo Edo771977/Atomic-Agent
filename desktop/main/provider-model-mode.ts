@@ -31,13 +31,13 @@ const CLOUD_ORIGINS = new Set([
   "https://api.x.ai",
 ]);
 
-// Per-account endpoints (an Azure resource, a Bedrock Region, a Vertex AI
-// project/region) match by host,
-// as the core's presets do through `perAccountEndpoint.hostPattern`.
+// Per-account endpoints (ATO-468): presets whose baseUrl is only a template
+// (an Azure resource, an AWS Region) match by host, https only. Mirrors
+// `perAccountEndpoint.hostPattern` in src/llm/provider/presets/provider-presets.ts.
 const CLOUD_HOST_PATTERNS: readonly RegExp[] = [
-  /^bedrock-(?:mantle|runtime)\.[a-z0-9-]+\.(?:api\.aws|amazonaws\.com)$/i,
   /\.(?:openai|services\.ai|cognitiveservices)\.azure\.com$/i,
-  /^(?:[a-z0-9-]+-)?aiplatform\.googleapis\.com$/i,
+  /^bedrock-(?:mantle|runtime)\.[a-z0-9-]+\.(?:api\.aws|amazonaws\.com)$/i,
+  /^(?:[a-z0-9-]+-)?aiplatform\.googleapis\.com$/i,   // Google Vertex AI
 ];
 
 /** Only for a new connection. Existing choices, including inherit, stay put. */

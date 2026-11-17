@@ -210,11 +210,11 @@ try {
     small.picks[0].best && /Qwen 3\.5 4B/.test(small.picks[0].name), small.picks[0].name);
   check('a small model says plainly what it gives up, in one badge',
     small.picks[0].lines.length === 1 && small.picks[0].notes.length === 1
-      && /^A small model: quick, but weaker at long multi-step work\.$/.test(small.picks[0].notes[0]) && /Small model/.test(small.picks[0].name),
+      && /^A small model: quick, but weaker at long multi-step work\.$/.test(small.picks[0].notes[0]) && /Simple tasks/.test(small.picks[0].name),
     JSON.stringify(small.picks[0]));
   check('a tight fit is named as one, with this Mac’s RAM',
-    small.picks.some((p) => /Tight fit/.test(p.name) && p.notes.some((l) => /^Tight fit on 8 GB\. It will run slowly\.$/.test(l))),
-    JSON.stringify(small.picks.find((p) => /Tight fit/.test(p.name)) || {}));
+    small.picks.some((p) => /Slow on 8 GB/.test(p.name) && p.notes.some((l) => /^Tight fit on 8 GB\. It will run slowly\.$/.test(l))),
+    JSON.stringify(small.picks.find((p) => /Slow on 8 GB/.test(p.name)) || {}));
   check('every row has one facts line and at most one caution badge',
     small.picks.every((p) => p.lines.length === 1 && p.notes.length <= 1), JSON.stringify(small.picks.map((p) => [p.lines.length, p.notes.length])));
   check('a model that will not run says how much RAM it wants',
@@ -263,25 +263,24 @@ try {
            the sync, llmRefreshRun spends it). Read the strip before that and
            it still shows the default, Local — then flips to Cloud under the
            rows this leg is waiting for. Wait for the refresh; looking only. */
-        const early = await app.eval("(document.querySelector('#settings .llmmode.on') || {}).innerText || ''");
+        const early = await app.eval("(document.querySelector('#settings .llm-rm.is-open .llm-rm-t') || {}).innerText || ''");
         await app.waitFor('window.__llmPane && window.__llmPane().refreshed !== null', 'the LLM tab’s first refresh', { timeout: 90000, quiet: true });
         await sleep(500);
-        say(`  mode strip 2 s after opening: ${JSON.stringify(early.trim())}; after the first refresh: ${JSON.stringify((await app.eval("(document.querySelector('#settings .llmmode.on') || {}).innerText || ''")).trim())}`);
+        say(`  open card 2 s after opening: ${JSON.stringify(early.trim())}; after the first refresh: ${JSON.stringify((await app.eval("(document.querySelector('#settings .llm-rm.is-open .llm-rm-t') || {}).innerText || ''")).trim())}`);
       }
-      pane = await app.eval("(document.querySelector('#settings .llmmode.on') || {}).innerText || ''");
+      pane = await app.eval("(document.querySelector('#settings .llm-rm.is-open .llm-rm-t') || {}).innerText || ''");
       /* This state directory routes at a cloud provider, so the LLM tab
-         opens on Cloud. The mode strip is the way across — clicked by
-         selector, not by its text: the pane's footer hint also says the
-         word "Local" ("←/→ switch Local/Cloud/External/Fallback") and it is
-         clickable, and clicking THAT walks the mode on instead. */
+         opens on Cloud. 13.11: the cards are the run-mode switch too, so a
+         click on Local models would move chats; the Local setup is opened by
+         its own verb instead, which switches nothing. */
       if (pane && !/^local models$/i.test(pane.trim())) {
-        await app.clickSel('#settings .llmmode', { nth: 0 });
+        await app.eval("(act('llm:mode:local'), true)");
         await sleep(1500);
-        pane = await app.eval("(document.querySelector('#settings .llmmode.on') || {}).innerText || ''");
+        pane = await app.eval("(document.querySelector('#settings .llm-rm.is-open .llm-rm-t') || {}).innerText || ''");
       }
       if (!/^local models$/i.test(pane.trim())) await sleep(4000);
     }
-    check('the mode strip reaches the Local pane', /^local models$/i.test(pane.trim()), JSON.stringify(pane));
+    check('the Local card\'s setup opens', /^local models$/i.test(pane.trim()), JSON.stringify(pane));
     for (let i = 0; i < 60; i += 1) {
       if (await app.eval("document.querySelectorAll('#settings [data-llm-row^=\"local-text:\"]').length")) break;
       await sleep(500);

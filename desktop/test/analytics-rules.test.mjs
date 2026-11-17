@@ -203,7 +203,18 @@ test("DO_NOT_TRACK=1 turns analytics off; 0, false and empty do not (ATO-1189)",
   for (const v of ["0", "false", "", "no"]) assert.equal(E.doNotTrackIn({ DO_NOT_TRACK: v }), false, JSON.stringify(v));
   assert.equal(E.doNotTrackIn({}), false);
   const core = readFileSync(new URL("../main/analytics/core.ts", import.meta.url), "utf8");
-  assert.match(core, /if \(doNotTrackIn\(\)\) return false;/);
+  assert.match(core, /if \(analyticsOffByEnv\(\)\) return false;/);
+});
+
+test("ATOMIC_AGENT_ANALYTICS=off turns the desktop's own analytics off too (ATO-760)", () => {
+  for (const v of ["off", "OFF", "0", "false", "no", "disabled", " off "]) {
+    assert.equal(E.analyticsOffByEnv({ ATOMIC_AGENT_ANALYTICS: v }), true, v);
+  }
+  for (const v of ["on", "1", "", "yes"]) {
+    assert.equal(E.analyticsOffByEnv({ ATOMIC_AGENT_ANALYTICS: v }), false, JSON.stringify(v));
+  }
+  assert.equal(E.analyticsOffByEnv({ DO_NOT_TRACK: "1" }), true);
+  assert.equal(E.analyticsOffByEnv({}), false);
 });
 
 test("test and dev runs: --dev, NODE_ENV=development and unpackaged builds send nothing", () => {
@@ -281,4 +292,40 @@ test("every envelope is platform node and tells Sentry not to infer the IP", () 
   assert.deepEqual(event.sdk.settings, { infer_ip: "never" });
   assert.equal(event.user.ip_address, null);
   assert.equal("minidumpUrl" in dsn, false);
+});
+
+/* ---- ATO-1396: approval answers keep their category ---- */
+
+function agentApprovalCategories() {
+  const src = readFileSync(join(HERE, "..", "..", "src", "approval", "approval-level.ts"), "utf8");
+  const at = src.indexOf("export const APPROVAL_CATEGORY_LABELS");
+  assert.ok(at >= 0, "APPROVAL_CATEGORY_LABELS is in approval-level.ts");
+  const body = src.slice(src.indexOf("{", at) + 1, src.indexOf("\n};", at));
+  return [...body.matchAll(/^\s*([a-z_]+):/gm)].map((m) => m[1]);
+}
+
+test("renderer: a dangerous command's answer is counted as shell_dangerous, not other (ATO-1396)", () => {
+  const { ANX, sent } = loadRenderer();
+  const req = { cat: "shell_dangerous", lvl: 4 };
+  ANX.apprShown(req);
+  ANX.apprAnswered(req, "n");
+  const answered = sent.find((e) => e.event === "approval_answered");
+  assert.equal(answered.props.category, "shell_dangerous");
+  assert.equal(V.validateEvent("approval_answered", answered.props, "ui").props.category, "shell_dangerous");
+  ANX.apprClosed({ cat: "screen_capture", lvl: 3 }, "stopped");
+  const closed = sent.find((e) => e.event === "approval_closed");
+  assert.equal(V.validateEvent("approval_closed", closed.props, "ui").props.category, "screen_capture");
+  ANX.apprAnswered({ cat: "made_up_kind", lvl: 2 }, "y");
+  assert.equal(sent[sent.length - 1].props.category, "other", "a kind nobody knows is still other");
+});
+
+test("every agent approval category is counted by name, in main and the renderer alike (ATO-1396)", () => {
+  const agent = agentApprovalCategories();
+  assert.ok(agent.includes("shell_dangerous") && agent.length >= 20);
+  assert.deepEqual(agent.filter((id) => !CV.APPROVAL_CATEGORIES.includes(id)), [], "catalog-values.ts APPROVAL_CATEGORIES");
+  const analytics = readFileSync(join(HERE, "..", "renderer", "analytics.js"), "utf8");
+  const list = /const APPROVAL_CATEGORY_IDS = \[([\s\S]*?)\];/.exec(analytics);
+  assert.ok(list, "APPROVAL_CATEGORY_IDS is in analytics.js");
+  const ids = [...list[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...ids].sort(), [...CV.APPROVAL_CATEGORIES].sort(), "the renderer's list is main's list");
 });

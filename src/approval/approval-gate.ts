@@ -976,6 +976,9 @@ export class ApprovalGate {
           ...request,
           riskNote: formatTaintNote(sources, consulted ? formatRiskNote(verdict) : null),
           ...(verdict !== null ? { riskLevel: verdict.risk } : {}),
+          ...(verdict !== null && verdict.reason.length > 0
+            ? { riskReason: verdict.reason }
+            : {}),
         },
         signal ? { signal } : {},
       );

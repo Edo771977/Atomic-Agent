@@ -23,7 +23,7 @@
 
 import { curatedMetaIds } from "../model-catalog.js";
 import {
-  APPROVAL_CATEGORIES, BACKEND_FAIL_REASONS, ENGINE_FAILURE_STAGES, ENGINE_FAULTS, ENGINE_RECOVERY_VIA, LOCAL_ENGINES, cleanAppVersion, cleanLocale, cleanQuant, CODING_MODES, CONFIGURED_PROVIDERS, DAEMON_EFFECTS,
+  APPROVAL_CATEGORIES, BACKEND_FAIL_REASONS, CANCEL_PHASES, TURN_PROVIDER_KINDS, ENGINE_FAILURE_STAGES, ENGINE_FAULTS, ENGINE_RECOVERY_VIA, LOCAL_ENGINES, cleanAppVersion, cleanLocale, cleanQuant, CODING_MODES, CONFIGURED_PROVIDERS, DAEMON_EFFECTS,
   DOWNLOAD_FAIL_REASONS, DOWNLOAD_TRIGGERS, ERROR_CATEGORIES, FIT, GONE_REASONS, IMPORT_PARTS, IMPORT_SOURCES,
   NODE_SIGNALS, ONBOARDING_STEPS, PROVIDER_PRESETS, RAM_BUCKETS, RESTART_TRIGGERS, RUN_MODES, SETTINGS_PANES, SLASH_COMMANDS,
   SUPERVISOR_KINDS, SWITCH_REFUSALS, uiActionOk, UI_VIA,
@@ -75,6 +75,8 @@ const downloadProps: Record<string, PropSpec> = {
   has_projector: bool,
   fit: en(FIT, { nullable: true }),
   trigger: en(DOWNLOAD_TRIGGERS),
+  /** ATO-1369: the weights were on disk, only the vision projector downloaded. */
+  projector_only: bool,
 };
 
 export const EVENTS: Record<string, EventSpec> = {
@@ -102,6 +104,10 @@ export const EVENTS: Record<string, EventSpec> = {
   app_closed: { owner: "main", props: { session_minutes: num({ decimals: 1 }), turns_in_session: int() } },
   debug_report_saved: { owner: "main", props: { kind: en(["dump", "report"]) } },
   analytics_disabled: { owner: "main", props: { via: en(["settings", "slash", "config"]), days_since_install: int() } },
+  /* ATO-1467: the "Talk to the team" interview invite (main/interview-invite-ipc.ts). */
+  interview_invite_shown: { owner: "main", props: { via: en(["card"]) } },
+  interview_invite_clicked: { owner: "main", props: { via: en(["menu", "card", "slash"]) } },
+  interview_invite_dismissed: { owner: "main", props: { reason: en(["later", "never"]) } },
 
   /* ---- onboarding and setup ---- */
   onboarding_step: {
@@ -142,9 +148,30 @@ export const EVENTS: Record<string, EventSpec> = {
        provider (the same list as provider_setup_started). */
     props: {
       step: en(["onboarding", "settings"]),
-      reason: en(["bad_url", "bad_key_chars", "save_failed", "catalog_empty", "server_unreachable", "certificate", "timed_out", "key_rejected", "provider_error", "list_failed", "other"]),
+      /* ATO-1195: list_failed split by what went wrong on our side:
+         agent_crashed, not_json, no_binary. `kind` is the provider's type,
+         as in model_configured: cloud, or custom for a custom URL and for
+         an app the user runs (Ollama, LM Studio, Atomic Chat). */
+      reason: en(["bad_url", "bad_key_chars", "save_failed", "catalog_empty", "server_unreachable", "certificate", "timed_out", "key_rejected", "provider_error", "agent_crashed", "not_json", "no_binary", "list_failed", "other"]),
       provider_preset: en(PROVIDER_PRESETS, { fallback: "custom" }),
+      kind: en(["local", "cloud", "custom"], { nullable: true }),
     },
+  },
+  /* ATO-845: the subscription sign-in funnel (renderer.js wizSubLogin). */
+  subscription_login_clicked: { owner: "ui", props: { cli: en(["claude", "codex"]), step: en(["onboarding", "settings"]) } },
+  subscription_terminal_opened: {
+    owner: "ui",
+    props: {
+      cli: en(["claude", "codex"]),
+      step: en(["onboarding", "settings"]),
+      opened: bool,
+      terminal: en(["terminal_app", "cmd", "x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"], { nullable: true }),
+      reason: en(["no_terminal", "launch_failed", "unsupported_platform", "other"], { nullable: true }),
+    },
+  },
+  subscription_login_succeeded: {
+    owner: "ui",
+    props: { cli: en(["claude", "codex"]), step: en(["onboarding", "settings"]), seconds_to_sign_in: int({ min: 0, nullable: true }) },
   },
   custom_endpoint_tested: { owner: "ui", props: { kind: en(["chat", "embedding"]), reachable: bool } },
   model_configured: {
@@ -266,11 +293,21 @@ export const EVENTS: Record<string, EventSpec> = {
       error_category: en(ERROR_CATEGORIES, { nullable: true }),
       http_status: { kind: "int", min: 100, max: 599, nullable: true },
       coding_mode: en(CODING_MODES, { nullable: true }),
+      /* ATO-1026: where the turn's time went (chat-turns.ts). */
+      ms_to_first_activity: int({ nullable: true }),
+      cancel_phase: en(CANCEL_PHASES, { nullable: true }),
+      cancel_by: en(["user", "app"], { nullable: true }),
+      prompt_tokens: int({ nullable: true }),
+      completion_tokens: int({ nullable: true }),
+      gen_tokens_per_s: num({ decimals: 1, nullable: true }),
+      provider: en(CONFIGURED_PROVIDERS, { fallback: "custom", nullable: true }),
+      provider_kind: en(TURN_PROVIDER_KINDS, { nullable: true }),
+      model_id: en(modelIds(), { fallback: "custom", nullable: true }),
     },
   },
   message_action: {
     owner: "ui",
-    props: { action: en(["copy", "resend", "retry", "continue", "steer", "unqueue", "stop", "copy_reply"]) },
+    props: { action: en(["copy", "resend", "retry", "continue", "steer", "unqueue", "stop", "copy_reply", "regenerate"]) },
   },
   approval_answered: {
     owner: "ui",
@@ -315,6 +352,12 @@ export const EVENTS: Record<string, EventSpec> = {
     },
   },
 
+  /* ATO-1096: the grey next-step suggestion in the composer (renderer/next-step.js).
+     Counts only: the suggestion's text is never sent. `ms_to_accept` is the
+     time from the suggestion appearing to Tab. */
+  suggestion_shown: { owner: "ui", props: {} },
+  suggestion_accepted: { owner: "ui", props: { ms_to_accept: int({ nullable: true }) } },
+
   /* ---- navigation and features ---- */
   /* `prefix`, `prefix:tail` or `runmode:workers:N` — the renderer keeps only enum tails; uiActionOk refuses anything id-like. */
   ui_action: {
@@ -341,7 +384,7 @@ export const EVENTS: Record<string, EventSpec> = {
     owner: "main",
     props: {
       result: en(["ok", "install_failed", "unavailable"]),
-      reason: en(["voice-not-macos", "voice-os-too-old", "voice-helper-missing", "voice-helper-failed"], { nullable: true }),
+      reason: en(["voice-not-macos", "voice-os-too-old", "voice-helper-missing", "voice-helper-failed", "voice-whisper-missing", "voice-whisper-model-missing"], { nullable: true }),
     },
   },
   task_created: { owner: "main", props: { kind: en(["cron", "interval", "at"]) } },

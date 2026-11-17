@@ -13,8 +13,8 @@ import { BrowserWindow } from "electron";
  *     narrowest window the app allows (940px).
  * (c) The Atomic Chat layout. Expanded, the sidebar reaches up into the 52px
  *     band: its top row holds the traffic lights on the left and two icon
- *     buttons on the right — Search (the palette, ⌘ K) and the sidebar
- *     toggle. The "Search" pill at the top right of the main area is gone.
+ *     buttons on the right — Search (W2: the chat search; ⌘ K is still the
+ *     palette) and the sidebar toggle. The "Search" pill at the top right of the main area is gone.
  *     Collapsed, both buttons stand in the toolbar next to the lights.
  *     The row is the drag handle; the buttons are not.
  * (d) The inspector toggle at the top right wore the sidebar's panel glyph
@@ -28,6 +28,32 @@ type Check = (name: string, ok: boolean, detail?: string) => void;
 
 const show = (s: unknown) => JSON.stringify(s);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/* ATO-1414: the renderer has taken a resize of the window. setContentSize
+   returns before the renderer sees the new width, and on a loaded machine the
+   resize (and the 1000px media query behind sidebarExpanded) landed after the
+   fixed 500 ms this used to wait: (c) then read a narrow window's chrome — the
+   sidebar a drawer, no top row — and failed in full runs only. Waits for the
+   width itself, 10 s at most; past that the checks read what is there. */
+async function sized(js: Js, width: number, ms = 10_000): Promise<boolean> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const ok = await js<boolean>(`Math.abs(window.innerWidth - ${width}) <= 1`).catch(() => false);
+    if (ok || Date.now() >= end) return ok;
+    await wait(100);
+  }
+}
+
+/* ATO-1414: the chrome once it shows what a check is about to assert, or as it
+   is after `ms` (the check then fails on what it reads, as before). */
+async function chromeWhen(js: Js, ready: (c: Chrome) => boolean, ms = 5_000): Promise<Chrome> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const c = await js<Chrome>(CHROME);
+    if (ready(c) || Date.now() >= end) return c;
+    await wait(100);
+  }
+}
 
 /* Where the chrome's two buttons are, read off the live DOM. */
 const CHROME = String.raw`(() => {
@@ -109,7 +135,8 @@ export async function checks114(js: Js, check: Check): Promise<void> {
     );
     if (w && size) {
       w.setContentSize(940, 620);
-      await wait(500);
+      await sized(js, 940);
+      await wait(150);
       const narrow = await js<Record<string, unknown>>(hero);
       check(
         "T114b: on the narrowest window (940×620) the bigger greeting still fits its column, the mark in proportion",
@@ -117,20 +144,48 @@ export async function checks114(js: Js, check: Check): Promise<void> {
           && Math.abs(Number(narrow["mark"]) / parseFloat(String(narrow["font"])) - 1.5) < 0.05,
         show(narrow),
       );
+      /* Review fix: on a narrow window the drawer is the only way to the chat
+         list, and it had no magnifier (sidebarExpanded() is false there), so
+         the chat search could not be opened at all. A click on it keeps the drawer. */
+      const drawer = await js<{ drawer: boolean; btn: boolean; field: boolean; focused: boolean; still: boolean; toggles: number }>(`(async () => {
+        if (!sidebarDrawerOpen()) act('toggle:sidebar');
+        await new Promise((res) => setTimeout(res, 150));
+        const b = document.querySelector('#sidebar.drawer .sb-top [data-act="palette"]');
+        const r = b ? b.getBoundingClientRect() : null;
+        const h = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+        const btn = !!b && !!h && b.contains(h);
+        if (b) b.click();
+        await new Promise((res) => setTimeout(res, 50));
+        const f = document.getElementById('palq');
+        const out = {drawer: !!document.querySelector('#sidebar.drawer'), btn, field: S.overlay === 'palette' && !!f, focused: !!f && document.activeElement === f,
+          still: sidebarDrawerOpen(), toggles: document.querySelectorAll('[data-act="toggle:sidebar"]').length};
+        act('close'); closeSidebarDrawer(); renderSidebar();
+        return out;
+      })()`);
+      check(
+        "T114b: on a narrow window the sidebar drawer carries the Search magnifier, and clicking it opens the one search without closing the drawer",
+        drawer.drawer && drawer.btn && drawer.field && drawer.focused && drawer.still && drawer.toggles === 1,
+        show(drawer),
+      );
     } else {
       process.stdout.write("SKIP T114b narrow: no BrowserWindow to resize in this run\n");
     }
   } finally {
-    if (w && size && !w.isDestroyed()) { w.setContentSize(size[0], size[1]); await wait(500); }
+    if (w && size && !w.isDestroyed()) {
+      w.setContentSize(size[0], size[1]);
+      if (!(await sized(js, size[0]))) process.stdout.write(`WARN T114: the renderer did not take the window's width back (${size[0]}px) within 10 s\n`);
+      await wait(150);
+    }
   }
 
   // ---- (c) the sidebar's top row --------------------------------------------
   const before = await js<string>("S.sidebar");
   try {
     if (before !== "open") { await js<unknown>("act('toggle:sidebar')"); await wait(150); }
-    const open = await js<Chrome>(CHROME);
+    const open = await chromeWhen(js, (c) => c.expanded && !!c.top && c.toolbar.open);
     const [s, t] = open.top ? open.top.buttons : [];
     check(
+      // W2 QA (owner): one search for the whole app; the sidebar's magnifier is the ⌘ K palette.
       "T114c: expanded, the sidebar's top row carries Search then the sidebar toggle, and the toolbar carries neither",
       open.expanded && !!open.top && open.top.buttons.length === 2 && s?.act === "palette" && t?.act === "toggle:sidebar"
         && open.toolbar.buttons.length === 0 && open.toolbar.open && open.pill === 0 && open.palettes === 1 && open.toggles === 1,
@@ -148,7 +203,7 @@ export async function checks114(js: Js, check: Check): Promise<void> {
       "T114c: both are 32px icon buttons a person can reach — named, titled, focusable, on top where they are drawn",
       [s, t].every((b) => !!b && b.box.width === 32 && b.box.height === 32 && b.svg && !!b.aria && b.aria === b.title
         && !b.disabled && b.tab >= 0 && b.hit)
-        && /^Search and commands \(/.test(s!.title ?? "") && /^Hide sidebar \(/.test(t!.title ?? ""),
+        && /^Search \(/.test(s!.title ?? "") && /^Hide sidebar \(/.test(t!.title ?? ""),
       show([s, t]),
     );
     check(
@@ -179,25 +234,64 @@ export async function checks114(js: Js, check: Check): Promise<void> {
         && typeof insp["aria"] === "string" && insp["aria"] === insp["title"] && /steps and reasoning/.test(String(insp["aria"])),
       show(insp),
     );
-    // A real click on the magnifier opens the same palette the pill did; so does the chord.
-    const clicked = await js<{ overlay: string | null; chord: string | null }>(`(() => {
+    /* Review fix: the side panel's tabs (Steps · Reasoning · Results · World) ran
+       past the panel's right edge. Each tab, once chosen, is fully inside the
+       strip, no label is clipped, and the strip scrolls sideways if it must. */
+    const tabs = await js<Record<string, unknown>>(`(async () => {
+      if (window.innerWidth <= 1180) return {skip: window.innerWidth};   // the side panel is not drawn on a narrow window
+      const was = {insp: S.inspector, tab: S.inspTab};
+      if (!S.inspector) act('toggle:inspector');
+      await new Promise((res) => setTimeout(res, 150));
+      const out = {tabs: [], overflowX: null, panel: null};
+      for (const id of ['steps', 'reasoning', 'results', 'world']) {
+        act('insp:' + id);
+        await new Promise((res) => setTimeout(res, 60));
+        const seg = document.querySelector('#inspector .insphead .seg');
+        const on = seg ? seg.querySelector('button.on') : null;
+        if (!seg || !on) { out.tabs.push({id, missing: true}); continue; }
+        const sr = seg.getBoundingClientRect(), br = on.getBoundingClientRect();
+        out.overflowX = getComputedStyle(seg).overflowX;
+        out.panel = Math.round(document.querySelector('#inspector').getBoundingClientRect().width);
+        out.tabs.push({id, act: on.dataset.act, inside: br.left >= sr.left - 1 && br.right <= sr.right + 1,
+          clipped: on.scrollWidth > on.clientWidth + 1,
+          reachable: seg.scrollWidth <= seg.clientWidth + 1 || out.overflowX === 'auto'});
+      }
+      if (S.inspTab !== was.tab) act('insp:' + was.tab);
+      if (S.inspector !== was.insp) act('toggle:inspector');
+      return out;
+    })()`);
+    const tabRows = (tabs["tabs"] as Array<Record<string, unknown>>) ?? [];
+    if (tabs["skip"] !== undefined) process.stdout.write(`SKIP T114d tabs: the window is ${String(tabs["skip"])}px, the side panel is hidden below 1181px\n`);
+    else check(
+      "T114d: every side panel tab, once chosen, sits fully inside the tab strip with its whole label, and the strip scrolls if it must",
+      tabRows.length === 4 && tabRows.every((t) => t["act"] === "insp:" + t["id"] && t["inside"] === true && t["clipped"] === false && t["reachable"] === true),
+      show(tabs),
+    );
+    /* W2 QA (owner): one search. A real click on the magnifier opens the ⌘ K
+       palette; no "Search chats" field is drawn in the sidebar, before or after,
+       and the old chatsearch:open verb lands on the palette too. */
+    const clicked = await js<{ before: boolean; overlay: string | null; field: boolean; old: string | null; chord: string | null }>(`(() => {
+      const before = !!document.getElementById('chat-search');
       const b = document.querySelector('#sidebar .sb-top [data-act="palette"]');
       if (b) b.click();
-      const overlay = S.overlay; act('close');
+      const overlay = S.overlay, field = !!document.getElementById('chat-search');
+      act('close');
+      act('chatsearch:open');
+      const old = S.overlay; act('close');
       document.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', code: 'KeyK', metaKey: IS_MAC, ctrlKey: !IS_MAC, bubbles: true, cancelable: true}));
       const chord = S.overlay; act('close');
-      return {overlay, chord};
+      return {before, overlay, field, old, chord};
     })()`);
     check(
-      "T114c: the magnifier opens Search and commands, and ⌘ K still does",
-      clicked.overlay === "palette" && clicked.chord === "palette",
+      "T114c: the magnifier, the old chat search verb and ⌘ K all open the one search, and the sidebar draws no Search chats field",
+      !clicked.before && clicked.overlay === "palette" && !clicked.field && clicked.old === "palette" && clicked.chord === "palette",
       show(clicked),
     );
 
     // Collapsed: back in the toolbar, next to the traffic lights.
     await js<unknown>("act('toggle:sidebar')");
     await wait(150);
-    const rail = await js<Chrome>(CHROME);
+    const rail = await chromeWhen(js, (c) => c.state === "rail" && c.top === null && !c.toolbar.open);
     const [rt, rs] = rail.toolbar.buttons;
     check(
       "T114c: collapsed, the toggle and Search stand in the toolbar next to the lights, and the rail has no top row",
