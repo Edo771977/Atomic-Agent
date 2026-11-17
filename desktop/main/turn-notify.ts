@@ -106,9 +106,11 @@ export interface TurnEnd {
  * `GET /api/sessions/{id}/provider-restriction` (status and parsed body),
  * or `null` when it could not be asked. The note goes only when the
  * agent says the chat's content may go to a channel (`channelsAllowed`);
- * a restricted chat's note never carries the error text (a refusal names
- * the folder it read) or the folder's name. Anything else (no session, no answer, an error, an
- * older agent without the field): `null`, nothing is sent (fail closed).
+ * an agent from before that field answers for an unrestricted chat only.
+ * A restricted chat's note never carries the error text (a refusal names
+ * the folder it read) or the folder's name. Anything else (no session, no
+ * answer, an error, a restricted chat on an agent without the field):
+ * `null`, nothing is sent (fail closed).
  */
 export function turnPushNote(
   turn: TurnEnd,
@@ -116,8 +118,12 @@ export function turnPushNote(
 ): TurnNotification | null {
   if (!turn.sessionId || !answer || answer.status !== 200) return null;
   const body = answer.body && typeof answer.body === "object" ? (answer.body as Record<string, unknown>) : null;
-  if (!body || body.channelsAllowed !== true || !("restriction" in body)) return null;
+  if (!body || !("restriction" in body)) return null;
   const restricted = body.restriction !== null;
+  // An agent from before `channelsAllowed`: an unrestricted chat pushes as it always did;
+  // a restricted one cannot be told apart from one without channels, so nothing goes.
+  const allowed = body.channelsAllowed === undefined ? !restricted : body.channelsAllowed === true;
+  if (!allowed) return null;
   return formatTurnNotification({
     outcome: turn.outcome,
     steps: turn.steps,
@@ -126,6 +132,14 @@ export function turnPushNote(
     error: restricted ? "open Atomic Agent to see why" : turn.error,
     workingDirName: restricted ? undefined : turn.workingDirName,
   });
+}
+
+/** The agent's answer has no `channelsAllowed` (an agent from before it): push-ipc.ts says so once. */
+export function answerLacksChannelsField(answer: { status: number; body: unknown } | null): boolean {
+  const body = answer && answer.status === 200 && answer.body && typeof answer.body === "object"
+    ? (answer.body as Record<string, unknown>)
+    : null;
+  return body !== null && "restriction" in body && body.channelsAllowed === undefined;
 }
 
 interface TurnTrack {
@@ -167,9 +181,26 @@ export class TurnNotifier {
     return (this.deps.now ?? Date.now)();
   }
 
-  /** The turn was sent. Called by the chat IPC so the clock starts at the request. */
-  begin(turnId: string): void {
-    this.turns.set(turnId, { startedAt: this.now(), sessionId: this.deps.sessionOf?.(turnId) ?? null, steps: 0, heldError: null, workAfterError: false });
+  /**
+   * The turn was sent. Called by the chat IPC so the clock starts at the
+   * request, with the chat when it is known: a turn refused before the
+   * stream sends one bare `error` frame and no `session_id`, and by then
+   * main's own record of it is gone.
+   */
+  begin(turnId: string, sessionId?: string | null): void {
+    this.turns.set(turnId, {
+      startedAt: this.now(),
+      sessionId: sessionId || this.deps.sessionOf?.(turnId) || null,
+      steps: 0,
+      heldError: null,
+      workAfterError: false,
+    });
+  }
+
+  /** The chat of a turn already begun, fixed after `begin` (a new chat filed in a project). */
+  knowSession(turnId: string, sessionId: string | null | undefined): void {
+    const t = this.turns.get(turnId);
+    if (t && sessionId) t.sessionId = sessionId;
   }
 
   observe(ev: { turnId?: unknown; kind?: unknown; error?: unknown; payload?: unknown }): void {

@@ -226,6 +226,20 @@ config, tasks, sessions or models commands, so it could not fill the window on
 its own — and running a sidecar *and* a server over one state directory would
 start two task schedulers against the same cron jobs.
 
+### Phone push of a turn note
+
+A turn that ends while the window is not focused raises a native
+notification ([turn-notify.ts](main/turn-notify.ts), `tui.notify`) naming
+the chat's own folder, and, when Settings › Phone push is on, a push
+([push-ipc.ts](main/push-ipc.ts)). The push leaves the machine, so it first
+asks `GET /api/sessions/{id}/provider-restriction` for the turn's chat
+(issue #33): a restricted chat whose `allowedEgress` lacks `channels`
+(`channelsAllowed: false`) sends nothing; a restricted one that allows it
+sends no error text and no folder name; an unrestricted one sends the
+whole note. No chat id, no answer or an error answer sends nothing. An
+agent from before `channelsAllowed` is logged once; its unrestricted chats
+still push and its restricted ones do not.
+
 ## Process model
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`.

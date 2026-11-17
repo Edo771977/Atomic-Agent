@@ -208,7 +208,8 @@ export function postAndWait(
 const ERROR_BODY_MAX_BYTES = 16 * 1024;
 
 /**
- * The words of an agent's non-2xx answer to a chat turn: `error.message`
+ * The words of an agent's 4xx answer to a chat turn (chat() asks only for
+ * those; a 5xx keeps `HTTP <status>`): `error.message`
  * of an OpenAI-style JSON body, with `(code)` when it has one; cleaned to
  * one line and clipped. `null` (the caller says `HTTP <status>`) for a
  * body that is not JSON, has no message, or is larger than
@@ -2293,7 +2294,9 @@ export class AgentClient extends EventEmitter {
       if (!res.ok || !res.body) {
         // A refusal before the stream (the project model not allowed in a constrained folder, a
         // folder_restricted 403) carries readable words: show them, not only the status.
-        const detail = res.ok ? "no response body" : ((await httpErrorDetail(res)) ?? `HTTP ${res.status}`);
+        // Only a 4xx: the agent's own refusal of this request. A 5xx keeps the plain status.
+        const worded = !res.ok && res.status >= 400 && res.status < 500 ? await httpErrorDetail(res) : null;
+        const detail = res.ok ? "no response body" : (worded ?? `HTTP ${res.status}`);
         // ATO-275: `transport` / `httpStatus` are for the turn's analytics (chat-turns.ts); the window reads `error`.
         this.emit("chat", { turnId, kind: "error", error: detail, transport: true, ...(res.ok ? {} : { httpStatus: res.status }) });
         return;

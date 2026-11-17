@@ -1696,9 +1696,9 @@ function wireIpc(client: AgentClient): void {
     if (waited && client.status.state !== "connected") {
       return { ok: false, error: client.status.error ?? "the agent did not come back after the switch restarted it" };
     }
-    turnNotifier.begin(turnId);
-    chatTurns.begin(turnId, Date.now() - queuedAt, A.turnRoute());   // ATO-1026: the route, read as the turn goes out
     const known = typeof sessionId === "string" && sessionId ? sessionId : null;
+    turnNotifier.begin(turnId, known);   // the chat, for a turn refused before any frame names it
+    chatTurns.begin(turnId, Date.now() - queuedAt, A.turnRoute());   // ATO-1026: the route, read as the turn goes out
     if (!listed) {
       liveTurns.set(turnId, {
         turnId, sessionId: known, text: clean[clean.length - 1]!.content, startedAt: Date.now(), firstTurn: !known,
@@ -1716,6 +1716,7 @@ function wireIpc(client: AgentClient): void {
     if (!known && proj.project) {
       // A new chat started in a project: its id is fixed here so it is in the project from its first turn.
       chatId = newChatSessionId();
+      turnNotifier.knowSession(turnId, chatId);
       const pid = proj.project.id;
       updateProjects(DESKTOP_STATE_DIR, (d) => assignChat(d, chatId, pid), () => send("projects:changed"));
     }
