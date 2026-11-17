@@ -11,7 +11,7 @@ This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) b
 - [route-sessions.ts](route-sessions.ts)
 - [route-mcp.ts](route-mcp.ts)
 - [route-offline-mode.ts](route-offline-mode.ts): `GET`/`POST /api/offline-mode`, the network kill switch and its egress counter ([offline mode](../llm/docs/offline-network.md))
-- [route-sessions.ts](route-sessions.ts) also answers `GET /api/sessions/{id}/provider-restriction`: `{ restriction }`, the chat's per-folder provider restriction or `null` ([provider policy](../llm/docs/provider-policy.md#status))
+- [route-sessions.ts](route-sessions.ts) also answers `GET /api/sessions/{id}/provider-restriction`: `{ restriction }`, the chat's per-folder provider restriction (`label`, `allowedProviders`, `folder`, `readFrom`, `movedFrom`) or `null` ([provider policy](../llm/docs/provider-policy.md#status))
 - [request-context.ts](request-context.ts)
 - [openai-completions-cancel.ts](openai-completions-cancel.ts)
 

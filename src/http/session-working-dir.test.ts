@@ -70,7 +70,7 @@ describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issu
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workingDir }),
   });
   const restrictionOf = async (h: Harness, id: string) =>
-    ((await (await fetch(`${h.baseUrl}/api/sessions/${id}/provider-restriction`)).json()) as { restriction: { allowedProviders: string[]; readFrom: string[] } | null }).restriction;
+    ((await (await fetch(`${h.baseUrl}/api/sessions/${id}/provider-restriction`)).json()) as { restriction: { allowedProviders: string[]; readFrom: string[]; movedFrom: string[] } | null }).restriction;
 
   it("a restricted chat moved to an unconstrained folder still refuses a cloud provider and web egress", async () => {
     harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
@@ -83,7 +83,7 @@ describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issu
     // The next turn's policy: no cloud provider, no web.
     expect(harness.runtime.egressRefusal?.("wd-r1", "web")).toContain("restricted");
     expect(harness.runtime.providerRestrictionFor?.(moved)?.allowedProviders).toEqual(["local-llama"]);
-    expect(await restrictionOf(harness, "wd-r1")).toMatchObject({ allowedProviders: ["local-llama"], readFrom: [harness.workingDir] });
+    expect(await restrictionOf(harness, "wd-r1")).toMatchObject({ allowedProviders: ["local-llama"], readFrom: [], movedFrom: [harness.workingDir] });
     const body = (await res.json()) as { workingDir: string; restrictionKept: boolean; restriction: { allowedProviders: string[] } | null };
     expect(body.workingDir).toBe(open);
     expect(body.restrictionKept).toBe(true);

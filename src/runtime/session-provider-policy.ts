@@ -264,7 +264,7 @@ export function childSessionSeed(
  * intersected with its read taint) is restricted, that policy rides with
  * it as its read taint (`providerReadTaint`, the same stamp, intersection,
  * `/resume` persistence and memory scoping), with the old folder named in
- * `readFrom`, and the new folder's own constraint intersects with it. An
+ * `movedFrom` (a refusal reads "this chat came from <folder>"), and the new folder's own constraint intersects with it. An
  * unrestricted session, or a move inside the same constraint entry,
  * changes only the folder. With no constraint configured nothing is added.
  */
@@ -286,8 +286,8 @@ export function moveSessionFolder<T extends { id: string; workingDir: string; me
     return { session: plain, kept: undefined, policy: policy.forSession(plain) };
   }
   const oldFolder = policy.forWorkingDir(session.workingDir);
-  const readFrom = [...new Set([...(current.readFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
-  const carried = makeProviderPolicy({ ...current, readFrom });
+  const movedFrom = [...new Set([...(current.movedFrom ?? []), ...(oldFolder === undefined ? [] : [oldFolder.key])])];
+  const carried = makeProviderPolicy({ ...current, movedFrom });
   const taint = previous === undefined ? carried : intersectProviderPolicies(previous, carried);
   const moved = { ...plain, metadata: { ...(session.metadata ?? {}), [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(taint) } };
   return { session: moved, kept: carried, policy: policy.forSession(moved) };

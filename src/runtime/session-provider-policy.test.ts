@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { makeProviderPolicy, runWithProviderPolicy } from "../llm/provider-policy.js";
+import { describeProviderRestriction, makeProviderPolicy, noAllowedProviderError, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
 import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder, retrySessionSeed } from "./session-provider-policy.js";
 
@@ -222,11 +222,21 @@ describe("moveSessionFolder (issue #68)", () => {
     };
     const moved = moveSessionFolder(policy, tainted, "/elsewhere");
     expect(moved.session.workingDir).toBe("/elsewhere");
-    expect(moved.kept?.readFrom).toEqual(["/work/b", "/work/a"]);
+    expect(moved.kept?.readFrom).toEqual(["/work/b"]);
+    expect(moved.kept?.movedFrom).toEqual(["/work/a"]);
     const after = policy.forSession(moved.session);
     expect(after?.allowedProviders).toEqual(["local-llama"]);
     expect(after?.allowedEgress).toEqual(["web"]);
     expect(moved.policy?.key).toBe(after?.key);
+  });
+
+  it("a moved chat's refusal and status say it came from the old folder, not that it read files there", () => {
+    const moved = moveSessionFolder(policy, { id: "s", workingDir: "/work/b" }, "/elsewhere").session;
+    const after = policy.forSession(moved)!;
+    const message = noAllowedProviderError(after, "the main model").message;
+    expect(message).toContain("this chat came from /work/b, which is restricted to: local-llama");
+    expect(message).not.toContain("read files");
+    expect(describeProviderRestriction(after)).toMatchObject({ movedFrom: ["/work/b"], readFrom: [] });
   });
 
   it("a tainted chat moving inside its own constraint entry keeps its stamp unchanged (review)", () => {
