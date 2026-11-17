@@ -11,6 +11,7 @@ const config = {
       "/work/wide": { allowedProviders: ["local-llama", "openai"] },
       "/work/same": { allowedProviders: ["local-llama"] },
       "/work/leaky": { allowedProviders: ["local-llama"], allowedEgress: ["web"] },
+      "/work/lan": { allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"] },
     },
   },
 };
@@ -76,6 +77,10 @@ describe("write-out guard (constrained content leaving its folder)", () => {
     expect(guard("os.fs.write", { path: "/work/same/a" }, ctx)).toBeNull();
     expect(guard("os.fs.write", { path: "/work/wide/a" }, ctx)).not.toBeNull();
     expect(guard("os.fs.write", { path: "/work/leaky/a" }, ctx)).not.toBeNull();
+    // A folder whose local provider may also be reached on another computer is wider (issue #60).
+    expect(guard("os.fs.write", { path: "/work/lan/a" }, ctx)).not.toBeNull();
+    const lan = makeProviderPolicy({ key: "/work/lan", allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"], matchedDir: "/work/lan" });
+    expect(guardFor(lan)("os.fs.write", { path: "/work/same/a" }, { sessionId: "s", workingDir: "/work/lan" })).toBeNull();
   });
 
   it("refuses a tainted session writing in its own unconstrained folder", () => {

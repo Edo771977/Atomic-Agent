@@ -38,6 +38,14 @@ describe("fusion worker sessions", () => {
       .toEqual({ key: "(unreadable fusion worker policy)", allowedProviders: [], allowedEgress: [], matchedDir: "" });
   });
 
+  it("keeps the stamped allowedProviderHosts of its parent's policy (issue #60)", () => {
+    const providerPolicy = { key: "/w", allowedProviders: ["local-llama"], allowedEgress: [], allowedProviderHosts: ["gpu-box.lan"], matchedDir: "/w" };
+    expect(readFusionWorkerMeta({ [FUSION_WORKER_METADATA_KEY]: { ...meta, providerPolicy } })?.providerPolicy)
+      .toEqual(providerPolicy);
+    expect(readFusionWorkerMeta({ [FUSION_WORKER_METADATA_KEY]: { ...meta, providerPolicy: { ...providerPolicy, allowedProviderHosts: "gpu-box.lan" } } })?.providerPolicy)
+      .toEqual({ key: "(unreadable fusion worker policy)", allowedProviders: [], allowedEgress: [], matchedDir: "" });
+  });
+
   it("two workers never share an id", () => {
     const a = createFusionWorkerSession({ workingDir: "/work", meta });
     const b = createFusionWorkerSession({ workingDir: "/work", meta });

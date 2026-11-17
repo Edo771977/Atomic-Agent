@@ -49,6 +49,8 @@ export interface WorkerProviderPolicyStamp {
   allowedProviders: string[];
   /** Egress classes the parent's folder allows; absent (an older stamp) = none. */
   allowedEgress?: string[];
+  /** Other machines a local provider may be reached at (issue #60); absent = none. */
+  allowedProviderHosts?: string[];
   matchedDir: string;
 }
 
@@ -56,12 +58,19 @@ function readPolicyStamp(raw: unknown): WorkerProviderPolicyStamp | null | undef
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   if (typeof raw !== "object" || Array.isArray(raw)) return "malformed";
-  const { key, allowedProviders, allowedEgress, matchedDir } = raw as Record<string, unknown>;
+  const { key, allowedProviders, allowedEgress, allowedProviderHosts, matchedDir } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)
     || !allowedProviders.every((id) => typeof id === "string")) return "malformed";
-  if (allowedEgress === undefined) return { key, allowedProviders: [...allowedProviders] as string[], matchedDir };
-  if (!Array.isArray(allowedEgress) || !allowedEgress.every((c) => typeof c === "string")) return "malformed";
-  return { key, allowedProviders: [...allowedProviders] as string[], allowedEgress: [...allowedEgress] as string[], matchedDir };
+  const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((c) => typeof c === "string");
+  if (allowedEgress !== undefined && !isStrings(allowedEgress)) return "malformed";
+  if (allowedProviderHosts !== undefined && !isStrings(allowedProviderHosts)) return "malformed";
+  return {
+    key,
+    allowedProviders: [...allowedProviders] as string[],
+    ...(allowedEgress === undefined ? {} : { allowedEgress: [...allowedEgress] }),
+    ...(allowedProviderHosts === undefined ? {} : { allowedProviderHosts: [...allowedProviderHosts] }),
+    matchedDir,
+  };
 }
 
 /**

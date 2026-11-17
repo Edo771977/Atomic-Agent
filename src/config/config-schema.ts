@@ -1348,6 +1348,9 @@ export interface UserConfigFile {
 // rejects the file rather than lifting the constraint. Global config only.
 // An older file inherits `{}` (no folder is constrained) and keeps its
 // `projects.roots`.
+// Unversioned, additive: `projects.constraints.*.allowedProviderHosts`
+// (issue #60), the other computers a local provider allowed by id may be
+// reached at. Absent: this machine only.
 export const USER_CONFIG_VERSION = 80;
 
 /**

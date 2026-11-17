@@ -1,9 +1,9 @@
-import type { AtomicAgentConfig } from "../../../config/index.js";
+import { getConfig, type AtomicAgentConfig } from "../../../config/index.js";
 import type { LlamaServerClient } from "../../llama-server-client.js";
 import type { ModelProfile } from "../../model-profile.js";
 import type { LlmProvider } from "../llm-provider.js";
 import { entryHasNoChatModel } from "./chat-model-guard.js";
-import { guardProvider, hasProjectConstraints } from "../../provider-policy.js";
+import { guardProvider, hasProjectConstraints, providerEndpointOf, type ProviderEndpoint } from "../../provider-policy.js";
 import { registerBuiltInProviderKinds } from "./register-built-in-providers.js";
 import {
   getProviderFactory,
@@ -61,6 +61,24 @@ export type ConstraintsActive = () => boolean;
  */
 export const MAX_MODEL_VARIANTS_PER_PROVIDER = 16;
 
+/**
+ * Where `entry`'s provider sends requests, read at each call (issue #60):
+ * a `llama-server` entry without its own `url` follows the live
+ * `localModels.url`, as the provider itself does.
+ */
+function endpointReader(entry: LlmProviderConfigEntry): () => ProviderEndpoint {
+  const own = { kind: entry.kind, url: entry.url, baseUrl: entry.baseUrl };
+  return () => providerEndpointOf(own, entry.kind === "llama-server" && own.url === undefined ? liveLocalModelsUrl() : undefined);
+}
+
+function liveLocalModelsUrl(): string | undefined {
+  try {
+    return getConfig().localModels.url;
+  } catch {
+    return undefined; // unreadable: judged as an endpoint that cannot be read
+  }
+}
+
 export class ProviderRegistry {
   private readonly providers: Map<string, LlmProvider>;
   private readonly entries: Map<string, LlmProviderConfigEntry>;
@@ -97,8 +115,8 @@ export class ProviderRegistry {
    * anything is sent, a provider the current folder policy does not
    * allow, and any call with no policy frame while constraints exist.
    */
-  private guard(provider: LlmProvider): LlmProvider {
-    return guardProvider(provider, { constraintsActive: this.constraintsActive });
+  private guard(provider: LlmProvider, entry: LlmProviderConfigEntry): LlmProvider {
+    return guardProvider(provider, { constraintsActive: this.constraintsActive, endpoint: endpointReader(entry) });
   }
 
   static async fromConfig(
@@ -130,7 +148,7 @@ export class ProviderRegistry {
         ctx.logger,
       );
       if (provider) {
-        built.set(entry.id, guardProvider(provider, { constraintsActive }));
+        built.set(entry.id, guardProvider(provider, { constraintsActive, endpoint: endpointReader(entry) }));
         entries.set(entry.id, structuredClone(entry));
       }
     }
@@ -210,7 +228,7 @@ export class ProviderRegistry {
     // a way round a folder's provider constraint (issue #33).
     const built = Promise.resolve(
       factory({ ...ctx, entry: { ...entry, defaultChatModel: model } }),
-    ).then((provider) => this.guard(provider));
+    ).then((provider) => this.guard(provider, entry));
     byModel.set(model, built);
     built.catch(() => {
       if (byModel.get(model) === built) byModel.delete(model);
@@ -313,7 +331,7 @@ export class ProviderRegistry {
     await this.dropVariants(id);
     this.buildCtx = { ...ctx, config };
     const provider = await factory({ ...ctx, config, entry });
-    this.providers.set(id, this.guard(provider));
+    this.providers.set(id, this.guard(provider, entry));
     this.entries.set(id, structuredClone(entry));
   }
 
@@ -341,7 +359,7 @@ export class ProviderRegistry {
         ctx.logger,
       );
       if (!provider) continue;
-      this.providers.set(entry.id, this.guard(provider));
+      this.providers.set(entry.id, this.guard(provider, entry));
       this.entries.set(entry.id, structuredClone(entry));
       added.push(entry.id);
     }
