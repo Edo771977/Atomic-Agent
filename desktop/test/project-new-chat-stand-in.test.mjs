@@ -50,12 +50,27 @@ test("a new chat in a project is under it from its first message, before the str
   c.PENDING_CHATS.set("s-1", { id: "s-1", t: "Plan the release", pending: true, turnCount: 0, updatedAt: 2 });
   c.projectStandInSession("t1", "s-1");
   assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
-  assert.equal(run("PROJECTS.state.chats['s-1']"), STORE.id, "filed here until main's projects:changed lands");
+  // Review of #67, item 6: the project rides on the chat's row, not in the store's map, until main's own read says so.
+  assert.equal(run("PROJECTS.state.chats['s-1']"), undefined);
+  assert.equal(c.PENDING_CHATS.get("s-1").projectId, STORE.id);
+  // main's projects:changed: the store read files it (assignChat succeeded).
+  run("PROJECTS.state = projectsCoerce({projects: [" + JSON.stringify(STORE) + "], chats: {'s-1': " + JSON.stringify(STORE.id) + "}});");
   // The stored row lands: still one row.
   c.SESSIONS.push({ id: "s-1", t: "Plan the release", turnCount: 1, updatedAt: 3 });
   assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
   c.PENDING_CHATS.delete("s-1");
   assert.deepEqual(view(), { project: ["s-1"], folder: [], loose: [] });
+});
+
+test("review of #67: when main never files the chat (assignChat refused), the stored row is not kept in the project", () => {
+  const { c, view } = sidebar();
+  c.projectStandInNote("t9", STORE.id, "Too many chats");
+  c.PENDING_CHATS.set("s-9", { id: "s-9", t: "Too many chats", pending: true, turnCount: 0, updatedAt: 2 });
+  c.projectStandInSession("t9", "s-9");
+  assert.deepEqual(view(), { project: ["s-9"], folder: [], loose: [] });
+  c.SESSIONS.push({ id: "s-9", t: "Too many chats", turnCount: 1, updatedAt: 3 });
+  c.PENDING_CHATS.delete("s-9");
+  assert.deepEqual(view(), { project: [], folder: [], loose: ["s-9"] });
 });
 
 test("a project with no disk folder (a chat folder) gets the stand-in too", () => {

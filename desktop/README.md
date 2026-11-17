@@ -497,7 +497,9 @@ Real, driven by the running agent:
   stand-in row keyed by the turn (`turn:<turnId>`, carrying the project)
   stands there until the stream names the chat's session, and then the
   chat's own row, filed by its id, takes its place, so it is never listed
-  twice. A turn that ends before naming one takes its stand-in with it. The
+  twice. Until main's `projects:changed` read files it in the store, that
+  row carries the project itself; the store's map is never written here, so
+  an assignment main refused leaves the stored chat under Chats. A turn that ends before naming one takes its stand-in with it. The
   stand-in shows the new chat when clicked, from another chat too: the turn
   the window keeps for it (item 38's `LIVE_TURNS`) is put back on screen with
   what came meanwhile (`projectStandInShow`); it has no menu, rename or drag

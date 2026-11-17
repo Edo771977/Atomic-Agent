@@ -240,13 +240,16 @@ function projectStandInRows() {
 
 /* The stream named turn `turnId`'s session: its stand-in goes, and the chat
    is in the project by its id from here. A store project's assignment is
-   main's (startTurn, then projects:changed); it is mirrored here so the row
-   does not leave the project while that read is on its way. */
+   main's (startTurn's assignChat, then projects:changed). Until that read
+   lands, item 27's row for the chat carries the project (`projectId`), so it
+   does not leave the project meanwhile; the store's map is not written here
+   (review of #67): an assignment main refused leaves the stored row out. */
 function projectStandInSession(turnId, sid) {
   const e = PROJECTS.standIns.get('turn:' + turnId);
   if (!e) return;
   PROJECTS.standIns.delete('turn:' + turnId);
-  if (sid && e.pid[0] === 'p' && !PROJECTS.state.chats[sid]) PROJECTS.state.chats[sid] = e.pid;
+  const row = sid && e.pid[0] === 'p' && typeof PENDING_CHATS !== 'undefined' ? PENDING_CHATS.get(sid) : null;
+  if (row) row.projectId = e.pid;
 }
 
 /** Turn `turnId` ended: a stand-in still waiting for its session goes. */
