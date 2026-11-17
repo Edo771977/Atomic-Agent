@@ -18,6 +18,12 @@ export interface ProviderPolicy {
    * may use to send content off this machine. Empty: none.
    */
   readonly allowedEgress: readonly string[];
+  /**
+   * Other machines (normalised hosts, `normalizeProviderHost`) that a
+   * local provider allowed by id may be reached at (issue #60). Empty:
+   * such a provider serves the folder only on loopback.
+   */
+  readonly allowedProviderHosts: readonly string[];
   /** The session folder the entry matched. */
   readonly matchedDir: string;
   /**
@@ -38,6 +44,8 @@ export interface ProviderPolicyStamp {
   key: string;
   allowedProviders: string[];
   allowedEgress: string[];
+  /** Absent in a stamp from before issue #60: no other machine. */
+  allowedProviderHosts?: string[];
   matchedDir: string;
   readFrom?: string[];
 }
@@ -47,11 +55,13 @@ export function makeProviderPolicy(stamp: {
   key: string;
   allowedProviders: readonly string[];
   allowedEgress?: readonly string[];
+  allowedProviderHosts?: readonly string[];
   matchedDir: string;
   readFrom?: readonly string[] | undefined;
 }): ProviderPolicy {
   const allowed = Object.freeze([...stamp.allowedProviders]);
   const egress = Object.freeze([...(stamp.allowedEgress ?? [])]);
+  const hosts = Object.freeze([...(stamp.allowedProviderHosts ?? [])]);
   const readFrom = stamp.readFrom !== undefined && stamp.readFrom.length > 0
     ? Object.freeze([...stamp.readFrom])
     : undefined;
@@ -59,6 +69,7 @@ export function makeProviderPolicy(stamp: {
     key: stamp.key,
     allowedProviders: allowed,
     allowedEgress: egress,
+    allowedProviderHosts: hosts,
     matchedDir: stamp.matchedDir,
     ...(readFrom === undefined ? {} : { readFrom }),
     allows: (providerId: string) => allowed.includes(providerId),
@@ -71,6 +82,7 @@ export function toProviderPolicyStamp(policy: ProviderPolicy): ProviderPolicySta
     key: policy.key,
     allowedProviders: [...policy.allowedProviders],
     allowedEgress: [...policy.allowedEgress],
+    ...(policy.allowedProviderHosts.length === 0 ? {} : { allowedProviderHosts: [...policy.allowedProviderHosts] }),
     matchedDir: policy.matchedDir,
     ...(policy.readFrom === undefined ? {} : { readFrom: [...policy.readFrom] }),
   };
@@ -79,7 +91,7 @@ export function toProviderPolicyStamp(policy: ProviderPolicy): ProviderPolicySta
 /** Rebuild a stamped policy; anything malformed is `undefined` (the caller fails closed). */
 export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefined {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const { key, allowedProviders, allowedEgress, matchedDir, readFrom } = raw as Record<string, unknown>;
+  const { key, allowedProviders, allowedEgress, allowedProviderHosts, matchedDir, readFrom } = raw as Record<string, unknown>;
   if (typeof key !== "string" || typeof matchedDir !== "string" || !Array.isArray(allowedProviders)) return undefined;
   if (!allowedProviders.every((id): id is string => typeof id === "string")) return undefined;
   if (readFrom !== undefined && !(Array.isArray(readFrom) && readFrom.every((dir): dir is string => typeof dir === "string"))) {
@@ -88,10 +100,14 @@ export function providerPolicyFromStamp(raw: unknown): ProviderPolicy | undefine
   // A stamp from before allowedEgress existed carries none: no egress.
   if (allowedEgress !== undefined
     && !(Array.isArray(allowedEgress) && allowedEgress.every((c): c is string => typeof c === "string"))) return undefined;
+  // A stamp from before allowedProviderHosts existed allows no other machine.
+  if (allowedProviderHosts !== undefined
+    && !(Array.isArray(allowedProviderHosts) && allowedProviderHosts.every((h): h is string => typeof h === "string"))) return undefined;
   return makeProviderPolicy({
     key,
     allowedProviders,
     ...(allowedEgress === undefined ? {} : { allowedEgress: allowedEgress as string[] }),
+    ...(allowedProviderHosts === undefined ? {} : { allowedProviderHosts: allowedProviderHosts as string[] }),
     matchedDir,
     readFrom: readFrom as string[] | undefined,
   });
@@ -280,7 +296,13 @@ export function resolveProjectConstraint(
     worktreeSource: options.worktreeSource ?? ((path) => defaultWorktreeSource(path, platform)),
   };
   const dirForms = formsOf(workingDir, opts, true);
-  let best: { key: string; allowedProviders: readonly string[]; allowedEgress: readonly string[]; length: number } | undefined;
+  let best: {
+    key: string;
+    allowedProviders: readonly string[];
+    allowedEgress: readonly string[];
+    allowedProviderHosts: readonly string[];
+    length: number;
+  } | undefined;
   for (const [key, entry] of entries) {
     let length = -1;
     for (const entryForm of formsOf(key, opts)) {
@@ -289,10 +311,22 @@ export function resolveProjectConstraint(
       }
     }
     if (length >= 0 && (best === undefined || length > best.length)) {
-      best = { key, allowedProviders: entry.allowedProviders, allowedEgress: entry.allowedEgress ?? [], length };
+      best = {
+        key,
+        allowedProviders: entry.allowedProviders,
+        allowedEgress: entry.allowedEgress ?? [],
+        allowedProviderHosts: entry.allowedProviderHosts ?? [],
+        length,
+      };
     }
   }
   return best === undefined
     ? undefined
-    : makeProviderPolicy({ key: best.key, allowedProviders: best.allowedProviders, allowedEgress: best.allowedEgress, matchedDir: workingDir });
+    : makeProviderPolicy({
+      key: best.key,
+      allowedProviders: best.allowedProviders,
+      allowedEgress: best.allowedEgress,
+      allowedProviderHosts: best.allowedProviderHosts,
+      matchedDir: workingDir,
+    });
 }

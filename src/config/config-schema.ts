@@ -938,11 +938,12 @@ export interface UserConfigFile {
    */
   composio: ComposioConfig;
   /**
-   * MCP client servers. Added in config v23. Each entry declares one
-   * external MCP server the runtime will connect to at bootstrap and
-   * whose tools / resources / prompts will be exposed through the
-   * agent's tool registry (namespaced as `mcp.<server>.<tool>`).
-   * Older files are transparently upgraded with `mcp: { servers: [] }`.
+   * MCP client servers. Added in config v23. One entry per external
+   * MCP server, connected at bootstrap, its tools exposed as
+   * `mcp.<server>.<tool>`. `local: true` on a stdio entry: it never
+   * reaches the network, so an egress-constrained folder allows it
+   * without `mcp:<server>` in `allowedEgress`. Older files are
+   * transparently upgraded with `mcp: { servers: [] }`.
    */
   mcp: {
     servers: McpServerConfig[];
@@ -1345,6 +1346,9 @@ export interface UserConfigFile {
 // rejects the file rather than lifting the constraint. Global config only.
 // An older file inherits `{}` (no folder is constrained) and keeps its
 // `projects.roots`.
+// Unversioned, additive: `projects.constraints.*.allowedProviderHosts`
+// (issue #60), the other computers a local provider allowed by id may be
+// reached at. Absent: this machine only.
 export const USER_CONFIG_VERSION = 80;
 
 /**

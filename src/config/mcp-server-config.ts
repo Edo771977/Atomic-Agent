@@ -148,7 +148,8 @@ function parseMcpTransport(raw: unknown, field: string): McpTransport {
 /**
  * Validate and normalise the `mcp.servers[]` list. Each entry is
  * checked for a valid namespace name, an enabled flag, and a
- * well-formed transport. Optional `enabledTools` / `disabledTools`
+ * well-formed transport. Optional `local` (a boolean, stdio only)
+ * marks a server that never reaches the network. Optional `enabledTools` / `disabledTools`
  * are lists of raw tool names (null or absent: no filter). Duplicate names are rejected — the
  * namespace becomes the `mcp.<name>.<tool>` prefix and must be
  * unique. Empty input is accepted.
@@ -219,6 +220,17 @@ export function parseMcpServers(
       cfg.env === undefined || cfg.env === null
         ? undefined
         : parseMcpEnv(cfg.env, `${field}[${i}].env`);
+    // Strict boolean: a safety flag is never inferred from "yes" / "1".
+    if (cfg.local !== undefined && cfg.local !== null && typeof cfg.local !== "boolean") {
+      throw new ConfigValidationError(`${field}[${i}].local`, `expected true or false, got ${JSON.stringify(cfg.local)}`);
+    }
+    const local = typeof cfg.local === "boolean" ? cfg.local : undefined;
+    if (local === true && transport.kind !== "stdio") {
+      throw new ConfigValidationError(
+        `${field}[${i}].local`,
+        "local applies only to a stdio server; a remote server always counts as network",
+      );
+    }
     const enabledTools = parseStringArrayOrNull(
       cfg.enabledTools,
       `${field}[${i}].enabledTools`,
@@ -235,6 +247,7 @@ export function parseMcpServers(
       ...(trust ? { trust } : {}),
       ...(approval ? { approval } : {}),
       ...(env ? { env } : {}),
+      ...(local !== undefined ? { local } : {}),
       ...(enabledTools ? { enabledTools } : {}),
       ...(disabledTools ? { disabledTools } : {}),
     });

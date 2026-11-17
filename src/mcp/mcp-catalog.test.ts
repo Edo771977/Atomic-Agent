@@ -95,6 +95,28 @@ describe("built-in MCP catalog data", () => {
     ).toEqual([]);
   });
 
+  it("marks only the servers that work on local data as local (issue #60)", () => {
+    const local = MCP_CATALOG_DATA.entries.filter((e) => e.server.local === true).map((e) => e.id);
+    expect(local).toEqual(["filesystem", "git", "time", "memory", "sequential-thinking"]);
+    // Servers that fetch, browse or call an API stay unmarked.
+    for (const id of ["fetch", "playwright", "notion", "firecrawl", "apify", "brightdata", "tavily", "brave-search"]) {
+      expect(findMcpCatalogEntry(id)?.server.local, id).toBeUndefined();
+    }
+    // The flag survives the add path into the written config.
+    expect(parseAddServerJson(fill(findMcpCatalogEntry("time")!)).local).toBe(true);
+    expect("local" in parseAddServerJson(fill(findMcpCatalogEntry("fetch")!))).toBe(false);
+  });
+
+  it("allows the local mark on a command server only", () => {
+    expect(validateMcpCatalog(minimal({ server: { command: "npx", local: true } }))).toEqual([]);
+    expect(
+      validateMcpCatalog(minimal({ server: { url: "https://example.com/mcp", local: true } })),
+    ).toContain("entry demo: only a command server can be marked local");
+    expect(
+      validateMcpCatalog(minimal({ server: { command: "npx", local: false as never } })),
+    ).toContain("entry demo: local must be true when present");
+  });
+
   it("lists entries grouped in shelf order", () => {
     const order = MCP_CATALOG_DATA.shelves.map((s) => s.id);
     const shelfIndex = listMcpCatalog().map((e) => order.indexOf(e.shelf));

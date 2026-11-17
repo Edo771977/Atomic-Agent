@@ -6,13 +6,24 @@ import { FUSION_TMP_PREFIX } from "../../tools/fusion/branch-workspace.js";
 import { createEgressGuard, MCP_META_TOOLS, type EgressClass } from "../../tools/tool-egress.js";
 import { createWriteOutGuard } from "../../tools/tool-write-out.js";
 
-type McpLookup = Pick<McpManager, "serverForTool" | "transportKindOf">;
+type McpLookup = Pick<McpManager, "serverForTool" | "transportKindOf"> & {
+  /** `true` only for a stdio server marked `local: true`; anything else is not local (fail closed). */
+  localOf: (server: string) => boolean | undefined;
+};
+
+function mcpServerOf(manager: McpLookup, tool: string, args: Record<string, unknown>): string | undefined {
+  return MCP_META_TOOLS.has(tool)
+    ? (typeof args.server === "string" && args.server.length > 0 ? args.server : undefined)
+    : manager.serverForTool(tool);
+}
 
 /**
- * The egress class of an MCP call (issue #33): `null` for a stdio server
- * (a local process), `"composio"` for the Composio server, `mcp:<server>`
- * for any other remote (http / SSE) server, `undefined` when the manager
- * does not know the server (the classifier then fails closed on the name).
+ * The egress class of an MCP call (issues #33, #60): `null` for a stdio
+ * server marked `local: true` (a process that never reaches the
+ * network), `"composio"` for the Composio server, `mcp:<server>` for any
+ * other server, stdio or remote (a stdio process may fetch, browse or
+ * call an API itself), `undefined` when the manager does not know the
+ * server (the classifier then fails closed on the name).
  */
 export function mcpEgressClass(
   manager: McpLookup | undefined,
@@ -20,14 +31,28 @@ export function mcpEgressClass(
   args: Record<string, unknown>,
 ): EgressClass | null | undefined {
   if (manager === undefined) return undefined;
-  const server = MCP_META_TOOLS.has(tool)
-    ? (typeof args.server === "string" && args.server.length > 0 ? args.server : undefined)
-    : manager.serverForTool(tool);
+  const server = mcpServerOf(manager, tool, args);
   if (server === undefined) return undefined;
   const kind = manager.transportKindOf(server);
   if (kind === undefined) return undefined;
-  if (kind === "stdio") return null;
+  if (kind === "stdio" && manager.localOf(server) === true) return null;
   return server === COMPOSIO_SERVER_NAME ? "composio" : `mcp:${server}`;
+}
+
+/**
+ * The stdio server behind an MCP call that is classed only because it
+ * is not marked `local: true`, so its refusal can name that fix too;
+ * `undefined` for a remote or unknown server.
+ */
+export function mcpUnmarkedStdioServer(
+  manager: McpLookup | undefined,
+  tool: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  if (manager === undefined) return undefined;
+  const server = mcpServerOf(manager, tool, args);
+  if (server === undefined || manager.transportKindOf(server) !== "stdio") return undefined;
+  return manager.localOf(server) === true ? undefined : server;
 }
 
 /**
@@ -43,6 +68,7 @@ export function createRuntimeEgressGuard(deps: {
   return createEgressGuard({
     policyForSession: deps.effectivePolicyForSession,
     mcpEgress: (tool, args) => mcpEgressClass(deps.mcp(), tool, args),
+    mcpUnmarkedStdio: (tool, args) => mcpUnmarkedStdioServer(deps.mcp(), tool, args),
   });
 }
 

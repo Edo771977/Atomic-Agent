@@ -13,7 +13,12 @@
  *
  * `server` uses the Claude Desktop / Cursor shortcut shape (`command` +
  * `args` + `env`, or `url` + `headers`) that `parseAddServerJson`
- * already accepts. Each `<your ...>` text inside it is a value the user
+ * already accepts. `"local": true` (issue #60) goes only on a command
+ * server that works on local data and never reaches the network
+ * (filesystem, git on a local repository, time, memory, sequential
+ * thinking); anything that fetches, browses or calls an API stays
+ * unmarked, and so does any server we are unsure of. Downloading the
+ * package itself (`npx` / `uvx`) carries no folder content. Each `<your ...>` text inside it is a value the user
  * fills in; it must be listed in `inputs` (the schema test pins that).
  *
  * The object literal between the two markers is strict JSON on
@@ -41,7 +46,8 @@ export const MCP_CATALOG_DATA: McpCatalogData =
       "requires": "node",
       "server": {
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "<your folder path>"]
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "<your folder path>"],
+        "local": true
       },
       "inputs": [
         { "placeholder": "<your folder path>", "label": "Full path of the folder it may use", "secret": false }
@@ -56,7 +62,8 @@ export const MCP_CATALOG_DATA: McpCatalogData =
       "requires": "uv",
       "server": {
         "command": "uvx",
-        "args": ["mcp-server-git", "--repository", "<your repository path>"]
+        "args": ["mcp-server-git", "--repository", "<your repository path>"],
+        "local": true
       },
       "inputs": [
         { "placeholder": "<your repository path>", "label": "Full path of the repository", "secret": false }
@@ -79,7 +86,7 @@ export const MCP_CATALOG_DATA: McpCatalogData =
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
       "requires": "uv",
-      "server": { "command": "uvx", "args": ["mcp-server-time"] },
+      "server": { "command": "uvx", "args": ["mcp-server-time"], "local": true },
       "inputs": []
     },
     {
@@ -89,7 +96,7 @@ export const MCP_CATALOG_DATA: McpCatalogData =
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
       "requires": "node",
-      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"] },
+      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "local": true },
       "inputs": []
     },
     {
@@ -99,7 +106,7 @@ export const MCP_CATALOG_DATA: McpCatalogData =
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
       "requires": "node",
-      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"] },
+      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "local": true },
       "inputs": []
     },
     {

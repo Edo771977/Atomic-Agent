@@ -118,7 +118,8 @@ function holds(target: ProviderPolicy | undefined, session: ProviderPolicy): boo
   if (target === undefined) return false;
   if (target.key === session.key) return true;
   return target.allowedProviders.every((id) => session.allowedProviders.includes(id))
-    && target.allowedEgress.every((cls) => session.allowedEgress.includes(cls));
+    && target.allowedEgress.every((cls) => session.allowedEgress.includes(cls))
+    && target.allowedProviderHosts.every((host) => session.allowedProviderHosts.includes(host));
 }
 
 export interface WriteOutGuardDeps extends ConstraintMatchOptions {

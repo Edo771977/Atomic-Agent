@@ -12,7 +12,7 @@ import {
   toProviderPolicyStamp,
 } from "./project-constraint-match.js";
 
-type Constraints = Record<string, { allowedProviders: string[]; allowedEgress?: string[] }>;
+type Constraints = Record<string, { allowedProviders: string[]; allowedEgress?: string[]; allowedProviderHosts?: string[] }>;
 const cfg = (constraints: Constraints) => ({ projects: { roots: [], constraints } });
 const noReal = () => undefined;
 
@@ -150,6 +150,22 @@ describe("allowedEgress on the policy", () => {
     expect(back?.allowedEgress).toEqual(["http"]);
     expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], matchedDir: "/w" })?.allowedEgress).toEqual([]);
     expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], allowedEgress: "web", matchedDir: "/w" })).toBeUndefined();
+  });
+});
+
+describe("allowedProviderHosts on the policy (issue #60)", () => {
+  it("defaults to none and carries the entry's hosts", () => {
+    const none = resolveProjectConstraint(cfg({ "/w": { allowedProviders: ["local-llama"] } }), "/w", { realpath: noReal, platform: "linux" });
+    expect(none?.allowedProviderHosts).toEqual([]);
+    const some = resolveProjectConstraint(cfg({ "/w": { allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"] } }), "/w", { realpath: noReal, platform: "linux" });
+    expect(some?.allowedProviderHosts).toEqual(["gpu-box.lan"]);
+  });
+
+  it("survives a stamp round trip; a stamp without the list allows no other machine (fail closed)", () => {
+    const policy = makeProviderPolicy({ key: "/w", allowedProviders: ["a"], allowedProviderHosts: ["gpu-box.lan"], matchedDir: "/w" });
+    expect(providerPolicyFromStamp(toProviderPolicyStamp(policy))?.allowedProviderHosts).toEqual(["gpu-box.lan"]);
+    expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], matchedDir: "/w" })?.allowedProviderHosts).toEqual([]);
+    expect(providerPolicyFromStamp({ key: "/w", allowedProviders: ["a"], allowedProviderHosts: "gpu-box.lan", matchedDir: "/w" })).toBeUndefined();
   });
 });
 

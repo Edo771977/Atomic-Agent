@@ -66,6 +66,32 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(out.attachments.every((a) => a.path.endsWith(".jpg"))).toBe(true);
   });
 
+  it("attaches a task's screenshots from its newest run only, not from the attempts before it", () => {
+    const state = stateDir();
+    const shoot = (runId: string, names: string[], at: number) => {
+      const dir = milestoneShotsDir(state, runId);
+      mkdirSync(dir, { recursive: true });
+      names.forEach((name, i) => {
+        const path = join(dir, name);
+        writeFileSync(path, "x");
+        utimesSync(path, at + i, at + i);
+      });
+      return dir;
+    };
+    // Three attempts at ciao-html (each run numbers its shots from 1), one at rules.
+    shoot("fr-1", ["ciao-html-1.jpg", "ciao-html-2.jpg"], 1_000);
+    const rules = shoot("fr-2", ["rules-1.jpg"], 2_000);
+    shoot("fr-2", ["ciao-html-1.jpg"], 2_100);
+    const last = shoot("fr-3", ["ciao-html-1.jpg", "ciao-html-2.jpg"], 3_000);
+    const out = readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1", "fr-2", "fr-3"], criteriaOrder: ORDER });
+    expect(out.attachments.map((a) => a.path)).toEqual([
+      join(last, "ciao-html-2.jpg"),
+      join(last, "ciao-html-1.jpg"),
+      join(rules, "rules-1.jpg"),
+    ]);
+    expect(new Set(out.attachments.map((a) => a.caption)).size).toBe(out.attachments.length);
+  });
+
   it.skipIf(process.platform === "win32")("does not attach a symlink in the shots folder", () => {
     const state = stateDir();
     const shots = milestoneShotsDir(state, "fr-1");

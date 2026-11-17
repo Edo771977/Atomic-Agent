@@ -45,8 +45,31 @@ describe("atag doctor (ATO-577)", () => {
     tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedEgress: ["github"] }, "/work/other": { allowedProviders: [] } } };
     save(tree);
     expect(await run([])).toBe(0);
-    expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers");
+    expect(out).toContain("ok    project-constraints: /work/client restricted to: local-llama; egress allowed: github; best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers marked local: true");
     expect(out).toContain("project-constraints: /work/other restricted to: no provider; egress allowed: none;");
+  });
+
+  it("warns about catalog-local stdio servers added before the local flag, only under a constraint (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.mcp = { servers: [
+      { name: "time", enabled: true, transport: { kind: "stdio", command: "uvx", args: ["mcp-server-time"] } },
+      { name: "files", enabled: true, transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes", "/home/me/code"] } },
+      { name: "fetch", enabled: true, transport: { kind: "stdio", command: "uvx", args: ["mcp-server-fetch"] } },
+      { name: "memory", enabled: true, local: true, transport: { kind: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"] } },
+    ] };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).not.toContain("mcp-local");
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"], allowedEgress: [] } } };
+    save(tree);
+    out = "";
+    await run([]);
+    expect(out).toContain('warn  mcp-local: time: a catalog server that works on local data, without "local": true, so folders with an egress constraint refuse its tools; set "local": true on mcp.servers[0] in config.json, or add "mcp:time" to the folder\'s allowedEgress');
+    expect(out).toContain('warn  mcp-local: files: a catalog server that works on local data');
+    expect(out).not.toContain("mcp-local: fetch");
+    expect(out).not.toContain("mcp-local: memory");
+    // Nothing is migrated: the file keeps its servers unmarked.
+    expect(read().mcp.servers[0].local).toBeUndefined();
   });
 
   it("reports memory rows retro-tagged with a folder's constraint and untagged profile facts (issue #33)", async () => {
@@ -79,6 +102,49 @@ describe("atag doctor (ATO-577)", () => {
     expect(await run([])).toBe(0);
     expect(out).toMatch(/warn {2}project-constraints: .*\["\/work\/client"\] has unknown key "allowedProvidres" \(ignored\); did you mean "allowedProviders"\?/);
     expect(out).toMatch(/warn {2}project-constraints: .*allows provider "ghost", which is not configured/);
+  });
+
+  it("warns when a constrained folder allows a local provider whose endpoint is another machine (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    tree.llm = {
+      ...tree.llm,
+      activeTextProvider: "local-llama",
+      providers: [
+        { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
+        { id: "lan-box", kind: "openai-compatible", baseUrl: "http://192.168.1.20:11434", defaultChatModel: "m" },
+        { id: "gpu", kind: "openai-compatible", baseUrl: "http://gpu-box.lan:8000", defaultChatModel: "m" },
+        { id: "groq", kind: "openai-compatible", baseUrl: "https://api.groq.com/openai", defaultChatModel: "m" },
+      ],
+    };
+    tree.projects = {
+      roots: [],
+      constraints: {
+        "/work/client": { allowedProviders: ["local-llama", "lan-box", "gpu", "groq"], allowedProviderHosts: ["gpu-box.lan"] },
+        "/work/open": { allowedProviders: ["local-llama"] },
+      },
+    };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).toContain(
+      'warn  project-constraints: /work/client allows provider "lan-box", whose endpoint 192.168.1.20 is another machine; ' +
+        'it is refused there until you add "192.168.1.20" to projects.constraints["/work/client"].allowedProviderHosts',
+    );
+    expect(out).not.toMatch(/provider "(gpu|groq|local-llama)", whose endpoint/);
+  });
+
+  it("judges a managed local model at the address the runtime uses, not the stored url (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    delete tree.llm;
+    tree.localModels = { ...tree.localModels, mode: "managed", url: "http://192.168.1.20:8080" };
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"] } } };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).not.toMatch(/whose endpoint/);
+    tree.localModels = { ...tree.localModels, mode: "external" };
+    save(tree);
+    out = "";
+    expect(await run([])).toBe(0);
+    expect(out).toMatch(/allows provider "local-llama", whose endpoint 192\.168\.1\.20 is another machine/);
   });
 
   it("a valid config is ok and exits 0", async () => {

@@ -115,8 +115,10 @@ describe("McpManager", () => {
     const tools = new ToolRegistry();
     FAKE_BY_NAME.set("files", { connect: async () => {}, close: async () => {}, catalog: { server: "files", tools: [metaOf("files", "read")], resources: [], prompts: [] } });
     FAKE_BY_NAME.set("remote", { connect: async () => {}, close: async () => {}, catalog: { server: "remote", tools: [metaOf("remote", "search")], resources: [], prompts: [] } });
+    FAKE_BY_NAME.set("fetcher", { connect: async () => {}, close: async () => {}, catalog: { server: "fetcher", tools: [], resources: [], prompts: [] } });
     const mgr = new McpManager([
-      stdioConfig("files"),
+      { ...stdioConfig("files"), local: true },
+      stdioConfig("fetcher"),
       { name: "remote", enabled: true, transport: { kind: "streamable_http", url: "https://mcp.example/mcp" } },
     ], { toolRegistry: tools });
     await mgr.start();
@@ -126,6 +128,11 @@ describe("McpManager", () => {
     expect(mgr.transportKindOf("files")).toBe("stdio");
     expect(mgr.transportKindOf("remote")).toBe("streamable_http");
     expect(mgr.transportKindOf("nobody")).toBeUndefined();
+    // issue #60: only an explicit `local: true` counts as local.
+    expect(mgr.localOf("files")).toBe(true);
+    expect(mgr.localOf("fetcher")).toBe(false);
+    expect(mgr.localOf("remote")).toBe(false);
+    expect(mgr.localOf("nobody")).toBe(false);
     await mgr.shutdown();
   });
 

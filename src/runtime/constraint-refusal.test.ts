@@ -33,6 +33,22 @@ describe("findConstraintRefusal", () => {
     );
   });
 
+  it("says an allowed local provider is on another machine, and how to opt in (issue #60)", () => {
+    const err = new ProviderNotAllowedError({ reason: "remote-endpoint", providerId: "local-llama", policy, role: "the main model", endpointHost: "192.168.1.20" });
+    const found = findConstraintRefusal(new Error("all links failed", { cause: err }));
+    expect(found).toMatchObject({ code: "ATOMIC_AGENT_PROVIDER_NOT_ALLOWED", providerId: "local-llama", endpointHost: "192.168.1.20" });
+    expect(found?.message).toBe(
+      "This folder is restricted to: local-llama. local-llama is allowed, but its endpoint 192.168.1.20 is another machine, so the main model can't use it here.",
+    );
+    // Not "switch to local": the local provider is the one refused.
+    expect(formatConstraintRefusal(found!, { localModelConfigured: true })).toContain(
+      'add "192.168.1.20" to projects.constraints["/work/client"].allowedProviderHosts to allow it',
+    );
+    const unreadable = findConstraintRefusal(new ProviderNotAllowedError({ reason: "remote-endpoint", providerId: "local-llama", policy, endpointHost: null }));
+    expect(unreadable?.message).toContain("its endpoint cannot be read");
+    expect(formatConstraintRefusal(unreadable!, { localModelConfigured: true })).toContain("fix the URL of provider local-llama");
+  });
+
   it("reads an egress refusal that ends a turn", () => {
     const err = new EgressNotAllowedError("os.web.fetch", "web", policy);
     const found = findConstraintRefusal(err);
