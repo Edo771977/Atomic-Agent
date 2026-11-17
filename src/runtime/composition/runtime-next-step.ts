@@ -1,3 +1,4 @@
+import { isIncognitoSession } from "../../session/index.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
@@ -104,6 +105,9 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
     try {
       if (origin !== undefined && UNWATCHED_ORIGINS.has(origin)) return;
       if (!nextStepSuggestionsEnabled(deps.getConfig())) return;
+      // Like the namer: an incognito chat (ATO-586) gets no side call, and
+      // the late save would write back a row its close deleted.
+      if (isIncognitoSession(state)) return;
       if (!shouldSuggestNextStep(state)) return;
       void store(state);
     } catch (err) {

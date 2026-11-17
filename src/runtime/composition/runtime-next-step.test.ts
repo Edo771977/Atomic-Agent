@@ -65,6 +65,17 @@ describe("nextStepSuggestionsEnabled", () => {
 });
 
 describe("createNextStepSuggester", () => {
+  it("never suggests for an incognito chat (ATO-586): no model call, no stored row", async () => {
+    const { suggester, rows, events, llmComplete } = rig();
+    const state = { ...answered(), incognito: { since: 1, owner: "x" } };
+    rows.set(state.id, state);
+    suggester.maybeSuggest(state, "tui");
+    await flush();
+    expect(llmComplete).not.toHaveBeenCalled();
+    expect(rows.get(state.id)?.metadata?.nextStep).toBeUndefined();
+    expect(events).toEqual([]);
+  });
+
   it("stores the suggestion for the turn and emits it to the session", async () => {
     const { suggester, rows, events, deps } = rig();
     const state = answered();
