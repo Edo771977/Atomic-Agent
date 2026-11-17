@@ -42,7 +42,7 @@ A constrained folder's tools may not send its content off the machine unless the
 | Class | Tools |
 | --- | --- |
 | `web` | `os.web.search`, `os.web.fetch`, `os.web.crawl` (a loopback URL stays allowed). Past a bot wall, `os.web.fetch` asks again per step: its browser render needs `browser`, a Jina Reader or Firecrawl read `http`; a refused step is skipped and named in the result |
-| `http` | `os.http.request` (a loopback URL stays allowed); `os.web.fetch`'s reader-service step |
+| `http` | `os.http.request` (a loopback URL stays allowed); `os.web.fetch`'s reader-service step; OTLP span export to a collector off this machine (the session's spans are dropped otherwise, [gate](../../runtime/composition/runtime-otlp-gate.ts); an incognito chat never exports, and while one is open nothing does) |
 | `browser` | every `browser.*` tool, `video.render_html` and every `verify.run` page probe (`kind: "page"`), local files and dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
 | `github` | `github.*`; the TUI issue report (environment facts only for a refused session; its traces and log lines left out) |
 | `git` | `os.git.fetch`, `pull`, `push`, `clone` |

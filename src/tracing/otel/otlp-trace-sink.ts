@@ -24,6 +24,14 @@ export interface OtlpTraceSinkOptions {
   /** `service.version` and the instrumentation scope version. */
   version?: string;
   knownSecrets?: () => readonly KnownSecret[];
+  /**
+   * Whether a session's events may leave for the collector, read per
+   * event; `false` drops them before mapping, so no span of it is sent.
+   * The runtime holds back incognito chats (ATO-586) and sessions whose
+   * folder policy lacks the egress class of the collector (issue #33).
+   * A throwing gate drops (fail closed). Absent: every session exports.
+   */
+  exportsSession?: (sessionId: string) => boolean;
   logger?: OtlpExporterLogger;
   fetch?: FetchLike;
   /** Exporter tuning, mainly for tests. */
@@ -75,6 +83,16 @@ export function createOtlpTraceSink(options: OtlpTraceSinkOptions): OtlpTraceSin
   return {
     sink: (event) => {
       if (stopped) return;
+      const gate = options.exportsSession;
+      if (gate !== undefined) {
+        let allowed: boolean;
+        try {
+          allowed = gate(event.sessionId);
+        } catch {
+          allowed = false;
+        }
+        if (!allowed) return;
+      }
       mapper.handle(event);
     },
     flush: () => exporter.flush(),

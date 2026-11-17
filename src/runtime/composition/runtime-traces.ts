@@ -41,7 +41,11 @@ export function createRuntimeTraces(
   );
   // OpenTelemetry export (ATO-496): off unless an OTLP endpoint is known.
   // It rides the same bus as the NDJSON files but does not need them on.
-  const otlp = buildOtlpSink(config, logger);
+  // Which sessions may export (incognito, folder egress): set by the
+  // runtime once its session policy exists (`setOtlpSessionGate`).
+  let otlpGate: (sessionId: string) => boolean = () => true;
+  const otlpSettings = resolveOtlpExportSettings(config.tracing.otel);
+  const otlp = buildOtlpSink(config, logger, (sessionId) => otlpGate(sessionId));
   const traceBus = traceEnabled || otlp
     ? buildTraceBus({
         ndjson: traceEnabled,
@@ -292,6 +296,10 @@ export function createRuntimeTraces(
   return {
     traceBus,
     shutdownTraceExport,
+    /** The collector's traces URL while OTLP export is on, else `null`. */
+    otlpTracesUrl: otlp !== null && otlpSettings.kind === "on" ? otlpSettings.settings.tracesUrl : null,
+    /** Which sessions' events may be exported (see `runtime-otlp-gate.ts`). */
+    setOtlpSessionGate: (gate: (sessionId: string) => boolean) => { otlpGate = gate; },
     turnContext,
     touchRecorder,
     dropRecorder,
@@ -355,6 +363,7 @@ function buildTraceBus(args: {
 function buildOtlpSink(
   config: AtomicAgentConfig,
   logger: StructuredLogger,
+  exportsSession: (sessionId: string) => boolean,
 ): OtlpTraceSink | null {
   const resolved = resolveOtlpExportSettings(config.tracing.otel);
   if (resolved.kind === "invalid") {
@@ -366,6 +375,7 @@ function buildOtlpSink(
     settings: resolved.settings,
     version: getAppVersion(),
     knownSecrets: () => runtimeKnownSecrets(config),
+    exportsSession,
     logger,
   });
 }

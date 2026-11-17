@@ -93,3 +93,22 @@ describe("createOtlpTraceSink", () => {
     expect(otlp.exporter.stats().failedBatches).toBe(1);
   });
 });
+
+describe("createOtlpTraceSink per-session gate (ATO-586, issue #33)", () => {
+  it("sends nothing of a session the gate holds back, and the rest as usual", async () => {
+    const bodies: OtlpExportRequest[] = [];
+    const fetch: FetchLike = async (_url, init) => {
+      bodies.push(JSON.parse(init.body) as OtlpExportRequest);
+      return { ok: true, status: 200 };
+    };
+    const otlp = createOtlpTraceSink({ settings, fetch, exportsSession: (id) => id !== "s-private" });
+    for (const e of [...turn("s-private"), ...turn("s-open")]) otlp.sink(e);
+    await otlp.flush();
+    const spans = bodies.flatMap((b) => b.resourceSpans[0]!.scopeSpans[0]!.spans);
+    expect(spans.length).toBeGreaterThan(0);
+    const json = JSON.stringify(bodies);
+    expect(json).toContain("s-open");
+    expect(json).not.toContain("s-private");
+  });
+});
+

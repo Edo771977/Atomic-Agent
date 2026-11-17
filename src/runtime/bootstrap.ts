@@ -23,6 +23,7 @@ import { createRuntimeKeepAwake, createRuntimeTaskStores, createRuntimeTaskRunne
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
 import { createRuntimeMailTrigger } from "./composition/runtime-mail-trigger.js";
 import { createCrossSessionPolicy } from "./cross-session-policy.js";
+import { createOtlpSessionGate } from "./composition/runtime-otlp-gate.js";
 import { createOfflineModeControl } from "./composition/runtime-offline-mode.js";
 import { stopRunningDownloadWorkers } from "../local-llm/index.js";
 import { holdWhileRunning } from "../scheduler/index.js";
@@ -423,6 +424,18 @@ export async function createAgentRuntime(
   // The same constraint on another chat's transcript (sessions.*,
   // memory.sessions.search): a read taints, a search hides, a send carries.
   const crossSession = createCrossSessionPolicy({ policy: sessionProviderPolicy, readTaint: sessionReadTaint });
+  // OTLP span export (ATO-496) sends prompts and answers to a collector:
+  // never of an incognito chat, and off this machine only where the
+  // folder allows "http" (issue #33).
+  if (traces.otlpTracesUrl !== null) {
+    traces.setOtlpSessionGate(createOtlpSessionGate({
+      tracesUrl: traces.otlpTracesUrl,
+      // A fusion worker of an incognito chat has no row of its own: while
+      // any incognito chat is open, nothing is exported (fail closed).
+      isIncognito: (id) => incognitoSessions.anyOpen() || sessionStore.isIncognito(id),
+      policy: sessionProviderPolicy,
+    }));
+  }
   // Per-folder egress (issue #33): tools that would send a constrained
   // folder's content off the machine are refused at dispatch. MCP servers
   // are classed by the manager, which exists once the catalog connects.
