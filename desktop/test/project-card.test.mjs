@@ -849,7 +849,7 @@ test('a milestone\'s pictures are listed as text: count, caption with its criter
   assert.ok(!/\/state\/fusion-runs/.test(host.textContent), 'the full path is not shown');
 });
 
-test('the card follows the chat only while the chat room is on screen (not over Studio or another room)', () => {
+test('the card follows the chat only while the chat room is on screen (not over Studio)', () => {
   const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   const fn = src.match(/function projectCardFollow\(\)[\s\S]*?\n}\n/)[0];
   const followed = [];
@@ -858,9 +858,8 @@ test('the card follows the chat only while the chat room is on screen (not over 
     S, {follow: (sid) => followed.push(sid), reset() {}}, 0, 0, null);
   run();
   S.room = 'studio'; run();
-  S.room = 'tasks'; run();
   S.room = 'chat'; run();
-  assert.deepEqual(followed, ['ses-1', null, null, 'ses-1']);
+  assert.deepEqual(followed, ['ses-1', null, 'ses-1']);
 });
 
 test('the card says "Fusion project", not the sidebar\'s folder "project"', () => {
@@ -972,4 +971,17 @@ test('a continue is not put in the switch queue (× or another chat could drop i
     assert.deepEqual(r.env.S.queued, [], label);
     assert.equal(r.env.S.draft, 'my words', label);
   }
+});
+
+test('the Settings window (Cron jobs and Skills open there; S.room stays chat) holds a continue', () => {
+  const src = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(src, /if \(v === 'tasks' \|\| v === 'skills'\) \{ act\('settings:' \+ v\); return; \}/, 'those rooms are Settings tabs');
+  const r = realPage();
+  r.env.S.settings = 1;
+  r.env.S.draft = 'my words';
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), false, 'not sent into the chat behind Settings');
+  assert.deepEqual(r.turns, []);
+  r.env.S.settings = null;
+  assert.equal(r.page.projectCardContinue('ses-1', 'Go on.'), true);
+  assert.deepEqual(r.turns, ['Go on.']);
 });

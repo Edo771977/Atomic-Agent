@@ -652,13 +652,14 @@ function pcFind(root, test) {
  * of sending) answers no, so the message stays pending rather than lost:
  * a model test holding the local server (`fitHolds`) among them, and any
  * room but the chat on screen (`room`: Studio draws into the same column),
+ * the Settings window over the chat (`settings`; Cron jobs and Skills open there),
  * and a local route whose model is not on disk (`localBlocked`: the gate
  * would hand the message back to the editor), and a model switch
  * (`switching`: submit() would queue it, and a queued message can be dropped). What this
  * cannot foresee, submit() answers itself (false: not sent, still pending).
  */
 function pcCanContinue(env) {
-  return !!env && env.onScreen && env.room === 'chat' && !env.busy && !env.pending && env.connected && !env.opening
+  return !!env && env.onScreen && env.room === 'chat' && !env.settings && !env.busy && !env.pending && env.connected && !env.opening
     && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating
     && !env.localBlocked && !env.switching;
 }

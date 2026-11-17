@@ -79,7 +79,9 @@ not on disk), and one that would go into the queue of a model switch (where
 switch is done. When the gate learns that only after its disk snapshot, the
 continue goes back to the editor above the person's own draft, never over it.
 The card follows the chat only while the chat room is on screen: over
-Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel Fusion project asks twice: the first press turns the button into Confirm
+Studio it is gone and a pending continue waits. Cron jobs and Skills are tabs
+of the Settings window, which covers the card; a continue waits while it is
+open. Cancel Fusion project asks twice: the first press turns the button into Confirm
 cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
 opened again; while it stays open the chat header offers Show Fusion project.
 The card's words say "Fusion project" (Cancel Fusion project, Show Fusion
