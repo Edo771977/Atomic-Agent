@@ -464,24 +464,24 @@ function projectsSidebarHTML(groups, folders) {
       const shut = folder ? g.item.collapsed : projectCollapsed(g.id);
       const where = folder ? '' : ' · ' + g.item.folder;
       const newChat = g.name ? 'New chat in ' + g.name : 'New chat in this project';
-      const head = folder
-        ? '<button class="sb-fhead" data-act="ftoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"'
-        : '<button class="sb-fhead" data-act="ptoggle:' + esc(g.id) + '" data-fdrop="' + esc(g.id) + '" aria-expanded="' + !shut + '"';
+      const fold = (folder ? 'ftoggle:' : 'ptoggle:') + g.id;
+      /* Review of #62: the row is a container, not a button, so its controls
+         are real buttons a screen reader lists: the fold toggle (chevron,
+         name, count), then New chat, Edit and Remove beside it. The row
+         takes a dragged chat (data-fdrop, chat-folders.js). */
       return '<div class="sb-folder sb-project' + (shut ? ' collapsed' : '') + '" ' + (folder ? 'data-folder' : 'data-project') + '="' + esc(g.id) + '">'
-        + head
+        + '<div class="sb-fhead sb-phead" data-fdrop="' + esc(g.id) + '"'
           + ' title="' + esc(g.name + where + ' · ' + g.rows.length + (g.rows.length === 1 ? ' chat' : ' chats')) + '">'
-          + '<span class="sb-fchev">' + ic(shut ? 'chevR' : 'chevD') + '</span>'
-          + '<span class="sb-fic">' + ic('folder') + '</span>'
-          + '<span class="sb-fname">' + esc(g.name) + '</span>'
-          + (g.rows.length ? '<span class="ct tnum">' + g.rows.length + '</span>' : '')
-          /* Spans with role="button", not buttons: the header is the button. The
-             click delegate resolves the innermost [data-act], so none of them
-             folds the project; tabindex and the keydown handler make Enter and
-             Space work on them (renderer.js). */
-          + '<span class="sesmore iconbtn" data-act="pchat:' + esc(g.id) + '" title="' + esc(newChat) + '" aria-label="' + esc(newChat) + '" role="button" tabindex="0">' + ic('plus') + '</span>'
-          + '<span class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project" role="button" tabindex="0">' + ic('edit') + '</span>'
-          + '<span class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project" role="button" tabindex="0">' + ic('x') + '</span>'
-        + '</button>'
+          + '<button type="button" class="sb-ftoggle" data-act="' + esc(fold) + '" aria-expanded="' + !shut + '">'
+            + '<span class="sb-fchev">' + ic(shut ? 'chevR' : 'chevD') + '</span>'
+            + '<span class="sb-fic">' + ic('folder') + '</span>'
+            + '<span class="sb-fname">' + esc(g.name) + '</span>'
+            + (g.rows.length ? '<span class="ct tnum">' + g.rows.length + '</span>' : '')
+          + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pchat:' + esc(g.id) + '" title="' + esc(newChat) + '" aria-label="' + esc(newChat) + '">' + ic('plus') + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pedit:' + esc(g.id) + '" title="Edit project" aria-label="Edit project">' + ic('edit') + '</button>'
+          + '<button type="button" class="sesmore iconbtn" data-act="pdelask:' + esc(g.id) + '" title="Remove project" aria-label="Remove project">' + ic('x') + '</button>'
+        + '</div>'
         + (shut ? '' : g.rows.length ? g.rows.map(chatRow).join('') : '<div class="sb-empty sb-fempty">No chats yet. Start one with + or drag a chat here</div>')
         + '</div>';
     }).join('')

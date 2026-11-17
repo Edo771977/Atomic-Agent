@@ -189,12 +189,13 @@ test('the Edit project sheet keeps to the store limits and saves name and instru
   assert.match(src, /res && res\.error/, 'the error main returns is shown');
 });
 
-// Issue #62: the project header's New chat is routed by act(), works from the keyboard and closes the drawer like New chat.
-test('a project header New chat is routed, keyboard-reachable and closes the drawer', () => {
+// Issue #62: the project header's New chat is routed by act() (the drawer and the keyboard: projects-unified.test.mjs).
+test('a project header New chat is routed', () => {
   const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(r, /k === 'psave' \|\| k === 'pmore' \|\| k === 'pchat'\) \{ close\(\); projectAct\(k, v\); return; \}/);
-  assert.match(r, /if \(inside && t\.closest\('\[data-act\^="pchat:"\]'\)\) \{ setTimeout\(closeSidebarDrawer, 0\); return; \}/);
-  assert.match(r, /const phk = e\.target\.closest && e\.target\.closest\('\.sb-fhead \[role="button"\]\[data-act\]'\);/);
+  const shell = readFileSync(new URL('../renderer/css/shell.css', import.meta.url), 'utf8');
+  assert.match(shell, /\.sb-ftoggle\{display:flex;align-items:center;gap:6px;flex:1;min-width:0;/, 'the fold toggle fills the header row');
+  assert.match(shell, /\.sb-ftoggle:focus-visible\{outline:/);
 });
 
 test('a first turn main refuses hands its project mark back (review of #62, item 1)', () => {

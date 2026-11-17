@@ -69,8 +69,8 @@ test("the sidebar draws chat folders under Projects, with Edit, Remove and a dro
   const html = vm.runInContext(`projectsSidebarHTML([{project: PROJECTS.state.projects[0], rows: []}], [{folder: FOLDERS.state.folders[0], rows: [{id: 's2', updatedAt: 5}]}])`, c);
   assert.match(html, /<span>Projects<\/span>/);
   assert.ok(html.indexOf("Marketing") < html.indexOf(">app<"), "the project with the latest chat first");
-  assert.match(html, /data-act="ftoggle:f1" data-fdrop="f1"/);
-  assert.match(html, /data-act="ptoggle:paaaaaa" data-fdrop="paaaaaa"/);
+  assert.match(html, /data-fdrop="f1"[^>]*><button type="button" class="sb-ftoggle" data-act="ftoggle:f1"/);
+  assert.match(html, /data-fdrop="paaaaaa"[^>]*><button type="button" class="sb-ftoggle" data-act="ptoggle:paaaaaa"/);
   assert.match(html, /data-act="pedit:f1"/);
   assert.match(html, /data-act="pdelask:f1"/);
   assert.match(html, /\[row s2\]/);
@@ -158,12 +158,12 @@ test("each project header has a New chat + that opens a new chat in that project
   `, c);
   const html = vm.runInContext(`projectsSidebarHTML([{project: PROJECTS.state.projects[0], rows: []}], [{folder: FOLDERS.state.folders[0], rows: []}])`, c);
   for (const [id, name] of [["paaaaaa", "app"], ["f1", "Marketing"]]) {
-    assert.match(html, new RegExp('<span class="sesmore iconbtn" data-act="pchat:' + id + '" title="New chat in ' + name + '" aria-label="New chat in ' + name + '" role="button" tabindex="0">'),
+    assert.match(html, new RegExp('<button type="button" class="sesmore iconbtn" data-act="pchat:' + id + '" title="New chat in ' + name + '" aria-label="New chat in ' + name + '">'),
       "the header of " + id + " has a New chat control");
-    // Inside the header button, ahead of Edit: the delegate resolves the innermost [data-act], so a click on it never toggles the fold.
+    // After the fold toggle and ahead of Edit; its own button, so a click on it never toggles the fold.
     const head = html.slice(html.indexOf('data-act="' + (id[0] === "f" ? "ftoggle:" : "ptoggle:") + id + '"'));
+    assert.ok(head.indexOf("</button>") < head.indexOf('data-act="pchat:' + id + '"'));
     assert.ok(head.indexOf('data-act="pchat:' + id + '"') < head.indexOf('data-act="pedit:' + id + '"'));
-    assert.ok(head.indexOf('data-act="pchat:' + id + '"') < head.indexOf("</button>"));
   }
   assert.match(html, /No chats yet\. Start one with \+ or drag a chat here/);
 
@@ -222,4 +222,105 @@ test("a new chat in a store project looks its cloud model up by the project's fo
   vm.runInContext("projectAct('pchat', 'paaaaaa')", c);
   assert.equal(vm.runInContext("projectTurnModel(null)", c), "model of /src/app");
   assert.equal(vm.runInContext("PROJECTS.newFor && PROJECTS.newFor.id", c), "paaaaaa", "looking does not use the mark up");
+});
+
+/* Review of #62, items 3, 4 and 7: the header's controls are real buttons,
+   siblings of the fold toggle. A tiny tree over the markup the sidebar
+   draws (tags and quoted attributes only) with closest(), enough to run the
+   drawer's real click listener from renderer.js against it. */
+class El {
+  constructor(tag, attrs, parent) { this.tag = tag; this.attrs = attrs; this.parent = parent; this.kids = []; }
+  matches(sel) {
+    return sel.split(",").some((one) => {
+      const parts = one.trim().split(/\s+/);
+      if (!this.matchOne(parts[parts.length - 1])) return false;
+      let n = this.parent;
+      for (let i = parts.length - 2; i >= 0; i--) {
+        while (n && !n.matchOne(parts[i])) n = n.parent;
+        if (!n) return false;
+        n = n.parent;
+      }
+      return true;
+    });
+  }
+  matchOne(c) {
+    const re = /^([a-z0-9]+)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:(\^?=)"([^"]*)")?\]/gy;
+    let m, end = 0;
+    while (end < c.length && (m = re.exec(c))) {
+      end = re.lastIndex;
+      if (m[1] && this.tag !== m[1]) return false;
+      if (m[2] && this.attrs.id !== m[2]) return false;
+      if (m[3] && !(this.attrs.class || "").split(" ").includes(m[3])) return false;
+      if (m[4]) {
+        const v = this.attrs[m[4]];
+        if (v === undefined) return false;
+        if (m[5] === "=" && v !== m[6]) return false;
+        if (m[5] === "^=" && !v.startsWith(m[6])) return false;
+      }
+    }
+    assert.equal(end, c.length, "the test tree reads selector " + c);
+    return true;
+  }
+  closest(sel) { for (let n = this; n; n = n.parent) if (n.tag && n.matches(sel)) return n; return null; }
+  all(pred, out = []) { for (const k of this.kids) { if (pred(k)) out.push(k); k.all(pred, out); } return out; }
+}
+function tree(html) {
+  const root = new El("", {}, null);
+  let at = root;
+  const unq = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  for (const m of html.matchAll(/<(\/?)([a-z0-9]+)((?:\s+[\w-]+(?:="[^"]*")?)*)\s*>/g)) {
+    if (m[1]) { assert.equal(at.tag, m[2], "well-formed markup"); at = at.parent; continue; }
+    const attrs = {};
+    for (const a of m[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g)) attrs[a[1]] = a[2] === undefined ? "" : unq(a[2]);
+    const el = new El(m[2], attrs, at);
+    at.kids.push(el);
+    at = el;
+  }
+  assert.equal(at, root, "every tag closed");
+  return root;
+}
+
+test("a project header is a fold button with real New chat, Edit and Remove buttons beside it", () => {
+  const c = load();
+  const src = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  vm.runInContext(src.match(/\nconst esc = .*\n/)[0], c);   // the real escaping
+  vm.runInContext(`ic = () => ''; lucideIcon = () => '';
+    PROJECTS.state = projectsCoerce({projects: [{id: 'paaaaaa', name: 'a "b" <c>', folder: '/src/app'}]});
+    FOLDERS.state = foldersCoerce({folders: [{id: 'f1', name: 'Marketing'}]});`, c);
+  const html = vm.runInContext(`'<div id="sidebar">' + projectsSidebarHTML([{project: PROJECTS.state.projects[0], rows: []}], [{folder: FOLDERS.state.folders[0], rows: []}]) + '</div>'`, c);
+  const doc = tree(html);
+  assert.doesNotMatch(html, /role="button"/, "no span posing as a button");
+  for (const b of doc.all((n) => n.tag === "button")) assert.equal(b.all((n) => n.tag === "button").length, 0, "no button inside a button");
+  const by = (act) => doc.all((n) => n.attrs["data-act"] === act)[0];
+  for (const [id, fold, name] of [["paaaaaa", "ptoggle:", 'a "b" <c>'], ["f1", "ftoggle:", "Marketing"]]) {
+    const head = doc.all((n) => n.attrs["data-fdrop"] === id)[0];
+    assert.ok(head && head.matches(".sb-fhead"), "the header row takes the dragged chat");
+    const toggle = by(fold + id), plus = by("pchat:" + id), edit = by("pedit:" + id), remove = by("pdelask:" + id);
+    assert.equal(toggle.tag, "button");
+    assert.equal(toggle.attrs["aria-expanded"], "true");
+    assert.deepEqual([plus, edit, remove].map((b) => b && b.tag), ["button", "button", "button"]);
+    assert.ok([toggle, plus, edit, remove].every((b) => b.parent === head), "siblings in the header, in this order");
+    assert.deepEqual(head.kids.map((k) => k.attrs["data-act"]).filter(Boolean), [fold + id, "pchat:" + id, "pedit:" + id, "pdelask:" + id]);
+    assert.equal(plus.attrs.title, "New chat in " + name);
+    assert.equal(plus.attrs["aria-label"], "New chat in " + name);
+    assert.equal(plus.attrs.type, "button");
+  }
+  assert.match(html, /title="New chat in a &quot;b&quot; &lt;c&gt;"/);
+
+  // The narrow window's drawer: the real click listener. Enter or Space on a real button is this same click.
+  const at = src.indexOf("  document.addEventListener('click', (e) => {\n    if (!sidebarDrawerOpen()");
+  assert.ok(at >= 0);
+  const listener = src.slice(at, src.indexOf("}, true);", at) + "}, true);".length);
+  const d = vm.createContext({ Element: El, S: { overlay: null }, sidebarDrawerOpen: () => true, closed: 0, handlers: [] });
+  d.setTimeout = (f) => f();
+  d.closeSidebarDrawer = () => { d.closed++; };
+  d.document = { addEventListener: (type, f) => d.handlers.push(f) };
+  vm.runInContext(listener, d);
+  const click = (el) => { d.closed = 0; d.handlers[0]({ target: el }); return d.closed; };
+  assert.equal(click(by("pchat:paaaaaa")), 1, "New chat closes the drawer, as New chat does");
+  assert.equal(click(by("pchat:f1")), 1);
+  assert.equal(click(by("ptoggle:paaaaaa").kids[2]), 0, "folding keeps it");
+  assert.equal(click(by("pedit:f1")), 0, "Edit keeps it (its sheet opens over it)");
+  // And no keydown branch for spans is left to keep in step with it.
+  assert.doesNotMatch(src, /\.sb-fhead \[role="button"\]/);
 });

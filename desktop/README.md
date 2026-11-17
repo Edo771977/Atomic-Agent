@@ -417,9 +417,11 @@ Real, driven by the running agent:
   label's optical centre rather than on its line box.
   **Projects** (`renderer/chat-projects.js`) list both kinds of project, a
   store project with a folder on disk and a chat folder, each header folding
-  its chats. A header carries **+** (New chat in <name>), Edit and Remove, on
-  hover and keyboard focus (Tab reaches them; Enter or Space presses them).
-  None of them folds the project. **+** does what New project does once it has
+  its chats. A header row holds the fold toggle (chevron, name, count) and,
+  beside it, **+** (New chat in <name>), Edit and Remove: real buttons, not
+  controls nested in the toggle, so screen readers list them and Tab, Enter
+  and Space work natively. They show on hover and keyboard focus; none of
+  them folds the project, and the whole row takes a dragged chat. **+** does what New project does once it has
   made the project: New chat, and that chat's first turn opens in the project
   (its folder and instructions; a chat folder files the chat). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still

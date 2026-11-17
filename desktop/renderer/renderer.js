@@ -1287,8 +1287,6 @@ if (typeof document !== 'undefined') {
     const t = e.target instanceof Element ? e.target : null;
     if (!t || t.closest('[data-act="toggle:sidebar"]')) return;
     const inside = !!t.closest('#sidebar');
-    // Issue #62: a project header's New chat opens a chat, as New chat does, though its header keeps the drawer.
-    if (inside && t.closest('[data-act^="pchat:"]')) { setTimeout(closeSidebarDrawer, 0); return; }
     if (inside && t.closest('.wschip, [data-sesmenu], [data-fmenu], [data-ftoggle], [data-act^="fnew:"], [data-act^="ftoggle:"], [data-act^="pnew:"], [data-act^="pmore:"], [data-act^="ptoggle:"], [data-act^="pdelask:"], [data-act^="pedit:"], [data-act="studio:menu"], [data-act^="chatsearch:"], .sb-top [data-act="palette"], [data-more], input, textarea')) return;
     if (!inside || t.closest('#sidebar [data-ses], #sidebar [data-task], #sidebar [data-act]')) setTimeout(closeSidebarDrawer, 0);
   }, true);
@@ -9816,12 +9814,7 @@ document.addEventListener('keydown', (e) => {
   if (fmk && (k === 'Enter' || k === ' ') && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault(); e.stopPropagation(); ANX.via('key'); folderMenuOpen('fmenu', fmk.dataset.fmenu, fmk); return;
   }
-  // Issue #62: a project header's New chat, Edit and Remove are spans too (the header is the button).
-  const phk = e.target.closest && e.target.closest('.sb-fhead [role="button"][data-act]');
-  if (phk && (k === 'Enter' || k === ' ') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault(); e.stopPropagation(); ANX.via('key'); act(phk.dataset.act); return;
-  }
-    // ATO-165: Escape closes the menu and hands the focus back to the row's "…" it came from.
+  // ATO-165: Escape closes the menu and hands the focus back to the row's "…" it came from.
   if (S.overlay === 'sesmenu' && k === 'Escape') {
     e.preventDefault();
     act('close');   // the shared close path hands the focus back to the row's "…" (chatMenuFocusBack)
