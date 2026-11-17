@@ -47,7 +47,7 @@ describe("GET /api/sessions/{id}/provider-restriction", () => {
     expect(closedBody.restriction).not.toBeNull();
     expect(closedBody.channelsAllowed).toBe(false);
 
-    const open = harness.runtime.createSession({ workingDir: "/work/open" });
+    const open = { ...harness.runtime.createSession(), workingDir: "/work/open" };
     harness.runtime.sessionStore.save(open);
     const openBody = await (await get(harness, open.id)).json() as { restriction: unknown; channelsAllowed: unknown };
     expect(openBody.restriction).not.toBeNull();
