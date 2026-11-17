@@ -31,7 +31,8 @@ const MCP_CATALOG = {
       "requires": "node",
       "server": {
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "<your folder path>"]
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "<your folder path>"],
+        "local": true
       },
       "inputs": [
         { "placeholder": "<your folder path>", "label": "Full path of the folder it may use", "secret": false }
@@ -46,7 +47,8 @@ const MCP_CATALOG = {
       "requires": "uv",
       "server": {
         "command": "uvx",
-        "args": ["mcp-server-git", "--repository", "<your repository path>"]
+        "args": ["mcp-server-git", "--repository", "<your repository path>"],
+        "local": true
       },
       "inputs": [
         { "placeholder": "<your repository path>", "label": "Full path of the repository", "secret": false }
@@ -69,7 +71,7 @@ const MCP_CATALOG = {
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
       "requires": "uv",
-      "server": { "command": "uvx", "args": ["mcp-server-time"] },
+      "server": { "command": "uvx", "args": ["mcp-server-time"], "local": true },
       "inputs": []
     },
     {
@@ -79,7 +81,7 @@ const MCP_CATALOG = {
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
       "requires": "node",
-      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"] },
+      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "local": true },
       "inputs": []
     },
     {
@@ -89,7 +91,7 @@ const MCP_CATALOG = {
       "shelf": "basics",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
       "requires": "node",
-      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"] },
+      "server": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "local": true },
       "inputs": []
     },
     {

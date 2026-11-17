@@ -7,10 +7,13 @@ import { readRawConfigTree } from "../config/config-paths.js";
 import { describeSessionPinsFix, readSessionPins, SessionPinsReadError } from "../session/index.js";
 import { WEBHOOK_SESSIONS_FILENAME } from "../http/webhook-session-store.js";
 import { Database } from "../native/index.js";
-import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { resolveLocalModelsUrl } from "../config/load-config.js";
+import { makeProviderPolicy, resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { providerEndpointOf, providerEndpointRefusal, remoteEndpointOptInHint } from "../llm/provider-policy.js";
 import { pendingConstraintScopes, readConstraintScopeBackfillRecord } from "../memory/memory-constraint-scope.js";
 import { checkCoreLocks } from "./doctor-core-lock.js";
 import { checkConsoleCodePage } from "./doctor-console-code-page.js";
+import { checkMcpLocalMarks } from "./doctor-mcp-local.js";
 
 /**
  * ATO-577 — `atag doctor`: a registry of checks, each of which can find one
@@ -123,16 +126,52 @@ function checkProjectConstraints(ctx: DoctorContext): DoctorFinding[] {
     status: "ok",
     message: `${folder} restricted to: ${entry.allowedProviders.length === 0 ? "no provider" : entry.allowedProviders.join(", ")}; ` +
       `egress allowed: ${(entry.allowedEgress ?? []).length === 0 ? "none" : entry.allowedEgress!.join(", ")}; ` +
-      "best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers",
+      "best effort for shell commands (os.shell.run and verify.run refuse known network clients; scripts and other programs still open their own sockets); not covered: skill scripts and the network use of stdio MCP servers marked local: true",
   }));
   return [
     ...coverage,
+    ...remoteEndpointWarnings(parsed),
     ...projectConstraintNotices(raw, known).map((line) => ({
       check: "project-constraints",
       status: "warn" as const,
       message: line.replace(/^\[atomic-agent\] /, ""),
     })),
   ];
+}
+
+/**
+ * Issue #60: a local provider a constrained folder allows by id, whose
+ * endpoint is another machine the folder does not list in
+ * `allowedProviderHosts` (or cannot be read). Dispatch refuses it there
+ * (`providerEndpointRefusal`); say so before a turn finds out.
+ */
+function remoteEndpointWarnings(parsed: ReturnType<typeof parseUserConfigFile>): DoctorFinding[] {
+  // The address the runtime uses: a managed model is on loopback whatever the stored url says.
+  const localModelsUrl = resolveLocalModelsUrl(parsed.localModels);
+  const providers = parsed.llm?.providers ?? [{ id: "local-llama", kind: "llama-server", url: localModelsUrl }];
+  const out: DoctorFinding[] = [];
+  for (const [folder, entry] of Object.entries(parsed.projects.constraints)) {
+    const policy = makeProviderPolicy({
+      key: folder,
+      allowedProviders: entry.allowedProviders,
+      allowedProviderHosts: entry.allowedProviderHosts ?? [],
+      matchedDir: folder,
+    });
+    for (const provider of providers) {
+      if (!entry.allowedProviders.includes(provider.id)) continue;
+      const refusal = providerEndpointRefusal(policy, providerEndpointOf(provider, localModelsUrl));
+      if (refusal === undefined) continue;
+      out.push({
+        check: "project-constraints",
+        status: "warn",
+        message: refusal.host === null
+          ? `${folder} allows provider ${JSON.stringify(provider.id)}, whose endpoint cannot be read; it is refused there until its URL is fixed`
+          : `${folder} allows provider ${JSON.stringify(provider.id)}, whose endpoint ${refusal.host} is another machine; ` +
+            `it is refused there until you ${remoteEndpointOptInHint(policy, refusal.host)}`,
+      });
+    }
+  }
+  return out;
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
@@ -326,6 +365,7 @@ export const DOCTOR_CHECKS: ReadonlyArray<(ctx: DoctorContext) => DoctorFinding[
   checkMemoryConstraintScope,
   checkConfigMode,
   checkMcpCommands,
+  checkMcpLocalMarks,
   checkCoreLocks,
   checkSessionPins,
   checkSqlite,

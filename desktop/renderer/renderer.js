@@ -22355,6 +22355,26 @@ function wizardHTML() {
  * Kebab-case, lower-case, a letter first, and inside the 32-character limit
  * the schema sets — measured on the WHOLE id, prefix included.
  */
+/* Issue #65 (lan-find.js): the provider ids an address in this field feeds.
+   #llm-url is localModels.url: the local-llama entry follows it, and so does
+   every llama-server entry without its own url. #wiz-url is the entry the
+   wizard is editing or about to add (the id wizNextStep would write). */
+function lanfProviderIdsFor(fieldId, url) {
+  if (fieldId === 'llm-url') {
+    const ids = ['local-llama'];
+    for (const p of selProviders()) if (p && p.kind === 'llama-server' && !p.url && !ids.includes(p.id)) ids.push(p.id);
+    return ids;
+  }
+  if (fieldId !== 'wiz-url') return [];
+  const k = WIZ.row;
+  if (!k || !k.custom) return [];
+  const existing = WIZ.forId ? selProviders().find((p) => p.id === WIZ.forId) : null;
+  if (existing && existing.kind === k.kind) return [existing.id];
+  let base = String(url || '').trim();
+  if (k.lan) { const lan = lanAddressToBaseUrl(base); if (!lan.ok) return []; base = lan.baseUrl; }
+  return [customProviderId(base)];
+}
+
 function customProviderId(url) {
   const body = String(url || '')
     .replace(/^https?:\/\//, '')

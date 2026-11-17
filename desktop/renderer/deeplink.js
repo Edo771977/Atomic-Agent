@@ -189,8 +189,17 @@ function deeplinkSheetHTML() {
   return sheet(deeplinkTitle(req), body, foot, 'sheet-deeplink');
 }
 
+/* Issue #65: a link never marks a server local (main/deeplink.ts drops the
+   key); the copy written is stripped here too, at the one place it is written. */
+function deeplinkServerWithoutLocal(server) {
+  const out = Object.assign({}, server);
+  delete out.local;
+  if (out.transport && typeof out.transport === 'object') { out.transport = Object.assign({}, out.transport); delete out.transport.local; }
+  return out;
+}
+
 async function deeplinkInstallMcp(req) {
-  const json = JSON.stringify(req.server);
+  const json = JSON.stringify(deeplinkServerWithoutLocal(req.server));
   // mcpAddSubmit is the Settings › MCP add; it reads its text from the add box's state.
   MCP.addModal = {json, error:null, submitting:false, name:null, auto:null}; MCP.removeConfirm = null;
   const res = await mcpAddSubmit(json).catch((e) => ({ok:false, error:String((e && e.message) || e)}));

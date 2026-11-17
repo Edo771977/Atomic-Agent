@@ -7,8 +7,14 @@
  * (`chat_template_kwargs`); public endpoints may reject a field they do not
  * know, so they are never treated as local.
  *
- * A copy of the agent's src/llm/provider/openai/local-server-url.ts
- * (the desktop's main process does not import from src/); keep the two alike.
+ * Once a copy of the agent's src/llm/provider/openai/local-server-url.ts
+ * (the desktop's main process does not import from src/). The agent's rule
+ * has since grown (CGNAT, `.corp`, `.intranet`, `.ts.net`, nip.io, ...); this
+ * one stays as it is because project-model.ts and studio-improve-prompt.ts
+ * read it as "cloud vs this machine", and renderer/project-model.js
+ * projectLocalUrl must give the same answer (test/project-model.test.mjs
+ * compares them). The folder-constraint warning uses the agent's wider rule,
+ * folder-provider-hosts.ts isPrivateNetworkUrl.
  */
 export function isLocalServerUrl(url: string | undefined): boolean {
   if (!url) return false;

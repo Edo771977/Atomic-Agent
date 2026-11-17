@@ -11,12 +11,20 @@
    View-only: nothing is saved and no prompt is sent; the field's own Save /
    Next does the rest, as before.
 
+   Issue #65: once an address is in the field (picked or checked), a folder
+   whose constraint allows the field's provider only on this computer, and
+   that would refuse this host, gets a line and an "Allow <host> for <F>"
+   button (main/folder-provider-hosts.ts). A typed address is judged when
+   its field loses focus. Only that click writes the
+   folder's allowedProviderHosts; nothing is added by itself. Which provider
+   the field feeds comes from renderer.js (lanfProviderIdsFor).
+
    renderer.js draws the panel with lanfHTML(fieldId) where it draws the
    field; the state lives here, so a redraw keeps what was found. Loaded
    before renderer.js; the pure part is exported for the unit suite. */
 
 /** state: idle | finding | done | error */
-const LANF = {state: 'idle', servers: [], networks: [], error: '', checks: {}, seq: 0};
+const LANF = {state: 'idle', servers: [], networks: [], error: '', checks: {}, seq: 0, hostWarnings: {}};
 
 /* ---------- pure ---------- */
 
@@ -81,6 +89,7 @@ function lanfBodyHTML(fieldId) {
     + '</div>';
   if (check && check.state === 'checking') html += '<p class="lanf-line">Checking ' + lanfEsc(check.url) + '…</p>';
   else if (check && check.view) html += '<p class="lanf-line is-' + check.view.tone + '" role="status">' + lanfEsc(check.view.text) + '</p>';
+  html += lanfHostWarningsHTML(fieldId);
   const line = lanfFindLine(LANF);
   if (line) html += '<p class="lanf-line' + (LANF.state === 'error' ? ' is-bad' : '') + '">' + lanfEsc(line) + '</p>';
   if (LANF.state === 'done' && LANF.servers.length) {
@@ -93,6 +102,23 @@ function lanfBodyHTML(fieldId) {
         : '<div class="lanf-item is-off">' + inner + '</div>') + '</li>';
     }).join('') + '</ul>';
   }
+  return html;
+}
+
+/** Issue #65: the folders that would refuse the field's host, each with its Allow button. */
+function lanfHostWarningsHTML(fieldId) {
+  const hw = LANF.hostWarnings[fieldId];
+  if (!hw) return '';
+  if (typeof document !== 'undefined') {
+    const input = document.getElementById(fieldId);
+    if (input && input.value.trim() !== hw.url) return '';   // typed over since
+  }
+  let html = '';
+  (hw.list || []).forEach((w, i) => {
+    html += '<p class="lanf-line is-warn" role="status">' + lanfEsc(w.text) + '.</p>'
+      + '<div class="lanf-acts"><button type="button" class="btn btn-g sm" data-lanf-allow="' + i + '"' + (hw.busy ? ' disabled' : '') + '>' + lanfEsc(w.action) + '</button></div>';
+  });
+  if (hw.msg) html += '<p class="lanf-line is-' + (hw.msg.tone || 'ok') + '" role="status">' + lanfEsc(hw.msg.text) + '</p>';
   return html;
 }
 
@@ -138,6 +164,47 @@ async function lanfCheck(fieldId) {
   if (!now || now.url !== url) return;   // the field was filled from the list meanwhile
   LANF.checks[fieldId] = {state: 'done', url, view: lanfCheckView(res)};
   lanfPaint();
+  if (res && res.ok) lanfFolderHosts(fieldId, url);
+}
+
+/** Which field, and the entry the wizard edits (main checks the provider ids against both). */
+function lanfFieldOf(fieldId) {
+  const editingId = fieldId === 'wiz-url' && typeof WIZ !== 'undefined' && WIZ && WIZ.forId ? WIZ.forId : null;
+  return {fieldId, editingId};
+}
+
+/** Issue #65: ask main which folders would refuse the field's host for its provider. Read only. */
+async function lanfFolderHosts(fieldId, url, msg) {
+  const BRG = typeof window !== 'undefined' ? window.atomic : null;
+  if (!BRG || !BRG.lanFolderHosts) return;
+  const ids = typeof lanfProviderIdsFor === 'function' ? lanfProviderIdsFor(fieldId, url) : [];
+  if (!ids.length) { delete LANF.hostWarnings[fieldId]; return; }
+  // A lan row's field takes `192.168.1.20:8080` without a scheme; the entry stores it as http://.
+  const sendUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : 'http://' + url;
+  let res = null;
+  const field = lanfFieldOf(fieldId);
+  try { res = await BRG.lanFolderHosts(sendUrl, ids, field); } catch (err) { res = null; }
+  const list = res && res.ok && Array.isArray(res.warnings) ? res.warnings : [];
+  if (!list.length && !msg) delete LANF.hostWarnings[fieldId];
+  else LANF.hostWarnings[fieldId] = {url, sendUrl, field, list, busy: false, msg: msg || null};
+  lanfPaint();
+}
+
+/** The Allow button: the one place a folder's allowedProviderHosts is written from here. */
+async function lanfAllow(fieldId, index) {
+  const BRG = window.atomic;
+  const hw = LANF.hostWarnings[fieldId];
+  const w = hw && hw.list && hw.list[index];
+  if (!w || hw.busy || !BRG || !BRG.lanAllowFolderHost) return;
+  hw.busy = true; hw.msg = null; lanfPaint();
+  let res = null;
+  try { res = await BRG.lanAllowFolderHost(w.folder, w.providerId, hw.sendUrl || hw.url, hw.field || lanfFieldOf(fieldId)); } catch (err) { res = null; }
+  hw.busy = false;
+  const msg = res && res.ok
+    ? {tone: 'ok', text: 'Folder ' + w.folder + ' now allows ' + w.providerId + ' on ' + (res.host || w.host) + '.'}
+    : {tone: 'bad', text: (res && res.error) || 'The folder setting could not be saved.'};
+  if (res && res.ok && typeof refreshLiveConfig === 'function') { try { await refreshLiveConfig(); } catch (err) { /* the next read has it */ } }
+  await lanfFolderHosts(fieldId, hw.url, msg);
 }
 
 /** A found server's address into the field, through its own input event (renderer.js keeps the draft from it). */
@@ -150,10 +217,25 @@ function lanfUse(fieldId, root) {
   const s = LANF.servers.find((x) => x.url === root);
   LANF.checks[fieldId] = {state: 'done', url: value, view: s ? lanfCheckView(Object.assign({ok: true}, s)) : null};
   lanfPaint();
+  lanfFolderHosts(fieldId, value);
   setTimeout(() => { const n = document.getElementById(fieldId); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0);
 }
 
+/* Issue #65 review: an address typed by hand is judged when its field loses
+   focus, as a found or checked one is. Only the two fields the panel serves. */
+const LANF_FIELDS = ['llm-url', 'wiz-url'];
+function lanfOnFieldLeft(e) {
+  const t = e && e.target;
+  if (!t || !LANF_FIELDS.includes(t.id)) return;
+  const url = String(t.value || '').trim();
+  if (!url) { delete LANF.hostWarnings[t.id]; return; }
+  const hw = LANF.hostWarnings[t.id];
+  if (hw && hw.url === url && !hw.msg) return;   // already asked for this address
+  lanfFolderHosts(t.id, url);
+}
+
 if (typeof document !== 'undefined') {
+  document.addEventListener('focusout', lanfOnFieldLeft);
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (!t || !t.closest) return;
@@ -162,11 +244,13 @@ if (typeof document !== 'undefined') {
     const fieldId = box.getAttribute('data-lanf-for');
     if (t.closest('[data-lanf-find]')) { e.preventDefault(); lanfFind(); return; }
     if (t.closest('[data-lanf-check]')) { e.preventDefault(); lanfCheck(fieldId); return; }
+    const allow = t.closest('[data-lanf-allow]');
+    if (allow) { e.preventDefault(); lanfAllow(fieldId, Number(allow.getAttribute('data-lanf-allow'))); return; }
     const use = t.closest('[data-lanf-use]');
     if (use) { e.preventDefault(); lanfUse(fieldId, use.getAttribute('data-lanf-use')); }
   });
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {LANF, lanfEsc, lanfFillUrl, lanfModelsWord, lanfServerView, lanfCheckView, lanfFindLine, lanfBodyHTML, lanfHTML};
+  module.exports = {LANF, lanfEsc, lanfFillUrl, lanfModelsWord, lanfServerView, lanfCheckView, lanfFindLine, lanfBodyHTML, lanfHTML, lanfHostWarningsHTML};
 }

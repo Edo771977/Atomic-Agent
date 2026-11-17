@@ -254,4 +254,25 @@ describe("runVerify — page screenshots under a real browser (issue #40)", () =
     );
     expect(both.results.map((r) => r.screenshots?.[0]?.path)).toEqual([join(shots, "a-1.jpg"), join(shots, "b-1.jpg")]);
   }, 60_000);
+
+  it("never counts the runner's own lookups as the page's missing selectors, at the end or after games", async (test) => {
+    if (launch === undefined) return test.skip();
+    await writeFile(join(work, "index.html"), "<html><body><h1 id='hi'>Ciao</h1><script>document.getElementById('hi')</script></body></html>");
+    const end = await runVerify(
+      { kind: "page", path: "index.html", seconds: 0.1, screenshot: {}, checks: ["no errors", "missing selectors 0"] },
+      ctx({ screenshots: { dir: shots, prefix: "m" } }),
+    );
+    expect(end.screenshots?.length).toBe(1);
+    expect(end.missingSelectors).toEqual([]);
+    expect(end.ok).toBe(true);
+    // The stub without its deliberate console error: the page itself is clean.
+    await writeFile(join(work, "game.html"), STUB_GAME.replace('if (s.seed === 2 && s.moves === 3) console.error("illegal move by O");', ""));
+    const games = await runVerify(
+      { kind: "page", path: "game.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 2_000 }, screenshot: {}, checks: ["games finish", "missing selectors 0"] },
+      ctx({ screenshots: { dir: shots, prefix: "mg" } }),
+    );
+    expect(games.screenshots?.length).toBe(2);
+    expect(games.missingSelectors).toEqual([]);
+    expect(games.ok).toBe(true);
+  }, 60_000);
 });

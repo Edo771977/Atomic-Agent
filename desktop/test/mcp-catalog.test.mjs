@@ -142,3 +142,28 @@ test('Monid signs in through the browser: no fields, a sign-in note on the card 
   }
   assert.doesNotMatch(C.mcpCatalogFormHTML(C.mcpCatalogEntry('fetch'), {vals: {}}, {esc}), /Sign in after adding/);
 });
+
+// Issue #65 (core #60): the five servers that never reach the network carry
+// `local: true`, and a catalog pick writes it through to the mcp.servers
+// entry: mcpCatalogFill -> mcpParseAddInput (the box's parser) -> the
+// server mcpAddSubmit appends to config.mcp.servers, which the agent's own
+// validator reads as local. Nothing else is marked.
+test('the local mark: five servers carry it, a pick writes it through, the agent reads it', async (t) => {
+  const LOCAL = ['filesystem', 'git', 'time', 'memory', 'sequential-thinking'];
+  assert.deepEqual(C.MCP_CATALOG.entries.filter((e) => e.server.local === true).map((e) => e.id), LOCAL);
+  for (const e of C.MCP_CATALOG.entries) {
+    if (e.server.local !== undefined) assert.ok(e.server.local === true && typeof e.server.command === 'string', e.id + ' local only on a command server');
+  }
+  const written = C.MCP_CATALOG.entries.map((e) => {
+    const vals = Object.fromEntries(e.inputs.map((i) => [i.placeholder, i.secret ? 'test-key-123' : '/tmp/x']));
+    const r = A.mcpParseAddInput(C.mcpCatalogFill(e.id, vals), {home: '/home/someone'});
+    assert.equal(r.ok, true, e.id + ': ' + r.error);
+    assert.equal(r.server.local, LOCAL.includes(e.id) ? true : undefined, e.id + ' local in the written entry');
+    return r.server;
+  });
+  const core = new URL('../../src/config/mcp-server-config.ts', import.meta.url);
+  if (!existsSync(core)) { t.skip('src/config/mcp-server-config.ts is not in this checkout'); return; }
+  const { loadCore } = await import('./core-ts.mjs');
+  const parsed = loadCore(core).parseMcpServers(written, 'mcp.servers');
+  assert.deepEqual([...parsed.filter((s) => s.local === true).map((s) => s.name)], LOCAL);
+});

@@ -14,7 +14,7 @@ This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) befo
 - [full agent policy](agent/README.md)
 - [http-config.ts](http-config.ts)
 - [tool-config.ts](tool-config.ts)
-- [project-constraints-config.ts](project-constraints-config.ts) and [project-constraint-match.ts](project-constraint-match.ts): `projects.constraints` (v80), parsed fail closed, and `resolveProjectConstraint(config, workingDir)` → `ProviderPolicy | undefined` (`{ key, allowedProviders, allowedEgress, matchedDir, allows(id), allowsEgress(class) }`), `hasProjectConstraints`, the stamp helpers for fusion workers, `EGRESS_CLASSES`, and `projectConstraintNotices` (unknown keys and providers, shared by load and doctor); enforcement is [provider policy](../llm/docs/provider-policy.md)
+- [project-constraints-config.ts](project-constraints-config.ts) and [project-constraint-match.ts](project-constraint-match.ts): `projects.constraints` (v80), parsed fail closed, and `resolveProjectConstraint(config, workingDir)` → `ProviderPolicy | undefined` (`{ key, allowedProviders, allowedEgress, allowedProviderHosts, matchedDir, allows(id), allowsEgress(class) }`), `hasProjectConstraints`, the stamp helpers for fusion workers, `EGRESS_CLASSES`, and `projectConstraintNotices` (unknown keys and providers, shared by load and doctor); enforcement is [provider policy](../llm/docs/provider-policy.md)
 - [skills-config.ts](skills-config.ts)
 - [session-retention-config.ts](session-retention-config.ts)
 - [tracing-config.ts](tracing-config.ts)

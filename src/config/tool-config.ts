@@ -28,6 +28,16 @@ export interface ProjectConstraintEntry {
    * `composio`, `serve`, `mcp:<server>`). Absent or empty: none.
    */
   allowedEgress?: string[];
+  /**
+   * Computers on the local network (host names or IP addresses, no port)
+   * that a local provider allowed by id (`llama-server`, or an
+   * `openai-compatible` / `qwen-openai-compatible` entry not marked
+   * `modelMode: "cloud"`) may be reached at. Only a private-network
+   * endpoint (RFC 1918, link-local, 100.64/10, IPv6 local, `.local`, `.lan`,
+   * `.home.arpa`, `.internal`, single-label names) needs listing; a public
+   * host is matched by id. Absent or empty: no such computer.
+   */
+  allowedProviderHosts?: string[];
 }
 
 export interface RuntimeProjectsConfig {

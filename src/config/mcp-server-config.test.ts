@@ -170,6 +170,21 @@ describe("MCP server configuration and shared values", () => {
     });
   });
 
+  it("keeps an explicit local flag on a stdio server and rejects it elsewhere (issue #60)", () => {
+    expect(parsedServer({ name: "files", transport: STDIO, local: true }).local).toBe(true);
+    expect(parsedServer({ name: "files", transport: STDIO, local: false }).local).toBe(false);
+    expect("local" in parsedServer({ name: "files", transport: STDIO })).toBe(false);
+    expect("local" in parsedServer({ name: "files", transport: STDIO, local: null })).toBe(false);
+    expect(thrownError(() => parsedServer({ name: "files", transport: STDIO, local: "yes" }))).toBeInstanceOf(ConfigValidationError);
+    expect(thrownError(() => parsedServer({
+      name: "docs",
+      transport: { kind: "streamable_http", url: "https://example.invalid/mcp" },
+      local: true,
+    }))).toMatchObject({ field: "mcp.servers[0].local" });
+    // The paste / catalog path keeps it beside the shortcut shape.
+    expect(parseAddServerJson(JSON.stringify({ mcpServers: { time: { command: "uvx", args: ["mcp-server-time"], local: true } } })).local).toBe(true);
+  });
+
   it("wraps an indexed parser error through the existing add-server command", () => {
     const error = thrownError(() => parseAddServerJson(JSON.stringify({
       name: "args-fixture",

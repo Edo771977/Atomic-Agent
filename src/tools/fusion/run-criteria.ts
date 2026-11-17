@@ -78,7 +78,7 @@ function readRunTasks(runsDir: string, runId: string): RunTaskCriteria[] {
 export interface MilestoneEvidence {
   /** One per criterion its runs' checks name, in `criteriaOrder`: its newest run's, the worst of that run's tasks. */
   facts: ProjectCriterionFact[];
-  /** The runs' screenshots, newest first, at most {@link PROJECT_LIMITS}.attachments. */
+  /** Each task's screenshots from its newest run that has any, newest first, at most {@link PROJECT_LIMITS}.attachments. */
   attachments: ProjectMilestoneAttachment[];
   /** Criteria of `criteriaOrder` no check of these runs names. */
   uncovered: string[];
@@ -114,8 +114,8 @@ export function readMilestoneEvidence(input: {
   }
   const facts = input.criteriaOrder.flatMap((id) => (worst.has(id) ? [worst.get(id)!] : []));
   const uncovered = input.criteriaOrder.filter((id) => !worst.has(id));
-  const shots: Array<{ path: string; mtime: number; taskId: string; n: string }> = [];
-  for (const runId of input.runIds) {
+  const shots: Array<{ path: string; mtime: number; taskId: string; n: string; run: number }> = [];
+  for (const [run, runId] of input.runIds.entries()) {
     if (!FusionRunStore.isValidRunId(runId)) continue;
     const dir = milestoneShotsDir(input.stateDir, runId);
     let names: string[];
@@ -132,14 +132,20 @@ export function readMilestoneEvidence(input: {
         const info = lstatSync(path);
         if (!info.isFile()) continue;
         const match = /^(.*)-(\d+)\.[^.]+$/.exec(name);
-        shots.push({ path, mtime: info.mtimeMs, taskId: match?.[1] ?? name, n: match?.[2] ?? "" });
+        shots.push({ path, mtime: info.mtimeMs, taskId: match?.[1] ?? name, n: match?.[2] ?? "", run });
       } catch {
         // gone
       }
     }
   }
-  shots.sort((a, b) => b.mtime - a.mtime);
-  const attachments = shots.slice(0, PROJECT_LIMITS.attachments).map((s): ProjectMilestoneAttachment => {
+  // A task's pictures come from its newest run that has any: an earlier
+  // attempt's shots show a result the milestone no longer stands on, and
+  // each run numbers its shots from 1, so they would repeat names.
+  const newestRun = new Map<string, number>();
+  for (const s of shots) newestRun.set(s.taskId, Math.max(newestRun.get(s.taskId) ?? -1, s.run));
+  const current = shots.filter((s) => newestRun.get(s.taskId) === s.run);
+  current.sort((a, b) => b.mtime - a.mtime);
+  const attachments = current.slice(0, PROJECT_LIMITS.attachments).map((s): ProjectMilestoneAttachment => {
     const criteria = (byTask.get(s.taskId) ?? []).map((f) => f.id).filter((id) => input.criteriaOrder.includes(id));
     return {
       path: s.path,

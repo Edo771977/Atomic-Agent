@@ -326,6 +326,13 @@ function mcpAddPreviewHTML(res, name, h) {
     if (tr.headers && typeof tr.headers === 'object' && Object.keys(tr.headers).length) rows += row('headers', Object.keys(tr.headers).join(', ') + ' (values hidden)');
   }
   if (s && s.env && typeof s.env === 'object' && Object.keys(s.env).length) rows += row('env', Object.keys(s.env).join(', ') + ' (values hidden)');
+  /* Issue #65: the mark lets the server run in a folder with an egress
+     constraint (src/mcp/README.md), so it is shown before Add. */
+  if (s && s.local === true) {
+    rows += row('local', s.transport && s.transport.kind === 'stdio'
+      ? 'Marked local: allowed in folders with an egress constraint. Only if it never uses the network.'
+      : 'Marked local, but that is only for a local command; the agent refuses it on a remote server.');
+  }
   return '<dl class="tk-plate sd-detect">' + rows + '</dl>';
 }
 

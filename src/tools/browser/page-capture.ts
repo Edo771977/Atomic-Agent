@@ -50,16 +50,22 @@ const SECRET_MASK_CSS =
   SECRET_AUTOCOMPLETE_TOKENS.map((token) => `input[autocomplete~="${token}"]`).join(",") +
   "{-webkit-text-security:disc!important}";
 
-/** Runs in each frame: add or remove the style that draws secret fields as dots. */
+/**
+ * Runs in each frame: add or remove the style that draws secret fields as
+ * dots. It finds its own style with `querySelectorAll`, never
+ * `getElementById` / `querySelector`: `verify.run`'s page probe wraps
+ * those two to count the page's failed lookups (`page-probe-script.ts`),
+ * and the runner's own lookup must not count as the page's.
+ */
 function toggleSecretMaskInPage(arg: { on: boolean; id: string; css: string }): void {
   const doc = (globalThis as unknown as {
     document: {
-      getElementById: (id: string) => { remove: () => void } | null;
+      querySelectorAll: (selector: string) => ArrayLike<{ remove: () => void }>;
       createElement: (tag: string) => { id: string; textContent: string };
       documentElement: { appendChild: (node: unknown) => void };
     };
   }).document;
-  doc.getElementById(arg.id)?.remove();
+  for (const node of Array.from(doc.querySelectorAll(`style[id="${arg.id}"]`))) node.remove();
   if (!arg.on) return;
   const style = doc.createElement("style");
   style.id = arg.id;

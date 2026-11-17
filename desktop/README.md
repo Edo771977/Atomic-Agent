@@ -762,7 +762,50 @@ Honestly degraded, and labelled as such in the UI:
   Above the box, the built-in server catalog by shelf fills it with a
   server's config and names the `<your ...>` values to replace
   ([mcp-catalog.js](renderer/mcp-catalog.js), a copy of
-  `src/mcp/mcp-catalog-data.ts` checked by its test, ATO-1131).
+  `src/mcp/mcp-catalog-data.ts` checked by its test, ATO-1131). The servers
+  the agent's catalog marks `"local": true` (filesystem, git, time, memory,
+  sequential thinking: they never reach the network) keep the mark through
+  the box's parser into the `mcp.servers` entry, so a folder with an egress
+  constraint lets them run (issue #60; see `src/mcp/README.md`).
+- **Deep links** (`atomicagent://mcp/install`, `atomicagent://skill/install`,
+  [deeplink.ts](main/deeplink.ts)) open a confirm card; an MCP link's server
+  is written through the same add as the box. A link never sets
+  `"local": true`: a `local=` parameter is taken only to be dropped, the card
+  says so, and the copy the card writes is stripped of it again
+  ([deeplink.js](renderer/deeplink.js), issue #65). Only the person marks a
+  server local, since the mark lets it run in a folder with an egress
+  constraint: there is no toggle for it in the window, so that is
+  `"local": true` on the server's entry in `config.json`, or in the JSON
+  pasted into the Add box, whose review then shows a "Marked local" row
+  before Add ([mcp-smart-add.js](renderer/mcp-smart-add.js)).
+- **Find on my network** (under the llama.cpp URL and a custom provider's
+  Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
+  servers on this network and checks an address; it saves nothing. Once an
+  address is in the field (picked, checked, or typed and the field left),
+  each folder whose `projects.constraints[F]`
+  allows that field's provider (`local-llama`, even with a url of its own
+  since saving the field rewrites it, and URL-less llama-server entries for
+  the llama.cpp URL; the wizard's entry for the Base URL) but
+  would refuse the host gets "Folder F allows <id> only on this computer;
+  it will refuse <host>" and an "Allow <host> for F" button
+  ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
+  The decision mirrors the agent's `providerEndpointRefusal`: a
+  private-network host that is not this machine by literal address, for a
+  provider judged by place, not already in `allowedProviderHosts`. Only the
+  click writes, through the whole-file compare-and-swap write. The main
+  process recomputes, on the file it writes, which providers that field's
+  address feeds (`fieldProviderIds`: for the wizard, the entry being edited
+  or the id derived from the address itself) and refuses any other provider,
+  folder or host before adding the normalised host. It cannot know the
+  person will then save the address; a host listed for an address left
+  unsaved stays listed. Its address rules
+  (`isPrivateNetworkUrl` among them) are copies of the agent's, compared by
+  `test/folder-provider-hosts.test.mjs`. They are used for this warning only:
+  [local-server-url.ts](main/local-server-url.ts) keeps its narrower rule,
+  since a project model reads it as "cloud vs this machine" (a `.corp`,
+  `.intranet`, `.ts.net` or 100.64/10 gateway stays cloud there) and
+  `test/project-model.test.mjs` keeps it equal to the renderer's
+  `projectLocalUrl`.
 - **LLM** is the TUI's four panes. Local rows come from `atag models list`
   minus the ids `models list-embeddings` lists (the chat route never picks an
   embedding model, and which models those are is a fact the CLI publishes —

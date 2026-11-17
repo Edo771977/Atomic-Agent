@@ -11,6 +11,13 @@
  * View-only: TCP connects and GET /v1/models, GET /api/tags. No prompt is
  * ever sent and nothing is saved; the person copies a found address into
  * the existing URL field themselves (one click).
+ *
+ * Issue #65 (folder-provider-hosts.ts):
+ *   lan:folderHosts       which folders allow the field's provider only on
+ *                         this computer and would refuse the found host (read only).
+ *   lan:allowFolderHost   the warning's button: adds that host to the folder's
+ *                         allowedProviderHosts. Only on that click, never by itself,
+ *                         and only for a provider the field's address feeds.
  */
 
 import { createSocket, type Socket } from "node:dgram";
@@ -37,6 +44,8 @@ import {
   type ServerKind,
 } from "./lan-discovery.js";
 import { MDNS_ADDRESS, MDNS_PORT, buildMdnsQuery, parseMdnsPacket, servicesFromRecords, type MdnsRecord } from "./lan-mdns.js";
+import { configGet } from "./agent-cli.js";
+import { allowFolderProviderHost, fieldProviderIds, folderHostWarnings, type AllowHostResult, type FolderHostWarning, type LanField } from "./folder-provider-hosts.js";
 
 /** How long we listen for mDNS answers. */
 const MDNS_WINDOW_MS = 1500;
@@ -199,6 +208,12 @@ async function findServers(): Promise<FindAnswer> {
   return { ok: true, servers: list, networks: subnets.map((s) => `${s.prefix}.0/24`), mdnsAnswered };
 }
 
+function lanField(raw: unknown): LanField | undefined {
+  const f = (raw ?? {}) as { fieldId?: unknown; editingId?: unknown };
+  if (typeof f.fieldId !== "string") return undefined;
+  return { fieldId: f.fieldId, editingId: typeof f.editingId === "string" ? f.editingId : null };
+}
+
 export function wireLanDiscoveryIpc(): void {
   let running: Promise<FindAnswer> | null = null;
   // One search at a time: a second click while one runs gets the same answer.
@@ -207,4 +222,19 @@ export function wireLanDiscoveryIpc(): void {
     return running;
   });
   ipcMain.handle("lan:check", async (_event, url: unknown): Promise<CheckAnswer> => checkServerUrl(url));
+  ipcMain.handle("lan:folderHosts", async (_event, payload: unknown): Promise<{ ok: boolean; warnings: FolderHostWarning[]; error?: string }> => {
+    const { url, providerIds, field } = (payload ?? {}) as { url?: unknown; providerIds?: unknown; field?: unknown };
+    if (typeof url !== "string" || !Array.isArray(providerIds)) return { ok: false, warnings: [], error: "url and providerIds required" };
+    const read = await configGet();
+    if (!read.ok) return { ok: false, warnings: [], error: read.error };
+    // Only ids the field's address feeds, recomputed here (the window's list is a hint).
+    const fed = fieldProviderIds(read.config, lanField(field), url);
+    const ids = providerIds.filter((id): id is string => typeof id === "string" && fed.includes(id));
+    return { ok: true, warnings: folderHostWarnings(read.config, ids, url) };
+  });
+  ipcMain.handle("lan:allowFolderHost", async (_event, payload: unknown): Promise<AllowHostResult> => {
+    const { folder, providerId, url, field } = (payload ?? {}) as { folder?: unknown; providerId?: unknown; url?: unknown; field?: unknown };
+    if (typeof folder !== "string" || typeof providerId !== "string" || typeof url !== "string") return { ok: false, changed: false, error: "folder, providerId and url required" };
+    return allowFolderProviderHost(folder, providerId, url, lanField(field));
+  });
 }

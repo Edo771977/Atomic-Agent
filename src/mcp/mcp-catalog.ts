@@ -128,6 +128,10 @@ function checkServer(at: string, s: McpCatalogServer): string[] {
   if (stdio && (s.url !== undefined || s.headers !== undefined)) {
     out.push(`${at}: a command server takes no url or headers`);
   }
+  if (s.local !== undefined) {
+    if (s.local !== true) out.push(`${at}: local must be true when present`);
+    else if (!stdio) out.push(`${at}: only a command server can be marked local`);
+  }
   if (http) {
     if (s.args !== undefined || s.env !== undefined) {
       out.push(`${at}: a url server takes no args or env`);

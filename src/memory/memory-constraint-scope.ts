@@ -13,15 +13,16 @@ import {
  * Every row written while a constraint governs the call (notes, lessons,
  * procedures, profile facts) carries that constraint in its own
  * `constraint_scope` column: a JSON descriptor
- * `{"key", "allowedProviders", "allowedEgress"}` frozen at write time (a
+ * `{"key", "allowedProviders", "allowedEgress"}` (plus
+ * `"allowedProviderHosts"` when the policy lists any, issue #60) frozen at write time (a
  * descriptor written before `allowedEgress` existed reads as none, the
  * strictest, and is rewritten in place on open). It is not a tag, so the notes tool, reflection
  * EVOLVE and the reconciler can neither add nor strip it. Untagged rows
  * (`NULL`) are what every session sees.
  *
  * A tagged row is visible to a call whose policy has the same key, or a
- * policy whose allowed providers AND allowed egress classes are both
- * subsets of the row's (a stricter one: the row's content could only
+ * policy whose allowed providers, allowed egress classes AND other-machine
+ * hosts are all subsets of the row's (a stricter one: the row's content could only
  * reach providers and leave through tools its own folder already
  * allowed). An unconstrained call, or one with no frame at all (a CLI,
  * an unscoped job), sees untagged rows only.
@@ -39,15 +40,24 @@ interface ScopeDescriptor {
   allowedProviders: string[];
   /** Absent in a descriptor from before egress scoping: none. */
   allowedEgress: string[];
+  /** Other machines a local provider may be reached at (issue #60); absent: none. */
+  allowedProviderHosts: string[];
 }
 
 /** The `constraint_scope` value of rows written under `policy`. */
 export function constraintScopeOf(
-  policy: Pick<ProviderPolicy, "key" | "allowedProviders"> & { allowedEgress?: readonly string[] },
+  policy: Pick<ProviderPolicy, "key" | "allowedProviders"> & {
+    allowedEgress?: readonly string[];
+    allowedProviderHosts?: readonly string[];
+  },
 ): string {
   const allowedProviders = [...new Set(policy.allowedProviders)].sort();
   const allowedEgress = [...new Set(policy.allowedEgress ?? [])].sort();
-  return JSON.stringify({ key: policy.key, allowedProviders, allowedEgress });
+  const allowedProviderHosts = [...new Set(policy.allowedProviderHosts ?? [])].sort();
+  // Written only when non-empty, so every descriptor from before issue #60 stays byte-identical.
+  return JSON.stringify(allowedProviderHosts.length === 0
+    ? { key: policy.key, allowedProviders, allowedEgress }
+    : { key: policy.key, allowedProviders, allowedEgress, allowedProviderHosts });
 }
 
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -62,13 +72,14 @@ export function parseConstraintScope(scope: string): ScopeDescriptor | undefined
   try {
     const raw: unknown = JSON.parse(scope);
     if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-      const { key, allowedProviders, allowedEgress } = raw as Record<string, unknown>;
+      const { key, allowedProviders, allowedEgress, allowedProviderHosts } = raw as Record<string, unknown>;
       if (
         typeof key === "string" &&
         isStringArray(allowedProviders) &&
-        (allowedEgress === undefined || isStringArray(allowedEgress))
+        (allowedEgress === undefined || isStringArray(allowedEgress)) &&
+        (allowedProviderHosts === undefined || isStringArray(allowedProviderHosts))
       ) {
-        value = { key, allowedProviders, allowedEgress: allowedEgress ?? [] };
+        value = { key, allowedProviders, allowedEgress: allowedEgress ?? [], allowedProviderHosts: allowedProviderHosts ?? [] };
       }
     }
   } catch {
@@ -88,7 +99,13 @@ export function policyForConstraintScope(scope: string): ProviderPolicy {
   const d = parseConstraintScope(scope);
   return d === undefined
     ? makeProviderPolicy({ key: "(unreadable memory scope)", allowedProviders: [], matchedDir: "" })
-    : makeProviderPolicy({ key: d.key, allowedProviders: d.allowedProviders, allowedEgress: d.allowedEgress, matchedDir: d.key });
+    : makeProviderPolicy({
+      key: d.key,
+      allowedProviders: d.allowedProviders,
+      allowedEgress: d.allowedEgress,
+      allowedProviderHosts: d.allowedProviderHosts,
+      matchedDir: d.key,
+    });
 }
 
 /** Whether a row of `rowScope` may be read by a call under `policy`. */
@@ -99,7 +116,8 @@ export function scopeVisibleTo(rowScope: string | null, policy: ProviderPolicy |
   if (row === undefined) return false;
   if (row.key === policy.key) return true;
   return policy.allowedProviders.every((id) => row.allowedProviders.includes(id))
-    && policy.allowedEgress.every((cls) => row.allowedEgress.includes(cls));
+    && policy.allowedEgress.every((cls) => row.allowedEgress.includes(cls))
+    && policy.allowedProviderHosts.every((host) => row.allowedProviderHosts.includes(host));
 }
 
 const rowScopeStore = new AsyncLocalStorage<{ scope: string | null }>();

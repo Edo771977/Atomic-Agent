@@ -30,6 +30,12 @@ export interface ConstraintRefusal {
   readonly providerId: string | null;
   /** The egress class to add to `allowedEgress` (egress refusals), when one would allow it. */
   readonly egressClass: string | null;
+  /**
+   * An allowed local provider refused for its endpoint (issue #60): the
+   * other machine's host to add to `allowedProviderHosts`, `null` when
+   * the endpoint cannot be read. Absent for every other refusal.
+   */
+  readonly endpointHost?: string | null;
 }
 
 /** The constraint refusal in `err` or its causes, or `null`. */
@@ -63,6 +69,12 @@ export function constraintRefusalHint(
     return refusal.egressClass === null
       ? `no allowedEgress class allows this in projects.constraints[${JSON.stringify(folder)}]`
       : `add ${JSON.stringify(refusal.egressClass)} to projects.constraints[${JSON.stringify(folder)}].allowedEgress to allow it`;
+  }
+  if (refusal.endpointHost !== undefined) {
+    // Not "switch to local": the local provider is the one refused.
+    return refusal.endpointHost === null
+      ? `fix the URL of provider ${refusal.providerId ?? "(unknown)"}, or remove it from projects.constraints[${JSON.stringify(folder)}].allowedProviders`
+      : `add ${JSON.stringify(refusal.endpointHost)} to projects.constraints[${JSON.stringify(folder)}].allowedProviderHosts to allow it`;
   }
   if (opts.localModelConfigured && refusal.allowedProviders.length > 0) {
     return "switch to local with ctrl+r or /runmode local";
@@ -98,6 +110,13 @@ function describeProviderRefusal(err: ProviderNotAllowedError): ConstraintRefusa
   const head = readFrom.length > 0
     ? `This session read files from ${readFrom.join(", ")}, which ${readFrom.length > 1 ? "are" : "is"} restricted to: ${allowed}.`
     : `This folder is restricted to: ${allowed}.`;
+  if (err.reason === "remote-endpoint") {
+    const id = err.providerId ?? "this provider";
+    const where = err.endpointHost === null || err.endpointHost === undefined
+      ? "its endpoint cannot be read"
+      : `its endpoint ${err.endpointHost} is another machine`;
+    return { ...base, endpointHost: err.endpointHost ?? null, message: `${head} ${id} is allowed, but ${where}, so ${err.role} can't use it here.` };
+  }
   const tail = err.reason === "none-allowed"
     ? `No allowed provider can serve ${err.role}.`
     : `${capitalize(err.role)} can't use ${err.providerId ?? "this provider"} here.`;

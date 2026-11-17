@@ -95,6 +95,28 @@ describe("projects.constraints parsing", () => {
       .toThrow(/"webb".*web, http, browser/);
   });
 
+  it("reads allowedProviderHosts as normalised host names (issue #60)", () => {
+    expect(parseProjectConstraints({
+      "/w": { allowedProviders: ["local-llama"], allowedProviderHosts: ["GPU-Box.LAN.", "192.168.1.20", "[fd00::5]", "192.168.1.20"] },
+    }, { platform: "linux" })).toEqual({
+      "/w": { allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan", "192.168.1.20", "fd00::5"] },
+    });
+    expect(projectConstraintNotices({ "/w": { allowedProviders: [], allowedProviderHosts: ["gpu-box.lan"] } }, [])).toEqual([]);
+  });
+
+  it.each([
+    ["not a list", "gpu-box.lan"],
+    ["an empty string", [""]],
+    ["not a string", [7]],
+    ["a URL", ["http://gpu-box.lan"]],
+    ["a host with a port", ["gpu-box.lan:8080"]],
+    ["a host with a path", ["gpu-box.lan/v1"]],
+    ["a wildcard", ["*.lan"]],
+  ])("rejects allowedProviderHosts that is %s (fail closed)", (_label, allowedProviderHosts) => {
+    expect(() => parseProjectConstraints({ "/w": { allowedProviders: [], allowedProviderHosts } }, { platform: "linux" }))
+      .toThrow(/allowedProviderHosts/);
+  });
+
   it("suggests allowedEgress for a near miss", () => {
     expect(projectConstraintNotices({ "/w": { allowedProviders: [], allowedEgres: ["web"] } }, []))
       .toEqual([expect.stringMatching(/unknown key "allowedEgres" \(ignored\); did you mean "allowedEgress"\?/)]);
