@@ -62,3 +62,9 @@ test('a long or multi-line message is cleaned and clipped', async () => {
   assert.ok(ev.error.startsWith('line one line two y'), ev.error);
   assert.ok(Array.from(ev.error).length <= 500, String(ev.error.length));
 });
+
+test('only a 4xx is read: a 5xx keeps the plain status', async () => {
+  const ev = await turnError(500, JSON_TYPE, JSON.stringify({ error: { message: 'internal: /home/me/secret stack' } }));
+  assert.equal(ev.error, 'HTTP 500');
+  assert.equal(ev.httpStatus, 500);
+});
