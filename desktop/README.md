@@ -741,7 +741,11 @@ Honestly degraded, and labelled as such in the UI:
   Above the box, the built-in server catalog by shelf fills it with a
   server's config and names the `<your ...>` values to replace
   ([mcp-catalog.js](renderer/mcp-catalog.js), a copy of
-  `src/mcp/mcp-catalog-data.ts` checked by its test, ATO-1131).
+  `src/mcp/mcp-catalog-data.ts` checked by its test, ATO-1131). The servers
+  the agent's catalog marks `"local": true` (filesystem, git, time, memory,
+  sequential thinking: they never reach the network) keep the mark through
+  the box's parser into the `mcp.servers` entry, so a folder with an egress
+  constraint lets them run (issue #60; see `src/mcp/README.md`).
 - **LLM** is the TUI's four panes. Local rows come from `atag models list`
   minus the ids `models list-embeddings` lists (the chat route never picks an
   embedding model, and which models those are is a fact the CLI publishes —
