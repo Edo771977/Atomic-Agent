@@ -55,6 +55,26 @@ describe("GET /api/sessions/{id}/provider-restriction", () => {
     expect(openBody.channelsAllowed).toBe(true);
   });
 
+  it("a chat restricted only by what it read follows the folder it read from", async () => {
+    harness = await startTestHarness({
+      constraints: { "/work/secret": { allowedProviders: ["local-llama"] }, "/work/chan": { allowedProviders: ["local-llama"], allowedEgress: ["channels"] } },
+    });
+    const read = (key: string, allowedEgress: string[]) => harness!.runtime.createSession({
+      metadata: { providerReadTaint: { key, allowedProviders: ["local-llama"], allowedEgress, matchedDir: key, readFrom: [key] } },
+    });
+    const closed = read("/work/secret", []);
+    harness.runtime.sessionStore.save(closed);
+    const closedBody = await (await get(harness, closed.id)).json() as { restriction: { readFrom: string[] } | null; channelsAllowed: unknown };
+    expect(closedBody.restriction?.readFrom).toEqual(["/work/secret"]);
+    expect(closedBody.channelsAllowed).toBe(false);
+
+    const open = read("/work/chan", ["channels"]);
+    harness.runtime.sessionStore.save(open);
+    const openBody = await (await get(harness, open.id)).json() as { restriction: { readFrom: string[] } | null; channelsAllowed: unknown };
+    expect(openBody.restriction?.readFrom).toEqual(["/work/chan"]);
+    expect(openBody.channelsAllowed).toBe(true);
+  });
+
   it("answers 404 for a session that is not stored", async () => {
     harness = await startTestHarness();
     expect((await get(harness, "missing")).status).toBe(404);
