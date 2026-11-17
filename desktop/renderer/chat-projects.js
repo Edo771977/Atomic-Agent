@@ -143,6 +143,21 @@ function projectMarked() {
   return typeof FOLDERS !== 'undefined' && folderById(FOLDERS.state, n.id) ? n.id : undefined;
 }
 
+/* What the empty chat says while it is marked for a project: the project's
+   name and the folder its first turn runs in ('' for the window's), or null. */
+function projectMarkedInfo() {
+  const id = projectMarked();
+  const p = id ? projectAny(id) : null;
+  return p ? {id, name: p.name, folder: projectTurnFolder(id)} : null;
+}
+
+/* Clear Transcript in a new chat that has no session yet is still that new
+   chat: the mark follows it onto the cleared transcript. */
+function projectKeepMark(before, after) {
+  const n = PROJECTS.newFor;
+  if (n && n.log === before && typeof S !== 'undefined' && !S.agentSession) n.log = after;
+}
+
 /* The folder a new chat's first turn in project `pid` runs in, as main
    picks it (main.ts startTurn), or '' for the window's: a store project's
    folder on disk, or the directory the import sorted a chat folder by

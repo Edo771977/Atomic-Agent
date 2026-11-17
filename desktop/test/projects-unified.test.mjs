@@ -333,3 +333,53 @@ test("an import-sorted chat folder's new chat runs in its directory, as main pic
   assert.equal(vm.runInContext("projectTurnFolder('fb')", c), "", "a repository name only");
   assert.equal(vm.runInContext("projectTurnFolder('fc')", c), "");
 });
+
+/* Review of #62, items 6 and 7: renderer.js's own session:new branch, empty
+   plate and Clear Transcript, run against the projects module. */
+function withRenderer() {
+  const c = load();
+  const src = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const fn = (name) => { const at = src.indexOf("\nfunction " + name + "("); assert.ok(at >= 0, name); return src.slice(at + 1, src.indexOf("\n}\n", at) + 2); };
+  const from = src.indexOf("  if (a === 'session:new') { close();");
+  const end = "refreshContext(); refreshSkillList(); return; }";
+  const block = src.slice(from, src.indexOf(end, from) + end.length);
+  assert.ok(from > 0 && block.length < 4000, "the session:new branch of act()");
+  vm.runInContext(src.match(/\nconst esc = .*\n/)[0] + fn("emptyPlateHTML") + fn("clearTranscriptNow")
+    + "function sessionNewBranch(a) {\n" + block + "\n}\n", c);
+  vm.runInContext(`
+    for (const n of ['close', 'stashQueue', 'liveLeave', 'forgetApprovalCard', 'clearPlanOffer', 'dropChatToasts', 'refreshContext', 'refreshSkillList', 'rollbackNoteCleared']) globalThis[n] = () => {};
+    FOCUS = {}; MARK_COLOR = ''; ic = () => ''; isAbsPath = (p) => String(p).startsWith('/');
+    workingDir = () => '/window'; workingDirLabel = (d) => d;
+    liveClearedLog = () => [];
+    act = (a) => { acts.push(a); sessionNewBranch(a); };
+  `, c);
+  return c;
+}
+
+test("the + opens a real new chat that says which project it is in, and Clear Transcript keeps that", () => {
+  const c = withRenderer();
+  vm.runInContext(`
+    PROJECTS.state = projectsCoerce({projects: [{id: 'paaaaaa', name: 'a "b" <c>', folder: '/src/app'}]});
+    FOLDERS.state = foldersCoerce({folders: [{id: 'f1', name: 'Marketing'}]});
+    S.log = [{k: 'user'}]; S.agentSession = 'sOld'; S.sessionId = 'sOld';`, c);
+  assert.doesNotMatch(vm.runInContext("emptyPlateHTML()", c), /New chat in/);
+  vm.runInContext("projectAct('pchat', 'paaaaaa')", c);
+  assert.equal(vm.runInContext("S.agentSession", c), null, "the real session:new ran");
+  assert.equal(vm.runInContext("S.log.length", c), 0);
+  assert.equal(vm.runInContext("PROJECTS.newFor.log === S.log", c), true);
+  const plate = vm.runInContext("emptyPlateHTML()", c);
+  assert.match(plate, /<span>New chat in a &quot;b&quot; &lt;c&gt;<\/span>/);
+  assert.match(plate, /Working in \/src\/app/, "the folder the first turn runs in");
+  // Clear Transcript in the still-empty chat keeps the mark.
+  vm.runInContext("clearTranscriptNow()", c);
+  assert.equal(vm.runInContext("projectMarked()", c), "paaaaaa");
+  assert.match(vm.runInContext("emptyPlateHTML()", c), /New chat in/);
+  // A plain New chat drops it.
+  vm.runInContext("act('session:new')", c);
+  assert.equal(vm.runInContext("projectMarked()", c), undefined);
+  assert.doesNotMatch(vm.runInContext("emptyPlateHTML()", c), /New chat in/);
+  assert.match(vm.runInContext("emptyPlateHTML()", c), /Working in \/window/);
+  // A chat folder with no directory says its name and the window's folder.
+  vm.runInContext("projectAct('pchat', 'f1')", c);
+  assert.match(vm.runInContext("emptyPlateHTML()", c), /New chat in Marketing[\s\S]*Working in \/window/);
+});

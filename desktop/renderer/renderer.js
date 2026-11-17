@@ -3032,11 +3032,15 @@ function starterCardHTML(c) {
 }
 /** The greeting and its quiet line (repainted alone when the catalogue lands). */
 function emptyPlateHTML() {
-  const wd = workingDir();
+  /* Review of #62: a new chat opened with a project's + says so, and the
+     folder line names the folder its first turn runs in. */
+  const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
+  const wd = (mark && mark.folder) || workingDir();
   /* ATO-166: the model is not repeated here — the composer's chip right under
      it already names it (Danya: "why is this here?"). The folder stays: it is
      said nowhere else on this screen (Д14). */
-  const meta = wd ? '<span class="em-it em-wd" title="' + esc(wd) + '">' + ic('folder') + '<span>Working in ' + esc(workingDirLabel(wd)) + '</span></span>' : '';
+  const meta = (mark ? '<span class="em-it em-proj">' + ic('folder') + '<span>New chat in ' + esc(mark.name) + '</span></span>' : '')
+    + (wd ? '<span class="em-it em-wd" title="' + esc(wd) + '">' + ic('folder') + '<span>Working in ' + esc(workingDirLabel(wd)) + '</span></span>' : '');
   return '<div class="emptyplate">'
     + '<div class="emptyhead">' + MARK_COLOR + '<b>What should we work on?</b></div>'
     + (meta ? '<div class="emptymeta">' + meta + '</div>' : '')
@@ -3507,6 +3511,7 @@ function rollbackNoteCleared(before, after, sid) {
 function clearTranscriptNow() {
   const before = S.log;
   S.log = liveClearedLog(); S.history = [];
+  if (typeof projectKeepMark === 'function') projectKeepMark(before, S.log);   // review of #62: still the project's new chat
   rollbackNoteCleared(before, S.log, S.agentSession);
 }
 /* openSession's part of the ATO-1420 count: the whole chat is drawn again, so
