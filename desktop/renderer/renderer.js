@@ -2382,27 +2382,34 @@ function render() {
 let PCARD = null, PCARD_GEN = -1, PCWATCH = null;
 function projectCardFollow() {
   if (!PCARD) return;
-  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(); }
-  /* Only over the chat room: Studio, Cron jobs and Skills draw into the same
-     #content (a narrow window's sheet would cover them), and a pending
-     continue waits until the chat is back. */
+  /* Only over the chat room: Studio draws into the same #content (a narrow
+     window's sheet would cover it), and a pending continue waits until the
+     chat is back. Cron jobs and Skills are Settings tabs (S.room stays
+     'chat'); Settings covers the card, and projectCardContinue waits. */
   const sid = S.room === 'chat' && S.agentSession && !String(S.agentSession).startsWith('waiting-') ? S.agentSession : null;
+  // Another agent: reset straight onto the chat shown now (none over Studio: no read for it).
+  if (PCARD_GEN !== AGENT_GEN) { const first = PCARD_GEN < 0; PCARD_GEN = AGENT_GEN; if (!first) PCARD.reset(sid); }
   PCARD.follow(sid);
   // A narrow window's sheet ends where the composer starts: observed, not measured on every paint.
   if (PCWATCH) PCWATCH.sync();
 }
 function projectCardContinue(sid, text) {
-  /* Only into the chat it belongs to, with the chat room on screen, between
+  /* Only into the chat it belongs to, with the chat room on screen (and no
+     Settings window over it), between
      turns, on a live agent, and only when submit() would send it: dictation, the starter download, a
      model test holding the local server or a backend switch would keep it
      out (or stop the recording). Otherwise, or when submit() answers that
      it did not take it, it waits for the next look (project-card.js keeps
      it pending). */
   if (!pcCanContinue({
-    onScreen: S.agentSession === sid, room: S.room, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
+    onScreen: S.agentSession === sid, room: S.room, settings: !!S.settings, busy: S.busy, pending: S.pending, connected: S.live.state === 'connected',
     opening: openHoldsComposer(), voice: VOICE.state,
     starterHolds: typeof starterHoldsSend === 'function' && starterHoldsSend(),
     fitHolds: typeof fitHoldsSend === 'function' && fitHoldsSend(), gating: BSW.gating,
+    // The local gate would hand the message back to the editor (model not on disk): it waits instead.
+    localBlocked: localTurnGate().kind === 'block',
+    // A model switch would put it in the queue, where × on its chip or another chat drops it: it waits for the switch.
+    switching: swxWaitsForRoute() || DRAIN_OWED || !!SWX.sendError,
   })) return false;
   const e = $('#entry'), keep = S.draft;
   const sent = submit(text, {plain: true}) === true;
@@ -8212,7 +8219,14 @@ function bswGatedTurn(text) {
     // B02: one refusal on screen at a time; `gateNotice` lets it go once the route can run (dropStaleGateNotices).
     dropStaleGateNotices();
     S.log.push({id:nid(), k:'system', gateNotice:true, text: esc(gate.text + ' (message returned to the editor)')});
-    S.draft = attToEditor(text);
+    /* As gatedTurnLeft: above what is in the box. Empty after a typed send;
+       after the disk snapshot it can hold what was typed meanwhile, or the
+       draft the project card's continue put back (projectCardContinue). */
+    const e0 = $('#entry');
+    const typed = String((e0 ? e0.value : S.draft) || '');
+    const back = attToEditor(text);
+    S.draft = typed.trim() ? (back ? back + '\n\n' + typed : typed) : back;
+    if (e0) e0.value = S.draft;
     ctxDraftChanged();
     render(); // afterChat() puts S.draft back into #entry
     const e = $('#entry');

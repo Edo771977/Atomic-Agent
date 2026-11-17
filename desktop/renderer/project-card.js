@@ -651,12 +651,17 @@ function pcFind(root, test) {
  * make submit() keep it out (or, for dictation, stop the recording instead
  * of sending) answers no, so the message stays pending rather than lost:
  * a model test holding the local server (`fitHolds`) among them, and any
- * room but the chat on screen (`room`: Studio draws into the same column). What this
+ * room but the chat on screen (`room`: Studio draws into the same column),
+ * the Settings window over the chat (`settings`; Cron jobs and Skills open there),
+ * and a local route whose model is not on disk (`localBlocked`: the gate
+ * would hand the message back to the editor), and a model switch
+ * (`switching`: submit() would queue it, and a queued message can be dropped). What this
  * cannot foresee, submit() answers itself (false: not sent, still pending).
  */
 function pcCanContinue(env) {
-  return !!env && env.onScreen && env.room === 'chat' && !env.busy && !env.pending && env.connected && !env.opening
-    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating;
+  return !!env && env.onScreen && env.room === 'chat' && !env.settings && !env.busy && !env.pending && env.connected && !env.opening
+    && !['recording', 'starting', 'finishing'].includes(env.voice) && !env.starterHolds && !env.fitHolds && !env.gating
+    && !env.localBlocked && !env.switching;
 }
 
 /* ---------- the controller: one card for the chat on screen ---------- */
@@ -768,8 +773,9 @@ function createProjectCard(opts) {
     },
     /* Another agent is on the wire (a restart, a remote one): what the last
        one said is not this one's, except a continue message still owed to a
-       chat, which the person's decision already recorded. */
-    reset() { const keep = sid; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+       chat, which the person's decision already recorded. `next` is the chat
+       the page shows now (null: none); left out, the one followed so far. */
+    reset(next) { const keep = next === undefined ? sid : next; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */

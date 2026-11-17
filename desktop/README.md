@@ -53,10 +53,15 @@ the warning when it was drafted after outside content), the plan rows
 (worker, reviewer, reason, measured or preset basis and samples, estimate;
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
-one stands), the view's `hints` (`ℹ` lines, as the TUI), the milestones
-(each with its `criteriaFacts` as `✓` / `✕` / `?` lines in the core's words,
-and its `attachments` as text only: how many, each caption with its criteria
-and the file's name; no file is read and no image or file link is drawn), and under the plan the core's own note that
+one stands), the view's `hints` (`ℹ` lines, the TUI card's prefix), the
+milestones, and under every milestone that has them (the card lists all
+milestones, as the TUI's full `/plan` view does; its compact card shows only
+the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` lines in the
+core's `criterionFactLine` words and its `attachments` as text only: an
+"N pictures" line, then each caption with its criteria (the core's
+`attachmentLabel`) and the file's name, where the TUI shows the full path as
+a file link; no file is read and no image or file link is drawn. Under the
+plan comes the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
 row, chosen only among the row's `selectableWorkers` / `selectableReviewers`;
@@ -72,9 +77,16 @@ closes the card. When the answer carries `continue_message`, the window sends
 it as that chat's next message (the agent never goes on by itself); a chat
 not on screen, or one running a turn, gets it the next time it is shown
 between turns; so does one `submit()` did not take (it answers true or false:
-a model test holding the local server, the starter download, dictation).
+a model test holding the local server, the starter download, dictation), and
+one the local gate would hand back to the editor (the managed local model is
+not on disk), and one that would go into the queue of a model switch (where
+× on its chip or opening another chat would drop it): it waits until the
+switch is done. When the gate learns that only after its disk snapshot, the
+continue goes back to the editor above the person's own draft, never over it.
 The card follows the chat only while the chat room is on screen: over
-Studio, Cron jobs or Skills it is gone and a pending continue waits. Cancel Fusion project asks twice: the first press turns the button into Confirm
+Studio it is gone and a pending continue waits. Cron jobs and Skills are tabs
+of the Settings window, which covers the card; a continue waits while it is
+open. Cancel Fusion project asks twice: the first press turns the button into Confirm
 cancel for four seconds (the focus stays on it, so Enter, Enter works). Hide puts away that gate (by kind, milestone and version) until the chat is
 opened again; while it stays open the chat header offers Show Fusion project.
 The card's words say "Fusion project" (Cancel Fusion project, Show Fusion
