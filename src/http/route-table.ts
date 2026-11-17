@@ -97,6 +97,7 @@ import { createGetOfflineModeHandler, createSetOfflineModeHandler } from "./rout
 import { createGetPrivacyShieldHandler, createSetPrivacyShieldHandler } from "./route-privacy-shield.js";
 import { createContextPreviewHandler } from "./route-context-preview.js";
 import { createPlainCompleteHandler } from "./route-complete.js";
+import { createSideQuestionHandler } from "./route-side-question.js";
 import {
   createMcpOAuthHandlers,
   createRestartMcpServerHandler,
@@ -355,6 +356,8 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     { method: "POST", path: "/api/context-preview", handler: createContextPreviewHandler() },
     // ATO-875: one plain model call, no tools, no session (route-complete.ts).
     { method: "POST", path: "/api/complete", handler: createPlainCompleteHandler() },
+    // ATO-1152: the TUI's `/btw` side question, nothing saved (route-side-question.ts).
+    { method: "POST", path: "/api/btw", handler: createSideQuestionHandler() },
     // ATO-873: the desktop's Reconnect button after a local server answered 404/405.
     { method: "POST", path: "/api/local-model/recheck", handler: createLocalModelRecheckHandler() },
     // ATO-1021: the desktop's model pick, swapped live instead of restarting serve.
