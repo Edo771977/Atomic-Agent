@@ -231,10 +231,12 @@ describe("rail session list — steering", () => {
 
 describe("rail session list — manual order", () => {
   it("follows tui.sessionRail.order once the operator has arranged the rail", () => {
+    // Stamped: three threads minted in a row may or may not share a
+    // millisecond, and the order must not hang on which.
     const stored = [
-      spokenTo("s-3", "third"),
-      spokenTo("s-2", "second"),
-      spokenTo("s-1", "first"),
+      { ...spokenTo("s-3", "third"), updatedAt: 3_000 },
+      { ...spokenTo("s-2", "second"), updatedAt: 2_000 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1_000 },
     ];
     const { orchestrator, rail } = harness(stored, {
       order: ["s-1", "s-3", "s-2"],
@@ -285,10 +287,12 @@ describe("rail session list — manual order", () => {
   });
 
   it("moveSession snapshots the displayed list with the row on its new slot, then re-emits", () => {
+    // Stamped: three threads minted in a row may or may not share a
+    // millisecond, and the order must not hang on which.
     const stored = [
-      spokenTo("s-3", "third"),
-      spokenTo("s-2", "second"),
-      spokenTo("s-1", "first"),
+      { ...spokenTo("s-3", "third"), updatedAt: 3_000 },
+      { ...spokenTo("s-2", "second"), updatedAt: 2_000 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1_000 },
     ];
     const { orchestrator, rail, written } = harness(stored);
     orchestrator.refreshRecentSessions();
@@ -384,10 +388,12 @@ describe("rail session list — pinned block", () => {
   });
 
   it("togglePinned appends to the block, then releases to the top of the rest", () => {
+    // Stamped: three threads minted in a row may or may not share a
+    // millisecond, and the order must not hang on which.
     const stored = [
-      spokenTo("s-3", "third"),
-      spokenTo("s-2", "second"),
-      spokenTo("s-1", "first"),
+      { ...spokenTo("s-3", "third"), updatedAt: 3_000 },
+      { ...spokenTo("s-2", "second"), updatedAt: 2_000 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1_000 },
     ];
     const { orchestrator, rail, written, pins } = harness(stored, {
       order: [],
@@ -410,10 +416,12 @@ describe("rail session list — pinned block", () => {
   });
 
   it("a drop inside the block pins, a drop below it unpins", () => {
+    // Stamped: three threads minted in a row may or may not share a
+    // millisecond, and the order must not hang on which.
     const stored = [
-      spokenTo("s-3", "third"),
-      spokenTo("s-2", "second"),
-      spokenTo("s-1", "first"),
+      { ...spokenTo("s-3", "third"), updatedAt: 3_000 },
+      { ...spokenTo("s-2", "second"), updatedAt: 2_000 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1_000 },
     ];
     const { orchestrator, rail, pins } = harness(stored, {
       order: [],
