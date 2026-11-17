@@ -54,6 +54,7 @@ import { planUpdateTool } from "../../tools/plan/index.js";
 import { buildCanvasRenderTool } from "../../tools/canvas/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
 import { buildSessionsSearchTool, registerMemoryTools, type RegisterMemoryToolsOptions } from "../../tools/memory/index.js";
+import type { CrossSessionGuard } from "../../tools/sessions/index.js";
 import { sessionGroundingSource, verifyProfileNameFacts } from "../../memory/name-grounding.js";
 import { registerVisionTools, type RegisterVisionToolsOptions } from "../../tools/vision/index.js";
 import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../../tools/image/index.js";
@@ -209,10 +210,12 @@ export function registerRuntimeCoreTools(input: {
   webSearchKeyHelp?: WebSearchKeyHelp;
   /** The agent's browser, for the `os.web.fetch` bot-wall step (ATO-968). */
   browserBackend?: BrowserBackend;
+  /** Per-folder constraints across chats for `memory.sessions.search` (issue #33). */
+  crossSession?: CrossSessionGuard;
 } & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): RegisteredOsTools {
   const { config, toolRegistry, dangerous, sessionStore, resolveOriginalRequest, resolvePreviousReply, declaredInputs,
     shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, logger,
-    webSearchKeyHelp, canAskUser } = input;
+    webSearchKeyHelp, canAskUser, crossSession } = input;
 
   const osTools = registerOsTools(toolRegistry, {
     ...dangerous,
@@ -370,7 +373,7 @@ export function registerRuntimeCoreTools(input: {
   });
   // ATO-1151: search past chats word for word, then read around a hit.
   // Read-only and always on; the index is built on the first search.
-  toolRegistry.register(buildSessionsSearchTool({ source: sessionStore }));
+  toolRegistry.register(buildSessionsSearchTool({ source: sessionStore, ...(crossSession === undefined ? {} : { crossSession }) }));
   return osTools;
 }
 

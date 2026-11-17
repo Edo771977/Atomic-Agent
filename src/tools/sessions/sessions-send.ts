@@ -13,6 +13,7 @@ import {
   crossSessionSender,
   frameCrossSessionMessage,
   stringArg,
+  type CrossSessionGuard,
 } from "./session-access.js";
 
 export interface SessionsSendToolOptions extends DangerousToolOptions {
@@ -24,6 +25,8 @@ export interface SessionsSendToolOptions extends DangerousToolOptions {
    */
   createSession(input?: { metadata?: Record<string, unknown>; workingDir?: string }): SessionState;
   defaultMaxAttempts: number;
+  /** The target chat carries the sender's constraint (issue #33). */
+  crossSession?: CrossSessionGuard;
 }
 
 /** A message longer than this is a document, not a request: put it in a file. */
@@ -116,6 +119,7 @@ export function buildSessionsSendTool(options: SessionsSendToolOptions): ToolDef
           metadata: { createdBySession: ctx.sessionId, triggerSource: "agent" },
           workingDir: caller?.workingDir ?? ctx.workingDir,
         }).id;
+      options.crossSession?.carryTo(ctx.sessionId, sessionId);
       try {
         const record = options.taskRunner.create({
           sessionId,

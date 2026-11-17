@@ -7,6 +7,7 @@ import { buildSessionsListTool } from "./sessions-list.js";
 import { buildSessionsReadTool } from "./sessions-read.js";
 import { buildSessionsSendTool } from "./sessions-send.js";
 import { buildSessionsCheckTool } from "./sessions-check.js";
+import type { CrossSessionGuard } from "./session-access.js";
 
 export { buildSessionsListTool } from "./sessions-list.js";
 export { buildSessionsReadTool } from "./sessions-read.js";
@@ -15,6 +16,7 @@ export { buildSessionsCheckTool, replyTo } from "./sessions-check.js";
 export {
   crossSessionSender,
   frameCrossSessionMessage,
+  type CrossSessionGuard,
 } from "./session-access.js";
 
 /** The four names, in registration order (`filter-disabled-tools.ts` mirrors it). */
@@ -37,6 +39,8 @@ export interface RegisterSessionToolsOptions extends DangerousToolOptions {
    * the task queue there is nothing to deliver it.
    */
   enabled: boolean;
+  /** Per-folder constraints across chats (issue #33); absent: none apply. */
+  crossSession?: CrossSessionGuard;
 }
 
 /**
@@ -52,9 +56,10 @@ export function registerSessionTools(
     approvals: options.approvals,
     approvalRequired: options.approvalRequired,
   };
+  const cross = options.crossSession === undefined ? {} : { crossSession: options.crossSession };
   registry.register(buildSessionsListTool({ sessionStore: options.sessionStore }));
   registry.register(
-    buildSessionsReadTool({ ...dangerous, sessionStore: options.sessionStore }),
+    buildSessionsReadTool({ ...dangerous, sessionStore: options.sessionStore, ...cross }),
   );
   registry.register(
     buildSessionsSendTool({
@@ -63,12 +68,14 @@ export function registerSessionTools(
       taskRunner: options.taskRunner,
       createSession: options.createSession,
       defaultMaxAttempts: options.defaultMaxAttempts,
+      ...cross,
     }),
   );
   registry.register(
     buildSessionsCheckTool({
       taskStore: options.taskStore,
       sessionStore: options.sessionStore,
+      ...cross,
     }),
   );
 }

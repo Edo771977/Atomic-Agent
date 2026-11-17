@@ -8,6 +8,7 @@ import {
   type SessionSearchOptions,
   type SessionSearchResult,
 } from "../../session/session-search.js";
+import type { CrossSessionGuard } from "../sessions/session-access.js";
 import type { ToolDefinition } from "../tool-registry.js";
 
 export const SESSIONS_SEARCH_TOOL = "memory.sessions.search";
@@ -24,6 +25,12 @@ export interface SessionsSearchSource {
 
 export interface SessionsSearchToolOptions {
   source: SessionsSearchSource;
+  /**
+   * Per-folder constraints (issue #33): a hit of a chat the call may not
+   * see is left out, and reading one session's lines taints the caller
+   * with that chat's constraint. Absent: none apply.
+   */
+  crossSession?: Pick<CrossSessionGuard, "visible" | "noteRead">;
 }
 
 /** Lines shown on each side of `line` when reading a session. */
@@ -74,9 +81,9 @@ export function buildSessionsSearchTool(
     async run(rawArgs, ctx) {
       try {
         if (rawArgs.sessionId !== undefined && rawArgs.sessionId !== null) {
-          return readSession(options.source, rawArgs);
+          return readSession(options.source, rawArgs, ctx, options.crossSession);
         }
-        return search(options.source, rawArgs, ctx);
+        return search(options.source, rawArgs, ctx, options.crossSession);
       } catch (error) {
         if (error instanceof ArgsError) {
           return compressToolResult({
@@ -104,6 +111,7 @@ function search(
   source: SessionsSearchSource,
   args: Record<string, unknown>,
   ctx: { sessionId: string; workingDir: string },
+  cross: SessionsSearchToolOptions["crossSession"],
 ) {
   const query = args.query;
   if (typeof query !== "string" || query.trim().length === 0) {
@@ -117,12 +125,17 @@ function search(
     throw new ArgsError("scope", "must be 'all' or 'project'");
   }
   const limit = coercePositiveInt(args.limit, "limit");
-  const result = source.searchTranscripts({
+  const found = source.searchTranscripts({
     query,
     excludeSessionId: ctx.sessionId,
     ...(limit === undefined ? {} : { limit: Math.min(limit, SESSION_SEARCH_MAX_LIMIT) }),
     ...(scope === "project" ? { workingDir: ctx.workingDir } : {}),
   });
+  // Memory scoping for transcripts (issue #33): a chat the call could
+  // not see a memory row of is not listed, snippet and all.
+  const result = cross === undefined
+    ? found
+    : { ...found, hits: found.hits.filter((hit) => cross.visible(hit.sessionId)) };
   const pendingNote =
     result.pending > 0
       ? `\n(${result.pending} recently changed chats are not indexed yet; searching again covers more of them)`
@@ -158,7 +171,12 @@ function search(
   );
 }
 
-function readSession(source: SessionsSearchSource, args: Record<string, unknown>) {
+function readSession(
+  source: SessionsSearchSource,
+  args: Record<string, unknown>,
+  ctx: { sessionId: string },
+  cross: SessionsSearchToolOptions["crossSession"],
+) {
   const sessionId = args.sessionId;
   if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
     throw new ArgsError("sessionId", "must be a session id from a search hit");
@@ -168,6 +186,7 @@ function readSession(source: SessionsSearchSource, args: Record<string, unknown>
     coercePositiveInt(args.radius, "radius") ?? READ_DEFAULT_RADIUS,
     READ_MAX_RADIUS,
   );
+  cross?.noteRead(ctx.sessionId, sessionId.trim());
   const all = source.listSearchableChatLines(sessionId.trim());
   if (all.length === 0) {
     return compressToolResult({

@@ -22,6 +22,7 @@ import { eraseManagedChatSlots, markPromptCachePrivate } from "../local-llm/inde
 import { createRuntimeKeepAwake, createRuntimeTaskStores, createRuntimeTaskRunner, createRuntimeScheduler } from "./composition/runtime-task-services.js";
 import { connectRuntimeChannels } from "./composition/runtime-channels.js";
 import { createRuntimeMailTrigger } from "./composition/runtime-mail-trigger.js";
+import { createCrossSessionPolicy } from "./cross-session-policy.js";
 import { createOfflineModeControl } from "./composition/runtime-offline-mode.js";
 import { stopRunningDownloadWorkers } from "../local-llm/index.js";
 import { holdWhileRunning } from "../scheduler/index.js";
@@ -419,6 +420,9 @@ export async function createAgentRuntime(
       sessionStore.save(stored);
     },
   });
+  // The same constraint on another chat's transcript (sessions.*,
+  // memory.sessions.search): a read taints, a search hides, a send carries.
+  const crossSession = createCrossSessionPolicy({ policy: sessionProviderPolicy, readTaint: sessionReadTaint });
   // Per-folder egress (issue #33): tools that would send a constrained
   // folder's content off the machine are refused at dispatch. MCP servers
   // are classed by the manager, which exists once the catalog connects.
@@ -467,7 +471,7 @@ export async function createAgentRuntime(
     config, toolRegistry, dangerous, sessionStore, logger, resolveOriginalRequest: (id) => turnRequests.get(id),
     resolvePreviousReply: (id) => turnPreviousReplies.get(id),
     canAskUser: (id) => !turnsWithoutQuestions.has(id),
-    declaredInputs, shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, browserBackend,
+    declaredInputs, shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, browserBackend, crossSession,
     // Only the terminal UI has an `/integrations` screen that saves an Exa
     // key into this process; every other entry point keeps the desktop /
     // `.env` advice (ATO-345).
@@ -1098,6 +1102,7 @@ export async function createAgentRuntime(
     ...dangerous, sessionStore, taskStore, taskRunner, createSession,
     defaultMaxAttempts: config.tasks.maxAttempts,
     enabled: config.tasks.enabled && config.tasks.sessionToolsEnabled === true,
+    crossSession,
   });
 
   registerRuntimeFusionAndReadScope({

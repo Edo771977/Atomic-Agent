@@ -2,11 +2,13 @@ import { compressToolResult } from "../../compressor/result-compressor.js";
 import type { SessionChatLine, SessionStore } from "../../session/index.js";
 import type { TaskRecord, TaskStore } from "../../tasks/index.js";
 import type { ToolDefinition } from "../tool-registry.js";
-import { crossSessionSender, stringArg } from "./session-access.js";
+import { crossSessionSender, stringArg, type CrossSessionGuard } from "./session-access.js";
 
 export interface SessionsCheckToolOptions {
   taskStore: Pick<TaskStore, "get">;
   sessionStore: Pick<SessionStore, "listChatLines">;
+  /** The answering chat's constraint comes with its answer (issue #33). */
+  crossSession?: CrossSessionGuard;
 }
 
 /** The answer is clipped here; the whole chat is one `sessions.read` away. */
@@ -66,6 +68,7 @@ export function buildSessionsCheckTool(options: SessionsCheckToolOptions): ToolD
           details: { ...base, answered: false },
         });
       }
+      options.crossSession?.noteRead(ctx.sessionId, record.sessionId);
       const clipped =
         answer.length > ANSWER_CHARS ? `${answer.slice(0, ANSWER_CHARS)}…` : answer;
       return compressToolResult(

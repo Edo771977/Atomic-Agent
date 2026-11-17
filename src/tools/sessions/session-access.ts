@@ -92,6 +92,20 @@ export async function approveCrossSession(
   );
 }
 
+/**
+ * Per-folder provider constraints across chats (issue #33), supplied by
+ * the runtime (`runtime/cross-session-policy.ts`). Absent: no constraint
+ * applies (tests, hosts without `projects.constraints`).
+ */
+export interface CrossSessionGuard {
+  /** Whether the call running now may list this chat's lines in a search. */
+  visible(targetSessionId: string): boolean;
+  /** Called before the caller's turn receives another chat's text: taints it with that chat's constraint. */
+  noteRead(callerSessionId: string, targetSessionId: string): void;
+  /** Called before a message is queued into another chat: the target carries the sender's constraint. */
+  carryTo(callerSessionId: string, targetSessionId: string): void;
+}
+
 /** A string argument, trimmed; `undefined` when absent or empty. */
 export function stringArg(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;

@@ -9,12 +9,15 @@ import type { ToolDefinition } from "../tool-registry.js";
 import {
   approveCrossSession,
   chatName,
+  type CrossSessionGuard,
   limitArg,
   stringArg,
 } from "./session-access.js";
 
 export interface SessionsReadToolOptions extends DangerousToolOptions {
   sessionStore: Pick<SessionStore, "load" | "listChatLines">;
+  /** The other chat's constraint comes with its text (issue #33). */
+  crossSession?: CrossSessionGuard;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -66,6 +69,7 @@ export function buildSessionsReadTool(options: SessionsReadToolOptions): ToolDef
         },
         ctx.signal,
       );
+      options.crossSession?.noteRead(ctx.sessionId, sessionId);
       const limit = limitArg(rawArgs.limit, DEFAULT_LIMIT, MAX_LIMIT);
       const all = options.sessionStore.listChatLines(sessionId);
       const lines = all.slice(-limit);
