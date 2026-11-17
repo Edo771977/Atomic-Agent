@@ -12,6 +12,7 @@ import {
   turnPushRequest,
   type PushState,
 } from "./push-cli.js";
+import { turnPushNote, type TurnEnd } from "./turn-notify.js";
 
 /**
  * Settings › Connections › Phone push (ATO-1129). Two routes, both
@@ -41,16 +42,31 @@ export async function pushStatus(): Promise<{ ok: true; push: PushState } | Fail
 }
 
 /**
- * A desktop turn ended while nobody was looking (turn-notify.ts): send the
- * same words to the phone when push is on. One attempt, 8 s, never throws.
+ * A desktop turn ended while nobody was looking (turn-notify.ts): send a
+ * note to the phone when push is on. The phone is off this machine, so the
+ * chat's folder constraint decides first (issue #33): `restriction` asks
+ * the agent (`GET /api/sessions/{id}/provider-restriction`) and
+ * turnPushNote sends nothing for a restricted chat whose allowedEgress
+ * lacks "channels", never the error text of a restricted one, and nothing
+ * at all when the answer cannot be had (fail closed). One attempt, 8 s,
+ * never throws.
  */
 export async function pushTurnNote(
-  note: { title: string; body: string },
+  turn: TurnEnd,
+  restriction: (sessionId: string) => Promise<{ status: number; body: unknown }>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> {
   try {
     const st = await pushStatus();
-    if (!st.ok) return false;
+    if (!st.ok || !st.push.enabled || !turn.sessionId) return false;
+    let answer: { status: number; body: unknown } | null = null;
+    try {
+      answer = await restriction(turn.sessionId);
+    } catch {
+      answer = null;
+    }
+    const note = turnPushNote(turn, answer);
+    if (!note) return false;
     const req = turnPushRequest(st.push, note, readDotenvValue(DESKTOP_STATE_DIR, st.push.tokenEnv));
     if (!req) return false;
     const res = await fetchImpl(req.url, { ...req.init, signal: AbortSignal.timeout(8_000) });
