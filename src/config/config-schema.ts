@@ -942,6 +942,9 @@ export interface UserConfigFile {
    * external MCP server the runtime will connect to at bootstrap and
    * whose tools / resources / prompts will be exposed through the
    * agent's tool registry (namespaced as `mcp.<server>.<tool>`).
+   * A stdio entry may carry `"local": true` (never reaches the network):
+   * only then does a folder with an egress constraint let its tools
+   * through without `mcp:<server>` in `allowedEgress`.
    * Older files are transparently upgraded with `mcp: { servers: [] }`.
    */
   mcp: {

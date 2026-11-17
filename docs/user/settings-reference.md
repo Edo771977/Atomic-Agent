@@ -424,7 +424,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mcp.servers` | `McpServerConfig[]` | `[]` | MCP client servers. Each entry declares one external MCP server the runtime will connect to at bootstrap and whose tools / resources / prompts will be exposed through the agent's tool registry (namespaced as `mcp.<server>.<tool>`). Older files are transparently upgraded with `mcp: { servers: [] }`. |
+| `mcp.servers` | `McpServerConfig[]` | `[]` | MCP client servers. Each entry declares one external MCP server the runtime will connect to at bootstrap and whose tools / resources / prompts will be exposed through the agent's tool registry (namespaced as `mcp.<server>.<tool>`). |
 
 ## webhooks
 

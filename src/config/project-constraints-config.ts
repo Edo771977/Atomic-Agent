@@ -14,7 +14,8 @@ export const CONSTRAINT_ENTRY_KEYS = ["allowedProviders", "allowedEgress"] as co
  * The egress classes `allowedEgress` may name: what a tool in a
  * constrained folder may send off this machine (issue #33). Anything
  * else fails the load (closed), so a typo never opens a class.
- * `mcp:<server>` names one remote MCP server by its configured name.
+ * `mcp:<server>` names one MCP server by its configured name (a remote one,
+ * or a stdio one not marked `local: true`).
  */
 export const EGRESS_CLASSES = ["web", "http", "browser", "github", "git", "channels", "mail", "composio", "serve"] as const;
 export type EgressClass = (typeof EGRESS_CLASSES)[number] | `mcp:${string}`;
