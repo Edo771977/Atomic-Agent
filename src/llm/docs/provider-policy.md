@@ -79,6 +79,7 @@ A session that reads files inside a constrained folder carries that folder's con
 
 - the turn's frame is narrowed at once (frames hold one tightenable policy cell shared by nested role frames), so the read tool itself and the next model call must satisfy it;
 - the taint is stored in the session metadata (`providerReadTaint`), so the next turn, side calls by session id and `/resume` keep it; the session's policy is its folder's intersected with it;
+- the stored taint is a snapshot of the entries its key names, read against the live config (`withLiveEntries` in [session policy](../../runtime/session-provider-policy.ts)): an entry later tightened narrows it at once; an entry loosened, downgraded or removed while other entries remain leaves the snapshot holding (stricter wins; the key, and so memory scoping, is unchanged). Removing every entry turns per-folder constraints off as a whole, taints included, since every check is gated on any constraint existing; the stamps stay stored and hold again once any entry is configured. Nothing clears a stamp but a new chat;
 - several folders give the intersection of their lists; a Fusion worker's read taints its orchestrator's turn.
 
 A refused call then reads `this session read files from <folder>, which is restricted to: <ids>`. A read the read scope refuses still taints (fail closed). A plain relative shell path reached by `cd` or a script, or a computed one, is not detected, nor what `skill.run_script` reads. Memory written after the taint is scoped to the tainted policy.

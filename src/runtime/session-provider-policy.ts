@@ -56,6 +56,30 @@ function narrow(a: ProviderPolicy | undefined, b: ProviderPolicy | undefined): P
   return intersectProviderPolicies(a, b);
 }
 
+/**
+ * A stored stamp (read taint, a moved chat's carried restriction) is a
+ * snapshot of the entries named in its key. Each entry still configured
+ * narrows it live, so a later tightening reaches the chat; a loosened or
+ * removed entry leaves the snapshot holding (stricter wins). The key is
+ * kept, so memory scoping is unchanged.
+ */
+function withLiveEntries(taint: ProviderPolicy, config: Pick<AtomicAgentConfig, "projects">): ProviderPolicy {
+  const constraints = config.projects.constraints ?? {};
+  let providers = taint.allowedProviders;
+  let egress = taint.allowedEgress;
+  let hosts = taint.allowedProviderHosts;
+  for (const part of new Set(taint.key.split(" + "))) {
+    const entry = Object.prototype.hasOwnProperty.call(constraints, part) ? constraints[part] : undefined;
+    if (entry === undefined) continue;
+    providers = providers.filter((id) => entry.allowedProviders.includes(id));
+    egress = egress.filter((cls) => (entry.allowedEgress ?? []).includes(cls));
+    hosts = hosts.filter((host) => (entry.allowedProviderHosts ?? []).includes(host));
+  }
+  if (providers.length === taint.allowedProviders.length && egress.length === taint.allowedEgress.length
+    && hosts.length === taint.allowedProviderHosts.length) return taint;
+  return makeProviderPolicy({ ...taint, allowedProviders: providers, allowedEgress: egress, allowedProviderHosts: hosts });
+}
+
 export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const constraintsActive = (): boolean => hasProjectConstraints(deps.readConfig());
   const forWorkingDir = (workingDir: string): ProviderPolicy | undefined =>
@@ -64,7 +88,8 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     // Read taint (session-read-taint.ts): what the session read inside a
     // constrained folder holds on top of its own folder's policy.
     const own = ownPolicy(session);
-    const taint = readTaintOf(session.metadata);
+    const stored = readTaintOf(session.metadata);
+    const taint = stored === undefined ? undefined : withLiveEntries(stored, deps.readConfig());
     if (taint === undefined) return own;
     return own === undefined ? taint : intersectProviderPolicies(own, taint);
   };

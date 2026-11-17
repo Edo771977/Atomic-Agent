@@ -257,6 +257,30 @@ describe("moveSessionFolder (issue #68)", () => {
   });
 });
 
+describe("a stored stamp follows its constraint entries live (issue #68 review)", () => {
+  it("a tightened entry reaches a moved chat; a loosened or removed one leaves the snapshot holding", () => {
+    const config: { projects: { roots: never[]; constraints: Record<string, { allowedProviders: string[]; allowedEgress?: string[] }> } } = {
+      projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama", "openai"], allowedEgress: ["web"] }, "/work/z": { allowedProviders: [] } } },
+    };
+    const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+    const moved = moveSessionFolder(policy, { id: "s", workingDir: "/work/a" }, "/free").session;
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    // Tightened: the live entry narrows the snapshot.
+    config.projects.constraints["/work/a"] = { allowedProviders: ["local-llama"], allowedEgress: [] };
+    expect(policy.forSession(moved)?.allows("openai")).toBe(false);
+    expect(policy.forSession(moved)?.allowsEgress("web")).toBe(false);
+    expect(policy.forSession(moved)?.key).toBe("/work/a");
+    // Loosened: the snapshot still holds (stricter wins).
+    config.projects.constraints["/work/a"] = { allowedProviders: ["local-llama", "openai", "anthropic"], allowedEgress: ["web", "http"] };
+    expect(policy.forSession(moved)?.allows("anthropic")).toBe(false);
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    // Removed (other entries remain): the snapshot still holds.
+    delete config.projects.constraints["/work/a"];
+    expect(policy.forSession(moved)?.allows("openai")).toBe(true);
+    expect(policy.forSession(moved)?.allows("anthropic")).toBe(false);
+  });
+});
+
 describe("retrySessionSeed (issue #68)", () => {
   const config = { projects: { roots: [], constraints: { "/work/a": { allowedProviders: ["local-llama"] } } } };
   const policy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
