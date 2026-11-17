@@ -264,7 +264,9 @@ TUI's `ctrl+r` left out of the hint (`/runmode local` works here). A frame
 without `advice`, and the 400 a turn's own provider gets before the stream
 (the message agent-client's `httpErrorDetail` shows), are read from the
 agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
-be used here." (`constraintTurnLine` in renderer.js, ahead of every other
+be used here." (a policy of several folders, keyed "A + B", reads "The
+folders A and B are"; a shell command refused for running a network client
+reads "… runs curl, which could send content off this machine.") (`constraintTurnLine` in renderer.js, ahead of every other
 wording of a failed turn). A chain that went on past the refused link
 (`fallback_failures` in the frame) ended on a later one: when the verdict
 says that was the managed local model with its engine gone

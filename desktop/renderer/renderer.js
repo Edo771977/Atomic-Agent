@@ -11204,10 +11204,19 @@ function constraintRefusalWords(ev, p) {
   const read = /\bthis session read files from (.+?), which (is|are) restricted to: ([^;]+?)(?:;|$)/.exec(said);
   if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
   const folder = /\bfolder (.+?) is restricted to: ([^;]+?)(?:;|$)/.exec(said);
-  if (folder) return 'Turn stopped. The folder ' + folder[1] + ' is restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
+  if (folder) return 'Turn stopped. ' + constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
   const egress = /\bfolder (.+?) is restricted: (\S+) would send content off this machine\b/.exec(said);
-  if (egress) return 'Turn stopped. The folder ' + egress[1] + ' is restricted: ' + egress[2] + " can't send content off this machine here.";
+  if (egress) return 'Turn stopped. ' + constraintFolderWords(egress[1]) + ' restricted: ' + egress[2] + " can't send content off this machine here.";
+  // Review of #67: a shell command that runs a network client (tool-egress.ts ShellNetworkNotAllowedError).
+  const shell = /\bfolder (.+?) is restricted: (\S+) runs (\S+), a network client\b/.exec(said);
+  if (shell) return 'Turn stopped. ' + constraintFolderWords(shell[1]) + ' restricted: ' + shell[2] + ' runs ' + shell[3] + ', which could send content off this machine.';
   return '';
+}
+/** "The folder A is" / "The folders A and B are": a policy of several folders is keyed "A + B" (provider-policy.ts intersectProviderPolicies). */
+function constraintFolderWords(key) {
+  const parts = String(key).split(' + ').filter(Boolean);
+  if (parts.length < 2) return 'The folder ' + key + ' is';
+  return 'The folders ' + parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] + ' are';
 }
 /** The agent's offline-mode sentence out of a failed turn, or null. */
 function offlineTurnLine(ev) {
