@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AtomicAgentConfig } from "../config/index.js";
+import { makeProviderPolicy } from "../llm/provider-policy.js";
 import { byteEstimateCounter } from "../llm/token-counter.js";
 import { createCompactionTokenCounter } from "./compaction-token-counter.js";
 
@@ -34,5 +35,30 @@ describe("createCompactionTokenCounter (ATO-656)", () => {
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:18080/tokenize");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer entry-key");
+  });
+
+  it("sends no transcript to a tokenizer on another computer the session's folder does not list (issue #60)", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ tokens: [1] }), { status: 200 }));
+    const folder = makeProviderPolicy({ key: "/work/client", allowedProviders: ["box"], matchedDir: "/work/client" });
+    const counterFor = createCompactionTokenCounter({
+      config: () => config("http://192.168.1.20:8080"),
+      route: () => ({ providerId: "box", local: true }),
+      policyFor: () => folder,
+      fetch,
+    });
+    const counter = counterFor("s")!;
+    expect(counter).toBe(byteEstimateCounter);
+    expect(await counter.count("secret transcript")).toBe(5);
+    expect(fetch).not.toHaveBeenCalled();
+    // Listed: the exact count goes there.
+    const listed = makeProviderPolicy({ ...folder, allowedProviderHosts: ["192.168.1.20"] });
+    const optedIn = createCompactionTokenCounter({
+      config: () => config("http://192.168.1.20:8080"),
+      route: () => ({ providerId: "box", local: true }),
+      policyFor: () => listed,
+      fetch,
+    });
+    expect(await optedIn("s")!.count("a")).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
