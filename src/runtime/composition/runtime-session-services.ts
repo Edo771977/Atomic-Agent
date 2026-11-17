@@ -11,7 +11,6 @@ import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-c
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
-import { TaskStore } from "../../tasks/task-store.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
 
 /** The fusion project store every runtime surface shares (issue #109). */
@@ -65,22 +64,15 @@ export function prepareRuntimeSessionStore(
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  // An incognito chat (ATO-586) whose process died before closing it is
-  // deleted now, trace and all. Ones a live window still holds stay.
-  // The task queue is built later; it is opened here only when there
-  // is an orphan's task to drop, and closed again.
-  let tasks: TaskStore | null = null;
-  try {
-    const orphans = sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
-      new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
-      { removeForSession: (id) => (tasks ??= new TaskStore({ dbFile: config.paths.tasksDbFile })).removeForSession(id) });
-    // The runtime delete hook is installed after startup recovery.
-    for (const id of orphans) {
-      outputSpill.removeSession(id);
-      void fileCheckpoints.removeSession(id).catch(() => undefined);
-    }
-  } finally {
-    (tasks as TaskStore | null)?.close();
+  // At boot, remove abandoned incognito chats and the state they own.
+  const orphans = sweepOrphanIncognitoSessions(
+    sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
+    new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
+  );
+  // The runtime delete hook is installed after startup recovery.
+  for (const id of orphans) {
+    outputSpill.removeSession(id);
+    void fileCheckpoints.removeSession(id).catch(() => undefined);
   }
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,

@@ -46,7 +46,7 @@ describe("runtime session phases", () => {
     tasks.create({ sessionId: "s-dead", userMessage: "secret follow-up", origin: "http", maxAttempts: 1 });
     tasks.create({ sessionId: "s-plain", userMessage: "ordinary", origin: "http", maxAttempts: 1 });
     tasks.close();
-    vi.spyOn(SessionStore.prototype, "sweepOrphanIncognito").mockReturnValue(["s-dead"]);
+    vi.spyOn(SessionStore.prototype, "sweepOrphanIncognito").mockImplementation((beforeDelete) => { beforeDelete?.("s-dead"); return ["s-dead"]; });
     open();
     const after = new TaskStore({ dbFile: config.paths.tasksDbFile });
     try {

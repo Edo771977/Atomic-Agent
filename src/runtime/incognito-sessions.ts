@@ -1,10 +1,10 @@
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
 import { isFusionWorkerSessionId } from "../session/fusion-worker-session.js";
 import { isIncognitoSession, type IncognitoMark } from "../session/incognito.js";
 import type { SessionStore } from "../session/session-store.js";
-import type { TaskStore } from "../tasks/task-store.js";
+import { TaskStore } from "../tasks/task-store.js";
 import type { FusionRunStore } from "../tools/fusion/run-checkpoint.js";
 import { traceFilePath } from "../tracing/trace/trace-sink.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
@@ -38,35 +38,68 @@ export function removeIncognitoTrace(
 }
 
 /**
+ * The tasks a dead process's incognito chat left in `tasks.sqlite`
+ * (ATO-1547), dropped the way closing the chat drops them
+ * (`TaskStore.removeForSession`). The task queue is built later in boot,
+ * so this opens the file itself, once, and only when there is a chat to
+ * sweep. No file means no tasks. Throws when the file cannot be opened or
+ * written, so the sweep keeps that chat for the next start.
+ */
+export function createIncognitoTaskSweeper(
+  tasksDbFile: string | null | undefined,
+): { removeTasks: (sessionId: string) => void; close: () => void } {
+  let store: TaskStore | null = null;
+  return {
+    removeTasks: (sessionId) => {
+      if (!tasksDbFile || !existsSync(tasksDbFile)) return;
+      store ??= new TaskStore({ dbFile: tasksDbFile });
+      store.removeForSession(sessionId);
+    },
+    close: () => {
+      try {
+        store?.close();
+      } catch {
+        // Nothing to do with a handle that will not close.
+      }
+      store = null;
+    },
+  };
+}
+
+/**
  * The boot half: delete the incognito chats a dead process left behind,
- * with their trace files, fusion checkpoints and queued tasks. Never throws — a sweep that fails leaves the
- * rows for the next start and costs the user nothing else.
+ * with their trace files and, given `tasksDbFile`, the tasks bound to
+ * them (ATO-1547). Never throws — a sweep that fails leaves the rows for
+ * the next start and costs the user nothing else.
  */
 export function sweepOrphanIncognitoSessions(
   sessionStore: Pick<SessionStore, "sweepOrphanIncognito">,
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
+  tasksDbFile?: string | null,
   fusionRuns?: Pick<FusionRunStore, "removeForSession">,
-  taskStore?: Pick<TaskStore, "removeForSession">,
 ): string[] {
+  const tasks = createIncognitoTaskSweeper(tasksDbFile);
+  let taskError: unknown = null;
   try {
-    const ids = sessionStore.sweepOrphanIncognito();
-    for (const id of ids) {
-      removeIncognitoTrace(tracesDir, id);
-      fusionRuns?.removeForSession(id);
-      // Its queued tasks would otherwise run later in an ordinary chat.
+    const ids = sessionStore.sweepOrphanIncognito((id) => {
       try {
-        taskStore?.removeForSession(id);
+        tasks.removeTasks(id);
+        fusionRuns?.removeForSession(id);
       } catch (err) {
-        logger.warn("could not drop the tasks of an incognito chat left by a stopped agent", {
-          sessionId: id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        taskError ??= err;
+        throw err;
       }
-    }
+    });
+    for (const id of ids) removeIncognitoTrace(tracesDir, id);
     if (ids.length > 0) {
       logger.info("deleted incognito chats left by a stopped agent", {
         count: ids.length,
+      });
+    }
+    if (taskError !== null) {
+      logger.warn("could not drop the tasks of an incognito chat left by a stopped agent; the next start will", {
+        error: taskError instanceof Error ? taskError.message : String(taskError),
       });
     }
     return ids;
@@ -75,6 +108,8 @@ export function sweepOrphanIncognitoSessions(
       error: err instanceof Error ? err.message : String(err),
     });
     return [];
+  } finally {
+    tasks.close();
   }
 }
 
