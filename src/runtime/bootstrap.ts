@@ -1133,6 +1133,7 @@ export async function createAgentRuntime(
 
   const mailTrigger = createRuntimeMailTrigger({
     config, taskRunner, taskStore, sessionStore, createSession, webhookSessionStore, logger,
+    providerPolicy: sessionProviderPolicy,
   });
   const scheduler = createRuntimeScheduler({
     config, taskRunner, logger, metrics, resolveTelegram: () => telegramChannelForShutdown,

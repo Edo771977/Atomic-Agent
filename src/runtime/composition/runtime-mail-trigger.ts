@@ -8,6 +8,7 @@ import type { SessionStore } from "../../session/index.js";
 import type { TaskRunner, TaskStore } from "../../tasks/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { AgentRuntime } from "../runtime-contract.js";
+import { egressRefusal, type SessionProviderPolicy } from "../session-provider-policy.js";
 
 /**
  * The mail trigger (ATO-601) as a scheduler sidecar, or `null` when no
@@ -25,6 +26,8 @@ export function createRuntimeMailTrigger(args: {
   logger: StructuredLogger;
   /** Test seam. */
   mail?: ConstructorParameters<typeof AtomicMailTrigger>[0]["mail"];
+  /** Per-folder egress (issue #33): the reply needs "mail" in the session's allowedEgress. */
+  providerPolicy?: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">;
 }): SchedulerSidecar | null {
   const { config, taskRunner, taskStore, sessionStore, createSession, webhookSessionStore, logger } = args;
   const hasMailBinding = Object.values(config.webhooks).some((w) => w.source === "atomic-mail");
@@ -45,6 +48,7 @@ export function createRuntimeMailTrigger(args: {
     resolveSessionId: (name, cfg) =>
       resolveWebhookSessionId(cfg, name, { createSession, webhookSessionStore }),
     getTask: (id) => taskStore.get(id),
+    ...(args.providerPolicy === undefined ? {} : { replyRefusal: mailReplyRefusal(args.providerPolicy) }),
     readReplyText: (sessionId) => {
       const session = sessionStore.load(sessionId);
       return session ? (previousReplyText(session.turns) ?? null) : null;
@@ -52,4 +56,21 @@ export function createRuntimeMailTrigger(args: {
     logger,
   });
   return { tick: (now, signal) => trigger.tick(now, signal) };
+}
+
+/**
+ * The mail reply is content leaving this machine by mail (issue #33):
+ * refused like `os.email.send` for a session whose effective policy lacks
+ * "mail". A task without a session while constraints exist is refused
+ * too (fail closed), like a task report.
+ */
+function mailReplyRefusal(
+  policy: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">,
+): (sessionId: string | null) => string | null {
+  return (sessionId) => {
+    if (sessionId === null) {
+      return policy.constraintsActive() ? "provider constraints are configured and the task has no session" : null;
+    }
+    return egressRefusal(policy, sessionId, "mail");
+  };
 }

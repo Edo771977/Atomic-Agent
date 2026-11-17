@@ -29,6 +29,6 @@ Checks: `npx vitest run src/atomic-mail` when tests are present; `npm run lint`;
 - The first poll marks mail already in the inbox as seen; old mail is never replayed. State: `<stateDir>/atomic-mail-trigger.json`.
 - The template sees only `{{body.from}}` and `{{body.receivedAt}}`. Subject and body follow it inside an untrusted-content fence.
 - At most 5 tasks per poll; the binding is not reachable over `POST /api/webhooks/<name>`.
-- `replyByEmail: true` (default `false`) mails the agent's final answer back to the sender when the task ends. There is no prompt per reply: turning it on is the operator's consent.
+- `replyByEmail: true` (default `false`) mails the agent's final answer back to the sender when the task ends. There is no prompt per reply: turning it on is the operator's consent. Under per-folder constraints (issue #33) the answer of a session whose effective policy lacks the `mail` egress class (or a task without a session while constraints exist) is replaced by a fixed line saying it stays on the computer.
 
 Not covered yet: IMAP or Gmail for the operator's own mailbox (needs new dependencies), JMAP push instead of polling.

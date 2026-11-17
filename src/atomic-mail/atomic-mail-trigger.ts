@@ -54,6 +54,9 @@ export const INBOX_READ_LIMIT = 50;
 export const REPLY_CHECK_MS = 15_000;
 /** A reply not sent within this window is dropped. */
 export const REPLY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** The whole body of a reply whose session may not send its content by mail. */
+export const MAIL_REPLY_WITHHELD =
+  "Atomic Agent handled your message, but its answer stays on the computer: the folder is restricted.";
 
 export interface MailTriggerTask {
   status: TaskStatus;
@@ -74,6 +77,13 @@ export interface AtomicMailTriggerOptions {
   getTask: (id: string) => MailTriggerTask | null;
   /** The agent's last answer in a session, for the reply. */
   readReplyText: (sessionId: string) => string | null;
+  /**
+   * Asked before each reply (issue #33): a reason the task's session may
+   * not send its content by mail (a constrained folder without the
+   * "mail" egress class, or a read taint), or `null`. A refused reply
+   * carries only {@link MAIL_REPLY_WITHHELD}. Absent: never refused.
+   */
+  replyRefusal?: (sessionId: string | null) => string | null;
   logger?: Pick<StructuredLogger, "info" | "warn" | "debug">;
 }
 
@@ -214,6 +224,17 @@ export class AtomicMailTrigger {
     return null;
   }
 
+  /** `replyRefusal`'s answer; a throwing check refuses (fail closed). */
+  private replyRefused(sessionId: string | null): string | null {
+    const check = this.options.replyRefusal;
+    if (check === undefined) return null;
+    try {
+      return check(sessionId);
+    } catch (err) {
+      return `mail check failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   private async sendReplies(now: number, signal: AbortSignal | undefined): Promise<void> {
     const state = readMailTriggerState(this.statePath);
     if (state.pendingReplies.length === 0) return;
@@ -227,11 +248,20 @@ export class AtomicMailTrigger {
         keep.push(reply);
         continue;
       }
-      const replyText =
-        task.status === "completed" && task.sessionId
+      const refused = this.replyRefused(task.sessionId);
+      const replyText = refused !== null
+        ? MAIL_REPLY_WITHHELD
+        : task.status === "completed" && task.sessionId
           ? this.options.readReplyText(task.sessionId)
           : null;
-      const mail = buildMailReply({ subject: reply.subject, outcome: task.status, replyText });
+      if (refused !== null) {
+        this.options.logger?.info("mail trigger: answer withheld", { taskId: reply.taskId, reason: refused });
+      }
+      const mail = buildMailReply({
+        subject: reply.subject,
+        outcome: refused !== null ? "completed" : task.status,
+        replyText,
+      });
       try {
         await this.options.mail.send({ to: reply.to, ...mail }, signal ? { signal } : undefined);
       } catch (err) {

@@ -305,6 +305,39 @@ describe("AtomicMailTrigger (ATO-601)", () => {
       expect(send).not.toHaveBeenCalled();
     });
 
+    it("withholds the answer of a session whose folder may not send mail (issue #33)", async () => {
+      const refusals: Array<string | null> = [];
+      const guarded = new AtomicMailTrigger({
+        stateDir,
+        mail: { readiness: () => readiness, listInboxForTrigger, send },
+        bindings: () => bindings,
+        createTask: (input) => {
+          created.push(input);
+          const id = `t-${created.length}`;
+          tasks.set(id, { status: "pending", sessionId: null });
+          return { id };
+        },
+        resolveSessionId: () => null,
+        getTask: (id) => tasks.get(id) ?? null,
+        readReplyText: (sessionId) => `the contract of ${sessionId} says`,
+        replyRefusal: (sessionId) => {
+          refusals.push(sessionId);
+          return "folder /clienti/acme is restricted";
+        },
+        logger: { info: logInfo, warn: vi.fn(), debug: vi.fn() },
+      });
+      await guarded.tick(0);
+      arrive(mail("q", { subject: "Question" }));
+      await guarded.tick(60_000);
+      tasks.set("t-1", { status: "completed", sessionId: "s-9" });
+      await guarded.tick(60_000 + REPLY_CHECK_MS);
+      expect(refusals).toEqual(["s-9"]);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]![0].subject).toBe("Re: Question");
+      expect(send.mock.calls[0]![0].text).not.toContain("contract");
+      expect(send.mock.calls[0]![0].text).toContain("restricted");
+    });
+
     it("never replies when replyByEmail is off", async () => {
       bindings = { inbox: binding({ replyByEmail: false }) };
       await trigger.tick(0);
