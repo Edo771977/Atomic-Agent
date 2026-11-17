@@ -22,6 +22,7 @@ import {
 } from "../import/index.js";
 import { maskSecrets, type KnownSecret } from "../error-reporting/secret-detector.js";
 import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { createSessionProviderPolicy, moveSessionFolder } from "../runtime/session-provider-policy.js";
 import { isIncognitoSession, SessionStore } from "../session/index.js";
 import { writeExportFile } from "./export-command.js";
 
@@ -411,11 +412,33 @@ export async function handoffCommand(
   }
 
   const workingDir = parsed.cwd ?? usableDir(transcript.candidate.cwd) ?? process.cwd();
-  const built = buildHandoffSession({
+  // Issue #68: a transcript holds what its folder's constraint governs. While
+  // constraints exist, the "newest elsewhere" fallback may not carry one into
+  // another folder unpicked; a named one keeps its folder's restriction there.
+  const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: () => null });
+  const transcriptDir = transcript.candidate.cwd;
+  const moves = transcriptDir === null || resolve(transcriptDir) !== resolve(workingDir);
+  if (policy.constraintsActive() && moves && parsed.session === "latest") {
+    const message = `no ${label} session in ${resolve(workingDir)}; the newest one (${transcript.candidate.id}) is from ` +
+      `${transcriptDir ?? "an unknown folder"}. Folder constraints are configured, so name it with --session ${transcript.candidate.id} to continue it here`;
+    if (parsed.json) process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
+    else process.stderr.write(`${message}\n`);
+    return 1;
+  }
+  const unstamped = buildHandoffSession({
     transcript,
     workingDir,
     ...(parsed.note !== null ? { note: parsed.note } : {}),
   });
+  const built = transcriptDir === null || !moves
+    ? unstamped
+    : {
+      ...unstamped,
+      session: {
+        ...unstamped.session,
+        metadata: moveSessionFolder(policy, { id: unstamped.session.id, workingDir: transcriptDir, metadata: unstamped.session.metadata }, workingDir).session.metadata,
+      },
+    };
 
   const config = getConfig();
   const windowTokens = parsed.context ?? handoffWindowFor(config);
