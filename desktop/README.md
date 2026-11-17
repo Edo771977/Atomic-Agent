@@ -423,7 +423,9 @@ Real, driven by the running agent:
   made the project: New chat, and that chat's first turn opens in the project
   (its folder and instructions; a chat folder files the chat). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
-  opens in the project. As with New
+  opens in the project. Until that turn, the model chip and the switcher read
+  and set the project folder's cloud model (ATO-1148), the folder that turn
+  runs in. As with New
   chat, a turn running in the chat on screen keeps running there, and in the
   narrow window's drawer the click closes the drawer. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail

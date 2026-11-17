@@ -10363,7 +10363,7 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
-  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session)).then((res) => {
+  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject)).then((res) => {
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -19186,9 +19186,13 @@ function selActiveProviderId() {
 /* ATO-1148: the project cloud model a turn of this chat runs on, or null
    for the agent's own (renderer/project-model.js). The chat's folder is its
    own when the window knows it, else the window's (a new chat opens there). */
-function projectTurnModel(sessionId) {
+/* `pid`: the project a new chat's turn carries (projectForNewTurn); left
+   out, the one the new chat on screen is marked for. A new chat in a project
+   runs in the project's folder (main), so its model is that folder's. */
+function projectTurnModel(sessionId, pid) {
   if (typeof ProjectModels === 'undefined' || !BR) return null;
-  return ProjectModels.turnModel(ProjectModels.folderOf(sessionId || null, workingDir()), llmProviders(), liveBackend());
+  const project = sessionId || typeof projectTurnFolder !== 'function' ? '' : projectTurnFolder(pid === undefined ? projectMarked() : pid);
+  return ProjectModels.turnModel(project || ProjectModels.folderOf(sessionId || null, workingDir()), llmProviders(), liveBackend());
 }
 /* ATO-1148: a cloud model picked in the switcher is remembered for the
    chat's folder, and no global switch runs: other chats keep their model and
@@ -19197,7 +19201,9 @@ function projectTurnModel(sessionId) {
 async function pickProjectModel(providerId, model) {
   if (typeof ProjectModels === 'undefined' || !BR || !BR.setProjectModel || !ProjectModels.state.loaded || ProjectModels.state.remote) return false;
   if (liveBackend() !== 'cloud' || !projectCloudEntry(llmProvider(providerId))) return false;
-  const folder = ProjectModels.folderOf(S.agentSession || null, workingDir());
+  // A new chat marked for a project (its + on the sidebar) picks for that project's folder, where its turn runs.
+  const folder = (!S.agentSession && typeof projectTurnFolder === 'function' && projectTurnFolder(projectMarked()))
+    || ProjectModels.folderOf(S.agentSession || null, workingDir());
   if (!folder) return false;
   closeSelector();
   const res = await ProjectModels.set(BR, folder, {providerId, model});

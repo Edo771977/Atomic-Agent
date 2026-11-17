@@ -202,3 +202,24 @@ test("a refused first turn gives the project mark back, so the retry still opens
   vm.runInContext("projectNewTurnFailed('f1', ['another chat'])", c);
   assert.equal(vm.runInContext("projectForNewTurn()", c), undefined);
 });
+
+// Review of #62, item 2: a new chat's first turn in a store project takes that project's cloud model, not the window folder's.
+test("a new chat in a store project looks its cloud model up by the project's folder", () => {
+  const c = load();
+  const src = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const at = src.indexOf("\nfunction projectTurnModel(");
+  assert.ok(at >= 0);
+  vm.runInContext(src.slice(at + 1, src.indexOf("\n}\n", at) + 2), c);
+  vm.runInContext(`
+    ProjectModels = {folderOf: (sid, win) => (sid && sid === 'sOld' ? '/src/old' : win || ''), turnModel: (folder) => folder ? 'model of ' + folder : null};
+    workingDir = () => '/window'; llmProviders = () => []; liveBackend = () => 'cloud';
+    PROJECTS.state = projectsCoerce({projects: [{id: 'paaaaaa', name: 'app', folder: '/src/app'}]});
+  `, c);
+  assert.equal(vm.runInContext("projectTurnModel(undefined, 'paaaaaa')", c), "model of /src/app", "the turn's project");
+  assert.equal(vm.runInContext("projectTurnModel('sOld', 'paaaaaa')", c), "model of /src/old", "a stored chat keeps its own");
+  assert.equal(vm.runInContext("projectTurnModel(undefined, undefined)", c), "model of /window");
+  // While the new chat is marked for the project (before its first turn), the chip reads the same model.
+  vm.runInContext("projectAct('pchat', 'paaaaaa')", c);
+  assert.equal(vm.runInContext("projectTurnModel(null)", c), "model of /src/app");
+  assert.equal(vm.runInContext("PROJECTS.newFor && PROJECTS.newFor.id", c), "paaaaaa", "looking does not use the mark up");
+});

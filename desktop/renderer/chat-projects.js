@@ -129,11 +129,27 @@ function projectFromSave(res) {
    chat or opening another chat since gives that chat a new transcript
    (S.log), so the mark is dropped. Read once. */
 function projectForNewTurn() {
-  const n = PROJECTS.newFor;
+  const id = projectMarked();
   PROJECTS.newFor = null;
+  return id;
+}
+
+/* The project the chat on screen is marked for, without using the mark up
+   (the model chip, the empty chat's line), or undefined. */
+function projectMarked() {
+  const n = PROJECTS.newFor;
   if (!n || typeof S === 'undefined' || S.agentSession || S.log !== n.log) return undefined;
   if (PROJECTS.state.projects.some((p) => p.id === n.id)) return n.id;
   return typeof FOLDERS !== 'undefined' && folderById(FOLDERS.state, n.id) ? n.id : undefined;
+}
+
+/* The folder a new chat's first turn in project `pid` runs in, as main
+   picks it (main.ts startTurn), or '' for the window's: a store project's
+   folder on disk. */
+function projectTurnFolder(pid) {
+  if (typeof pid !== 'string' || !pid) return '';
+  const p = pid[0] === 'p' ? PROJECTS.state.projects.find((x) => x.id === pid) : null;
+  return p && p.folder ? p.folder : '';
 }
 
 /* A first turn main refused ("could not start the turn"): the chat is still
