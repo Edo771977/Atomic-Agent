@@ -109,6 +109,21 @@ describe("atag doctor (ATO-577)", () => {
     expect(out).not.toMatch(/provider "(gpu|groq|local-llama)", whose endpoint/);
   });
 
+  it("judges a managed local model at the address the runtime uses, not the stored url (issue #60)", async () => {
+    const tree = structuredClone(USER_CONFIG_DEFAULTS) as Record<string, any>;
+    delete tree.llm;
+    tree.localModels = { ...tree.localModels, mode: "managed", url: "http://192.168.1.20:8080" };
+    tree.projects = { roots: [], constraints: { "/work/client": { allowedProviders: ["local-llama"] } } };
+    save(tree);
+    expect(await run([])).toBe(0);
+    expect(out).not.toMatch(/whose endpoint/);
+    tree.localModels = { ...tree.localModels, mode: "external" };
+    save(tree);
+    out = "";
+    expect(await run([])).toBe(0);
+    expect(out).toMatch(/allows provider "local-llama", whose endpoint 192\.168\.1\.20 is another machine/);
+  });
+
   it("a valid config is ok and exits 0", async () => {
     save(USER_CONFIG_DEFAULTS);
     expect(await run([])).toBe(0);
