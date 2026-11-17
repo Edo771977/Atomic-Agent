@@ -35,7 +35,7 @@ function window(over = {}) {
   for (const f of ["chat-list.js", "chat-folders.js", "chat-projects.js"]) vm.runInContext(src("../renderer/" + f), c);
   vm.runInContext("PROJECTS.state = {projects: [{id: 'pris1234', name: 'Riservata', folder: " + JSON.stringify(RIS)
     + ", instructions: '', createdAt: 1}], chats: {'s-1': 'pris1234'}};", c);
-  for (const n of ["wsName", "workingDir", "workingDirLabel", "screenTurnFolder", "chatWorkingDir", "workspaceChipInfo", "workspaceChipHTML"]) {
+  for (const n of ["wsName", "workingDir", "workingDirLabel", "screenTurnFolder", "chatWorkingDir", "workspaceChipTarget", "workspaceChipInfo", "workspaceChipHTML"]) {
     const s = fn(n); if (s) vm.runInContext(s, c);
   }
   return c;
@@ -100,4 +100,27 @@ test("the chat's file list resolves paths against the open chat's folder, else t
   c.chatWorkingDir = () => "";
   c.chatFilesNow();
   assert.deepEqual(seen, [RIS, EIS]);
+});
+
+/* Review of #67 (third round), item 5: the tooltip is decided by the same
+   session the click sends (workspaceChipTarget), so the two cannot disagree. */
+test("a named chat whose folder is not known yet says the click moves it, as the click does", () => {
+  const c = window();
+  c.S.agentSession = "s-new"; c.S.sessionId = "s-new";
+  assert.equal(c.workspaceChipTarget(), "s-new");
+  assert.equal(c.workspaceChipInfo().kind, "chat");
+  assert.match(c.workspaceChipHTML(), /title="This chat's folder is not known yet\. Choosing a folder moves this chat there; a restricted chat keeps its restriction\."/);
+  // A cloud agent's chat: the click sends no session and opens a new chat.
+  c.SK.workingDir = "/remote";
+  c.ProjectModels.state.chats["s-new"] = "/remote/app";
+  assert.equal(c.workspaceChipTarget(), null);
+  assert.match(c.workspaceChipHTML(), /title="This chat works in \/remote\/app\. Choosing a folder opens a new chat there\."/);
+  // No chat: the click sends nothing and changes the folder for new chats.
+  const n = window();
+  assert.equal(n.workspaceChipTarget(), null);
+  assert.equal(n.workspaceChipInfo().kind, "new");
+});
+
+test("the chip's click sends workspaceChipTarget()", () => {
+  assert.match(renderer, /BR\.chooseWorkspace\(workspaceChipTarget\(\)\)\.then\(applyWorkspaceChoice\)/);
 });

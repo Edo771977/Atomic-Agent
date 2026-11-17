@@ -110,7 +110,10 @@ it or the chip moved it, else its list row's `workingDir`, else its
 project's folder; the tooltip says "This chat works in <path>" with its
 project, and that choosing a folder moves this chat there and that a
 restricted chat keeps its restriction (core issue #68) (a cloud chat: opens
-a new chat there). With no chat on screen or a new chat it names the folder
+a new chat there). The tooltip is decided by the same session the click
+sends (`workspaceChipTarget`: the open chat's, none in Studio or for a cloud
+agent), so a named chat whose folder is not known yet says "This chat's
+folder is not known yet" and that choosing one moves it. With no chat on screen or a new chat it names the folder
 for new chats; a new chat marked for a project names the project folder it
 will open in. A new chat's first turn keeps the folder it runs in (the
 project's, else the window's, `firstTurnFolder`) in its `LIVE_TURNS` record,

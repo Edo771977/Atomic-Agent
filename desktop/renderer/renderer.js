@@ -2702,16 +2702,23 @@ function chatWorkingDir() {
 /* Issue #67: what the sidebar's workspace chip names. `kind`: 'chat' (the open
    chat's own folder), 'project-new' (a new chat marked for a project: the
    folder it opens in) or 'new' (the folder for new chats, workingDir()). */
+/* Review of #67: the session the chip's click hands app:chooseWorkspace (the
+   chat it moves), or null (the folder for new chats; a cloud agent's chat
+   opens a new chat there). The tooltip is decided from the same answer. */
+function workspaceChipTarget() {
+  return SK.workingDir ? null : (S.room === 'chat' && S.agentSession) || null;
+}
 function workspaceChipInfo() {
   const own = chatWorkingDir();
-  // Review of #67: a new chat's first turn on screen, no session yet: the click changes the folder for new chats.
-  if (own && !S.agentSession) return {kind: 'first-turn', dir: own, project: ''};
-  if (own) {
+  const target = workspaceChipTarget();
+  if (target || (own && S.agentSession)) {
     const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[S.agentSession] : null;
     const folder = !pid && typeof FOLDERS !== 'undefined' && typeof folderOf === 'function' ? folderOf(FOLDERS.state, S.agentSession) : null;
     const p = pid && typeof projectAny === 'function' ? projectAny(pid) : folder;
-    return {kind: 'chat', dir: own, project: p ? p.name : ''};
+    return {kind: target ? 'chat' : 'chat-cloud', dir: own, project: p ? p.name : ''};
   }
+  // A new chat's first turn on screen, no session yet: the click changes the folder for new chats.
+  if (own) return {kind: 'first-turn', dir: own, project: ''};
   const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
   if (mark && mark.folder) return {kind: 'project-new', dir: mark.folder, project: mark.name};
   return {kind: 'new', dir: workingDir(), project: ''};
@@ -2722,15 +2729,15 @@ function workspaceChipInfo() {
 function workspaceChipHTML() {
   if (!BR) return '<button class="wschip" data-act="workspace" title="~/Teletubbies"><span>' + esc(wsName('~/Teletubbies')) + '</span>' + ic('chevD') + '</button>';
   const w = workspaceChipInfo();
-  const tip = w.kind === 'chat'
-    ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. '
-      + (SK.workingDir ? 'Choosing a folder opens a new chat there.' : 'Choosing a folder moves this chat there; a restricted chat keeps its restriction.')
+  const where = w.dir ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. ' : "This chat's folder is not known yet. ";
+  const tip = w.kind === 'chat' ? where + 'Choosing a folder moves this chat there; a restricted chat keeps its restriction.'
+    : w.kind === 'chat-cloud' ? where + 'Choosing a folder opens a new chat there.'
     : w.kind === 'first-turn'
       ? 'This new chat works in ' + w.dir + '. Choosing a folder changes where other new chats open.'
     : w.kind === 'project-new'
       ? 'This new chat in ' + w.project + ' opens in ' + w.dir + '. Choosing a folder changes where other new chats open.'
       : w.dir ? 'New chats open in ' + w.dir + '. Choose another folder.' : 'Choose the folder new chats open in.';
-  return '<button class="wschip" data-act="workspace" data-kind="' + w.kind + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"><span>' + esc(wsName(w.dir)) + '</span>' + ic('chevD') + '</button>';
+  return '<button class="wschip" data-act="workspace" data-kind="' + w.kind + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"><span>' + esc(w.dir ? wsName(w.dir) : 'This chat') + '</span>' + ic('chevD') + '</button>';
 }
 function workingDirLabel(p) {
   const s = String(p || '').replace(IS_WIN ? /(?<=.)[\\/]+$/ : /(?<=.)\/+$/, '');
@@ -12909,7 +12916,7 @@ if (BR) {
          turn in the chat on screen holds the picker (main refuses again if one
          began meanwhile). A cloud chat keeps its folder and a new chat opens. */
       if (S.busy) { restartRefusedToast({here:true, title:''}); return; }
-      BR.chooseWorkspace(SK.workingDir ? null : (S.agentSession || null)).then(applyWorkspaceChoice);
+      BR.chooseWorkspace(workspaceChipTarget()).then(applyWorkspaceChoice);   // review of #67: the chat the chip's tooltip names
       return;
     }
     return originalAct(a);

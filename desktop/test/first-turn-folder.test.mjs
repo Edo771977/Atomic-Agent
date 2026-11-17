@@ -40,7 +40,7 @@ function window() {
   for (const f of ["chat-list.js", "chat-folders.js", "chat-projects.js", "chat-restriction.js"]) vm.runInContext(src("../renderer/" + f), c);
   vm.runInContext("PROJECTS.state = {projects: [" + JSON.stringify(STORE) + "], chats: {}};", c);
   for (const n of ["wsName", "workingDir", "chatTitle", "noteFirstPrompt", "firstTurnSent", "firstTurnNamed", "firstTurnEnded",
-    "firstTurnFolder", "screenTurnFolder", "chatWorkingDir", "workspaceChipInfo", "workspaceChipHTML", "mdTermCwd"]) {
+    "firstTurnFolder", "screenTurnFolder", "chatWorkingDir", "workspaceChipTarget", "workspaceChipInfo", "workspaceChipHTML", "mdTermCwd"]) {
     vm.runInContext(fn(n), c);
   }
   return c;
