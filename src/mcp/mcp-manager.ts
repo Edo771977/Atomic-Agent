@@ -173,6 +173,16 @@ export class McpManager {
     return this.servers.get(server)?.config.transport.kind;
   }
 
+  /**
+   * Whether a configured server is marked `local: true` (never reaches
+   * the network; issue #60). `false` for an unmarked, remote or unknown
+   * server: the egress guard fails closed on anything but the flag.
+   */
+  localOf(server: string): boolean {
+    const config = this.servers.get(server)?.config;
+    return config?.transport.kind === "stdio" && config.local === true;
+  }
+
   /** Aggregate list of every connected server's `McpToolMeta`. */
   listAllToolMeta(): McpToolMeta[] {
     const out: McpToolMeta[] = [];

@@ -1,6 +1,7 @@
 import { hostOfUrl, isLoopbackHost } from "../../llm/offline-network.js";
 import {
   currentProviderPolicyFrame,
+  networkEndpointListed,
   ProviderNotAllowedError,
 } from "../../llm/provider-policy.js";
 import { EmbeddingUnavailableError, type EmbeddingClient } from "./embedding-client.js";
@@ -24,10 +25,14 @@ export function embeddingEndpointOnMachine(url: string, viaCore: boolean): boole
  * folder, and with no policy frame while any constraint exists (fail
  * closed). The refusal is an `EmbeddingUnavailableError`, so recall and
  * the writer take their documented FTS-only fallback; nothing is sent.
+ * One exception (issue #60): an endpoint on a computer of the local
+ * network that the folder lists in `allowedProviderHosts` (`url`). A
+ * public endpoint stays refused even when listed, since embeddings have
+ * no provider id for the id-only match.
  */
 export function guardEmbeddingClient(
   client: EmbeddingClient,
-  options: { onMachine: boolean; constraintsActive: () => boolean },
+  options: { onMachine: boolean; constraintsActive: () => boolean; url?: string },
 ): EmbeddingClient {
   if (options.onMachine) return client;
   return {
@@ -39,7 +44,7 @@ export function guardEmbeddingClient(
         ? options.constraintsActive()
           ? new ProviderNotAllowedError({ reason: "no-policy", providerId: "memory embeddings", role: "memory embeddings" })
           : undefined
-        : frame.policy === undefined
+        : frame.policy === undefined || networkEndpointListed(frame.policy, options.url)
           ? undefined
           : new ProviderNotAllowedError({ reason: "not-allowed", providerId: "memory embeddings (off this machine)", policy: frame.policy, role: "memory embeddings" });
       if (refusal !== undefined) throw new EmbeddingUnavailableError(refusal.message, refusal);

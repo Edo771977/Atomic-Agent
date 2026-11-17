@@ -91,6 +91,7 @@ export async function connectMemoryEmbeddings(
           }),
       {
         onMachine: embeddingEndpointOnMachine(url, viaCore),
+        ...(viaCore ? {} : { url }),
         constraintsActive: options.constraintsActive ?? (() => hasProjectConstraints(getConfig())),
       },
     ),

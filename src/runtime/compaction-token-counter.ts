@@ -1,6 +1,7 @@
 import type { AtomicAgentConfig } from "../config/index.js";
 import { resolveLlmConfig } from "../llm/provider/index.js";
 import { createLlamaTokenizeCounter } from "../llm/llama-tokenize-counter.js";
+import { providerEndpointRefusal, type ProviderPolicy } from "../llm/provider-policy.js";
 import { byteEstimateCounter, type TokenCounter } from "../llm/token-counter.js";
 import { apiKeyForUrl } from "../local-llm/server/managed-api-key.js";
 
@@ -8,6 +9,13 @@ export interface CompactionTokenCounterDependencies {
   config(): AtomicAgentConfig;
   /** The compaction route's provider and whether it is a llama-server. */
   route(sessionId: string, providerId?: string): { providerId: string; local?: boolean };
+  /**
+   * The session's effective provider policy (`effectivePolicyForSession`).
+   * The exact count POSTs the transcript to the server's `/tokenize`, so
+   * a server on another computer the folder does not list in
+   * `allowedProviderHosts` gets the byte estimate instead (issue #60).
+   */
+  policyFor?: (sessionId: string) => ProviderPolicy | undefined;
   /** Overrides `fetch` for the counters (tests). */
   fetch?: typeof fetch;
 }
@@ -28,6 +36,8 @@ export function createCompactionTokenCounter(deps: CompactionTokenCounterDepende
     const entry = resolveLlmConfig(config).providers.find((p) => p.id === route.providerId);
     const url = entry?.url ?? config.localModels.url;
     if (!url) return undefined;
+    const policy = deps.policyFor?.(sessionId);
+    if (policy !== undefined && providerEndpointRefusal(policy, { local: true, url }) !== undefined) return byteEstimateCounter;
     let counter = counters.get(url);
     if (!counter) {
       counter = createLlamaTokenizeCounter({

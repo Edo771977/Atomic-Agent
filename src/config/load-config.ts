@@ -262,10 +262,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AtomicAgentConfig {
     resolve(stateDir, "models"),
   );
 
-  const resolvedLocalLlmUrl =
-    user.localModels.mode === "managed"
-      ? `http://127.0.0.1:${user.localModels.managed.port}`
-      : user.localModels.url;
+  const resolvedLocalLlmUrl = resolveLocalModelsUrl(user.localModels);
 
   return {
     dotenv,
@@ -544,10 +541,13 @@ export function loadConfig(options: LoadConfigOptions = {}): AtomicAgentConfig {
         Object.entries(user.projects.constraints).map(([folder, entry]) => [
           folder,
           // allowedEgress travels too (issue #33): dropping it here made
-          // every listed class read as refused.
-          entry.allowedEgress === undefined
-            ? { allowedProviders: [...entry.allowedProviders] }
-            : { allowedProviders: [...entry.allowedProviders], allowedEgress: [...entry.allowedEgress] },
+          // every listed class read as refused. So does
+          // allowedProviderHosts (issue #60).
+          {
+            allowedProviders: [...entry.allowedProviders],
+            ...(entry.allowedEgress === undefined ? {} : { allowedEgress: [...entry.allowedEgress] }),
+            ...(entry.allowedProviderHosts === undefined ? {} : { allowedProviderHosts: [...entry.allowedProviderHosts] }),
+          },
         ]),
       ),
     },
@@ -908,4 +908,19 @@ function mapUserLlmToRuntime(
     // Without this the router block (ATO-483) never reached the runtime.
     ...(llm.router ? { router: llm.router } : {}),
   };
+}
+
+/**
+ * The address the runtime reaches the local model at
+ * (`config.localModels.url`): the managed daemon's loopback port in
+ * managed mode, whatever the file's `url` still says, else that `url`.
+ * `atomic-agent doctor` judges a constrained folder's local provider by
+ * the same address (issue #60).
+ */
+export function resolveLocalModelsUrl(localModels: {
+  mode: string;
+  url: string;
+  managed: { port: number };
+}): string {
+  return localModels.mode === "managed" ? `http://127.0.0.1:${localModels.managed.port}` : localModels.url;
 }

@@ -35,10 +35,12 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  * - `channels`: `tasks.schedule` / `tasks.cron` with `notify` (the
  *   result goes to the paired Telegram chat);
  * - `composio`: tools of the Composio MCP server;
- * - `mcp:<server>`: tools of a remote (http / SSE) MCP server, and the
- *   `mcp.resource.*` / `mcp.prompt.*` meta-tools naming one. A stdio
- *   server is a local process and is not classed: it may still reach the
- *   network itself, which nothing here can see.
+ * - `mcp:<server>`: tools of an MCP server, and the `mcp.resource.*` /
+ *   `mcp.prompt.*` meta-tools naming one: every remote (http / SSE)
+ *   server and every stdio server not marked `local: true` (issue #60:
+ *   a stdio process may fetch, browse or call an API itself). Only a
+ *   stdio server whose config says `local: true` is not classed; that
+ *   flag is the operator's word, nothing here checks it.
  *
  * Shell commands (`os.shell.run`, every command of `verify.run`) are
  * checked best effort (`shellNetworkUse`): a known network client
@@ -67,11 +69,17 @@ export interface EgressTarget {
 export interface EgressClassifierDeps {
   /**
    * The class of the MCP server behind an MCP tool or meta-tool call:
-   * `null` for a local (stdio) server, `"composio"` or `mcp:<server>`
-   * for a remote one, `undefined` when it cannot tell (then a tool named
+   * `null` for a stdio server marked `local: true`, `"composio"` or
+   * `mcp:<server>` for any other, `undefined` when it cannot tell (then a tool named
    * `mcp.<server>.<tool>` counts as `mcp:<server>`: fail closed).
    */
   mcpEgress?: (tool: string, args: Record<string, unknown>) => EgressClass | null | undefined;
+  /**
+   * The stdio server behind an MCP call that is classed only because it
+   * lacks `local: true` (issue #60), so the refusal can offer that fix;
+   * `undefined` otherwise.
+   */
+  mcpUnmarkedStdio?: (tool: string, args: Record<string, unknown>) => string | undefined;
 }
 
 const GIT_REMOTE_TOOLS = new Set(["os.git.fetch", "os.git.pull", "os.git.push", "os.git.clone"]);
@@ -126,10 +134,14 @@ export class EgressNotAllowedError extends Error {
   readonly egressClass: EgressClass;
   readonly policyKey: string;
 
-  constructor(tool: string, cls: EgressClass, policy: ProviderPolicy) {
+  /** `localServer`: a stdio MCP server that `local: true` would also let through (issue #60). */
+  constructor(tool: string, cls: EgressClass, policy: ProviderPolicy, localServer?: string) {
+    const localFix = localServer === undefined
+      ? ""
+      : `, or, if that server never uses the network, set "local": true on its mcp.servers entry ${JSON.stringify(localServer)} in config.json`;
     super(
       `folder ${policy.key} is restricted: ${tool} would send content off this machine; ` +
-      `add ${JSON.stringify(cls)} to projects.constraints[${JSON.stringify(policy.key)}].allowedEgress to allow it`,
+      `add ${JSON.stringify(cls)} to projects.constraints[${JSON.stringify(policy.key)}].allowedEgress to allow it${localFix}`,
     );
     this.name = "EgressNotAllowedError";
     this.tool = tool;
@@ -203,6 +215,7 @@ export function createEgressGuard(deps: EgressGuardDeps) {
     if (target === null) return null;
     const policy = deps.policyForSession(ctx.sessionId);
     if (policy === undefined || policy.allowsEgress(target.cls)) return null;
-    return new EgressNotAllowedError(tool, target.cls, policy);
+    const localServer = target.cls.startsWith("mcp:") ? deps.mcpUnmarkedStdio?.(tool, args) : undefined;
+    return new EgressNotAllowedError(tool, target.cls, policy, localServer);
   };
 }

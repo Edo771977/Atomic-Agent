@@ -85,3 +85,28 @@ export function isLoopbackUrl(url: string | undefined): boolean {
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
   );
 }
+
+/**
+ * The host of `url` as a folder constraint names it (issue #60):
+ * lower-cased, IPv6 brackets and one trailing DNS root dot removed, and
+ * only an IPv4-mapped address (`::ffff:a.b.c.d`) read as its IPv4
+ * address. Unlike `classifiableHostOf`, no other IPv6 form (6to4, NAT64,
+ * IPv4-compatible) is taken for the IPv4 address inside it: those reach
+ * a different machine. `null` when the URL does not parse or has no host.
+ */
+export function constraintHostOf(url: string | undefined): string | null {
+  if (!url) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (host.length === 0) return null;
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (mapped === null) return host;
+  const high = parseInt(mapped[1]!, 16);
+  const low = parseInt(mapped[2]!, 16);
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+}
