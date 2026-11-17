@@ -363,6 +363,18 @@ describe("formatRiskLine (ATO-1268)", () => {
     );
   });
 
+  it("names the outside sources within their own bound, counting the ones left out", () => {
+    const label = (i: number) => `source ${i} `.padEnd(80, "x");
+    const many = [0, 1, 2, 3, 4, 5, 6].map(label).concat("the e-mail inbox");
+    expect(formatRiskLine({ riskNote: formatTaintNote(many, null) })).toBe(
+      `Read outside content this turn: ${label(0)}, ${label(1)}, ${label(2)} and 5 more. Asking you.`,
+    );
+    const short = ["a web page", "an HTTP response", "MCP docs", "the e-mail inbox"];
+    expect(formatRiskLine({ riskNote: formatTaintNote(short, null) })).toBe(
+      "Read outside content this turn: a web page, an HTTP response, MCP docs, the e-mail inbox. Asking you.",
+    );
+  });
+
   it("keeps an ask_user question's warning after outside content", () => {
     expect(formatRiskLine({ riskNote: formatQuestionTaintNote(["a web page"]) })).toBe(
       "Read outside content this turn: a web page. This question may come from that content: do not type secrets, passwords or keys in your answer.",

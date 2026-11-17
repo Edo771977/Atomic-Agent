@@ -144,6 +144,39 @@ export interface RiskLineFields {
 /** The opening of `formatTaintNote` / `formatQuestionTaintNote` (untrusted-taint.ts). */
 const TAINT_NOTE_HEAD = "read outside content this turn (";
 const TAINT_QUESTION = "this question may come from that content";
+/** Longest list of outside sources named on the line; the rest are counted. */
+const TAINT_SOURCES_MAX_CHARS = 250;
+/** Longest single source label (untrusted-taint.ts keeps 80). */
+const TAINT_SOURCE_MAX_CHARS = 80;
+
+/**
+ * The sources of a taint note as a person reads them: `a, b, c`, or
+ * `a, b and 3 more` when they do not fit, so a later source (the e-mail
+ * inbox) is never cut to a bare `…` without the person knowing it was read.
+ */
+function formatTaintSources(raw: string): string {
+  const flat = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  const labels = flat
+    .split(", ")
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0)
+    .map((label) =>
+      label.length > TAINT_SOURCE_MAX_CHARS
+        ? `${label.slice(0, TAINT_SOURCE_MAX_CHARS - 1).trimEnd()}…`
+        : label,
+    );
+  if (labels.length === 0) return "an outside source";
+  const shown: string[] = [];
+  let length = 0;
+  for (const label of labels) {
+    const next = length + (shown.length > 0 ? 2 : 0) + label.length;
+    if (shown.length > 0 && next > TAINT_SOURCES_MAX_CHARS) break;
+    shown.push(label);
+    length = next;
+  }
+  const hidden = labels.length - shown.length;
+  return hidden > 0 ? `${shown.join(", ")} and ${hidden} more` : shown.join(", ");
+}
 
 /**
  * A taint note split into its sources and what follows them: the verdict
@@ -186,14 +219,14 @@ function asSentence(text: string): string {
  * A request held after outside content (or an `ask_user` question asked
  * after it) carries a taint note (untrusted-taint.ts); the line then
  * starts with its own sentence, `Read outside content this turn:
- * <sources>.`, followed by the verdict, the question's warning, or
+ * <sources>.` (`a, b and 3 more` past their own bound), followed by the verdict, the question's warning, or
  * `Asking you.` when no review ran.
  */
 export function formatRiskLine(fields: RiskLineFields): string | null {
   const note = typeof fields.riskNote === "string" ? fields.riskNote.trim() : "";
   const taint = splitTaintNote(note);
   if (taint === null) return formatVerdictLine(fields, note);
-  const sources = sanitizeRiskReason(taint.sources) || "an outside source";
+  const sources = formatTaintSources(taint.sources);
   const head = `Read outside content this turn: ${sources}${/[.!?…]$/.test(sources) ? "" : "."}`;
   const tail = taint.rest.toLowerCase().startsWith(TAINT_QUESTION)
     ? asSentence(sanitizeRiskReason(taint.rest))
