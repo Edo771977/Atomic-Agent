@@ -415,6 +415,27 @@ Real, driven by the running agent:
   the lockup and the workspace chip — carries no plus at all; the user asked
   for it there and nowhere else. The dot on a row is a 6px ring seated on the
   label's optical centre rather than on its line box.
+  **Projects** (`renderer/chat-projects.js`) list both kinds of project, a
+  store project with a folder on disk and a chat folder, each header folding
+  its chats. A header row holds the fold toggle (chevron, name, count) and,
+  beside it, **+** (New chat in <name>), Edit and Remove: real buttons, not
+  controls nested in the toggle, so screen readers list them and Tab, Enter
+  and Space work natively. They show on hover and keyboard focus; none of
+  them folds the project, and the whole row takes a dragged chat. **+** does what New project does once it has
+  made the project: New chat, and that chat's first turn opens in the project
+  (its folder and instructions; a chat folder files the chat, and one the
+  import sorted by a project directory works in that directory when this
+  computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
+  main refuses ("could not start the turn") keeps that, so the retry still
+  opens in the project. Until that turn, the model chip and the switcher read
+  and set the project folder's cloud model (ATO-1148), the folder that turn
+  runs in. The empty chat says "New chat in <name>" and names that folder
+  while the mark holds; Clear Transcript before the first turn keeps it, a
+  plain New chat or opening another chat drops it. As with New
+  chat, a turn running in the chat on screen keeps running there, and in the
+  narrow window's drawer the click closes the drawer. An empty project says
+  "No chats yet. Start one with + or drag a chat here". The collapsed rail
+  hides the headers; the drawer (⌘ \) shows them.
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per
   machine, per viewer — because the agent has no route and no store field for
   either, and its `config.json` is the operator's file. On a machine that has

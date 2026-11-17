@@ -3032,11 +3032,15 @@ function starterCardHTML(c) {
 }
 /** The greeting and its quiet line (repainted alone when the catalogue lands). */
 function emptyPlateHTML() {
-  const wd = workingDir();
+  /* Review of #62: a new chat opened with a project's + says so, and the
+     folder line names the folder its first turn runs in. */
+  const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
+  const wd = (mark && mark.folder) || workingDir();
   /* ATO-166: the model is not repeated here — the composer's chip right under
      it already names it (Danya: "why is this here?"). The folder stays: it is
      said nowhere else on this screen (Д14). */
-  const meta = wd ? '<span class="em-it em-wd" title="' + esc(wd) + '">' + ic('folder') + '<span>Working in ' + esc(workingDirLabel(wd)) + '</span></span>' : '';
+  const meta = (mark ? '<span class="em-it em-proj">' + ic('folder') + '<span>New chat in ' + esc(mark.name) + '</span></span>' : '')
+    + (wd ? '<span class="em-it em-wd" title="' + esc(wd) + '">' + ic('folder') + '<span>Working in ' + esc(workingDirLabel(wd)) + '</span></span>' : '');
   return '<div class="emptyplate">'
     + '<div class="emptyhead">' + MARK_COLOR + '<b>What should we work on?</b></div>'
     + (meta ? '<div class="emptymeta">' + meta + '</div>' : '')
@@ -3507,6 +3511,7 @@ function rollbackNoteCleared(before, after, sid) {
 function clearTranscriptNow() {
   const before = S.log;
   S.log = liveClearedLog(); S.history = [];
+  if (typeof projectKeepMark === 'function') projectKeepMark(before, S.log);   // review of #62: still the project's new chat
   rollbackNoteCleared(before, S.log, S.agentSession);
 }
 /* openSession's part of the ATO-1420 count: the whole chat is drawn again, so
@@ -7815,7 +7820,7 @@ function act(a) {
                            f.collapsed = !f.collapsed; saveFolders(); render(); nameVisibleSessions(); return; }
   if (k === 'fnew')      { close(); folderCreate(v || null); return; }
   // ATO-1146: projects (chat-projects.js): New project, fold, remove.
-  if (k === 'pnew' || k === 'ptoggle' || k === 'pdelask' || k === 'pdel' || k === 'pedit' || k === 'psave' || k === 'pmore') { close(); projectAct(k, v); return; }
+  if (k === 'pnew' || k === 'ptoggle' || k === 'pdelask' || k === 'pdel' || k === 'pedit' || k === 'psave' || k === 'pmore' || k === 'pchat') { close(); projectAct(k, v); return; }
   // W2 QA: the New project sheet's own buttons keep it open.
   if (k === 'pnewpick' || k === 'pnewclear' || k === 'pnewsave') { projectAct(k, v); return; }
   if (k === 'fautosort') { FOLDERS.state.autoSort = !FOLDERS.state.autoSort; saveFolders(); foldersAfterSessions(); render(); return; }
@@ -10356,8 +10361,9 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
-  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session)).then((res) => {
+  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject)).then((res) => {
     if (!res || !res.ok) {
+      projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
       S.log.push({id:nid(), k:'system', text:'could not start the turn: ' + esc((res && res.error) || 'unknown error')});
       render();
@@ -19178,9 +19184,13 @@ function selActiveProviderId() {
 /* ATO-1148: the project cloud model a turn of this chat runs on, or null
    for the agent's own (renderer/project-model.js). The chat's folder is its
    own when the window knows it, else the window's (a new chat opens there). */
-function projectTurnModel(sessionId) {
+/* `pid`: the project a new chat's turn carries (projectForNewTurn); left
+   out, the one the new chat on screen is marked for. A new chat in a project
+   runs in the project's folder (main), so its model is that folder's. */
+function projectTurnModel(sessionId, pid) {
   if (typeof ProjectModels === 'undefined' || !BR) return null;
-  return ProjectModels.turnModel(ProjectModels.folderOf(sessionId || null, workingDir()), llmProviders(), liveBackend());
+  const project = sessionId || typeof projectTurnFolder !== 'function' ? '' : projectTurnFolder(pid === undefined ? projectMarked() : pid);
+  return ProjectModels.turnModel(project || ProjectModels.folderOf(sessionId || null, workingDir()), llmProviders(), liveBackend());
 }
 /* ATO-1148: a cloud model picked in the switcher is remembered for the
    chat's folder, and no global switch runs: other chats keep their model and
@@ -19189,7 +19199,9 @@ function projectTurnModel(sessionId) {
 async function pickProjectModel(providerId, model) {
   if (typeof ProjectModels === 'undefined' || !BR || !BR.setProjectModel || !ProjectModels.state.loaded || ProjectModels.state.remote) return false;
   if (liveBackend() !== 'cloud' || !projectCloudEntry(llmProvider(providerId))) return false;
-  const folder = ProjectModels.folderOf(S.agentSession || null, workingDir());
+  // A new chat marked for a project (its + on the sidebar) picks for that project's folder, where its turn runs.
+  const folder = (!S.agentSession && typeof projectTurnFolder === 'function' && projectTurnFolder(projectMarked()))
+    || ProjectModels.folderOf(S.agentSession || null, workingDir());
   if (!folder) return false;
   closeSelector();
   const res = await ProjectModels.set(BR, folder, {providerId, model});

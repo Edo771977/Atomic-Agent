@@ -19,7 +19,7 @@ import { openLoginTerminal } from "./subscription-cli-login.js";
 import { resetCoreForRedownload, seedBundledCore } from "./core-seed.js";
 import { engineBusy, retryWhileEngineBusy } from "./engine-busy-retry.js";
 import { coreUpdateNoticeVersion, readDismissedCoreUpdate, writeDismissedCoreUpdate } from "./core-update-notice.js";
-import { folderForTurn, readChatFolders, writeChatFolders } from "./chat-folders.js";
+import { folderForTurn, folderTurnDir, readChatFolders, writeChatFolders } from "./chat-folders.js";
 import { assignChat, deleteProject, readProjects, saveProject, turnProject, updateProjects } from "./projects-store.js";
 import { newChatSessionId } from "./chat-session.js";
 import { cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
@@ -1723,9 +1723,12 @@ function wireIpc(client: AgentClient): void {
     /* W2 QA: a chat in a project with no disk folder (a chat folder, which the
        sidebar draws as a project, and where it wins over a project by path)
        takes that one's instructions. */
-    const filed = folderForTurn(readChatFolders(DESKTOP_STATE_DIR), known, projectId);
+    const folders = readChatFolders(DESKTOP_STATE_DIR);
+    const filed = folderForTurn(folders, known, projectId);
     const instructions = filed ? (filed.instructions ? { name: filed.name, text: filed.instructions } : null) : proj.instructions;
-    void client.chat(turnId, clean, chatId, proj.workingDir, instructions, reasoning, turnModel ?? undefined);
+    // Review of #62: a new chat in a chat folder the import sorted by a project directory works in that directory.
+    const filedDir = !known && filed && !client.isRemote ? folderTurnDir(folders, filed.id) : undefined;
+    void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined);
     return { ok: true, turnId };
   }
 

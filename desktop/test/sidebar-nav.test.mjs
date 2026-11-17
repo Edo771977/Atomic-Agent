@@ -178,7 +178,7 @@ test('the sidebar wires the projects module: loaded before renderer.js, drawn ab
   assert.match(r, /k === 'pnew' \|\| k === 'ptoggle' \|\| k === 'pdelask' \|\| k === 'pdel' \|\| k === 'pedit' \|\| k === 'psave'/);
   // A new chat New project opened sends its project with the first turn (ATO-42: main files it before the turn).
   assert.match(r, /const forProject = session \? undefined : projectForNewTurn\(\);/);
-  assert.match(r, /BR\.chat\(\[\{role:'user', content:text\}\], session, forProject, reasoningTurnLevel\(session\), projectTurnModel\(session\)\)/);
+  assert.match(r, /BR\.chat\(\[\{role:'user', content:text\}\], session, forProject, reasoningTurnLevel\(session\), projectTurnModel\(session, forProject\)\)/);
   assert.match(r, /S\.overlay === 'pedit'\) html \+= projectEditHTML\(\)/);
 });
 
@@ -187,4 +187,18 @@ test('the Edit project sheet keeps to the store limits and saves name and instru
   assert.match(src, /PROJECT_INSTRUCTIONS_MAX = 16000/);
   assert.match(src, /projectsSave\(\{id: e\.id, name, instructions: e\.instructions\}\)/);
   assert.match(src, /res && res\.error/, 'the error main returns is shown');
+});
+
+// Issue #62: the project header's New chat is routed by act() (the drawer and the keyboard: projects-unified.test.mjs).
+test('a project header New chat is routed', () => {
+  const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(r, /k === 'psave' \|\| k === 'pmore' \|\| k === 'pchat'\) \{ close\(\); projectAct\(k, v\); return; \}/);
+  const shell = readFileSync(new URL('../renderer/css/shell.css', import.meta.url), 'utf8');
+  assert.match(shell, /\.sb-ftoggle\{display:flex;align-items:center;gap:6px;flex:1;min-width:0;/, 'the fold toggle fills the header row');
+  assert.match(shell, /\.sb-ftoggle:focus-visible\{outline:/);
+});
+
+test('a first turn main refuses hands its project mark back (review of #62, item 1)', () => {
+  const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(r, /if \(!res \|\| !res\.ok\) \{\n\s*projectNewTurnFailed\(forProject, live\.log\);/);
 });

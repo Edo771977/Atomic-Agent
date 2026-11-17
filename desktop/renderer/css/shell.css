@@ -153,6 +153,12 @@
 .sb-fic{display:inline-flex;color:var(--ink-3)}
 .sb-fname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-fhead .ct{font:500 var(--fs-label)/16px var(--font-ui);color:var(--ink-3)}
+/* Review of #62: a project's header is a row holding its fold toggle and
+   real New chat / Edit / Remove buttons (chat-projects.js); the toggle
+   fills the row and carries its padding. */
+.sb-phead{padding-left:0}
+.sb-ftoggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;height:100%;padding-left:8px;border-radius:inherit}
+.sb-ftoggle:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 .sb-fhead .sesmore{visibility:hidden}
 .sb-fhead:hover .sesmore,.sb-fhead:focus-within .sesmore{visibility:visible}
 .sb-folder > .sesrow{padding-left:30px}
