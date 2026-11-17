@@ -12935,6 +12935,8 @@ function applyWorkspaceChoice(dir) {
   WORKSPACE = dir;
   // ATO-1148: the chat on screen moved, and with it into that folder's project.
   if (live && S.agentSession && typeof ProjectModels !== 'undefined') ProjectModels.noteChatFolder(S.agentSession, dir);
+  // Review of #67: its folder's restriction may have changed with it (the chip asks again).
+  if (live && S.agentSession) void restrictionRefresh(S.agentSession);
   if (cloud) act('session:new');
   S.log.push({id:nid(), k:'system', text:'workspace → ' + esc(dir) + (live ? ' · this chat works there now' : ' · the agent is restarting there')});
   render();
