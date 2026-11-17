@@ -14,7 +14,8 @@
    Issue #65: once an address is in the field (picked or checked), a folder
    whose constraint allows the field's provider only on this computer, and
    that would refuse this host, gets a line and an "Allow <host> for <F>"
-   button (main/folder-provider-hosts.ts). Only that click writes the
+   button (main/folder-provider-hosts.ts). A typed address is judged when
+   its field loses focus. Only that click writes the
    folder's allowedProviderHosts; nothing is added by itself. Which provider
    the field feeds comes from renderer.js (lanfProviderIdsFor).
 
@@ -220,7 +221,21 @@ function lanfUse(fieldId, root) {
   setTimeout(() => { const n = document.getElementById(fieldId); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0);
 }
 
+/* Issue #65 review: an address typed by hand is judged when its field loses
+   focus, as a found or checked one is. Only the two fields the panel serves. */
+const LANF_FIELDS = ['llm-url', 'wiz-url'];
+function lanfOnFieldLeft(e) {
+  const t = e && e.target;
+  if (!t || !LANF_FIELDS.includes(t.id)) return;
+  const url = String(t.value || '').trim();
+  if (!url) { delete LANF.hostWarnings[t.id]; return; }
+  const hw = LANF.hostWarnings[t.id];
+  if (hw && hw.url === url && !hw.msg) return;   // already asked for this address
+  lanfFolderHosts(t.id, url);
+}
+
 if (typeof document !== 'undefined') {
+  document.addEventListener('focusout', lanfOnFieldLeft);
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (!t || !t.closest) return;

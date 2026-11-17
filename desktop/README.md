@@ -781,7 +781,8 @@ Honestly degraded, and labelled as such in the UI:
 - **Find on my network** (under the llama.cpp URL and a custom provider's
   Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
   servers on this network and checks an address; it saves nothing. Once an
-  address is in the field, each folder whose `projects.constraints[F]`
+  address is in the field (picked, checked, or typed and the field left),
+  each folder whose `projects.constraints[F]`
   allows that field's provider (`local-llama`, even with a url of its own
   since saving the field rewrites it, and URL-less llama-server entries for
   the llama.cpp URL; the wizard's entry for the Base URL) but

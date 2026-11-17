@@ -254,3 +254,32 @@ test("llm-url feeds local-llama even with its own url (the save moves it), and t
     if (fieldId === "llm-url") assert.deepEqual(ids, ["local-llama", "spare"]);
   }
 });
+
+// Review item 7: an address typed (not found or checked) is judged too, when
+// the field loses focus.
+test("renderer: leaving the address field asks for the folder warnings; an empty or unrelated field does not", async () => {
+  const vm = await import("node:vm");
+  const src = readFileSync(new URL("../renderer/lan-find.js", import.meta.url), "utf8");
+  const listeners = {};
+  const calls = [];
+  const fields = { "wiz-url": { id: "wiz-url", value: "http://192.168.1.20:8080/v1" }, "llm-url": { id: "llm-url", value: "  " }, "other": { id: "other", value: "http://10.0.0.1" } };
+  const ctx = vm.createContext({
+    setTimeout: (f) => f(), console,
+    document: {
+      addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); },
+      getElementById: (id) => fields[id] || null,
+      querySelectorAll: () => [],
+    },
+    window: { atomic: { lanFolderHosts: async (url, ids, field) => { calls.push({ url, ids, field }); return { ok: true, warnings: [] }; } } },
+    lanfProviderIdsFor: (fieldId) => (fieldId === "wiz-url" ? ["custom-192-168-1-20-8080"] : ["local-llama"]),
+  });
+  vm.runInContext(src, ctx);
+  assert.ok(listeners.focusout && listeners.focusout.length, "a focusout listener");
+  const blur = async (id) => { for (const fn of listeners.focusout) fn({ target: fields[id] }); await new Promise((r) => setImmediate(r)); };
+  await blur("wiz-url");
+  await blur("llm-url");
+  await blur("other");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "http://192.168.1.20:8080/v1");
+  assert.equal(calls[0].field.fieldId, "wiz-url");
+});
