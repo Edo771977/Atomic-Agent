@@ -472,6 +472,8 @@ export async function createAgentRuntime(
     resolvePreviousReply: (id) => turnPreviousReplies.get(id),
     canAskUser: (id) => !turnsWithoutQuestions.has(id),
     declaredInputs, shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, browserBackend, crossSession,
+    // os.web.fetch's bot-wall steps (browser, reader services) ask the folder's egress again (issue #33).
+    webFetchEgressRefusal: (sessionId, cls) => egressRefusal(sessionProviderPolicy, sessionId, cls),
     // Only the terminal UI has an `/integrations` screen that saves an Exa
     // key into this process; every other entry point keeps the desktop /
     // `.env` advice (ATO-345).

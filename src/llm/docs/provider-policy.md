@@ -40,13 +40,13 @@ A constrained folder's tools may not send its content off the machine unless the
 
 | Class | Tools |
 | --- | --- |
-| `web` | `os.web.search`, `os.web.fetch` (a loopback URL stays allowed) |
-| `http` | `os.http.request` (a loopback URL stays allowed) |
-| `browser` | every `browser.*` tool and every `verify.run` page probe (`kind: "page"`), local files and dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
+| `web` | `os.web.search`, `os.web.fetch`, `os.web.crawl` (a loopback URL stays allowed). Past a bot wall, `os.web.fetch` asks again per step: its browser render needs `browser`, a Jina Reader or Firecrawl read `http`; a refused step is skipped and named in the result |
+| `http` | `os.http.request` (a loopback URL stays allowed); `os.web.fetch`'s reader-service step |
+| `browser` | every `browser.*` tool, `video.render_html` and every `verify.run` page probe (`kind: "page"`), local files and dev pages included: a local page can still load remote resources, and the page acted on may be remote whatever the arguments say. List `browser` to use a local page |
 | `github` | `github.*`; the TUI issue report (environment facts only for a refused session; its traces and log lines left out) |
 | `git` | `os.git.fetch`, `pull`, `push`, `clone` |
-| `mail` | `os.email.*` (Atomic Mail) |
-| `channels` | `tasks.schedule` / `tasks.cron` with `notify`; a turn sent from Telegram, Discord or a swarm bot; a task's report and live snapshots |
+| `mail` | `os.email.*` (Atomic Mail); the mail trigger's `replyByEmail` answer |
+| `channels` | `tasks.schedule` / `tasks.cron` with `notify`; a turn sent from Telegram, Discord, a swarm bot or a catalog chat (Slack, Signal, Matrix, Teams, Google Chat, iMessage); a task's report and live snapshots |
 | `composio` | tools of the Composio MCP server |
 | `serve` | `serve` listening on a network address (not loopback): the session's chat turns, `/api/sessions/{id}/…` routes and approval details on `/api/events` ([serve egress](../../http/serve-egress.ts)) |
 | `mcp:<server>` | tools of a remote (http, SSE) MCP server, and `mcp.resource.*` / `mcp.prompt.*` naming it; a tool whose server is unknown counts as remote |

@@ -1,3 +1,4 @@
+import { webFetchStepEgress, type EgressClass } from "../../tool-egress.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import {
   runCommand as defaultRunCommand,
@@ -107,6 +108,12 @@ export interface OsWebFetchOptions {
   renderPage?: PageRenderer;
   /** Environment the reader keys are read from. Defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Per-folder egress (issue #33): why the calling session may not send
+   * through `cls`, or `null`. Asked for each ladder step past curl (the
+   * fetch itself is `web`, checked at dispatch). Absent: all allowed.
+   */
+  egressRefusal?: (sessionId: string, cls: EgressClass) => string | null;
 }
 
 interface WebFetchArgs {
@@ -245,6 +252,9 @@ export function buildOsWebFetchTool(
           ...(options.renderPage ? { renderPage: options.renderPage } : {}),
           ...(options.lookup ? { lookup: options.lookup } : {}),
           ...(options.env ? { env: options.env } : {}),
+          ...(options.egressRefusal
+            ? { stepRefusal: (via: "browser" | "jina" | "firecrawl") => options.egressRefusal!(ctx.sessionId, webFetchStepEgress(via)) }
+            : {}),
         });
         if (ladder.page === null) {
           const tried =

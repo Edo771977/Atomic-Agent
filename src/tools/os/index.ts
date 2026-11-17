@@ -1,3 +1,4 @@
+import type { EgressClass } from "../tool-egress.js";
 import { resolve } from "node:path";
 import type { ToolRegistry } from "../tool-registry.js";
 import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
@@ -213,6 +214,8 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    * the browser backend; absent ⇒ the fetch ladder skips that step.
    */
   webFetchRenderPage?: PageRenderer;
+  /** Per-folder egress for `os.web.fetch`'s ladder steps (issue #33); see `WebFetchToolOptions.egressRefusal`. */
+  webFetchEgressRefusal?: (sessionId: string, cls: EgressClass) => string | null;
   /**
    * Whether the operator trusts a folder (project folder trust,
    * `skills.projectTrust`), read live. A language server (ATO-503)
@@ -352,6 +355,9 @@ export function registerOsTools(
       ...(options.webFetchRenderPage === undefined
         ? {}
         : { renderPage: options.webFetchRenderPage }),
+      ...(options.webFetchEgressRefusal === undefined
+        ? {}
+        : { egressRefusal: options.webFetchEgressRefusal }),
     }),
   );
   registry.register(buildOsWebCrawlTool({ config: options.config }));

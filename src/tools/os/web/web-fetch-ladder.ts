@@ -63,6 +63,13 @@ export interface LadderInput {
   runCommand?: typeof defaultRunCommand;
   lookup?: HostLookup;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Per-folder egress (issue #33): why this step may not run for the
+   * calling session, or `null`. The browser step needs `browser`, a
+   * reader `http` (`webFetchStepEgress`). A refused step is skipped and
+   * named in `attempts`; the next allowed one runs. Absent: all allowed.
+   */
+  stepRefusal?: (via: Exclude<ReadVia, "curl">) => string | null;
 }
 
 const isWalledHtml = (html: string): boolean =>
@@ -73,7 +80,16 @@ const isWalledHtml = (html: string): boolean =>
 export async function readPastWall(input: LadderInput): Promise<LadderOutcome> {
   const attempts: string[] = [];
 
-  if (input.renderWithBrowser && input.renderPage && !input.signal.aborted) {
+  const refusal = (via: Exclude<ReadVia, "curl">): string | null => {
+    try {
+      return input.stepRefusal?.(via) ?? null;
+    } catch (err) {
+      return shortReason(err);
+    }
+  };
+  const browserRefused = input.renderWithBrowser && input.renderPage ? refusal("browser") : null;
+  if (browserRefused !== null) attempts.push(`browser: refused: ${browserRefused}`);
+  if (browserRefused === null && input.renderWithBrowser && input.renderPage && !input.signal.aborted) {
     try {
       const rendered = await input.renderPage({
         url: input.url,
@@ -108,6 +124,11 @@ export async function readPastWall(input: LadderInput): Promise<LadderOutcome> {
 
   for (const reader of enabledReaders(input.readers, input.env)) {
     if (input.signal.aborted) break;
+    const refused = refusal(reader);
+    if (refused !== null) {
+      attempts.push(`${reader}: refused: ${refused}`);
+      continue;
+    }
     try {
       const page = await readWithReader(
         reader,

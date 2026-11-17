@@ -151,3 +151,43 @@ describe("readPastWall (ATO-968)", () => {
     expect(describeReadVia("firecrawl")).toContain("Firecrawl");
   });
 });
+
+describe("readPastWall under a folder constraint (issue #33)", () => {
+  it("skips a step the folder's egress refuses and falls back to an allowed one", async () => {
+    let rendered = 0;
+    const renderPage: PageRenderer = async () => {
+      rendered++;
+      return { finalUrl: "https://walled.example/post", title: "Real", html: PAGE };
+    };
+    const run = readerCurl(() => ({
+      status: 200,
+      body: JSON.stringify({ code: 200, data: { title: "J", url: "https://walled.example/post", content: "from jina" } }),
+    }));
+    const asked: string[] = [];
+    const out = await readPastWall(base({
+      renderPage,
+      runCommand: run,
+      readers: { ...OFF, jinaReader: true },
+      stepRefusal: (via) => {
+        asked.push(via);
+        return via === "browser" ? "folder /work is restricted: \"browser\" is not in its allowedEgress" : null;
+      },
+    }));
+    expect(rendered).toBe(0);
+    expect(asked).toEqual(["browser", "jina"]);
+    expect(out.attempts).toEqual(["browser: refused: folder /work is restricted: \"browser\" is not in its allowedEgress"]);
+    expect(out.page).toMatchObject({ via: "jina" });
+  });
+
+  it("sends nothing to a reader the folder refuses", async () => {
+    const run = readerCurl(() => ({ status: 200, body: "{}" }));
+    const out = await readPastWall(base({
+      runCommand: run,
+      readers: { ...OFF, jinaReader: true },
+      stepRefusal: () => "restricted",
+    }));
+    expect(run.urls).toEqual([]);
+    expect(out.page).toBeNull();
+    expect(out.attempts).toEqual(["jina: refused: restricted"]);
+  });
+});

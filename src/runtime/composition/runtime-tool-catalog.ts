@@ -55,6 +55,7 @@ import { buildCanvasRenderTool } from "../../tools/canvas/index.js";
 import { applyToolSearch, buildToolSearchTool, deferredToolNames, toolSearchActive } from "../../tools/tool-search/index.js";
 import { buildSessionsSearchTool, registerMemoryTools, type RegisterMemoryToolsOptions } from "../../tools/memory/index.js";
 import type { CrossSessionGuard } from "../../tools/sessions/index.js";
+import type { EgressClass } from "../../tools/tool-egress.js";
 import { sessionGroundingSource, verifyProfileNameFacts } from "../../memory/name-grounding.js";
 import { registerVisionTools, type RegisterVisionToolsOptions } from "../../tools/vision/index.js";
 import { IMAGE_GENERATE_TOOL, openRouterImageKey, registerImageTools } from "../../tools/image/index.js";
@@ -212,10 +213,12 @@ export function registerRuntimeCoreTools(input: {
   browserBackend?: BrowserBackend;
   /** Per-folder constraints across chats for `memory.sessions.search` (issue #33). */
   crossSession?: CrossSessionGuard;
+  /** Per-folder egress for `os.web.fetch`'s ladder steps (issue #33). */
+  webFetchEgressRefusal?: (sessionId: string, cls: EgressClass) => string | null;
 } & Pick<RegisterMemoryToolsOptions, "profileStore" | "notesStore" | "lessonStore" | "procedureStore">): RegisteredOsTools {
   const { config, toolRegistry, dangerous, sessionStore, resolveOriginalRequest, resolvePreviousReply, declaredInputs,
     shellJobs, skillRegistry, profileStore, notesStore, lessonStore, procedureStore, logger,
-    webSearchKeyHelp, canAskUser, crossSession } = input;
+    webSearchKeyHelp, canAskUser, crossSession, webFetchEgressRefusal } = input;
 
   const osTools = registerOsTools(toolRegistry, {
     ...dangerous,
@@ -249,6 +252,7 @@ export function registerRuntimeCoreTools(input: {
     shellJobs,
     ...(webSearchKeyHelp === undefined ? {} : { webSearchKeyHelp }),
     ...webFetchRenderer(config, input.browserBackend),
+    ...(webFetchEgressRefusal === undefined ? {} : { webFetchEgressRefusal }),
     // A folder the operator trusted to run its code (a project skill
     // said yes to; an instruction file alone is not enough) starts
     // language servers without a question

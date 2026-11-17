@@ -860,6 +860,35 @@ describe("os.web.fetch against a bot wall", () => {
     expect(result.summary).not.toContain("Just a moment");
   });
 
+  it("asks the folder's egress before the browser step, by class (issue #33)", async () => {
+    const rendered: string[] = [];
+    const asked: Array<[string, string]> = [];
+    const tool = buildOsWebFetchTool({
+      runCommand: makeRunCommand(() => ({
+        stdout: curlStdout({ body: CHALLENGE, status: 403, contentType: "text/html" }),
+      })),
+      lookup: publicLookup,
+      config: USER_CONFIG_DEFAULTS as never,
+      sleep: fakeSleep().sleep,
+      env: {},
+      renderPage: async ({ url }) => {
+        rendered.push(url);
+        return { finalUrl: url, title: "Doc", html: ARTICLE };
+      },
+      egressRefusal: (sessionId, cls) => {
+        asked.push([sessionId, cls]);
+        return `folder /work is restricted; "${cls}" is not in its allowedEgress`;
+      },
+    });
+    const result = await tool.run({ url: "https://example.com/a" }, ctx());
+    expect(rendered).toEqual([]);
+    expect(asked).toEqual([[ctx().sessionId, "browser"]]);
+    expect(result.status).toBe("error");
+    expect(result.details.ladderAttempts).toEqual([
+      'browser: refused: folder /work is restricted; "browser" is not in its allowedEgress',
+    ]);
+  });
+
   it("keeps the wall error, listing what it tried, when no step gets through", async () => {
     const tool = buildOsWebFetchTool({
       runCommand: makeRunCommand(() => ({
