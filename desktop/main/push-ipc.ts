@@ -12,7 +12,9 @@ import {
   turnPushRequest,
   type PushState,
 } from "./push-cli.js";
-import { turnPushNote, type TurnEnd } from "./turn-notify.js";
+import { answerLacksChannelsField, turnPushNote, type TurnEnd } from "./turn-notify.js";
+
+let saidNoChannelsField = false;
 
 /**
  * Settings › Connections › Phone push (ATO-1129). Two routes, both
@@ -64,6 +66,10 @@ export async function pushTurnNote(
       answer = await restriction(turn.sessionId);
     } catch {
       answer = null;
+    }
+    if (!saidNoChannelsField && answerLacksChannelsField(answer)) {
+      saidNoChannelsField = true;
+      console.warn("[desktop] phone push: the agent does not say whether a chat may reach a channel (older agent); restricted chats are not pushed");
     }
     const note = turnPushNote(turn, answer);
     if (!note) return false;

@@ -39,6 +39,7 @@ test('fail closed: no session, no answer, an error status, an older agent withou
   assert.equal(M.turnPushNote(failed, {status: 404, body: null}), null);
   assert.equal(M.turnPushNote(failed, {status: 500, body: {restriction: null, channelsAllowed: true}}), null);
   assert.equal(M.turnPushNote(failed, {status: 200, body: restricted}), null);
+  assert.equal(M.answerLacksChannelsField({status: 200, body: restricted}), true);
   assert.equal(M.turnPushNote(failed, {status: 200, body: 'nope'}), null);
   // A live taint: no stored restriction, but the effective policy refuses channels.
   assert.equal(M.turnPushNote(failed, {status: 200, body: {restriction: null, channelsAllowed: false}}), null);
@@ -119,4 +120,12 @@ test('a new chat\'s id fixed after begin (a project chat) is learned through kno
   n.observe({turnId: 't4', kind: 'error', error: 'x'});
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(shown[0].sessionId, 's-new');
+});
+
+test('an older agent without channelsAllowed: an unrestricted chat still gets the whole note', () => {
+  const answer = {status: 200, body: {restriction: null}};
+  assert.equal(M.answerLacksChannelsField(answer), true);
+  assert.equal(M.answerLacksChannelsField({status: 200, body: {restriction: null, channelsAllowed: true}}), false);
+  const note = M.turnPushNote({...failed, error: 'model server went away'}, answer);
+  assert.match(note.body, /^model server went away · 2 tool calls · 40s · acme-merger$/);
 });
