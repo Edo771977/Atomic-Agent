@@ -11,6 +11,12 @@
  * View-only: TCP connects and GET /v1/models, GET /api/tags. No prompt is
  * ever sent and nothing is saved; the person copies a found address into
  * the existing URL field themselves (one click).
+ *
+ * Issue #65 (folder-provider-hosts.ts):
+ *   lan:folderHosts       which folders allow the field's provider only on
+ *                         this computer and would refuse the found host (read only).
+ *   lan:allowFolderHost   the warning's button: adds that host to the folder's
+ *                         allowedProviderHosts. Only on that click, never by itself.
  */
 
 import { createSocket, type Socket } from "node:dgram";
@@ -37,6 +43,8 @@ import {
   type ServerKind,
 } from "./lan-discovery.js";
 import { MDNS_ADDRESS, MDNS_PORT, buildMdnsQuery, parseMdnsPacket, servicesFromRecords, type MdnsRecord } from "./lan-mdns.js";
+import { configGet } from "./agent-cli.js";
+import { allowFolderProviderHost, folderHostWarnings, type AllowHostResult, type FolderHostWarning } from "./folder-provider-hosts.js";
 
 /** How long we listen for mDNS answers. */
 const MDNS_WINDOW_MS = 1500;
@@ -207,4 +215,17 @@ export function wireLanDiscoveryIpc(): void {
     return running;
   });
   ipcMain.handle("lan:check", async (_event, url: unknown): Promise<CheckAnswer> => checkServerUrl(url));
+  ipcMain.handle("lan:folderHosts", async (_event, payload: unknown): Promise<{ ok: boolean; warnings: FolderHostWarning[]; error?: string }> => {
+    const { url, providerIds } = (payload ?? {}) as { url?: unknown; providerIds?: unknown };
+    if (typeof url !== "string" || !Array.isArray(providerIds)) return { ok: false, warnings: [], error: "url and providerIds required" };
+    const ids = providerIds.filter((id): id is string => typeof id === "string" && /^[\w.-]{1,48}$/.test(id));
+    const read = await configGet();
+    if (!read.ok) return { ok: false, warnings: [], error: read.error };
+    return { ok: true, warnings: folderHostWarnings(read.config, ids, url) };
+  });
+  ipcMain.handle("lan:allowFolderHost", async (_event, payload: unknown): Promise<AllowHostResult> => {
+    const { folder, providerId, url } = (payload ?? {}) as { folder?: unknown; providerId?: unknown; url?: unknown };
+    if (typeof folder !== "string" || typeof providerId !== "string" || typeof url !== "string") return { ok: false, changed: false, error: "folder, providerId and url required" };
+    return allowFolderProviderHost(folder, providerId, url);
+  });
 }

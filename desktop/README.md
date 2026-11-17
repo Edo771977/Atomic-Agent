@@ -754,6 +754,22 @@ Honestly degraded, and labelled as such in the UI:
   ([deeplink.js](renderer/deeplink.js), issue #65). Only the person marks a
   server local, in Settings, since the mark lets it run in a folder with an
   egress constraint.
+- **Find on my network** (under the llama.cpp URL and a custom provider's
+  Base URL, [lan-find.js](renderer/lan-find.js), ATO-1067) lists model
+  servers on this network and checks an address; it saves nothing. Once an
+  address is in the field, each folder whose `projects.constraints[F]`
+  allows that field's provider (`local-llama` and URL-less llama-server
+  entries for the llama.cpp URL; the wizard's entry for the Base URL) but
+  would refuse the host gets "Folder F allows <id> only on this computer;
+  it will refuse <host>" and an "Allow <host> for F" button
+  ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
+  The decision mirrors the agent's `providerEndpointRefusal`: a
+  private-network host that is not this machine by literal address, for a
+  provider judged by place, not already in `allowedProviderHosts`. Only the
+  click writes, through the whole-file compare-and-swap write, and the main
+  process checks again before adding the normalised host. Its address rules
+  (and [local-server-url.ts](main/local-server-url.ts)) are copies of the
+  agent's, compared by `test/folder-provider-hosts.test.mjs`.
 - **LLM** is the TUI's four panes. Local rows come from `atag models list`
   minus the ids `models list-embeddings` lists (the chat route never picks an
   embedding model, and which models those are is a fact the CLI publishes —

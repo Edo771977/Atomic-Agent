@@ -298,6 +298,9 @@ contextBridge.exposeInMainWorld("atomic", {
   /** ATO-1067: model servers on the local network, and a check of one address (main/lan-discovery-ipc.ts). View-only. */
   lanFind: () => ipcRenderer.invoke("lan:find"),
   lanCheck: (url: string) => ipcRenderer.invoke("lan:check", url),
+  // Issue #65: a folder that allows the provider only on this computer, and its one-click opt-in.
+  lanFolderHosts: (url: string, providerIds: string[]) => ipcRenderer.invoke("lan:folderHosts", { url, providerIds }),
+  lanAllowFolderHost: (folder: string, providerId: string, url: string) => ipcRenderer.invoke("lan:allowFolderHost", { folder, providerId, url }),
   /** ATO-1040: the chat's goal, and set / pause / resume / clear (main/session-goal-ipc.ts). */
   goalGet: (sessionId: string) => ipcRenderer.invoke("goal:get", { sessionId }),
   goalAction: (sessionId: string, body: { action: string; criteria?: string[]; maxRounds?: number }) =>

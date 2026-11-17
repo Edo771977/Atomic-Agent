@@ -2,8 +2,9 @@
 // without an agent build: TypeScript transpiles each file to CommonJS and
 // only relative imports are followed (type-only ones vanish). For pure
 // core logic the desktop must agree with, as provider-model-mode.test.mjs does.
-// The only builtin allowed is node:path (pure string work, used by
-// session-project.ts for attachment paths); `process` is a minimal shim
+// The only builtins allowed are node:path (pure string work, used by
+// session-project.ts for attachment paths) and node:net (its pure `isIP`,
+// used by offline-network.ts isLoopbackHost); `process` is a minimal shim
 // with the host's platform and an EMPTY env, so no core default can depend
 // on the machine's environment variables.
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ import { runInNewContext } from 'node:vm';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const modules = new Map();
-const BUILTINS = new Set(['node:path']);
+const BUILTINS = new Set(['node:path', 'node:net']);
 const processShim = Object.freeze({ platform: process.platform, env: Object.freeze({}) });
 
 export function loadCore(url) {
