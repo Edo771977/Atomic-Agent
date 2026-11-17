@@ -188,7 +188,7 @@ describe("shareCommand", () => {
 describe("share keeps restricted and incognito chats on this computer", () => {
   it("refuses an incognito chat and writes nothing", async () => {
     const store = fakeStore([summary("s-abc123", "/Users/nadya/shop", 2)], LINES);
-    store.load.mockImplementation((id: string) => ({ id, workingDir: "/Users/nadya/shop", metadata: {}, incognito: { since: 1, owner: "x" } }) as never);
+    (store.load as Mock<(id: string) => unknown>).mockImplementation((id: string) => ({ id, workingDir: "/Users/nadya/shop", metadata: {}, incognito: { since: 1, owner: "x" } }) as never);
     const h = harness({ openStore: () => store });
     expect(await shareCommand([], h.deps)).toBe(1);
     expect(h.written).toEqual([]);

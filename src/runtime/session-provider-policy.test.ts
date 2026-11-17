@@ -210,7 +210,7 @@ describe("the plain completion partition (POST /api/complete)", () => {
     const plain = policy.forSessionId(PLAIN_COMPLETE_PARTITION);
     expect(plain?.allowedProviders).toEqual([]);
     expect(plain?.allows("local-llama")).toBe(false);
-    const open = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [] } }), loadSession: () => null });
+    const open = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: () => null });
     expect(open.forSessionId(PLAIN_COMPLETE_PARTITION)).toBeUndefined();
   });
 });
