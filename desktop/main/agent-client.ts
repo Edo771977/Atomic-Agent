@@ -204,6 +204,57 @@ export function postAndWait(
  * so the bare message names nothing. The message stays first, so the
  * renderer's `fetch failed` matching keeps working.
  */
+/** The most of a refused turn's error body read: an OpenAI-style error is far smaller. */
+const ERROR_BODY_MAX_BYTES = 16 * 1024;
+
+/**
+ * The words of an agent's non-2xx answer to a chat turn: `error.message`
+ * of an OpenAI-style JSON body, with `(code)` when it has one; cleaned to
+ * one line and clipped. `null` (the caller says `HTTP <status>`) for a
+ * body that is not JSON, has no message, or is larger than
+ * ERROR_BODY_MAX_BYTES (read no further). Never throws.
+ */
+export async function httpErrorDetail(res: Response): Promise<string | null> {
+  try {
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!/^application\/(?:[\w.+-]*\+)?json\b/.test(type.trim()) || !res.body) return null;
+    const reader = res.body.getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > ERROR_BODY_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      parts.push(value);
+    }
+    const parsed = JSON.parse(Buffer.concat(parts).toString("utf8")) as { error?: { message?: unknown; code?: unknown } };
+    const message = typeof parsed?.error?.message === "string" ? oneLine(parsed.error.message, 480) : "";
+    if (!message) return null;
+    const code = typeof parsed.error?.code === "string" ? oneLine(parsed.error.code, 60) : "";
+    return code ? `${message} (${code})` : message;
+  } catch {
+    return null;
+  }
+}
+
+/** Control characters out, whitespace folded, clipped to `max` characters. */
+function oneLine(text: string, max: number): string {
+  const clean = Array.from(text)
+    .map((ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      return code < 32 || code === 0x7f || (code >= 0x80 && code < 0xa0) ? " " : ch;
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  const chars = Array.from(clean);
+  return chars.length > max ? chars.slice(0, max - 1).join("") + "…" : clean;
+}
+
 export function requestErrorText(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const cause = (err as { cause?: unknown }).cause;
@@ -2240,7 +2291,9 @@ export class AgentClient extends EventEmitter {
         console.warn(`[desktop] project model: the agent ran this turn on its own model, not ${turnModel.providerId}/${turnModel.model} (older agent)`);
       }
       if (!res.ok || !res.body) {
-        const detail = res.ok ? "no response body" : `HTTP ${res.status}`;
+        // A refusal before the stream (the project model not allowed in a constrained folder, a
+        // folder_restricted 403) carries readable words: show them, not only the status.
+        const detail = res.ok ? "no response body" : ((await httpErrorDetail(res)) ?? `HTTP ${res.status}`);
         // ATO-275: `transport` / `httpStatus` are for the turn's analytics (chat-turns.ts); the window reads `error`.
         this.emit("chat", { turnId, kind: "error", error: detail, transport: true, ...(res.ok ? {} : { httpStatus: res.status }) });
         return;
