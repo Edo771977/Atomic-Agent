@@ -552,6 +552,8 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_STARTER_SKILLS_DIR` | unset | env only | Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app. |
 | `ATOMIC_AGENT_RG_PATH` | unset | env only | Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH. |
 | `ATOMIC_AGENT_TREE_SITTER_DIR` | unset | env only | Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline. |
+| `ATOMIC_AGENT_AST_GREP_PATH` | unset | env only | Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH. |
+| `ATOMIC_AGENT_SHARED_SKILLS_DIR` | unset | env only | Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills. |
 | `ATOMIC_AGENT_LLAMA_MAX_TOKENS` | unset | `localModels.completionMaxTokens` | Cap on tokens one local-model reply may produce, 64 to 131072. Wins over the config value when set. |
 | `ATOMIC_AGENT_LLAMA_REQUEST_TIMEOUT_MS` | unset | `localModels.requestTimeoutMs` | Budget of one local-model request (the idle gap for a stream), in ms. Wins over the config value when set. |
 | `ATOMIC_AGENT_SKILLS_CATALOG_BUDGET` | unset | `skills.catalogTokenBudget` | Token budget of the skills list in the prompt, 1 to 100000. Wins over the config value when set. |
@@ -585,6 +587,11 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_LOOP_WANDERING_THRESHOLD` | `6` | env only | Calls with varied arguments to one tool before the model is redirected. |
 | `ATOMIC_AGENT_LOOP_WANDERING_ESCALATION` | `12` | env only | Calls with varied arguments to one tool before the agent is made to reply. |
 | `ATOMIC_AGENT_REPLY_POLISH` | `true` | env only | Clean up the final reply before a chat surface shows it. |
+| `ATOMIC_AGENT_SKILL_CURATOR` | `false` | env only | Run the skill curator on its own, at most once a week. `atomic-agent skill curate` runs it by hand either way. |
+| `ATOMIC_AGENT_JUDGE_URL` | unset | env only | OpenAI-compatible endpoint that judges `skill eval` runs (or --judge-url). Unset: a configured provider judges. |
+| `ATOMIC_AGENT_JUDGE_MODEL` | unset | env only | Model the ATOMIC_AGENT_JUDGE_URL judge runs (or --judge-model). |
+| `ATOMIC_AGENT_JUDGE_API_KEY` | unset | env only | API key sent to the ATOMIC_AGENT_JUDGE_URL judge. Unset: OPENROUTER_API_KEY. |
+| `ATOMIC_AGENT_JUDGE_TIMEOUT_MS` | `60000` | env only | Per-call timeout of the skill eval judge, in ms. |
 | `ATOMIC_AGENT_BROWSER_ENABLED` | `true` | env only | Register the browser tools. |
 | `ATOMIC_AGENT_BROWSER_CHANNEL` | `"chrome"` | env only | Browser to launch: chrome, msedge or chromium. |
 | `ATOMIC_AGENT_BROWSER_HEADLESS` | `false` | env only | Run the agent's browser without a window. |

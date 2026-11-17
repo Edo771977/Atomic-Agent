@@ -49,6 +49,8 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_STARTER_SKILLS_DIR", null, "Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app."),
   env("ATOMIC_AGENT_RG_PATH", null, "Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH."),
   env("ATOMIC_AGENT_TREE_SITTER_DIR", null, "Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline."),
+  env("ATOMIC_AGENT_AST_GREP_PATH", null, "Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH."),
+  env("ATOMIC_AGENT_SHARED_SKILLS_DIR", null, "Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills."),
 
   // Env variables that win over a config.json key.
   env("ATOMIC_AGENT_LLAMA_MAX_TOKENS", null, "Cap on tokens one local-model reply may produce, 64 to 131072. Wins over the config value when set.", "localModels.completionMaxTokens"),
@@ -88,6 +90,11 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_LOOP_WANDERING_THRESHOLD", ENV_DEFAULTS.LOOP_WANDERING_THRESHOLD, "Calls with varied arguments to one tool before the model is redirected."),
   env("ATOMIC_AGENT_LOOP_WANDERING_ESCALATION", ENV_DEFAULTS.LOOP_WANDERING_ESCALATION, "Calls with varied arguments to one tool before the agent is made to reply."),
   env("ATOMIC_AGENT_REPLY_POLISH", true, "Clean up the final reply before a chat surface shows it."),
+  env("ATOMIC_AGENT_SKILL_CURATOR", false, "Run the skill curator on its own, at most once a week. `atomic-agent skill curate` runs it by hand either way."),
+  env("ATOMIC_AGENT_JUDGE_URL", null, "OpenAI-compatible endpoint that judges `skill eval` runs (or --judge-url). Unset: a configured provider judges."),
+  env("ATOMIC_AGENT_JUDGE_MODEL", null, "Model the ATOMIC_AGENT_JUDGE_URL judge runs (or --judge-model)."),
+  env("ATOMIC_AGENT_JUDGE_API_KEY", null, "API key sent to the ATOMIC_AGENT_JUDGE_URL judge. Unset: OPENROUTER_API_KEY."),
+  env("ATOMIC_AGENT_JUDGE_TIMEOUT_MS", 60000, "Per-call timeout of the skill eval judge, in ms."),
 
   // Browser tools.
   env("ATOMIC_AGENT_BROWSER_ENABLED", ENV_DEFAULTS.BROWSER_ENABLED, "Register the browser tools."),

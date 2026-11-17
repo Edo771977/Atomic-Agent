@@ -100,7 +100,9 @@ describe("MCP 'Allow in this chat' scope (ATO-1473)", () => {
   it("an older whole-category `other` grant does not answer an MCP tool", async () => {
     const { gate, asked } = grantingGate();
     await gate.request({ sessionId: "s", tool: "x", category: "other", reason: "r" });
-    expect(gate.sessionGrants("s").categories).toEqual(["other"]);
+    // The fork's gate keys every `other` grant by its tool (`tool:x`), so
+    // no whole-category grant is recorded at all; the MCP tool still asks.
+    expect(gate.sessionGrants("s").categories).toEqual([]);
     await toolOf(gate, "github", "create_issue").run({}, ctxFor("s"));
     expect(asked).toEqual(["x", "mcp.github.create_issue"]);
   });

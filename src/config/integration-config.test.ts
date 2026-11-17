@@ -273,6 +273,8 @@ describe("notifications.approvalPending", () => {
     expect(parsed).toEqual({
       downloads: { channel: "off" },
       approvalPending: { enabled: true, afterMinutes: 12, channel: "discord" },
+      // Upstream's ntfy push block (ATO-1129) sits beside both, at its defaults.
+      push: createNotificationsDefaults().push,
     });
     expect(
       parseUserConfigFile({ notifications: { approvalPending: { enabled: true } } })
