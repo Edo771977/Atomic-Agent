@@ -95,6 +95,8 @@ test("no warning on this computer, on a public host, for an unlisted or cloud pr
   assert.deepEqual(H.folderHostWarnings(null, ["local-llama"], "http://10.0.0.5:8080"), []);
 });
 
+const LLM = { fieldId: "llm-url" };
+
 /** agent-cli's whole-file write, answered in memory (as provider-model-mode.test.mjs does). */
 async function withConfig(initial, body) {
   let config = structuredClone(initial);
@@ -115,7 +117,7 @@ test("Allow adds the normalised host to that folder only, through the whole-file
   }, [{ id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" }]);
   initial.mcp = { servers: [{ name: "x", transport: { kind: "stdio", command: "x" } }] };
   await withConfig(initial, async (config, writes) => {
-    const r = await H.allowFolderProviderHost("/work/secret", "local-llama", "http://[::ffff:192.168.1.20]:8080/v1");
+    const r = await H.allowFolderProviderHost("/work/secret", "local-llama", "http://[::ffff:192.168.1.20]:8080/v1", LLM);
     assert.equal(r.ok, true, r.error);
     assert.equal(r.changed, true);
     assert.equal(r.host, "192.168.1.20");
@@ -124,7 +126,7 @@ test("Allow adds the normalised host to that folder only, through the whole-file
     assert.deepEqual(config().mcp, initial.mcp);
     assert.deepEqual(config().llm, initial.llm);
     // Twice is once.
-    const again = await H.allowFolderProviderHost("/work/secret", "local-llama", "http://192.168.1.20:9999");
+    const again = await H.allowFolderProviderHost("/work/secret", "local-llama", "http://192.168.1.20:9999", LLM);
     assert.equal(again.ok, true);
     assert.equal(again.changed, false);
     assert.equal(writes.length, 1);
@@ -142,7 +144,7 @@ test("Allow refuses what no warning offered: an unknown folder, an unlisted prov
       ["/w", "local-llama", "not a url"],
       ["__proto__", "local-llama", "http://192.168.1.20:8080"],
     ]) {
-      const r = await H.allowFolderProviderHost(folder, id, url);
+      const r = await H.allowFolderProviderHost(folder, id, url, LLM);
       assert.equal(r.ok, false, `${folder} ${id} ${url}`);
       assert.ok(r.error, "says why");
     }
@@ -167,4 +169,52 @@ test("renderer: the found server's warning and its Allow button, and nothing is 
   const preload = readFileSync(new URL("../preload/preload.ts", import.meta.url), "utf8");
   assert.match(preload, /lanFolderHosts:/);
   assert.match(preload, /lanAllowFolderHost:/);
+});
+
+// Review of issue #65: Allow is bound to the field the address is in. The
+// provider must be one that field feeds (llm-url: local-llama and URL-less
+// llama-server entries; wiz-url: the entry being edited, or the id the
+// wizard derives from this very address), so a click cannot list a host for
+// a provider the address will never reach.
+test("Allow and the warnings only accept a provider the field feeds", async () => {
+  const providers = [
+    { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
+    { id: "spare", kind: "llama-server" },
+    { id: "own-url", kind: "llama-server", url: "http://127.0.0.1:9000" },
+    { id: "gpu", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1" },
+  ];
+  const cfg = cfgWith({ "/w": { allowedProviders: ["local-llama", "spare", "own-url", "gpu", "custom-192-168-1-20-8080", "custom-other"] } }, providers);
+  assert.deepEqual(H.fieldProviderIds(cfg, { fieldId: "llm-url" }, "http://192.168.1.20:8080"), ["local-llama", "spare"]);
+  assert.deepEqual(H.fieldProviderIds(cfg, { fieldId: "wiz-url" }, "http://192.168.1.20:8080/v1"), ["custom-192-168-1-20-8080-v1", "custom-192-168-1-20-8080"]);
+  assert.deepEqual(H.fieldProviderIds(cfg, { fieldId: "wiz-url", editingId: "gpu" }, "http://192.168.1.20:8080/v1"), ["gpu"]);
+  assert.deepEqual(H.fieldProviderIds(cfg, { fieldId: "wiz-url", editingId: "local-llama" }, "http://192.168.1.20:8080/v1"), ["custom-192-168-1-20-8080-v1", "custom-192-168-1-20-8080"]);
+  assert.deepEqual(H.fieldProviderIds(cfg, { fieldId: "nope" }, "http://192.168.1.20:8080"), []);
+  const url = "http://192.168.1.20:8080/v1";
+  await withConfig(cfg, async (config, writes) => {
+    for (const [id, field] of [
+      ["custom-other", { fieldId: "wiz-url" }],
+      ["gpu", { fieldId: "wiz-url" }],
+      ["own-url", { fieldId: "llm-url" }],
+      ["custom-192-168-1-20-8080", { fieldId: "llm-url" }],
+      ["local-llama", { fieldId: "wiz-url" }],
+      ["local-llama", undefined],
+    ]) {
+      const r = await H.allowFolderProviderHost("/w", id, url, field);
+      assert.equal(r.ok, false, `${id} ${JSON.stringify(field)}`);
+    }
+    assert.equal(writes.length, 0);
+    const ok = await H.allowFolderProviderHost("/w", "custom-192-168-1-20-8080", url, { fieldId: "wiz-url" });
+    assert.equal(ok.ok, true, ok.error);
+    assert.deepEqual(config().projects.constraints["/w"].allowedProviderHosts, ["192.168.1.20"]);
+  });
+});
+
+test("main's customProviderId is the wizard's (renderer.js)", () => {
+  const src = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const m = /\nfunction customProviderId\(url\) \{[\s\S]*?\n\}/.exec(src);
+  assert.ok(m, "renderer.js customProviderId");
+  const renderer = new Function(m[0] + "; return customProviderId;")();
+  for (const u of ["http://192.168.1.20:8080", "http://192.168.1.20:8080/v1", "https://GPU-Box.lan:1234/v1/", "", "http://1.2.3.4", "http://" + "a".repeat(60), "http://[fe80::1]:8080"]) {
+    assert.equal(H.customProviderId(u), renderer(u), u);
+  }
 });

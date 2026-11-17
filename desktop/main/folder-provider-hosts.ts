@@ -9,8 +9,8 @@
  * per such folder, with an action; `allowFolderProviderHost` is that action:
  * it adds the host, in the agent's one spelling, to that folder's list
  * through the whole-file compare-and-swap write. It runs only on the
- * person's click (lan:allowFolderHost), and re-checks everything a warning
- * would have checked, so it can never add a host no warning offered.
+ * person's click (lan:allowFolderHost) and re-checks, on the file it writes,
+ * what the warning checked, for the provider the field's address feeds.
  *
  * The address rules are copies of the agent's (`constraintHostOf` in
  * src/llm/provider/url-host.ts, `isLoopbackHost` in src/llm/offline-network.ts,
@@ -111,6 +111,54 @@ function judgedByPlace(cfg: unknown, id: string): boolean {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+/** renderer.js customProviderId: the id the wizard gives a custom provider at `url`. */
+export function customProviderId(url: string): string {
+  const body = String(url || "")
+    .replace(/^https?:\/\//, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const id = ("custom-" + (body || "endpoint")).slice(0, 32).replace(/-+$/, "");
+  return /^[a-z]/.test(id) ? id : "custom-endpoint";
+}
+
+/** Which address field the found server was put in, and the entry the wizard is editing (WIZ.forId). */
+export interface LanField {
+  fieldId: string;
+  editingId?: string | null;
+}
+
+/**
+ * The provider ids an address in `field` feeds once saved (the same as
+ * renderer.js lanfProviderIdsFor):
+ * - `llm-url` (localModels.url): `local-llama`, whose url the save rewrites
+ *   (agent-cli setExternalLlamaUrl → syncLocalLlamaProviderUrl) even when it
+ *   has one, and every other llama-server entry without its own url;
+ * - `wiz-url` (a custom provider's Base URL): the OpenAI-compatible entry
+ *   being edited, else the id the wizard derives from this address (as
+ *   typed, or as a network row stores it: no trailing slash, no `/v1`).
+ */
+export function fieldProviderIds(cfg: unknown, field: LanField | undefined, url: string): string[] {
+  const list = (cfg as { llm?: { providers?: unknown } } | null)?.llm?.providers;
+  const providers = Array.isArray(list) ? (list as Array<ProviderLike & { url?: unknown }>).filter((p) => p && typeof p.id === "string") : [];
+  if (field?.fieldId === "llm-url") {
+    const ids = ["local-llama"];
+    for (const p of providers) if (p.kind === "llama-server" && !p.url && !ids.includes(p.id as string)) ids.push(p.id as string);
+    return ids;
+  }
+  if (field?.fieldId !== "wiz-url") return [];
+  const editing = typeof field.editingId === "string" ? providers.find((p) => p.id === field.editingId) : undefined;
+  if (editing && (editing.kind === "openai-compatible" || editing.kind === "qwen-openai-compatible")) return [editing.id as string];
+  const ids = [customProviderId(url.trim())];
+  try {
+    const u = new URL(url.trim());
+    const lanBase = u.protocol + "//" + u.host + u.pathname.replace(/\/+$/, "").replace(/\/v1$/, "");
+    const lanId = customProviderId(lanBase);
+    if (!ids.includes(lanId)) ids.push(lanId);
+  } catch { /* the typed form only */ }
+  return ids;
+}
+
 export interface FolderHostWarning {
   folder: string;
   providerId: string;
@@ -158,10 +206,15 @@ export interface AllowHostResult {
  * The warning's action: add the host of `url` to
  * `projects.constraints[folder].allowedProviderHosts`, read and written in
  * one hold of the config lock (agent-cli rewriteWholeConfig). Refused unless
- * the file, as read in that hold, would warn for exactly this folder and
- * provider. Nothing else in the file is touched.
+ * the file, as read in that hold, would warn for this folder and provider
+ * with `url` in `field`: the provider must be one that field feeds
+ * (`fieldProviderIds`), judged by place, allowed by the folder, and the
+ * host a network host the folder does not list yet. What it cannot check is
+ * that the person will then save the address: a host listed for a field
+ * left unsaved stays listed (and harmless until something points there).
+ * Nothing else in the file is touched.
  */
-export async function allowFolderProviderHost(folder: string, providerId: string, url: string): Promise<AllowHostResult> {
+export async function allowFolderProviderHost(folder: string, providerId: string, url: string, field: LanField | undefined): Promise<AllowHostResult> {
   if (typeof folder !== "string" || typeof providerId !== "string" || typeof url !== "string") {
     return { ok: false, changed: false, error: "folder, provider and address are required" };
   }
@@ -180,6 +233,10 @@ export async function allowFolderProviderHost(folder: string, providerId: string
     const entry = constraints[folder];
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       refusal = `The constraint for ${folder} cannot be read.`;
+      return { write: false };
+    }
+    if (!fieldProviderIds(cfg, field, url).includes(providerId)) {
+      refusal = `The address in this field does not reach ${providerId}.`;
       return { write: false };
     }
     if (!strings(entry.allowedProviders).includes(providerId) || !judgedByPlace(cfg, providerId)) {

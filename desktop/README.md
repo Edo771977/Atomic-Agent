@@ -790,8 +790,13 @@ Honestly degraded, and labelled as such in the UI:
   The decision mirrors the agent's `providerEndpointRefusal`: a
   private-network host that is not this machine by literal address, for a
   provider judged by place, not already in `allowedProviderHosts`. Only the
-  click writes, through the whole-file compare-and-swap write, and the main
-  process checks again before adding the normalised host. Its address rules
+  click writes, through the whole-file compare-and-swap write. The main
+  process recomputes, on the file it writes, which providers that field's
+  address feeds (`fieldProviderIds`: for the wizard, the entry being edited
+  or the id derived from the address itself) and refuses any other provider,
+  folder or host before adding the normalised host. It cannot know the
+  person will then save the address; a host listed for an address left
+  unsaved stays listed. Its address rules
   (`isPrivateNetworkUrl` among them) are copies of the agent's, compared by
   `test/folder-provider-hosts.test.mjs`. They are used for this warning only:
   [local-server-url.ts](main/local-server-url.ts) keeps its narrower rule,

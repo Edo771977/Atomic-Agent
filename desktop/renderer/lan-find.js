@@ -166,6 +166,12 @@ async function lanfCheck(fieldId) {
   if (res && res.ok) lanfFolderHosts(fieldId, url);
 }
 
+/** Which field, and the entry the wizard edits (main checks the provider ids against both). */
+function lanfFieldOf(fieldId) {
+  const editingId = fieldId === 'wiz-url' && typeof WIZ !== 'undefined' && WIZ && WIZ.forId ? WIZ.forId : null;
+  return {fieldId, editingId};
+}
+
 /** Issue #65: ask main which folders would refuse the field's host for its provider. Read only. */
 async function lanfFolderHosts(fieldId, url, msg) {
   const BRG = typeof window !== 'undefined' ? window.atomic : null;
@@ -175,10 +181,11 @@ async function lanfFolderHosts(fieldId, url, msg) {
   // A lan row's field takes `192.168.1.20:8080` without a scheme; the entry stores it as http://.
   const sendUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : 'http://' + url;
   let res = null;
-  try { res = await BRG.lanFolderHosts(sendUrl, ids); } catch (err) { res = null; }
+  const field = lanfFieldOf(fieldId);
+  try { res = await BRG.lanFolderHosts(sendUrl, ids, field); } catch (err) { res = null; }
   const list = res && res.ok && Array.isArray(res.warnings) ? res.warnings : [];
   if (!list.length && !msg) delete LANF.hostWarnings[fieldId];
-  else LANF.hostWarnings[fieldId] = {url, sendUrl, list, busy: false, msg: msg || null};
+  else LANF.hostWarnings[fieldId] = {url, sendUrl, field, list, busy: false, msg: msg || null};
   lanfPaint();
 }
 
@@ -190,7 +197,7 @@ async function lanfAllow(fieldId, index) {
   if (!w || hw.busy || !BRG || !BRG.lanAllowFolderHost) return;
   hw.busy = true; hw.msg = null; lanfPaint();
   let res = null;
-  try { res = await BRG.lanAllowFolderHost(w.folder, w.providerId, hw.sendUrl || hw.url); } catch (err) { res = null; }
+  try { res = await BRG.lanAllowFolderHost(w.folder, w.providerId, hw.sendUrl || hw.url, hw.field || lanfFieldOf(fieldId)); } catch (err) { res = null; }
   hw.busy = false;
   const msg = res && res.ok
     ? {tone: 'ok', text: 'Folder ' + w.folder + ' now allows ' + w.providerId + ' on ' + (res.host || w.host) + '.'}
