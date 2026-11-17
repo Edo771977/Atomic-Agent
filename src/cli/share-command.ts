@@ -2,7 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { getConfig } from "../config/index.js";
+import { getConfig, type AtomicAgentConfig } from "../config/index.js";
+import { isOfflineNetwork } from "../llm/offline-network.js";
+import { createSessionProviderPolicy, egressRefusal } from "../runtime/session-provider-policy.js";
+import { isIncognitoSession, type SessionState } from "../session/index.js";
 import {
   buildChatExport,
   renderChatExport,
@@ -155,6 +158,23 @@ export interface ShareDeps {
   upload?: (file: string, description: string) => Promise<GistUploadResult>;
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
+  /** `projects.constraints`, for the gist's `github` egress check (issue #33). Default `getConfig`. */
+  readConfig?: () => Pick<AtomicAgentConfig, "projects">;
+  /** Offline mode; default `isOfflineNetwork`. */
+  offline?: () => boolean;
+}
+
+/**
+ * Why the chat may not go to GitHub as a gist, or `null`: offline mode,
+ * or a session whose folder constraint (or read taint) lacks the
+ * `github` egress class, like the TUI issue report (issue #33).
+ */
+function gistRefusal(session: SessionState | null, deps: ShareDeps): string | null {
+  if ((deps.offline ?? isOfflineNetwork)()) return "offline mode is on";
+  const readConfig = deps.readConfig ?? (() => getConfig());
+  const policy = createSessionProviderPolicy({ readConfig, loadSession: () => null });
+  if (session === null) return policy.constraintsActive() ? "provider constraints are configured and the chat has no stored session" : null;
+  return egressRefusal(policy, session, "github");
 }
 
 export async function shareCommand(args: string[], deps: ShareDeps = {}): Promise<number> {
@@ -176,7 +196,7 @@ export async function shareCommand(args: string[], deps: ShareDeps = {}): Promis
     err(`${loaded.error}\n`);
     return 1;
   }
-  const { chat, sessionId } = loaded;
+  const { chat, sessionId, session } = loaded;
   if (chat.messages.length === 0) {
     err(`chat ${sessionId} has no messages to share\n`);
     return 1;
@@ -197,6 +217,11 @@ export async function shareCommand(args: string[], deps: ShareDeps = {}): Promis
   if (!parsed.gist) return 0;
 
   const isTTY = deps.isTTY ?? (() => process.stdin.isTTY === true && process.stderr.isTTY === true);
+  const refused = gistRefusal(session, deps);
+  if (refused !== null) {
+    err(`Not uploaded: ${refused}. The file is still on this computer.\n`);
+    return 1;
+  }
   if (!isTTY()) {
     err("Not uploaded: --gist asks before uploading and needs a terminal to ask in.\n");
     return 1;
@@ -221,12 +246,14 @@ function loadShareableChat(
   wanted: string,
   cwd: string,
   deps: ShareDeps,
-): { chat: ChatExport; sessionId: string } | { error: string } {
+): { chat: ChatExport; sessionId: string; session: SessionState | null } | { error: string } {
   const store = (deps.openStore ?? (() => new SessionStore({ dbFile: getConfig().paths.sessionsDbFile })))();
   try {
     const resolved = resolveShareSession(store, wanted, cwd);
     if ("error" in resolved) return resolved;
     const session = store.load(resolved.id);
+    // ATO-586: an incognito chat leaves nothing behind; a shared file would.
+    if (isIncognitoSession(session)) return { error: `${resolved.id} is an incognito chat; it cannot be shared` };
     const lines = store.listChatLines(resolved.id);
     const chat = buildChatExport(
       {
@@ -240,7 +267,7 @@ function loadShareableChat(
         ...(session?.workingDir ? { workingDir: session.workingDir } : {}),
       },
     );
-    return { chat, sessionId: resolved.id };
+    return { chat, sessionId: resolved.id, session };
   } finally {
     store.close();
   }

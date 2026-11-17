@@ -184,3 +184,42 @@ describe("shareCommand", () => {
     expect(h.written).toHaveLength(0);
   });
 });
+
+describe("share keeps restricted and incognito chats on this computer", () => {
+  it("refuses an incognito chat and writes nothing", async () => {
+    const store = fakeStore([summary("s-abc123", "/Users/nadya/shop", 2)], LINES);
+    store.load.mockImplementation((id: string) => ({ id, workingDir: "/Users/nadya/shop", metadata: {}, incognito: { since: 1, owner: "x" } }) as never);
+    const h = harness({ openStore: () => store });
+    expect(await shareCommand([], h.deps)).toBe(1);
+    expect(h.written).toEqual([]);
+    expect(h.err.join("")).toContain("incognito");
+  });
+
+  it("never uploads a gist of a folder whose constraint lacks \"github\" (issue #33), nor offline", async () => {
+    for (const extra of [
+      { readConfig: () => ({ projects: { roots: [], constraints: { "/Users/nadya/shop": { allowedProviders: ["local-llama"] } } } }) },
+      { offline: () => true },
+    ] as Array<Partial<ShareDeps>>) {
+      const upload = vi.fn(async () => ({ ok: true as const, url: "https://gist.github.com/u/abc" }));
+      const ask = vi.fn(async () => "y");
+      const h = harness({ upload, ask, ...extra });
+      expect(await shareCommand(["--gist"], h.deps)).toBe(1);
+      expect(ask).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(h.err.join("")).toMatch(/Not uploaded/);
+    }
+  });
+
+  it("uploads from a folder whose constraint lists \"github\"", async () => {
+    const upload = vi.fn(async () => ({ ok: true as const, url: "https://gist.github.com/u/abc" }));
+    const h = harness({
+      upload,
+      ask: async () => "y",
+      offline: () => false,
+      readConfig: () => ({ projects: { roots: [], constraints: { "/Users/nadya/shop": { allowedProviders: ["local-llama"], allowedEgress: ["github"] } } } }),
+    } as Partial<ShareDeps>);
+    expect(await shareCommand(["--gist"], h.deps)).toBe(0);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+});
+
