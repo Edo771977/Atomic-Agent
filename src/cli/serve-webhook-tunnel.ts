@@ -114,6 +114,11 @@ export async function startWebhookTunnel(options: StartWebhookTunnelOptions): Pr
     // keyless loopback guard (ATO-1495); each binding's secret and
     // signature check stands in for it here.
     loopbackGuard: false,
+    // Reachable from the internet through cloudflared: the per-folder
+    // `serve` refusal applies as on a network address (issue #33). The
+    // gateway only takes signed webhook POSTs, which answer a task id and
+    // never session content, so today this guards any route added later.
+    networkServe: true,
     routes: buildTunnelRouteTable(),
     approvalBus: options.approvalBus,
     completionRegistry: options.completionRegistry,

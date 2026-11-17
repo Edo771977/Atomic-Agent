@@ -64,6 +64,13 @@ export interface HttpServerOptions {
    * that listener serves nothing but signed `POST /api/webhooks/{name}`.
    */
   loopbackGuard?: boolean;
+  /**
+   * Whether this listener counts as reachable from the network for the
+   * per-folder `serve` refusal (issue #33). Default: a non-loopback
+   * `host`. The webhook tunnel gateway sets it: it listens on loopback,
+   * but cloudflared exposes it to the internet.
+   */
+  networkServe?: boolean;
 }
 
 export interface HttpServerHandle {
@@ -154,7 +161,7 @@ export function createHttpServer(
   const incognitoChats = new Set<string>();
   // Issue #33: on a network address, sessions of constrained folders
   // without "serve" are refused (serve-egress.ts).
-  const networkServe = isNetworkListenHost(options.host);
+  const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
 
   const server = createServer(async (req, res) => {
     try {
