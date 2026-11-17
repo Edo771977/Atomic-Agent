@@ -240,6 +240,21 @@ whole note. No chat id, no answer or an error answer sends nothing. An
 agent from before `channelsAllowed` is logged once; its unrestricted chats
 still push and its restricted ones do not.
 
+### Restricted folders
+
+A turn a per-folder constraint (`projects.constraints`) refuses never
+leaves the machine, so its failure row does not say the provider is "not
+answering". The agent's failure frame carries `code`
+`ATOMIC_AGENT_PROVIDER_NOT_ALLOWED` or `ATOMIC_AGENT_EGRESS_NOT_ALLOWED` and
+its sentence in `advice` (src/http/failure-reason-frame.ts); the row reads
+"Turn stopped. " and that sentence, as the TUI's chat line does, with the
+TUI's `ctrl+r` left out of the hint (`/runmode local` works here). A frame
+without `advice`, and the 400 a turn's own provider gets before the stream
+(the message agent-client's `httpErrorDetail` shows), are read from the
+agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
+be used here." (`constraintTurnLine` in renderer.js, ahead of every other
+wording of a failed turn).
+
 ## Process model
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`.

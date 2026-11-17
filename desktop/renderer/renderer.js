@@ -11078,6 +11078,11 @@ function turnFailureLine(ev) {
   const id = selActiveProviderId();
   const entry = (selProviders() || []).find((p) => p.id === id);
   const waited = turnWaited();
+  /* Issue #67: a folder constraint refused the turn before anything was
+     sent. This machine's policy, not the provider failing: "<provider> is
+     not answering" sent the person to their network or key. */
+  const constraint = constraintTurnLine(ev);
+  if (constraint) return esc(constraint);
   /* Backlog 32: on a provider whose saved key the agent will not send, nothing
      reached it; whatever the chain's last link said ("fetch failed" from a
      local fallback) is not why the turn failed. */
@@ -11114,6 +11119,33 @@ function turnFailureLine(ev) {
      agent's sentence is raw (codes, stack words), so the row says one short
      phrase and keeps the sentence under Details (turnFailure). */
   return null;
+}
+/** Issue #67: a turn a per-folder constraint (`projects.constraints`)
+    refused, as "Turn stopped. <why>" (the TUI's words, agent-event-reducer.ts),
+    or ''. The agent's frame marks it with `code` ATOMIC_AGENT_PROVIDER_NOT_ALLOWED
+    or ATOMIC_AGENT_EGRESS_NOT_ALLOWED and words it in `advice`
+    (failure-reason-frame.ts: the sentence, " — ", the hint); the TUI's
+    "ctrl+r or " is not a key here, /runmode local is. A frame without
+    `advice`, and the 400 a turn's own provider gets before the stream
+    (turnModelPolicyRefusal, read by agent-client httpErrorDetail), only
+    have the agent's raw words (provider-policy.ts, tool-egress.ts). */
+function constraintTurnLine(ev) {
+  const p = (ev && ev.payload) || {};
+  const code = String(p.code || (ev && ev.code) || '');
+  const advice = String(p.advice || (ev && ev.advice) || '').trim();
+  if ((code === 'ATOMIC_AGENT_PROVIDER_NOT_ALLOWED' || code === 'ATOMIC_AGENT_EGRESS_NOT_ALLOWED') && advice) {
+    return 'Turn stopped. ' + advice.replace(/\bwith ctrl\+r or \/runmode local\b/, 'with /runmode local');
+  }
+  const said = String((ev && ev.error) || '').replace(/\s+\([\w.-]+\)$/, '');
+  const prov = /\b(?:llm )?provider "([^"]+)" may not (?:serve|receive)\b/.exec(said);
+  const who = prov ? prov[1] : 'this provider';
+  const read = /\bthis session read files from (.+?), which (is|are) restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
+  const folder = /\bfolder (.+?) is restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  if (folder) return 'Turn stopped. The folder ' + folder[1] + ' is restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
+  const egress = /\bfolder (.+?) is restricted: (\S+) would send content off this machine\b/.exec(said);
+  if (egress) return 'Turn stopped. The folder ' + egress[1] + ' is restricted: ' + egress[2] + " can't send content off this machine here.";
+  return '';
 }
 /** The agent's offline-mode sentence out of a failed turn, or null. */
 function offlineTurnLine(ev) {
