@@ -74,6 +74,16 @@ describe("memory constraint scope", () => {
     expect(under(noEgress, () => notes.get(stored.id))?.content).toBe("folder a secret walrus");
   });
 
+  it("visibility also requires the reader's other-machine hosts to be a subset of the row's (issue #60)", () => {
+    const here = makeProviderPolicy({ key: "/work/a", allowedProviders: ["local-llama"], matchedDir: "/work/a" });
+    const lan = makeProviderPolicy({ key: "/work/b", allowedProviders: ["local-llama"], allowedProviderHosts: ["gpu-box.lan"], matchedDir: "/work/b" });
+    expect(scopeVisibleTo(constraintScopeOf(here), lan)).toBe(false);
+    expect(scopeVisibleTo(constraintScopeOf(lan), here)).toBe(true);
+    // No hosts: the descriptor is the one written before issue #60.
+    expect(constraintScopeOf(here)).toBe(JSON.stringify({ key: "/work/a", allowedProviders: ["local-llama"], allowedEgress: [] }));
+    expect(policyForConstraintScope(constraintScopeOf(lan)).allowedProviderHosts).toEqual(["gpu-box.lan"]);
+  });
+
   it("migrates a legacy descriptor in place to carry an empty allowedEgress", () => {
     under(secret, () => notes.store({ content: "legacy scoped note" }));
     const db = notes.getDatabaseHandleForEmbeddings() as unknown as { prepare(sql: string): { run(...p: unknown[]): unknown; all(): unknown[] } };
