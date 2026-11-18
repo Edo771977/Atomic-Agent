@@ -146,6 +146,18 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
       .toMatchObject({ ok: false, error: { code: "over-cap" } });
   });
 
+  it("a milestone result is decided over the daily limit; the next milestone waits at a plan gate (issue #74)", () => {
+    const running = approved(up(approved(up(undefined, brief)), plan));
+    const reported = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    // m2 costs 3; 1 left today.
+    const h = harness({ project: reported, dailyRemainingUsd: 1 });
+    const r = h.runtime.projectDecision("s1", { gate: reported.gate, version: gateVersion(reported)!, verdict: "approve" });
+    expect(r).toMatchObject({ ok: true, project: { milestones: [{ state: "reviewed" }, { state: "planned" }], gate: { kind: "plan" } } });
+    if (!r.ok) throw new Error("x");
+    expect(r.view.allowedVerdicts).toEqual(expect.arrayContaining(["cheaper", "quality", "edit"]));
+    expect(r.view.violations).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "daily-limit", severity: "hard" })]));
+  });
+
   it("cheaper, quality and a row edit are re-estimated from the live context", () => {
     const h = harness({ project: up(approved(up(undefined, brief)), plan) });
     const edited = h.runtime.projectDecision("s1", { gate: { kind: "plan" }, version: 1, verdict: "edit", edits: { rows: [{ taskId: "t1", worker: "cloud:model-b" }] } });

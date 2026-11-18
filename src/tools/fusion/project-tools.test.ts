@@ -6,7 +6,7 @@ import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team
 import type { ProjectState, ProjectUpdate } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
-import { PRESET_REASON } from "./project-estimate.js";
+import { PRESET_REASON, estimateRow } from "./project-estimate.js";
 import {
   PROJECT_BRIEF_TOOL,
   PROJECT_MILESTONE_TOOL,
@@ -149,8 +149,8 @@ describe("project.plan", () => {
     expect(update.milestones).toEqual(planArgs.milestones);
     expect(update.detail).toBe("compact");
     const [board, score] = update.rows;
-    // Default worker, no history: preset; local speed gives a time, and a
-    // local worker costs nothing (issue #54): priced at $0, not unpriced.
+    // Default worker, no history: preset; local speed gives a time. A
+    // local worker costs nothing (issue #54); its cloud review does (issue #74).
     expect(board).toMatchObject({
       taskId: "board",
       milestoneId: "base",
@@ -158,18 +158,35 @@ describe("project.plan", () => {
       reviewer: "cloud:model-r",
       basis: "preset",
       samples: 0,
-      estCostUsd: 0,
-      local: true,
+      estCostUsd: 0.068,
     });
+    expect(board!.local).toBeUndefined();
     expect(score!.local).toBeUndefined();
-    expect(result.summary).toContain("board: local:model-a, review cloud:model-r; $0.00 (local)");
+    expect(result.summary).toContain("board: local:model-a, review cloud:model-r; ~$0.07");
     expect(result.summary).not.toContain("unpriced");
     expect(board!.reason).toContain(PRESET_REASON);
     expect(board!.estMs).toBeGreaterThan(0);
     // Named worker with two priced runs: measured medians.
-    expect(score).toMatchObject({ worker: "cloud:model-b", basis: "measured", samples: 2, estCostUsd: 0.3, estMs: 5000 });
+    expect(score).toMatchObject({ worker: "cloud:model-b", basis: "measured", samples: 2, estCostUsd: 0.368, estMs: 5000 });
     expect(result.summary).toContain("board");
     expect(result.summary).toMatch(/reply/i);
+  });
+
+  it("a row's estimate includes its review, which the caps then count (issue #74)", async () => {
+    const result = await tools().plan.run(planArgs, ctx);
+    const [board, score] = (result.details[PROJECT_UPDATE_DETAIL] as Extract<ProjectUpdate, { kind: "plan" }>).rows;
+    const review = estimateRow(reviewer, "review", [], { input: 1, output: 2 }, { minSamples: 2, days: 30, now: NOW }).estCostUsd!;
+    expect(review).toBeGreaterThan(0);
+    // A local worker reviewed by a priced cloud reviewer is no longer $0.
+    expect(board!.estCostUsd).toBeCloseTo(review, 6);
+    expect(board!.local).toBeUndefined();
+    expect(board!.reason).toMatch(/review on cloud:model-r/);
+    expect(score!.estCostUsd).toBeCloseTo(0.3 + review, 6);
+    // Without a review the row costs the worker only.
+    const off = await tools({ context: planContext({ reviewOn: false }) }).plan.run(planArgs, ctx);
+    const [boardOff, scoreOff] = (off.details[PROJECT_UPDATE_DETAIL] as Extract<ProjectUpdate, { kind: "plan" }>).rows;
+    expect(boardOff).toMatchObject({ estCostUsd: 0, local: true });
+    expect(scoreOff!.estCostUsd).toBe(0.3);
   });
 
   it("marks a plan drafted after outside content", async () => {

@@ -492,6 +492,84 @@ describe("a milestone is done only over a run (issue #74)", () => {
   });
 });
 
+describe("a hard cap at a milestone gate does not stall the project (issue #74)", () => {
+  const reported = (state: "done" | "failed"): ProjectState =>
+    update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state, summary: "x" });
+  const decide = (p: ProjectState, verdict: "approve" | "cheaper", hard: string[]) =>
+    applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict }, { now: NOW, hardViolations: hard, replan: (rows) => rows.map((r) => ({ ...r, worker: "local:cheap" })) });
+
+  it("approving a done result marks it reviewed; the next milestone over the cap waits at a plan gate the person can resolve", () => {
+    const p = reported("done");
+    const r = ok(decide(p, "approve", ["milestone m2 is over today's remaining limit"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(r.plan).toMatchObject({ status: "draft", version: p.plan!.version + 1 });
+    expect(allowedProjectVerdicts(r.gate)).toEqual(expect.arrayContaining(["cheaper", "quality", "edit"]));
+    // The plan gate still refuses approval over the cap; cheaper resolves it, then approve starts m2.
+    expect(decide(r, "approve", ["over"])).toMatchObject({ ok: false, error: { code: "over-cap" } });
+    const cheaper = ok(decide(r, "cheaper", ["over"])).project;
+    const started = approve(cheaper);
+    expect(started.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
+    expect(started.gate).toEqual({ kind: "none" });
+  });
+
+  it("approving a failed result over a cap keeps it for another run behind a plan gate", () => {
+    const r = ok(decide(reported("failed"), "approve", ["a row's provider is not allowed"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["planned", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(approve(r).milestones.map((m) => m.state)).toEqual(["approved", "planned"]);
+  });
+
+  it("the last milestone's approval needs no further run: reviewed and done whatever the caps", () => {
+    let p = approve(reported("done"));
+    p = update(update(p, { kind: "milestone_run", id: "m2", runId: "r2" }), { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    const r = ok(decide(p, "approve", ["over"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed"]);
+    expect(r.gate).toEqual({ kind: "none" });
+  });
+});
+
+describe("one milestone open at a time (issue #74)", () => {
+  it("a re-plan approved while a milestone runs does not approve the next one", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    const replanned = approve(update(runningM1, planUpdate));
+    expect(replanned.milestones.map((m) => m.state)).toEqual(["in_progress", "planned"]);
+    expect(applyProjectUpdate(replanned, { kind: "milestone_run", id: "m2", runId: "r2" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-approved" } });
+  });
+
+  it("a report is refused while another milestone's result waits for the person", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    // An older store with two open milestones: m1 reported, m2 running.
+    const reported = update(runningM1, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const both: ProjectState = { ...reported, milestones: reported.milestones.map((m) => (m.id === "m2" ? { ...m, state: "in_progress" as const, runIds: ["r2"] } : m)) };
+    const r = applyProjectUpdate(both, { kind: "milestone", id: "m2", state: "failed", summary: "broken" }, NOW);
+    expect(r).toMatchObject({ ok: false, error: { code: "awaiting-person" } });
+    if (!r.ok) expect(r.error.message).toMatch(/milestone m1.s result waits/i);
+    // The open milestone itself can still be re-reported.
+    expect(update(both, { kind: "milestone", id: "m1", state: "done", summary: "ok, with pictures" }).gate).toEqual({ kind: "milestone", id: "m1" });
+  });
+});
+
+describe("a re-plan keeps the person's reviewer pick (issue #74)", () => {
+  it("carries reviewerByPerson for a row whose worker and reviewer are unchanged, and only then", () => {
+    const p = running();
+    const picked: ProjectState = {
+      ...p,
+      plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, reviewer: null, reviewerByPerson: true as const })) },
+    };
+    const re = update(picked, {
+      ...planUpdate,
+      rows: [row("t1", "m1", { reviewer: null }), row("t2", "m2", { reviewer: "cloud:model-b" })],
+    } as ProjectUpdate);
+    expect(re.plan!.rows[0]).toMatchObject({ taskId: "t1", reviewer: null, reviewerByPerson: true });
+    expect(re.plan!.rows[1]!.reviewerByPerson).toBeUndefined();
+    // A director's row claiming the person's pick does not get one.
+    const claimed = update(running(), { ...planUpdate, rows: [row("t1", "m1", { reviewerByPerson: true }), row("t2", "m2")] } as ProjectUpdate);
+    expect(claimed.plan!.rows[0]!.reviewerByPerson).toBeUndefined();
+  });
+});
+
 describe("projectExpectation", () => {
   it("covers every stage", () => {
     expect(projectExpectation(undefined)).toEqual({ kind: "draft_brief" });
