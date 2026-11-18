@@ -1776,8 +1776,11 @@ through an env var.
   never on the renderer's string. `underDesktopState` (containment) compares
   the same canonical forms, so `<state>/../x` is not inside.
 - **`projects.json` (`main/projects-store.ts`, issue #74).** Every change is
-  made under `projects.json.lock` (O_EXCL; a lock older than 10 s is a crashed
-  writer's and is broken; one that cannot be removed waits like a held lock;
+  made under `projects.json.lock` (O_EXCL, holding pid and a random token; a
+  lock older than 10 s is a crashed writer's and is broken, by renaming it
+  aside and removing it only if it is still the lock seen stale, so a fresh
+  lock another writer took meanwhile is put back; release removes only our
+  own token; one that cannot be removed waits like a held lock;
   waiting longer than 2 s answers "being changed in another window") and as a compare-and-swap: the file is read again before
   the write and the change is made again on what is there now (3 tries). A
   rewrite keeps unknown top-level and per-project fields and entries this

@@ -25,6 +25,7 @@ fs.renameSync = (a, b, ...r) => { refuse(a); return real.renameSync(a, b, ...r);
 const t0 = Date.now();
 const res = P.updateProjects(dir, (d) => P.saveProject(d, { name: 'A', folder: '/a' }), undefined, { lockWaitMs: 200 });
 process.stdout.write(JSON.stringify({ ok: res.ok, error: res.error, ms: Date.now() - t0, file: fs.existsSync(P.projectsPath(dir)) }));
+Object.assign(fs, real); fs.rmSync(dir, { recursive: true, force: true });
 `;
 
 test('a stale lock that cannot be removed ends in an answer, not a hang', () => {
