@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { defaultProviderModelMode } from "../config/model-mode.js";
-import { makeProviderPolicy, type ProviderPolicy } from "../config/project-constraint-match.js";
+import { makeProviderPolicy, restrictionOrigin, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
 import { isLocalServerUrl } from "./provider/openai/local-server-url.js";
 import { isLoopbackHost } from "./offline-network.js";
@@ -12,6 +12,7 @@ export {
   makeProviderPolicy,
   providerPolicyFromStamp,
   resolveProjectConstraint,
+  restrictionOrigin,
   toProviderPolicyStamp,
 } from "../config/project-constraint-match.js";
 
@@ -121,19 +122,29 @@ export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy):
     a = makeProviderPolicy({ ...a, allowedProviderHosts: hosts });
   }
   if (a.key === b.key || policyCovers(a, b)) {
-    return b.readFrom === undefined || b.readFrom.every((dir) => a.readFrom?.includes(dir))
+    const hasAll = (mine: readonly string[] | undefined, theirs: readonly string[] | undefined): boolean =>
+      theirs === undefined || theirs.every((dir) => mine?.includes(dir));
+    return hasAll(a.readFrom, b.readFrom) && hasAll(a.movedFrom, b.movedFrom)
       ? a
-      : makeProviderPolicy({ ...a, readFrom: [...new Set([...(a.readFrom ?? []), ...b.readFrom])] });
+      : makeProviderPolicy({ ...a, readFrom: unionOf(a.readFrom, b.readFrom), movedFrom: unionOf(a.movedFrom, b.movedFrom) });
   }
   return makeProviderPolicy({
-    key: `${a.key} + ${b.key}`,
+    // A part both keys carry is named once ("/a + /b" with "/b + /c").
+    key: [...new Set([...a.key.split(" + "), ...b.key.split(" + ")])].join(" + "),
     allowedProviders: a.allowedProviders.filter((id) => b.allowedProviders.includes(id)),
     allowedEgress: a.allowedEgress.filter((cls) => b.allowedEgress.includes(cls)),
     allowedProviderHosts: hosts,
     matchedDir: a.matchedDir,
-    readFrom: [...new Set([...(a.readFrom ?? []), ...(b.readFrom ?? [])])],
+    readFrom: unionOf(a.readFrom, b.readFrom),
+    movedFrom: unionOf(a.movedFrom, b.movedFrom),
   });
 }
+
+function unionOf(a: readonly string[] | undefined, b: readonly string[] | undefined): string[] {
+  return [...new Set([...(a ?? []), ...(b ?? [])])];
+}
+
+
 
 /** Whether `a` already carries constraint `b` (its key, or one of its " + " parts). */
 export function policyCovers(a: ProviderPolicy, b: ProviderPolicy): boolean {
@@ -174,6 +185,8 @@ export interface ProviderRestriction {
   folder: string;
   /** The constrained folders the session read files from (read taint); empty for its own folder. */
   readFrom: string[];
+  /** The constrained folders the chat was moved out of with their restriction (issue #68). */
+  movedFrom: string[];
 }
 
 /** The restriction a policy puts on a session, or `null` for an unconstrained one. */
@@ -184,14 +197,14 @@ export function describeProviderRestriction(policy: ProviderPolicy | undefined):
     allowedProviders: [...policy.allowedProviders],
     folder: policy.key,
     readFrom: [...(policy.readFrom ?? [])],
+    movedFrom: [...(policy.movedFrom ?? [])],
   };
 }
 
 /** One `/status` line for the restriction. */
 export function formatProviderRestrictionLine(restriction: ProviderRestriction): string {
-  const why = restriction.readFrom.length > 0
-    ? `read files from ${restriction.readFrom.join(", ")}`
-    : `folder ${restriction.folder}`;
+  const origin = restrictionOrigin({ readFrom: restriction.readFrom, movedFrom: restriction.movedFrom ?? [] });
+  const why = origin === undefined ? `folder ${restriction.folder}` : origin.text.replace(/^this (chat|session) /, "");
   return `Providers: ${restriction.label} (${why})`;
 }
 
@@ -279,8 +292,9 @@ function providerNotAllowedMessage(
     return `provider constraints are configured (projects.constraints) but ${role} carries no folder policy; ` +
       `nothing was sent${providerId === undefined ? "" : ` to "${providerId}"`}`;
   }
-  const head = policy.readFrom !== undefined && policy.readFrom.length > 0
-    ? `this session read files from ${policy.readFrom.join(", ")}, which ${policy.readFrom.length > 1 ? "are" : "is"} restricted to: ${describeAllowed(policy)}`
+  const origin = restrictionOrigin(policy);
+  const head = origin !== undefined
+    ? `${origin.text}, which ${origin.plural ? "are" : "is"} restricted to: ${describeAllowed(policy)}`
     : `folder ${policy.key} is restricted to: ${describeAllowed(policy)}`;
   if (reason === "remote-endpoint") return `${head}; ${remoteEndpointSentence(policy, providerId ?? "(unknown)", endpointHost)}`;
   return reason === "none-allowed"

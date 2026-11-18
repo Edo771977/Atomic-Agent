@@ -2,6 +2,7 @@ import { isAbsolute, posix, resolve, win32 } from "node:path";
 import {
   normalizeConstraintPath,
   resolveProjectConstraint,
+  restrictionOrigin,
   type ConstraintMatchOptions,
   type ProviderPolicy,
 } from "../config/project-constraint-match.js";
@@ -99,9 +100,8 @@ export class WriteOutNotAllowedError extends Error {
   readonly policyKey: string;
 
   constructor(tool: string, target: string, policy: ProviderPolicy) {
-    const why = policy.readFrom !== undefined && policy.readFrom.length > 0
-      ? `this session read files from ${policy.readFrom.join(", ")}, which is restricted`
-      : `folder ${policy.key} is restricted`;
+    const origin = restrictionOrigin(policy);
+    const why = origin !== undefined ? `${origin.text}, which is restricted` : `folder ${policy.key} is restricted`;
     super(
       `${why}: ${tool} would write its content to ${target}, outside every folder with the same or a stricter constraint; ` +
       "write inside the restricted folder instead",

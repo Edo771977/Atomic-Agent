@@ -157,7 +157,15 @@ describe("idea service", () => {
       maxDurationMs: 60_000,
       notify: "telegram",
       workingDir: "/tmp/p",
+      sourceSession: { id: "s-orig", workingDir: "/tmp/p" },
+      sourceSessionMissing: false,
     });
+  });
+
+  it("names a retried task's chat that no longer loads as missing (issue #68)", () => {
+    const t = tasks.create({ sessionId: "s-deleted", userMessage: "rerun me", origin: "cli", maxAttempts: 1 });
+    const idea = { kind: "retry_task" as const, sourceKey: `task:${t.id}`, evidence: { source: "task" as const, ref: t.id, excerpt: "", at: null } };
+    expect(ideaTaskCarry(idea, { tasks, sessions: { load: () => null } })).toMatchObject({ sourceSession: null, sourceSessionMissing: true });
   });
 
   it("carries nothing for a goal idea or a retried task that is gone", () => {

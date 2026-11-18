@@ -2,6 +2,7 @@ import { getConfig } from "../config/index.js";
 import {
   findProviderNotAllowed,
   PROVIDER_NOT_ALLOWED_CODE,
+  restrictionOrigin,
   type ProviderNotAllowedError,
 } from "../llm/provider-policy.js";
 import {
@@ -106,9 +107,9 @@ function describeProviderRefusal(err: ProviderNotAllowedError): ConstraintRefusa
     };
   }
   const allowed = policy.allowedProviders.length === 0 ? "no provider" : policy.allowedProviders.join(", ");
-  const readFrom = policy.readFrom ?? [];
-  const head = readFrom.length > 0
-    ? `This session read files from ${readFrom.join(", ")}, which ${readFrom.length > 1 ? "are" : "is"} restricted to: ${allowed}.`
+  const origin = restrictionOrigin(policy);
+  const head = origin !== undefined
+    ? `${capitalize(origin.text)}, which ${origin.plural ? "are" : "is"} restricted to: ${allowed}.`
     : `This folder is restricted to: ${allowed}.`;
   if (err.reason === "remote-endpoint") {
     const id = err.providerId ?? "this provider";
