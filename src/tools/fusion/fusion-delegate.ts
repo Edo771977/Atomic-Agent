@@ -3019,13 +3019,11 @@ export function buildFusionDelegateTool(
           results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
         }
         // The run's success-criteria facts, kept with its screenshots for
-        // the milestone report (issue #40, `run-criteria.ts`).
-        if (evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(
-            deps.runCheckpoints.runsDir,
-            evidenceRun,
-            results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }])),
-          );
+        // the milestone report (issue #40, `run-criteria.ts`). A candidate
+        // run's wait for its finish: the folder keeps only what was promoted.
+        const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
+        if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3222,6 +3220,21 @@ export function buildFusionDelegateTool(
         // count as nothing delivered too (ATO-234).
         const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
         completedCandidateReport = candidateReport;
+        // A candidate that was not promoted delivered nothing to the folder
+        // (issue #74): none of its criteria stands as passed there.
+        if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+          const why = `candidate not promoted${candidateReport.reason === undefined ? "" : `: ${candidateReport.reason}`}`;
+          writeRunCriteriaFacts(
+            deps.runCheckpoints.runsDir,
+            evidenceRun,
+            candidateReport.status === "promoted"
+              ? runFacts
+              : runFacts.map((t) => ({
+                  taskId: t.taskId,
+                  facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
+                })),
+          );
+        }
         terminalTaskCount = results.length;
         const outcome = delegateOutcome(results);
         // The outcome log and the turn receipt (counts only, never the
