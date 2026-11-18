@@ -45,7 +45,8 @@ import { canonical, scratchDirs } from "./scratch-paths.js";
  * (the exact names the runtime makes). A recognised root whose marker is
  * missing, malformed, a link or someone else's fails closed: restricted
  * to nothing, and foreign to every session. A session's own spill folder
- * is always its own (its content came from that session). A shell command
+ * is its own when the folder's marker names it (its content came from
+ * that session); ownership is never read from the folder's name. A shell command
  * can still rewrite or delete a marker; deleting one fails closed.
  */
 
@@ -80,12 +81,6 @@ export interface TempCopyMarker {
 export interface TempCopyOwner {
   readonly sessionId?: string;
   readonly policy?: ProviderPolicy;
-}
-
-/** A session id as one safe path segment (the spill folder's name). */
-export function spillSegment(sessionId: string): string {
-  const cleaned = sessionId.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 120);
-  return cleaned.length > 0 ? cleaned : "_";
 }
 
 /** The marker path of a temp root of `kind` at `dir`. */
@@ -184,8 +179,19 @@ export function tempCopyOf(path: string): { root: TempCopyRoot; marker: TempCopy
   return { root, marker: readTempCopyMarkerAt(root.markerPath, root.kind) };
 }
 
-function isOwnSpillRoot(root: TempCopyRoot, sessionId: string | undefined): boolean {
-  return root.kind === "spill" && sessionId !== undefined && basename(root.dir) === spillSegment(sessionId);
+/**
+ * Whether a spill folder is `sessionId`'s own: by its marker only, never
+ * by its name (an older build's names were lossy: `codex:a.b` and
+ * `codex:a_b` shared one). No readable marker: nobody's.
+ */
+function isOwnSpillRoot(copy: { root: TempCopyRoot; marker: TempCopyMarker | null }, sessionId: string | undefined): boolean {
+  return copy.root.kind === "spill" && sessionId !== undefined && copy.marker?.sessionId === sessionId;
+}
+
+/** Whether `path` lies in a spill folder whose marker names `sessionId`. */
+export function isOwnSpillPath(path: string, sessionId: string): boolean {
+  const copy = tempCopyOf(path);
+  return copy !== undefined && isOwnSpillRoot(copy, sessionId);
 }
 
 /**
@@ -196,7 +202,7 @@ function isOwnSpillRoot(root: TempCopyRoot, sessionId: string | undefined): bool
 export function isForeignTempCopy(path: string, sessionId: string | undefined): boolean {
   const copy = tempCopyOf(path);
   if (copy === undefined) return false;
-  if (isOwnSpillRoot(copy.root, sessionId)) return false;
+  if (isOwnSpillRoot(copy, sessionId)) return false;
   return copy.marker?.sessionId === undefined || copy.marker.sessionId !== sessionId;
 }
 
@@ -220,7 +226,7 @@ export function tempCopyPolicy(
 ): ProviderPolicy | undefined {
   const copy = tempCopyOf(path);
   if (copy === undefined) return undefined;
-  if (isOwnSpillRoot(copy.root, options.sessionId)) return undefined;
+  if (isOwnSpillRoot(copy, options.sessionId)) return undefined;
   if (copy.marker === null || hops >= MAX_SOURCE_HOPS) return unreadablePolicy(copy.root.dir);
   let policy = copy.marker.policy;
   const source = copy.marker.source;

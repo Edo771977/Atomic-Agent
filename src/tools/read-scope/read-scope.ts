@@ -11,7 +11,7 @@ import { toolOutputDir } from "../tool-output-spill.js";
 import type { ToolContext } from "../tool-registry.js";
 import { READ_TOOL_TARGETS, URL_LIKE } from "./read-scope-targets.js";
 import { canonical, isUnderAny, scratchDirs } from "./scratch-paths.js";
-import { isForeignTempCopy } from "./temp-copy-sources.js";
+import { isForeignTempCopy, isOwnSpillPath } from "./temp-copy-sources.js";
 
 export { canonical, isUnderAny, scratchDirs } from "./scratch-paths.js";
 
@@ -67,12 +67,15 @@ export function isOutsideReadRoots(
 /**
  * Whether `target` is inside the session's tool-output folder both
  * lexically AND canonically, so a symlink planted there cannot carry a
- * read outside the roots (the roots check accepts either form).
+ * read outside the roots (the roots check accepts either form), and the
+ * folder's marker names the session: a folder an older build named
+ * lossily may hold another session's outputs under this one's name.
  */
-function isOwnToolOutput(target: string, dir: string): boolean {
+function isOwnToolOutput(target: string, dir: string, sessionId: string): boolean {
   return (
     isInside(resolve(dir), target) &&
-    isInside(canonical(resolve(dir)), canonical(target))
+    isInside(canonical(resolve(dir)), canonical(target)) &&
+    isOwnSpillPath(target, sessionId)
   );
 }
 
@@ -202,7 +205,7 @@ function firstTargetOutside(
       continue;
     }
     if (scratchInScope && isScratchPath(absolute) && !isForeignTempCopy(absolute, ctx.sessionId)) continue;
-    if (isOwnToolOutput(absolute, ownOutputs)) continue;
+    if (isOwnToolOutput(absolute, ownOutputs, ctx.sessionId)) continue;
     if (isOutsideReadRoots(absolute, roots)) return absolute;
   }
   return null;
