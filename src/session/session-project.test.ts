@@ -492,6 +492,43 @@ describe("a milestone is done only over a run (issue #74)", () => {
   });
 });
 
+describe("a hard cap at a milestone gate does not stall the project (issue #74)", () => {
+  const reported = (state: "done" | "failed"): ProjectState =>
+    update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state, summary: "x" });
+  const decide = (p: ProjectState, verdict: "approve" | "cheaper", hard: string[]) =>
+    applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict }, { now: NOW, hardViolations: hard, replan: (rows) => rows.map((r) => ({ ...r, worker: "local:cheap" })) });
+
+  it("approving a done result marks it reviewed; the next milestone over the cap waits at a plan gate the person can resolve", () => {
+    const p = reported("done");
+    const r = ok(decide(p, "approve", ["milestone m2 is over today's remaining limit"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(r.plan).toMatchObject({ status: "draft", version: p.plan!.version + 1 });
+    expect(allowedProjectVerdicts(r.gate)).toEqual(expect.arrayContaining(["cheaper", "quality", "edit"]));
+    // The plan gate still refuses approval over the cap; cheaper resolves it, then approve starts m2.
+    expect(decide(r, "approve", ["over"])).toMatchObject({ ok: false, error: { code: "over-cap" } });
+    const cheaper = ok(decide(r, "cheaper", ["over"])).project;
+    const started = approve(cheaper);
+    expect(started.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
+    expect(started.gate).toEqual({ kind: "none" });
+  });
+
+  it("approving a failed result over a cap keeps it for another run behind a plan gate", () => {
+    const r = ok(decide(reported("failed"), "approve", ["a row's provider is not allowed"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["planned", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(approve(r).milestones.map((m) => m.state)).toEqual(["approved", "planned"]);
+  });
+
+  it("the last milestone's approval needs no further run: reviewed and done whatever the caps", () => {
+    let p = approve(reported("done"));
+    p = update(update(p, { kind: "milestone_run", id: "m2", runId: "r2" }), { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    const r = ok(decide(p, "approve", ["over"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed"]);
+    expect(r.gate).toEqual({ kind: "none" });
+  });
+});
+
 describe("projectExpectation", () => {
   it("covers every stage", () => {
     expect(projectExpectation(undefined)).toEqual({ kind: "draft_brief" });

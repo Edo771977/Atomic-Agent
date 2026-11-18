@@ -1231,12 +1231,15 @@ function editRows(
 /**
  * The person's decision at the current gate. Pure. Refused when there
  * is no project, the gate or version differs from what the person saw,
- * the gate does not allow the verdict, or (approve) a hard cap is
- * exceeded.
+ * the gate does not allow the verdict, or (approve, brief or plan gate)
+ * a hard cap is exceeded.
  *  - approve brief: approved; gate none; the director drafts the plan.
  *  - approve plan: approved; the first planned milestone is approved.
  *  - approve milestone: a done result becomes `reviewed` and the next
  *    planned milestone is approved; a failed one goes back to `approved`.
+ *    Never refused for a hard cap (issue #74): the result is decided
+ *    (done: `reviewed`; failed: `planned`) and the next run waits at a
+ *    plan gate (plan back to draft) for the person to resolve the cap.
  *  - edit / cheaper / quality: the draft changes, its version bumps, the
  *    gate stays open for the new version. At a milestone gate, `edit`
  *    is the person's correction (`edits.note`): the milestone goes back
@@ -1283,7 +1286,9 @@ export function applyProjectDecision(
       return { ok: true, project: { ...project, brief: { ...project.brief!, status: "approved", approvedAt: now }, gate: { kind: "none" } } };
     }
     const violations = [...(options.hardViolations ?? [])];
-    if (violations.length > 0) {
+    // At a milestone gate the person's decision on the result always
+    // stands (issue #74): a cap blocks only starting the next run, below.
+    if (violations.length > 0 && gate.kind !== "milestone") {
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
@@ -1309,12 +1314,28 @@ export function applyProjectDecision(
     }
     if (gate.kind === "milestone") {
       const target = project.milestones.find((m) => m.id === gate.id)!;
+      if (target.state !== "done" && target.state !== "failed") {
+        return refuse({ code: "invalid", message: `Milestone ${gate.id} has no result to approve.` });
+      }
+      // A hard cap (the next run over today's limit, a row's provider no
+      // longer allowed) does not refuse the decision, which would stall
+      // the project: the director cannot re-plan at this gate. The result
+      // is decided (done: reviewed; failed: planned for another run), and
+      // the next run waits at a plan gate, where the person sees the
+      // violation and can pick cheaper, quality or edit the rows.
+      if (violations.length > 0) {
+        const decided = project.milestones.map((m) =>
+          m.id === gate.id ? { ...m, state: target.state === "failed" ? ("planned" as const) : ("reviewed" as const), updatedAt: now } : m,
+        );
+        if (decided.some((m) => m.state === "planned")) {
+          const plan: ProjectPlan = { ...withoutApproval(project.plan!), status: "draft", version: project.plan!.version + 1 };
+          return { ok: true, project: { ...project, plan, milestones: decided, gate: { kind: "plan" } } };
+        }
+        return { ok: true, project: { ...project, milestones: decided, gate: { kind: "none" } } };
+      }
       if (target.state === "failed") {
         const milestones = project.milestones.map((m) => (m.id === gate.id ? { ...m, state: "approved" as const, updatedAt: now } : m));
         return { ok: true, project: { ...project, milestones, gate: { kind: "none" } } };
-      }
-      if (target.state !== "done") {
-        return refuse({ code: "invalid", message: `Milestone ${gate.id} has no result to approve.` });
       }
       const reviewed = project.milestones.map((m) => (m.id === gate.id ? { ...m, state: "reviewed" as const, updatedAt: now } : m));
       return { ok: true, project: { ...project, milestones: approveNext(reviewed, now), gate: { kind: "none" } } };
