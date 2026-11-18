@@ -39,6 +39,10 @@ import { isNetworkListenHost } from "../http/serve-egress.js";
  */
 export async function serveCommand(args: string[]): Promise<number> {
   const parsed = parseArgs(args);
+  // Issue #74: the key is in `parsed` now. Out of the environment it goes,
+  // so no tool, shell or child process serve starts inherits it (the
+  // desktop passes its per-launch key here instead of on the command line).
+  delete process.env.ATOMIC_AGENT_API_KEY;
   if ("help" in parsed) {
     process.stdout.write(HELP);
     return 0;
