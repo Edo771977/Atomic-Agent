@@ -20,6 +20,8 @@ This area owns skill installation and discovery. Read [AGENTS.md](AGENTS.md) bef
 - [learning/](learning/index.ts): self-learning (ATO-67), the background experience review after a long turn, the learned-skill linter, the "Learned" journal and `/learn undo`, drafts pending review (`pending-drafts.ts`, `/learn approve|discard`); [self-learning](docs/skill-format.md#self-learning).
 - [skill-script-runner.ts](skill-script-runner.ts): runs a declared script with the same filtered environment as a shell command (`buildCommandEnv` plus `tools.shell.envPassthrough`), so provider keys loaded from `.env` do not reach it.
 
+Organization policy (ATO-587): `prepareSkillInstall` refuses a skill the admin policy denies (`SkillInstallError` code `policy_denied`, HTTP 403), and `SkillRegistry` takes an `isBlocked` predicate that keeps such a skill out like a disabled one (`listAll` marks it `blocked`). See [../policy/README.md](../policy/README.md).
+
 ## Ownership and dependencies
 
 SkillRegistry owns filesystem discovery and disabled-name filtering; skill loaders and tools expose selected content to a session. Starter seeding owns packaged defaults without overwriting installed content. Prompt consumes the catalog and loaded skills, while runtime refreshes it; scripts own release-time copying.
