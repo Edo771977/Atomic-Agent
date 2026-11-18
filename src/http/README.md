@@ -19,6 +19,8 @@ This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) b
 
 The HTTP server owns request handling and connection cancellation; route modules translate transport payloads into runtime operations. Session routes use the existing turn/steering contract, and webhook routes materialize durable tasks; the persistent-webhook session map moves a corrupt file aside to `.corrupt-<time>` instead of silently overwriting it. Runtime owns session execution, task storage and approval policy; routes must retain authentication and error mapping. MCP routes use [shared server-config commands](../config/mcp-server-commands.ts) and manager operations, independently of TUI.
 
+Session ids from clients (issue #74, [session-id.ts](../session/session-id.ts)): a `session_id` body field or `X-Atomic-Session-Id` header, an AG-UI `threadId` and the `{id}` of every `/api/sessions/{id}` route must be one plain token: a letter or digit first, then letters, digits, `.`, `_` or `-`, at most 128 characters. Anything else is `400` (`param` `session_id`, or `id` on the session routes) before a handler runs, because the id names files such as the trace `<traces>/<id>.ndjson`; the trace sink also refuses a path outside its folder.
+
 ## Task-specific reading
 
 Read README.md and ../runtime/docs/lifecycle.md for session/stream/steering changes.

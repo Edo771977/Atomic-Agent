@@ -12,7 +12,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { StructuredLogger } from "../structured-logger.js";
 
@@ -75,7 +75,13 @@ const TEMP_SUFFIX = ".trim-";
  * rewriting this file rather than by rolling over to a new one.
  */
 export function traceFilePath(dir: string, sessionId: string): string {
-  return join(dir, `${sessionId}.ndjson`);
+  const path = join(dir, `${sessionId}.ndjson`);
+  // Issue #74: the id is a file name, never a path. Ingress validates
+  // ids; this is the last line for any id that reached a sink anyway.
+  if (sessionId.length === 0 || dirname(resolve(path)) !== resolve(dir)) {
+    throw new Error("trace: session id would place its trace outside the traces folder");
+  }
+  return path;
 }
 
 interface SessionWriterState {
@@ -163,7 +169,18 @@ export function createNdjsonTraceSink(
   const resolveState = (sessionId: string): SessionWriterState => {
     const existing = states.get(sessionId);
     if (existing) return existing;
-    const path = traceFilePath(options.dir, sessionId);
+    let path: string;
+    try {
+      path = traceFilePath(options.dir, sessionId);
+    } catch (err) {
+      // An id that would escape the folder records nothing (issue #74).
+      options.logger?.warn("trace: refused a session id outside the traces folder", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      const refused: SessionWriterState = { path: "", bytesWritten: 0, disabled: true, oversizedWarned: true, trimFloor: 0 };
+      states.set(sessionId, refused);
+      return refused;
+    }
     let bytesWritten = 0;
     try {
       const stat = statSync(path);

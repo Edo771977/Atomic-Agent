@@ -30,6 +30,7 @@ import { checkWorkingDir } from "./session-working-dir.js";
 import { chatGoalSpec, goalProgressFrame } from "./chat-goal.js";
 import type { GoalState } from "../agent/goal/index.js";
 import { parseProjectFields, type SessionProject } from "../session/session-project.js";
+import { sessionIdError } from "../session/session-id.js";
 import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
@@ -1525,8 +1526,10 @@ async function parseRequestBody(
     (typeof body.session_id === "string" && body.session_id.length > 0
       ? body.session_id
       : null) ?? getHeader(req, SESSION_ID_HEADER);
-  if (sessionIdOverride && /[\r\n\x00]/.test(sessionIdOverride)) {
-    sendError(res, 400, openaiError("Invalid session ID"));
+  // Issue #74: the id names files (trace, archived turns), so only a plain token passes.
+  const sessionIdProblem = sessionIdOverride ? sessionIdError(sessionIdOverride) : null;
+  if (sessionIdProblem !== null) {
+    sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "session_id"));
     return null;
   }
   let workingDir: string | null = null;

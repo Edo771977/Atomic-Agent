@@ -32,6 +32,7 @@ import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import type { SessionState } from "../session/index.js";
+import { sessionIdError } from "../session/session-id.js";
 import { installLocalSkill, scanApprovalFromIds, uninstallSkill } from "../skills/index.js";
 import { getAppVersion } from "../version.js";
 import { currentLocalModelConfigured } from "../runtime/constraint-refusal.js";
@@ -469,24 +470,23 @@ export async function bootstrapSidecar(): Promise<{
   );
 
   router.register<CompactSessionPayload, Awaited<ReturnType<AgentRuntime["compactSession"]>>>("compact_session", async (request) => {
+    const id = requireSessionId(request.payload.sessionId);
     if (!active) throw new Error("no active runtime — call start_session first");
-    const id = request.payload.sessionId;
-    if (typeof id !== "string" || !id) throw new Error("sessionId is required");
     const { instructions } = request.payload;
     const invalid = compactionInstructionsError(instructions);
     if (invalid) throw new Error(invalid);
     return active.runtime.compactSession(id, typeof instructions === "string" ? { instructions } : {});
   });
   router.register<GetSessionPayload, ReturnType<AgentRuntime["getSessionCompaction"]>>("get_compaction", (request) => {
+    const id = requireSessionId(request.payload.sessionId);
     if (!active) throw new Error("no active runtime — call start_session first");
-    const id = request.payload.sessionId;
-    if (typeof id !== "string" || !id) throw new Error("sessionId is required");
     return active.runtime.getSessionCompaction(id);
   });
 
   router.register<GetSessionPayload, SessionState | null>(
     "get_session",
     (request) => {
+      requireSessionId(request.payload.sessionId);
       if (active?.session.id === request.payload.sessionId)
         return active.runtime.sessionStore.load(request.payload.sessionId) ?? active.session;
       // Fall back to sqlite if we have a runtime to ask.
@@ -501,9 +501,8 @@ export async function bootstrapSidecar(): Promise<{
   router.register<GetSessionPayload, ProviderRestriction | null>(
     "get_provider_restriction",
     (request) => {
+      const id = requireSessionId(request.payload.sessionId);
       if (!active) throw new Error("no active runtime — call start_session first");
-      const id = request.payload.sessionId;
-      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
       const session = active.session.id === id
         ? (active.runtime.sessionStore.load(id) ?? active.session)
         : active.runtime.sessionStore.load(id);
@@ -515,9 +514,8 @@ export async function bootstrapSidecar(): Promise<{
   router.register<GetProjectPayload, { sessionId: string; view: ProjectGateView | null }>(
     "get_project",
     (request) => {
+      const id = requireSessionId(request.payload.sessionId);
       if (!active) throw new Error("no active runtime — call start_session first");
-      const id = request.payload.sessionId;
-      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
       return { sessionId: id, view: active.runtime.projectState?.(id) ?? null };
     },
   );
@@ -525,10 +523,9 @@ export async function bootstrapSidecar(): Promise<{
   router.register<ProjectDecisionPayload, ProjectDecisionResult>(
     "project_decision",
     async (request) => {
-      if (!active) throw new Error("no active runtime — call start_session first");
       const payload = (request.payload ?? {}) as unknown as Record<string, unknown>;
-      const id = payload.sessionId;
-      if (typeof id !== "string" || !id) throw new Error("sessionId is required");
+      const id = requireSessionId(payload.sessionId);
+      if (!active) throw new Error("no active runtime — call start_session first");
       const decision = parseProjectDecision(payload);
       if (typeof decision === "string") throw new Error(decision);
       const { runtime } = active;
@@ -626,6 +623,18 @@ if (invokedDirectly) {
 }
 
 /** `canvas` on a `tool_call_result` (ATO-1137): the file an ok `canvas.render` wrote. */
+/**
+ * The `sessionId` of a request, refused unless it is a plain token
+ * (issue #74, `session/session-id.ts`): checked before anything else so a
+ * bad id is named as such, whatever state the sidecar is in.
+ */
+function requireSessionId(value: unknown): string {
+  if (typeof value !== "string" || !value) throw new Error("sessionId is required");
+  const problem = sessionIdError(value);
+  if (problem !== null) throw new Error(`invalid sessionId: ${problem}`);
+  return value;
+}
+
 function canvasPayload(result: CompressedToolResult): { canvas?: NonNullable<ReturnType<typeof canvasRecordOf>> } {
   const canvas = canvasRecordOf(result);
   return canvas === undefined ? {} : { canvas };

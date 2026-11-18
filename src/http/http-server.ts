@@ -15,6 +15,7 @@ import { UndeliveredSteerStore } from "./undelivered-steers.js";
 import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
 import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { sessionIdError } from "../session/session-id.js";
 
 /** ATO-1126: one per process; loopback callers are never counted. */
 const authThrottle = new AuthThrottle();
@@ -270,6 +271,12 @@ async function dispatch(
   // A session's own routes (transcript, export, steer, compaction, ...)
   // carry its content (issue #33).
   const sessionId = url.pathname.startsWith("/api/sessions/") ? matched.params.id : undefined;
+  // Issue #74: a session id names files; refuse anything but a plain token before a handler sees it.
+  const sessionIdProblem = sessionId === undefined ? null : sessionIdError(sessionId);
+  if (sessionIdProblem !== null) {
+    sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "id"));
+    return;
+  }
   if (sessionId !== undefined && serveWithheld(ctx, sessionId)()) {
     sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
     return;

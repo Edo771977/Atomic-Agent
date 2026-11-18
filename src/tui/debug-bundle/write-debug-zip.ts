@@ -89,8 +89,8 @@ export async function writeDebugBundleZip(
   let includedTraces = 0;
   let skippedTraces = 0;
   for (const sessionId of options.sessionIds) {
-    const path = traceFilePath(options.traceDir, sessionId);
     try {
+      const path = traceFilePath(options.traceDir, sessionId);
       const stats = await stat(path);
       if (!stats.isFile()) {
         manifest.traces.push({

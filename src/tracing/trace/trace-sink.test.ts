@@ -449,3 +449,30 @@ describe.skipIf(!posix)("trace file permissions", () => {
     expect(modeOf(path)).toBe(0o600);
   });
 });
+
+// Issue #74 item 8: a session id is a file name, never a path.
+describe("trace path containment", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "atomic-trace-escape-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("refuses an id that leaves the traces folder", () => {
+    const dir = join(root, "traces");
+    expect(() => traceFilePath(dir, "../pwned")).toThrow(/outside the traces folder/);
+    expect(() => traceFilePath(dir, "a/b")).toThrow(/outside the traces folder/);
+    expect(traceFilePath(dir, "compaction:s-1")).toBe(join(dir, "compaction:s-1.ndjson"));
+  });
+
+  it("writes nothing outside the folder for an escaping session id", () => {
+    const dir = join(root, "traces");
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    expect(() => sink(baseEvent("../pwned", 0, 0))).not.toThrow();
+    sink(baseEvent("ok", 0, 0));
+    expect(readdirSync(root).sort()).toEqual(["traces"]);
+    expect(readdirSync(dir)).toEqual(["ok.ndjson"]);
+  });
+});

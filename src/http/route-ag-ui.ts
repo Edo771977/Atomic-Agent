@@ -31,6 +31,7 @@ import type { RunTurnResult } from "../agent/agent-contract.js";
 import { createEmptySessionState, type SessionState } from "../session/index.js";
 
 import { createAgUiTranslator } from "./ag-ui-events.js";
+import { isValidSessionId } from "../session/session-id.js";
 import { openaiError } from "./openai-errors.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import {
@@ -60,7 +61,7 @@ export function parseAgUiRunInput(body: unknown): AgUiRunInput | string {
   const input = body as Record<string, unknown>;
   const threadId = input["threadId"];
   const runId = input["runId"];
-  if (!isId(threadId)) return "Missing or invalid 'threadId'";
+  if (!isId(threadId) || !isValidSessionId(threadId)) return "Missing or invalid 'threadId'";
   if (!isId(runId)) return "Missing or invalid 'runId'";
   const messages = input["messages"];
   if (!Array.isArray(messages)) return "Missing or invalid 'messages'";
