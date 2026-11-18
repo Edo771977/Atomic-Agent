@@ -1,4 +1,5 @@
 import { getConfig, type AtomicAgentConfig } from "../../../config/index.js";
+import { TEAM_MEMBER_PROVIDER_MODEL } from "../../../config/llm-fusion-team-config.js";
 import type { LlamaServerClient } from "../../llama-server-client.js";
 import type { ModelProfile } from "../../model-profile.js";
 import type { LlmProvider } from "../llm-provider.js";
@@ -193,7 +194,9 @@ export class ProviderRegistry {
    * entry names (ATO-1148). The base provider is returned as-is when it
    * already serves that model. Built once per (id, model) from the same
    * entry and kept until the provider is replaced or removed, at most
-   * {@link MAX_MODEL_VARIANTS_PER_PROVIDER} per provider; the active
+   * {@link MAX_MODEL_VARIANTS_PER_PROVIDER} per provider. The model
+   * `default` (`TEAM_MEMBER_PROVIDER_MODEL`, a team member's "the entry's
+   * own") is the base too. The active
    * provider, the entries and the config are not touched, so a turn on
    * a project's model never moves another chat's model.
    *
@@ -205,6 +208,9 @@ export class ProviderRegistry {
     const entry = this.entries.get(id);
     if (!base || !entry) return undefined;
     if ((entry.defaultChatModel ?? entry.model) === model) return base;
+    // A team member's `default` model is the entry's own (issue #71): a
+    // Codex subscription that names none keeps the account's default.
+    if (model === TEAM_MEMBER_PROVIDER_MODEL) return base;
     const ctx = this.buildCtx;
     const factory = getProviderFactory(entry.kind);
     if (!ctx || !factory) return undefined;

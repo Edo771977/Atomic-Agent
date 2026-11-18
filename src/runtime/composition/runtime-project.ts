@@ -73,6 +73,8 @@ export interface LiveProjectInputsSource {
   allows: (providerId: string) => boolean;
   mode: Pick<ResolvedRunMode, "workerProviderId" | "workerModel" | "turnBudgetUsd">;
   currentWorker?: TeamMember | null;
+  /** The session's reviewer (issue #71); `"none"`: no review in this chat. */
+  currentReviewer?: TeamMember | "none" | null;
   /** The local leg's measured speed (`measuredTokensPerSecond`). */
   tokensPerSecond: () => number | null;
   /** What is left of today's limit; null: none. */
@@ -106,6 +108,7 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
         ? null
         : { providerId: source.mode.workerProviderId, model: source.mode.workerModel ?? source.mode.workerProviderId },
     ...(source.currentWorker === undefined ? {} : { currentWorker: source.currentWorker }),
+    ...(source.currentReviewer === undefined ? {} : { currentReviewer: source.currentReviewer }),
     records: readRoutingHistory(outcomeLogPath(source.config.paths.stateDir)),
     pricing: (providerId, model) => resolveModelPricingFor(resolved, model, providerId)?.pricing,
     isLocal: localProvider,

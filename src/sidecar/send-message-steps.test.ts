@@ -246,6 +246,13 @@ describe("sidecar send_message — step ceiling", () => {
     expect(turnOptions[0]!.projectGates).toBe(false);
   }, 60_000);
 
+  // Issue #71: the chat's reviewer, or "none", the same way.
+  it("passes a reviewer the client names to the turn", async () => {
+    await sendOne({ reviewer: "none" });
+    expect(turnOptions).toHaveLength(1);
+    expect(turnOptions[0]).toMatchObject({ reviewer: "none" });
+  }, 60_000);
+
   it("passes no director or worker that is not a string", async () => {
     await sendOne({ director: 7, worker: null });
     expect(turnOptions).toHaveLength(1);

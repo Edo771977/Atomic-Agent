@@ -1,5 +1,5 @@
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
-import { createSessionTeamChoices, resolveSessionWorker } from "./session-director.js";
+import { createSessionTeamChoices, resolveSessionReviewer, resolveSessionWorker } from "./session-director.js";
 import { createRuntimeProject, liveProjectInputsFrom } from "./composition/runtime-project.js";
 import type { ResolvedRunMode } from "../llm/run-mode/index.js";
 import { PrefixInvalidationLedger, notePrefixInvalidation } from "../agent/prefix-drift-warning.js";
@@ -1062,6 +1062,7 @@ export async function createAgentRuntime(
         allows,
         mode: resolveCurrentRunMode(),
         currentWorker: resolveSessionWorker(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
+        currentReviewer: resolveSessionReviewer(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
         dailyRemainingUsd: dailySpendLimit.budget?.remainingUsd() ?? null,
         localSlots: slotManager.observedPoolSize(),
@@ -1128,6 +1129,7 @@ export async function createAgentRuntime(
     config, toolRegistry, runTurn, createEphemeralSession, resolveOriginalRequest: (id) => turnRequests.get(id),
     declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
     currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
+    currentReviewer: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.reviewer ?? null,
     teamMemberReachable: providers.teamMemberReachable,
     resolveCurrentVisionProvider,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,

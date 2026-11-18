@@ -8,6 +8,7 @@ import {
   createEmptySessionState,
   createFusionWorkerSession,
   readSessionFusionDirector,
+  readSessionFusionReviewer,
   readSessionFusionWorker,
   withSessionFusionDirector,
   type SessionState,
@@ -163,6 +164,40 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
     const allowed = await service.executeTurn(session("t"), "request", { worker: "local-llama:model-l" });
     expect(readSessionFusionWorker(allowed.session.metadata)?.member).toBe("local-llama:model-l");
+  });
+
+  it("stamps a reviewer or \"none\" a caller names and holds it for the turn's fan-out (issue #71)", async () => {
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["cloud-b:model-r", "cloud-a:model-o"] };
+    const held: unknown[] = [];
+    fixture.loop.runTurn.mockImplementation(async (value: SessionState, options: RunTurnOptions) => {
+      held.push(fixture.sessionTeam.get(value.id)?.reviewer ?? null);
+      return result(value, options);
+    });
+    const first = await fixture.service.executeTurn(session("s"), "request", { reviewer: "cloud-b:model-r" });
+    expect(readSessionFusionReviewer(first.session.metadata)).toMatchObject({ member: "cloud-b:model-r" });
+    // Kept by the next turn that names none.
+    const second = await fixture.service.executeTurn(first.session, "again");
+    expect(readSessionFusionReviewer(second.session.metadata)).toMatchObject({ member: "cloud-b:model-r" });
+    const off = await fixture.service.executeTurn(second.session, "no review", { reviewer: "none" });
+    expect(readSessionFusionReviewer(off.session.metadata)).toBe("none");
+    expect(held).toEqual([member("cloud-b:model-r"), member("cloud-b:model-r"), "none"]);
+    await expect(fixture.service.executeTurn(session("t"), "request", { reviewer: "cloud-b:model-x" }))
+      .rejects.toThrow(/not a reviewer of the fusion team/);
+  });
+
+  it("refuses a named reviewer the folder does not allow, with the provider refusal (issue #71)", async () => {
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["cloud-b:model-r", "cloud-a:model-o"] };
+    const sessionProviderPolicy = createSessionProviderPolicy({
+      readConfig: () => ({ projects: { roots: [], constraints: { [dir]: { allowedProviders: ["cloud-a", "local-llama"] } } } }),
+      loadSession: () => null,
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps, inference: { ...fixture.deps.inference, sessionProviderPolicy },
+    });
+    await expect(service.executeTurn(session("s"), "request", { reviewer: "cloud-b:model-r" })).rejects.toSatisfy(isProviderNotAllowed);
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+    const allowed = await service.executeTurn(session("t"), "request", { reviewer: "cloud-a:model-o" });
+    expect(readSessionFusionReviewer(allowed.session.metadata)).toMatchObject({ member: "cloud-a:model-o" });
   });
 
   it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {

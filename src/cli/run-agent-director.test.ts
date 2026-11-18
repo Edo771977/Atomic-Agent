@@ -7,12 +7,18 @@ describe("run --director / --worker", () => {
   it("takes a member for each", () => {
     expect(parseRunArgs(["--director", "cloud:model-a", "--worker", "cli:model-w"]))
       .toMatchObject({ director: "cloud:model-a", worker: "cli:model-w" });
-    expect(parseRunArgs([])).toMatchObject({ director: null, worker: null });
+    expect(parseRunArgs([])).toMatchObject({ director: null, worker: null, reviewer: null });
   });
 
   it("refuses a value that is not a member", () => {
     expect(parseRunArgs(["--director"])).toEqual({ error: "--director requires a value" });
     expect(parseRunArgs(["--worker", "no-model"])).toEqual({ error: '--worker expects "<providerId>:<model>"' });
+  });
+
+  it("takes --reviewer as a member or \"none\" (issue #71)", () => {
+    expect(parseRunArgs(["--reviewer", "codex:model-r"])).toMatchObject({ reviewer: "codex:model-r" });
+    expect(parseRunArgs(["--reviewer", "none"])).toMatchObject({ reviewer: "none" });
+    expect(parseRunArgs(["--reviewer", "nobody"])).toEqual({ error: '--reviewer expects "<providerId>:<model>" or "none"' });
   });
 
   it("prints which director the runtime picked", () => {

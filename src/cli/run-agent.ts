@@ -66,6 +66,8 @@ interface RunArgs {
   incognito: boolean;
   /** Issue #37: `--director`, the session's fusion director; null lets the runtime pick (and say which). */
   director: string | null;
+  /** Issue #71: `--reviewer`, the session's fusion reviewer, or "none". */
+  reviewer: string | null;
   /** Issue #37: `--worker`, the session's preferred fusion worker. */
   worker: string | null;
   /** Issue #39: `--session`, continue this stored chat. */
@@ -96,6 +98,7 @@ const HELP =
     "  --director <member>  Fusion director for this chat, one of llm.runMode.fusion.team.directors",
     "                       (\"<providerId>:<model>\"); default: the only one available, else the team's default",
     "  --worker <member>    Preferred fusion worker for this chat, one of the team's workers",
+    "  --reviewer <member>  Fusion reviewer for this chat, one of the team's reviewers, or \"none\" for no review",
     "  --session <id>       Continue this stored chat",
     "  --approve <version>  Approve the chat's open fusion project gate (brief, plan or milestone)",
     "                       at the version printed with it, then continue; needs --session",
@@ -117,6 +120,7 @@ export function parseRunArgs(
   let incognito = false;
   let director: string | null = null;
   let worker: string | null = null;
+  let reviewer: string | null = null;
   let session: string | null = null;
   let approve = false;
   let approveVersion: number | null = null;
@@ -180,6 +184,16 @@ export function parseRunArgs(
       case "--auto-approve-project":
         autoApproveProject = true;
         break;
+      case "--reviewer": {
+        const value = args[++i];
+        if (!value) return { error: `${flag} requires a value` };
+        const colon = value.indexOf(":");
+        if (value !== "none" && (colon <= 0 || colon === value.length - 1)) {
+          return { error: `${flag} expects "<providerId>:<model>" or "none"` };
+        }
+        reviewer = value;
+        break;
+      }
       case "--director":
       case "--worker": {
         const value = args[++i];
@@ -203,6 +217,7 @@ export function parseRunArgs(
     incognito,
     director,
     worker,
+    reviewer,
     session,
     approve,
     approveVersion,
@@ -500,7 +515,7 @@ interface ChatLoopOptions {
    * `--director` / `--worker` (issue #37): sent with the first turn, which
    * stamps them on the session; later turns keep the stamp.
    */
-  team?: { director?: string; worker?: string };
+  team?: { director?: string; worker?: string; reviewer?: string };
   controller: AbortController;
   /** Stdin lines, shared with the approval prompt. */
   lines: StdinLineQueue;
@@ -822,6 +837,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
       team: {
         ...(parsed.director === null ? {} : { director: parsed.director }),
         ...(parsed.worker === null ? {} : { worker: parsed.worker }),
+        ...(parsed.reviewer === null ? {} : { reviewer: parsed.reviewer }),
       },
       controller,
       lines: stdinLines,

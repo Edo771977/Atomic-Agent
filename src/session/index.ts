@@ -147,9 +147,13 @@ export type { SessionLlmStamp } from "./session-llm.js";
 export {
   SESSION_FUSION_DIRECTOR_METADATA_KEY,
   SESSION_FUSION_WORKER_METADATA_KEY,
+  SESSION_FUSION_REVIEWER_METADATA_KEY,
+  NO_REVIEWER,
   readSessionFusionDirector,
+  readSessionFusionReviewer,
   readSessionFusionWorker,
   withSessionFusionDirector,
+  withSessionFusionReviewer,
   withSessionFusionWorker,
   stampMember,
 } from "./session-fusion-team.js";

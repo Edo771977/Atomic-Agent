@@ -244,6 +244,12 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * runs on it before the team's default worker. Read per call.
    */
   currentWorker?: () => TeamMember | null;
+  /**
+   * The calling session's reviewer (`metadata.fusionReviewer`, issue #71):
+   * a member that reviews every task it can serve before the team's pick,
+   * `"none"` for no review in this chat, or null (the team picks). Read per call.
+   */
+  currentReviewer?: () => TeamMember | "none" | null;
   /** Does the worker leg keep KV-cache affinity per slot? */
   workerSupportsSlotAffinity: (providerId: string) => boolean;
   /** The fallback seam's `prepareLink`: warm the local backend once. */
@@ -607,6 +613,7 @@ export function buildFusionDelegateTool(
               allows: currentPolicyAllows,
               currentDirector: () => turnDirector,
               ...(deps.currentWorker === undefined ? {} : { currentWorker: deps.currentWorker }),
+              ...(deps.currentReviewer === undefined ? {} : { currentReviewer: deps.currentReviewer }),
             });
       const teamTasks = team?.tasks;
       const director = team?.director ?? null;
@@ -1453,7 +1460,11 @@ export function buildFusionDelegateTool(
         teamContext === undefined
           ? undefined
           : {
-              on: reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
+              // The chat's own choice (issue #71) wins: "none" is off, a
+              // reviewer it chose is on; else the team's setting.
+              on: team?.reviewOff === true
+                ? false
+                : team?.reviewChosen === true || reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
               passes: reviewPassesOf(teamContext.team),
             };
       const taskMember = (taskId: string): TeamMember => {

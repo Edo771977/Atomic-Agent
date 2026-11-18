@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
 import { parseTeamMember } from "../llm/run-mode/fusion-team.js";
-import { withSessionFusionDirector, withSessionFusionWorker } from "../session/session-fusion-team.js";
+import { withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../session/session-fusion-team.js";
 import {
   createSessionTeamChoices,
+  fusionTeamRoster,
   resolveSessionDirector,
+  resolveSessionReviewer,
   resolveSessionWorker,
   sessionDirectorChoice,
   sessionDirectorOptions,
+  teamMemberByRef,
 } from "./session-director.js";
 
 const fusion: UserLlmFusionConfig = {
@@ -17,6 +20,7 @@ const fusion: UserLlmFusionConfig = {
   team: {
     directors: ["api:model-a", "cli:model-d"],
     workers: ["cli:model-w", "local:model-l"],
+    reviewers: ["codex:model-r", "api:model-o"],
   },
 };
 const all = (): boolean => true;
@@ -72,6 +76,23 @@ describe("resolveSessionWorker", () => {
   });
 });
 
+describe("resolveSessionReviewer (issue #71)", () => {
+  it("returns the stamped reviewer the team lists and the folder allows, or \"none\"", () => {
+    const metadata = withSessionFusionReviewer({}, m("codex:model-r"), 1);
+    expect(resolveSessionReviewer(metadata, fusion, undefined)).toEqual(m("codex:model-r"));
+    // A reviewer the folder refuses is not usable: the team picks among the allowed ones.
+    expect(resolveSessionReviewer(metadata, fusion, policy(["api"]))).toBeNull();
+    expect(resolveSessionReviewer(withSessionFusionReviewer({}, m("x:y"), 1), fusion, undefined)).toBeNull();
+    expect(resolveSessionReviewer(withSessionFusionReviewer({}, "none", 1), fusion, policy([]))).toBe("none");
+    expect(resolveSessionReviewer({}, fusion, undefined)).toBeNull();
+  });
+
+  it("finds a reviewer a caller names among the team's reviewers only", () => {
+    expect(teamMemberByRef(fusion, "reviewers", "api:model-o")).toEqual(m("api:model-o"));
+    expect(teamMemberByRef(fusion, "reviewers", "cli:model-w")).toBeNull();
+  });
+});
+
 describe("createSessionTeamChoices", () => {
   it("holds a turn's choice per session and lets a worker session borrow its parent's", () => {
     const choices = createSessionTeamChoices();
@@ -92,5 +113,34 @@ describe("createSessionTeamChoices", () => {
     choices.set("s1", { director: m("cli:model-d"), worker: null });
     first();
     expect(choices.get("s1")?.director?.ref).toBe("cli:model-d");
+  });
+});
+
+describe("fusionTeamRoster (issue #71)", () => {
+  it("lists every member by role with whether it is usable here and why not", () => {
+    const roster = fusionTeamRoster(
+      { ...fusion, team: { ...fusion.team!, review: "on" } },
+      withSessionFusionReviewer(withSessionFusionDirector({}, m("api:model-a"), 1), "none", 2),
+      { allowedProviders: ["api", "cli", "local"], folder: "/work/secret" },
+      (x) => x.providerId !== "local",
+    )!;
+    expect(roster.directors).toEqual([
+      { ref: "api:model-a", providerId: "api", model: "model-a", usable: true },
+      { ref: "cli:model-d", providerId: "cli", model: "model-d", usable: true },
+    ]);
+    expect(roster.workers[1]).toEqual({
+      ref: "local:model-l", providerId: "local", model: "model-l", usable: false, reason: "unreachable",
+      why: "local cannot answer now (not configured, signed out or not installed)",
+    });
+    expect(roster.reviewers[0]).toEqual({
+      ref: "codex:model-r", providerId: "codex", model: "model-r", usable: false, reason: "folder",
+      why: "this folder (/work/secret) does not allow codex",
+    });
+    expect(roster.review).toBe("on");
+    expect(roster.chat).toEqual({ director: "api:model-a", worker: null, reviewer: "none" });
+  });
+
+  it("is null without a team", () => {
+    expect(fusionTeamRoster({ orchestratorProvider: "api" }, {}, null, all)).toBeNull();
   });
 });
