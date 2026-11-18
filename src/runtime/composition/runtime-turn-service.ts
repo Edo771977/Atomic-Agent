@@ -11,8 +11,8 @@ import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
-import { withSessionFusionDirector, withSessionFusionWorker } from "../../session/session-fusion-team.js";
-import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { NO_REVIEWER, withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../../session/session-fusion-team.js";
+import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
 import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
@@ -450,8 +450,9 @@ export function createRuntimeTurnService(
 
   /**
    * The session's fusion team choice for this turn (issue #37). A
-   * `director` / `worker` a caller names is checked against the team and
-   * stamped on the session first; then the stamped director, while the
+   * `director` / `worker` / `reviewer` (issue #71; `"none"`: no review in
+   * this chat) a caller names is checked against the team and stamped on
+   * the session first; then the stamped director, while the
    * team lists it, leads in the fusion mode. A director whose provider
    * the folder refuses is refused there with the provider refusal every
    * surface already shows. Another mode or no team: no choice, and the
@@ -461,11 +462,12 @@ export function createRuntimeTurnService(
     session: SessionState,
     namedDirector: string | undefined,
     namedWorker: string | undefined,
+    namedReviewer: string | undefined,
   ): { session: SessionState; choice: SessionTeamChoice | undefined } => {
     const runMode = resolveLlmConfig(getConfig()).runMode;
     const fusion = runMode?.fusion;
-    if ((namedDirector !== undefined || namedWorker !== undefined) && fusion?.team === undefined) {
-      throw new Error("no fusion team is configured (llm.runMode.fusion.team): a director or worker cannot be chosen");
+    if ((namedDirector !== undefined || namedWorker !== undefined || namedReviewer !== undefined) && fusion?.team === undefined) {
+      throw new Error("no fusion team is configured (llm.runMode.fusion.team): a director, worker or reviewer cannot be chosen");
     }
     if (fusion?.team === undefined) return { session, choice: undefined };
     let metadata = session.metadata;
@@ -486,6 +488,18 @@ export function createRuntimeTurnService(
       // passed over (`resolveSessionWorker`).
       assertProviderAllowed(member.providerId, { constraintsActive: () => false, role: "the fusion worker" });
       metadata = withSessionFusionWorker(metadata, member);
+    }
+    if (namedReviewer === NO_REVIEWER) {
+      metadata = withSessionFusionReviewer(metadata, NO_REVIEWER);
+    } else if (namedReviewer !== undefined) {
+      const member = teamMemberByRef(fusion, "reviewers", namedReviewer);
+      if (member === null) {
+        throw new Error(`"${namedReviewer}" is not a reviewer of the fusion team (llm.runMode.fusion.team.reviewers)`);
+      }
+      // A reviewer receives the worker's changes: one the folder refuses
+      // is refused out loud, as a named worker is (issue #71).
+      assertProviderAllowed(member.providerId, { constraintsActive: () => false, role: "the fusion reviewer" });
+      metadata = withSessionFusionReviewer(metadata, member);
     }
     const policy = currentProviderPolicy();
     const reachable = deps.inference.teamMemberReachable ??
@@ -512,7 +526,11 @@ export function createRuntimeTurnService(
     }
     return {
       session: metadata === session.metadata ? session : { ...session, metadata },
-      choice: { director: choice.member, worker: resolveSessionWorker(metadata, fusion, policy) },
+      choice: {
+        director: choice.member,
+        worker: resolveSessionWorker(metadata, fusion, policy),
+        reviewer: resolveSessionReviewer(metadata, fusion, policy),
+      },
     };
   };
 
@@ -587,6 +605,11 @@ export function createRuntimeTurnService(
       director?: string;
       /** The session's preferred fusion worker, stamped the same way; one of the team's workers. */
       worker?: string;
+      /**
+       * The session's fusion reviewer (issue #71), stamped the same way:
+       * one of the team's reviewers, or `"none"` for no review in this chat.
+       */
+      reviewer?: string;
     } = {},
   ): Promise<RunTurnResult> => {
     // The session's fusion director (issue #37), before anything reads
@@ -594,7 +617,7 @@ export function createRuntimeTurnService(
     // folder refuses is refused here, out loud.
     let teamChoice: SessionTeamChoice | undefined;
     if (readFusionWorkerMeta(session.metadata) === null) {
-      const picked = pickTurnTeam(session, runOptions.director, runOptions.worker);
+      const picked = pickTurnTeam(session, runOptions.director, runOptions.worker, runOptions.reviewer);
       session = picked.session;
       teamChoice = picked.choice;
     }
@@ -1070,6 +1093,8 @@ export function createRuntimeTurnService(
       director?: string;
       /** See `executeTurn`'s `worker`. */
       worker?: string;
+      /** See `executeTurn`'s `reviewer`. */
+      reviewer?: string;
     } = {},
   ): Promise<RunTurnResult> => {
     if (runOptions.goal !== undefined) {

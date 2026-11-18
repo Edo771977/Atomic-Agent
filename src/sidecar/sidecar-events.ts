@@ -135,6 +135,11 @@ export interface SendMessagePayload {
   director?: string;
   /** The session's preferred fusion worker, stamped the same way; one of the team's workers. */
   worker?: string;
+  /**
+   * The session's fusion reviewer (issue #71), stamped the same way: one
+   * of the team's reviewers, or `"none"` for no review in this chat.
+   */
+  reviewer?: string;
 }
 
 /**

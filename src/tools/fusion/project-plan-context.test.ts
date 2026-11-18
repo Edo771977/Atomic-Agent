@@ -39,6 +39,16 @@ describe("projectPlanContextFrom", () => {
     expect(ctx.defaultWorker?.ref).toBe("cloud:model-b");
   });
 
+  it("the chat's reviewer is the rows' default reviewer; \"none\" turns review off (issue #71)", () => {
+    const two = { ...team, team: { ...team.team, reviewers: ["cloud:model-r", "cloud:model-q"] } };
+    const chosen = projectPlanContextFrom({ ...base, team: two, currentReviewer: { providerId: "cloud", model: "model-q", ref: "cloud:model-q" } });
+    expect(chosen.reviewerFor(chosen.workers[0]!)?.ref).toBe("cloud:model-q");
+    const none = projectPlanContextFrom({ ...base, team: two, currentReviewer: "none" });
+    expect(none.reviewOn).toBe(false);
+    // The person can still pick a reviewer per row from the list.
+    expect(none.reviewers.map((m) => m.ref)).toEqual(["cloud:model-r", "cloud:model-q"]);
+  });
+
   it("without a team the worker leg is the only worker and there is no per-task reviewer", () => {
     const ctx = projectPlanContextFrom({ ...base, team: undefined, measured: { minSamples: 3, days: 7 } });
     expect(ctx.workers.map((m) => m.ref)).toEqual(["local:model-a"]);

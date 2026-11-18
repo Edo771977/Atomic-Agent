@@ -1,6 +1,7 @@
 /**
- * The fusion team members a session chose (issue #37): its director and
- * its preferred worker, remembered per session in `metadata` next to the
+ * The fusion team members a session chose (issue #37): its director, its
+ * preferred worker and (issue #71) its reviewer or "no review",
+ * remembered per session in `metadata` next to the
  * `llm` stamp (`session-llm.ts`). The director is chosen per session,
  * never by rewriting the global config: `executeTurn` reads the stamp and
  * makes the turn's primary that member (`runtime/session-director.ts`).
@@ -16,6 +17,13 @@ import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 export const SESSION_FUSION_DIRECTOR_METADATA_KEY = "fusionDirector";
 /** Reserved `SessionState.metadata` key of the session's preferred worker. */
 export const SESSION_FUSION_WORKER_METADATA_KEY = "fusionWorker";
+/**
+ * Reserved `SessionState.metadata` key of the session's reviewer (issue
+ * #71): a member stamp, or `{ member: "none" }` for no review in this chat.
+ */
+export const SESSION_FUSION_REVIEWER_METADATA_KEY = "fusionReviewer";
+/** The reviewer choice that turns per-task review off for one chat. */
+export const NO_REVIEWER = "none";
 
 /** One chosen member, as stored. */
 export interface SessionTeamMemberStamp {
@@ -88,6 +96,31 @@ export function withSessionFusionWorker(
   at: number = Date.now(),
 ): Record<string, unknown> {
   return writeStamp(metadata, SESSION_FUSION_WORKER_METADATA_KEY, member, at);
+}
+
+/**
+ * The session's reviewer: its stamp, `"none"` when the chat turned review
+ * off, or null when none (or a malformed one) is stored.
+ */
+export function readSessionFusionReviewer(
+  metadata: Record<string, unknown> | undefined,
+): SessionTeamMemberStamp | typeof NO_REVIEWER | null {
+  const raw = metadata?.[SESSION_FUSION_REVIEWER_METADATA_KEY];
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && (raw as { member?: unknown }).member === NO_REVIEWER) {
+    return NO_REVIEWER;
+  }
+  return readStamp(raw);
+}
+
+/** `metadata` with the reviewer set to `member`, `"none"` (no review) or cleared (null); a new object. */
+export function withSessionFusionReviewer(
+  metadata: Record<string, unknown> | undefined,
+  member: TeamMember | typeof NO_REVIEWER | null,
+  at: number = Date.now(),
+): Record<string, unknown> {
+  if (member !== NO_REVIEWER) return writeStamp(metadata, SESSION_FUSION_REVIEWER_METADATA_KEY, member, at);
+  const { [SESSION_FUSION_REVIEWER_METADATA_KEY]: _previous, ...rest } = metadata ?? {};
+  return { ...rest, [SESSION_FUSION_REVIEWER_METADATA_KEY]: { member: NO_REVIEWER, chosenAt: at } };
 }
 
 /** The stamp as a team member, for the run-mode helpers. */

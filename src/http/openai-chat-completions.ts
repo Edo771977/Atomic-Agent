@@ -166,6 +166,12 @@ interface ChatCompletionRequest {
   director?: string;
   /** Issue #37: the session's preferred fusion worker, stamped the same way. */
   worker?: string;
+  /**
+   * Issue #71: the session's fusion reviewer, one of
+   * `llm.runMode.fusion.team.reviewers`, or `"none"` for no review in
+   * this chat; stamped the same way and kept.
+   */
+  reviewer?: string;
 }
 
 interface ParsedRequest {
@@ -194,8 +200,8 @@ interface ParsedRequest {
   questions: boolean;
   /** `X-Atomic-Project` on an extensions request (issue #39). */
   projectGates: boolean;
-  /** Issue #37: `director` / `worker`, checked as member refs; the turn checks them against the team. */
-  team: { director?: string; worker?: string };
+  /** Issue #37: `director` / `worker` (and #71 `reviewer`), checked as member refs; the turn checks them against the team. */
+  team: { director?: string; worker?: string; reviewer?: string };
 }
 
 /**
@@ -315,7 +321,7 @@ async function handleNonStream(
       ...(env.request.questions ? { questions: true } : {}),
       // Issue #39: the project flow only for a client that draws its gates.
       ...(env.request.projectGates ? { projectGates: true } : {}),
-      // Issue #37: the session's director / preferred worker, if named.
+      // Issue #37/#71: the session's director / preferred worker / reviewer, if named.
       ...env.request.team,
     });
   } catch (err) {
@@ -510,7 +516,7 @@ async function handleStream(
       ...(env.request.questions ? { questions: true } : {}),
       // Issue #39: the project flow only for a client that draws its gates.
       ...(env.request.projectGates ? { projectGates: true } : {}),
-      // Issue #37: the session's director / preferred worker, if named.
+      // Issue #37/#71: the session's director / preferred worker / reviewer, if named.
       ...env.request.team,
     });
   } catch (err) {
@@ -1580,21 +1586,28 @@ async function parseRequestBody(
 }
 
 /**
- * Issue #37: the request's `director` / `worker`, trimmed, or why one
- * cannot be a team member at all. Whether the team lists it is the
- * turn's check (`executeTurn`), against the config the turn runs on.
+ * Issue #37: the request's `director` / `worker` (and, issue #71,
+ * `reviewer`, which may also be `"none"`), trimmed, or why one cannot be
+ * a team member at all. Whether the team lists it is the turn's check
+ * (`executeTurn`), against the config the turn runs on.
  */
 export function parseTeamChoice(
-  body: { director?: unknown; worker?: unknown },
-): { director?: string; worker?: string } | { error: string; param: "director" | "worker" } {
-  const out: { director?: string; worker?: string } = {};
-  for (const param of ["director", "worker"] as const) {
+  body: { director?: unknown; worker?: unknown; reviewer?: unknown },
+):
+  | { director?: string; worker?: string; reviewer?: string }
+  | { error: string; param: "director" | "worker" | "reviewer" } {
+  const out: { director?: string; worker?: string; reviewer?: string } = {};
+  for (const param of ["director", "worker", "reviewer"] as const) {
     const raw = body[param];
     if (raw === undefined || raw === null) continue;
     const value = typeof raw === "string" ? raw.trim() : "";
+    if (param === "reviewer" && value === "none") {
+      out.reviewer = value;
+      continue;
+    }
     const colon = value.indexOf(":");
     if (colon <= 0 || colon === value.length - 1 || /[\r\n\x00]/.test(value)) {
-      return { error: `${param} must be "<providerId>:<model>"`, param };
+      return { error: `${param} must be "<providerId>:<model>"${param === "reviewer" ? ' or "none"' : ""}`, param };
     }
     out[param] = value;
   }

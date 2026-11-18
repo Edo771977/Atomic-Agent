@@ -24,4 +24,10 @@ describe("parseTeamChoice", () => {
     expect(parseTeamChoice({ worker: "no-model" })).toEqual({ error: "worker must be \"<providerId>:<model>\"", param: "worker" });
     expect(parseTeamChoice({ director: "a:b\nc" })).toMatchObject({ param: "director" });
   });
+
+  it("takes a reviewer ref or the literal \"none\" (issue #71)", () => {
+    expect(parseTeamChoice({ reviewer: " codex:model-r " })).toEqual({ reviewer: "codex:model-r" });
+    expect(parseTeamChoice({ reviewer: "none" })).toEqual({ reviewer: "none" });
+    expect(parseTeamChoice({ reviewer: "nobody" })).toEqual({ error: "reviewer must be \"<providerId>:<model>\" or \"none\"", param: "reviewer" });
+  });
 });

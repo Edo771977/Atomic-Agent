@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
+import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -761,6 +762,29 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     };
     const onCli = await run({ ...team(), strength: (m) => tiers[m.ref] ?? null }, [{ ...TASK[0]!, model: "cli-b:model-b" }]);
     expect(onCli.calls).toEqual([{ providerId: "cli-b", model: "model-r" }]);
+  });
+
+  it("the chat's reviewer judges before the team's pick; \"none\" reviews nothing (issue #71)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-chat-reviewer-"));
+    const runWith = async (currentReviewer: () => TeamMember | "none" | null) => {
+      const calls: Array<{ providerId: string; model: string | undefined }> = [];
+      const d = deps(dir, async (call) => {
+        calls.push({ providerId: call.providerId, model: call.model });
+        return green;
+      }, { resolveFusionTeam: () => team(), currentReviewer });
+      await buildFusionDelegateTool(d).run(
+        { tasks: TASK },
+        { workingDir: dir, sessionId: "s-c", stepIndex: 0, signal: new AbortController().signal },
+      );
+      return { calls, briefs: d.briefs };
+    };
+    // The team picks cli-b:model-r for the local worker; the chat chose api-a:model-o.
+    const chosen = await runWith(() => ({ providerId: "api-a", model: "model-o", ref: "api-a:model-o" }));
+    expect(chosen.calls).toEqual([{ providerId: "api-a", model: "model-o" }]);
+    const none = await runWith(() => "none");
+    rmSync(dir, { recursive: true, force: true });
+    expect(none.calls).toEqual([]);
+    expect(none.briefs[0]).not.toContain("ACCEPTANCE CHECKLIST");
   });
 
   it("without a team judges on judgeProvider as before", async () => {

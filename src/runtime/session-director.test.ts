@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
 import { parseTeamMember } from "../llm/run-mode/fusion-team.js";
-import { withSessionFusionDirector, withSessionFusionWorker } from "../session/session-fusion-team.js";
+import { withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../session/session-fusion-team.js";
 import {
   createSessionTeamChoices,
   resolveSessionDirector,
+  resolveSessionReviewer,
   resolveSessionWorker,
   sessionDirectorChoice,
   sessionDirectorOptions,
+  teamMemberByRef,
 } from "./session-director.js";
 
 const fusion: UserLlmFusionConfig = {
@@ -17,6 +19,7 @@ const fusion: UserLlmFusionConfig = {
   team: {
     directors: ["api:model-a", "cli:model-d"],
     workers: ["cli:model-w", "local:model-l"],
+    reviewers: ["codex:model-r", "api:model-o"],
   },
 };
 const all = (): boolean => true;
@@ -69,6 +72,23 @@ describe("resolveSessionWorker", () => {
     expect(resolveSessionWorker(metadata, fusion, policy(["cli"]))).toBeNull();
     expect(resolveSessionWorker(withSessionFusionWorker({}, m("x:y"), 1), fusion, undefined)).toBeNull();
     expect(resolveSessionWorker({}, fusion, undefined)).toBeNull();
+  });
+});
+
+describe("resolveSessionReviewer (issue #71)", () => {
+  it("returns the stamped reviewer the team lists and the folder allows, or \"none\"", () => {
+    const metadata = withSessionFusionReviewer({}, m("codex:model-r"), 1);
+    expect(resolveSessionReviewer(metadata, fusion, undefined)).toEqual(m("codex:model-r"));
+    // A reviewer the folder refuses is not usable: the team picks among the allowed ones.
+    expect(resolveSessionReviewer(metadata, fusion, policy(["api"]))).toBeNull();
+    expect(resolveSessionReviewer(withSessionFusionReviewer({}, m("x:y"), 1), fusion, undefined)).toBeNull();
+    expect(resolveSessionReviewer(withSessionFusionReviewer({}, "none", 1), fusion, policy([]))).toBe("none");
+    expect(resolveSessionReviewer({}, fusion, undefined)).toBeNull();
+  });
+
+  it("finds a reviewer a caller names among the team's reviewers only", () => {
+    expect(teamMemberByRef(fusion, "reviewers", "api:model-o")).toEqual(m("api:model-o"));
+    expect(teamMemberByRef(fusion, "reviewers", "cli:model-w")).toBeNull();
   });
 });
 

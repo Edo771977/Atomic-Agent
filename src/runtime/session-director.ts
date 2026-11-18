@@ -9,7 +9,9 @@ import {
   type TeamMember,
 } from "../llm/run-mode/fusion-team.js";
 import {
+  NO_REVIEWER,
   readSessionFusionDirector,
+  readSessionFusionReviewer,
   readSessionFusionWorker,
   stampMember,
 } from "../session/session-fusion-team.js";
@@ -102,6 +104,23 @@ export function resolveSessionWorker(
 }
 
 /**
+ * The session's reviewer (issue #71): `"none"` when the chat turned
+ * review off; its stamp while the team's `reviewers` list it and the
+ * folder allows it; else null (the team's pick, `pickReviewer`, decides).
+ */
+export function resolveSessionReviewer(
+  metadata: Record<string, unknown> | undefined,
+  fusion: UserLlmFusionConfig | undefined,
+  policy: Policy,
+): TeamMember | typeof NO_REVIEWER | null {
+  const stamp = readSessionFusionReviewer(metadata);
+  if (stamp === null || stamp === NO_REVIEWER) return stamp;
+  const listed = teamMembers(fusion?.team, "reviewers").some((r) => r.ref === stamp.member);
+  if (!listed || policy?.allows(stamp.providerId) === false) return null;
+  return stampMember(stamp);
+}
+
+/**
  * The one line a frontend shows when the runtime picked the session's
  * director itself (`fusion_director_notice`): which member and why, so
  * a person who has several can see they did not choose this one.
@@ -130,16 +149,18 @@ export function codexDirectorNoticeText(): string {
 /** A team member named by a caller (`--director`, a sidecar/HTTP field) that the team lists in `role`. */
 export function teamMemberByRef(
   fusion: UserLlmFusionConfig | undefined,
-  role: "directors" | "workers",
+  role: "directors" | "workers" | "reviewers",
   ref: string,
 ): TeamMember | null {
   return teamMembers(fusion?.team, role).find((m) => m.ref === ref) ?? null;
 }
 
-/** What one turn runs with: the run mode's `director` / `worker` options. */
+/** What one turn runs with: the run mode's `director` / `worker` options, and the chat's reviewer. */
 export interface SessionTeamChoice {
   readonly director: TeamMember | null;
   readonly worker: TeamMember | null;
+  /** The chat's reviewer (`resolveSessionReviewer`): a member, `"none"` (no review), or null/absent (the team picks). */
+  readonly reviewer?: TeamMember | typeof NO_REVIEWER | null;
 }
 
 /**
