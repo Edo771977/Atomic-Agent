@@ -350,8 +350,12 @@ function takeLock(path: string, waitMs: number): (() => void) | null {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") return null;
       try {
         if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { unlinkSync(lock); continue; }
-      } catch {
-        continue;   // gone meanwhile: try again at once
+      } catch (err) {
+        // Gone meanwhile: try again at once. Anything else (a stale lock that
+        // cannot be removed: EPERM/EBUSY from an antivirus or indexer, a
+        // foreign owner, a read-only disk) waits like a held lock and gives up
+        // at the deadline, never spinning the main thread (review of #74).
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
       }
       if (Date.now() >= until) return null;
       sleepSync(20);
