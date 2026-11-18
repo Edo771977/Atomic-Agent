@@ -101,7 +101,9 @@ export type CriterionFactState = "passed" | "failed" | "unverified";
 /**
  * Where one success criterion stands after a milestone's runs: from its
  * contract checks and the vision judgement (issue #40). Written by the
- * runtime ({@link withMilestoneCriteriaFacts}), never by the model.
+ * runtime: `project.milestone` reads them from the milestone's runs and
+ * carries them on its done report (`criteriaFacts`), never the model's
+ * arguments.
  */
 export interface ProjectCriterionFact {
   id: string;
@@ -801,28 +803,6 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
     out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }) });
   }
   return out;
-}
-
-/**
- * Set one milestone's criteria facts (the runtime's, issue #40). Pure;
- * the gate and versions do not move (facts are evidence, not a draft).
- * The same project back for an unknown milestone; an empty list clears.
- */
-export function withMilestoneCriteriaFacts(
-  project: ProjectState,
-  milestoneId: string,
-  facts: readonly ProjectCriterionFact[],
-  now: number,
-): ProjectState {
-  const index = project.milestones.findIndex((m) => m.id === milestoneId);
-  if (index < 0) return project;
-  const clean = cleanCriteriaFacts(facts);
-  const milestones = [...project.milestones];
-  const current = { ...milestones[index]!, updatedAt: now };
-  if (clean.length === 0) delete current.criteriaFacts;
-  else current.criteriaFacts = clean;
-  milestones[index] = current;
-  return { ...project, milestones };
 }
 
 function readMilestone(raw: unknown): ProjectMilestone | null {

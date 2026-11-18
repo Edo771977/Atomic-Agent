@@ -9,7 +9,6 @@ import {
   gateVersion,
   milestoneShotsDir,
   validateMilestoneAttachments,
-  withMilestoneCriteriaFacts,
   normalizeProject,
   planTotals,
   projectExpectation,
@@ -674,8 +673,10 @@ describe("milestone attachments (issue #40)", () => {
 
   it("stored attachments and criteria facts read back, malformed entries dropped, caps kept", () => {
     const p = ran();
-    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW, { stateDir: STATE })).project;
-    const withFacts = withMilestoneCriteriaFacts(done, "m1", [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }], NOW);
+    const withFacts = ok(applyProjectUpdate(p, {
+      ...report([{ path: shot("run-1"), caption: "Board" }]),
+      criteriaFacts: [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }],
+    } as ProjectUpdate, NOW, { stateDir: STATE })).project;
     const raw = JSON.parse(JSON.stringify(withFacts)) as Record<string, any>;
     expect(normalizeProject(raw)).toEqual(withFacts);
     raw.milestones[0].attachments.push({ path: 3 }, ...Array.from({ length: 10 }, (_, i) => ({ path: shot("run-1", `x${i}.jpg`), caption: "c" })));
@@ -685,13 +686,9 @@ describe("milestone attachments (issue #40)", () => {
     expect(read.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }]);
   });
 
-  it("withMilestoneCriteriaFacts sets one milestone's facts; unknown milestone or bad facts leave the project", () => {
-    const p = ran();
-    expect(withMilestoneCriteriaFacts(p, "zz", [{ id: "c1", state: "passed" }], NOW)).toBe(p);
-    const set = withMilestoneCriteriaFacts(p, "m1", [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never], NOW);
+  it("a report's criteria facts are cleaned: one per id, clipped, malformed ones dropped", () => {
+    const set = update(ran(), { kind: "milestone", id: "m1", state: "done", summary: "s", criteriaFacts: [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never] });
     expect(set.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "failed", why: `${"x".repeat(PROJECT_LIMITS.shortText - 1)}…` }]);
-    expect(set.gate).toEqual(p.gate);
-    expect(set.plan!.version).toBe(p.plan!.version);
   });
 });
 
