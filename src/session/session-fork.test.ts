@@ -90,3 +90,20 @@ describe("forkTitle", () => {
     expect(long.endsWith("… (fork)")).toBe(true);
   });
 });
+
+// Issue #74: an incognito chat is not forked into an untracked incognito
+// copy, and the fork starts with no goal of its own.
+describe("planFork incognito and goal (issue #74)", () => {
+  it("refuses an incognito chat", () => {
+    const source = { ...chat(), incognito: { since: 1, owner: "pid:1" } };
+    expect(planFork(source, { priorQuestions: 0 })).toEqual({ ok: false, code: "incognito" });
+  });
+
+  it("leaves the source's goal behind", () => {
+    const plan = planFork(chat({ goal: { status: "running", criteria: [] } }), { priorQuestions: 0, newId: () => "s-f" });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.state.metadata.goal).toBeUndefined();
+    expect(plan.state.incognito).toBeUndefined();
+  });
+});

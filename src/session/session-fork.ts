@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { SessionState } from "./session-state.js";
+import { isIncognitoSession } from "./incognito.js";
 import { LIVE_SESSION_STATUSES } from "./session-retention.js";
 import { truncateSessionAt } from "./session-truncate.js";
 import {
@@ -20,7 +21,8 @@ import {
  * pair `POST /api/sessions/{id}/rollback-last-turn` takes. The fork keeps
  * that question and everything up to the next question, its answer and
  * tool steps included. To branch BEFORE a question, fork the answer
- * above it.
+ * above it. An incognito chat is not forked, and the fork has no goal
+ * (issue #74).
  */
 
 /** Metadata on a forked chat: where it came from. */
@@ -40,6 +42,9 @@ const SOURCE_ONLY_METADATA_KEYS = [
   "ephemeralTask",
   "scheduledBy",
   SESSION_TITLE_USER_SET_AT_KEY,
+  // The chat's goal (`agent/goal`, `metadata.goal`): its rounds and
+  // marks are the source's work; a fork starts with none (issue #74).
+  "goal",
 ];
 
 /** The row index of the question with `priorQuestions` questions before it, or -1. */
@@ -63,7 +68,7 @@ export function questionTurnEnd(state: SessionState, turnIndex: number): number 
   return state.turns.length;
 }
 
-export type ForkRefusal = "turn_in_progress" | "point_mismatch" | "point_compacted";
+export type ForkRefusal = "turn_in_progress" | "point_mismatch" | "point_compacted" | "incognito";
 
 export type ForkPlan =
   | { ok: true; state: SessionState; title: string }
@@ -81,6 +86,10 @@ export function planFork(source: SessionState, options: ForkOptions): ForkPlan {
   if (LIVE_SESSION_STATUSES.includes(source.status)) {
     return { ok: false, code: "turn_in_progress" };
   }
+  // Issue #74: a copy would carry the incognito mark without being
+  // tracked as one (closing, the boot sweep); an incognito chat leaves
+  // nothing behind, a fork of it included.
+  if (isIncognitoSession(source)) return { ok: false, code: "incognito" };
   const start = questionRowIndex(source, options.priorQuestions);
   const row = start < 0 ? undefined : source.turns[start];
   if (row === undefined || row.kind !== "user") return { ok: false, code: "point_mismatch" };

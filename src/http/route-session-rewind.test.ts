@@ -154,4 +154,12 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     expect(fork?.turns.map((t) => t.kind)).toEqual(["user", "assistant_tool_call", "tool_result", "assistant_reply"]);
     expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
   });
+
+  it("refuses to fork an incognito chat with 409 incognito (issue #74)", async () => {
+    const { state } = seed("rw-inc");
+    harness.runtime.sessionStore.save({ ...state, incognito: { since: 1, owner: "pid:1" } } as SessionState);
+    const res = await post("rw-inc/fork", { priorQuestions: 0, expectText: "make a.txt" });
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("incognito");
+  });
 });

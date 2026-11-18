@@ -37,6 +37,7 @@ const REFUSAL_MESSAGES: Record<RewindRefusal | ForkRefusal, string> = {
   nothing_to_rewind: "this chat has no question to go back to",
   turn_in_progress: "this chat has a turn in progress; try again when it finishes",
   point_compacted: "that message is inside the part of the chat already compacted into a summary",
+  incognito: "an incognito chat cannot be forked: it leaves nothing behind, a copy included",
   point_mismatch: "the chat's question at that position is not the one given (priorQuestions, expectText), so nothing was changed",
 };
 
