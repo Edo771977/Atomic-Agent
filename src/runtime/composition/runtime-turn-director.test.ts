@@ -227,6 +227,20 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(readSessionFusionReviewer(cleared.session.metadata)).toBeNull();
   });
 
+  it("holds a stamped \"none\" for the turn even when no director can lead (issue #71)", async () => {
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["cloud-b:model-r"] };
+    const held: unknown[] = [];
+    fixture.loop.runTurn.mockImplementation(async (value: SessionState, options: RunTurnOptions) => {
+      held.push(fixture.sessionTeam.get(value.id)?.reviewer ?? null);
+      return result(value, options);
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps, inference: { ...fixture.deps.inference, teamMemberReachable: () => false },
+    });
+    await service.executeTurn(session("s", withSessionFusionReviewer({}, "none", 1)), "request");
+    expect(held).toEqual(["none"]);
+  });
+
   it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {
     fixture.config.llm!.runMode!.mode = "cloud";
     const sessionProviderPolicy = createSessionProviderPolicy({

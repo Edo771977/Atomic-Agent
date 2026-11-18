@@ -517,7 +517,17 @@ export function createRuntimeTurnService(
     // director the folder refuses does not block a cloud or local turn.
     const choice = runMode?.mode !== "fusion" ? null : picked;
     if (choice === null) {
-      return { session: metadata === session.metadata ? session : { ...session, metadata }, choice: undefined };
+      // No director leads, but the chat's worker and reviewer still hold
+      // for the turn (issue #71): a stamped "none" must stay "none" for
+      // the fan-out, as it does for project.plan.
+      return {
+        session: metadata === session.metadata ? session : { ...session, metadata },
+        choice: {
+          director: null,
+          worker: resolveSessionWorker(metadata, fusion, policy),
+          reviewer: resolveSessionReviewer(metadata, fusion, policy),
+        },
+      };
     }
     assertProviderAllowed(choice.member.providerId, { constraintsActive: () => false, role: "the fusion director" });
     if (choice.reason !== "stamped") {
@@ -825,8 +835,9 @@ export function createRuntimeTurnService(
       const progress = turnProgressFor(userMessage, runOptions, Date.now());
       markTurnRunning(session.id, progress.initial);
       const closeBudgetNotices = deps.inference.budgetNotices?.begin(session.id);
-      const releaseTeam = director !== undefined && teamChoice !== undefined
-        ? deps.inference.sessionTeam?.set(session.id, teamChoice)
+      // Held whenever the team exists (issue #71); the director only while it leads.
+      const releaseTeam = teamChoice !== undefined
+        ? deps.inference.sessionTeam?.set(session.id, director !== undefined ? teamChoice : { ...teamChoice, director: null })
         : undefined;
       try {
         turnModelModes.set(session.id, modelModePolicy);

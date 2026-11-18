@@ -781,6 +781,12 @@ describe("the judge from the fusion team's reviewers (issue #37)", () => {
     // The team picks cli-b:model-r for the local worker; the chat chose api-a:model-o.
     const chosen = await runWith(() => ({ providerId: "api-a", model: "model-o", ref: "api-a:model-o" }));
     expect(chosen.calls).toEqual([{ providerId: "api-a", model: "model-o" }]);
+    // The chat's own choice wins over the config: a chosen reviewer reviews even with team.review "off".
+    const offCalls: Array<{ providerId: string }> = [];
+    const off = deps(dir, async (call) => { offCalls.push({ providerId: call.providerId }); return green; },
+      { resolveFusionTeam: () => team({ review: "off" }), currentReviewer: () => ({ providerId: "api-a", model: "model-o", ref: "api-a:model-o" }) });
+    await buildFusionDelegateTool(off).run({ tasks: TASK }, { workingDir: dir, sessionId: "s-off", stepIndex: 0, signal: new AbortController().signal });
+    expect(offCalls).toEqual([{ providerId: "api-a" }]);
     const none = await runWith(() => "none");
     rmSync(dir, { recursive: true, force: true });
     expect(none.calls).toEqual([]);
