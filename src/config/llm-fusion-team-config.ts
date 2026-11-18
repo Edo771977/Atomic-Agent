@@ -27,7 +27,9 @@ export type UserFusionTeamConfig = {
    * Models that may review a finished task, as `"<providerId>:<model>"`.
    * Listing any turns per-task review on unless `review` is `"off"`
    * (issue #38). No fitting reviewer for a task: `judgeProvider` reviews
-   * it when `judge` is on, else no model does.
+   * it when `judge` is on, else no model does. A Codex subscription
+   * (`subscription-cli`, cli `codex`, run read-only) can review; with no
+   * model of its own, list it as `"<providerId>:default"` (issue #71).
    */
   reviewers?: string[];
   /**
@@ -76,6 +78,16 @@ export const DEFAULT_FUSION_TEAM_WATCH_MAX_CHECKS = 3;
 /** The bounds of `watchEveryMinutes` (and of a task's `watchMinutes`, clamped). */
 export const FUSION_TEAM_WATCH_MAX_MINUTES = 60;
 export const FUSION_TEAM_WATCH_MAX_CHECKS_LIMIT = 10;
+
+/**
+ * The member model that means "the provider entry's own model" (issue
+ * #71): `"codex-cli:default"` reviews on a Codex subscription that names
+ * no model, so Codex uses the ChatGPT account's default. Its calls run on
+ * the entry itself (`ProviderRegistry.modelVariant`), never on a copy
+ * asking for a model called "default". For an API provider name the
+ * model instead: prices and tiers are looked up by it.
+ */
+export const TEAM_MEMBER_PROVIDER_MODEL = "default";
 
 /** The two halves of a team member; null when `raw` is not `"<providerId>:<model>"` with both halves non-blank. */
 export function splitTeamMemberRef(raw: string): { providerId: string; model: string } | null {
