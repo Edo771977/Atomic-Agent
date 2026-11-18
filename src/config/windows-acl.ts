@@ -46,24 +46,27 @@ function defaultDeps(): WindowsAclDeps {
  * inherited grants): a secret file with the default user-profile ACL is
  * strictly better than one the agent itself can no longer read.
  *
- * All failures are swallowed — if `icacls` is unavailable the file keeps
+ * Returns whether the restriction succeeded and the file stayed readable.
+ * If `icacls` is unavailable the file keeps
  * the default (inherited) ACL, which is weaker; this is the documented
  * Windows limitation.
  */
 export function restrictWindowsAcl(
   path: string,
   deps: WindowsAclDeps = defaultDeps(),
-): void {
-  if (deps.platform !== "win32") return;
+): boolean {
+  if (deps.platform !== "win32") return true;
   let username: string;
   try {
     username = deps.username();
   } catch {
-    return;
+    return false;
   }
-  if (!username) return;
+  if (!username) return false;
+  let restricted = false;
   try {
     deps.runIcacls([path, "/inheritance:r", "/grant:r", `${username}:F`]);
+    restricted = true;
   } catch {
     // Best-effort: leave the default ACL in place if icacls is missing or
     // rejects (e.g. domain account name mismatch). The probe below still
@@ -71,7 +74,7 @@ export function restrictWindowsAcl(
   }
   try {
     deps.probeRead(path);
-    return;
+    return restricted;
   } catch {
     // The file is no longer readable by this very process. Roll back.
   }
@@ -81,4 +84,5 @@ export function restrictWindowsAcl(
     // Best-effort: nothing else we can safely do here. The startup
     // loader will surface the unreadable file loudly (#59).
   }
+  return false;
 }

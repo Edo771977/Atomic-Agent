@@ -14,11 +14,18 @@ export interface ServeArgs {
   host: string;
   port: number;
   workingDir: string;
+  /**
+   * The key the operator gave (`--api-key`, `ATOMIC_AGENT_API_KEY`), or
+   * `null` for none: serve then runs with its persisted key
+   * (`resolveServeApiKey`), never without one.
+   */
   apiKey: string | null;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
   reapOnly: boolean;
+  /** `--print-api-key`: print the key serve would run with, and exit. */
+  printApiKey: boolean;
   /** ATO-625: open a Cloudflare tunnel to the webhook routes, or `null`. */
   tunnel: TunnelRequest | null;
 }
@@ -32,16 +39,17 @@ export const HELP =
     "",
     "Options:",
     "  --host <h>          Listen host (default 127.0.0.1). A host other than loopback",
-    "                      (0.0.0.0, a LAN address) needs an API key: serve refuses to start without one",
+    "                      (0.0.0.0, a LAN address) needs a key you choose: serve refuses to start without one",
     "  --port <p>          Listen port (default 8787)",
     "  --cwd <dir>         Working directory for OS tools / sessions (default: cwd)",
-    "  --api-key <k>       Require this bearer token on all routes except /health and /v1/models",
-    "                      (falls back to env ATOMIC_AGENT_API_KEY when flag is omitted;",
-    "                      serve removes it from its environment once read).",
+    "  --api-key <k>       The bearer token required on all routes except /health",
+    "                      and /panel (falls back to env ATOMIC_AGENT_API_KEY when the flag is omitted).",
+    "                      Without either, serve uses the key in <state dir>/serve-api.key,",
+    "                      generated on the first run: a key is always required, on loopback too.",
     "                      On a network host it must be at least 16 characters, and an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
-    "                      Without a key only loopback Host/Origin and JSON bodies are accepted;",
-    "                      ATOMIC_AGENT_ALLOWED_ORIGINS=<a,b> lets listed web origins in",
+    "  --print-api-key     Print the key serve runs with (generating it if needed) and exit,",
+    "                      e.g. curl -H \"Authorization: Bearer $(atomic-agent serve --print-api-key)\"",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
     "  --no-parent-exit    Keep running after the parent exits — the way to daemonise from a shell,",
@@ -49,8 +57,8 @@ export const HELP =
     "  --reap              Sweep stranded servers from earlier runs, print what was found, and exit",
     "  --tunnel            Reach the webhooks from the internet through a Cloudflare quick tunnel",
     "                      (random https://….trycloudflare.com address, no account). Needs cloudflared",
-    "                      on PATH and at least one webhook with a secret; only POST /api/webhooks/{name}",
-    "                      is reachable through it, every other route stays on this machine",
+    "                      on PATH and at least one webhook with a secret; only webhook deliveries",
+    "                      are reachable through it. The main listener stays on this machine.",
     "  --tunnel-name <n>   Use your named Cloudflare tunnel <n> instead (cloudflared login done),",
     "  --tunnel-hostname <h>  with the public hostname routed to it, e.g. hooks.example.com",
     "",
@@ -70,7 +78,7 @@ export const HELP =
     "  POST /v1/messages                        Anthropic Messages API (Claude Code; stream or sync)",
     "  POST /v1/messages/count_tokens           Rough input token estimate for Anthropic clients",
     "  POST /v1/responses                       OpenAI Responses API (Codex, Agents SDK; stream or sync)",
-    "  GET  /v1/models                          Single-model catalog (public)",
+    "  GET  /v1/models                          Single-model catalog",
     "  GET  /health                             Liveness + llama-server reachability (public)",
     "  GET  /api/capabilities                   Runtime wiring summary",
     "  GET|PATCH /api/config                    Read or merge-write the user config file",
@@ -103,6 +111,7 @@ export function parseArgs(
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
   let reapOnly = false;
+  let printApiKey = false;
   let quickTunnel = false;
   let tunnelName: string | null = null;
   let tunnelHostname: string | null = null;
@@ -162,6 +171,9 @@ export function parseArgs(
       case "--reap":
         reapOnly = true;
         break;
+      case "--print-api-key":
+        printApiKey = true;
+        break;
       case "--tunnel":
         quickTunnel = true;
         break;
@@ -190,17 +202,18 @@ export function parseArgs(
   // A bearer header is trimmed before it is compared, so a key of only
   // whitespace could never be sent back: serve would start and refuse
   // every request.
-  if (!reapOnly && apiKey !== null && apiKey.trim().length === 0) {
+  const servesNothing = reapOnly || printApiKey;
+  if (!servesNothing && apiKey !== null && apiKey.trim().length === 0) {
     return {
       error:
         "the API key is only whitespace (--api-key or ATOMIC_AGENT_API_KEY); set a real token",
     };
   }
-  if (!reapOnly && apiKey === null && !isLoopbackListenHost(host)) {
+  if (!servesNothing && apiKey === null && !isLoopbackListenHost(host)) {
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
-  if (!reapOnly && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
+  if (!servesNothing && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
     return {
       error:
         `--host ${host} accepts connections from other machines, and an API key of ${apiKey.length} characters can be guessed. ` +
@@ -228,6 +241,7 @@ export function parseArgs(
     parentPid,
     noParentExit,
     reapOnly,
+    printApiKey,
     tunnel,
   };
 }
@@ -264,32 +278,19 @@ export function isLoopbackListenHost(host: string): boolean {
 }
 
 /**
- * Serve without an API key gives whoever reaches the port the agent and
- * every tool it runs: shell commands, file writes, the config file. On a
- * network host that is anyone on the network, so the parse refuses it
- * (ATO-760); the message says how to set a key.
+ * Whoever holds the key gets the agent and every tool it runs: shell
+ * commands, file writes, the config file. On loopback serve falls back to
+ * its own generated key (`serve-api-key.ts`); on a network host the parse
+ * wants a key the operator chose and knows (ATO-760), so a machine never
+ * opens to the network with a key nobody meant to hand out.
  */
 function missingKeyOnNetworkError(host: string): string {
   return (
-    `--host ${host} accepts connections from other machines, and serve without an API key ` +
-    "lets anyone who reaches the port run the agent and its tools. " +
-    "Set a key with --api-key <token> or the ATOMIC_AGENT_API_KEY environment variable " +
+    `--host ${host} accepts connections from other machines, and whoever holds the API key ` +
+    "can run the agent and its tools there. " +
+    "Choose the key yourself with --api-key <token> or the ATOMIC_AGENT_API_KEY environment variable " +
     "(for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)), " +
     "or listen on 127.0.0.1"
-  );
-}
-
-/**
- * The one-line warning serve prints when it starts without a key (only
- * possible on loopback, see `parseArgs`), or `null` when it has one.
- * Loopback without a key keeps working (scripts on the same machine rely
- * on it), but any program on this machine can then drive the agent.
- */
-export function serveAuthWarning(args: Pick<ServeArgs, "apiKey">): string | null {
-  if (args.apiKey !== null) return null;
-  return (
-    "[atomic-agent] serve: no API key, so any program on this machine can run the agent and its tools; " +
-    "pass --api-key <token> or set ATOMIC_AGENT_API_KEY\n"
   );
 }
 

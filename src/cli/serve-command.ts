@@ -5,7 +5,8 @@ import { createStderrSink } from "../tracing/structured-logger.js";
 import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 
-import { HELP, lanUrls, parseArgs, serveAuthWarning } from "./serve-args.js";
+import { HELP, lanUrls, parseArgs } from "./serve-args.js";
+import { resolveServeApiKey, serveApiKeyNotice } from "./serve-api-key.js";
 import {
   MEMORY_GUARD_EXIT_CODE,
   memoryGuardDisabled,
@@ -62,6 +63,18 @@ export async function serveCommand(args: string[]): Promise<number> {
   const stateDir = getConfig().paths.stateDir;
   if (parsed.reapOnly) {
     process.stdout.write(formatReapOutcomes(await reapOrphanedServes({ stateDir })));
+    return 0;
+  }
+
+  // Always a key, on loopback too: the operator's, else the persisted one
+  // made on the first run. No key, no server.
+  const apiKey = resolveServeApiKey(parsed.apiKey, stateDir);
+  if ("error" in apiKey) {
+    process.stderr.write(`serve: ${apiKey.error}\n`);
+    return 1;
+  }
+  if (parsed.printApiKey) {
+    process.stdout.write(`${apiKey.key}\n`);
     return 0;
   }
 
@@ -143,18 +156,17 @@ export async function serveCommand(args: string[]): Promise<number> {
       runtime,
       host: parsed.host,
       port: parsed.port,
-      apiKey: parsed.apiKey,
+      apiKey: apiKey.key,
       routes: buildRouteTable({ metricsRegistry }),
       approvalBus,
       projectGateBus,
       completionRegistry,
     });
-    const authNote = parsed.apiKey ? "auth=bearer" : "auth=none";
+    const baseUrl = `http://${handle.host}:${handle.port}`;
     process.stderr.write(
-      `[atomic-agent] serve listening on http://${handle.host}:${handle.port} (${authNote}, cwd=${parsed.workingDir})\n`,
+      `[atomic-agent] serve listening on ${baseUrl} (auth=bearer, cwd=${parsed.workingDir})\n`,
     );
-    const authWarning = serveAuthWarning(parsed);
-    if (authWarning) process.stderr.write(authWarning);
+    process.stderr.write(serveApiKeyNotice(apiKey, baseUrl, process.stderr.isTTY === true));
     // Issue #33: on a network address, constrained folders without
     // "serve" in allowedEgress are refused over HTTP (serve-egress.ts).
     const constraintNote = serveConstraintNote(handle.host, getConfig().projects.constraints);
@@ -168,6 +180,7 @@ export async function serveCommand(args: string[]): Promise<number> {
         runtime,
         request: parsed.tunnel,
         preflight: tunnelCheck,
+        apiKey: apiKey.key,
         approvalBus,
         completionRegistry,
         write: (line) => process.stderr.write(line),
