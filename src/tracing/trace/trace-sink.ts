@@ -83,8 +83,10 @@ export function traceFilePath(dir: string, sessionId: string): string {
   // raw id is still read, and appended to, where it is.
   const path = join(dir, `${sessionFileName(sessionId)}.ndjson`);
   if (!existsSync(path)) {
+    // Only for an id with no `~`: a raw `foo~3abar` would name the current
+    // file of `foo:bar`, another session's trace.
     const legacy = join(dir, `${sessionId}.ndjson`);
-    if (legacy !== path && insideDir(dir, legacy) && existsSync(legacy)) return legacy;
+    if (!sessionId.includes("~") && legacy !== path && insideDir(dir, legacy) && existsSync(legacy)) return legacy;
   }
   // The safe name holds no separator; this stays as the last line.
   if (sessionId.length === 0 || !insideDir(dir, path)) {

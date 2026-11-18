@@ -69,11 +69,12 @@ export function sessionFileName(sessionId: string): string {
  * The session id a {@link sessionFileName} came from, or `null` for a
  * digest name (the id is in the file's own records). A name with no `~`
  * is returned as it is, which also reads files older builds named with
- * the raw id.
+ * the raw id; so is a name holding `~` that `sessionFileName` would not
+ * have produced (issue #74 review).
  */
 export function sessionIdFromFileName(name: string): string | null {
   if (!name.includes("~")) return name;
-  if (name.startsWith("~h")) return null;
+  if (/^~h[0-9a-f]{64}$/.test(name)) return null;
   if (!/^(?:[^~]|~[0-9a-f]{2})*$/.test(name)) return name;
   const bytes: number[] = [];
   for (let i = 0; i < name.length; i++) {
@@ -84,5 +85,8 @@ export function sessionIdFromFileName(name: string): string | null {
       bytes.push(name.charCodeAt(i));
     }
   }
-  return Buffer.from(bytes).toString("utf8");
+  const decoded = Buffer.from(bytes).toString("utf8");
+  // Only a name sessionFileName itself produces is decoded; anything else
+  // (a raw id an older build wrote that happens to hold `~xx`) is the id.
+  return sessionFileName(decoded) === name ? decoded : name;
 }

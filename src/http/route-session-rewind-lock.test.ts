@@ -56,4 +56,34 @@ describe("rewind holds the chat's turn lock", () => {
     const texts = stored.turns.filter((t) => t.kind === "user").map((t) => (t as { text: string }).text);
     expect(texts).toEqual(["first", "sent during the rewind"]);
   });
+
+  it("an unrelated write during the restore (a next-step suggestion) neither refuses nor is lost", async () => {
+    const state: SessionState = {
+      ...createEmptySessionState({ id: "rw-meta", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "first", at: 100 },
+        { kind: "assistant_reply", text: "one", at: 110 },
+        { kind: "user", text: "second", at: 200 },
+        { kind: "assistant_reply", text: "two", at: 210 },
+      ],
+      turnCount: 2,
+      macroTurnStarts: [2, 4],
+    };
+    harness.runtime.sessionStore.save(state);
+    hooks.duringRestore = async () => {
+      hooks.duringRestore = null;
+      const latest = harness.runtime.sessionStore.load("rw-meta")!;
+      harness.runtime.sessionStore.save({ ...latest, metadata: { ...latest.metadata, note: "kept" }, updatedAt: latest.updatedAt + 5 });
+    };
+    const res = await fetch(`${harness.baseUrl}/api/sessions/rw-meta/rewind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ priorQuestions: 1, expectText: "second" }),
+    });
+    expect(res.status).toBe(200);
+    const stored = harness.runtime.sessionStore.load("rw-meta")!;
+    expect(stored.turns.map((t) => t.kind)).toEqual(["user", "assistant_reply"]);
+    expect(stored.metadata.note).toBe("kept");
+  });
 });

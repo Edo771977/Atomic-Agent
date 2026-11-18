@@ -65,9 +65,10 @@ export function approvalForServe(
 
 /**
  * Whether a record bound to `sessionId` (a task, an idea) is withheld on
- * this server (issue #74). A record with no session cannot be placed in
- * a folder, so while constraints exist a network server withholds it too
- * (fail closed, like `channelNotifyRefusal`).
+ * this server (issue #74). A record with no session runs where the
+ * server works, so it is judged by the policy of the server's own folder
+ * (`capabilities.workingDir`): withheld only when that folder lacks
+ * "serve". A failing check refuses (fail closed).
  */
 export function serveWithheldRecord(
   ctx: Pick<HandlerContext, "networkServe" | "runtime">,
@@ -76,7 +77,8 @@ export function serveWithheldRecord(
   if (sessionId !== null) return serveWithheld(ctx, sessionId)();
   if (ctx.networkServe !== true || ctx.runtime.serveRefusal === undefined) return false;
   try {
-    return hasProjectConstraints(getConfig());
+    if (!hasProjectConstraints(getConfig())) return false;
+    return serveWithheld(ctx, { id: "", workingDir: ctx.runtime.capabilities.workingDir })();
   } catch {
     return true;
   }

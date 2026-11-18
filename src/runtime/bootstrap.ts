@@ -1059,6 +1059,7 @@ export async function createAgentRuntime(
     loadSession: (id) => sessionStore.load(id),
     saveSession: (session) => sessionStore.save(session),
     isBusy: (id) => turnController.isBusy(id),
+    liveTurnElsewhere: (id) => sessionStore.liveTurnElsewhere(id),
     liveInputs: (session) => {
       const live = getConfig();
       const policy = sessionProviderPolicy.forSession(session);

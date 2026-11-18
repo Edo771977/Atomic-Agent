@@ -482,6 +482,15 @@ describe("trace path containment", () => {
     expect(readdirSync(dir)).toEqual(["codex:abc.ndjson"]);
   });
 
+  it("never takes another session's file for a legacy raw name holding '~'", () => {
+    const dir = join(root, "traces");
+    mkdirSync(dir, { recursive: true });
+    // The current file of `foo:bar` is `foo~3abar.ndjson`.
+    const other = traceFilePath(dir, "foo:bar");
+    writeFileSync(other, "{}\n");
+    expect(traceFilePath(dir, "foo~3abar")).not.toBe(other);
+  });
+
   it("writes a new imported chat's trace under its safe name", () => {
     const dir = join(root, "traces");
     const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });

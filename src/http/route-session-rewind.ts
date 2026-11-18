@@ -100,23 +100,31 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     // overwritten by it. Checked and queued in one tick: nothing can start
     // between the two.
     if (ctx.runtime.turnController.isBusy(session.id)) return refuse(res, "turn_in_progress");
+    // The same point on a reloaded chat: refused when its transcript moved
+    // on since the request was checked, or with planRewind's own code.
+    const replan = (chat: SessionState): ReturnType<typeof planRewind> =>
+      sameTranscript(chat, session) ? planRewind(chat, turnIndex, text) : { ok: false, code: "point_mismatch" };
     const outcome = await ctx.runtime.turnController.enqueue({
       sessionId: session.id,
       origin: "http",
       run: async (): Promise<RewindOutcome> => {
-        // The chat as it is now: a turn that ran while the plan was made changed it.
+        // The chat as it is now. Only its transcript matters: an unrelated
+        // write (a next-step suggestion, a title) is no reason to refuse.
         const current = ctx.runtime.sessionStore.load(session.id);
-        if (current === null || current.updatedAt !== session.updatedAt) return { refused: "point_mismatch" };
-        if (!planRewind(current, turnIndex).ok) return { refused: "turn_in_progress" };
+        const before = current === null ? null : replan(current);
+        if (before === null || !before.ok) return { refused: before?.code ?? "point_mismatch" };
         // A compaction started on this chat would summarise the rows removed.
         ctx.runtime.cancelSessionCompaction(session.id);
         const done = restoreFiles
           ? await applyFileRestore(store, session.id, files)
           : { restored: [], deleted: [], failed: [] };
-        // Another process on the state dir may have started a turn during the restore.
+        // Planned again from the stored chat right before the save, with no
+        // await between: a turn another process started during the restore
+        // refuses, and a write that left the transcript alone is kept.
         const latest = ctx.runtime.sessionStore.load(session.id);
-        if (latest === null || latest.updatedAt !== session.updatedAt) return { refused: "turn_in_progress", done };
-        ctx.runtime.sessionStore.save(plan.state);
+        const final = latest === null ? null : replan(latest);
+        if (final === null || !final.ok) return { refused: final?.code ?? "point_mismatch", done };
+        ctx.runtime.sessionStore.save(final.state);
         ctx.runtime.sessionStore.clearTurnProgress(session.id);
         // The turns those copies belong to are gone.
         await store.dropSince(session.id, at);
@@ -127,7 +135,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       if (outcome.done === undefined) return refuse(res, outcome.refused);
       // Files were already put back; the chat was not cut. Say both.
       sendJson(res, 409, {
-        ...openaiError(REFUSAL_MESSAGES.turn_in_progress, "invalid_request_error", null, "turn_in_progress"),
+        ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
         ...outcome.done,
       });
       return;
@@ -140,6 +148,11 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       incomplete: restoreFiles && files.incomplete,
     });
   };
+}
+
+/** Same rows as when the request was checked (a turn appends rows, a compaction or rollback removes some). */
+function sameTranscript(a: SessionState, b: SessionState): boolean {
+  return a.turns.length === b.turns.length && a.turns.at(-1)?.at === b.turns.at(-1)?.at && a.turns.at(-1)?.kind === b.turns.at(-1)?.kind;
 }
 
 type RestoreDone = Awaited<ReturnType<typeof applyFileRestore>>;

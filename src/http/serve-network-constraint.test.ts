@@ -147,4 +147,12 @@ describe("serve on a network host with per-folder constraints", () => {
     const row = ((JSON.parse(text) as { sessions: Array<Record<string, unknown>> }).sessions).find((s) => s.id === session.id);
     expect(row?.restricted).toBe(true);
   });
+
+  // Issue #74 review: a task with no session runs in the server's folder; only that folder's policy hides it.
+  it("shows a session-less task when only another folder is constrained", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "/elsewhere-constrained": { allowedProviders: ["local-llama"] } } });
+    const t = harness.runtime.taskStore.create({ userMessage: "acme orphan task", origin: "cli", maxAttempts: 1 });
+    expect(await (await fetch(`${harness.baseUrl}/api/tasks`)).text()).toContain("acme orphan task");
+    expect((await fetch(`${harness.baseUrl}/api/tasks/${t.id}`)).status).toBe(200);
+  });
 });

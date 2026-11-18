@@ -62,7 +62,7 @@ function planContext(): ProjectPlanContext {
   };
 }
 
-function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"] } = {}) {
+function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean } = {}) {
   let stored: SessionState | null = {
     ...createEmptySessionState({ id: "s1", workingDir: "/w" }),
     ...(options.status === undefined ? {} : { status: options.status }),
@@ -83,6 +83,7 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
     loadSession: (id) => (id === "s1" ? stored : null),
     saveSession: save,
     isBusy: () => options.busy === true,
+    liveTurnElsewhere: () => options.ownerAlive !== false,
     liveInputs: () => inputs,
     emit: (sessionId, event) => events.push({ sessionId, event }),
     now: () => NOW + 7,
@@ -121,6 +122,9 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
     expect(elsewhere.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "turn-running" } });
     expect(elsewhere.save).not.toHaveBeenCalled();
+    // A status a crashed process left behind does not hold the gate shut.
+    const stale = harness({ status: "running", ownerAlive: false, project: up(undefined, brief) });
+    expect(stale.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }).ok).toBe(true);
     const h = harness({ project: up(undefined, brief) });
     expect(h.runtime.projectDecision("nope", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "no-session" } });
