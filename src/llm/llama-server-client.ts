@@ -643,7 +643,7 @@ export interface LlamaServerClientOptions {
    * does — so a field log can show whether a request after a cut-off
    * worker was ever sent (ATO-1357, issue #490).
    */
-  logger?: Pick<StructuredLogger, "debug">;
+  logger?: Pick<StructuredLogger, "debug"> & Partial<Pick<StructuredLogger, "warn">>;
 }
 
 /**
@@ -687,7 +687,9 @@ export class LlamaServerClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly refreshApiKey: (url: string) => Promise<string | null>;
   private readonly drySamplerOverride: boolean | undefined;
-  private readonly logger: Pick<StructuredLogger, "debug"> | undefined;
+  private readonly logger:
+    | (Pick<StructuredLogger, "debug"> & Partial<Pick<StructuredLogger, "warn">>)
+    | undefined;
   /** Recent generation speeds, tokens/s, newest last — see `measuredTokensPerSecond`. */
   private readonly throughputSamples: number[] = [];
   /**
@@ -1058,6 +1060,7 @@ export class LlamaServerClient {
     const skipped = this.grammarSkipped(request);
     const first = this.completeStreamOnce(request);
     let yielded = false;
+    let refusal: unknown;
     try {
       for (;;) {
         const step = await first.next();
@@ -1067,12 +1070,33 @@ export class LlamaServerClient {
       }
     } catch (err) {
       if (yielded || !this.learnGrammarRefusal(request, err)) throw err;
+      refusal = err;
     } finally {
       // A consumer that walks away mid-stream closes the request too.
       await first.return(undefined as never).catch(() => undefined);
     }
-    const result = yield* this.completeStreamOnce(request);
-    return markGrammarSkipped(result, true);
+    const second = this.completeStreamOnce(request);
+    let resentText = false;
+    try {
+      for (;;) {
+        let step: IteratorResult<StreamChunk, CompletionResult>;
+        try {
+          step = await second.next();
+        } catch (retryErr) {
+          // As in `complete()`: a resend that fails before any text
+          // gives back the grammar refusal, the error the user needs to
+          // read. Once the resend has streamed text, its own failure is
+          // what happened to that text, and it stands.
+          if (resentText || request.signal?.aborted) throw retryErr;
+          throw refusal;
+        }
+        if (step.done) return markGrammarSkipped(step.value, true);
+        resentText = true;
+        yield step.value;
+      }
+    } finally {
+      await second.return(undefined as never).catch(() => undefined);
+    }
   }
 
   /** The grammar of `request` stays home: its server refused one before. */
@@ -1098,10 +1122,14 @@ export class LlamaServerClient {
     const base = this.baseUrlOverride ?? getConfig().localModels.url;
     if (this.isManagedEngine(base)) return false;
     this.grammarRefusedFor.add(base);
-    this.logger?.debug("llama: server refused the grammar; sending without it from now on", {
+    // Warn, so a field log shows the agent runs this server without a
+    // grammar. The port and whether it is loopback only: never the
+    // server's words, which may quote the request.
+    this.logger?.warn?.("llama: server refused the grammar; sending requests to it without one", {
       sessionId: request.sessionId ?? null,
       status: err.status,
       midStream: err.midStream,
+      ...describeBase(base),
     });
     return true;
   }
@@ -2234,6 +2262,20 @@ function parseSseEvent(rawEvent: string): Record<string, unknown> | null {
     return JSON.parse(joined) as Record<string, unknown>;
   } catch {
     return null;
+  }
+}
+
+/** The port of `base` and whether it is loopback, for a log line; never the host name. */
+function describeBase(base: string): { port: string; loopback: boolean } {
+  try {
+    const parsed = new URL(base);
+    const host = parsed.hostname.toLowerCase();
+    return {
+      port: parsed.port,
+      loopback: host === "localhost" || host === "[::1]" || /^127(\.\d{1,3}){3}$/.test(host),
+    };
+  } catch {
+    return { port: "", loopback: false };
   }
 }
 
