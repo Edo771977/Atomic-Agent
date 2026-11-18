@@ -1775,6 +1775,14 @@ through an env var.
   `desktopStateDirArg`), and the handler then works on `DESKTOP_STATE_DIR`,
   never on the renderer's string. `underDesktopState` (containment) compares
   the same canonical forms, so `<state>/../x` is not inside.
+- **`projects.json` (`main/projects-store.ts`, issue #74).** Every change is
+  made under `projects.json.lock` (O_EXCL; a lock older than 10 s is a crashed
+  writer's and is broken; waiting longer than 2 s answers "being changed in
+  another window") and as a compare-and-swap: the file is read again before
+  the write and the change is made again on what is there now (3 tries). A
+  rewrite keeps unknown top-level and per-project fields and entries this
+  version cannot read, with their chats. A file that does not parse is read
+  once more after 100 ms before it is set aside as `projects.json.bad-<ms>`.
 - **On a directory of its own, the model weights are shared; nothing else
   is.** On a fresh such directory, `<dir>/models/models` is symlinked to the terminal
   agent's, so the gigabytes are not downloaded twice, and `models/backend`

@@ -23,7 +23,7 @@
  * servers, memory and model.
  */
 import { randomBytes } from "node:crypto";
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, join, posix, win32 } from "node:path";
 
 export interface Project { id: string; name: string; folder: string; instructions: string; createdAt: number }
@@ -218,47 +218,189 @@ function isDirectory(dir: string): boolean {
   try { return statSync(dir).isDirectory(); } catch { return false; }
 }
 
-/** The projects on disk, or none. Never throws. */
-export function readProjects(stateDir: string): Projects {
+const isObj = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** Blocks this thread for `ms` (the store is synchronous; its waits are a few milliseconds). */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** How long a read that did not parse waits before the one more read (another writer mid-write). */
+const PARSE_RETRY_MS = 100;
+/** How long a change waits for another writer's lock, and when a lock is too old to be anyone's. */
+const LOCK_WAIT_MS = 2000;
+const LOCK_STALE_MS = 10_000;
+/** Read, change and compare rounds one change may take before it gives up. */
+const WRITE_TRIES = 3;
+
+export interface ReadProjectsOptions {
+  /** Run instead of the pause before the second read of a file that did not parse (the suite). */
+  beforeRetry?: () => void;
+}
+
+interface RawRead {
+  data: Projects;
+  /** The parsed file when it was an object: what a rewrite keeps the unknown parts of. */
+  raw: Record<string, unknown> | null;
+  /** The bytes read, or null for no file: what the write compares against. */
+  text: string | null;
+}
+
+function readText(path: string): string | null {
+  try { return readFileSync(path, "utf8"); } catch { return null; }
+}
+
+function parseOrUndefined(text: string): unknown {
+  try { return JSON.parse(text) as unknown; } catch { return undefined; }
+}
+
+/**
+ * Issue #74: a file that does not parse may be another writer's half-written
+ * file, so it is read once more after a pause before it is set aside.
+ */
+function readRaw(stateDir: string, opts: ReadProjectsOptions = {}): RawRead {
   const path = projectsPath(stateDir);
-  let text: string;
-  try { text = readFileSync(path, "utf8"); } catch { return emptyProjects(); }
-  try {
-    return coerceProjects(JSON.parse(text));
-  } catch {
+  let text = readText(path);
+  if (text === null) return { data: emptyProjects(), raw: null, text: null };
+  let parsed = parseOrUndefined(text);
+  if (parsed === undefined) {
+    if (opts.beforeRetry) opts.beforeRetry(); else sleepSync(PARSE_RETRY_MS);
+    text = readText(path);
+    if (text === null) return { data: emptyProjects(), raw: null, text: null };
+    parsed = parseOrUndefined(text);
+  }
+  if (parsed === undefined) {
     // A file that does not parse is set aside, not overwritten by the next save: the projects in it can be recovered.
     try { renameSync(path, `${path}.bad-${Date.now()}`); } catch { /* left as it is */ }
-    return emptyProjects();
+    return { data: emptyProjects(), raw: null, text: readText(path) };
+  }
+  return { data: coerceProjects(parsed), raw: isObj(parsed) ? parsed : null, text };
+}
+
+/** The projects on disk, or none. Never throws. */
+export function readProjects(stateDir: string, opts: ReadProjectsOptions = {}): Projects {
+  return readRaw(stateDir, opts).data;
+}
+
+/**
+ * Issue #74: what is written for `data` over the file `raw` was read from.
+ * Unknown top-level fields and unknown fields of a project are kept (a newer
+ * app's, or the terminal's); so is an entry this version could not read, and
+ * the chats in it. A project the change removed goes, with its chats.
+ */
+export function mergeUnknown(raw: Record<string, unknown> | null, data: Projects): Record<string, unknown> {
+  if (!raw) return { ...data };
+  const rawProjects = Array.isArray(raw.projects) ? raw.projects : [];
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const p of rawProjects) if (isObj(p) && typeof p.id === "string" && !byId.has(p.id)) byId.set(p.id, p);
+  const understood = new Set(coerceProjects(raw).projects.map((p) => p.id));
+  const kept = new Set(data.projects.map((p) => p.id));
+  const projects: unknown[] = data.projects.map((p) => ({ ...(byId.get(p.id) ?? {}), ...p }));
+  const extraIds = new Set<string>();
+  for (const p of rawProjects) {
+    if (!isObj(p)) continue;
+    const id = typeof p.id === "string" ? p.id : null;
+    if (id !== null && (understood.has(id) || kept.has(id) || extraIds.has(id))) continue;
+    if (projects.length >= MAX_PROJECTS) break;
+    if (id !== null) extraIds.add(id);
+    projects.push(p);
+  }
+  const chats: Record<string, unknown> = { ...data.chats };
+  if (isObj(raw.chats)) {
+    for (const [sid, pid] of Object.entries(raw.chats)) {
+      if (!(sid in chats) && typeof pid === "string" && extraIds.has(pid)) chats[sid] = pid;
+    }
+  }
+  return { ...raw, version: typeof raw.version === "number" ? raw.version : 1, projects, chats };
+}
+
+function writeWhole(path: string, value: unknown): string | null {
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+    renameSync(tmp, path);
+    return null;
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* not there */ }
+    return e instanceof Error ? e.message : String(e);
   }
 }
 
 /** Write the projects whole, via a temp file. Never throws. */
 export function writeProjects(stateDir: string, value: Projects): ProjectsResult<{ data: Projects }> {
   const data = coerceProjects(value);
-  const path = projectsPath(stateDir);
-  const tmp = `${path}.${process.pid}.tmp`;
-  try {
-    writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
-    renameSync(tmp, path);
-    return { ok: true, data };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  const error = writeWhole(projectsPath(stateDir), data);
+  return error === null ? { ok: true, data } : { ok: false, error };
+}
+
+/**
+ * Issue #74: `projects.json.lock`, made with O_EXCL, so two apps on one state
+ * directory change the file one at a time. A lock older than LOCK_STALE_MS is
+ * a crashed writer's and is broken. Null: not had within `waitMs`.
+ */
+function takeLock(path: string, waitMs: number): (() => void) | null {
+  const lock = `${path}.lock`;
+  const until = Date.now() + waitMs;
+  for (;;) {
+    try {
+      const fd = openSync(lock, "wx", 0o600);
+      try { writeSync(fd, `${process.pid}\n`); } finally { closeSync(fd); }
+      return () => { try { unlinkSync(lock); } catch { /* already gone */ } };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return null;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { unlinkSync(lock); continue; }
+      } catch {
+        continue;   // gone meanwhile: try again at once
+      }
+      if (Date.now() >= until) return null;
+      sleepSync(20);
+    }
   }
 }
 
-/** Read, change, write: the IPC handlers' one shape. `changed` runs only after a successful write. */
+export interface UpdateProjectsOptions extends ReadProjectsOptions {
+  /** How long to wait for another writer's lock (default LOCK_WAIT_MS). */
+  lockWaitMs?: number;
+}
+
+const BUSY = "Projects are being changed in another window. Try again.";
+
+/**
+ * Read, change, write: the IPC handlers' one shape. `changed` runs only after a successful write.
+ *
+ * Issue #74: under the lock, and as a compare-and-swap — the file is read
+ * again right before the write, and when it is no longer the one the change
+ * was made on (a writer that does not take the lock), the change is made
+ * again on what is there now, up to WRITE_TRIES times. The write keeps what
+ * this version does not know (mergeUnknown).
+ */
 export function updateProjects<T extends { data: Projects }>(
   stateDir: string,
   change: (data: Projects) => ProjectsResult<T>,
   changed?: () => void,
+  opts: UpdateProjectsOptions = {},
 ): ProjectsResult<T> {
-  const next = change(readProjects(stateDir));
-  if (!next.ok) return next;
-  const written = writeProjects(stateDir, next.data);
-  if (!written.ok) return written;
-  (next as { data: Projects }).data = written.data;
-  changed?.();
-  return next;
+  const path = projectsPath(stateDir);
+  const release = takeLock(path, opts.lockWaitMs ?? LOCK_WAIT_MS);
+  if (!release) return { ok: false, error: BUSY };
+  try {
+    for (let attempt = 1; attempt <= WRITE_TRIES; attempt++) {
+      const read = readRaw(stateDir, opts);
+      const next = change(read.data);
+      if (!next.ok) return next;
+      const data = coerceProjects(next.data);
+      if (readText(path) !== read.text) continue;
+      const error = writeWhole(path, mergeUnknown(read.raw, data));
+      if (error !== null) return { ok: false, error };
+      (next as { data: Projects }).data = data;
+      changed?.();
+      return next;
+    }
+    return { ok: false, error: BUSY };
+  } finally {
+    release();
+  }
 }
 
 /** The chat request's project fields (core `project_instructions` / `project_name`); nothing for undefined. */
