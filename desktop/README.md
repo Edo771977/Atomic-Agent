@@ -70,7 +70,9 @@ Cheaper, Better quality and Cancel Fusion project at the plan; Approve milestone
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through
 `agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
-`POST /api/project/decision` with the view's `gate` and `version`. A stale
+`POST /api/project/decision` with the view's `gate` and `version`; until it
+answers, that gate's buttons stay disabled (Sending…), also after leaving the
+chat and coming back (issue #74). A stale
 version or another gate (`409`) redraws the current view with a notice, a
 running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
 closes the card. When the answer carries `continue_message`, the window sends

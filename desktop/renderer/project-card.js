@@ -677,6 +677,8 @@ function createProjectCard(opts) {
   const pending = new Map();   // sid → continue message not sent yet
   const hidden = new Set();    // the gates the person put away in the chat on screen (sid, gate, version)
   const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
+  // Issue #74: the gates a decision is in flight for (sid, gate, version), so leaving the chat and coming back keeps them busy.
+  const deciding = new Set();
   let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
   const key = () => {
     const v = state.view;
@@ -713,12 +715,15 @@ function createProjectCard(opts) {
     }
   }
   async function decide(verdict) {
-    if (state.busy) return;
+    const gate = key();
+    if (state.busy || deciding.has(gate)) return;
     const here = sid;
     const built = pcDecision(state, here, verdict);
     if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
+    deciding.add(gate);
     state = pcReduce(state, {type: 'sending'}); paint();
     const res = await Promise.resolve().then(() => opts.api.decide(built.body)).catch((e) => ({supported: true, ok: false, status: 0, code: null, error: String(e)}));
+    deciding.delete(gate);
     const out = pcOutcome(res);
     if (out.closed) store.drop(here);
     else if (out.view) store.put(here, out.view);
@@ -759,6 +764,7 @@ function createProjectCard(opts) {
       hidden.clear();
       sid = next; serial++;
       state = pcInitial(sid ? store.get(sid) : null);
+      if (deciding.has(key())) state.busy = true;   // issue #74: its decision has not answered yet
       paint();
       notify();
       flush();

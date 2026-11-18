@@ -541,6 +541,33 @@ test('Hide is keyed on the gate, not only its number: another gate at the same v
   assert.equal(c.last().model.gate, 'milestone', 'the milestone gate at v1 is not the plan the person hid');
 });
 
+// Issue #74: follow() started each chat from pcInitial, so A→B→A while a
+// decision was in flight drew the buttons enabled again and a second press
+// sent a second POST (the agent's 409 caught it). Busy is kept per gate
+// (sid, gate, version) until its answer lands.
+test('a decision in flight stays busy across A→B→A, and a second press sends nothing', async () => {
+  let release;
+  const sent = [];
+  const c = controller({read: async () => ({supported: true, ok: true, view: plan()}),
+    decide: (body) => { sent.push(body); return new Promise((r) => { release = r; }); }});
+  c.card.onFrame({sessionId: 'ses-1', view: plan()});
+  c.card.follow('ses-1');
+  await tick();
+  c.last().on({type: 'verdict', verdict: 'approve'});
+  await tick();
+  c.card.follow('ses-2');
+  c.card.follow('ses-1');
+  await tick();
+  assert.equal(c.last().model.busy, true, 'the buttons are enabled again while the decision is in flight');
+  c.last().on({type: 'verdict', verdict: 'approve'});
+  await tick();
+  assert.equal(sent.length, 1, 'a second POST went out');
+  release({supported: true, ok: true, view: plan({version: 4})});
+  await tick(); await tick();
+  assert.equal(c.last().model.busy, false);
+  assert.equal(c.last().model.version, 4);
+});
+
 test('Hide is undone by leaving the chat, and by Show Fusion project while the gate is open', () => {
   const c = controller();
   c.card.onFrame({sessionId: 'ses-1', view: plan()}); c.card.follow('ses-1');
