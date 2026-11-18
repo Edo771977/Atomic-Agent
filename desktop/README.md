@@ -1752,6 +1752,13 @@ through an env var.
   `config.json` and make it look otherwise), and creates the directory.
   Every spawn site names `agentEnv()` as well, so inheritance is never the
   only guarantee.
+- **The `stateDir` an IPC is handed (issue #74).** `cli:trace*`,
+  `app:memoryQuery`, `app:dotenvKeys`/`dotenvSet` and `composio:*` take a
+  `stateDir` from the renderer. It must name the desktop's directory itself
+  once both sides are canonical (`..` resolved, symlinks followed:
+  `desktopStateDirArg`), and the handler then works on `DESKTOP_STATE_DIR`,
+  never on the renderer's string. `underDesktopState` (containment) compares
+  the same canonical forms, so `<state>/../x` is not inside.
 - **On a directory of its own, the model weights are shared; nothing else
   is.** On a fresh such directory, `<dir>/models/models` is symlinked to the terminal
   agent's, so the gigabytes are not downloaded twice, and `models/backend`

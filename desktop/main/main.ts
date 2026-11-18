@@ -274,7 +274,7 @@ import { curatedMeta, curatedMetaIds, spotlightIds } from "./model-catalog.js";
 import { catalogPullWantsProjector, weightsOnDisk, wholePullProgress, withoutLivePullGap } from "./pull-projector.js";
 import { memoryQuery } from "./memory-db.js";
 // r5 item 9 — the desktop's own state directory and the TUI import offer.
-import { agentEnv, claimPortsIn, DESKTOP_EMBEDDING_PORT, DESKTOP_MANAGED_PORT, DESKTOP_STATE_DIR, desktopOwnsItsPorts, LEGACY_DESKTOP_STATE_DIR, SHARES_TERMINAL_STATE, STATE_DIR_FROM_ENV, TUI_STATE_DIR, underDesktopState } from "./state-dir.js";
+import { agentEnv, claimPortsIn, DESKTOP_EMBEDDING_PORT, DESKTOP_MANAGED_PORT, DESKTOP_STATE_DIR, desktopOwnsItsPorts, LEGACY_DESKTOP_STATE_DIR, SHARES_TERMINAL_STATE, STATE_DIR_FROM_ENV, TUI_STATE_DIR, desktopStateDirArg } from "./state-dir.js";
 // ATO-416 — one state directory with the terminal agent: the shared model's session marker, and the one-time notice.
 import { registerModelSession } from "./model-sessions.js";
 import { readConfigFile, readStateDirsRecord, recordStateDirRun, sharedSetupNoticeDue, stateDirsRecordPath } from "./shared-state-notice.js";
@@ -1449,7 +1449,9 @@ function wireIpc(client: AgentClient): void {
      future one that computes a path instead of reading it — must not be
      able to address the operator's tree through an IPC that reads .env or
      a sqlite file. Anything outside DESKTOP_STATE_DIR is refused here. */
-  const ownDir = (p: unknown): p is string => typeof p === "string" && underDesktopState(p);
+  // Issue #74: not a prefix test any more — the value must name the directory
+  // itself, canonically, and the handler is handed DESKTOP_STATE_DIR (or null).
+  const ownDir = (p: unknown): string | null => desktopStateDirArg(p);
 
   ipcMain.handle("agent:status", () => client.status);
   ipcMain.handle("agent:start", () => client.start());
@@ -2464,16 +2466,18 @@ function wireIpc(client: AgentClient): void {
   ipcMain.handle("engine:cpuFallback", () => engineCpuFallback);
   ipcMain.handle("engine:launchInstall", () => ({ running: launchInstall }));
   ipcMain.handle("cli:traceUsage", (_event, payload: unknown) => {
-    const { stateDir, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
-    if (!ownDir(stateDir) || typeof sessionId !== "string") {
+    const { stateDir: stateDirArg, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof sessionId !== "string") {
       return { ok: false, error: "stateDir and sessionId are required" };
     }
     return traceUsage(stateDir, sessionId);
   });
   // item 4: per-call tool durations from the trace
   ipcMain.handle("cli:traceTools", (_event, payload: unknown) => {
-    const { stateDir, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
-    if (!ownDir(stateDir) || typeof sessionId !== "string") {
+    const { stateDir: stateDirArg, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof sessionId !== "string") {
       return { ok: false, error: "stateDir and sessionId are required" };
     }
     return traceTools(stateDir, sessionId);
@@ -2769,8 +2773,9 @@ function wireIpc(client: AgentClient): void {
 
   // --- Lane B — context before the first message (item 3) ---
   ipcMain.handle("cli:traceBaseline", (_event, payload: unknown) => {
-    const { stateDir, model, workingDir } = (payload ?? {}) as { stateDir?: unknown; model?: unknown; workingDir?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, error: "stateDir is required" };
+    const { stateDir: stateDirArg, model, workingDir } = (payload ?? {}) as { stateDir?: unknown; model?: unknown; workingDir?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, error: "stateDir is required" };
     return traceBaseline(stateDir, {
       model: typeof model === "string" && model ? model : null,
       workingDir: typeof workingDir === "string" && workingDir ? workingDir : null,
@@ -3342,8 +3347,9 @@ function wireIpc(client: AgentClient): void {
   });
   // Read-only sqlite over <stateDir>/memory.sqlite; the statement is named, never free SQL.
   ipcMain.handle("app:memoryQuery", (_event, payload: unknown) => {
-    const { stateDir, name, params } = (payload ?? {}) as { stateDir?: unknown; name?: unknown; params?: unknown };
-    if (!ownDir(stateDir) || typeof name !== "string") return { ok: false, error: "stateDir and name are required" };
+    const { stateDir: stateDirArg, name, params } = (payload ?? {}) as { stateDir?: unknown; name?: unknown; params?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof name !== "string") return { ok: false, error: "stateDir and name are required" };
     return memoryQuery(stateDir, name, Array.isArray(params) ? params : []);
   });
   // ATO-582: edits and deletes go through the agent (its FTS and vectors stay in step), never SQL of ours.
@@ -3748,9 +3754,10 @@ function wireIpc(client: AgentClient): void {
   ipcMain.handle("app:llamaProbe", (_event, url: unknown) =>
     typeof url === "string" ? llamaProbe(url) : { ok: false, error: "url required" },
   );
-  ipcMain.handle("app:dotenvKeys", (_event, stateDir: unknown) =>
-    ownDir(stateDir) ? dotenvKeys(stateDir) : { ok: false, keys: [], exists: false, error: "state dir required" },
-  );
+  ipcMain.handle("app:dotenvKeys", (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    return stateDir ? dotenvKeys(stateDir) : { ok: false, keys: [], exists: false, error: "state dir required" };
+  });
   ipcMain.handle("app:envPresent", (_event, names: unknown) =>
     envPresent(Array.isArray(names) ? names.filter((n): n is string => typeof n === "string").slice(0, 64) : []),
   );
@@ -3758,8 +3765,9 @@ function wireIpc(client: AgentClient): void {
   // telegram-settings.ts setToken), the Exa key for web search (ATO-328) and the Discord bot token
   // (ATO-516, discord-settings.ts writeDiscordToken). Never logged, never echoed back.
   ipcMain.handle("app:dotenvSet", async (_event, payload: unknown) => {
-    const { stateDir, key, value } = (payload ?? {}) as { stateDir?: unknown; key?: unknown; value?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, error: "state dir required" };
+    const { stateDir: stateDirArg, key, value } = (payload ?? {}) as { stateDir?: unknown; key?: unknown; value?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, error: "state dir required" };
     const refused = desktopDotenvError(key, value);
     if (refused) return { ok: false, error: refused };
     const res = await dotenvSet(stateDir, key as string, value as string | null);
@@ -3783,20 +3791,23 @@ function wireIpc(client: AgentClient): void {
   const composioOutcome = (res: ComposioKeyResult): "ok" | "unverified" | "rejected" | "error" =>
     res.ok ? (res.verified ? "ok" : "unverified") : res.rejected ? "rejected" : "error";
   ipcMain.handle("composio:saveKey", async (_event, payload: unknown) => {
-    const { stateDir, value } = (payload ?? {}) as { stateDir?: unknown; value?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+    const { stateDir: stateDirArg, value } = (payload ?? {}) as { stateDir?: unknown; value?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await saveComposioKey(composioDeps(stateDir), typeof value === "string" ? value.trim() : value);
     A.composioStep("key_saved", composioOutcome(res));   // never the key
     return res;
   });
-  ipcMain.handle("composio:removeKey", async (_event, stateDir: unknown) => {
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+  ipcMain.handle("composio:removeKey", async (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await removeComposioKey(composioDeps(stateDir));
     A.composioStep("key_removed", res.ok ? "ok" : "error");
     return res;
   });
-  ipcMain.handle("composio:check", async (_event, stateDir: unknown) => {
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+  ipcMain.handle("composio:check", async (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await checkSavedComposioKey(composioDeps(stateDir));
     A.composioStep("key_checked", composioOutcome(res));
     return res;
