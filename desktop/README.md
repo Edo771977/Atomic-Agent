@@ -538,7 +538,11 @@ Real, driven by the running agent:
   what came meanwhile (`projectStandInShow`); it has no menu, rename or drag
   until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
-  hides the headers; the drawer (⌘ \) shows them.
+  hides the headers; the drawer (⌘ \) shows them. A chat is under the
+  project it was put in, else the deepest project whose folder it ran in; a
+  project on a broad folder (the filesystem or a drive root such as `C:\`,
+  the home folder or its parent, as the core's isTooBroadScope) holds only
+  chats run in that very folder (`chat-list.js` projectOf, issue #74).
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per
   machine, per viewer — because the agent has no route and no store field for
   either, and its `config.json` is the operator's file. On a machine that has

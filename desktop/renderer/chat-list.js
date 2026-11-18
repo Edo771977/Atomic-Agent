@@ -218,6 +218,8 @@ function projectForFolder(state, dir) {
 function projectOf(state, row, home) {
   if (!state || !row || !row.id) return null;
   const homeKey = home ? projectPathKey(home) : '';
+  // The home folder's parent ('/Users', 'c:/users'), broad as the home folder is.
+  const homeUp = homeKey && homeKey !== '/' && !/^[a-z]:$/.test(homeKey) ? (homeKey.replace(/\/[^/]*$/, '') || '/') : '';
   const projects = state.projects || [];
   // Issue #67: a new chat's stand-in carries its project (chat-projects.js projectStandInNote).
   const put = (state.chats && state.chats[row.id]) || row.projectId;
@@ -229,8 +231,10 @@ function projectOf(state, row, home) {
     const pk = projectPathKey(p.folder);
     /* W2 QA: a project on the home folder took in every new chat under it,
        so Chats stayed empty. A project on the home folder (or the root) holds
-       only chats that ran in that very folder. */
-    const broad = pk === '/' || (!!homeKey && pk === homeKey);
+       only chats that ran in that very folder. Issue #74: so does one on a
+       drive root (`C:\` keys as `c:`) or on the home folder's parent, the
+       folders the core's isTooBroadScope counts as too broad. */
+    const broad = pk === '/' || /^[a-z]:$/.test(pk) || (!!homeKey && (pk === homeKey || pk === homeUp));
     const inside = key === pk || (!broad && key.startsWith(pk + '/'));
     if (inside && pk.length > bestLen) { best = p; bestLen = pk.length; }
   }
