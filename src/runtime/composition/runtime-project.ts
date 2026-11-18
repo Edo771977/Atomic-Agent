@@ -7,6 +7,7 @@ import {
   type ProjectState,
 } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
+import { LIVE_SESSION_STATUSES } from "../../session/session-retention.js";
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { ModelTier } from "../../llm/provider/presets/model-tiers.js";
 import {
@@ -18,6 +19,7 @@ import {
   type PlanConstraints,
   type PlanEstimate,
   type VariantContext,
+  withReviewEstimate,
   withRowEstimate,
 } from "../../tools/fusion/project-estimate.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
@@ -144,6 +146,11 @@ export interface RuntimeProjectDeps {
   saveSession: (session: SessionState) => void;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
   isBusy: (sessionId: string) => boolean;
+  /**
+   * A live stored status on the session is a turn a live process runs
+   * (`SessionStore.liveTurnElsewhere`); absent, every live status counts.
+   */
+  liveTurnElsewhere?: (sessionId: string) => boolean;
   liveInputs: (session: SessionState) => LiveProjectInputs;
   emit: (sessionId: string, event: ProjectGateEvent) => void;
   now?: () => number;
@@ -183,14 +190,17 @@ function estimateFor(project: ProjectState, inputs: LiveProjectInputs, rows?: re
 /** Re-estimate rows the person edited, or build a variant, from the live context. Pure over `inputs`. */
 export function liveReplan(inputs: LiveProjectInputs): (rows: readonly AssignmentRow[], verdict: "edit" | "cheaper" | "quality") => AssignmentRow[] {
   const ctx = inputs.plan;
-  const estimate = (member: TeamMember) =>
-    estimateRow(member, null, ctx.records, ctx.pricing(member), {
+  const estimateAs = (member: TeamMember, role: string | null) =>
+    estimateRow(member, role, ctx.records, ctx.pricing(member), {
       minSamples: ctx.minSamples,
       days: ctx.days,
       ...(ctx.now === undefined ? {} : { now: ctx.now }),
       tokensPerSecond: ctx.tokensPerSecond(member),
       local: ctx.isLocal?.(member) ?? false,
     });
+  const estimate = (member: TeamMember) => estimateAs(member, null);
+  // A row's review counts in its cost (issue #74).
+  const reviewEstimate = (reviewer: TeamMember) => estimateAs(reviewer, "review");
   const variant: VariantContext = {
     members: ctx.workers,
     strength: inputs.strength,
@@ -199,6 +209,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
     acceptance: (member) => acceptanceRate(ctx.records, member, { days: ctx.days, ...(ctx.now === undefined ? {} : { now: ctx.now }) }),
     reviewerFor: (worker) => (ctx.reviewOn ? ctx.reviewerFor(worker) : null),
     reviewers: ctx.reviewers,
+    reviewEstimate,
   };
   return (rows, verdict) => {
     if (verdict === "cheaper") return cheaperVariant(rows, variant);
@@ -207,7 +218,8 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       const member = parseTeamMember(row.worker);
       if (member === null) return row;
       const est = estimate(member);
-      return withRowEstimate(row, est, `edited by the person; ${est.reason}`);
+      const reviewer = row.reviewer === null ? null : parseTeamMember(row.reviewer);
+      return withReviewEstimate(withRowEstimate(row, est, `edited by the person; ${est.reason}`), reviewer === null ? null : reviewEstimate(reviewer));
     });
   };
 }
@@ -236,11 +248,13 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
     },
     projectDecision(sessionId, decision) {
       // Between turns only: a running turn's save would put the old project back.
-      if (deps.isBusy(sessionId)) {
-        return { ok: false, error: { code: "turn-running", message: "Wait for the current work to finish, then decide." } };
-      }
+      const turnRunning = { ok: false as const, error: { code: "turn-running" as const, message: "Wait for the current work to finish, then decide." } };
+      if (deps.isBusy(sessionId)) return turnRunning;
       const session = deps.loadSession(sessionId);
       if (session === null) return { ok: false, error: { code: "no-session", message: `There is no session ${sessionId}.` } };
+      // Issue #74: a turn another process on the state dir runs shows only in the stored status.
+      // A status a crashed process left behind does not hold the gate shut (issue #74 review).
+      if (LIVE_SESSION_STATUSES.includes(session.status) && (deps.liveTurnElsewhere?.(sessionId) ?? true)) return turnRunning;
       const project = session.project;
       const inputs = deps.liveInputs(session);
       const estimate = project === undefined ? null : estimateFor(project, inputs);

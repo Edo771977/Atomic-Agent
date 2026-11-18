@@ -9,7 +9,6 @@ import {
   gateVersion,
   milestoneShotsDir,
   validateMilestoneAttachments,
-  withMilestoneCriteriaFacts,
   normalizeProject,
   planTotals,
   projectExpectation,
@@ -261,7 +260,7 @@ describe("applyProjectUpdate: milestones", () => {
 
   it("a report records the summary, opens the milestone gate and bumps the plan version without un-approving it", () => {
     const r = running();
-    const p = update(r, { kind: "milestone", id: "m1", state: "done", summary: "Base done" }, NOW + 5);
+    const p = update(update(r, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "Base done" }, NOW + 5);
     expect(p.milestones[0]).toMatchObject({ state: "done", summary: "Base done", updatedAt: NOW + 5 });
     expect(p.gate).toEqual({ kind: "milestone", id: "m1" });
     expect(p.plan).toMatchObject({ status: "approved", version: r.plan!.version + 1 });
@@ -286,11 +285,11 @@ describe("applyProjectDecision", () => {
   });
 
   it("approving milestone N's result marks it reviewed and approves N+1; the last completes the project", () => {
-    let p = update(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    let p = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
     expect(projectExpectation(p)).toEqual({ kind: "run_milestone", id: "m2" });
-    p = update(p, { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    p = update(update(p, { kind: "milestone_run", id: "m2", runId: "r2" }), { kind: "milestone", id: "m2", state: "done", summary: "ok" });
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed"]);
     expect(p.gate).toEqual({ kind: "none" });
@@ -304,7 +303,7 @@ describe("applyProjectDecision", () => {
   });
 
   it("a correction at the milestone gate sends it back to approved with the note recorded", () => {
-    const reported = update(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const reported = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     const v = gateVersion(reported)!;
     const p = ok(applyProjectDecision(
       reported,
@@ -433,6 +432,141 @@ describe("applyProjectDecision", () => {
     const c = ok(applyProjectDecision(p, { gate: p.gate, version: 1, verdict: "cancel" }, { now: NOW })).project;
     expect(c.plan?.status).toBe("cancelled");
     expect(c.cancelledAt).toBe(NOW);
+  });
+});
+
+describe("a milestone gate cannot be skipped (issue #74)", () => {
+  const failedReport = (): ProjectState => {
+    const p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    return update(p, { kind: "milestone", id: "m1", state: "failed", summary: "broken" });
+  };
+
+  it("refuses a brief or plan re-draft while a milestone result waits for the person", () => {
+    const p = failedReport();
+    for (const u of [planUpdate, briefUpdate]) {
+      const r = applyProjectUpdate(p, u, NOW);
+      expect(r).toMatchObject({ ok: false, error: { code: "awaiting-person" } });
+      if (!r.ok) expect(r.error.message).toMatch(/milestone m1.*wait for the person's decision/i);
+    }
+  });
+
+  it("approving a plan never approves a later milestone past an unreviewed done or failed one", () => {
+    for (const state of ["failed", "done"] as const) {
+      const reported = update(update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" }), { kind: "milestone", id: "m1", state, summary: "x" });
+      // An older store: the plan gate reopened over the unreviewed result.
+      const stored: ProjectState = { ...reported, plan: { ...reported.plan!, status: "draft" }, gate: { kind: "plan" } };
+      const p = approve(stored);
+      expect(p.milestones.map((m) => m.state)).toEqual([state, "planned"]);
+      expect(p.gate).toEqual({ kind: "milestone", id: "m1" });
+    }
+  });
+
+  it("a re-plan keeps a kept milestone's criteria facts and pictures", () => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = update(p, { kind: "milestone", id: "m1", state: "done", summary: "ok", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    p = approve(p);
+    const attachments = [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }];
+    p = { ...p, milestones: p.milestones.map((m) => (m.id === "m1" ? { ...m, attachments } : m)) };
+    const re = update(p, planUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }], attachments });
+    expect(re.milestones[1]!.criteriaFacts).toBeUndefined();
+  });
+});
+
+describe("a milestone is done only over a run (issue #74)", () => {
+  it("refuses a done report with no run since its approval or since the last failed report", () => {
+    const fresh = applyProjectUpdate(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW);
+    expect(fresh).toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    if (!fresh.ok) expect(fresh.error.message).toMatch(/fusion\.delegate/);
+    // A failed report needs no run; a done one after it needs a new run.
+    const failed = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "failed", summary: "broken" });
+    expect(applyProjectUpdate(failed, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    // Re-approved after a correction: the old run no longer counts.
+    const reapproved = approve(failed);
+    expect(applyProjectUpdate(reapproved, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    const rerun = update(reapproved, { kind: "milestone_run", id: "m1", runId: "r2" });
+    expect(update(rerun, { kind: "milestone", id: "m1", state: "done", summary: "ok" }).milestones[0]).toMatchObject({ state: "done", runIds: ["r1", "r2"] });
+    expect(update(running(), { kind: "milestone", id: "m1", state: "failed", summary: "could not start" }).milestones[0]!.state).toBe("failed");
+  });
+});
+
+describe("a hard cap at a milestone gate does not stall the project (issue #74)", () => {
+  const reported = (state: "done" | "failed"): ProjectState =>
+    update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state, summary: "x" });
+  const decide = (p: ProjectState, verdict: "approve" | "cheaper", hard: string[]) =>
+    applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict }, { now: NOW, hardViolations: hard, replan: (rows) => rows.map((r) => ({ ...r, worker: "local:cheap" })) });
+
+  it("approving a done result marks it reviewed; the next milestone over the cap waits at a plan gate the person can resolve", () => {
+    const p = reported("done");
+    const r = ok(decide(p, "approve", ["milestone m2 is over today's remaining limit"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(r.plan).toMatchObject({ status: "draft", version: p.plan!.version + 1 });
+    expect(allowedProjectVerdicts(r.gate)).toEqual(expect.arrayContaining(["cheaper", "quality", "edit"]));
+    // The plan gate still refuses approval over the cap; cheaper resolves it, then approve starts m2.
+    expect(decide(r, "approve", ["over"])).toMatchObject({ ok: false, error: { code: "over-cap" } });
+    const cheaper = ok(decide(r, "cheaper", ["over"])).project;
+    const started = approve(cheaper);
+    expect(started.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
+    expect(started.gate).toEqual({ kind: "none" });
+  });
+
+  it("approving a failed result over a cap keeps it for another run behind a plan gate", () => {
+    const r = ok(decide(reported("failed"), "approve", ["a row's provider is not allowed"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["planned", "planned"]);
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(approve(r).milestones.map((m) => m.state)).toEqual(["approved", "planned"]);
+  });
+
+  it("the last milestone's approval needs no further run: reviewed and done whatever the caps", () => {
+    let p = approve(reported("done"));
+    p = update(update(p, { kind: "milestone_run", id: "m2", runId: "r2" }), { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    const r = ok(decide(p, "approve", ["over"])).project;
+    expect(r.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed"]);
+    expect(r.gate).toEqual({ kind: "none" });
+  });
+});
+
+describe("one milestone open at a time (issue #74)", () => {
+  it("a re-plan approved while a milestone runs does not approve the next one", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    const replanned = approve(update(runningM1, planUpdate));
+    expect(replanned.milestones.map((m) => m.state)).toEqual(["in_progress", "planned"]);
+    expect(applyProjectUpdate(replanned, { kind: "milestone_run", id: "m2", runId: "r2" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-approved" } });
+  });
+
+  it("a report is refused while another milestone's result waits for the person", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    // An older store with two open milestones: m1 reported, m2 running.
+    const reported = update(runningM1, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const both: ProjectState = { ...reported, milestones: reported.milestones.map((m) => (m.id === "m2" ? { ...m, state: "in_progress" as const, runIds: ["r2"] } : m)) };
+    const r = applyProjectUpdate(both, { kind: "milestone", id: "m2", state: "failed", summary: "broken" }, NOW);
+    expect(r).toMatchObject({ ok: false, error: { code: "awaiting-person" } });
+    if (!r.ok) expect(r.error.message).toMatch(/milestone m1.s result waits/i);
+    // The open milestone itself can still be re-reported.
+    expect(update(both, { kind: "milestone", id: "m1", state: "done", summary: "ok, with pictures" }).gate).toEqual({ kind: "milestone", id: "m1" });
+  });
+});
+
+describe("a re-plan keeps the person's reviewer pick (issue #74)", () => {
+  it("carries reviewerByPerson for a row whose worker and reviewer are unchanged, and only then", () => {
+    const p = running();
+    const picked: ProjectState = {
+      ...p,
+      plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, reviewer: null, reviewerByPerson: true as const })) },
+    };
+    const re = update(picked, {
+      ...planUpdate,
+      rows: [row("t1", "m1", { reviewer: null }), row("t2", "m2", { reviewer: "cloud:model-b" })],
+    } as ProjectUpdate);
+    expect(re.plan!.rows[0]).toMatchObject({ taskId: "t1", reviewer: null, reviewerByPerson: true });
+    expect(re.plan!.rows[1]!.reviewerByPerson).toBeUndefined();
+    // A director's row claiming the person's pick does not get one.
+    const claimed = update(running(), { ...planUpdate, rows: [row("t1", "m1", { reviewerByPerson: true }), row("t2", "m2")] } as ProjectUpdate);
+    expect(claimed.plan!.rows[0]!.reviewerByPerson).toBeUndefined();
   });
 });
 
@@ -617,8 +751,10 @@ describe("milestone attachments (issue #40)", () => {
 
   it("stored attachments and criteria facts read back, malformed entries dropped, caps kept", () => {
     const p = ran();
-    const done = ok(applyProjectUpdate(p, report([{ path: shot("run-1"), caption: "Board" }]), NOW, { stateDir: STATE })).project;
-    const withFacts = withMilestoneCriteriaFacts(done, "m1", [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }], NOW);
+    const withFacts = ok(applyProjectUpdate(p, {
+      ...report([{ path: shot("run-1"), caption: "Board" }]),
+      criteriaFacts: [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }],
+    } as ProjectUpdate, NOW, { stateDir: STATE })).project;
     const raw = JSON.parse(JSON.stringify(withFacts)) as Record<string, any>;
     expect(normalizeProject(raw)).toEqual(withFacts);
     raw.milestones[0].attachments.push({ path: 3 }, ...Array.from({ length: 10 }, (_, i) => ({ path: shot("run-1", `x${i}.jpg`), caption: "c" })));
@@ -628,13 +764,9 @@ describe("milestone attachments (issue #40)", () => {
     expect(read.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision reviewer" }]);
   });
 
-  it("withMilestoneCriteriaFacts sets one milestone's facts; unknown milestone or bad facts leave the project", () => {
-    const p = ran();
-    expect(withMilestoneCriteriaFacts(p, "zz", [{ id: "c1", state: "passed" }], NOW)).toBe(p);
-    const set = withMilestoneCriteriaFacts(p, "m1", [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never], NOW);
+  it("a report's criteria facts are cleaned: one per id, clipped, malformed ones dropped", () => {
+    const set = update(ran(), { kind: "milestone", id: "m1", state: "done", summary: "s", criteriaFacts: [{ id: "c1", state: "failed", why: "x".repeat(500) }, { id: "c1", state: "passed" }, { id: "bad id", state: "passed" } as never] });
     expect(set.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "failed", why: `${"x".repeat(PROJECT_LIMITS.shortText - 1)}…` }]);
-    expect(set.gate).toEqual(p.gate);
-    expect(set.plan!.version).toBe(p.plan!.version);
   });
 });
 

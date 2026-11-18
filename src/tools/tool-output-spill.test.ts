@@ -167,7 +167,9 @@ describe("ToolOutputSpill (ATO-663)", () => {
   });
 
   it("turns any session id into one path segment", () => {
-    expect(toolOutputDir("../../etc", base)).toBe(join(base, "_etc"));
+    // Escaped, never lossy (issue #74): two ids never share a folder.
+    expect(toolOutputDir("../../etc", base)).toBe(join(base, "~2e.~2f..~2fetc"));
+    expect(toolOutputDir("codex:a.b", base)).not.toBe(toolOutputDir("codex:a_b", base));
   });
 });
 
@@ -318,6 +320,8 @@ describe("read scope for saved tool outputs", () => {
     dir = toolOutputDir(worker);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "0001-os.shell.run.txt"), "full log");
+    // Ownership is the marker's (issue #74), as the spill writes it.
+    writeFileSync(join(dir, ".atag-source.json"), JSON.stringify({ version: 1, kind: "spill", sessionId: worker }), { mode: 0o600 });
   });
 
   afterEach(() => {
@@ -355,9 +359,16 @@ describe("read scope for saved tool outputs", () => {
 
   it("keeps a session read of its own output in scope", () => {
     const session = "s-spill-scope";
-    const path = join(toolOutputDir(session), "0001-x.txt");
-    expect(
-      findSessionReadOutside("os.fs.read", { path }, { sessionId: session, workingDir: work }, [work]),
-    ).toBeNull();
+    const own = toolOutputDir(session);
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, ".atag-source.json"), JSON.stringify({ version: 1, kind: "spill", sessionId: session }), { mode: 0o600 });
+    const path = join(own, "0001-x.txt");
+    try {
+      expect(
+        findSessionReadOutside("os.fs.read", { path }, { sessionId: session, workingDir: work }, [work]),
+      ).toBeNull();
+    } finally {
+      rmSync(own, { recursive: true, force: true });
+    }
   });
 });

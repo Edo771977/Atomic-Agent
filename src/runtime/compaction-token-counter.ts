@@ -1,7 +1,7 @@
 import type { AtomicAgentConfig } from "../config/index.js";
 import { resolveLlmConfig } from "../llm/provider/index.js";
 import { createLlamaTokenizeCounter } from "../llm/llama-tokenize-counter.js";
-import { providerEndpointRefusal, type ProviderPolicy } from "../llm/provider-policy.js";
+import { hasProjectConstraints, providerEndpointRefusal, type ProviderPolicy } from "../llm/provider-policy.js";
 import { byteEstimateCounter, type TokenCounter } from "../llm/token-counter.js";
 import { apiKeyForUrl } from "../local-llm/server/managed-api-key.js";
 
@@ -13,7 +13,10 @@ export interface CompactionTokenCounterDependencies {
    * The session's effective provider policy (`effectivePolicyForSession`).
    * The exact count POSTs the transcript to the server's `/tokenize`, so
    * a server on another computer the folder does not list in
-   * `allowedProviderHosts` gets the byte estimate instead (issue #60).
+   * `allowedProviderHosts` gets the byte estimate instead (issue #60),
+   * and so does a server the folder does not allow by id (issue #74).
+   * Absent while constraints exist, every count is the byte estimate
+   * (fail closed).
    */
   policyFor?: (sessionId: string) => ProviderPolicy | undefined;
   /** Overrides `fetch` for the counters (tests). */
@@ -36,8 +39,14 @@ export function createCompactionTokenCounter(deps: CompactionTokenCounterDepende
     const entry = resolveLlmConfig(config).providers.find((p) => p.id === route.providerId);
     const url = entry?.url ?? config.localModels.url;
     if (!url) return undefined;
-    const policy = deps.policyFor?.(sessionId);
-    if (policy !== undefined && providerEndpointRefusal(policy, { local: true, url }) !== undefined) return byteEstimateCounter;
+    if (deps.policyFor === undefined) {
+      if (hasProjectConstraints(config)) return byteEstimateCounter;
+    } else {
+      const policy = deps.policyFor(sessionId);
+      if (policy !== undefined && (!policy.allows(route.providerId) || providerEndpointRefusal(policy, { local: true, url }) !== undefined)) {
+        return byteEstimateCounter;
+      }
+    }
     let counter = counters.get(url);
     if (!counter) {
       counter = createLlamaTokenizeCounter({

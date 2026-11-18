@@ -51,7 +51,7 @@ describe("renderProjectDigest (issue #39)", () => {
 
   it("a running milestone names its tasks and the latest correction", () => {
     let p = decide(up(decide(up(undefined, brief), "approve"), plan), "approve");
-    p = up(p, { kind: "milestone", id: "base", state: "done", summary: "ok" });
+    p = up(up(p, { kind: "milestone_run", id: "base", runId: "r1" }), { kind: "milestone", id: "base", state: "done", summary: "ok" });
     p = decide(p, "edit", "The snake must wrap at the edges.");
     const text = renderProjectDigest(p)!;
     expect(text).toContain("plan: approved v");

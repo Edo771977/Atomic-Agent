@@ -70,10 +70,9 @@ export async function writeReportZip(
   const full = report.level === "full";
   for (const [i, sessionId] of options.sessionIds.entries()) {
     const index = i + 1;
-    const path = traceFilePath(options.traceDir, sessionId);
     let raw: string;
     try {
-      raw = await readFile(path, "utf8");
+      raw = await readFile(traceFilePath(options.traceDir, sessionId), "utf8");
     } catch (err) {
       traces.push({
         index,

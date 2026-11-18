@@ -62,9 +62,10 @@ function planContext(): ProjectPlanContext {
   };
 }
 
-function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState } = {}) {
+function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean } = {}) {
   let stored: SessionState | null = {
     ...createEmptySessionState({ id: "s1", workingDir: "/w" }),
+    ...(options.status === undefined ? {} : { status: options.status }),
     ...(options.project === undefined ? {} : { project: options.project }),
   };
   const events: Array<{ sessionId: string; event: ProjectGateEvent }> = [];
@@ -82,6 +83,7 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
     loadSession: (id) => (id === "s1" ? stored : null),
     saveSession: save,
     isBusy: () => options.busy === true,
+    liveTurnElsewhere: () => options.ownerAlive !== false,
     liveInputs: () => inputs,
     emit: (sessionId, event) => events.push({ sessionId, event }),
     now: () => NOW + 7,
@@ -115,6 +117,14 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
     const busy = harness({ busy: true, project: up(undefined, brief) });
     expect(busy.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "turn-running" } });
+    // Issue #74: a turn another process runs on the state dir counts too (stored status).
+    const elsewhere = harness({ status: "running", project: up(undefined, brief) });
+    expect(elsewhere.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
+      .toMatchObject({ ok: false, error: { code: "turn-running" } });
+    expect(elsewhere.save).not.toHaveBeenCalled();
+    // A status a crashed process left behind does not hold the gate shut.
+    const stale = harness({ status: "running", ownerAlive: false, project: up(undefined, brief) });
+    expect(stale.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }).ok).toBe(true);
     const h = harness({ project: up(undefined, brief) });
     expect(h.runtime.projectDecision("nope", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "no-session" } });
@@ -136,6 +146,18 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
       .toMatchObject({ ok: false, error: { code: "over-cap" } });
   });
 
+  it("a milestone result is decided over the daily limit; the next milestone waits at a plan gate (issue #74)", () => {
+    const running = approved(up(approved(up(undefined, brief)), plan));
+    const reported = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    // m2 costs 3; 1 left today.
+    const h = harness({ project: reported, dailyRemainingUsd: 1 });
+    const r = h.runtime.projectDecision("s1", { gate: reported.gate, version: gateVersion(reported)!, verdict: "approve" });
+    expect(r).toMatchObject({ ok: true, project: { milestones: [{ state: "reviewed" }, { state: "planned" }], gate: { kind: "plan" } } });
+    if (!r.ok) throw new Error("x");
+    expect(r.view.allowedVerdicts).toEqual(expect.arrayContaining(["cheaper", "quality", "edit"]));
+    expect(r.view.violations).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "daily-limit", severity: "hard" })]));
+  });
+
   it("cheaper, quality and a row edit are re-estimated from the live context", () => {
     const h = harness({ project: up(approved(up(undefined, brief)), plan) });
     const edited = h.runtime.projectDecision("s1", { gate: { kind: "plan" }, version: 1, verdict: "edit", edits: { rows: [{ taskId: "t1", worker: "cloud:model-b" }] } });
@@ -152,7 +174,7 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
 
   it("a milestone correction goes back to approved", () => {
     const running = approved(up(approved(up(undefined, brief)), plan));
-    const reported = up(running, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const reported = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     const h = harness({ project: reported });
     const r = h.runtime.projectDecision("s1", { gate: reported.gate, version: gateVersion(reported)!, verdict: "edit", edits: { note: "the score does not reset" } });
     expect(r).toMatchObject({ ok: true, project: { milestones: [{ state: "approved", corrections: [{ note: "the score does not reset" }] }, { state: "planned" }] } });
@@ -172,7 +194,7 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
   it("nextMilestoneOf: the first not finished, or the failed one at its gate", () => {
     const running = approved(up(approved(up(undefined, brief)), plan));
     expect(nextMilestoneOf(running)).toBe("m1");
-    const done = up(running, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const done = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     expect(nextMilestoneOf(done)).toBe("m2");
     const failed = up(running, { kind: "milestone", id: "m1", state: "failed", summary: "no" });
     expect(nextMilestoneOf(failed)).toBe("m1");

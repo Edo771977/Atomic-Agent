@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { join, resolve } from "node:path";
 
-import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, withMilestoneCriteriaFacts, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { estimatePlan } from "./project-estimate.js";
 import { projectGateChanged, projectGateView } from "./project-gate-view.js";
@@ -52,8 +52,11 @@ describe("projectGateView (issue #39)", () => {
     project = up(project, { kind: "milestone_run", id: "m1", runId: "run-1" });
     const stateDir = resolve("/state");
     const path = join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.jpg");
-    project = ok(applyProjectUpdate(project, { kind: "milestone", id: "m1", state: "done", summary: "s", attachments: [{ path, caption: "Board", criteria: ["c1"] }] }, NOW, { stateDir }));
-    project = withMilestoneCriteriaFacts(project, "m1", [{ id: "c1", state: "unverified", why: "no vision reviewer" }], NOW);
+    project = ok(applyProjectUpdate(project, {
+      kind: "milestone", id: "m1", state: "done", summary: "s",
+      attachments: [{ path, caption: "Board", criteria: ["c1"] }],
+      criteriaFacts: [{ id: "c1", state: "unverified", why: "no vision reviewer" }],
+    }, NOW, { stateDir }));
     const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
     expect(view.milestones[0]).toMatchObject({
       attachments: [{ path, caption: "Board", criteria: ["c1"] }],

@@ -415,6 +415,27 @@ describe("SessionStore turn marks", () => {
       expect(raw("live-owner")?.turnOwner).not.toBeNull();
     });
 
+    // Issue #74 review: a gate decision asks whether a live stored status is a real turn.
+    it("liveTurnElsewhere is true only for a live process's turn", () => {
+      markedBy(300, "dead-owner");
+      markedBy(400, "live-owner");
+      runningUnclaimed("unclaimed");
+      seed("idle");
+      const reader = new SessionStore({
+        dbFile: file,
+        turnOwnerProbe: probe(500, (pid) => pid === 400),
+      });
+      try {
+        expect(reader.liveTurnElsewhere("live-owner")).toBe(true);
+        expect(reader.liveTurnElsewhere("dead-owner")).toBe(false);
+        expect(reader.liveTurnElsewhere("unclaimed")).toBe(false);
+        expect(reader.liveTurnElsewhere("idle")).toBe(false);
+        expect(reader.liveTurnElsewhere("missing")).toBe(false);
+      } finally {
+        reader.close();
+      }
+    });
+
     it("ends a running row nothing claims", () => {
       runningUnclaimed("unclaimed");
       expect(raw("unclaimed")?.turnOwner).toBeNull();

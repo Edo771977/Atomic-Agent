@@ -24,6 +24,7 @@ import { dirname, join, sep } from "node:path";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { runCommand, type CommandResult } from "../../sandbox/command-runner.js";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
+import { ambientTempCopyOwner, writeTempCopyMarker } from "../read-scope/temp-copy-sources.js";
 import {
   BRANCH_MERGE_DIR,
   ensureMergeDir,
@@ -248,6 +249,9 @@ export async function gitBinaryPatch(
   };
   signal?.throwIfAborted();
   const store = await mkdtemp(join(tmpRoot, `${FUSION_TMP_PREFIX}patch-`));
+  // The store holds the task's bytes: a read of it resolves to the run
+  // root's own marker through `baseDir` (issue #74).
+  await writeTempCopyMarker("fusion", store, { source: taskDir, ...ambientTempCopyOwner() }).catch(() => undefined);
   try {
     const gitDir = join(store, "objects.git");
     if (!ran(await git(["init", "-q", "--bare", gitDir], { cwd: store, env: {} }))) return null;

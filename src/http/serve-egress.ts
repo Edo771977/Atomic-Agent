@@ -1,4 +1,6 @@
 import type { ApprovalRequest } from "../approval/approval-gate.js";
+import { getConfig } from "../config/index.js";
+import { hasProjectConstraints } from "../llm/provider-policy.js";
 import { withholdApprovalDetails } from "../approval/approval-details-withheld.js";
 import { isLoopbackHostname } from "./loopback-guard.js";
 import type { HandlerContext } from "./request-context.js";
@@ -11,7 +13,9 @@ import type { HandlerContext } from "./request-context.js";
  * read taint, does not list "serve" in `allowedEgress` is then refused:
  * its chat turns (before the turn, and as soon as a mid-turn read taints
  * it), its `/api/sessions/{id}/…` routes, and its approval details on
- * `/api/events`. A loopback server is unchanged.
+ * `/api/events`. A loopback server is unchanged. Records that carry a
+ * session's content outside its own routes follow the same rule (issue
+ * #74): tasks (`/api/tasks*`), ideas and the `GET /api/sessions` row.
  */
 
 /** The text a refused request gets: fixed, so nothing of the session leaves. */
@@ -57,4 +61,25 @@ export function approvalForServe(
   request: ApprovalRequest,
 ): ApprovalRequest {
   return serveWithheld(ctx, request.sessionId)() ? withholdApprovalDetails(request) : request;
+}
+
+/**
+ * Whether a record bound to `sessionId` (a task, an idea) is withheld on
+ * this server (issue #74). A record with no session runs where the
+ * server works, so it is judged by the policy of the server's own folder
+ * (`capabilities.workingDir`): withheld only when that folder lacks
+ * "serve". A failing check refuses (fail closed).
+ */
+export function serveWithheldRecord(
+  ctx: Pick<HandlerContext, "networkServe" | "runtime">,
+  sessionId: string | null,
+): boolean {
+  if (sessionId !== null) return serveWithheld(ctx, sessionId)();
+  if (ctx.networkServe !== true || ctx.runtime.serveRefusal === undefined) return false;
+  try {
+    if (!hasProjectConstraints(getConfig())) return false;
+    return serveWithheld(ctx, { id: "", workingDir: ctx.runtime.capabilities.workingDir })();
+  } catch {
+    return true;
+  }
 }

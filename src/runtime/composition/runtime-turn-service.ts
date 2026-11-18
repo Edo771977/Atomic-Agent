@@ -45,6 +45,7 @@ import { routeTurnProvider } from "./runtime-turn-router.js";
 import { assertProviderAllowed, currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
 import type { SessionReadTaint } from "../session-read-taint.js";
+import { READ_TAINT_METADATA_KEY, withReadTaintFrom } from "../../session/stored-read-taint.js";
 import { fusionPolicyDegradation, withoutFusionDelegate } from "../fusion-policy-degradation.js";
 import { answerChannelForOrigin, type AnswerChannel } from "../../prompt/answer-style.js";
 import type { RequestBudgetNotices } from "../request-budget-notices.js";
@@ -399,13 +400,40 @@ export function createRuntimeTurnService(
   };
 
   /**
+   * `state` with the read taint the turn's tools set so far (issue #74):
+   * the read taint (and a Fusion worker's, handed to its orchestrator)
+   * lands on the object the turn registered (`SessionReadTaint.inTurn`),
+   * while the loop hands back its own copy. Every save of the turn goes
+   * through here, so the taint is stored at the first checkpoint after
+   * the read and at the turn's end.
+   */
+  const withLiveReadTaint = (state: SessionState): SessionState => {
+    const live = deps.inference.sessionReadTaint?.liveSession(state.id);
+    return live === undefined ? state : withReadTaintFrom(state, live.metadata?.[READ_TAINT_METADATA_KEY]);
+  };
+
+  /**
+   * A turn that threw saves no state of its own, but a read it ran
+   * still taints the session (issue #74): the live taint goes onto the
+   * stored row (a row nobody saved yet holds nothing the read gave).
+   */
+  const keepLiveReadTaint = (sessionId: string): void => {
+    const stamp = deps.inference.sessionReadTaint?.liveSession(sessionId)?.metadata?.[READ_TAINT_METADATA_KEY];
+    if (stamp === undefined) return;
+    const stored = sessionStore.load(sessionId);
+    if (stored === null) return;
+    const next = withReadTaintFrom(stored, stamp);
+    if (next !== stored) sessionStore.save(next);
+  };
+
+  /**
    * One completed step's checkpoint (ATO-1109): the transcript so far and
    * the turn's progress, in one row write. Bookkeeping like the mark: a
    * write that fails is logged and the turn goes on.
    */
   const checkpointStep = (session: SessionState, progress: TurnProgress): void => {
     try {
-      sessionStore.checkpointTurn(checkpointState(session, progress.updatedAt), progress);
+      sessionStore.checkpointTurn(checkpointState(withLiveReadTaint(session), progress.updatedAt), progress);
     } catch (err) {
       logger.warn("could not checkpoint the turn's step", {
         sessionId: session.id,
@@ -429,6 +457,14 @@ export function createRuntimeTurnService(
     err: unknown,
     signal: AbortSignal | undefined,
   ): void => {
+    try {
+      keepLiveReadTaint(session.id);
+    } catch (taintErr) {
+      logger.warn("could not store the turn's read taint", {
+        sessionId: session.id,
+        error: taintErr instanceof Error ? taintErr.message : String(taintErr),
+      });
+    }
     try {
       sessionStore.releaseTurn(
         session.id,
@@ -939,7 +975,7 @@ export function createRuntimeTurnService(
         const usage = traces.readContextUsage(session.id);
         const spend = sessionUsage?.get(session.id);
         const servedRoute = director === undefined ? turnRoute : directorFallover(session.id, director, turnRoute, llmResolved);
-        const finished: SessionState = {
+        const finished: SessionState = withLiveReadTaint({
           ...result.session,
           ...(usage === undefined ? {} : { contextUsage: usage }),
           ...(spend === undefined ? {} : { sessionUsage: spend }),
@@ -949,7 +985,7 @@ export function createRuntimeTurnService(
             [SESSION_ROUTE_METADATA_KEY]: servedRoute,
             [PROJECT_GATES_METADATA_KEY]: projectGates,
           },
-        };
+        });
         // The turn's end replaces its `running` mark (`beginTurn`).
         sessionStore.finishTurn(finished);
         // A brief, plan or milestone report the turn left for the person.
