@@ -28,6 +28,15 @@ export function pinPrivacyVault(id: string): () => void {
     trimVaults();
   };
 }
+/**
+ * Fusion worker session id -> its parent session id (ATO-1083). A cloud
+ * worker masks with its parent chat's vault, so the planner and every
+ * cloud worker of a chat use the same placeholders, and "masked N"
+ * counts a value once per chat however many workers saw it.
+ */
+const aliases = new Map<string, string>();
+/** Worker ids are ephemeral; the oldest links go past this many. */
+const MAX_ALIASES = 1024;
 /** The agent's own keys (its `.env` is loaded into `process.env`). */
 let knownSecrets: () => readonly KnownSecret[] = () => knownSecretsFromEnv();
 let shieldEnabled = false;
@@ -52,7 +61,7 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
   // Auxiliary calls have no session lifetime and must not share substitutions.
   if (!sessionId) return new PrivacyVault(() => knownSecrets());
-  const key = sessionId;
+  const key = aliases.get(sessionId) ?? sessionId;
   const vault = vaults.get(key) ?? new PrivacyVault(() => knownSecrets());
   vaults.delete(key);
   vaults.set(key, vault);
@@ -73,8 +82,28 @@ export function rebuildPrivacyVault(
 }
 
 /** Drop a session's vault (the session was deleted). */
+/**
+ * Make `sessionId` (a Fusion worker) use `parentSessionId`'s vault. A
+ * parent that is itself linked resolves to its own parent.
+ */
+export function linkPrivacyVault(sessionId: string, parentSessionId: string): void {
+  if (sessionId === parentSessionId) return;
+  aliases.delete(sessionId);
+  aliases.set(sessionId, aliases.get(parentSessionId) ?? parentSessionId);
+  while (aliases.size > MAX_ALIASES) {
+    const oldest = aliases.keys().next().value;
+    if (oldest === undefined) break;
+    aliases.delete(oldest);
+  }
+}
+
+/** Drop a session's vault (the session was deleted), and its worker links. */
 export function forgetPrivacyVault(sessionId: string): void {
   vaults.delete(sessionId);
+  aliases.delete(sessionId);
+  for (const [worker, parent] of aliases) {
+    if (parent === sessionId) aliases.delete(worker);
+  }
 }
 
 export interface PrivacyShieldTotals {
@@ -99,6 +128,7 @@ export function privacyShieldTotals(): PrivacyShieldTotals {
 export function resetPrivacyVaults(): void {
   vaults.clear();
   activeTurns.clear();
+  aliases.clear();
   knownSecrets = () => knownSecretsFromEnv();
   shieldEnabled = false;
 }
