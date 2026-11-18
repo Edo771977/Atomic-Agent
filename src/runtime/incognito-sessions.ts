@@ -4,10 +4,13 @@ import { resolve, sep } from "node:path";
 import { isFusionWorkerSessionId } from "../session/fusion-worker-session.js";
 import { isIncognitoSession, type IncognitoMark } from "../session/incognito.js";
 import type { SessionStore } from "../session/session-store.js";
+import type { TurnOwnerProbe } from "../session/turn-owner.js";
 import { TaskStore } from "../tasks/task-store.js";
 import type { FusionRunStore } from "../tools/fusion/run-checkpoint.js";
 import { traceFilePath } from "../tracing/trace/trace-sink.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
+
+const DEFAULT_STALE_AFTER_MS = 5 * 60 * 1_000;
 
 /**
  * Closing incognito chats (ATO-586, `src/session/incognito.ts`): the row,
@@ -47,13 +50,21 @@ export function removeIncognitoTrace(
  */
 export function createIncognitoTaskSweeper(
   tasksDbFile: string | null | undefined,
+  options: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
 ): { removeTasks: (sessionId: string) => void; close: () => void } {
   let store: TaskStore | null = null;
   return {
     removeTasks: (sessionId) => {
       if (!tasksDbFile || !existsSync(tasksDbFile)) return;
-      store ??= new TaskStore({ dbFile: tasksDbFile });
-      store.removeForSession(sessionId);
+      store ??= new TaskStore({
+        dbFile: tasksDbFile,
+        ...(options.ownerProbe ? { ownerProbe: options.ownerProbe } : {}),
+      });
+      // The chat's process is gone, so a task it was running is held by
+      // no one: deleted too, not left `cancelled` with its prompt.
+      store.removeForSessionAtBoot(sessionId, {
+        staleAfterMs: options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS,
+      });
     },
     close: () => {
       try {
@@ -77,9 +88,10 @@ export function sweepOrphanIncognitoSessions(
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
   tasksDbFile?: string | null,
+  taskOptions: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
   fusionRuns?: Pick<FusionRunStore, "removeForSession">,
 ): string[] {
-  const tasks = createIncognitoTaskSweeper(tasksDbFile);
+  const tasks = createIncognitoTaskSweeper(tasksDbFile, taskOptions);
   let taskError: unknown = null;
   try {
     const ids = sessionStore.sweepOrphanIncognito((id) => {

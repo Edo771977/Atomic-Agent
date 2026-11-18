@@ -67,6 +67,7 @@ export function prepareRuntimeSessionStore(
   // At boot, remove abandoned incognito chats and the state they own.
   const orphans = sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
+    { staleAfterMs: config.tasks.staleAfterMs },
     new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
   );
   // The runtime delete hook is installed after startup recovery.
