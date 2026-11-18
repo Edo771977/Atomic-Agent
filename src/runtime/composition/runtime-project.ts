@@ -19,6 +19,7 @@ import {
   type PlanConstraints,
   type PlanEstimate,
   type VariantContext,
+  withReviewEstimate,
   withRowEstimate,
 } from "../../tools/fusion/project-estimate.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
@@ -184,14 +185,17 @@ function estimateFor(project: ProjectState, inputs: LiveProjectInputs, rows?: re
 /** Re-estimate rows the person edited, or build a variant, from the live context. Pure over `inputs`. */
 export function liveReplan(inputs: LiveProjectInputs): (rows: readonly AssignmentRow[], verdict: "edit" | "cheaper" | "quality") => AssignmentRow[] {
   const ctx = inputs.plan;
-  const estimate = (member: TeamMember) =>
-    estimateRow(member, null, ctx.records, ctx.pricing(member), {
+  const estimateAs = (member: TeamMember, role: string | null) =>
+    estimateRow(member, role, ctx.records, ctx.pricing(member), {
       minSamples: ctx.minSamples,
       days: ctx.days,
       ...(ctx.now === undefined ? {} : { now: ctx.now }),
       tokensPerSecond: ctx.tokensPerSecond(member),
       local: ctx.isLocal?.(member) ?? false,
     });
+  const estimate = (member: TeamMember) => estimateAs(member, null);
+  // A row's review counts in its cost (issue #74).
+  const reviewEstimate = (reviewer: TeamMember) => estimateAs(reviewer, "review");
   const variant: VariantContext = {
     members: ctx.workers,
     strength: inputs.strength,
@@ -200,6 +204,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
     acceptance: (member) => acceptanceRate(ctx.records, member, { days: ctx.days, ...(ctx.now === undefined ? {} : { now: ctx.now }) }),
     reviewerFor: (worker) => (ctx.reviewOn ? ctx.reviewerFor(worker) : null),
     reviewers: ctx.reviewers,
+    reviewEstimate,
   };
   return (rows, verdict) => {
     if (verdict === "cheaper") return cheaperVariant(rows, variant);
@@ -208,7 +213,8 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
       const member = parseTeamMember(row.worker);
       if (member === null) return row;
       const est = estimate(member);
-      return withRowEstimate(row, est, `edited by the person; ${est.reason}`);
+      const reviewer = row.reviewer === null ? null : parseTeamMember(row.reviewer);
+      return withReviewEstimate(withRowEstimate(row, est, `edited by the person; ${est.reason}`), reviewer === null ? null : reviewEstimate(reviewer));
     });
   };
 }

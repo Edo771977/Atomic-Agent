@@ -17,7 +17,7 @@ import {
 } from "../../session/session-project.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
-import { estimateRow, planDetailFor } from "./project-estimate.js";
+import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
 import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
@@ -279,7 +279,14 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       tokensPerSecond: context.tokensPerSecond(worker),
       local: context.isLocal?.(worker) ?? false,
     });
-    rows.push({
+    const reviewEst = reviewer === null ? null : estimateRow(reviewer, "review", context.records, context.pricing(reviewer), {
+      minSamples: context.minSamples,
+      days: context.days,
+      ...(context.now === undefined ? {} : { now: context.now }),
+      tokensPerSecond: context.tokensPerSecond(reviewer),
+      local: context.isLocal?.(reviewer) ?? false,
+    });
+    rows.push(withReviewEstimate({
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,
@@ -291,7 +298,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       estCostUsd: est.estCostUsd,
       estMs: est.estMs,
       ...(est.local === true ? { local: true as const } : {}),
-    });
+    }, reviewEst));
   }
   return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
 }
