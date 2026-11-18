@@ -1101,6 +1101,17 @@ function milestoneUpdate(
     milestones[index] = { ...current, state: "in_progress", runIds, updatedAt: now };
     return { ok: true, project: { ...project, milestones } };
   }
+  // One result at the person at a time (issue #74): another report would
+  // replace the gate, and the person would never decide on the first.
+  if (project.gate.kind === "milestone" && project.gate.id !== current.id) {
+    return {
+      ok: false,
+      error: {
+        code: "awaiting-person",
+        message: `Milestone ${project.gate.id}'s result waits for the person's decision: reply and wait for it before you report milestone ${current.id}.`,
+      },
+    };
+  }
   // A report: only for work the person let run (a failed one may be re-reported after a retry).
   if (current.state !== "approved" && current.state !== "in_progress" && current.state !== "failed" && current.state !== "done") {
     return { ok: false, error: { code: "milestone-not-approved", message: `Milestone ${update.id} is not approved; report only the milestone you ran.` } };
@@ -1189,10 +1200,13 @@ const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.sta
 
 /**
  * The first planned milestone becomes approved (in plan order), never
- * past a done or failed result the person has not decided on (issue #74).
+ * past a done or failed result the person has not decided on, nor while
+ * another milestone is approved or running (issue #74): one open at a time.
  */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  const next = milestones.findIndex((m) => m.state === "planned" || unreviewed(m));
+  const next = milestones.findIndex(
+    (m) => m.state === "planned" || m.state === "approved" || m.state === "in_progress" || unreviewed(m),
+  );
   if (next < 0 || milestones[next]!.state !== "planned") return [...milestones];
   return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }

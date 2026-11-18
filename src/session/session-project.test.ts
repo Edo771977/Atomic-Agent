@@ -529,6 +529,28 @@ describe("a hard cap at a milestone gate does not stall the project (issue #74)"
   });
 });
 
+describe("one milestone open at a time (issue #74)", () => {
+  it("a re-plan approved while a milestone runs does not approve the next one", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    const replanned = approve(update(runningM1, planUpdate));
+    expect(replanned.milestones.map((m) => m.state)).toEqual(["in_progress", "planned"]);
+    expect(applyProjectUpdate(replanned, { kind: "milestone_run", id: "m2", runId: "r2" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-approved" } });
+  });
+
+  it("a report is refused while another milestone's result waits for the person", () => {
+    const runningM1 = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    // An older store with two open milestones: m1 reported, m2 running.
+    const reported = update(runningM1, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const both: ProjectState = { ...reported, milestones: reported.milestones.map((m) => (m.id === "m2" ? { ...m, state: "in_progress" as const, runIds: ["r2"] } : m)) };
+    const r = applyProjectUpdate(both, { kind: "milestone", id: "m2", state: "failed", summary: "broken" }, NOW);
+    expect(r).toMatchObject({ ok: false, error: { code: "awaiting-person" } });
+    if (!r.ok) expect(r.error.message).toMatch(/milestone m1.s result waits/i);
+    // The open milestone itself can still be re-reported.
+    expect(update(both, { kind: "milestone", id: "m1", state: "done", summary: "ok, with pictures" }).gate).toEqual({ kind: "milestone", id: "m1" });
+  });
+});
+
 describe("projectExpectation", () => {
   it("covers every stage", () => {
     expect(projectExpectation(undefined)).toEqual({ kind: "draft_brief" });
