@@ -10,6 +10,7 @@ function config(url = "http://127.0.0.1:18080"): AtomicAgentConfig {
       providers: [{ id: "box", kind: "llama-server", url, apiKey: "entry-key" }, { id: "cloud", kind: "openai-compatible", baseUrl: "https://api.example.com/v1" }] },
     localModels: { url: "http://127.0.0.1:8080", apiKey: null, managed: { modelId: "qwen" } },
     paths: {},
+    projects: { roots: [], constraints: {} },
   } as unknown as AtomicAgentConfig;
 }
 
@@ -60,5 +61,27 @@ describe("createCompactionTokenCounter (ATO-656)", () => {
     });
     expect(await optedIn("s")!.count("a")).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no transcript to a llama-server the session's folder does not allow by id (issue #74)", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ tokens: [1] }), { status: 200 }));
+    // A public host keeps the id-only match, so only `allowedProviders` can refuse it.
+    const folder = makeProviderPolicy({ key: "/work/client", allowedProviders: ["other-box"], matchedDir: "/work/client" });
+    const counterFor = createCompactionTokenCounter({
+      config: () => config("https://llama.example.com"),
+      route: () => ({ providerId: "box", local: true }),
+      policyFor: () => folder,
+      fetch,
+    });
+    expect(counterFor("s")).toBe(byteEstimateCounter);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("fails closed to the byte estimate when constraints exist and no policy can be read", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ tokens: [1] }), { status: 200 }));
+    const constrained = { ...config(), projects: { roots: [], constraints: { "/work/client": { allowedProviders: ["box"] } } } } as unknown as AtomicAgentConfig;
+    const counterFor = createCompactionTokenCounter({ config: () => constrained, route: () => ({ providerId: "box", local: true }), fetch });
+    expect(counterFor("s")).toBe(byteEstimateCounter);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

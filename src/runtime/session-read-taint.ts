@@ -14,10 +14,11 @@ import {
   type ProviderPolicyCell,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
+import { READ_TAINT_METADATA_KEY } from "../session/stored-read-taint.js";
 import { readTaintTargets } from "../tools/read-scope/index.js";
 
 /** Session metadata key of the sticky read taint (a `ProviderPolicyStamp`). */
-export const READ_TAINT_METADATA_KEY = "providerReadTaint";
+export { READ_TAINT_METADATA_KEY };
 
 interface TaintableSession {
   id: string;
@@ -78,7 +79,9 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       return { ...metadata, [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(next) };
     };
     if (turn !== undefined) {
-      // The turn saves its own state at its next checkpoint and at its end.
+      // The turn saves its own state at its next checkpoint and at its
+      // end: it merges this object's taint into the copy it saves
+      // (`runtime-turn-service.ts`), and the store never drops a stored one.
       turn.session.metadata = merge(turn.session.metadata ?? {});
       if (turn.cell !== undefined && turn.cell !== currentProviderPolicyCell()) {
         tightenCurrentProviderPolicy(taint, turn.cell);

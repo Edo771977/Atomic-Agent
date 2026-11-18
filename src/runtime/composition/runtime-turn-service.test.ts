@@ -23,7 +23,8 @@ import { resolveLlmConfig } from "../../llm/provider/registry/provider-types.js"
 import type { TurnProgress } from "../../session/turn-progress.js";
 import { RequestBudgetNotices } from "../request-budget-notices.js";
 import { CHANNEL_RESTRICTED_CODE, CHANNEL_RESTRICTED_NOTICE, ChannelRestrictedError, createSessionProviderPolicy } from "../session-provider-policy.js";
-import { currentProviderPolicy, currentProviderPolicyFrame } from "../../llm/provider-policy.js";
+import { currentProviderPolicy, currentProviderPolicyFrame, makeProviderPolicy } from "../../llm/provider-policy.js";
+import { createSessionReadTaint, READ_TAINT_METADATA_KEY } from "../session-read-taint.js";
 import { currentBrowserScope, onBrowserWorkerEnd, runInBrowserScope, type BrowserRunScope } from "../../tools/browser/browser-run-scope.js";
 
 function deferred<T>() {
@@ -782,6 +783,34 @@ describe("runtime turn ownership recipes", () => {
       await serviceWith(["local-llama", "cloudy"], fusionMode("cloudy", "local-llama")).executeTurn(session(), "request");
       expect(options?.providerId).toBeUndefined();
       expect(options?.toolFilter).toBeUndefined();
+    });
+
+    it("saves the read taint a fusion worker handed to the orchestrator, at the checkpoint and at the end (issue #74)", async () => {
+      const secret = join(dir, "secret");
+      const config = { projects: { roots: [], constraints: { [secret]: { allowedProviders: ["local-llama"] } } } };
+      const sessionProviderPolicy = createSessionProviderPolicy({ readConfig: () => config, loadSession: () => null });
+      const sessionReadTaint = createSessionReadTaint({ readConfig: () => config });
+      const service = createRuntimeTurnService(fixture.config, {
+        ...fixture.deps,
+        inference: { ...fixture.deps.inference, sessionProviderPolicy, sessionReadTaint },
+      });
+      const orchestrator = createEmptySessionState({ id: "orchestrator", workingDir: dir });
+      fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) => {
+        // The loop works on its own copy; the worker taints the registered object.
+        const copy = { ...value, metadata: { ...value.metadata } };
+        const worker = createFusionWorkerSession({
+          workingDir: dir,
+          meta: { parentSessionId: "orchestrator", taskId: "t", providerPolicy: null },
+        });
+        await sessionReadTaint.inTurn(worker, async () => {
+          sessionReadTaint.noteContent(worker.id, makeProviderPolicy({ key: secret, allowedProviders: ["local-llama"], matchedDir: secret }));
+        });
+        options.onStepCheckpoint?.(copy, { stepIndex: 0, stepsTaken: 1 });
+        return result(copy, options);
+      });
+      await service.executeTurn(orchestrator, "request");
+      expect(fixture.checkpoints.at(-1)?.state.metadata[READ_TAINT_METADATA_KEY]).toMatchObject({ key: secret, readFrom: [secret] });
+      expect(fixture.rows.get("orchestrator")?.metadata[READ_TAINT_METADATA_KEY]).toMatchObject({ key: secret, readFrom: [secret] });
     });
   });
 });
