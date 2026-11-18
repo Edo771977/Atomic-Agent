@@ -101,7 +101,9 @@ export type CriterionFactState = "passed" | "failed" | "unverified";
 /**
  * Where one success criterion stands after a milestone's runs: from its
  * contract checks and the vision judgement (issue #40). Written by the
- * runtime ({@link withMilestoneCriteriaFacts}), never by the model.
+ * runtime: `project.milestone` reads them from the milestone's runs and
+ * carries them on its done report (`criteriaFacts`), never the model's
+ * arguments.
  */
 export interface ProjectCriterionFact {
   id: string;
@@ -329,7 +331,11 @@ export type ProjectUpdateErrorCode =
   | "plan-not-approved"
   | "unknown-milestone"
   | "milestone-not-approved"
-  | "cancelled";
+  | "cancelled"
+  /** A milestone result waits for the person: no brief or plan re-draft until they decide (issue #74). */
+  | "awaiting-person"
+  /** A done report with no run since the milestone's approval or its last failed report (issue #74). */
+  | "milestone-not-run";
 
 export interface ProjectUpdateError {
   code: ProjectUpdateErrorCode;
@@ -799,28 +805,6 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
   return out;
 }
 
-/**
- * Set one milestone's criteria facts (the runtime's, issue #40). Pure;
- * the gate and versions do not move (facts are evidence, not a draft).
- * The same project back for an unknown milestone; an empty list clears.
- */
-export function withMilestoneCriteriaFacts(
-  project: ProjectState,
-  milestoneId: string,
-  facts: readonly ProjectCriterionFact[],
-  now: number,
-): ProjectState {
-  const index = project.milestones.findIndex((m) => m.id === milestoneId);
-  if (index < 0) return project;
-  const clean = cleanCriteriaFacts(facts);
-  const milestones = [...project.milestones];
-  const current = { ...milestones[index]!, updatedAt: now };
-  if (clean.length === 0) delete current.criteriaFacts;
-  else current.criteriaFacts = clean;
-  milestones[index] = current;
-  return { ...project, milestones };
-}
-
 function readMilestone(raw: unknown): ProjectMilestone | null {
   if (!isObject(raw)) return null;
   const id = cleanId(raw.id);
@@ -967,11 +951,28 @@ const floorOf = (project: ProjectState | undefined) =>
 
 const FINISHED: ReadonlySet<MilestoneState> = new Set(["done", "failed", "reviewed"]);
 
+/**
+ * A re-drafted brief or plan would close the open milestone gate without
+ * the person's decision on its result (issue #74): refused until they decide.
+ */
+function milestoneGateOpen(project: ProjectState | undefined): ProjectUpdateResult | null {
+  if (project === undefined || project.cancelledAt !== undefined || project.gate.kind !== "milestone") return null;
+  return {
+    ok: false,
+    error: {
+      code: "awaiting-person",
+      message: `Milestone ${project.gate.id}'s result waits for the person's decision: reply and wait for the person's decision before you change the brief or the plan.`,
+    },
+  };
+}
+
 function briefUpdate(
   project: ProjectState | undefined,
   update: Extract<ProjectUpdate, { kind: "brief" }>,
   now: number,
 ): ProjectUpdateResult {
+  const waiting = milestoneGateOpen(project);
+  if (waiting !== null) return waiting;
   // After a cancel, a new brief is a new project.
   const base: ProjectState | undefined = project?.cancelledAt !== undefined ? undefined : project;
   const draft = cleanBriefDraft(update.brief, base?.brief?.successCriteria);
@@ -1015,6 +1016,8 @@ function planUpdate(
   if (project?.brief?.status !== "approved") {
     return { ok: false, error: { code: "brief-not-approved", message: "The brief is not approved yet: draft it with project.brief and reply so the person can approve it." } };
   }
+  const waiting = milestoneGateOpen(project);
+  if (waiting !== null) return waiting;
   if (!Array.isArray(update.milestones) || update.milestones.length === 0) return invalid("the plan needs at least one milestone");
   if (update.milestones.length > PROJECT_LIMITS.milestones) return invalid(`at most ${PROJECT_LIMITS.milestones} milestones`);
   if (!Array.isArray(update.rows) || update.rows.length === 0) return invalid("the plan needs at least one task");
@@ -1040,6 +1043,9 @@ function planUpdate(
       runIds: old?.runIds ?? [],
       ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
       ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
+      // The result's evidence stays with it (issue #74).
+      ...(keep && old.attachments !== undefined ? { attachments: old.attachments } : {}),
+      ...(keep && old.criteriaFacts !== undefined ? { criteriaFacts: old.criteriaFacts } : {}),
       updatedAt: now,
     });
   }
@@ -1100,6 +1106,19 @@ function milestoneUpdate(
     return { ok: false, error: { code: "milestone-not-approved", message: `Milestone ${update.id} is not approved; report only the milestone you ran.` } };
   }
   if (update.state !== "done" && update.state !== "failed") return invalid("state must be done or failed");
+  // Done stands on a run since the milestone was (re)approved: a run
+  // makes it `in_progress`, and a done result stays done when re-reported.
+  // Approved (no run yet, or a correction or failed result re-approved it)
+  // or failed (no run since that report) has nothing to be done over.
+  if (update.state === "done" && current.state !== "in_progress" && current.state !== "done") {
+    return {
+      ok: false,
+      error: {
+        code: "milestone-not-run",
+        message: `Milestone ${update.id} has no run since ${current.state === "failed" ? "its failed report" : "it was approved"}: delegate its tasks with fusion.delegate, then report it done (or report it failed with the reason).`,
+      },
+    };
+  }
   const summary = typeof update.summary === "string" ? clipText(update.summary, PROJECT_LIMITS.text) : "";
   if (summary.length === 0) return invalid("the report needs a summary of the result");
   let attachments: ProjectMilestoneAttachment[] = [];
@@ -1165,10 +1184,16 @@ function refuse(error: ProjectDecisionError): ProjectDecisionResult {
   return { ok: false, error };
 }
 
-/** The first planned milestone becomes approved (in plan order). */
+/** A done or failed result the person has not decided on yet. */
+const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.state === "failed";
+
+/**
+ * The first planned milestone becomes approved (in plan order), never
+ * past a done or failed result the person has not decided on (issue #74).
+ */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  const next = milestones.findIndex((m) => m.state === "planned");
-  if (next < 0) return [...milestones];
+  const next = milestones.findIndex((m) => m.state === "planned" || unreviewed(m));
+  if (next < 0 || milestones[next]!.state !== "planned") return [...milestones];
   return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }
 
@@ -1274,7 +1299,11 @@ export function applyProjectDecision(
             ...(project.plan!.draftedAfterUntrusted ? { approvedWithUntrustedWarning: true as const } : {}),
           },
           milestones: approveNext(project.milestones, now),
-          gate: { kind: "none" },
+          // An unreviewed result (an older store) goes to the person first.
+          gate: (() => {
+            const waiting = project.milestones.find(unreviewed);
+            return waiting === undefined ? { kind: "none" as const } : { kind: "milestone" as const, id: waiting.id };
+          })(),
         },
       };
     }
