@@ -184,7 +184,7 @@ import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import { withCandidateOutcome } from "./candidate-outcomes.js";
 import { projectFusionArtifactEvidence } from "./artifact-evidence-output.js";
 import { readFusionWorkerMeta } from "../../session/fusion-worker-session.js";
-import { currentPolicyAllows, runWithProviderRole } from "../../llm/provider-policy.js";
+import { currentPolicyAllows, currentProviderPolicy, runWithProviderRole } from "../../llm/provider-policy.js";
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
@@ -614,6 +614,9 @@ export function buildFusionDelegateTool(
               currentDirector: () => turnDirector,
               ...(deps.currentWorker === undefined ? {} : { currentWorker: deps.currentWorker }),
               ...(deps.currentReviewer === undefined ? {} : { currentReviewer: deps.currentReviewer }),
+              // Issue #71: no Codex reviewer (its own shell reads the disk) in a restricted chat.
+              restricted: currentProviderPolicy() !== undefined,
+              ...(deps.cliToolsStayOn === undefined ? {} : { cliToolsStayOn: deps.cliToolsStayOn }),
             });
       const teamTasks = team?.tasks;
       const director = team?.director ?? null;

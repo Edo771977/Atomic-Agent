@@ -49,6 +49,12 @@ describe("projectPlanContextFrom", () => {
     expect(none.reviewers.map((m) => m.ref)).toEqual(["cloud:model-r", "cloud:model-q"]);
   });
 
+  it("leaves out a reviewer whose CLI tools stay on in a restricted chat (issue #71)", () => {
+    const ctx = projectPlanContextFrom({ ...base, team, restricted: true, cliToolsStayOn: (p) => p === "cloud" });
+    expect(ctx.reviewers).toEqual([]);
+    expect(ctx.reviewOn).toBe(false);
+  });
+
   it("without a team the worker leg is the only worker and there is no per-task reviewer", () => {
     const ctx = projectPlanContextFrom({ ...base, team: undefined, measured: { minSamples: 3, days: 7 } });
     expect(ctx.workers.map((m) => m.ref)).toEqual(["local:model-a"]);

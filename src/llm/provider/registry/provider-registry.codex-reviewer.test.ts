@@ -33,7 +33,10 @@ describe("a Codex subscription reviewer's model", () => {
         activeTextProvider: "codex-cli",
         activeEmbeddingProvider: "local-llama-embed",
         toolTransport: "auto" as const,
-        providers: [{ id: "codex-cli", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel }],
+        providers: [
+          { id: "codex-cli", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel },
+          { id: "api", kind: "openai-compatible", baseUrl: "https://api.example.invalid/v1", apiKey: "k", defaultChatModel: "model-a" },
+        ],
       },
     } as AtomicAgentConfig;
     const ctx = {
@@ -47,8 +50,21 @@ describe("a Codex subscription reviewer's model", () => {
 
   it("is a valid reviewer member", () => {
     expect(TEAM_MEMBER_PROVIDER_MODEL).toBe("default");
-    expect(parseFusionTeam({ directors: ["codex-cli:default"], reviewers: ["codex-cli:default"] }, new Set(["codex-cli"]), "team"))
+    const kindOf = (id: string) => ({ "codex-cli": "subscription-cli", api: "openai-compatible" })[id];
+    expect(parseFusionTeam({ directors: ["codex-cli:default"], reviewers: ["codex-cli:default"] }, new Set(["codex-cli", "api"]), "team", kindOf))
       .toEqual({ directors: ["codex-cli:default"], reviewers: ["codex-cli:default"] });
+  });
+
+  it("is refused for an API provider: its prices and tiers are looked up by the model it names", () => {
+    const kindOf = (id: string) => ({ "codex-cli": "subscription-cli", api: "openai-compatible" })[id];
+    expect(() => parseFusionTeam({ directors: ["codex-cli:default"], reviewers: ["api:default"] }, new Set(["codex-cli", "api"]), "team", kindOf))
+      .toThrow(/team\.reviewers\[0\].*"default" names the entry's own model only for a subscription-cli provider/);
+  });
+
+  it("asks an API provider for a model really called \"default\", on a copy", async () => {
+    const reg = await registry("");
+    const variant = await reg.modelVariant("api", TEAM_MEMBER_PROVIDER_MODEL);
+    expect(variant).not.toBe(reg.getProvider("api"));
   });
 
   it("runs on the entry itself for \"default\", with the account's model", async () => {

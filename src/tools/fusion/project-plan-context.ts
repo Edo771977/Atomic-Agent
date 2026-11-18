@@ -22,6 +22,9 @@ export interface ProjectPlanContextInput {
   currentWorker?: TeamMember | null;
   /** The session's reviewer (`metadata.fusionReviewer`, issue #71); `"none"`: no review in this chat. */
   currentReviewer?: TeamMember | "none" | null;
+  /** The chat's policy is restricted; with `cliToolsStayOn`, a Codex reviewer is left out (issue #71). */
+  restricted?: boolean;
+  cliToolsStayOn?: (providerId: string) => boolean;
   records: readonly OutcomeRecord[];
   pricing: (providerId: string, model: string) => WorkerPricing | undefined;
   /** Whether the provider is a local server (shares the measured speed). */
@@ -47,6 +50,8 @@ export function projectPlanContextFrom(input: ProjectPlanContextInput): ProjectP
           allows: input.allows,
           ...(input.currentWorker === undefined ? {} : { currentWorker: () => input.currentWorker ?? null }),
           ...(input.currentReviewer === undefined ? {} : { currentReviewer: () => input.currentReviewer ?? null }),
+          ...(input.restricted === undefined ? {} : { restricted: input.restricted }),
+          ...(input.cliToolsStayOn === undefined ? {} : { cliToolsStayOn: input.cliToolsStayOn }),
         });
   const legMember: TeamMember | null =
     input.workerLeg === null || !input.allows(input.workerLeg.providerId)
@@ -59,7 +64,8 @@ export function projectPlanContextFrom(input: ProjectPlanContextInput): ProjectP
   const workers = routing?.tasks?.workers ?? (legMember === null ? [] : [legMember]);
   const defaultWorker = routing?.tasks === undefined ? legMember : routing.tasks.defaultWorker ?? legMember;
   const ok = (m: TeamMember): boolean => input.allows(m.providerId) && (input.team?.reachable(m) ?? true);
-  const reviewers = input.team === undefined ? [] : teamMembers(input.team.team, "reviewers").filter(ok);
+  const reviewers = input.team === undefined ? [] : teamMembers(input.team.team, "reviewers")
+    .filter((m) => ok(m) && !(input.restricted === true && input.cliToolsStayOn?.(m.providerId) === true));
   return {
     workers,
     reviewers,

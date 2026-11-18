@@ -140,6 +140,16 @@ describe("fusionTeamRoster (issue #71)", () => {
     expect(roster.chat).toEqual({ director: "api:model-a", worker: null, reviewer: "none" });
   });
 
+  it("marks a reviewer whose CLI tools stay on unusable in a restricted chat only", () => {
+    const stays = (id: string) => id === "codex";
+    const restricted = fusionTeamRoster(fusion, {}, { allowedProviders: ["api", "cli", "local", "codex"], folder: "/w" }, all, stays)!;
+    expect(restricted.reviewers[0]).toMatchObject({
+      ref: "codex:model-r", usable: false, reason: "cli-tools",
+      why: "codex keeps its own read-only shell, which can read outside this restricted folder",
+    });
+    expect(fusionTeamRoster(fusion, {}, null, all, stays)!.reviewers[0]).toMatchObject({ usable: true });
+  });
+
   it("is null without a team", () => {
     expect(fusionTeamRoster({ orchestratorProvider: "api" }, {}, null, all)).toBeNull();
   });

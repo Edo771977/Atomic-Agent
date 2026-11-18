@@ -28,6 +28,7 @@ describe("parseTeamChoice", () => {
   it("takes a reviewer ref or the literal \"none\" (issue #71)", () => {
     expect(parseTeamChoice({ reviewer: " codex:model-r " })).toEqual({ reviewer: "codex:model-r" });
     expect(parseTeamChoice({ reviewer: "none" })).toEqual({ reviewer: "none" });
-    expect(parseTeamChoice({ reviewer: "nobody" })).toEqual({ error: "reviewer must be \"<providerId>:<model>\" or \"none\"", param: "reviewer" });
+    expect(parseTeamChoice({ reviewer: "team" })).toEqual({ reviewer: "team" });
+    expect(parseTeamChoice({ reviewer: "nobody" })).toEqual({ error: "reviewer must be \"<providerId>:<model>\", \"none\" or \"team\"", param: "reviewer" });
   });
 });

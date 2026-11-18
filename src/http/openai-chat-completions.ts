@@ -168,8 +168,9 @@ interface ChatCompletionRequest {
   worker?: string;
   /**
    * Issue #71: the session's fusion reviewer, one of
-   * `llm.runMode.fusion.team.reviewers`, or `"none"` for no review in
-   * this chat; stamped the same way and kept.
+   * `llm.runMode.fusion.team.reviewers`, `"none"` for no review in this
+   * chat, or `"team"` to clear the chat's choice (the team picks again);
+   * stamped the same way and kept.
    */
   reviewer?: string;
 }
@@ -1601,13 +1602,13 @@ export function parseTeamChoice(
     const raw = body[param];
     if (raw === undefined || raw === null) continue;
     const value = typeof raw === "string" ? raw.trim() : "";
-    if (param === "reviewer" && value === "none") {
+    if (param === "reviewer" && (value === "none" || value === "team")) {
       out.reviewer = value;
       continue;
     }
     const colon = value.indexOf(":");
     if (colon <= 0 || colon === value.length - 1 || /[\r\n\x00]/.test(value)) {
-      return { error: `${param} must be "<providerId>:<model>"${param === "reviewer" ? ' or "none"' : ""}`, param };
+      return { error: `${param} must be "<providerId>:<model>"${param === "reviewer" ? ', "none" or "team"' : ""}`, param };
     }
     out[param] = value;
   }

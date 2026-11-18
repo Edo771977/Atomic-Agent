@@ -84,3 +84,32 @@ describe("GET /api/fusion/team", () => {
     expect(body.agent.fusionTeam).toEqual({ route: "/api/fusion/team", chatFields: ["director", "worker", "reviewer"] });
   });
 });
+
+describe("GET /api/fusion/team: a reviewer whose CLI tools stay on (issue #71)", () => {
+  it("is not usable in a restricted chat, with reason cli-tools", async () => {
+    const harness = await startTestHarness();
+    try {
+      const config = configuration.loadConfig();
+      config.llm = {
+        activeTextProvider: "local-llama", activeEmbeddingProvider: "local-llama-embed", toolTransport: "auto",
+        providers: [
+          { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:8080" },
+          { id: "cloud-a", kind: "openai-compatible", baseUrl: "https://a.example.invalid/v1", apiKey: "k", defaultChatModel: "model-a" },
+          { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" },
+        ],
+        runMode: { mode: "fusion", fusion: { orchestratorProvider: "cloud-a", team: { directors: ["cloud-a:model-a"], reviewers: ["codex:default"] } } },
+      } as never;
+      vi.spyOn(configuration, "getConfig").mockReturnValue(config);
+      harness.runtime.sessionStore.save(createEmptySessionState({ id: "s1", workingDir: harness.workingDir }));
+      Object.assign(harness.runtime, {
+        teamMemberReachable: () => true,
+        providerRestrictionFor: () => ({ label: "r", allowedProviders: ["cloud-a", "codex"], folder: "/f", readFrom: [], movedFrom: [] }),
+      });
+      const json = (await (await fetch(`${harness.baseUrl}/api/fusion/team?session=s1`)).json()) as { reviewers: unknown[] };
+      expect(json.reviewers[0]).toMatchObject({ ref: "codex:default", usable: false, reason: "cli-tools" });
+    } finally {
+      vi.restoreAllMocks();
+      await harness.cleanup();
+    }
+  });
+});

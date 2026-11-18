@@ -1,5 +1,6 @@
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { TEAM_MEMBER_PROVIDER_MODEL } from "../config/llm-fusion-team-config.js";
 import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
 import type { ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
 import {
@@ -142,6 +143,33 @@ export function isCodexCliProvider(resolved: ResolvedLlmConfig, providerId: stri
   return entry?.kind === SUBSCRIPTION_CLI_KIND && entry.subscriptionCli?.cli === "codex";
 }
 
+/**
+ * Why a reviewer whose CLI keeps its own tools on (the Codex CLI's
+ * read-only shell) cannot review in a restricted chat (issue #71).
+ */
+export function cliToolsReviewerWhy(providerId: string): string {
+  return `${providerId} keeps its own read-only shell, which can read outside this restricted folder`;
+}
+
+/**
+ * Whether `member` is the orchestrator leg itself (`orchestratorProvider`
+ * with `orchestratorModel`, else the entry's own model; `default` names
+ * the entry's own on a subscription CLI).
+ */
+export function isOrchestratorLeg(
+  member: TeamMember,
+  fusion: UserLlmFusionConfig | undefined,
+  resolved: ResolvedLlmConfig,
+): boolean {
+  if (fusion?.orchestratorProvider !== member.providerId) return false;
+  const entry = resolved.providers.find((p) => p.id === member.providerId);
+  if (entry === undefined) return false;
+  const legModel = fusion.orchestratorModel ?? entry.defaultChatModel ?? entry.model;
+  if (member.model === legModel) return true;
+  return member.model === TEAM_MEMBER_PROVIDER_MODEL && entry.kind === SUBSCRIPTION_CLI_KIND &&
+    (legModel === undefined || legModel === "");
+}
+
 /** The Codex director's line, said once when a session starts on it. */
 export function codexDirectorNoticeText(): string {
   return 'codex director: tasks for the director itself (model: "orchestrator") go to the workers';
@@ -204,8 +232,11 @@ export interface TeamRosterMember {
   readonly model: string;
   /** Whether the member can serve this chat now: reachable and allowed by its folder. */
   readonly usable: boolean;
-  /** Why not: the folder refuses its provider, or it cannot answer now. */
-  readonly reason?: "folder" | "unreachable";
+  /**
+   * Why not: the folder refuses its provider, it cannot answer now, or
+   * (reviewers) its CLI keeps its own tools on in a restricted chat.
+   */
+  readonly reason?: "folder" | "unreachable" | "cli-tools";
   /** The reason as one line to show as is. */
   readonly why?: string;
 }
@@ -224,13 +255,16 @@ export interface TeamRoster {
 /**
  * Every team member by role, each with whether this chat can use it:
  * `restriction` is the chat folder's provider restriction (null: none),
- * `reachable` the runtime's `teamMemberReachable`. Null without a team.
+ * `reachable` the runtime's `teamMemberReachable`, `cliToolsStayOn` which
+ * providers keep their own CLI tools on (no reviewer in a restricted
+ * chat). Null without a team.
  */
 export function fusionTeamRoster(
   fusion: UserLlmFusionConfig | undefined,
   metadata: Record<string, unknown> | undefined,
   restriction: { allowedProviders: readonly string[]; folder: string } | null,
   reachable: (member: TeamMember) => boolean,
+  cliToolsStayOn?: (providerId: string) => boolean,
 ): TeamRoster | null {
   const team = fusion?.team;
   if (team === undefined) return null;
@@ -251,7 +285,11 @@ export function fusionTeamRoster(
   return {
     directors: teamMembers(team, "directors").map(row),
     workers: teamMembers(team, "workers").map(row),
-    reviewers: teamMembers(team, "reviewers").map(row),
+    reviewers: teamMembers(team, "reviewers").map((member) => {
+      const base = row(member);
+      if (!base.usable || restriction === null || cliToolsStayOn?.(member.providerId) !== true) return base;
+      return { ...base, usable: false, reason: "cli-tools" as const, why: cliToolsReviewerWhy(member.providerId) };
+    }),
     review: reviewEnabled(team, fusion?.judge) ? "on" : "off",
     chat: {
       director: readSessionFusionDirector(metadata)?.member ?? null,
