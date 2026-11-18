@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { createNdjsonTraceSink, traceFilePath } from "./trace-sink.js";
 import type { TraceEvent } from "./trace-event.js";
@@ -448,4 +448,67 @@ describe.skipIf(!posix)("trace file permissions", () => {
     expect(readLines(dir, "s-trim").some((l) => l.type === "trace_truncated")).toBe(true);
     expect(modeOf(path)).toBe(0o600);
   });
+});
+
+// Issue #74 item 8: a session id is a file name, never a path.
+describe("trace path containment", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "atomic-trace-escape-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("maps every id to a file name inside the folder, with no ':'", () => {
+    const dir = join(root, "traces");
+    for (const id of ["../pwned", "a/b", "..\\x", "claude-code:6f1d", "compaction:s-1"]) {
+      const path = traceFilePath(dir, id);
+      expect(dirname(path), id).toBe(dir);
+      expect(basename(path), id).not.toContain(":");
+    }
+    expect(traceFilePath(dir, "s-1")).toBe(join(dir, "s-1.ndjson"));
+  });
+
+  // A legacy raw name. On Windows a ':' in a file name opens an alternate
+  // data stream, so an older build there never had `codex:abc.ndjson`: the
+  // colon case runs off Windows only, a space (legal everywhere) runs on all.
+  const legacyIds = process.platform === "win32" ? ["openclaw:my agent"].map((id) => id.replace(":", " ")) : ["codex:abc", "openclaw:my agent"];
+  it.each(legacyIds)("reads and keeps appending to a trace an older build named with the raw id (%s)", (id) => {
+    const dir = join(root, "traces");
+    mkdirSync(dir, { recursive: true });
+    const legacy = join(dir, `${id}.ndjson`);
+    writeFileSync(legacy, `${JSON.stringify(baseEvent(id, 0, 0))}\n`);
+    expect(traceFilePath(dir, id)).toBe(legacy);
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    sink(baseEvent(id, 1, 1));
+    expect(readFileSync(legacy, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(readdirSync(dir)).toEqual([`${id}.ndjson`]);
+  });
+
+  it("never takes another session's file for a legacy raw name holding '~'", () => {
+    const dir = join(root, "traces");
+    mkdirSync(dir, { recursive: true });
+    // The current file of `foo:bar` is `foo~3abar.ndjson`.
+    const other = traceFilePath(dir, "foo:bar");
+    writeFileSync(other, "{}\n");
+    expect(traceFilePath(dir, "foo~3abar")).not.toBe(other);
+  });
+
+  it("writes a new imported chat's trace under its safe name", () => {
+    const dir = join(root, "traces");
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    sink(baseEvent("claude-code:6f1d", 0, 0));
+    const [name] = readdirSync(dir);
+    expect(name).not.toContain(":");
+    expect(traceFilePath(dir, "claude-code:6f1d")).toBe(join(dir, name!));
+  });
+
+  it("writes nothing outside the folder for an escaping session id", () => {
+    const dir = join(root, "traces");
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    expect(() => sink(baseEvent("../pwned", 0, 0))).not.toThrow();
+    expect(readdirSync(root).sort()).toEqual(["traces"]);
+  });
+
 });

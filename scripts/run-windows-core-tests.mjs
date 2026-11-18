@@ -38,6 +38,8 @@ export const criticalFiles = [
   // Issue #40: run folders' criteria facts and shots (paths), and the delegate seam.
   'src/tools/fusion/run-criteria.test.ts',
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
+  // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
+  'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
   'src/tools/fusion/candidate-integration.test.ts',
   'src/tools/fusion/candidate-evidence.test.ts',
   'src/tools/fusion/candidate-path-references.test.ts',

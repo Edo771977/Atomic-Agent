@@ -68,6 +68,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { runCommand, type CommandResult } from "../../sandbox/command-runner.js";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { VERIFY_COPY_EXCLUDED, VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
+import { ambientTempCopyOwner, writeTempCopyMarker, type TempCopyOwner } from "../read-scope/temp-copy-sources.js";
 import { createDirectoryIgnorePolicy, type DirectoryIgnorePolicy, type IgnoreGit } from "./branch-ignore-policy.js";
 import { materializePrivateGitWorkspace, preparePrivateGitSnapshot, type PrivateGitSnapshot } from "./private-git-workspace.js";
 
@@ -295,6 +296,12 @@ export interface CreateBranchSetOptions {
   privateDependencyDirectories?: boolean;
   /** Told why `createBranchSet` returned `null` (the copy limit), in words for the user. */
   onRefusal?: (reason: string) => void;
+  /**
+   * The session making the run root and its policy, stamped into the
+   * root's marker (issue #74: `read-scope/temp-copy-sources.ts`). Default:
+   * the policy frame running now.
+   */
+  owner?: TempCopyOwner;
 }
 
 const GIT_TIMEOUT_MS = 120_000;
@@ -948,6 +955,10 @@ async function buildBranchSet(
       ),
     ),
   );
+  // Where its content comes from, before any is copied: a read inside
+  // the copy taints like a read of the source (issue #74). A missing
+  // marker fails closed, so a failed write is not fatal here.
+  await writeTempCopyMarker("fusion", runRoot, { source: real, ...(options.owner ?? ambientTempCopyOwner()) }).catch(() => undefined);
   // Whose it is, so a later run's sweep can tell a dead run's leftovers
   // from a live one's.
   await writeFile(

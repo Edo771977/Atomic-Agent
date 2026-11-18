@@ -15,6 +15,7 @@ import {
   qualityVariant,
   type RowEstimate,
   type VariantContext,
+  withReviewEstimate,
 } from "./project-estimate.js";
 
 const NOW = Date.parse("2026-11-01T00:00:00Z");
@@ -246,6 +247,23 @@ describe("variants", () => {
     const out = cheaperVariant([row("a", "m1", { worker: "cloud:mid", estCostUsd: 0.5 })], ctx(all));
     // cheap is weaker, mystery has no tier: mid2 at 0.3 wins.
     expect(out[0]).toMatchObject({ worker: "cloud:mid2", estCostUsd: 0.3, basis: "measured", samples: 9 });
+  });
+
+  it("the review counts in a row's cost, and in the cheaper comparison (issue #74)", () => {
+    const review = (cost: number | null): RowEstimate => ({ basis: "preset", samples: 0, estCostUsd: cost, estMs: null, priceOnly: true, reason: "preset" });
+    const reviewed = row("a", "m1", { worker: "local:x", reviewer: "cloud:best", estCostUsd: 0, local: true });
+    const priced = withReviewEstimate(reviewed, review(0.25));
+    expect(priced).toMatchObject({ estCostUsd: 0.25 });
+    expect(priced.local).toBeUndefined();
+    expect(withReviewEstimate(reviewed, review(null))).toMatchObject({ estCostUsd: 0, local: true, reason: expect.stringMatching(/review on cloud:best unpriced/) });
+    expect(withReviewEstimate(row("b", "m1"), review(0.25))).toEqual(row("b", "m1"));
+    // The comparison and the new row both count the review: mid2 at 0.3 + 0.4 beats mid at 0.9.
+    const reviewCost: Record<string, number> = { "cloud:mid": 0.4, "cloud:best": 0.4 };
+    const out = cheaperVariant(
+      [row("a", "m1", { worker: "cloud:mid", reviewer: "cloud:best", estCostUsd: 0.9 })],
+      ctx(["cloud:mid", "cloud:mid2"], { reviewEstimate: (m) => review(reviewCost[m.ref] ?? 0) }),
+    );
+    expect(out[0]).toMatchObject({ worker: "cloud:mid2", reviewer: "cloud:best", estCostUsd: 0.7 });
   });
 
   it("cheaper keeps the row when nothing is cheaper", () => {

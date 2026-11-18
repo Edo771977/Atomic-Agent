@@ -45,6 +45,12 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { DEFAULT_VERIFY_MAX_COPY_BYTES } from "../../config/tool-config.js";
 import { inputPathIdentity } from "../os/fs/fs-input-path-identity.js";
+import {
+  ambientTempCopyOwner,
+  tempCopyMarkerPath,
+  writeTempCopyMarker,
+  type TempCopyOwner,
+} from "../read-scope/temp-copy-sources.js";
 
 export const VERIFY_COPY_EXCLUDED: ReadonlySet<string> = new Set([
   "node_modules",
@@ -74,6 +80,11 @@ export interface VerifyWorkspace {
 export interface CreateWorkspaceOptions {
   /** Relative protected files: excluded ancestor directories are copied within the existing byte ceiling. */
   privatePaths?: readonly string[];
+  /**
+   * The session making the copy and its policy, stamped into the copy's
+   * marker beside it (issue #74). Default: the policy frame running now.
+   */
+  owner?: TempCopyOwner;
   platform?: NodeJS.Platform;
   tmpRoot?: string;
   maxBytes?: number;
@@ -309,7 +320,13 @@ export async function createVerifyWorkspace(
     `atag-verify-${randomBytes(4).toString("hex")}`,
   );
   const remove = options.remove ?? rm;
+  // Beside the copy, not in it: checks run in the copy, and its `.git`
+  // may be the real one. A missing marker fails closed.
+  const markerPath = tempCopyMarkerPath("verify", dest);
+  const mark = (): Promise<void> =>
+    writeTempCopyMarker("verify", dest, { source: resolve(workingDir), ...(options.owner ?? ambientTempCopyOwner()) }).catch(() => undefined);
   const cleanup = async (): Promise<void> => {
+    await rm(markerPath, { force: true });
     try {
       await remove(dest, CLEANUP_RM_OPTIONS);
     } catch (err) {
@@ -318,6 +335,7 @@ export async function createVerifyWorkspace(
     }
   };
   if (platform === "darwin" && (options.privatePaths?.length ?? 0) === 0) {
+    await mark();
     const cloned = await (options.clone ?? cloneWithCp)(workingDir, dest);
     if (cloned) return { dir: dest, isolated: true, method: "clonefile", cleanup };
     await cleanup();
@@ -326,6 +344,7 @@ export async function createVerifyWorkspace(
   if ((await measureTree(workingDir, limit, options.privatePaths)) > limit) {
     return { dir: dest, isolated: false, method: "unavailable", error: copyLimitError(limit).message, cleanup };
   }
+  await mark();
   try {
     await copyTreeWithExclusions(workingDir, dest, { platform, maxBytes: limit, privatePaths: options.privatePaths, ...(options.symlink === undefined ? {} : { symlink: options.symlink }) });
   } catch (err) {

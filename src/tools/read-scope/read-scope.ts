@@ -1,6 +1,4 @@
-import { realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import {
@@ -12,6 +10,10 @@ import { resolveUserPath } from "../os/expand-home.js";
 import { toolOutputDir } from "../tool-output-spill.js";
 import type { ToolContext } from "../tool-registry.js";
 import { READ_TOOL_TARGETS, URL_LIKE } from "./read-scope-targets.js";
+import { canonical, isUnderAny, scratchDirs } from "./scratch-paths.js";
+import { isForeignTempCopy, isOwnSpillPath } from "./temp-copy-sources.js";
+
+export { canonical, isUnderAny, scratchDirs } from "./scratch-paths.js";
 
 /**
  * Where a session may READ.
@@ -41,32 +43,16 @@ import { READ_TOOL_TARGETS, URL_LIKE } from "./read-scope-targets.js";
  * scratch space — a helper written to `/tmp` and run, an output
  * redirected there and read back — and is always in scope for a
  * session; the threat was other users' homes and a benchmark's sibling
- * trees, never scratch. A refusal is a tool result, not a throw, so it
+ * trees, never scratch. The exception is a temp root holding another
+ * session's content or a copy it made (a fusion branch workspace, a
+ * verify copy, a spill folder: `temp-copy-sources.ts`): one that is not
+ * the caller's own asks like any read outside the roots. A refusal is a tool result, not a throw, so it
  * costs one step and reads as an instruction: ask the user, or opt out
  * with `agent.readScope: "unrestricted"`.
  */
 
 export const READ_REFUSAL_REASON = "read-outside-scope";
 export const WORKER_READ_REFUSAL_REASON = "worker-read-outside-scope";
-
-/**
- * The realpath of the deepest existing ancestor with the rest appended,
- * so a path that does not exist yet still canonicalises.
- */
-export function canonical(path: string): string {
-  const rest: string[] = [];
-  let current = path;
-  for (;;) {
-    try {
-      return resolve(realpathSync.native(current), ...rest.reverse());
-    } catch {
-      const parent = dirname(current);
-      if (parent === current) return path;
-      rest.push(basename(current));
-      current = parent;
-    }
-  }
-}
 
 /** Whether absolute `target` lies outside every root, lexically and canonically. */
 export function isOutsideReadRoots(
@@ -81,34 +67,19 @@ export function isOutsideReadRoots(
 /**
  * Whether `target` is inside the session's tool-output folder both
  * lexically AND canonically, so a symlink planted there cannot carry a
- * read outside the roots (the roots check accepts either form).
+ * read outside the roots (the roots check accepts either form), and the
+ * folder's marker names the session: a folder an older build named
+ * lossily may hold another session's outputs under this one's name.
  */
-function isOwnToolOutput(target: string, dir: string): boolean {
+function isOwnToolOutput(target: string, dir: string, sessionId: string): boolean {
   return (
     isInside(resolve(dir), target) &&
-    isInside(canonical(resolve(dir)), canonical(target))
+    isInside(canonical(resolve(dir)), canonical(target)) &&
+    isOwnSpillPath(target, sessionId)
   );
 }
 
-/** Whether `path` is under any of `prefixes`, lexically or canonically. */
-export function isUnderAny(path: string, prefixes: readonly string[]): boolean {
-  if (prefixes.some((prefix) => isInside(prefix, path))) return true;
-  const real = canonical(path);
-  return prefixes.some((prefix) => isInside(canonical(prefix), real));
-}
-
-/**
- * The OS temp directory, plus the conventional POSIX ones — macOS's
- * `os.tmpdir()` is a per-user folder, and models write to `/tmp`. Read
- * per call so a test (or an operator) steering `TMPDIR` is honoured.
- */
-export function scratchDirs(): string[] {
-  return process.platform === "win32"
-    ? [tmpdir()]
-    : [tmpdir(), "/tmp", "/var/tmp"];
-}
-
-/** Scratch space: always in scope for a session, whatever the roots. */
+/** Scratch space: in scope for a session, whatever the roots (see `isForeignTempCopy` for the exception). */
 export function isScratchPath(path: string): boolean {
   return isUnderAny(path, scratchDirs());
 }
@@ -208,7 +179,7 @@ export function sessionReadRefusal(
 /**
  * The first target of a read tool call that resolves outside every root,
  * or `null`. With `scratchInScope`, the temp directory never counts as
- * outside.
+ * outside, except another session's temp root (`isForeignTempCopy`).
  */
 function firstTargetOutside(
   tool: string,
@@ -233,8 +204,8 @@ function firstTargetOutside(
       // error is the better message.
       continue;
     }
-    if (scratchInScope && isScratchPath(absolute)) continue;
-    if (isOwnToolOutput(absolute, ownOutputs)) continue;
+    if (scratchInScope && isScratchPath(absolute) && !isForeignTempCopy(absolute, ctx.sessionId)) continue;
+    if (isOwnToolOutput(absolute, ownOutputs, ctx.sessionId)) continue;
     if (isOutsideReadRoots(absolute, roots)) return absolute;
   }
   return null;

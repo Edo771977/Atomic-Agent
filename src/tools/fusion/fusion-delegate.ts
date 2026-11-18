@@ -32,7 +32,7 @@ import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
-import { criteriaById, type ProjectUpdate } from "../../session/session-project.js";
+import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -98,7 +98,7 @@ import {
   hasSplitProposal,
   renderSplitInstructions,
 } from "./task-tree.js";
-import type { FusionRunRecorder, FusionRunStore } from "./run-checkpoint.js";
+import { newFusionRunId, type FusionRunRecorder, type FusionRunStore } from "./run-checkpoint.js";
 import { outcomeRowFor, type FusionOutcomeJournal } from "./outcome-journal.js";
 import {
   outcomeLogPath,
@@ -1087,6 +1087,98 @@ export function buildFusionDelegateTool(
       // Except after the user declined a file in those directories this
       // turn: the workers would write it unasked under the standing yes,
       // so re-delegating a declined write is asked about again.
+      // Who reviews each task (issue #38, #71, #74), resolved before the
+      // prompt: the approved plan's yes names each task's reviewer too.
+      const judgeTarget = mode.judge ?? null;
+      const teamReview =
+        teamContext === undefined
+          ? undefined
+          : {
+              // The chat's own choice (issue #71) wins: "none" is off, a
+              // reviewer it chose is on; else the team's setting.
+              on: team?.reviewOff === true
+                ? false
+                : team?.reviewChosen === true || reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
+              passes: reviewPassesOf(teamContext.team),
+            };
+      const taskMember = (taskId: string): TeamMember => {
+        const leg = taskLegs.get(taskId);
+        const providerId = leg?.providerId ?? workerProviderId;
+        const model = leg === undefined || leg.isWorkerLeg ? workerModel : leg.model;
+        return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
+      };
+      // The approved plan row's reviewer reviews its task (issue #74),
+      // whoever set it: the person at the plan gate (`reviewerByPerson`)
+      // or the director's draft the person approved. It wins over the
+      // chat's reviewer (issue #71), the team's pick and `team.review`,
+      // which stay the default for a task outside the plan. A row's null
+      // is "no review" when a reviewer could have been named (the person
+      // chose it, or the team lists reviewers); without team reviewers it
+      // only says no team reviewer, and `judgeProvider` still judges. A
+      // reviewer that can no longer review here (not a team reviewer this
+      // folder can use now, or now the task's worker) falls back to the
+      // default, so the plan no longer stands for the prompt, and the
+      // prompt and the task's row say why.
+      const approvedRows = new Map<string, AssignmentRow>();
+      if (projectVerdict.kind === "admit" && ctx.project?.plan?.status === "approved") {
+        const planned = new Set(projectVerdict.planned);
+        for (const r of ctx.project.plan.rows) if (planned.has(r.taskId)) approvedRows.set(r.taskId, r);
+      }
+      const planReviewers = new Map<string, string | null>();
+      for (const [id, r] of approvedRows) {
+        if (r.reviewer !== null || r.reviewerByPerson === true || team?.hasReviewers === true) planReviewers.set(id, r.reviewer);
+      }
+      const unusablePlanReviewers = new Map<string, string>();
+      const taskReviewers = new Map<string, { member: TeamMember | null; fromPlan: boolean }>();
+      /** The team member that reviews the task (null: none; `judgeProvider` may still judge a default task). */
+      const taskReviewerOf = (taskId: string): { member: TeamMember | null; fromPlan: boolean } => {
+        let found = taskReviewers.get(taskId);
+        if (found === undefined) {
+          const picked = planReviewers.get(taskId);
+          const usable =
+            picked === undefined || picked === null
+              ? undefined
+              : (team?.reviewers ?? []).find((m) => m.ref === picked && m.ref !== taskMember(taskId).ref);
+          if (picked === null || usable !== undefined) found = { member: usable ?? null, fromPlan: true };
+          else {
+            if (picked !== undefined) {
+              unusablePlanReviewers.set(
+                taskId,
+                picked === taskMember(taskId).ref
+                  ? "it is now the task's worker"
+                  : "it is not a team reviewer this folder's policy allows and that can answer now",
+              );
+            }
+            found = {
+              member: teamReview?.on === false || team?.hasReviewers !== true ? null : team.reviewerFor(taskMember(taskId)),
+              fromPlan: false,
+            };
+          }
+          taskReviewers.set(taskId, found);
+        }
+        return found;
+      };
+      for (const t of parsed.tasks) taskReviewerOf(t.id);
+      /** The team reviewer that would review the task here; null: none (no review runs without a completion seam for it). */
+      const reviewerRefOf = (taskId: string): string | null =>
+        deps.escalationComplete === undefined ? null : (taskReviewerOf(taskId).member?.ref ?? null);
+      /** Why the reviewer that would run is not the approved row's, or undefined when it is. */
+      const planReviewerNote = (taskId: string): string | undefined => {
+        const row = approvedRows.get(taskId);
+        if (row === undefined) return undefined;
+        const runs = reviewerRefOf(taskId);
+        if (row.reviewer === runs) return undefined;
+        const instead = runs === null ? "no team reviewer reviews it" : `${runs} reviews it instead`;
+        if (row.reviewer === null) return `the plan has no review for it, but ${runs} would review it`;
+        const why = unusablePlanReviewers.get(taskId) ?? "no review can run here";
+        return `plan reviewer ${row.reviewer} is no longer usable here (${why}); ${instead}`;
+      };
+      const planReviewerNotes = new Map(
+        parsed.tasks.flatMap((t) => {
+          const note = planReviewerNote(t.id);
+          return note === undefined ? [] : [[t.id, note] as const];
+        }),
+      );
       const declinedInScope =
         deps.approvals.hasDeclinedUnder?.(ctx.sessionId, writeScope) ?? false;
       // Nor after outside content (`agent.taintReview`): the standing yes
@@ -1108,6 +1200,7 @@ export function buildFusionDelegateTool(
             const leg = taskLegs.get(id);
             return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
           },
+          reviewerRefOf,
           writeScope,
           [ctx.workingDir],
         );
@@ -1143,7 +1236,11 @@ export function buildFusionDelegateTool(
                 roleLegs.size === 0
                   ? ""
                   : ` and ${[...roleLegs.values()].map((l) => l.model).join(", ")}`
-              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), parsed.tasks.length, mode) : ""}${describeOversizedLocalTasks(oversized)}`,
+              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), parsed.tasks.length, mode) : ""}${describeOversizedLocalTasks(oversized)}${
+                planReviewerNotes.size === 0
+                  ? ""
+                  : `; ${[...planReviewerNotes].map(([id, note]) => `task ${id}: ${note}`).join("; ")}`
+              }`,
               preview: describeFanoutPreview(parsed.tasks, writeScope),
               affectedResources: [...writeScope],
             },
@@ -1458,24 +1555,8 @@ export function buildFusionDelegateTool(
       // the member that ran it (never weaker, issue #38), on that
       // reviewer's own model; none fits: `judgeProvider` while the judge
       // is on, else no model review. Without a team: `fusion.judge`.
-      const judgeTarget = mode.judge ?? null;
-      const teamReview =
-        teamContext === undefined
-          ? undefined
-          : {
-              // The chat's own choice (issue #71) wins: "none" is off, a
-              // reviewer it chose is on; else the team's setting.
-              on: team?.reviewOff === true
-                ? false
-                : team?.reviewChosen === true || reviewEnabled(teamContext.team, judgeTarget === null ? "off" : "on"),
-              passes: reviewPassesOf(teamContext.team),
-            };
-      const taskMember = (taskId: string): TeamMember => {
-        const leg = taskLegs.get(taskId);
-        const providerId = leg?.providerId ?? workerProviderId;
-        const model = leg === undefined || leg.isWorkerLeg ? workerModel : leg.model;
-        return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
-      };
+      // (`judgeTarget`, `teamReview` and the plan rows' reviewers are
+      // resolved before the fan-out prompt: the plan's yes names them.)
       const judgeTargets = new Map<string, JudgeTarget | null>();
       // Tasks a team reviewer judges: only these get the team's review
       // passes, review clause and review-exhausted hand-off (issue #38).
@@ -1484,14 +1565,12 @@ export function buildFusionDelegateTool(
       const teamJudged = new Set<string>();
       const judgeTargetFor = (taskId: string): JudgeTarget | null => {
         if (!judgeTargets.has(taskId)) {
-          if (teamReview?.on === false) {
+          const { member: reviewer, fromPlan } = taskReviewerOf(taskId);
+          // The approved row's "no review", or review off: none.
+          if (reviewer === null && (fromPlan || teamReview?.on === false)) {
             judgeTargets.set(taskId, null);
             return null;
           }
-          const reviewer =
-            team?.hasReviewers === true && (teamReview !== undefined || judgeTarget !== null)
-              ? team.reviewerFor(taskMember(taskId))
-              : null;
           if (reviewer !== null && teamReview !== undefined) teamJudged.add(taskId);
           judgeTargets.set(
             taskId,
@@ -1516,7 +1595,9 @@ export function buildFusionDelegateTool(
         teamReview !== undefined && reviewedByTeam(taskId) ? teamReview.passes : 1;
       const judging =
         deps.escalationComplete !== undefined &&
-        (teamReview === undefined ? judgeTarget !== null : teamReview.on);
+        ((teamReview === undefined ? judgeTarget !== null : teamReview.on) ||
+          // An approved plan row's reviewer reviews it anyway.
+          parsed.tasks.some((t) => taskReviewerOf(t.id).fromPlan && taskReviewerOf(t.id).member !== null));
       const acceptance = new Map(
         judging
           ? parsed.tasks
@@ -1549,7 +1630,21 @@ export function buildFusionDelegateTool(
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
       }) : undefined;
-      if (run !== undefined) checkRun = { runId: run.runId, sessionId: ctx.sessionId };
+      // The run folder the checks' screenshots and the criteria facts go
+      // to (issue #40). Candidate mode keeps no resumable checkpoint, but
+      // its evidence still needs a real run (issue #74): a fresh id whose
+      // folder holds only shots and facts, so the milestone reads them
+      // like any run's.
+      const evidenceRun: ContractCheckRun | undefined =
+        run !== undefined
+          ? { runId: run.runId, sessionId: ctx.sessionId }
+          : candidate !== undefined && deps.runCheckpoints !== undefined
+            ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
+            : undefined;
+      if (evidenceRun !== undefined) {
+        checkRun = evidenceRun;
+        admitted.runId = evidenceRun.runId;
+      }
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
         pricing: typeof workerPricing,
@@ -1829,10 +1924,10 @@ export function buildFusionDelegateTool(
           : (taskId: string): WorkerWatchPlan | undefined => {
               const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
               if (minutes <= 0) return undefined;
-              // `team.review: "off"` turns the reviewers off for the watch
-              // too, as `judgeTargetFor` does for the review.
-              const reviewer =
-                team?.hasReviewers === true && teamReview?.on !== false ? team.reviewerFor(taskMember(taskId)) : null;
+              // The task's reviewer (`taskReviewerOf`: the approved plan
+              // row's, else the default; `team.review: "off"` turns
+              // the reviewers off for the watch too).
+              const reviewer = taskReviewerOf(taskId).member;
               const lead: TeamMember | null =
                 reviewer ??
                 director ??
@@ -2924,13 +3019,11 @@ export function buildFusionDelegateTool(
           results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
         }
         // The run's success-criteria facts, kept with its screenshots for
-        // the milestone report (issue #40, `run-criteria.ts`).
-        if (run !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(
-            deps.runCheckpoints.runsDir,
-            { runId: run.runId, sessionId: ctx.sessionId },
-            results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }])),
-          );
+        // the milestone report (issue #40, `run-criteria.ts`). A candidate
+        // run's wait for its finish: the folder keeps only what was promoted.
+        const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
+        if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3009,6 +3102,13 @@ export function buildFusionDelegateTool(
         const checkpointNote = run?.checkpointWarning === undefined ? "" :
           `\n\nThis Fusion run cannot be resumed: ${run.checkpointWarning}. Plan any remaining work again after an interruption.`;
 
+        // A plan reviewer that could not review rides its task's row (issue #74).
+        if (planReviewerNotes.size > 0) {
+          results = results.map((r) => {
+            const note = planReviewerNotes.get(r.id);
+            return note === undefined ? r : { ...r, notes: [...(r.notes ?? []), note] };
+          });
+        }
         // The fit warnings ride their task's row (ATO-1363).
         if (fit.warnings.size > 0) {
           results = results.map((r) => {
@@ -3120,6 +3220,21 @@ export function buildFusionDelegateTool(
         // count as nothing delivered too (ATO-234).
         const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
         completedCandidateReport = candidateReport;
+        // A candidate that was not promoted delivered nothing to the folder
+        // (issue #74): none of its criteria stands as passed there.
+        if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+          const why = `candidate not promoted${candidateReport.reason === undefined ? "" : `: ${candidateReport.reason}`}`;
+          writeRunCriteriaFacts(
+            deps.runCheckpoints.runsDir,
+            evidenceRun,
+            candidateReport.status === "promoted"
+              ? runFacts
+              : runFacts.map((t) => ({
+                  taskId: t.taskId,
+                  facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
+                })),
+          );
+        }
         terminalTaskCount = results.length;
         const outcome = delegateOutcome(results);
         // The outcome log and the turn receipt (counts only, never the
@@ -3333,12 +3448,15 @@ export function buildFusionDelegateTool(
 interface FanoutAdmission {
   milestoneId: string | null;
   started: boolean;
+  /** The run whose folder holds the fan-out's evidence (its checkpoint's, or a candidate run's; issue #74). */
+  runId?: string;
 }
 
 /**
  * The project update a fan-out of an approved milestone hands back
- * (issue #39): `milestone_run` with the run's checkpoint id (or a fresh
- * id when nothing was checkpointed), which the step commit folds to mark
+ * (issue #39): `milestone_run` with the run's id (the checkpoint's, or
+ * a candidate run's evidence folder, issue #74; a fresh id only when
+ * there is no run store), which the step commit folds to mark
  * the milestone in progress and remember the run. A fan-out whose workers
  * ran is recorded even when it failed (every task failed, an interrupted
  * run), so the milestone shows the work started and the run to resume;
@@ -3347,7 +3465,9 @@ interface FanoutAdmission {
 function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
   const milestoneId = admitted.milestoneId;
   if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;
-  const runId = typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`;
+  const runId =
+    admitted.runId ??
+    (typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`);
   const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
   const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
   // Keep the non-enumerable full output the result may carry.

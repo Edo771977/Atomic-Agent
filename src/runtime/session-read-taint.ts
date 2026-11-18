@@ -14,10 +14,11 @@ import {
   type ProviderPolicyCell,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
-import { readTaintTargets } from "../tools/read-scope/index.js";
+import { READ_TAINT_METADATA_KEY } from "../session/stored-read-taint.js";
+import { readTaintTargets, tempCopyPolicy } from "../tools/read-scope/index.js";
 
 /** Session metadata key of the sticky read taint (a `ProviderPolicyStamp`). */
-export const READ_TAINT_METADATA_KEY = "providerReadTaint";
+export { READ_TAINT_METADATA_KEY };
 
 interface TaintableSession {
   id: string;
@@ -78,7 +79,9 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       return { ...metadata, [READ_TAINT_METADATA_KEY]: toProviderPolicyStamp(next) };
     };
     if (turn !== undefined) {
-      // The turn saves its own state at its next checkpoint and at its end.
+      // The turn saves its own state at its next checkpoint and at its
+      // end: it merges this object's taint into the copy it saves
+      // (`runtime-turn-service.ts`), and the store never drops a stored one.
       turn.session.metadata = merge(turn.session.metadata ?? {});
       if (turn.cell !== undefined && turn.cell !== currentProviderPolicyCell()) {
         tightenCurrentProviderPolicy(taint, turn.cell);
@@ -92,15 +95,20 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
     }
   };
 
-  /** The taint reading `targets` would add to `current`, or `undefined` when it adds nothing. */
-  const taintFor = (targets: readonly string[], current: ProviderPolicy | undefined): ProviderPolicy | undefined => {
+  /**
+   * The taint reading `targets` would add to `current`, or `undefined` when
+   * it adds nothing. A target in a temp copy or another session's spill
+   * folder (issue #74) carries the policy its marker resolves to
+   * (`tempCopyPolicy`), with the folder's own if one matches too.
+   */
+  const taintFor = (targets: readonly string[], current: ProviderPolicy | undefined, sessionId?: string): ProviderPolicy | undefined => {
     const config = deps.readConfig();
     let taint: ProviderPolicy | undefined;
     for (const target of targets) {
-      const matched = resolveProjectConstraint(config, target);
+      const matched = governingPolicy(config, target, sessionId);
       if (matched === undefined) continue;
       if (current !== undefined && policyCovers(current, matched)) continue;
-      const read = makeProviderPolicy({ ...matched, readFrom: [matched.key] });
+      const read = makeProviderPolicy({ ...matched, readFrom: matched.readFrom ?? [matched.key] });
       taint = taint === undefined ? read : intersectProviderPolicies(taint, read);
     }
     return taint;
@@ -136,7 +144,7 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       if (!hasProjectConstraints(deps.readConfig())) return undefined;
       const targets = readTaintTargets(tool, args, ctx.workingDir, { lspWrites: deps.lspWrites === true });
       if (targets.length === 0) return undefined;
-      const taint = taintFor(targets, currentProviderPolicy());
+      const taint = taintFor(targets, currentProviderPolicy(), ctx.sessionId);
       if (taint === undefined) return undefined;
       apply(ctx.sessionId, taint);
       return taint;
@@ -180,6 +188,18 @@ export function createSessionReadTaint(deps: SessionReadTaintDeps) {
       session = live.get(parent)?.session;
     }
   }
+}
+
+/** The policy governing a read of `target`: its folder's constraint and, in a temp root, its marker's. */
+function governingPolicy(
+  config: Pick<AtomicAgentConfig, "projects">,
+  target: string,
+  sessionId: string | undefined,
+): ProviderPolicy | undefined {
+  const folder = resolveProjectConstraint(config, target);
+  const copy = tempCopyPolicy(target, config, sessionId === undefined ? {} : { sessionId });
+  if (folder === undefined) return copy;
+  return copy === undefined ? folder : intersectProviderPolicies(folder, copy);
 }
 
 export type SessionReadTaint = ReturnType<typeof createSessionReadTaint>;

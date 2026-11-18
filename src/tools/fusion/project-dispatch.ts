@@ -76,15 +76,18 @@ export function checkProjectDispatch(project: ProjectState | undefined, taskIds:
  * prompt: the plan is approved (and, when drafted after outside content,
  * approved with that warning shown), every task is a row of the plan in
  * the milestone now approved or in progress, runs on the worker the row
- * names (`workerOf`: the resolved leg's member ref), and the write scope
- * stays inside what the plan was approved for (`approvedScope`: the
- * session's folder). Anything else — a new task, another milestone's,
- * another worker, a write elsewhere — asks as before.
+ * names (`workerOf`: the resolved leg's member ref), is reviewed by the
+ * reviewer the row names (`reviewerOf`: the member ref that would review
+ * it, null for no review; issue #74), and the write scope stays inside
+ * what the plan was approved for (`approvedScope`: the session's folder).
+ * Anything else — a new task, another milestone's, another worker or
+ * reviewer, a write elsewhere — asks as before.
  */
 export function planCoversFanout(
   project: ProjectState,
   taskIds: readonly string[],
   workerOf: (taskId: string) => string,
+  reviewerOf: (taskId: string) => string | null,
   writeScope: readonly string[],
   approvedScope: readonly string[],
 ): boolean {
@@ -96,6 +99,7 @@ export function planCoversFanout(
   for (const id of taskIds) {
     const row = byTask.get(id);
     if (row === undefined || !open.has(row.milestoneId) || row.worker !== workerOf(id)) return false;
+    if (row.reviewer !== reviewerOf(id)) return false;
   }
   const roots = approvedScope.map((dir) => resolvePath(dir));
   return writeScope.every((dir) => roots.some((root) => isInside(root, resolvePath(dir))));

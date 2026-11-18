@@ -7,7 +7,9 @@ import {
   type ProviderPolicy,
 } from "../config/project-constraint-match.js";
 import type { ProjectConstraintsConfig } from "../config/tool-config.js";
+import { intersectProviderPolicies } from "../llm/provider-policy.js";
 import { resolveUserPath } from "./os/expand-home.js";
+import { isTempCopyMarkerPath, tempCopyPolicy } from "./read-scope/temp-copy-sources.js";
 
 /**
  * Write-out rule of per-folder provider constraints (issue #33 §5): a
@@ -18,6 +20,12 @@ import { resolveUserPath } from "./os/expand-home.js";
  * written to an unconstrained folder would carry the content out of
  * reach of the read taint: the next session reading it would not be
  * tainted. See ../llm/docs/provider-policy.md#write-out.
+ *
+ * A temp root that holds a copy or another session's output (a fusion
+ * branch workspace, a verify copy, a spill folder) is governed by the
+ * policy its marker resolves to (`read-scope/temp-copy-sources.ts`), so
+ * a copy of the same constrained folder holds that folder's content, and
+ * no file tool, for any session, may write a marker (issue #74).
  *
  * The one exception is a fusion worker's own temp copy (its working
  * directory under the fusion temp area): the worker obeys its parent's
@@ -77,6 +85,22 @@ export function writeTargetsOf(tool: string, args: Record<string, unknown>, work
     case "os.code.rewrite":
       if (args.apply === true) raw.push(str(args.path) ?? workingDir);
       break;
+    // A clone writes the repository at `dest` (its default is a folder
+    // under the working directory); the git mutations write into `repo`
+    // (default: the working directory): objects, the index, the files a
+    // checkout or merge changes (issue #74 item 10).
+    case "os.git.clone":
+      raw.push(str(args.dest) ?? workingDir);
+      break;
+    case "os.git.init":
+      raw.push(str(args.path) ?? workingDir);
+      break;
+    case "os.git.add":
+    case "os.git.commit":
+    case "os.git.checkout":
+    case "os.git.merge":
+      raw.push(str(args.repo) ?? workingDir);
+      break;
     default:
       return [];
   }
@@ -99,17 +123,18 @@ export class WriteOutNotAllowedError extends Error {
   readonly target: string;
   readonly policyKey: string;
 
-  constructor(tool: string, target: string, policy: ProviderPolicy) {
-    const origin = restrictionOrigin(policy);
-    const why = origin !== undefined ? `${origin.text}, which is restricted` : `folder ${policy.key} is restricted`;
+  constructor(tool: string, target: string, policy: ProviderPolicy | undefined, message?: string) {
+    const origin = policy === undefined ? undefined : restrictionOrigin(policy);
+    const why = origin !== undefined ? `${origin.text}, which is restricted` : `folder ${policy?.key ?? "(none)"} is restricted`;
     super(
+      message ??
       `${why}: ${tool} would write its content to ${target}, outside every folder with the same or a stricter constraint; ` +
       "write inside the restricted folder instead",
     );
     this.name = "WriteOutNotAllowedError";
     this.tool = tool;
     this.target = target;
-    this.policyKey = policy.key;
+    this.policyKey = policy?.key ?? "";
   }
 }
 
@@ -151,13 +176,21 @@ export function createWriteOutGuard(deps: WriteOutGuardDeps) {
     const targets = writeTargetsOf(tool, args, workingDir);
     if (targets.length === 0) return null;
     const policy = deps.policyForSession(ctx.sessionId);
+    const marker = targets.find(isTempCopyMarkerPath);
+    if (marker !== undefined) {
+      return new WriteOutNotAllowedError(tool, marker, policy,
+        `${tool} would write ${marker}, the marker that says where a temp copy came from; the runtime writes it, never a tool`);
+    }
     if (policy === undefined) return null;
     const config = deps.readConfig();
     const scratch = deps.ownScratchDir(ctx.sessionId, workingDir);
     const options: ConstraintMatchOptions = { platform, ...(deps.realpath === undefined ? {} : { realpath: deps.realpath }) };
     for (const target of targets) {
       if (scratch !== undefined && inside(scratch, target)) continue;
-      if (!holds(resolveProjectConstraint(config, target, options), policy)) {
+      const folder = resolveProjectConstraint(config, target, options);
+      const copy = tempCopyPolicy(target, config, options);
+      const governing = folder === undefined ? copy : copy === undefined ? folder : intersectProviderPolicies(folder, copy);
+      if (!holds(governing, policy)) {
         return new WriteOutNotAllowedError(tool, target, policy);
       }
     }

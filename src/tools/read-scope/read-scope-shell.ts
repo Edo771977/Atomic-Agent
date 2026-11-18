@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
+import { isForeignTempCopy } from "./temp-copy-sources.js";
 import {
   isOutsideReadRoots,
   isScratchPath,
@@ -130,7 +131,7 @@ function candidateOf(
  */
 export function findShellPathOutsideScope(
   args: Record<string, unknown>,
-  ctx: Pick<ToolContext, "workingDir">,
+  ctx: Pick<ToolContext, "workingDir"> & { sessionId?: string },
   roots: readonly string[],
   env: ShellScopeEnv = defaultShellScopeEnv(),
 ): string | null {
@@ -159,8 +160,11 @@ export function findShellPathOutsideScope(
     if (candidate !== null) candidates.push(candidate);
   }
   for (const { path, climb } of candidates) {
-    if (isUnderAny(path, system) || isScratchPath(path)) continue;
+    if (isUnderAny(path, system)) continue;
     if (!isOutsideReadRoots(path, roots)) continue;
+    // Another session's temp root is not scratch (issue #74).
+    if (isForeignTempCopy(path, ctx.sessionId)) return path;
+    if (isScratchPath(path)) continue;
     if (climb || isUnderAny(path, userArea)) return path;
   }
   return null;

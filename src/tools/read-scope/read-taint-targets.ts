@@ -10,7 +10,8 @@ import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
  *
  * Every read-class tool the read scope knows (`READ_TOOL_TARGETS`: the
  * fs read, list, grep and glob tools, read_document, archives, git
- * reads, `vision.describe`, a `file://` page, syntax checks), the tools
+ * reads, a local `os.git.clone` source, `vision.describe`, a `file://`
+ * page, syntax checks), the tools
  * below that return or move a file's content without being read-class
  * (`TAINT_ONLY_TARGETS`), plus `os.shell.run` and every command of
  * `verify.run`: its `cwd`, every absolute or home-relative token and

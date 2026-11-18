@@ -47,6 +47,7 @@ import { join, resolve } from "node:path";
 import { getConfig } from "../config/index.js";
 import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal, moveSessionFolder, retrySessionSeed, sessionPolicyStamp } from "./session-provider-policy.js";
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
+import { fusionWorkerParents } from "./fusion-worker-parents.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
 import { describeProviderRestriction, resolveProjectConstraint } from "../llm/provider-policy.js";
@@ -403,7 +404,13 @@ export async function createAgentRuntime(
   // Full outputs of clipped local tool results, one temp folder per
   // session (ATO-663): removed with the session, and folders left by
   // sessions that are gone (fusion workers are never stored) swept here.
-  const toolOutputSpill = new ToolOutputSpill();
+  // Each folder's marker carries the session's policy (issue #74), so
+  // another session reading a spilled file is tainted with it.
+  const toolOutputSpill = new ToolOutputSpill({
+    policyFor: (id) => sessionProviderPolicy.effectivePolicyForSession(id),
+    // A worker's orchestrators read the paths its summary hands them.
+    parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
+  });
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 
@@ -1052,6 +1059,7 @@ export async function createAgentRuntime(
     loadSession: (id) => sessionStore.load(id),
     saveSession: (session) => sessionStore.save(session),
     isBusy: (id) => turnController.isBusy(id),
+    liveTurnElsewhere: (id) => sessionStore.liveTurnElsewhere(id),
     liveInputs: (session) => {
       const live = getConfig();
       const policy = sessionProviderPolicy.forSession(session);

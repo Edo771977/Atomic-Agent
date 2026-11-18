@@ -4,7 +4,7 @@
  * the narrower fusion-worker one (`read-scope.ts`).
  */
 
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
@@ -106,6 +106,28 @@ function gitRepoArg(pathKey?: "path" | "paths"): ReadTargetsOf {
     return targets;
   };
 }
+
+/**
+ * The local repository an `os.git.clone` copies (issue #74 item 10): a
+ * path or a `file://` url. git runs in the destination's parent, so a
+ * relative path is resolved from there. A remote url (`scheme://`, the
+ * scp-like `host:path`) reads nothing here.
+ */
+const gitCloneSource: ReadTargetsOf = (args) => {
+  const url = nonEmpty(args.url);
+  if (url === undefined) return [];
+  if (/^file:/i.test(url)) {
+    const file = localFileOfUrl(url);
+    return file === null ? [] : [file];
+  }
+  const drive = /^[A-Za-z]:[\\/]/.test(url);
+  if (URL_LIKE.test(url) && !drive) return [];
+  const colon = url.indexOf(":");
+  const slash = url.search(/[\\/]/);
+  if (!drive && colon > 0 && (slash === -1 || colon < slash)) return [];
+  const dest = nonEmpty(args.dest);
+  return [isAbsolute(url) || drive || url.startsWith("~") || dest === undefined ? url : join(dirname(dest), url)];
+};
 
 /**
  * The read-class filesystem tools and the argument(s) naming what they
@@ -230,6 +252,8 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
   ["os.git.log", gitRepoArg("path")],
   ["os.git.blame", gitRepoArg("path")],
   ["os.git.diff", gitRepoArg("paths")],
+  // A clone from a local path copies that repository's files and history.
+  ["os.git.clone", gitCloneSource],
   // A file:// page (or its view-source:) reads that file into the
   // browser, and the page text comes back to the model.
   ...Array.from(URL_READ_TARGETS, ([name, urlOf]): [string, ReadTargetsOf] => [name, (args) => {
