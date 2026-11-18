@@ -12,6 +12,7 @@ import {
 } from "../llm/run-mode/fusion-team.js";
 import {
   NO_REVIEWER,
+  TEAM_PICKS_REVIEWER,
   readSessionFusionDirector,
   readSessionFusionReviewer,
   readSessionFusionWorker,
@@ -182,6 +183,37 @@ export function teamMemberByRef(
   ref: string,
 ): TeamMember | null {
   return teamMembers(fusion?.team, role).find((m) => m.ref === ref) ?? null;
+}
+
+/**
+ * Why a named director / worker / reviewer cannot be taken for a turn
+ * against this fusion config, or null (issue #74). The same membership
+ * rules and messages as the turn's own check (`pickTurnTeam` in
+ * `runtime-turn-service.ts`), which still runs; an ingress calls this
+ * first so a client's mistake is a 400 naming the field, not a 500 or a
+ * failed stream. Provider policy is left to the turn.
+ */
+export function teamChoiceMembershipError(
+  fusion: UserLlmFusionConfig | undefined,
+  choice: { director?: string; worker?: string; reviewer?: string },
+): { error: string; param: "director" | "worker" | "reviewer" } | null {
+  const named = (["director", "worker", "reviewer"] as const).filter((param) => choice[param] !== undefined);
+  if (named.length === 0) return null;
+  if (fusion?.team === undefined) {
+    return {
+      error: "no fusion team is configured (llm.runMode.fusion.team): a director, worker or reviewer cannot be chosen",
+      param: named[0]!,
+    };
+  }
+  const roles = { director: "directors", worker: "workers", reviewer: "reviewers" } as const;
+  for (const param of named) {
+    const ref = choice[param]!;
+    if (param === "reviewer" && (ref === NO_REVIEWER || ref === TEAM_PICKS_REVIEWER)) continue;
+    if (teamMemberByRef(fusion, roles[param], ref) === null) {
+      return { error: `"${ref}" is not a ${param} of the fusion team (llm.runMode.fusion.team.${roles[param]})`, param };
+    }
+  }
+  return null;
 }
 
 /** What one turn runs with: the run mode's `director` / `worker` options, and the chat's reviewer. */

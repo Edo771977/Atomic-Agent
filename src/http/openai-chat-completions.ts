@@ -35,6 +35,7 @@ import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import { perTurnModelRefusal } from "../runtime/per-turn-model.js";
+import { teamChoiceMembershipError } from "../runtime/session-director.js";
 import { resolveLlmConfig } from "../llm/provider/index.js";
 import { openaiError } from "./openai-errors.js";
 import {
@@ -1499,6 +1500,11 @@ async function parseRequestBody(
     );
     return null;
   }
+  // Issue #74: `null`, an array or a scalar is valid JSON but no request.
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    sendError(res, 400, openaiError("Request body must be a JSON object"));
+    return null;
+  }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     sendError(res, 400, openaiError("Missing or invalid 'messages' field"));
     return null;
@@ -1557,6 +1563,12 @@ async function parseRequestBody(
     sendError(res, 400, openaiError(team.error, "invalid_request_error", team.param));
     return null;
   }
+  // Issue #74: membership against the live config, before any stream opens.
+  const notOnTeam = teamChoiceMembershipError(resolveLlmConfig(getConfig()).runMode?.fusion, team);
+  if (notOnTeam !== null) {
+    sendError(res, 400, openaiError(notOnTeam.error, "invalid_request_error", notOnTeam.param));
+    return null;
+  }
   return {
     model:
       typeof body.model === "string" && body.model.length > 0
@@ -1592,8 +1604,8 @@ async function parseRequestBody(
 /**
  * Issue #37: the request's `director` / `worker` (and, issue #71,
  * `reviewer`, which may also be `"none"`), trimmed, or why one cannot be
- * a team member at all. Whether the team lists it is the turn's check
- * (`executeTurn`), against the config the turn runs on.
+ * a team member at all. Whether the team lists it is checked next
+ * (`teamChoiceMembershipError`, issue #74) and again by the turn.
  */
 export function parseTeamChoice(
   body: { director?: unknown; worker?: unknown; reviewer?: unknown },
