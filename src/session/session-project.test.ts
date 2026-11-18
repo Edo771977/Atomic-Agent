@@ -436,6 +436,44 @@ describe("applyProjectDecision", () => {
   });
 });
 
+describe("a milestone gate cannot be skipped (issue #74)", () => {
+  const failedReport = (): ProjectState => {
+    const p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    return update(p, { kind: "milestone", id: "m1", state: "failed", summary: "broken" });
+  };
+
+  it("refuses a brief or plan re-draft while a milestone result waits for the person", () => {
+    const p = failedReport();
+    for (const u of [planUpdate, briefUpdate]) {
+      const r = applyProjectUpdate(p, u, NOW);
+      expect(r).toMatchObject({ ok: false, error: { code: "awaiting-person" } });
+      if (!r.ok) expect(r.error.message).toMatch(/milestone m1.*wait for the person's decision/i);
+    }
+  });
+
+  it("approving a plan never approves a later milestone past an unreviewed done or failed one", () => {
+    for (const state of ["failed", "done"] as const) {
+      const reported = update(update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" }), { kind: "milestone", id: "m1", state, summary: "x" });
+      // An older store: the plan gate reopened over the unreviewed result.
+      const stored: ProjectState = { ...reported, plan: { ...reported.plan!, status: "draft" }, gate: { kind: "plan" } };
+      const p = approve(stored);
+      expect(p.milestones.map((m) => m.state)).toEqual([state, "planned"]);
+      expect(p.gate).toEqual({ kind: "milestone", id: "m1" });
+    }
+  });
+
+  it("a re-plan keeps a kept milestone's criteria facts and pictures", () => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = update(p, { kind: "milestone", id: "m1", state: "done", summary: "ok", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    p = approve(p);
+    const attachments = [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }];
+    p = { ...p, milestones: p.milestones.map((m) => (m.id === "m1" ? { ...m, attachments } : m)) };
+    const re = update(p, planUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }], attachments });
+    expect(re.milestones[1]!.criteriaFacts).toBeUndefined();
+  });
+});
+
 describe("projectExpectation", () => {
   it("covers every stage", () => {
     expect(projectExpectation(undefined)).toEqual({ kind: "draft_brief" });

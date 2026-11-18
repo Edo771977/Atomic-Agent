@@ -329,7 +329,9 @@ export type ProjectUpdateErrorCode =
   | "plan-not-approved"
   | "unknown-milestone"
   | "milestone-not-approved"
-  | "cancelled";
+  | "cancelled"
+  /** A milestone result waits for the person: no brief or plan re-draft until they decide (issue #74). */
+  | "awaiting-person";
 
 export interface ProjectUpdateError {
   code: ProjectUpdateErrorCode;
@@ -967,11 +969,28 @@ const floorOf = (project: ProjectState | undefined) =>
 
 const FINISHED: ReadonlySet<MilestoneState> = new Set(["done", "failed", "reviewed"]);
 
+/**
+ * A re-drafted brief or plan would close the open milestone gate without
+ * the person's decision on its result (issue #74): refused until they decide.
+ */
+function milestoneGateOpen(project: ProjectState | undefined): ProjectUpdateResult | null {
+  if (project === undefined || project.cancelledAt !== undefined || project.gate.kind !== "milestone") return null;
+  return {
+    ok: false,
+    error: {
+      code: "awaiting-person",
+      message: `Milestone ${project.gate.id}'s result waits for the person's decision: reply and wait for the person's decision before you change the brief or the plan.`,
+    },
+  };
+}
+
 function briefUpdate(
   project: ProjectState | undefined,
   update: Extract<ProjectUpdate, { kind: "brief" }>,
   now: number,
 ): ProjectUpdateResult {
+  const waiting = milestoneGateOpen(project);
+  if (waiting !== null) return waiting;
   // After a cancel, a new brief is a new project.
   const base: ProjectState | undefined = project?.cancelledAt !== undefined ? undefined : project;
   const draft = cleanBriefDraft(update.brief, base?.brief?.successCriteria);
@@ -1015,6 +1034,8 @@ function planUpdate(
   if (project?.brief?.status !== "approved") {
     return { ok: false, error: { code: "brief-not-approved", message: "The brief is not approved yet: draft it with project.brief and reply so the person can approve it." } };
   }
+  const waiting = milestoneGateOpen(project);
+  if (waiting !== null) return waiting;
   if (!Array.isArray(update.milestones) || update.milestones.length === 0) return invalid("the plan needs at least one milestone");
   if (update.milestones.length > PROJECT_LIMITS.milestones) return invalid(`at most ${PROJECT_LIMITS.milestones} milestones`);
   if (!Array.isArray(update.rows) || update.rows.length === 0) return invalid("the plan needs at least one task");
@@ -1040,6 +1061,9 @@ function planUpdate(
       runIds: old?.runIds ?? [],
       ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
       ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
+      // The result's evidence stays with it (issue #74).
+      ...(keep && old.attachments !== undefined ? { attachments: old.attachments } : {}),
+      ...(keep && old.criteriaFacts !== undefined ? { criteriaFacts: old.criteriaFacts } : {}),
       updatedAt: now,
     });
   }
@@ -1165,10 +1189,16 @@ function refuse(error: ProjectDecisionError): ProjectDecisionResult {
   return { ok: false, error };
 }
 
-/** The first planned milestone becomes approved (in plan order). */
+/** A done or failed result the person has not decided on yet. */
+const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.state === "failed";
+
+/**
+ * The first planned milestone becomes approved (in plan order), never
+ * past a done or failed result the person has not decided on (issue #74).
+ */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  const next = milestones.findIndex((m) => m.state === "planned");
-  if (next < 0) return [...milestones];
+  const next = milestones.findIndex((m) => m.state === "planned" || unreviewed(m));
+  if (next < 0 || milestones[next]!.state !== "planned") return [...milestones];
   return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }
 
@@ -1274,7 +1304,11 @@ export function applyProjectDecision(
             ...(project.plan!.draftedAfterUntrusted ? { approvedWithUntrustedWarning: true as const } : {}),
           },
           milestones: approveNext(project.milestones, now),
-          gate: { kind: "none" },
+          // An unreviewed result (an older store) goes to the person first.
+          gate: (() => {
+            const waiting = project.milestones.find(unreviewed);
+            return waiting === undefined ? { kind: "none" as const } : { kind: "milestone" as const, id: waiting.id };
+          })(),
         },
       };
     }
