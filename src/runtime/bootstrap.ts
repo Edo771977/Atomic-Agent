@@ -47,6 +47,7 @@ import { join, resolve } from "node:path";
 import { getConfig } from "../config/index.js";
 import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal, moveSessionFolder, retrySessionSeed, sessionPolicyStamp } from "./session-provider-policy.js";
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
+import { fusionWorkerParents } from "./fusion-worker-parents.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
 import { describeProviderRestriction, resolveProjectConstraint } from "../llm/provider-policy.js";
@@ -407,6 +408,8 @@ export async function createAgentRuntime(
   // another session reading a spilled file is tainted with it.
   const toolOutputSpill = new ToolOutputSpill({
     policyFor: (id) => sessionProviderPolicy.effectivePolicyForSession(id),
+    // A worker's orchestrators read the paths its summary hands them.
+    parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
   });
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);

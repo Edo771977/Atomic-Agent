@@ -50,7 +50,8 @@ import { sessionFileName } from "../session/session-id.js";
  * by this session (it spills nothing; the folder is left to the stale
  * sweep). So outputs from before markers existed, or under an older lossy
  * name, are no longer the session's to read back or delete. The session's own
- * folder is in its read scope, a worker's too (`read-scope.ts`), so the
+ * folder is in its read scope, a worker's too, and a worker's folder is
+ * its orchestrators' (`parentsFor`, recorded in the marker; `read-scope.ts`), so the
  * model can open the path it is given; another session's is not scratch
  * (issue #74). The folder's marker (`read-scope/temp-copy-sources.ts`)
  * names the session and the strictest policy it spilled under
@@ -118,6 +119,12 @@ export interface ToolOutputSpillOptions {
    * the folder's marker; `undefined` when unconstrained.
    */
   policyFor?: (sessionId: string) => ProviderPolicy | undefined;
+  /**
+   * A Fusion worker's orchestrators (parent first), recorded in the
+   * folder's marker so they read the paths its summary hands them as
+   * their own. Empty for any other session.
+   */
+  parentsFor?: (sessionId: string) => readonly string[];
   maxFileBytes?: number;
   maxSessionBytes?: number;
 }
@@ -129,12 +136,14 @@ export class ToolOutputSpill {
   private readonly used = new Map<string, number>();
   private readonly counters = new Map<string, number>();
   private readonly policyFor: ((sessionId: string) => ProviderPolicy | undefined) | undefined;
+  private readonly parentsFor: ((sessionId: string) => readonly string[]) | undefined;
   /** The policy each session's marker holds now (`null`: written, unconstrained). */
   private readonly stamped = new Map<string, ProviderPolicy | null>();
 
   constructor(options: ToolOutputSpillOptions = {}) {
     this.baseDir = options.baseDir;
     this.policyFor = options.policyFor;
+    this.parentsFor = options.parentsFor;
     this.maxFileBytes = options.maxFileBytes ?? SPILL_MAX_FILE_BYTES;
     this.maxSessionBytes = options.maxSessionBytes ?? SPILL_MAX_SESSION_BYTES;
   }
@@ -305,7 +314,12 @@ export class ToolOutputSpill {
       this.stamped.set(sessionId, next);
       return;
     }
-    writeTempCopyMarkerSync("spill", dir, { sessionId, ...(next === null ? {} : { policy: next }) });
+    const parentSessionIds = this.parentsFor?.(sessionId) ?? [];
+    writeTempCopyMarkerSync("spill", dir, {
+      sessionId,
+      ...(parentSessionIds.length === 0 ? {} : { parentSessionIds }),
+      ...(next === null ? {} : { policy: next }),
+    });
     this.stamped.set(sessionId, next);
   }
 }

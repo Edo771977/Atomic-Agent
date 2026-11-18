@@ -77,6 +77,12 @@ export interface TempCopyMarker {
   readonly source?: string;
   /** The session that made the root. */
   readonly sessionId?: string;
+  /**
+   * The orchestrators of a Fusion worker that made the root (parent first):
+   * the worker's summary hands them its saved-output paths, so the root
+   * is theirs too.
+   */
+  readonly parentSessionIds?: readonly string[];
   /** That session's policy when the root was made (or, for a spill folder, the strictest since). */
   readonly policy?: ProviderPolicy;
 }
@@ -84,6 +90,7 @@ export interface TempCopyMarker {
 /** Who makes a temp root: the session and its policy. */
 export interface TempCopyOwner {
   readonly sessionId?: string;
+  readonly parentSessionIds?: readonly string[];
   readonly policy?: ProviderPolicy;
 }
 
@@ -174,7 +181,9 @@ export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): Te
     const raw = JSON.parse(text) as Record<string, unknown> | null;
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
     if (raw.version !== 1 || raw.kind !== kind) return null;
-    const { source, sessionId } = raw;
+    const { source, sessionId, parentSessionIds } = raw;
+    if (parentSessionIds !== undefined
+      && !(Array.isArray(parentSessionIds) && parentSessionIds.every((id): id is string => typeof id === "string"))) return null;
     // A copy's marker exists to name its source: without one it is a spoof.
     if (kind !== "spill" && source === undefined) return null;
     if (source !== undefined && (typeof source !== "string" || !isAbsolute(source))) return null;
@@ -188,6 +197,7 @@ export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): Te
       kind,
       ...(source === undefined ? {} : { source }),
       ...(sessionId === undefined ? {} : { sessionId }),
+      ...(parentSessionIds === undefined ? {} : { parentSessionIds: parentSessionIds as string[] }),
       ...(policy === undefined ? {} : { policy }),
     };
   } catch {
@@ -208,10 +218,12 @@ export function tempCopyOf(path: string): { root: TempCopyRoot; marker: TempCopy
  * `codex:a_b` shared one). No readable marker: nobody's.
  */
 function isOwnSpillRoot(copy: { root: TempCopyRoot; marker: TempCopyMarker | null }, sessionId: string | undefined): boolean {
-  return copy.root.kind === "spill" && sessionId !== undefined && copy.marker?.sessionId === sessionId;
+  if (copy.root.kind !== "spill" || sessionId === undefined || copy.marker === null) return false;
+  // A Fusion worker's outputs are its orchestrators' too (its taint reaches them already).
+  return copy.marker.sessionId === sessionId || (copy.marker.parentSessionIds?.includes(sessionId) ?? false);
 }
 
-/** Whether `path` lies in a spill folder whose marker names `sessionId`. */
+/** Whether `path` lies in a spill folder whose marker names `sessionId` (or it as a worker's orchestrator). */
 export function isOwnSpillPath(path: string, sessionId: string): boolean {
   const copy = tempCopyOf(path);
   return copy !== undefined && isOwnSpillRoot(copy, sessionId);
@@ -268,6 +280,7 @@ function markerBody(kind: TempCopyKind, owner: TempCopyOwner & { source?: string
     kind,
     ...(owner.source === undefined ? {} : { source: owner.source }),
     ...(owner.sessionId === undefined ? {} : { sessionId: owner.sessionId }),
+    ...(owner.parentSessionIds === undefined || owner.parentSessionIds.length === 0 ? {} : { parentSessionIds: [...owner.parentSessionIds] }),
     ...(owner.policy === undefined ? {} : { policy: toProviderPolicyStamp(owner.policy) }),
   })}\n`;
 }
