@@ -72,6 +72,10 @@ describe("sessionIdFromFileName", () => {
       expect(sessionIdFromFileName(sessionFileName(id))).toBe(id);
     }
     expect(sessionIdFromFileName("codex:abc")).toBe("codex:abc");
+    // A raw name an older build wrote, holding '~xx' that sessionFileName would never produce.
+    expect(sessionIdFromFileName("a~3ab~zz")).toBe("a~3ab~zz");
+    expect(sessionIdFromFileName("a~41b")).toBe("a~41b");
+    expect(sessionIdFromFileName("a~3Ab")).toBe("a~3Ab");
     expect(sessionIdFromFileName(sessionFileName("x".repeat(300)))).toBeNull();
   });
 });
