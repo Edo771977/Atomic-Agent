@@ -622,7 +622,6 @@ if (invokedDirectly) {
   void bootstrapSidecar();
 }
 
-/** `canvas` on a `tool_call_result` (ATO-1137): the file an ok `canvas.render` wrote. */
 /**
  * The `sessionId` of a request, refused when it could name a path
  * (issue #74, `session/session-id.ts`): checked before anything else so a
@@ -635,6 +634,7 @@ function requireSessionId(value: unknown): string {
   return value;
 }
 
+/** `canvas` on a `tool_call_result` (ATO-1137): the file an ok `canvas.render` wrote. */
 function canvasPayload(result: CompressedToolResult): { canvas?: NonNullable<ReturnType<typeof canvasRecordOf>> } {
   const canvas = canvasRecordOf(result);
   return canvas === undefined ? {} : { canvas };
