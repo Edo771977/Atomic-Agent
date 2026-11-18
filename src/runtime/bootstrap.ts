@@ -403,7 +403,11 @@ export async function createAgentRuntime(
   // Full outputs of clipped local tool results, one temp folder per
   // session (ATO-663): removed with the session, and folders left by
   // sessions that are gone (fusion workers are never stored) swept here.
-  const toolOutputSpill = new ToolOutputSpill();
+  // Each folder's marker carries the session's policy (issue #74), so
+  // another session reading a spilled file is tainted with it.
+  const toolOutputSpill = new ToolOutputSpill({
+    policyFor: (id) => sessionProviderPolicy.effectivePolicyForSession(id),
+  });
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
 

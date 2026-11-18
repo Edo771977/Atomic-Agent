@@ -54,3 +54,10 @@ export type { CommandReadCheck } from "./confine-reads.js";
 export { createReadTargetCheck } from "./confine-reads.js";
 export type { ReadTargetCheck } from "./confine-reads.js";
 export { readTaintTargets } from "./read-taint-targets.js";
+export {
+  isForeignTempCopy,
+  isTempCopyMarkerPath,
+  tempCopyPolicy,
+  TEMP_COPY_MARKER,
+} from "./temp-copy-sources.js";
+export type { TempCopyKind, TempCopyMarker, TempCopyOwner } from "./temp-copy-sources.js";
