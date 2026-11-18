@@ -65,7 +65,7 @@ function withIdeaStore(
  * Issue #33: on a network server an idea built from a restricted
  * session (a goal's criteria, a failed task's message) is not shown,
  * accepted or dismissed: it reads as unknown. An idea with no session is
- * withheld too while constraints exist (issue #74).
+ * judged by the server folder's policy (issue #74, `serveWithheldRecord`).
  */
 function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
   const sessionId = idea.evidence.source === "goal"
