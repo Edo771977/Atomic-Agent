@@ -158,7 +158,7 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
 
   it("a milestone correction goes back to approved", () => {
     const running = approved(up(approved(up(undefined, brief)), plan));
-    const reported = up(running, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const reported = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     const h = harness({ project: reported });
     const r = h.runtime.projectDecision("s1", { gate: reported.gate, version: gateVersion(reported)!, verdict: "edit", edits: { note: "the score does not reset" } });
     expect(r).toMatchObject({ ok: true, project: { milestones: [{ state: "approved", corrections: [{ note: "the score does not reset" }] }, { state: "planned" }] } });
@@ -178,7 +178,7 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
   it("nextMilestoneOf: the first not finished, or the failed one at its gate", () => {
     const running = approved(up(approved(up(undefined, brief)), plan));
     expect(nextMilestoneOf(running)).toBe("m1");
-    const done = up(running, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const done = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     expect(nextMilestoneOf(done)).toBe("m2");
     const failed = up(running, { kind: "milestone", id: "m1", state: "failed", summary: "no" });
     expect(nextMilestoneOf(failed)).toBe("m1");

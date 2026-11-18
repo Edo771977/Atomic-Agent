@@ -62,7 +62,7 @@ describe("checkProjectDispatch (issue #39)", () => {
   });
 
   it("refuses while a milestone report waits for the person", () => {
-    const reported = up(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const reported = up(up(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     expect(checkProjectDispatch(reported, ["a"])).toMatchObject({ kind: "refuse", reason: "awaiting-person" });
   });
 

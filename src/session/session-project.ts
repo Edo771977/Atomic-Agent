@@ -331,7 +331,9 @@ export type ProjectUpdateErrorCode =
   | "milestone-not-approved"
   | "cancelled"
   /** A milestone result waits for the person: no brief or plan re-draft until they decide (issue #74). */
-  | "awaiting-person";
+  | "awaiting-person"
+  /** A done report with no run since the milestone's approval or its last failed report (issue #74). */
+  | "milestone-not-run";
 
 export interface ProjectUpdateError {
   code: ProjectUpdateErrorCode;
@@ -1124,6 +1126,19 @@ function milestoneUpdate(
     return { ok: false, error: { code: "milestone-not-approved", message: `Milestone ${update.id} is not approved; report only the milestone you ran.` } };
   }
   if (update.state !== "done" && update.state !== "failed") return invalid("state must be done or failed");
+  // Done stands on a run since the milestone was (re)approved: a run
+  // makes it `in_progress`, and a done result stays done when re-reported.
+  // Approved (no run yet, or a correction or failed result re-approved it)
+  // or failed (no run since that report) has nothing to be done over.
+  if (update.state === "done" && current.state !== "in_progress" && current.state !== "done") {
+    return {
+      ok: false,
+      error: {
+        code: "milestone-not-run",
+        message: `Milestone ${update.id} has no run since ${current.state === "failed" ? "its failed report" : "it was approved"}: delegate its tasks with fusion.delegate, then report it done (or report it failed with the reason).`,
+      },
+    };
+  }
   const summary = typeof update.summary === "string" ? clipText(update.summary, PROJECT_LIMITS.text) : "";
   if (summary.length === 0) return invalid("the report needs a summary of the result");
   let attachments: ProjectMilestoneAttachment[] = [];

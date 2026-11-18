@@ -261,7 +261,7 @@ describe("applyProjectUpdate: milestones", () => {
 
   it("a report records the summary, opens the milestone gate and bumps the plan version without un-approving it", () => {
     const r = running();
-    const p = update(r, { kind: "milestone", id: "m1", state: "done", summary: "Base done" }, NOW + 5);
+    const p = update(update(r, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "Base done" }, NOW + 5);
     expect(p.milestones[0]).toMatchObject({ state: "done", summary: "Base done", updatedAt: NOW + 5 });
     expect(p.gate).toEqual({ kind: "milestone", id: "m1" });
     expect(p.plan).toMatchObject({ status: "approved", version: r.plan!.version + 1 });
@@ -286,11 +286,11 @@ describe("applyProjectDecision", () => {
   });
 
   it("approving milestone N's result marks it reviewed and approves N+1; the last completes the project", () => {
-    let p = update(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    let p = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
     expect(projectExpectation(p)).toEqual({ kind: "run_milestone", id: "m2" });
-    p = update(p, { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    p = update(update(p, { kind: "milestone_run", id: "m2", runId: "r2" }), { kind: "milestone", id: "m2", state: "done", summary: "ok" });
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed"]);
     expect(p.gate).toEqual({ kind: "none" });
@@ -304,7 +304,7 @@ describe("applyProjectDecision", () => {
   });
 
   it("a correction at the milestone gate sends it back to approved with the note recorded", () => {
-    const reported = update(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const reported = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
     const v = gateVersion(reported)!;
     const p = ok(applyProjectDecision(
       reported,
@@ -471,6 +471,25 @@ describe("a milestone gate cannot be skipped (issue #74)", () => {
     const re = update(p, planUpdate);
     expect(re.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }], attachments });
     expect(re.milestones[1]!.criteriaFacts).toBeUndefined();
+  });
+});
+
+describe("a milestone is done only over a run (issue #74)", () => {
+  it("refuses a done report with no run since its approval or since the last failed report", () => {
+    const fresh = applyProjectUpdate(running(), { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW);
+    expect(fresh).toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    if (!fresh.ok) expect(fresh.error.message).toMatch(/fusion\.delegate/);
+    // A failed report needs no run; a done one after it needs a new run.
+    const failed = update(update(running(), { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "failed", summary: "broken" });
+    expect(applyProjectUpdate(failed, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    // Re-approved after a correction: the old run no longer counts.
+    const reapproved = approve(failed);
+    expect(applyProjectUpdate(reapproved, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW))
+      .toMatchObject({ ok: false, error: { code: "milestone-not-run" } });
+    const rerun = update(reapproved, { kind: "milestone_run", id: "m1", runId: "r2" });
+    expect(update(rerun, { kind: "milestone", id: "m1", state: "done", summary: "ok" }).milestones[0]).toMatchObject({ state: "done", runIds: ["r1", "r2"] });
+    expect(update(running(), { kind: "milestone", id: "m1", state: "failed", summary: "could not start" }).milestones[0]!.state).toBe("failed");
   });
 });
 
