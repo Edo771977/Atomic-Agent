@@ -83,11 +83,12 @@ describe("read taint of temp copies", () => {
     const applied = runWithProviderPolicy(undefined, () =>
       t.taint.noteDispatch("os.fs.read", { path: join(dir, "0001-abcdef-os-shell-run.txt") }, t.ctx("s-reader")));
     expect(applied?.key).toBe(t.secret);
-    // The session's own outputs came from it: no taint, even with no marker.
+    // The session's own outputs (its marker names it) came from it: no taint.
     const own = `s-spill-own-${process.pid}-${Date.now()}`;
     const ownDir = join(tmpdir(), "atomic-agent-tool-outputs", own);
     mkdirSync(ownDir, { recursive: true });
     made.push(ownDir);
+    writeFileSync(join(ownDir, ".atag-source.json"), JSON.stringify({ version: 1, kind: "spill", sessionId: own, policy: stamp }), { mode: 0o600 });
     expect(runWithProviderPolicy(undefined, () =>
       t.taint.noteDispatch("os.fs.read", { path: join(ownDir, "0001-abcdef-x.txt") }, t.ctx(own)))).toBeUndefined();
   });

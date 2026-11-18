@@ -44,9 +44,14 @@ import { canonical, scratchDirs } from "./scratch-paths.js";
  * A root is recognised by its name directly under a scratch directory
  * (the exact names the runtime makes). A recognised root whose marker is
  * missing, malformed, a link or someone else's fails closed: restricted
- * to nothing, and foreign to every session. A session's own spill folder
- * is always its own (its content came from that session). A shell command
- * can still rewrite or delete a marker; deleting one fails closed.
+ * to nothing, and foreign to every session. A fusion or verify marker
+ * must name its source, and a marker this process wrote must still read
+ * as written (an in-process record), so dropping a field or rewriting a
+ * live root's marker fails closed too. A session's own spill folder is
+ * its own when the folder's marker names it (its content came from that
+ * session); ownership is never read from the folder's name. A shell
+ * command can still rewrite the marker of a root another process made
+ * (one from before a restart); deleting a marker fails closed.
  */
 
 export const TEMP_COPY_MARKER = ".atag-source.json";
@@ -72,6 +77,12 @@ export interface TempCopyMarker {
   readonly source?: string;
   /** The session that made the root. */
   readonly sessionId?: string;
+  /**
+   * The orchestrators of a Fusion worker that made the root (parent first):
+   * the worker's summary hands them its saved-output paths, so the root
+   * is theirs too.
+   */
+  readonly parentSessionIds?: readonly string[];
   /** That session's policy when the root was made (or, for a spill folder, the strictest since). */
   readonly policy?: ProviderPolicy;
 }
@@ -79,13 +90,8 @@ export interface TempCopyMarker {
 /** Who makes a temp root: the session and its policy. */
 export interface TempCopyOwner {
   readonly sessionId?: string;
+  readonly parentSessionIds?: readonly string[];
   readonly policy?: ProviderPolicy;
-}
-
-/** A session id as one safe path segment (the spill folder's name). */
-export function spillSegment(sessionId: string): string {
-  const cleaned = sessionId.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 120);
-  return cleaned.length > 0 ? cleaned : "_";
 }
 
 /** The marker path of a temp root of `kind` at `dir`. */
@@ -148,17 +154,38 @@ export function isTempCopyMarkerPath(path: string): boolean {
   return VERIFY_ROOT.test(name) && tempCopyRootOf(join(dirname(full), name, "x"))?.kind === "verify";
 }
 
-/** The marker at `markerPath` for a root of `kind`; `null` when missing or unreadable (fail closed). */
+/**
+ * The markers this process wrote, by canonical path, with the exact text:
+ * a marker of a root this process made that reads differently was
+ * rewritten by something else (a shell command) and fails closed. One
+ * entry per root made, for the life of the process.
+ */
+const writtenMarkers = new Map<string, string>();
+const markerKey = (path: string): string => canonical(resolve(path));
+
+/**
+ * The marker at `markerPath` for a root of `kind`; `null` when missing or
+ * unreadable (fail closed): a link, another user's, malformed, a fusion or
+ * verify marker with no `source`, or one this process wrote whose text
+ * changed since.
+ */
 export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): TempCopyMarker | null {
   try {
     const info = lstatSync(markerPath);
     if (!info.isFile()) return null;
     const uid = process.getuid?.();
     if (uid !== undefined && info.uid !== uid) return null;
-    const raw = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown> | null;
+    const text = readFileSync(markerPath, "utf8");
+    const mine = writtenMarkers.get(markerKey(markerPath));
+    if (mine !== undefined && mine !== text) return null;
+    const raw = JSON.parse(text) as Record<string, unknown> | null;
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
     if (raw.version !== 1 || raw.kind !== kind) return null;
-    const { source, sessionId } = raw;
+    const { source, sessionId, parentSessionIds } = raw;
+    if (parentSessionIds !== undefined
+      && !(Array.isArray(parentSessionIds) && parentSessionIds.every((id): id is string => typeof id === "string"))) return null;
+    // A copy's marker exists to name its source: without one it is a spoof.
+    if (kind !== "spill" && source === undefined) return null;
     if (source !== undefined && (typeof source !== "string" || !isAbsolute(source))) return null;
     if (sessionId !== undefined && typeof sessionId !== "string") return null;
     let policy: ProviderPolicy | undefined;
@@ -170,6 +197,7 @@ export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): Te
       kind,
       ...(source === undefined ? {} : { source }),
       ...(sessionId === undefined ? {} : { sessionId }),
+      ...(parentSessionIds === undefined ? {} : { parentSessionIds: parentSessionIds as string[] }),
       ...(policy === undefined ? {} : { policy }),
     };
   } catch {
@@ -184,8 +212,21 @@ export function tempCopyOf(path: string): { root: TempCopyRoot; marker: TempCopy
   return { root, marker: readTempCopyMarkerAt(root.markerPath, root.kind) };
 }
 
-function isOwnSpillRoot(root: TempCopyRoot, sessionId: string | undefined): boolean {
-  return root.kind === "spill" && sessionId !== undefined && basename(root.dir) === spillSegment(sessionId);
+/**
+ * Whether a spill folder is `sessionId`'s own: by its marker only, never
+ * by its name (an older build's names were lossy: `codex:a.b` and
+ * `codex:a_b` shared one). No readable marker: nobody's.
+ */
+function isOwnSpillRoot(copy: { root: TempCopyRoot; marker: TempCopyMarker | null }, sessionId: string | undefined): boolean {
+  if (copy.root.kind !== "spill" || sessionId === undefined || copy.marker === null) return false;
+  // A Fusion worker's outputs are its orchestrators' too (its taint reaches them already).
+  return copy.marker.sessionId === sessionId || (copy.marker.parentSessionIds?.includes(sessionId) ?? false);
+}
+
+/** Whether `path` lies in a spill folder whose marker names `sessionId` (or it as a worker's orchestrator). */
+export function isOwnSpillPath(path: string, sessionId: string): boolean {
+  const copy = tempCopyOf(path);
+  return copy !== undefined && isOwnSpillRoot(copy, sessionId);
 }
 
 /**
@@ -196,7 +237,7 @@ function isOwnSpillRoot(root: TempCopyRoot, sessionId: string | undefined): bool
 export function isForeignTempCopy(path: string, sessionId: string | undefined): boolean {
   const copy = tempCopyOf(path);
   if (copy === undefined) return false;
-  if (isOwnSpillRoot(copy.root, sessionId)) return false;
+  if (isOwnSpillRoot(copy, sessionId)) return false;
   return copy.marker?.sessionId === undefined || copy.marker.sessionId !== sessionId;
 }
 
@@ -220,7 +261,7 @@ export function tempCopyPolicy(
 ): ProviderPolicy | undefined {
   const copy = tempCopyOf(path);
   if (copy === undefined) return undefined;
-  if (isOwnSpillRoot(copy.root, options.sessionId)) return undefined;
+  if (isOwnSpillRoot(copy, options.sessionId)) return undefined;
   if (copy.marker === null || hops >= MAX_SOURCE_HOPS) return unreadablePolicy(copy.root.dir);
   let policy = copy.marker.policy;
   const source = copy.marker.source;
@@ -239,6 +280,7 @@ function markerBody(kind: TempCopyKind, owner: TempCopyOwner & { source?: string
     kind,
     ...(owner.source === undefined ? {} : { source: owner.source }),
     ...(owner.sessionId === undefined ? {} : { sessionId: owner.sessionId }),
+    ...(owner.parentSessionIds === undefined || owner.parentSessionIds.length === 0 ? {} : { parentSessionIds: [...owner.parentSessionIds] }),
     ...(owner.policy === undefined ? {} : { policy: toProviderPolicyStamp(owner.policy) }),
   })}\n`;
 }
@@ -249,7 +291,10 @@ export async function writeTempCopyMarker(
   dir: string,
   owner: TempCopyOwner & { source?: string },
 ): Promise<void> {
-  await writeFile(tempCopyMarkerPath(kind, dir), markerBody(kind, owner), { encoding: "utf8", mode: 0o600, flag: "wx" });
+  const path = tempCopyMarkerPath(kind, dir);
+  const body = markerBody(kind, owner);
+  await writeFile(path, body, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  writtenMarkers.set(markerKey(path), body);
 }
 
 /** Write or replace a root's marker synchronously (owner-only); the spill folder's. */
@@ -259,6 +304,8 @@ export function writeTempCopyMarkerSync(
   owner: TempCopyOwner & { source?: string },
 ): void {
   const path = tempCopyMarkerPath(kind, dir);
+  const body = markerBody(kind, owner);
   rmSync(path, { force: true });
-  writeFileSync(path, markerBody(kind, owner), { encoding: "utf8", mode: 0o600, flag: "wx" });
+  writeFileSync(path, body, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  writtenMarkers.set(markerKey(path), body);
 }

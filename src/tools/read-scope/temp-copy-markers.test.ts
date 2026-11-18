@@ -86,11 +86,12 @@ describe("temp copy markers", () => {
     policy = undefined;
     await new ToolOutputSpill({ baseDir, policyFor: () => policy }).spill("os.shell.run", "s-1", result);
     expect(readTempCopyMarkerAt(markerPath, "spill")?.policy?.key).toBe("/work/secret");
-    // An unreadable marker becomes "nothing allowed".
+    // An unreadable marker: the folder is nobody's, so a new process
+    // neither adopts nor re-stamps it, and spills nothing there.
     writeFileSync(markerPath, "garbage");
-    await new ToolOutputSpill({ baseDir }).spill("os.shell.run", "s-1", result);
-    expect(readTempCopyMarkerAt(markerPath, "spill")?.policy?.allowedProviders).toEqual([]);
-    expect(JSON.parse(readFileSync(markerPath, "utf8")).version).toBe(1);
+    const after = await new ToolOutputSpill({ baseDir }).spill("os.shell.run", "s-1", result);
+    expect(after).toBe(result);
+    expect(readFileSync(markerPath, "utf8")).toBe("garbage");
   });
 
   it("a marker that is a link or malformed reads as unreadable", () => {
