@@ -975,14 +975,18 @@ export class AgentClient extends EventEmitter {
           "127.0.0.1",
           "--port",
           String(port),
-          "--api-key",
-          token,
           ...serveWatchArgs(process.platform, sentinel?.pid),
         ],
         {
           cwd: this.status.workingDir,
           // r5 item 9: `atag serve` runs on the desktop's own state directory.
-          env: agentEnv(),
+          /* Issue #74: the per-launch key goes in the environment, not as
+             `--api-key` on the command line `ps` shows every user. Every agent
+             the desktop can pick (bundled or user-installed) reads it there:
+             serve-args.ts has fallen back to it since before the desktop app
+             existed, so no flag fallback is kept. A current agent also deletes
+             it from its own environment once read. */
+          env: { ...agentEnv(), ATOMIC_AGENT_API_KEY: token },
           stdio: ["ignore", "pipe", "pipe"],
           // Windows: a console child of a GUI app otherwise opens a console window.
           windowsHide: true,
