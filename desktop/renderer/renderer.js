@@ -10429,7 +10429,7 @@ function startLiveTurn(text) {
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
   BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject), teamChoice).then((res) => {
-    if (res && res.ok && teamChoice) fzrTurnSent(session);
+    if (res && res.ok && teamChoice) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -10486,10 +10486,12 @@ function firstTurnNamed(turnId, sid) {
   if (rec && rec.folder && row && !row.workingDir) row.workingDir = rec.folder;
   projectFileNewChat(turnId, sid);
   projectStandInSession(turnId, sid);
+  if (typeof fzrTurnNamed === 'function') fzrTurnNamed(turnId, sid);   // issue #74: the Reviewer pick its turn carried is this chat's (fusion-reviewer.js)
 }
 function firstTurnEnded(turnId) {
   FIRST_TURNS.delete(turnId);   // item 27: a turn that ended before its stream named a session
   projectStandInEnded(turnId);
+  if (typeof fzrTurnNamed === 'function') fzrTurnNamed(turnId, null);   // issue #74: an unnamed first turn's pick goes with it
 }
 
 /** Item 27: the stream named the session a new chat's first turn runs in.
