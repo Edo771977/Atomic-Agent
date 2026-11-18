@@ -9,6 +9,7 @@ import {
 } from "./chat-export.js";
 import { knownSecretsFromEnv } from "../error-reporting/secret-detector.js";
 import { renderMarkdownDocx } from "./chat-export-docx.js";
+import { renderMarkdownPdf } from "./chat-export-pdf.js";
 import type { SessionState } from "./session-state.js";
 
 /** One exported chat, ready to write to a file or send over the wire. */
@@ -16,7 +17,7 @@ export interface ChatExportFile {
   format: ChatExportFormat;
   filename: string;
   mimeType: string;
-  /** Text for Markdown and HTML, bytes for DOCX. */
+  /** Text for Markdown and HTML, bytes for DOCX and PDF. */
   body: string | Buffer;
 }
 
@@ -36,6 +37,8 @@ export async function exportChat(
       ? markdown
       : format === "html"
         ? renderChatHtml(markdown, title)
-        : await renderMarkdownDocx(markdown, title, now);
+        : format === "pdf"
+          ? renderMarkdownPdf(markdown, title, now)
+          : await renderMarkdownDocx(markdown, title, now);
   return { format, filename: chatExportFilename(state, format, masked), mimeType: CHAT_EXPORT_MIME[format], body };
 }

@@ -14,11 +14,11 @@ import { describeToolCall } from "../tools/describe-tool-call.js";
 
 const HELP =
   [
-    "atomic-agent export — save one chat as Markdown, HTML or Word (ATO-1054)",
+    "atomic-agent export — save one chat as Markdown, HTML, Word or PDF (ATO-1054)",
     "",
     "Usage:",
-    "  atomic-agent export <sessionId> [--format md|html|docx] [--out <file> [--force]] [--no-tools]",
-    "  atomic-agent export --last      [--format md|html|docx] [--out <file> [--force]] [--no-tools]",
+    "  atomic-agent export <sessionId> [--format md|html|docx|pdf] [--out <file> [--force]] [--no-tools]",
+    "  atomic-agent export --last      [--format md|html|docx|pdf] [--out <file> [--force]] [--no-tools]",
     "",
     "Markdown and HTML go to stdout unless --out is given. Word (docx) is",
     "written to --out, or to a file named after the chat in the current",
@@ -31,6 +31,7 @@ const HELP =
     "Examples:",
     "  atomic-agent export --last > chat.md",
     "  atomic-agent export s-1234 --format docx --out ~/Documents/chat.docx",
+    "  atomic-agent export --last --format pdf",
   ].join("\n") + "\n";
 
 /** Exit codes follow the dispatcher's split: 0 ok, 1 failed, 2 usage. */
@@ -137,7 +138,7 @@ export function parseExportArgs(args: readonly string[]): ParsedExportArgs | str
   if (!last && !sessionId) return "give a session id or --last";
   if (last && sessionId) return "give a session id or --last, not both";
   const format = parseChatExportFormat(formatRaw);
-  if (!format) return `unknown format: ${formatRaw} (md, html or docx)`;
+  if (!format) return `unknown format: ${formatRaw} (md, html, docx or pdf)`;
   return { sessionId, last, format, out, tools, force };
 }
 
