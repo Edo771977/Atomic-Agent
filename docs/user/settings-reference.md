@@ -329,6 +329,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `skills.clawhub.browseLimit` | `number` | `100` | Most skills one ClawHub listing fetches. |
 | `skills.clawhub.nonSuspiciousOnly` | `boolean` | `true` | Hide ClawHub skills the registry flags as suspicious. |
 | `skills.eval.judgeProvider` | `string` | `unset` | Skill Lab settings; absent when config.json has no `skills.eval`. |
+| `skills.selfLearning.minSteps` | `number` | `10` | Model steps a turn needs before it is reviewed for something to learn. |
 
 ## tui
 

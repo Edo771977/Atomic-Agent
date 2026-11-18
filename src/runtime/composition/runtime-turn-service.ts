@@ -43,6 +43,7 @@ import { captureModelModePolicy, resolveModelMode, type ModelModePolicy } from "
 import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { createNextStepSuggester } from "./runtime-next-step.js";
+import type { createExperienceReviewer } from "./runtime-experience-review.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
 import { assertProviderAllowed, currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
@@ -156,6 +157,7 @@ export interface RuntimeTurnDependencies {
     metrics?: Pick<AgentMetrics, "recordTurn">;
   };
   state: RuntimeTurnState;
+  experienceReview?: Pick<ReturnType<typeof createExperienceReviewer>, "maybeReview">;
   lifecycle: { isShutdown(): boolean };
   logger: StructuredLogger;
   /**
@@ -1028,6 +1030,13 @@ export function createRuntimeTurnService(
         if (!stoppedForMoney(result.stopCause)) {
           nextStep.maybeSuggest(finished, runOptions.origin);
         }
+        // Self-learning (ATO-67): same contract, gated on the turn's
+        // length, origin and ending inside the reviewer.
+        deps.experienceReview?.maybeReview(finished, {
+          result,
+          origin: runOptions.origin,
+          ...(runOptions.memoryReadOnly === true ? { memoryReadOnly: true } : {}),
+        });
         // `finish` ended the whole session: its kept jobs go with it.
         if (finished.status === "completed") {
           shellJobs.endSession(session.id);
