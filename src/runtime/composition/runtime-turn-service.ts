@@ -1035,6 +1035,7 @@ export function createRuntimeTurnService(
         deps.experienceReview?.maybeReview(finished, {
           result,
           origin: runOptions.origin,
+          ...(runOptions.answerChannel !== undefined ? { answerChannel: runOptions.answerChannel } : {}),
           ...(runOptions.memoryReadOnly === true ? { memoryReadOnly: true } : {}),
         });
         // `finish` ended the whole session: its kept jobs go with it.
