@@ -11276,8 +11276,21 @@ function constraintRefusalWords(ev, p) {
   const prov = /\b(?:llm )?provider "([^"]+)" may not (?:serve|receive)\b/.exec(said);
   const who = prov ? prov[1] : 'this provider';
   const read = /\bthis session read files from (.+?), which (is|are) restricted to: ([^;]+?)(?:;|$)/.exec(said);
-  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
   const folder = /\bfolder (.+?) is restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  /* Issue #74: the provider is allowed, its endpoint is another machine
+     (provider-policy.ts remoteEndpointSentence): the host and the opt-in, not
+     "can't be used here". */
+  const remote = /\bprovider "([^"]+)" is allowed, but its endpoint (?:(\S+) is another machine|cannot be read)/.exec(said);
+  if (remote && (read || folder)) {
+    const head = 'Turn stopped. ' + (read ? 'This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3]
+      : constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2]) + '; ' + remote[1] + ' is allowed, but its endpoint ';
+    if (!remote[2]) return head + "cannot be read, so it may be another machine. Fix the provider's URL.";
+    const optIn = /\bTo allow it, (add .+?allowedProviderHosts(?: and \S+allowedProviderHosts)*)/.exec(said);
+    const key = read ? read[1] : folder[1];
+    return head + remote[2] + ' is another machine. To allow it, '
+      + (optIn ? optIn[1] : 'add ' + JSON.stringify(remote[2]) + ' to projects.constraints[' + JSON.stringify(key) + '].allowedProviderHosts') + '.';
+  }
+  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
   if (folder) return 'Turn stopped. ' + constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
   const egress = /\bfolder (.+?) is restricted: (\S+) would send content off this machine\b/.exec(said);
   if (egress) return 'Turn stopped. ' + constraintFolderWords(egress[1]) + ' restricted: ' + egress[2] + " can't send content off this machine here.";

@@ -275,7 +275,10 @@ without `advice`, and the 400 a turn's own provider gets before the stream
 agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
 be used here." (a policy of several folders, keyed "A + B", reads "The
 folders A and B are"; a shell command refused for running a network client
-reads "… runs curl, which could send content off this machine.") (`constraintTurnLine` in renderer.js, ahead of every other
+reads "… runs curl, which could send content off this machine."; an allowed
+provider whose endpoint is another machine reads "… is allowed, but its
+endpoint H is another machine. To allow it, add "H" to
+projects.constraints[…].allowedProviderHosts.", issue #74) (`constraintTurnLine` in renderer.js, ahead of every other
 wording of a failed turn). A chain that went on past the refused link
 (`fallback_failures` in the frame) ended on a later one: when the verdict
 says that was the managed local model with its engine gone
