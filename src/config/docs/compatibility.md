@@ -174,4 +174,4 @@ The desktop app and the terminal agent share one `config.json`, so an older buil
 
 ## Agent profiles in settings
 
-The optional additive llm.runMode.agentProfiles map stores person-authored profiles. Parsing is separate from runtime loading; no version bump is needed. Invalid entries are skipped with one notice naming the path; other entries load. A non-object block fails validation. Unknown entry fields are ignored as in file frontmatter.
+The optional additive llm.runMode.agentProfiles map stores person-authored profiles. Parsing is separate from runtime loading; no version bump is needed. Invalid entries are skipped with one notice naming the path; other entries load. Skipped disk entries survive unrelated whole-file saves unless the save replaces the key or its normalized name. Valid entries removed by the person stay removed. A non-object block fails validation. Unknown entry fields are ignored as in file frontmatter.
