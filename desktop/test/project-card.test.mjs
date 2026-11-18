@@ -482,6 +482,8 @@ function coreSequence() {
   let now = 1000, p;
   const views = [];
   const take = (r) => { assert.ok(r.ok, JSON.stringify(r.error)); p = r.project; views.push(coreView(p)); };
+  // The dispatch records a run before a milestone can be reported done (issue #74); it draws no gate of its own.
+  const run = (id) => { const r = CORE.applyProjectUpdate(p, {kind: 'milestone_run', id, runId: 'fr-' + now}, now++); assert.ok(r.ok, JSON.stringify(r.error)); p = r.project; };
   const at = () => ({gate: p.gate, version: CORE.gateVersion(p)});
   const row = (taskId, milestoneId) => ({taskId, title: 'Task ' + taskId, milestoneId, worker: 'openrouter:w-a', reviewer: null,
     reason: 'preset', basis: 'preset', samples: 0, estCostUsd: 0.1, estMs: 1000});
@@ -490,8 +492,10 @@ function coreSequence() {
   take(CORE.applyProjectUpdate(p, {kind: 'plan', milestones: [{id: 'm1', title: 'Base', kind: 'base'}, {id: 'm2', title: 'Logic', kind: 'logic'}],
     rows: [row('t1', 'm1'), row('t2', 'm2')], detail: 'full'}, now++));
   take(CORE.applyProjectDecision(p, {...at(), verdict: 'approve'}, {now: now++}));
+  run('m1');
   take(CORE.applyProjectUpdate(p, {kind: 'milestone', id: 'm1', state: 'done', summary: 'The board renders.'}, now++));
   take(CORE.applyProjectDecision(p, {...at(), verdict: 'edit', edits: {note: 'Bigger squares'}}, {now: now++}));
+  run('m1');
   take(CORE.applyProjectUpdate(p, {kind: 'milestone', id: 'm1', state: 'done', summary: 'The board renders bigger.'}, now++));
   return views;
 }
