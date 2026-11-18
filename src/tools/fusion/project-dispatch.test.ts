@@ -80,30 +80,44 @@ describe("checkProjectDispatch (issue #39)", () => {
 describe("planCoversFanout", () => {
   const project = running();
   const legOf = (id: string) => (id === "b" ? "cloud:model-b" : "local:model-a");
+  const noReview = () => null;
 
   it("covers the same tasks on the same workers inside the approved folder", () => {
-    expect(planCoversFanout(project, ["a", "b"], legOf, ["/w", "/w/src"], ["/w"])).toBe(true);
+    expect(planCoversFanout(project, ["a", "b"], legOf, noReview, ["/w", "/w/src"], ["/w"])).toBe(true);
   });
 
   it("not when a task is outside the plan, on another worker, or writes outside the folder", () => {
-    expect(planCoversFanout(project, ["a", "extra"], legOf, ["/w"], ["/w"])).toBe(false);
-    expect(planCoversFanout(project, ["b"], () => "local:model-a", ["/w"], ["/w"])).toBe(false);
-    expect(planCoversFanout(project, ["a"], legOf, ["/w", "/elsewhere"], ["/w"])).toBe(false);
-    expect(planCoversFanout(project, [], legOf, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["a", "extra"], legOf, noReview, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["b"], () => "local:model-a", noReview, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["a"], legOf, noReview, ["/w", "/elsewhere"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, [], legOf, noReview, ["/w"], ["/w"])).toBe(false);
   });
 
   it("only the tasks of the milestone approved or in progress count", () => {
-    expect(planCoversFanout(project, ["c"], legOf, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(project, ["c"], legOf, noReview, ["/w"], ["/w"])).toBe(false);
     const inProgress = up(project, { kind: "milestone_run", id: "m1", runId: "r1" });
-    expect(planCoversFanout(inProgress, ["a"], legOf, ["/w"], ["/w"])).toBe(true);
+    expect(planCoversFanout(inProgress, ["a"], legOf, noReview, ["/w"], ["/w"])).toBe(true);
   });
 
   it("a plan drafted after outside content counts only when approved with that warning shown", () => {
     const approvedBrief = approve(up(undefined, brief));
     const tainted = up(approvedBrief, { ...plan, draftedAfterUntrusted: true } as ProjectUpdate);
-    expect(planCoversFanout(approve(tainted), ["a"], legOf, ["/w"], ["/w"])).toBe(true);
+    expect(planCoversFanout(approve(tainted), ["a"], legOf, noReview, ["/w"], ["/w"])).toBe(true);
     const unshown = approve(tainted);
     const { approvedWithUntrustedWarning: _shown, ...rest } = unshown.plan!;
-    expect(planCoversFanout({ ...unshown, plan: rest }, ["a"], legOf, ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout({ ...unshown, plan: rest }, ["a"], legOf, noReview, ["/w"], ["/w"])).toBe(false);
+  });
+
+  it("not when the reviewer that would run is not the row's: the person's pick, or the drafted one (issue #74)", () => {
+    const reviewed: ProjectState = {
+      ...project,
+      plan: { ...project.plan!, rows: project.plan!.rows.map((r) => (r.taskId === "a" ? { ...r, reviewer: "cloud:model-r", reviewerByPerson: true as const } : r)) },
+    };
+    expect(planCoversFanout(reviewed, ["a"], legOf, (id) => (id === "a" ? "cloud:model-r" : null), ["/w"], ["/w"])).toBe(true);
+    // The person's reviewer cannot run here: another one (or none) would.
+    expect(planCoversFanout(reviewed, ["a"], legOf, () => "cloud:other", ["/w"], ["/w"])).toBe(false);
+    expect(planCoversFanout(reviewed, ["a"], legOf, noReview, ["/w"], ["/w"])).toBe(false);
+    // A row with no review, now reviewed (the chat's reviewer changed since).
+    expect(planCoversFanout(project, ["b"], legOf, () => "cloud:model-r", ["/w"], ["/w"])).toBe(false);
   });
 });
