@@ -284,7 +284,7 @@ import { handoffList, handoffStart } from "./handoff.js";
 // Backlog 03 — the first-run probe's frame log, summarised.
 import { summarizeBootPaint, type BootPaintLog } from "./boot-paint.js";
 import { expandHome, fileManagerLabel, isAbsoluteOn, lastSegment, titleBarOverlayColors, TOOLBAR_HEIGHT, voiceSupported, windowChrome } from "./platform.js";
-import { localPathArg, openTarget, replyPathVerdict } from "./reply-paths.js";
+import { localPathCheck, openTarget, replyPathVerdict, type LocalPathRefusal } from "./reply-paths.js";
 import { appWindows, createScreenMarksOverlay } from "./screen-overlay-window.js";
 import { isQuickEntryWindow, wireQuickEntry } from "./quick-entry-window.js";
 import { KEEPS_CRASHING, RenderRecovery } from "./render-recovery.js";
@@ -2847,8 +2847,14 @@ function wireIpc(client: AgentClient): void {
   });
 
   // Files the agent produced: open, reveal, copy, save elsewhere.
-  // Absolute by this platform's rules: `/x` here, `C:\x` on Windows; never a `\\host\share` (issue #74).
-  const safePath = (p: unknown): string | null => localPathArg(process.platform, p);
+  /* Absolute by this platform's rules: `/x` here, `C:\x` (or `\\?\C:\x`) on
+     Windows; a `\\host\share` path only inside the working folder when that
+     is on a share, never a device path (issue #74, localPathCheck). */
+  const checkPath = (p: unknown) => localPathCheck(process.platform, p, [client.status.workingDir]);
+  const safePath = (p: unknown): string | null => {
+    const checked = checkPath(p);
+    return checked.ok ? checked.path : null;
+  };
   /* Chat review Д23: opening a file the agent produced never runs it. An app,
      a script, an installer, a link file or a Finder alias (openTarget) is
      shown in the file manager instead — the agent writes these too, and a
@@ -2876,13 +2882,19 @@ function wireIpc(client: AgentClient): void {
   // file is not silently dropped.
   ipcMain.handle("app:statPaths", async (_event, list: unknown) => {
     if (!Array.isArray(list)) return { ok: false, error: "not a list" };
-    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number }> = [];
+    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number; refused?: LocalPathRefusal }> = [];
     for (const raw of list.slice(0, 64)) {
-      const expanded = typeof raw === "string" ? expandHome(process.platform, raw, homedir()) : raw;
-      const path = safePath(expanded);
-      if (!path) continue;
+      if (typeof raw !== "string") continue;
+      const expanded = expandHome(process.platform, raw, homedir());
+      // Review of #74: a path refused here is answered, not dropped: not there, and why.
+      const checked = checkPath(expanded);
+      if (!checked.ok) {
+        files.push({ path: expanded, exists: false, kind: null, size: 0, mtimeMs: 0, refused: checked.why });
+        continue;
+      }
+      const path = expanded;
       try {
-        const st = await stat(path);
+        const st = await stat(checked.path);
         files.push({ path, exists: true, kind: st.isDirectory() ? "dir" : "file", size: st.size, mtimeMs: st.mtimeMs });
       } catch {
         files.push({ path, exists: false, kind: null, size: 0, mtimeMs: 0 });

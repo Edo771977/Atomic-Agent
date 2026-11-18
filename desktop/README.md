@@ -334,9 +334,13 @@ answers 404 until then) the provisional chip stays.
 ### Opening files the agent names
 
 `app:openPath`, `app:statPaths` and `app:fileMenu` take only an absolute local
-path (`localPathArg` in `main/reply-paths.ts`); on Windows a network or device
-path (`\\host\share`, `//host/share`, `\\?\…`) is refused, as it is for a
-path in a reply (issue #74). A file that would run, install, mount or follow a
+path (`localPathCheck` in `main/reply-paths.ts`, issue #74). On Windows a long
+path `\\?\C:\…` is the local `C:\…`; a network path (`\\host\share`,
+`//host/share`, `\\?\UNC\…`) is accepted only inside the working folder when
+that folder is itself on a share (`..` resolved first), and a device path
+(`\\.\…`, other `\\?\…`) never. `app:statPaths` answers a refused path as
+`exists: false` with `refused` (`network-path`, `device-path`, `not-a-path`)
+instead of dropping it. A path in a reply still refuses every share. A file that would run, install, mount or follow a
 link when opened (`RUNS` there: scripts, installers, shortcuts, and since #74
 also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
 `.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
