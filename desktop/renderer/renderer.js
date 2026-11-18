@@ -8162,9 +8162,15 @@ function submit(preparedSkillText, opts) {
     // Give an unsaved chat an identity before accepting its first message.
     // The HTTP API creates this session on the first dispatched turn.
     if (!S.sessionId) {
+      // Issue #74: the project this new chat was opened in, read before the chat has an id (projectMarked).
+      const forProject = typeof projectForNewTurn === 'function' ? projectForNewTurn() : undefined;
       S.sessionId = 'waiting-' + crypto.randomUUID();
       S.agentSession = S.sessionId;
       noteWaitingChat(S.sessionId, text);
+      // Its turn goes out with this id, so the chat is filed in the project now (its turn waits for that),
+      // and its Reviewer pick is the chat's: both used to be lost at the drain.
+      if (typeof projectFileWaitingChat === 'function') projectFileWaitingChat(S.sessionId, forProject);
+      if (typeof fzrAdoptNewChat === 'function') fzrAdoptNewChat(S.sessionId);
     }
     S.queued.push(text); DRAIN_OWED = true;
     S.draft = ''; if (e) { e.value = ''; autosize(e); }
@@ -10156,6 +10162,9 @@ function applyStatus(st) {
        held in memory (the coding mode) is gone with it, so the generation
        moves here, before loadResources can confirm anything against it. */
     AGENT_GEN++;
+    // Issue #74: the restriction chip and the Reviewer seat ask the new agent (chat-restriction.js, fusion-reviewer.js).
+    if (typeof restrictionAgentChanged === 'function') restrictionAgentChanged();
+    if (typeof fzrAgentChanged === 'function') fzrAgentChanged();
     appSay('Connected · ' + S.live.workingDir);
     loadResources();
     if (typeof ProjectModels !== 'undefined') ProjectModels.load(BR).then((ok) => { if (ok) render(); });   // ATO-1148
@@ -10425,11 +10434,16 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
-  live.folder = firstTurnFolder(session, forProject);   // review of #67: the folder this new chat's turn runs in
+  // Issue #74: a new chat queued during a switch (`waiting-…`) was filed in its project when it was queued.
+  const waiting = session && typeof projectWaitingTurn === 'function' ? projectWaitingTurn(session) : null;
+  const turnPid = waiting ? waiting.pid : forProject;
+  live.folder = firstTurnFolder(waiting ? undefined : session, turnPid);   // review of #67: the folder this new chat's turn runs in
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
-  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject), teamChoice).then((res) => {
-    if (res && res.ok && teamChoice) fzrTurnSent(session);
+  const send = () => BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(waiting ? undefined : session, turnPid), teamChoice);
+  (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
+    if (res && res.ok && teamChoice) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's
+    if (res && res.ok && waiting) projectWaitingSent(session);
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -10486,10 +10500,12 @@ function firstTurnNamed(turnId, sid) {
   if (rec && rec.folder && row && !row.workingDir) row.workingDir = rec.folder;
   projectFileNewChat(turnId, sid);
   projectStandInSession(turnId, sid);
+  if (typeof fzrTurnNamed === 'function') fzrTurnNamed(turnId, sid);   // issue #74: the Reviewer pick its turn carried is this chat's (fusion-reviewer.js)
 }
 function firstTurnEnded(turnId) {
   FIRST_TURNS.delete(turnId);   // item 27: a turn that ended before its stream named a session
   projectStandInEnded(turnId);
+  if (typeof fzrTurnNamed === 'function') fzrTurnNamed(turnId, null);   // issue #74: an unnamed first turn's pick goes with it
 }
 
 /** Item 27: the stream named the session a new chat's first turn runs in.
@@ -11260,8 +11276,21 @@ function constraintRefusalWords(ev, p) {
   const prov = /\b(?:llm )?provider "([^"]+)" may not (?:serve|receive)\b/.exec(said);
   const who = prov ? prov[1] : 'this provider';
   const read = /\bthis session read files from (.+?), which (is|are) restricted to: ([^;]+?)(?:;|$)/.exec(said);
-  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
   const folder = /\bfolder (.+?) is restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  /* Issue #74: the provider is allowed, its endpoint is another machine
+     (provider-policy.ts remoteEndpointSentence): the host and the opt-in, not
+     "can't be used here". */
+  const remote = /\bprovider "([^"]+)" is allowed, but its endpoint (?:(\S+) is another machine|cannot be read)/.exec(said);
+  if (remote && (read || folder)) {
+    const head = 'Turn stopped. ' + (read ? 'This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3]
+      : constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2]) + '; ' + remote[1] + ' is allowed, but its endpoint ';
+    if (!remote[2]) return head + "cannot be read, so it may be another machine. Fix the provider's URL.";
+    const optIn = /\bTo allow it, (add .+?allowedProviderHosts(?: and \S+allowedProviderHosts)*)/.exec(said);
+    const key = read ? read[1] : folder[1];
+    return head + remote[2] + ' is another machine. To allow it, '
+      + (optIn ? optIn[1] : 'add ' + JSON.stringify(remote[2]) + ' to projects.constraints[' + JSON.stringify(key) + '].allowedProviderHosts') + '.';
+  }
+  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
   if (folder) return 'Turn stopped. ' + constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
   const egress = /\bfolder (.+?) is restricted: (\S+) would send content off this machine\b/.exec(said);
   if (egress) return 'Turn stopped. ' + constraintFolderWords(egress[1]) + ' restricted: ' + egress[2] + " can't send content off this machine here.";
@@ -12166,6 +12195,7 @@ function unqueueMessage(at) {
     const row = PENDING_CHATS.get(S.sessionId);
     if (row && row.waiting && !queueChatRunning(S.sessionId) && !SESSIONS.some(s => s.id === S.sessionId)) {
       PENDING_CHATS.delete(S.sessionId); QUEUES.delete(S.sessionId);
+      if (typeof projectWaitingCancelled === 'function') projectWaitingCancelled(S.sessionId);   // issue #74: filed when it was queued
       S.sessionId = ''; S.agentSession = null;
     }
   }

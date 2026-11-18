@@ -37,7 +37,7 @@
    name, a folder on disk if you want one, instructions. */
 
 const PROJECTS = {state: {projects: [], chats: {}}, loaded: false, collapsed: new Set(), newFor: null, edit: null, create: null,
-  fileTurns: new Map(), showAll: false, standIns: new Map()};
+  fileTurns: new Map(), showAll: false, standIns: new Map(), waiting: new Map()};
 const PROJECT_INSTRUCTIONS_MAX = 16000;
 const PROJECT_NAME_MAX = 80;
 const PROJECTS_COLLAPSED_KEY = 'atomic.projects.collapsed';
@@ -181,6 +181,39 @@ function projectTurnFolder(pid) {
 function projectNewTurnFailed(pid, log) {
   if (!pid || PROJECTS.newFor || typeof S === 'undefined' || S.agentSession || S.log !== log) return;
   PROJECTS.newFor = {id: pid, log};
+}
+
+/* Issue #74: a new chat whose first message is queued while the model
+   switches gets a `waiting-…` id at once (renderer.js submit), and its first
+   turn goes out with that id, which main reads as a known chat: it finds the
+   chat's project by the id (turnProject), never by the turn's project id. So
+   the chat is filed in the project when the message is queued, and its first
+   turn waits for that write (startLiveTurn). PROJECTS.waiting: sid →
+   {pid, filed}, until that turn went out. */
+function projectFileWaitingChat(sid, pid) {
+  if (!sid || typeof pid !== 'string' || !pid) return;
+  let filed = Promise.resolve();
+  if (pid[0] === 'p') {
+    const api = projectsApi();
+    if (!api || typeof api.projectsAssign !== 'function' || !PROJECTS.state.projects.some((p) => p.id === pid)) return;
+    PROJECTS.state.chats[sid] = pid;
+    filed = Promise.resolve(api.projectsAssign({sessionId: sid, projectId: pid})).then((res) => {
+      if (res && res.ok === false && typeof toast === 'function') toast('Could not file the chat in its project', res.error || '', 'bad');
+    }, () => {});
+  } else {
+    if (typeof FOLDERS === 'undefined' || !folderPut(FOLDERS.state, sid, pid)) return;
+    filed = Promise.resolve(saveFolders()).then(() => {}, () => {});
+  }
+  PROJECTS.waiting.set(sid, {pid, filed});
+}
+/** The waiting chat `sid`'s project and its filing, until its first turn went out (projectWaitingSent); or null. */
+function projectWaitingTurn(sid) { return PROJECTS.waiting.get(sid) || null; }
+function projectWaitingSent(sid) { PROJECTS.waiting.delete(sid); }
+/** The waiting chat's last message was cancelled before it went out: the chat is gone, and so is its filing. */
+function projectWaitingCancelled(sid) {
+  if (!PROJECTS.waiting.has(sid)) return;
+  PROJECTS.waiting.delete(sid);
+  projectPutChat(sid, '');
 }
 
 /* Open a new chat in project `id` (a store id `p…` or a chat folder `f…`):

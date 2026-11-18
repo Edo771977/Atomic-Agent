@@ -74,7 +74,9 @@ Cheaper, Better quality and Cancel Fusion project at the plan; Approve milestone
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through
 `agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
-`POST /api/project/decision` with the view's `gate` and `version`. A stale
+`POST /api/project/decision` with the view's `gate` and `version`; until it
+answers, that gate's buttons stay disabled (Sending…), also after leaving the
+chat and coming back (issue #74). A stale
 version or another gate (`409`) redraws the current view with a notice, a
 running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
 closes the card. When the answer carries `continue_message`, the window sends
@@ -286,7 +288,10 @@ without `advice`, and the 400 a turn's own provider gets before the stream
 agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
 be used here." (a policy of several folders, keyed "A + B", reads "The
 folders A and B are"; a shell command refused for running a network client
-reads "… runs curl, which could send content off this machine.") (`constraintTurnLine` in renderer.js, ahead of every other
+reads "… runs curl, which could send content off this machine."; an allowed
+provider whose endpoint is another machine reads "… is allowed, but its
+endpoint H is another machine. To allow it, add "H" to
+projects.constraints[…].allowedProviderHosts.", issue #74) (`constraintTurnLine` in renderer.js, ahead of every other
 wording of a failed turn). A chain that went on past the refused link
 (`fallback_failures` in the frame) ended on a later one: when the verdict
 says that was the managed local model with its engine gone
@@ -304,7 +309,10 @@ is opened, when each of its turns ends (a read inside a restricted
 folder narrows the chat mid-turn) and when a config read finds
 `projects.constraints` changed (`restrictionConfigChanged`, from
 `refreshLiveConfig`), and when the workspace chip moves the open chat to
-another folder (`applyWorkspaceChoice`). The tooltip says why (the chat's folder,
+another folder (`applyWorkspaceChoice`). Its answers, the provisional ones
+too, are the agent's that gave them: when a new agent connects (`AGENT_GEN`:
+a restart, a switch to a remote agent) they are dropped and the chat on
+screen is asked again, as the Reviewer seat's team is (issue #74). The tooltip says why (the chat's folder,
 or the restricted folders it read from), the providers allowed, whether chat
 channels and phone push are allowed (always the agent's `channelsAllowed`),
 the egress classes allowed (the intersection of this window's config
@@ -528,7 +536,13 @@ Real, driven by the running agent:
   import sorted by a project directory works in that directory when this
   computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
-  opens in the project. Until that turn, the model chip and the switcher read
+  opens in the project. A first message queued while the model switches
+  gives the chat its `waiting-…` id at once, and main reads a turn with an id
+  as a known chat's: so the chat is filed in the project when the message is
+  queued, its first turn waits for that write, and its Reviewer pick is keyed
+  by that id (issue #74; cancelling the message unfiles it). A chat folder's
+  import directory does not apply to such a chat: main reads it only for a
+  turn with no id. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn
   runs in. The empty chat says "New chat in <name>" and names that folder
   while the mark holds; Clear Transcript before the first turn keeps it, a
@@ -547,7 +561,11 @@ Real, driven by the running agent:
   what came meanwhile (`projectStandInShow`); it has no menu, rename or drag
   until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
-  hides the headers; the drawer (⌘ \) shows them.
+  hides the headers; the drawer (⌘ \) shows them. A chat is under the
+  project it was put in, else the deepest project whose folder it ran in; a
+  project on a broad folder (the filesystem or a drive root such as `C:\`,
+  the home folder or its parent, as the core's isTooBroadScope) holds only
+  chats run in that very folder (`chat-list.js` projectOf, issue #74).
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per
   machine, per viewer — because the agent has no route and no store field for
   either, and its `config.json` is the operator's file. On a machine that has
@@ -901,7 +919,8 @@ Honestly degraded, and labelled as such in the UI:
   would refuse the host gets "Folder F allows <id> only on this computer;
   it will refuse <host>" and an "Allow <host> for F" button
   ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
-  The decision mirrors the agent's `providerEndpointRefusal`: a
+  Only the newest ask for a field is drawn (leaving the field and Check can
+  answer out of order, issue #74). The decision mirrors the agent's `providerEndpointRefusal`: a
   private-network host that is not this machine by literal address, for a
   provider judged by place, not already in `allowedProviderHosts`. Only the
   click writes, through the whole-file compare-and-swap write. The main
@@ -2333,7 +2352,7 @@ Issue #71. The Fusion strip has three seats. **Director** and **Worker** are the
 - "No review".
 - "Add a reviewer…".
 
-A pick rides on each of the chat's turns as `reviewer` (a member, `"none"` or `"team"`) until the agent's answer shows it stamped; then it is used up and the seat reads the stamp. A turn the agent refuses (a reviewer the folder does not allow, say) keeps the pick, and the seat's tooltip says "Not applied yet:" with the agent's words. A new chat's pick moves to the chat once the agent names it. An agent without the route shows no Reviewer seat.
+A pick rides on each of the chat's turns as `reviewer` (a member, `"none"` or `"team"`) until the agent's answer shows it stamped; then it is used up and the seat reads the stamp. A turn the agent refuses (a reviewer the folder does not allow, say) keeps the pick, and the seat's tooltip says "Not applied yet:" with the agent's words. A new chat's pick goes with its first turn and becomes the chat's when that turn's stream names it (`session_id`), never another chat's (issue #74). An agent without the route shows no Reviewer seat.
 
 "Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. An API provider that names no model is listed disabled: pick its model in Settings › Models first, since a reviewer is priced and tiered by its model. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json and `fusion-team-legs.json`, both read under the config lock ([fusion-team-write.ts](main/fusion-team-write.ts)), and sent live as the `team` block (`PATCH /api/config`). That route takes no expected hash, so the file's sha256 is read again right before the PATCH: a file another writer changed meanwhile is read and planned again (3 tries, then "changed somewhere else"; issue #74). An agent without live writes gets the whole-file compare-and-swap write and a note to restart. With no team, the write creates one from the Director seat alone (`directors: [director seat]`) and the reviewer. It writes no `workers`, so the worker leg, `fusion.roles` and measured routing run as before. When that director is the orchestrator leg itself, the agent leads with it without a stamp or a notice. A member names a model. `"<id>:default"`, the entry's own model, is used only for a subscription CLI that names none (a Codex subscription on the account's default). The first reviewer of a team also writes `team.review: "off"` unless review was explicitly `"on"`. Otherwise listing a reviewer would turn review on, and its cost, for every chat; this way only chats that pick a reviewer are reviewed (a chat's own choice wins over `team.review`). The chat where "Add a reviewer…" was used gets that reviewer picked. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
 

@@ -134,6 +134,24 @@ test('a chat belongs to the project it was put in, else to the deepest project f
   assert.equal(projectOf(home, wses('h', '/Users/me/work/app')).id, 'phome000', 'without a home folder given, nesting still counts');
 });
 
+// Issue #74: a project on `C:\` (key `c:`) was not broad, so it took in every
+// chat that ran anywhere on drive C. A drive root, the filesystem root, the
+// home folder and its parent hold only chats run in that very folder, as the
+// core's isTooBroadScope (src/tools/fusion/scope-path.ts) counts them.
+test('a project on a drive root or the home folder\'s parent holds only chats run there', () => {
+  const drive = projectsCoerce({projects: [proj('pdrive00', 'C:\\')]});
+  assert.equal(projectOf(drive, wses('a', 'C:\\Users\\me\\eis'), 'C:\\Users\\me'), null, 'the drive root absorbed a chat under it');
+  assert.equal(projectOf(drive, wses('b', 'c:\\work'), null), null, 'without a home folder too');
+  assert.equal(projectOf(drive, wses('c', 'C:\\'), 'C:\\Users\\me').id, 'pdrive00');
+  const users = projectsCoerce({projects: [proj('pusers00', 'C:\\Users')]});
+  assert.equal(projectOf(users, wses('d', 'C:\\Users\\me\\eis'), 'C:\\Users\\me'), null);
+  assert.equal(projectOf(users, wses('e', 'C:\\Users'), 'C:\\Users\\me').id, 'pusers00');
+  const nested = projectsCoerce({projects: [proj('pdrive00', 'C:\\'), proj('pwork000', 'C:\\work')]});
+  assert.equal(projectOf(nested, wses('f', 'C:\\work\\app'), 'C:\\Users\\me').id, 'pwork000');
+  const posix = projectsCoerce({projects: [proj('phomes00', '/home')]});
+  assert.equal(projectOf(posix, wses('g', '/home/me/app'), '/home/me'), null);
+});
+
 test('the project kept for a folder is found by its key, so picking it again makes no second one', () => {
   const st = projectsCoerce({projects: [proj('paaaaaa1', '/w/app/')]});
   assert.equal(projectForFolder(st, '/w/app').id, 'paaaaaa1');

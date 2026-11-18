@@ -36,3 +36,24 @@ test("a policy of two folders reads as the folders, not as one folder named 'A +
   assert.equal(line('folder /work/a is restricted to: local-llama; provider "anthropic" may not serve the main model, nothing was sent'),
     "Turn stopped. The folder /work/a is restricted to: local-llama, so anthropic can't be used here.");
 });
+
+// Issue #74: the core's remote-endpoint refusal (provider-policy.ts
+// remoteEndpointSentence) read as the folder refusing the provider ("so this
+// provider can't be used here"), when the provider is allowed and its
+// endpoint is the problem: it names the host and allowedProviderHosts now.
+test("a provider allowed but on another machine names its endpoint and allowedProviderHosts", () => {
+  const said = 'folder /work/client is restricted to: lan-llama; provider "lan-llama" is allowed, but its endpoint 192.168.1.20 is another machine; '
+    + 'nothing was sent. To allow it, add "192.168.1.20" to projects.constraints["/work/client"].allowedProviderHosts';
+  assert.equal(line(said),
+    'Turn stopped. The folder /work/client is restricted to: lan-llama; lan-llama is allowed, but its endpoint 192.168.1.20 is another machine. '
+    + 'To allow it, add "192.168.1.20" to projects.constraints["/work/client"].allowedProviderHosts.');
+  const taint = 'this session read files from /work/a, which is restricted to: lan-llama; provider "lan-llama" is allowed, but its endpoint box.lan is another machine; '
+    + 'nothing was sent. To allow it, add "box.lan" to projects.constraints["/work/a"].allowedProviderHosts';
+  assert.equal(line(taint),
+    'Turn stopped. This session read files from /work/a, which is restricted to: lan-llama; lan-llama is allowed, but its endpoint box.lan is another machine. '
+    + 'To allow it, add "box.lan" to projects.constraints["/work/a"].allowedProviderHosts.');
+  const unread = 'folder /work/client is restricted to: lan-llama; provider "lan-llama" is allowed, but its endpoint cannot be read, so it may be another machine; '
+    + "nothing was sent. Fix the provider's URL";
+  assert.equal(line(unread),
+    "Turn stopped. The folder /work/client is restricted to: lan-llama; lan-llama is allowed, but its endpoint cannot be read, so it may be another machine. Fix the provider's URL.");
+});
