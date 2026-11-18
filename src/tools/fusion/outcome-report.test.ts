@@ -366,3 +366,19 @@ describe("fusion report", () => {
     expect(parseReportArgs(["--nope"])).toBe("unknown option: --nope");
   });
 });
+
+describe("worker cost with unpriced tasks (issue #74)", () => {
+  it("counts a model's unpriced tasks and marks a partial cost like the orchestrator rows", () => {
+    const report = aggregateOutcomes([
+      task({ provider: "openrouter", model: "mid", leg: "cloud", costUsd: 0.25 }),
+      task({ provider: "openrouter", model: "mid", leg: "cloud", costUsd: null }),
+      task({ provider: "openrouter", model: "mid", leg: "cloud", costUsd: null }),
+      task({ provider: "local", model: "small", costUsd: 0.1 }),
+    ], { now: NOW });
+    expect(report.workers.find((w) => w.model === "mid")).toMatchObject({ costUsd: 0.25, unpricedTasks: 2 });
+    expect(report.workers.find((w) => w.model === "small")).toMatchObject({ costUsd: 0.1, unpricedTasks: 0 });
+    const text = formatFusionReport(report);
+    expect(text).toContain("$0.25 (+2 unpriced)");
+    expect(text).not.toMatch(/\$0\.10 \(\+/);
+  });
+});

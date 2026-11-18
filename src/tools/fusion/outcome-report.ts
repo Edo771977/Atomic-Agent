@@ -83,6 +83,8 @@ export interface ModelStats {
   tokensOut: number;
   /** Null when no task of this model was priced. */
   costUsd: number | null;
+  /** Tasks with no price, left out of `costUsd` (shown as "(+N unpriced)", issue #74). */
+  unpricedTasks: number;
 }
 
 export interface CriteriaStats {
@@ -392,6 +394,7 @@ function modelStats(rows: TaskOutcomeRecord[]): ModelStats {
     tokensIn: rows.reduce((n, r) => n + r.tokensIn, 0),
     tokensOut: rows.reduce((n, r) => n + r.tokensOut, 0),
     costUsd: priced.length === 0 ? null : priced.reduce((n, r) => n + (r.costUsd ?? 0), 0),
+    unpricedTasks: rows.length - priced.length,
   };
 }
 
@@ -570,7 +573,9 @@ function modelRows(stats: ModelStats[]): string[] {
       s.selfCheckFixRate === null ? "-" : `${s.selfCheckFixed}/${s.selfCheckNotices}`,
       formatDurationShort(s.medianDurationMs),
       `${formatTokenCount(s.tokensIn)}/${formatTokenCount(s.tokensOut)}`,
-      s.costUsd === null ? "unpriced" : formatUsdShort(s.costUsd),
+      s.costUsd === null
+        ? "unpriced"
+        : `${formatUsdShort(s.costUsd)}${s.unpricedTasks > 0 ? ` (+${s.unpricedTasks} unpriced)` : ""}`,
       s.topFailures.length === 0
         ? "-"
         : s.topFailures.map((f) => `${f.category} ${f.count}`).join(", "),
