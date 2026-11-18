@@ -1063,6 +1063,7 @@ export async function createAgentRuntime(
         mode: resolveCurrentRunMode(),
         currentWorker: resolveSessionWorker(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
         currentReviewer: resolveSessionReviewer(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
+        restricted: policy !== undefined,
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
         dailyRemainingUsd: dailySpendLimit.budget?.remainingUsd() ?? null,
         localSlots: slotManager.observedPoolSize(),

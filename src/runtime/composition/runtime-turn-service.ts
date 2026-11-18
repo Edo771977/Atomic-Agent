@@ -12,7 +12,7 @@ import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import { NO_REVIEWER, withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../../session/session-fusion-team.js";
-import { codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { cliToolsReviewerWhy, codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
 import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
@@ -499,6 +499,10 @@ export function createRuntimeTurnService(
       // A reviewer receives the worker's changes: one the folder refuses
       // is refused out loud, as a named worker is (issue #71).
       assertProviderAllowed(member.providerId, { constraintsActive: () => false, role: "the fusion reviewer" });
+      // Its own read-only shell reads outside a restricted chat's folder (issue #71).
+      if (currentProviderPolicy() !== undefined && isCodexCliProvider(resolveLlmConfig(getConfig()), member.providerId)) {
+        throw new Error(`"${namedReviewer}" cannot review here: ${cliToolsReviewerWhy(member.providerId)}`);
+      }
       metadata = withSessionFusionReviewer(metadata, member);
     }
     const policy = currentProviderPolicy();

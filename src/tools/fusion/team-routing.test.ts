@@ -119,3 +119,20 @@ describe("resolveTeamRouting reviewChosen (issue #71)", () => {
     expect(resolveTeamRouting(context(), { allows: () => true }).reviewChosen).toBe(false);
   });
 });
+
+describe("resolveTeamRouting: a reviewer whose CLI tools stay on (issue #71)", () => {
+  const stays = (id: string) => id === "cli-b";
+  it("is never a reviewer in a restricted chat, chosen or picked", () => {
+    const routing = resolveTeamRouting(context(), {
+      allows: () => true, restricted: true, cliToolsStayOn: stays, currentReviewer: () => member("cli-b:model-r"),
+    });
+    expect(routing.reviewers?.map((m) => m.ref)).toEqual(["api-a:model-o"]);
+    expect(routing.reviewChosen).toBe(false);
+    expect(routing.reviewerFor(member("local-c:model-c"))?.ref).toBe("api-a:model-o");
+  });
+
+  it("stays a reviewer in an unrestricted chat", () => {
+    const routing = resolveTeamRouting(context(), { allows: () => true, restricted: false, cliToolsStayOn: stays });
+    expect(routing.reviewerFor(member("local-c:model-c"))?.ref).toBe("cli-b:model-r");
+  });
+});

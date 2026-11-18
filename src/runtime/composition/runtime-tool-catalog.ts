@@ -66,7 +66,7 @@ import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
-import { currentPolicyAllows } from "../../llm/provider-policy.js";
+import { currentPolicyAllows, currentProviderPolicy } from "../../llm/provider-policy.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -1240,6 +1240,7 @@ export function registerRuntimeFusionAndReadScope(input: {
         mode,
         ...(currentWorker === undefined ? {} : { currentWorker: currentWorker() }),
         ...(currentReviewer === undefined ? {} : { currentReviewer: currentReviewer() }),
+        restricted: currentProviderPolicy() !== undefined,
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
         dailyRemainingUsd: null,
       }).plan;

@@ -1,7 +1,7 @@
 import { getConfig } from "../config/index.js";
 import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import { resolveLlmConfig } from "../llm/provider/registry/provider-types.js";
-import { fusionTeamRoster } from "../runtime/session-director.js";
+import { fusionTeamRoster, isCodexCliProvider } from "../runtime/session-director.js";
 import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
 
@@ -29,8 +29,10 @@ export function createFusionTeamHandler(): HttpHandler {
     const restriction = runtime.providerRestrictionFor?.(target) ?? null;
     const reachable = runtime.teamMemberReachable ??
       ((m: TeamMember): boolean => runtime.providerRegistry.getProvider(m.providerId) !== undefined);
-    const runMode = resolveLlmConfig(getConfig()).runMode;
-    const roster = fusionTeamRoster(runMode?.fusion, session?.metadata, restriction, reachable);
+    const resolved = resolveLlmConfig(getConfig());
+    const runMode = resolved.runMode;
+    const roster = fusionTeamRoster(runMode?.fusion, session?.metadata, restriction, reachable,
+      (providerId) => isCodexCliProvider(resolved, providerId));
     const chat = session === null || roster === null ? {} : { chat: { session_id: session.id, ...roster.chat } };
     sendJson(res, 200, {
       configured: roster !== null,

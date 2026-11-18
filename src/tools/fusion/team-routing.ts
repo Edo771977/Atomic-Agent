@@ -114,6 +114,14 @@ export function resolveTeamRouting(
     currentDirector?: () => TeamMember | null;
     currentWorker?: () => TeamMember | null;
     currentReviewer?: () => TeamMember | "none" | null;
+    /**
+     * The chat's effective provider policy is restricted (a folder
+     * constraint, a read taint or a moved stamp). A reviewer whose CLI
+     * keeps its own tools on (`cliToolsStayOn`: the Codex CLI's read-only
+     * shell can read the whole disk) is then never a reviewer (issue #71).
+     */
+    restricted?: boolean;
+    cliToolsStayOn?: (providerId: string) => boolean;
   },
 ): FusionTeamRouting {
   const { team, fusion } = context;
@@ -129,7 +137,9 @@ export function resolveTeamRouting(
       pinsModel: context.pinsModel,
     };
   }
-  const reviewers = teamMembers(team, "reviewers").filter(ok);
+  const reviewerOk = (member: TeamMember): boolean =>
+    ok(member) && !(options.restricted === true && options.cliToolsStayOn?.(member.providerId) === true);
+  const reviewers = teamMembers(team, "reviewers").filter(reviewerOk);
   const chatReviewer = options.currentReviewer?.() ?? null;
   const reviewOff = chatReviewer === "none";
   const chosen = chatReviewer === null || chatReviewer === "none"
@@ -148,7 +158,7 @@ export function resolveTeamRouting(
       if (chosen !== undefined && chosen.ref !== worker.ref) return chosen;
       return pickReviewer(team, worker, {
         familyOf: context.familyOf,
-        reachable: ok,
+        reachable: reviewerOk,
         ...(context.strength === undefined ? {} : { strength: context.strength }),
       });
     },

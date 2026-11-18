@@ -200,6 +200,25 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(readSessionFusionReviewer(allowed.session.metadata)).toMatchObject({ member: "cloud-a:model-o" });
   });
 
+  it("refuses a named Codex reviewer in a restricted folder: its own shell reads outside it (issue #71)", async () => {
+    fixture.config.llm = { ...fixture.config.llm!, providers: [...fixture.config.llm!.providers, { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" }, defaultChatModel: "" } as never] };
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["codex:default"] };
+    await fixture.providers.providerRegistry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
+    const sessionProviderPolicy = createSessionProviderPolicy({
+      readConfig: () => ({ projects: { roots: [], constraints: { [dir]: { allowedProviders: ["cloud-a", "local-llama", "codex"] } } } }),
+      loadSession: () => null,
+    });
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps, inference: { ...fixture.deps.inference, sessionProviderPolicy },
+    });
+    await expect(service.executeTurn(session("s"), "request", { reviewer: "codex:default" }))
+      .rejects.toThrow(/codex keeps its own read-only shell, which can read outside this restricted folder/);
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+    // Unrestricted: allowed.
+    const free = await fixture.service.executeTurn(session("t"), "request", { reviewer: "codex:default" });
+    expect(readSessionFusionReviewer(free.session.metadata)).toMatchObject({ member: "codex:default" });
+  });
+
   it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {
     fixture.config.llm!.runMode!.mode = "cloud";
     const sessionProviderPolicy = createSessionProviderPolicy({
