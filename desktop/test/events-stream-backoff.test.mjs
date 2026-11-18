@@ -85,3 +85,25 @@ test('the retry pause grows from 1 s and is capped at 30 s', () => {
   assert.equal(eventsRetryDelay(5), 30_000);
   assert.equal(eventsRetryDelay(50), 30_000);
 });
+
+test('a healthy stream with only keepalive comments, cut by a proxy, does not grow the pause', async () => {
+  // Each connection: 200, a keepalive comment, cut after 300 ms. A stream that
+  // lived past eventsHealthyMs was healthy: the next reconnect waits 1 s, not 2, 4, 8…
+  const s = await stub((res) => {
+    res.writeHead(200, {'content-type': 'text/event-stream'});
+    res.write(': keepalive\n\n');
+    setTimeout(() => res.end(), 300);
+  });
+  const c = new AgentClient(process.cwd(), {eventsHealthyMs: 100});
+  c.setRemote({url: s.url, token: 't'});
+  try {
+    await c.start();
+    const t0 = s.count();
+    await wait(5000);
+    // 1 s pauses: about every 1.3 s (≥ 4 in 5 s). Growing pauses (1, 2, 4 s): 3.
+    assert.ok(s.count() - t0 >= 4, `connections in 5 s: ${s.count() - t0}`);
+  } finally {
+    await c.stop?.();
+    await s.close();
+  }
+});

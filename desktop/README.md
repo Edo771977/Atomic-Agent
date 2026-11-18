@@ -153,9 +153,11 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | The grey next-step suggestion in the empty composer, Tab takes it (ATO-1094; only while Settings › General › Suggest a next step, `tui.nextStepSuggestions`, is on; hidden on an agent without the route) | `GET /api/sessions/{id}/next-step` |
 
 **Events stream reconnects (issue #74).** `GET /api/events` is reopened only
-after a pause: 1 s after a stream that delivered frames, and 1 s doubling to
-30 s while answers are refused (401/404/429/5xx, the body is cancelled),
-fetches fail or streams end empty. A remote agent answering 401/403 puts the
+after a pause: 1 s after a healthy stream (one that delivered frames, or was
+accepted and lived 5 s: an idle stream of `: keepalive` comments a proxy cuts
+is healthy), and 1 s doubling to 30 s while answers are refused
+(401/404/429/5xx, the body is cancelled), fetches fail or streams end empty
+at once. A remote agent answering 401/403 puts the
 status in `error` ("refused the access token"), which the `/health` watch does
 not clear until a stream is accepted again.
 
@@ -340,9 +342,13 @@ answers 404 until then) the provisional chip stays.
 ### Opening files the agent names
 
 `app:openPath`, `app:statPaths` and `app:fileMenu` take only an absolute local
-path (`localPathArg` in `main/reply-paths.ts`); on Windows a network or device
-path (`\\host\share`, `//host/share`, `\\?\…`) is refused, as it is for a
-path in a reply (issue #74). A file that would run, install, mount or follow a
+path (`localPathCheck` in `main/reply-paths.ts`, issue #74). On Windows a long
+path `\\?\C:\…` is the local `C:\…`; a network path (`\\host\share`,
+`//host/share`, `\\?\UNC\…`) is accepted only inside the working folder when
+that folder is itself on a share (`..` resolved first), and a device path
+(`\\.\…`, other `\\?\…`) never. `app:statPaths` answers a refused path as
+`exists: false` with `refused` (`network-path`, `device-path`, `not-a-path`)
+instead of dropping it. A path in a reply still refuses every share. A file that would run, install, mount or follow a
 link when opened (`RUNS` there: scripts, installers, shortcuts, and since #74
 also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
 `.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
@@ -534,7 +540,9 @@ Real, driven by the running agent:
   made the project: New chat, and that chat's first turn opens in the project
   (its folder and instructions; a chat folder files the chat, and one the
   import sorted by a project directory works in that directory when this
-  computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
+  computer has it, `main/chat-folders.ts` folderTurnDir; also a queued
+  `waiting-…` chat filed there while the agent has no stored turns for it,
+  folderDirForTurn). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
   opens in the project. A first message queued while the model switches
   gives the chat its `waiting-…` id at once, and main reads a turn with an id
@@ -1795,9 +1803,12 @@ through an env var.
   never on the renderer's string. `underDesktopState` (containment) compares
   the same canonical forms, so `<state>/../x` is not inside.
 - **`projects.json` (`main/projects-store.ts`, issue #74).** Every change is
-  made under `projects.json.lock` (O_EXCL; a lock older than 10 s is a crashed
-  writer's and is broken; waiting longer than 2 s answers "being changed in
-  another window") and as a compare-and-swap: the file is read again before
+  made under `projects.json.lock` (O_EXCL, holding pid and a random token; a
+  lock older than 10 s is a crashed writer's and is broken, by renaming it
+  aside and removing it only if it is still the lock seen stale, so a fresh
+  lock another writer took meanwhile is put back; release removes only our
+  own token; one that cannot be removed waits like a held lock;
+  waiting longer than 2 s answers "being changed in another window") and as a compare-and-swap: the file is read again before
   the write and the change is made again on what is there now (3 tries). A
   rewrite keeps unknown top-level and per-project fields and entries this
   version cannot read, with their chats. A file that does not parse is read

@@ -23,7 +23,7 @@
  * servers, memory and model.
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, linkSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { basename, join, posix, win32 } from "node:path";
 
 export interface Project { id: string; name: string; folder: string; instructions: string; createdAt: number }
@@ -334,24 +334,62 @@ export function writeProjects(stateDir: string, value: Projects): ProjectsResult
 }
 
 /**
+ * Review of #74: remove the lock only while it still holds `expected`. It is
+ * renamed to a name of its own first, so nobody else can take or remove it
+ * meanwhile, then read: ours to remove when it is `expected`, else put back
+ * (a hard link, which never replaces a lock made since) for its new owner.
+ * Throws what the rename throws (ENOENT: gone already).
+ */
+function removeLockIf(lock: string, expected: string): boolean {
+  const aside = `${lock}.${process.pid}.${randomBytes(6).toString("hex")}.stale`;
+  renameSync(lock, aside);
+  let held: string | null = null;
+  try { held = readFileSync(aside, "utf8"); } catch { /* unreadable: treated as not ours */ }
+  if (held === expected) {
+    try { unlinkSync(aside); } catch { /* left behind: harmless */ }
+    return true;
+  }
+  try {
+    linkSync(aside, lock);
+  } catch (e) {
+    // A lock made since stays; without hard links, put it back unless one was.
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+      try { statSync(lock); } catch { try { renameSync(aside, lock); return false; } catch { /* lost */ } }
+    }
+  }
+  try { unlinkSync(aside); } catch { /* left behind: harmless */ }
+  return false;
+}
+
+/**
  * Issue #74: `projects.json.lock`, made with O_EXCL, so two apps on one state
- * directory change the file one at a time. A lock older than LOCK_STALE_MS is
- * a crashed writer's and is broken. Null: not had within `waitMs`.
+ * directory change the file one at a time. It holds this process's pid and a
+ * random token. A lock older than LOCK_STALE_MS is a crashed writer's and is
+ * broken — only while it is still the lock that was seen stale (removeLockIf),
+ * so two writers breaking it at once cannot remove the fresh lock one of them
+ * took. Releasing removes the lock only while it is still ours. Null: not had
+ * within `waitMs`.
  */
 function takeLock(path: string, waitMs: number): (() => void) | null {
   const lock = `${path}.lock`;
+  const token = `${process.pid} ${randomBytes(8).toString("hex")}\n`;
   const until = Date.now() + waitMs;
   for (;;) {
     try {
       const fd = openSync(lock, "wx", 0o600);
-      try { writeSync(fd, `${process.pid}\n`); } finally { closeSync(fd); }
-      return () => { try { unlinkSync(lock); } catch { /* already gone */ } };
+      try { writeSync(fd, token); } finally { closeSync(fd); }
+      return () => { try { removeLockIf(lock, token); } catch { /* already gone */ } };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") return null;
       try {
-        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { unlinkSync(lock); continue; }
-      } catch {
-        continue;   // gone meanwhile: try again at once
+        const seen = readFileSync(lock, "utf8");
+        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { removeLockIf(lock, seen); continue; }
+      } catch (err) {
+        // Gone meanwhile: try again at once. Anything else (a stale lock that
+        // cannot be removed: EPERM/EBUSY from an antivirus or indexer, a
+        // foreign owner, a read-only disk) waits like a held lock and gives up
+        // at the deadline, never spinning the main thread (review of #74).
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
       }
       if (Date.now() >= until) return null;
       sleepSync(20);

@@ -70,17 +70,48 @@ export function runsWhenOpened(platform: Platform, p: string, kind: "file" | "di
   return platform !== "win32" && ext === "" && (mode & 0o111) !== 0;
 }
 
+/** Why localPathCheck refused a path. */
+export type LocalPathRefusal = "not-a-path" | "network-path" | "device-path";
+
 /**
- * Issue #74: a path the open/reveal/stat/file-menu IPCs accept — absolute by
- * the platform's rules, without NUL, and on Windows never a network or device
- * path (`\\host\share`, `//host/share`, `\\?\…`, `\\.\…`): opening one
- * reaches out to that host (and hands it the person's NTLM credentials), as
- * replyPathVerdict already refuses for a path in a reply.
+ * Issue #74 and its review: a path the open/reveal/stat/file-menu IPCs accept
+ * — absolute by the platform's rules, without NUL — and what it is to use.
+ * On Windows:
+ *   - a long path `\\?\C:\…` (or `//?/C:/…`) is the local path `C:\…`;
+ *   - a network path (`\\host\share\…`, `//host/share/…`, `\\?\UNC\host\share\…`)
+ *     reaches out to that host, handing it the person's NTLM credentials, so
+ *     it is accepted only inside one of `uncRoots` that is itself on a share
+ *     (the chat's working folder, main.ts), `..` resolved first;
+ *   - any other device path (`\\.\…`, `\\?\GLOBALROOT…`, `\\?\Volume{…}`) never.
+ * A path in a reply is judged by replyPathVerdict, which refuses every share.
  */
-export function localPathArg(platform: Platform, p: unknown): string | null {
-  if (typeof p !== "string" || p.includes("\0") || !isAbsoluteOn(platform, p)) return null;
-  if (platform === "win32" && /^[\\/]{2}/.test(p)) return null;
-  return p;
+export function localPathCheck(
+  platform: Platform,
+  p: unknown,
+  uncRoots: readonly string[] = [],
+): { ok: true; path: string } | { ok: false; why: LocalPathRefusal } {
+  if (typeof p !== "string" || !p || p.includes("\0")) return { ok: false, why: "not-a-path" };
+  let path = p;
+  if (platform === "win32") {
+    if (/^[\\/]{2}\?[\\/]UNC[\\/]/i.test(path)) path = "\\\\" + path.slice(8);
+    else if (/^[\\/]{2}\?[\\/][A-Za-z]:[\\/]/.test(path)) path = path.slice(4);
+    else if (/^[\\/]{2}[.?][\\/]/.test(path)) return { ok: false, why: "device-path" };
+    if (/^[\\/]{2}/.test(path)) {
+      const W = pathFor("win32");
+      const target = W.resolve(path);
+      const inside = uncRoots.some((root) => typeof root === "string" && /^[\\/]{2}[^\\/?.]/.test(root)
+        && !/^[\\/]{2}[.?][\\/]/.test(root) && isUnder("win32", W.resolve(root), target));
+      return inside ? { ok: true, path: target } : { ok: false, why: "network-path" };
+    }
+  }
+  if (!isAbsoluteOn(platform, path)) return { ok: false, why: "not-a-path" };
+  return { ok: true, path };
+}
+
+/** localPathCheck's path, or null when it refused. */
+export function localPathArg(platform: Platform, p: unknown, uncRoots: readonly string[] = []): string | null {
+  const checked = localPathCheck(platform, p, uncRoots);
+  return checked.ok ? checked.path : null;
 }
 
 /** A Finder alias: a bookmark file (`book␀␀␀␀mark…`), which realpath leaves as it

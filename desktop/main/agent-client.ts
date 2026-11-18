@@ -408,6 +408,13 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 
 const EVENTS_RETRY_BASE_MS = 1000;
 const EVENTS_RETRY_MAX_MS = 30_000;
+/**
+ * Review of #74: an accepted stream that lived this long was healthy, frames
+ * or not. sseFrames yields no `: keepalive` comment, so an idle stream a proxy
+ * cuts every minute delivered no frame; counted as a failure it grew every
+ * reconnect to 30 s and approvals arrived late.
+ */
+const EVENTS_HEALTHY_MS = 5_000;
 
 /** Issue #74: the pause before reconnect number `failures` (0-based) of /api/events: 1 s doubling, capped at 30 s. */
 export function eventsRetryDelay(failures: number): number {
@@ -643,6 +650,8 @@ export interface AgentClientOptions {
   serveRecordPath?: string;
   /** How long a fresh agent gets to answer /health (default: by route, healthBudgetMs). */
   healthBudgetMs?: number;
+  /** How long an events stream must live to count as healthy when it delivered no frame (default EVENTS_HEALTHY_MS). */
+  eventsHealthyMs?: number;
   /** SIGTERM → SIGKILL (default STOP_GRACE_MS). */
   stopGraceMs?: number;
   /** SIGKILL → let go of an agent still there (default KILL_WAIT_MS). */
@@ -1207,8 +1216,9 @@ export class AgentClient extends EventEmitter {
    *
    * Issue #74: every reconnect waits. A refused answer (401/404/429/5xx), a
    * failed fetch or a stream that ends without a frame waits longer each time
-   * (eventsRetryDelay: 1 s doubling to 30 s); a stream that delivered frames
-   * and then ended waits 1 s. Before this a refused answer was refetched at
+   * (eventsRetryDelay: 1 s doubling to 30 s); a stream that delivered frames,
+   * or was accepted and lived EVENTS_HEALTHY_MS (an idle one with only
+   * keepalive comments, cut by a proxy), waits 1 s and resets the growth. Before this a refused answer was refetched at
    * once, thousands of requests a second. A remote agent that refuses the
    * token (401/403) also says so in the status, and the /health watch does not
    * read it as connected again while the refusal lasts (health needs no token).
@@ -1221,8 +1231,10 @@ export class AgentClient extends EventEmitter {
 
     void (async () => {
       let failures = 0;
+      const healthyMs = this.opts.eventsHealthyMs ?? EVENTS_HEALTHY_MS;
       while (!controller.signal.aborted && alive()) {
         let frames = 0;
+        let acceptedAt: number | null = null;
         try {
           const res = await fetch(`${this.base()}/api/events`, {
             headers: { authorization: `Bearer ${this.authToken()}` },
@@ -1240,6 +1252,7 @@ export class AgentClient extends EventEmitter {
             throw new Error(`/api/events → HTTP ${res.status}`);
           }
           if (!res.body) throw new Error("no body");
+          acceptedAt = Date.now();
           if (this.eventsRefused && alive()) {
             this.eventsRefused = false;
             if (this.status.state === "error") this.setStatus({ state: "connected", error: null });
@@ -1259,8 +1272,10 @@ export class AgentClient extends EventEmitter {
           if (controller.signal.aborted) return;
         }
         // Ended, refused or failed: wait before the next try, longer while nothing comes through.
-        failures = frames > 0 ? 0 : failures + 1;
-        await abortableSleep(frames > 0 ? EVENTS_RETRY_BASE_MS : eventsRetryDelay(failures - 1), controller.signal);
+        // A stream that delivered frames, or was accepted and lived healthyMs, was healthy.
+        const healthy = frames > 0 || (acceptedAt !== null && Date.now() - acceptedAt >= healthyMs);
+        failures = healthy ? 0 : failures + 1;
+        await abortableSleep(healthy ? EVENTS_RETRY_BASE_MS : eventsRetryDelay(failures - 1), controller.signal);
       }
     })();
   }

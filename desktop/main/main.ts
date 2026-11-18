@@ -19,7 +19,7 @@ import { openLoginTerminal } from "./subscription-cli-login.js";
 import { resetCoreForRedownload, seedBundledCore } from "./core-seed.js";
 import { engineBusy, retryWhileEngineBusy } from "./engine-busy-retry.js";
 import { coreUpdateNoticeVersion, readDismissedCoreUpdate, writeDismissedCoreUpdate } from "./core-update-notice.js";
-import { folderForTurn, folderTurnDir, readChatFolders, writeChatFolders } from "./chat-folders.js";
+import { folderDirForTurn, folderForTurn, readChatFolders, writeChatFolders } from "./chat-folders.js";
 import { assignChat, deleteProject, readProjects, saveProject, turnProject, updateProjects } from "./projects-store.js";
 import { newChatSessionId } from "./chat-session.js";
 import { cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
@@ -284,7 +284,7 @@ import { handoffList, handoffStart } from "./handoff.js";
 // Backlog 03 — the first-run probe's frame log, summarised.
 import { summarizeBootPaint, type BootPaintLog } from "./boot-paint.js";
 import { expandHome, fileManagerLabel, isAbsoluteOn, lastSegment, titleBarOverlayColors, TOOLBAR_HEIGHT, voiceSupported, windowChrome } from "./platform.js";
-import { localPathArg, openTarget, replyPathVerdict } from "./reply-paths.js";
+import { localPathCheck, openTarget, replyPathVerdict, type LocalPathRefusal } from "./reply-paths.js";
 import { appWindows, createScreenMarksOverlay } from "./screen-overlay-window.js";
 import { isQuickEntryWindow, wireQuickEntry } from "./quick-entry-window.js";
 import { KEEPS_CRASHING, RenderRecovery } from "./render-recovery.js";
@@ -1714,6 +1714,24 @@ function wireIpc(client: AgentClient): void {
        a message queued behind that turn goes out at that very moment. A turn
        asked for while a switch's restart runs waits for it, and runs on the
        agent it brings up rather than on one being stopped. */
+    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
+    /* Review of #62 and #74: a chat in a chat folder the import sorted by a
+       project directory works in that directory while it has no stored turns
+       (a new chat, or a queued `waiting-…` one filed there). Asked before the
+       switch wait below, which must be the last await before the turn starts. */
+    const folders = readChatFolders(DESKTOP_STATE_DIR);
+    const filedDir = await folderDirForTurn(folders, known, projectId, {
+      remote: client.isRemote,
+      isStored: async (sid) => {
+        try {
+          const s = (await client.session(sid)) as { turns?: unknown } | null;
+          return !Array.isArray(s?.turns) || s.turns.length > 0;
+        } catch (err) {
+          if (/HTTP 404\b/.test(String(err))) return false;
+          throw err;
+        }
+      },
+    });
     // One restart can follow another; the turn starts with no await after the last look.
     let waited = false;
     for (let r = switchRestartOnItsWay(); r; r = switchRestartOnItsWay()) {
@@ -1723,7 +1741,6 @@ function wireIpc(client: AgentClient): void {
     if (waited && client.status.state !== "connected") {
       return { ok: false, error: client.status.error ?? "the agent did not come back after the switch restarted it" };
     }
-    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
     turnNotifier.begin(turnId, known);   // the chat, for a turn refused before any frame names it
     chatTurns.begin(turnId, Date.now() - queuedAt, A.turnRoute());   // ATO-1026: the route, read as the turn goes out
     if (!listed) {
@@ -1750,11 +1767,8 @@ function wireIpc(client: AgentClient): void {
     /* W2 QA: a chat in a project with no disk folder (a chat folder, which the
        sidebar draws as a project, and where it wins over a project by path)
        takes that one's instructions. */
-    const folders = readChatFolders(DESKTOP_STATE_DIR);
     const filed = folderForTurn(folders, known, projectId);
     const instructions = filed ? (filed.instructions ? { name: filed.name, text: filed.instructions } : null) : proj.instructions;
-    // Review of #62: a new chat in a chat folder the import sorted by a project directory works in that directory.
-    const filedDir = !known && filed && !client.isRemote ? folderTurnDir(folders, filed.id) : undefined;
     void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined, team);
     return { ok: true, turnId };
   }
@@ -2833,8 +2847,14 @@ function wireIpc(client: AgentClient): void {
   });
 
   // Files the agent produced: open, reveal, copy, save elsewhere.
-  // Absolute by this platform's rules: `/x` here, `C:\x` on Windows; never a `\\host\share` (issue #74).
-  const safePath = (p: unknown): string | null => localPathArg(process.platform, p);
+  /* Absolute by this platform's rules: `/x` here, `C:\x` (or `\\?\C:\x`) on
+     Windows; a `\\host\share` path only inside the working folder when that
+     is on a share, never a device path (issue #74, localPathCheck). */
+  const checkPath = (p: unknown) => localPathCheck(process.platform, p, [client.status.workingDir]);
+  const safePath = (p: unknown): string | null => {
+    const checked = checkPath(p);
+    return checked.ok ? checked.path : null;
+  };
   /* Chat review Д23: opening a file the agent produced never runs it. An app,
      a script, an installer, a link file or a Finder alias (openTarget) is
      shown in the file manager instead — the agent writes these too, and a
@@ -2862,13 +2882,19 @@ function wireIpc(client: AgentClient): void {
   // file is not silently dropped.
   ipcMain.handle("app:statPaths", async (_event, list: unknown) => {
     if (!Array.isArray(list)) return { ok: false, error: "not a list" };
-    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number }> = [];
+    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number; refused?: LocalPathRefusal }> = [];
     for (const raw of list.slice(0, 64)) {
-      const expanded = typeof raw === "string" ? expandHome(process.platform, raw, homedir()) : raw;
-      const path = safePath(expanded);
-      if (!path) continue;
+      if (typeof raw !== "string") continue;
+      const expanded = expandHome(process.platform, raw, homedir());
+      // Review of #74: a path refused here is answered, not dropped: not there, and why.
+      const checked = checkPath(expanded);
+      if (!checked.ok) {
+        files.push({ path: expanded, exists: false, kind: null, size: 0, mtimeMs: 0, refused: checked.why });
+        continue;
+      }
+      const path = expanded;
       try {
-        const st = await stat(path);
+        const st = await stat(checked.path);
         files.push({ path, exists: true, kind: st.isDirectory() ? "dir" : "file", size: st.size, mtimeMs: st.mtimeMs });
       } catch {
         files.push({ path, exists: false, kind: null, size: 0, mtimeMs: 0 });

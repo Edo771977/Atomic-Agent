@@ -31,7 +31,8 @@ test('an ordinary document is still opened', () => {
 });
 
 test('a Windows network or device path is not a path to open, stat or show', () => {
-  for (const p of ['\\\\evil.example\\share\\a.txt', '//evil.example/share/a.txt', '\\\\?\\C:\\x.txt', '\\\\.\\pipe\\x', '\\/host/share']) {
+  // (A long path `\\\\?\\C:\\…` is a local one: test/open-path-windows.test.mjs.)
+  for (const p of ['\\\\evil.example\\share\\a.txt', '//evil.example/share/a.txt', '\\\\.\\pipe\\x', '\\/host/share']) {
     assert.equal(localPathArg('win32', p), null, p);
   }
   assert.equal(localPathArg('win32', 'C:\\Users\\a\\notes.txt'), 'C:\\Users\\a\\notes.txt');
