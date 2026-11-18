@@ -69,7 +69,7 @@ interface FusionLike {
   team?: TeamShape;
 }
 
-interface ConfigLike {
+export interface ConfigLike {
   llm?: { providers?: ProviderLike[]; runMode?: { mode?: string; fusion?: FusionLike } };
 }
 
