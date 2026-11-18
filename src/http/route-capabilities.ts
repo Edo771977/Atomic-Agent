@@ -122,6 +122,9 @@ export function createCapabilitiesHandler(): HttpHandler {
         // A chat runs the project flow only when its first request sends
         // `X-Atomic-Project: 1` (with `X-Atomic-Extensions`).
         project: true,
+        // Issue #71: GET /api/fusion/team lists the team for the seats;
+        // a chat request takes these team fields (`reviewer` may be "none").
+        fusionTeam: { route: "/api/fusion/team", chatFields: ["director", "worker", "reviewer"] },
       },
       tools: runtime.toolRegistry
         .list()

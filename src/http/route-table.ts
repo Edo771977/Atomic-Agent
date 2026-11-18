@@ -1,4 +1,5 @@
 import { createGetProjectHandler, createProjectDecisionHandler } from "./route-project.js";
+import { createFusionTeamHandler } from "./route-fusion-team.js";
 import { createSessionCompactionHandler } from "./route-compaction.js";
 import { createRollbackLastTurnHandler } from "./route-rollback-last-turn.js";
 import { createForkSessionHandler, createListRewindPointsHandler, createRewindHandler } from "./route-session-rewind.js";
@@ -321,6 +322,8 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // Issue #39: the fusion project gate's view and the person's verdict.
     { method: "GET", path: "/api/project", handler: createGetProjectHandler() },
     { method: "POST", path: "/api/project/decision", handler: createProjectDecisionHandler() },
+    // Issue #71: the fusion team by role, with what can serve the chat.
+    { method: "GET", path: "/api/fusion/team", handler: createFusionTeamHandler() },
     // ATO-1141: saved "always allow" / ask / deny rules.
     { method: "GET", path: "/api/approval-rules", handler: createListApprovalRulesHandler() },
     { method: "DELETE", path: "/api/approval-rules/{id}", handler: createDeleteApprovalRuleHandler() },

@@ -5,6 +5,7 @@ import { parseTeamMember } from "../llm/run-mode/fusion-team.js";
 import { withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../session/session-fusion-team.js";
 import {
   createSessionTeamChoices,
+  fusionTeamRoster,
   resolveSessionDirector,
   resolveSessionReviewer,
   resolveSessionWorker,
@@ -112,5 +113,34 @@ describe("createSessionTeamChoices", () => {
     choices.set("s1", { director: m("cli:model-d"), worker: null });
     first();
     expect(choices.get("s1")?.director?.ref).toBe("cli:model-d");
+  });
+});
+
+describe("fusionTeamRoster (issue #71)", () => {
+  it("lists every member by role with whether it is usable here and why not", () => {
+    const roster = fusionTeamRoster(
+      { ...fusion, team: { ...fusion.team!, review: "on" } },
+      withSessionFusionReviewer(withSessionFusionDirector({}, m("api:model-a"), 1), "none", 2),
+      { allowedProviders: ["api", "cli", "local"], folder: "/work/secret" },
+      (x) => x.providerId !== "local",
+    )!;
+    expect(roster.directors).toEqual([
+      { ref: "api:model-a", providerId: "api", model: "model-a", usable: true },
+      { ref: "cli:model-d", providerId: "cli", model: "model-d", usable: true },
+    ]);
+    expect(roster.workers[1]).toEqual({
+      ref: "local:model-l", providerId: "local", model: "model-l", usable: false, reason: "unreachable",
+      why: "local cannot answer now (not configured, signed out or not installed)",
+    });
+    expect(roster.reviewers[0]).toEqual({
+      ref: "codex:model-r", providerId: "codex", model: "model-r", usable: false, reason: "folder",
+      why: "this folder (/work/secret) does not allow codex",
+    });
+    expect(roster.review).toBe("on");
+    expect(roster.chat).toEqual({ director: "api:model-a", worker: null, reviewer: "none" });
+  });
+
+  it("is null without a team", () => {
+    expect(fusionTeamRoster({ orchestratorProvider: "api" }, {}, null, all)).toBeNull();
   });
 });
