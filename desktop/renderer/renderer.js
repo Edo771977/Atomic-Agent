@@ -11490,7 +11490,7 @@ function onChatEvent(ev) {
       if (ev.kind === 'error' && sid) ATTN.add(sid);
       nextStepTurnEnded(sid, ev.kind);   // ATO-1094: retire the old suggestion; a finished turn asks for a new one
       void restrictionTurnEnded(sid);   // Issue #67: a read may have restricted the chat (chat-restriction.js)
-      if (sid === S.sessionId) void fzrRefresh(sid);   // Issue #71: the reviewer the turn stamped (fusion-reviewer.js)
+      void fzrTurnEnded(sid, ev.kind === 'error' ? ev.error : null);   // Issue #71: the reviewer the turn stamped, or why not (fusion-reviewer.js)
       const endedSince = (LIVE_TURNS.get(ev.turnId) || {}).startedAt || 0;   // B01: closeChatApprovals, read before liveTurnEnded drops it
       const endedTools = turnToolNames(LIVE_TURNS.get(ev.turnId));          // ATO-203: and the calls it made
       liveTurnEnded(ev, sid);          // item 38: a failed or stopped turn is kept for its chat

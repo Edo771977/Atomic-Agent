@@ -18,8 +18,10 @@
    team.reviewers under the config lock (IPC agent:fusionTeamWrite),
    creating the team from the two seats when there is none. */
 
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, adding: false};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, sentNew: false, adding: false};
 const FZR_NO_REVIEW = 'none';
+/* Sent to clear the chat's stamp: the team picks again (issue #71). */
+const FZR_TEAM_PICKS = 'team';
 const FZR_PROVIDER_MODEL = 'default';
 const FZR_NEW_CHAT = '\u0000new';
 const FZR_ADD_HINT = 'No cloud provider is set up to review. Add one in Settings › Models with Add provider: '
@@ -38,6 +40,7 @@ function fzrMemberLabel(ref, word) {
 
 /** The choice the seat shows for the chat: one not sent yet, else the agent's stamp, else none (the team picks). */
 function fzrChoice(roster, pending) {
+  if (pending === FZR_TEAM_PICKS) return null;
   if (pending !== undefined && pending !== null) return pending;
   return roster && roster.chat ? roster.chat.reviewer : null;
 }
@@ -69,9 +72,14 @@ function fzrRows(roster, choice, word) {
   return rows;
 }
 
-/** A provider entry's member ref: its model, or `default` (the entry's own) when it names none. */
+/**
+ * A provider entry's member ref: its model; `default` (the entry's own) for
+ * a subscription CLI that names none; null for an API entry with none, which
+ * must name one (it is priced and tiered by it).
+ */
 function fzrEntryRef(p) {
-  return p.id + ':' + (p.defaultChatModel || p.model || FZR_PROVIDER_MODEL);
+  const model = p.defaultChatModel || p.model || (p.kind === 'subscription-cli' ? FZR_PROVIDER_MODEL : '');
+  return model ? p.id + ':' + model : null;
 }
 function fzrIsCodex(p) {
   const cli = p && p.subscriptionCli && (typeof p.subscriptionCli === 'string' ? p.subscriptionCli : p.subscriptionCli.cli);
@@ -79,7 +87,10 @@ function fzrIsCodex(p) {
 }
 function fzrCloud(p) {
   if (typeof projectCloudEntry === 'function') return projectCloudEntry(p);
-  return !!p && p.kind !== 'llama-server' && !p.baseUrl;
+  if (!p || p.kind === 'llama-server') return false;
+  const url = p.baseUrl || p.url;
+  if (!url) return true;
+  try { return !/^(localhost|127\.|0\.0\.0\.0|\[::1\]|::1)/.test(new URL(url).hostname); } catch (e) { return false; }
 }
 
 /** The configured cloud providers that are not reviewers yet, a Codex subscription first. */
@@ -88,9 +99,14 @@ function fzrCandidates(config, roster, word) {
   const listed = new Set(roster && roster.configured ? roster.reviewers.map((r) => r.ref) : []);
   const out = providers.filter((p) => p && p.id && fzrCloud(p)).map((p) => {
     const codex = fzrIsCodex(p);
-    return {ref: fzrEntryRef(p), providerId: p.id, label: fzrWord(word, p.id), codex,
-      detail: codex ? 'OpenAI on your ChatGPT subscription · runs read-only' : fzrMemberLabel(fzrEntryRef(p), (x) => x)};
-  }).filter((c) => !listed.has(c.ref));
+    const ref = fzrEntryRef(p);
+    if (ref === null) {
+      return {ref: null, providerId: p.id, label: fzrWord(word, p.id), codex, disabled: true,
+        detail: 'no model: pick a model for it in Settings › Models first'};
+    }
+    return {ref, providerId: p.id, label: fzrWord(word, p.id), codex,
+      detail: codex ? 'OpenAI on your ChatGPT subscription · runs read-only' : fzrMemberLabel(ref, (x) => x)};
+  }).filter((c) => c.ref === null || !listed.has(c.ref));
   return out.filter((c) => c.codex).concat(out.filter((c) => !c.codex));
 }
 
@@ -114,9 +130,12 @@ function fzrSeatHTML() {
   const choice = fzrChoice(roster, FZR.pending[fzrKey()]);
   const word = fzrSeatWord(roster, choice, fzrWordFn());
   const open = typeof S !== 'undefined' && (S.overlay === 'fzr' || S.overlay === 'fzradd') ? ' is-open' : '';
+  // A pick the agent has not stamped: the agent's words for why, until it does.
+  const note = FZR.note[fzrKey()];
+  const tip = 'Reviews the work: ' + word + (note ? '. Not applied yet: ' + note : '');
   return '<span class="composer-seat" role="group" aria-label="Reviewer">'
-    + '<button class="cchip reviewerchip' + open + '" data-act="fzr:open" data-id="' + esc(choice || '') + '"'
-    + ' title="' + esc('Reviews the work: ' + word) + '" aria-label="' + esc('Reviews the work: ' + word) + '">'
+    + '<button class="cchip reviewerchip' + open + (note ? ' is-warn' : '') + '" data-act="fzr:open" data-id="' + esc(choice || '') + '"'
+    + ' title="' + esc(tip) + '" aria-label="' + esc(tip) + '">'
     + ic('check') + '<span class="cval">' + esc(word) + '</span>' + ic('chevD', 'chev') + '</button></span>';
 }
 
@@ -136,8 +155,8 @@ function fzrPopoverHTML() {
   let body;
   if (S.overlay === 'fzradd') {
     const list = fzrCandidates(typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null, roster, word);
-    body = '<div class="modehead"><span>Add a reviewer</span><span class="cap">written to the Fusion team</span></div>'
-      + (list.length ? list.map((c) => fzrRowHTML({label: c.label, detail: c.detail}, FZR.adding ? '' : 'fzr:add:' + c.ref)).join('')
+    body = '<div class="modehead"><span>Add a reviewer</span><span class="cap">added to the Fusion team; only chats that pick it are reviewed</span></div>'
+      + (list.length ? list.map((c) => fzrRowHTML({label: c.label, detail: c.detail, disabled: c.disabled}, FZR.adding || c.disabled ? '' : 'fzr:add:' + c.ref)).join('')
         : '<div class="modenote"><p class="ob-help">' + esc(FZR_ADD_HINT) + '</p>'
           + '<button class="btn btn-s sm" data-act="sel:addProvider">' + ic('plus') + 'Add provider</button></div>');
   } else {
@@ -158,8 +177,12 @@ async function fzrAct(v) {
   if (v === 'addOpen') { S.overlay = 'fzradd'; render(); return; }
   if (v.startsWith('pick:')) {
     const ref = v.slice('pick:'.length);
-    // "Team picks" sends nothing new: a chat that chose before keeps its stamp until it chooses again.
-    if (ref) FZR.pending[fzrKey()] = ref; else delete FZR.pending[fzrKey()];
+    const stamped = fzrRosterNow() && fzrRosterNow().chat ? fzrRosterNow().chat.reviewer : null;
+    // "Team picks" clears a stamp ("team"); with none stamped there is nothing to send.
+    if (ref) FZR.pending[fzrKey()] = ref;
+    else if (stamped) FZR.pending[fzrKey()] = FZR_TEAM_PICKS;
+    else delete FZR.pending[fzrKey()];
+    delete FZR.note[fzrKey()];
     S.overlay = null; render();
     return;
   }
@@ -181,14 +204,36 @@ async function fzrAct(v) {
   }
 }
 
-/** The team choice a turn of the chat on screen carries (renderer.js BR.chat), or null. Used up by the send. */
+/**
+ * The team choice a turn of the chat carries (renderer.js BR.chat), or null.
+ * Sent with every turn until the agent's answer shows it stamped
+ * (fzrReconcile): a turn the agent refused leaves it pending.
+ */
 function fzrTurnTeam(session) {
   const key = session || FZR_NEW_CHAT;
   const reviewer = FZR.pending[key];
   return reviewer ? {reviewer} : null;
 }
-/** The send went out: the choice is the agent's stamp now (a new chat's moves with it). */
-function fzrTurnSent(session) { delete FZR.pending[session || FZR_NEW_CHAT]; }
+/** The send went out. A new chat's pick moves to the chat once the agent names it (fzrRefresh). */
+function fzrTurnSent(session) { if (!session && FZR.pending[FZR_NEW_CHAT]) FZR.sentNew = true; }
+
+/** The agent's answer for chat `sid` shows its pick stamped: it is used up. */
+function fzrReconcile(sid) {
+  const pending = FZR.pending[sid];
+  if (pending === undefined || !FZR.roster || !FZR.roster.known) return;
+  const stamped = FZR.roster.chat ? FZR.roster.chat.reviewer : null;
+  if (pending === stamped || (pending === FZR_TEAM_PICKS && stamped === null)) {
+    delete FZR.pending[sid];
+    delete FZR.note[sid];
+  }
+}
+
+/** A turn of chat `sid` ended (renderer.js): the stamp is read back; a refusal's words stay on the seat. */
+async function fzrTurnEnded(sid, error) {
+  if (!sid) return;
+  if (FZR.pending[sid] !== undefined && error) FZR.note[sid] = String(error).slice(0, 300);
+  if (typeof S === 'undefined' || sid === S.agentSession) await fzrRefresh(sid);
+}
 
 /** Ask the agent for the team as chat `sid` can use it (on open, at a turn's end, after a write). */
 async function fzrRefresh(sid) {
@@ -196,10 +241,17 @@ async function fzrRefresh(sid) {
   const token = ++FZR.token;
   if (FZR.sid !== sid) FZR.roster = null;
   FZR.sid = sid; FZR.asked = sid;
+  // The new chat whose first turn carried a pick is now this one.
+  if (sid && FZR.sentNew && FZR.pending[FZR_NEW_CHAT] !== undefined && FZR.pending[sid] === undefined) {
+    FZR.pending[sid] = FZR.pending[FZR_NEW_CHAT];
+    delete FZR.pending[FZR_NEW_CHAT];
+    FZR.sentNew = false;
+  }
   let roster = null;
   try { roster = await BR.fusionTeam(sid); } catch (e) { roster = null; }
   if (token !== FZR.token) return;
   FZR.roster = roster && roster.known ? roster : {known: false, configured: false, directors: [], workers: [], reviewers: [], review: null, chat: null};
+  if (sid) fzrReconcile(sid);
   fzrRepaint();
 }
 function fzrRepaint() {
@@ -223,5 +275,5 @@ async function fzrLegsMoved() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, FZR, FZR_ADD_HINT};
+  module.exports = {fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrReconcile, FZR, FZR_ADD_HINT};
 }

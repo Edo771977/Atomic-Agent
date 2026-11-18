@@ -12,12 +12,16 @@
  * chat's next turn as `reviewer`; the agent stamps it and keeps it.
  *
  * "Add a reviewer…" writes `team.reviewers` ({@link planAddReviewer}),
- * creating the team from the two legs when there is none, so nothing else
- * changes; a leg moved to a model the team does not list is added to its
- * directors or workers ({@link planFollowLegs}). A team member names a
- * model; the model `default` is the entry's own, for an entry that names
- * none (a Codex subscription on the ChatGPT account's default).
+ * creating the team from the Director seat alone when there is none (no
+ * `workers`, and `review: "off"` so only chats that pick a reviewer are
+ * reviewed); a seat moved to a model the team does not list replaces the
+ * member the desktop wrote for it ({@link planFollowLegs}). A team member
+ * names a model; `default` is a subscription CLI entry's own model (a
+ * Codex subscription on the ChatGPT account's default) and nothing else's.
  */
+
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const NO_REVIEW = "none";
 /** `TEAM_MEMBER_PROVIDER_MODEL` in src/config/llm-fusion-team-config.ts. */
@@ -28,7 +32,7 @@ export interface TeamMemberView {
   providerId: string;
   model: string;
   usable: boolean;
-  reason?: "folder" | "unreachable";
+  reason?: "folder" | "unreachable" | "cli-tools";
   why?: string;
 }
 
@@ -96,7 +100,7 @@ function readMembers(raw: unknown): TeamMemberView[] | null {
       ref: m.ref as string,
       ...split,
       usable: m.usable,
-      ...(m.reason === "folder" || m.reason === "unreachable" ? { reason: m.reason } : {}),
+      ...(m.reason === "folder" || m.reason === "unreachable" || m.reason === "cli-tools" ? { reason: m.reason } : {}),
       ...(typeof m.why === "string" ? { why: m.why.slice(0, TEXT_MAX) } : {}),
     });
   }
@@ -128,11 +132,16 @@ export function readFusionTeam(answer: { status: number; body: unknown } | null)
   };
 }
 
-/** The team choice the window sends with a turn: only the reviewer (a member ref, or "none"). */
+/** Sent as `reviewer` to clear the chat's choice, so the team picks again. */
+export const TEAM_PICKS = "team";
+/** The most members the desktop lets a role grow to when a seat moves. */
+export const ROLE_MAX = 8;
+
+/** The team choice the window sends with a turn: only the reviewer (a member ref, "none" or "team"). */
 export function teamChoiceFromWindow(raw: unknown): { reviewer?: string } {
   if (!isObject(raw)) return {};
   const r = raw.reviewer;
-  if (r === NO_REVIEW) return { reviewer: NO_REVIEW };
+  if (r === NO_REVIEW || r === TEAM_PICKS) return { reviewer: r };
   return splitRef(r) === null ? {} : { reviewer: r as string };
 }
 
@@ -140,16 +149,38 @@ function fusionOf(cfg: ConfigLike): FusionLike | undefined {
   return cfg.llm?.runMode?.fusion;
 }
 
-/** A leg's member ref: its provider and model, `default` when the entry names none. */
+const SUBSCRIPTION_CLI = "subscription-cli";
+
+/**
+ * An entry's member model when nothing pins one: its own model; `default`
+ * on a subscription CLI that names none (the account's default); the
+ * provider id for a local server (it serves one model, never pinned);
+ * null for an API entry with none, which must name one: it is priced and
+ * tiered by that model.
+ */
+function entryModel(entry: ProviderLike, pinned: string | undefined): string | null {
+  const own = pinned || entry.defaultChatModel || entry.model;
+  if (own) return own;
+  if (entry.kind === SUBSCRIPTION_CLI) return PROVIDER_MODEL;
+  if (entry.kind === "llama-server") return entry.id ?? null;
+  return null;
+}
+
+/** A leg's member ref, or null when the leg has no provider or an API leg names no model. */
 export function legRef(cfg: ConfigLike, leg: "orchestrator" | "worker"): string | null {
   const fusion = fusionOf(cfg);
   const id = leg === "orchestrator" ? fusion?.orchestratorProvider : fusion?.workerProvider;
   if (!id) return null;
   const entry = (cfg.llm?.providers ?? []).find((p) => p && p.id === id);
   if (!entry) return null;
-  const pinned = leg === "orchestrator" ? fusion?.orchestratorModel : fusion?.workerModel;
-  const model = pinned || entry.defaultChatModel || entry.model || PROVIDER_MODEL;
-  return `${id}:${model}`;
+  const model = entryModel(entry, leg === "orchestrator" ? fusion?.orchestratorModel : fusion?.workerModel);
+  return model === null ? null : `${id}:${model}`;
+}
+
+/** Which member the desktop last wrote for each seat (kept by main, so a moved seat replaces it). */
+export interface LegMembers {
+  director?: string;
+  worker?: string;
 }
 
 function cloneTeam(team: TeamShape): TeamShape {
@@ -157,53 +188,75 @@ function cloneTeam(team: TeamShape): TeamShape {
 }
 
 /**
- * Add `ref` to the team's reviewers. No team: one made from the two legs
- * (`directors: [orchestrator leg]`, `workers: [worker leg]`), so the seats
- * run as before. Mutates `cfg` (for a whole-file write) and returns the team.
- * `review` is left as it is: listed reviewers turn review on unless it is
- * "off", and a chat that chooses its reviewer has review whatever it says.
+ * Add `ref` to the team's reviewers. No team: one made of the director
+ * seat alone (`directors: [orchestrator leg]`) and the reviewer, without
+ * `workers`, so the worker leg, `fusion.roles` and measured routing run as
+ * before. The first reviewer of a team whose `review` is not "on" also
+ * writes `review: "off"`: listing reviewers would otherwise turn review on
+ * for every chat, and only a chat that picks a reviewer should pay for it
+ * (a chat's chosen reviewer reviews whatever `review` says). Mutates
+ * `cfg` (for a whole-file write) and returns the team, and `legs`: the
+ * member written for the director seat, when one was.
  */
-export function planAddReviewer(cfg: ConfigLike, ref: string): { write: boolean; team?: TeamShape; error?: string } {
+export function planAddReviewer(cfg: ConfigLike, ref: string): { write: boolean; team?: TeamShape; legs?: LegMembers; error?: string } {
   const split = splitRef(ref);
   if (split === null) return { write: false, error: 'a reviewer is "<providerId>:<model>"' };
-  if (!(cfg.llm?.providers ?? []).some((p) => p && p.id === split.providerId)) {
-    return { write: false, error: `${split.providerId} is not a configured provider` };
+  const entry = (cfg.llm?.providers ?? []).find((p) => p && p.id === split.providerId);
+  if (!entry) return { write: false, error: `${split.providerId} is not a configured provider` };
+  if (split.model === PROVIDER_MODEL && entry.kind !== SUBSCRIPTION_CLI) {
+    return { write: false, error: `${split.providerId} needs a model: name a model for it in Settings › Models` };
   }
   const fusion = fusionOf(cfg);
   if (!fusion) return { write: false, error: "Fusion is not set up" };
   let team: TeamShape;
+  let legs: LegMembers | undefined;
   if (fusion.team) team = cloneTeam(fusion.team);
   else {
     const director = legRef(cfg, "orchestrator");
-    const worker = legRef(cfg, "worker");
-    if (director === null) return { write: false, error: "the orchestrator seat has no provider" };
-    team = { directors: [director], ...(worker === null ? {} : { workers: [worker] }) };
+    if (director === null) {
+      return { write: false, error: "pick a model for the Director seat first: the team names each member's model" };
+    }
+    team = { directors: [director] };
+    legs = { director };
   }
   const reviewers = team.reviewers ?? [];
   if (reviewers.includes(ref)) return { write: false, team };
+  if (reviewers.length === 0 && team.review !== "on") team.review = "off";
   team.reviewers = [...reviewers, ref];
   fusion.team = team;
-  return { write: true, team };
+  return { write: true, team, ...(legs === undefined ? {} : { legs }) };
 }
 
-/** Put each leg's member at the front of the team's directors / workers when it is missing. */
-export function planFollowLegs(cfg: ConfigLike): { write: boolean; team?: TeamShape } {
+/**
+ * A moved seat's member in the team: it replaces, in place, the member
+ * the desktop last wrote for that seat (`last`); when the person removed
+ * that one by hand, the current leg alone is added, at the end, and never
+ * past {@link ROLE_MAX}. A team without `workers` stays without.
+ */
+export function planFollowLegs(cfg: ConfigLike, last: LegMembers = {}): { write: boolean; team?: TeamShape; legs: LegMembers } {
   const fusion = fusionOf(cfg);
-  if (!fusion?.team) return { write: false };
+  if (!fusion?.team) return { write: false, legs: last };
   const team = cloneTeam(fusion.team);
+  const legs: LegMembers = { ...last };
   let write = false;
-  const director = legRef(cfg, "orchestrator");
-  if (director !== null && !team.directors.includes(director)) {
-    team.directors = [director, ...team.directors];
+  const follow = (list: string[], seat: "director" | "worker", current: string | null): string[] => {
+    if (current === null || list.includes(current)) return list;
+    const previous = last[seat];
+    const at = previous === undefined ? -1 : list.indexOf(previous);
+    if (at >= 0) {
+      write = true;
+      legs[seat] = current;
+      return list.map((m, n) => (n === at ? current : m));
+    }
+    if (list.length >= ROLE_MAX) return list;
     write = true;
-  }
-  const worker = legRef(cfg, "worker");
-  if (worker !== null && team.workers !== undefined && !team.workers.includes(worker)) {
-    team.workers = [worker, ...team.workers];
-    write = true;
-  }
+    legs[seat] = current;
+    return [...list, current];
+  };
+  team.directors = follow(team.directors, "director", legRef(cfg, "orchestrator"));
+  if (team.workers !== undefined) team.workers = follow(team.workers, "worker", legRef(cfg, "worker"));
   if (write) fusion.team = team;
-  return { write, team };
+  return { write, team, legs };
 }
 
 /**
@@ -238,4 +291,28 @@ export function teamBodyFields(team: { director?: string; worker?: string; revie
     ...(team.worker ? { worker: team.worker } : {}),
     ...(team.reviewer ? { reviewer: team.reviewer } : {}),
   };
+}
+
+const LEGS_FILE = "fusion-team-legs.json";
+
+/** The members the desktop last wrote for the seats (`<desktop state>/fusion-team-legs.json`); {} when none. */
+export function readLegMembers(dir: string): LegMembers {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, LEGS_FILE), "utf8")) as unknown;
+    if (!isObject(raw)) return {};
+    return {
+      ...(splitRef(raw.director) ? { director: raw.director as string } : {}),
+      ...(splitRef(raw.worker) ? { worker: raw.worker as string } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function writeLegMembers(dir: string, legs: LegMembers): void {
+  try {
+    writeFileSync(join(dir, LEGS_FILE), JSON.stringify(legs), "utf8");
+  } catch {
+    /* bookkeeping only: a moved seat is then appended instead of replaced */
+  }
 }

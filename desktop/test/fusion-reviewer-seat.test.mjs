@@ -27,8 +27,9 @@ const member = (ref, extra = {}) => {
 const ROSTER_BODY = {
   configured: true, mode: "fusion",
   directors: [member("anthropic:model-a")],
-  workers: [member("local-llama:default")],
-  reviewers: [member("codex-cli:default"), member("openrouter:model-o", { usable: false, reason: "folder", why: "this folder (/w) does not allow openrouter" })],
+  workers: [member("local-llama:local-llama")],
+  reviewers: [member("codex-cli:default"), member("openrouter:model-o", { usable: false, reason: "folder", why: "this folder (/w) does not allow openrouter" }),
+    member("codex-b:default", { usable: false, reason: "cli-tools", why: "codex-b keeps its own read-only shell, which can read outside this restricted folder" })],
   review: "on", restriction: null,
   chat: { session_id: "s1", director: "anthropic:model-a", worker: null, reviewer: null },
 };
@@ -51,53 +52,79 @@ test("main reads the agent's team answer, and nothing from an older agent", () =
   assert.equal(read.known, true);
   assert.equal(read.configured, true);
   assert.deepEqual(read.reviewers.map((r) => [r.ref, r.usable, r.why ?? null]),
-    [["codex-cli:default", true, null], ["openrouter:model-o", false, "this folder (/w) does not allow openrouter"]]);
+    [["codex-cli:default", true, null], ["openrouter:model-o", false, "this folder (/w) does not allow openrouter"],
+      ["codex-b:default", false, "codex-b keeps its own read-only shell, which can read outside this restricted folder"]]);
   assert.deepEqual(read.chat, { director: "anthropic:model-a", worker: null, reviewer: null });
   for (const answer of [null, { status: 404, body: null }, { status: 200, body: { configured: "yes" } }]) {
     assert.equal(M.readFusionTeam(answer).known, false, JSON.stringify(answer));
   }
 });
 
-test("Add a reviewer creates the team from the two seats when there is none, and changes nothing else", () => {
+test("Add a reviewer creates the team from the director seat, without workers, review off for other chats", () => {
   const cfg = config();
   const before = JSON.parse(JSON.stringify(cfg));
   const plan = M.planAddReviewer(cfg, "codex-cli:default");
   assert.equal(plan.write, true);
-  assert.deepEqual(plan.team, { directors: ["anthropic:model-a"], workers: ["local-llama:default"], reviewers: ["codex-cli:default"] });
+  // No `workers`: the worker leg and fusion.roles keep routing as before. `review: "off"`: only a chat
+  // that picks a reviewer is reviewed (the agent turns review on for that chat).
+  assert.deepEqual(plan.team, { directors: ["anthropic:model-a"], reviewers: ["codex-cli:default"], review: "off" });
+  assert.deepEqual(plan.legs, { director: "anthropic:model-a" });
   assert.deepEqual(cfg.llm.runMode.fusion.team, plan.team);
   delete cfg.llm.runMode.fusion.team;
   assert.deepEqual(cfg, before);
 });
 
-test("Add a reviewer appends to an existing team, once, and refuses a provider that is not configured", () => {
-  const cfg = config({ directors: ["anthropic:model-a"], reviewers: ["openrouter:model-o"], review: "off" });
+test("Add a reviewer: the first one in a team turns review off unless it is on; later ones change nothing else", () => {
+  const plain = config({ directors: ["anthropic:model-a"] });
+  assert.equal(M.planAddReviewer(plain, "codex-cli:default").team.review, "off");
+  const on = config({ directors: ["anthropic:model-a"], review: "on" });
+  assert.equal(M.planAddReviewer(on, "codex-cli:default").team.review, "on");
+  const cfg = config({ directors: ["anthropic:model-a"], reviewers: ["openrouter:model-o"] });
   const plan = M.planAddReviewer(cfg, "codex-cli:default");
-  assert.deepEqual(plan.team, { directors: ["anthropic:model-a"], reviewers: ["openrouter:model-o", "codex-cli:default"], review: "off" });
+  assert.deepEqual(plan.team, { directors: ["anthropic:model-a"], reviewers: ["openrouter:model-o", "codex-cli:default"] });
   assert.equal(M.planAddReviewer(cfg, "codex-cli:default").write, false);
   assert.match(M.planAddReviewer(config(), "nobody:model").error, /not a configured provider/);
   assert.match(M.planAddReviewer(config(), "no-model").error, /<providerId>:<model>/);
 });
 
-test("a seat moved to a model the team does not list is added to its directors or workers", () => {
-  const cfg = config({ directors: ["anthropic:model-a"], workers: ["local-llama:default"], reviewers: ["codex-cli:default"] });
-  assert.equal(M.planFollowLegs(cfg).write, false);
+test("\"default\" is a subscription CLI's own model only; an API entry with no model is refused with a hint", () => {
+  assert.match(M.planAddReviewer(config(), "openrouter:default").error, /name a model/);
+  const bare = config();
+  bare.llm.providers.push({ id: "bare", kind: "openai-compatible", baseUrl: "https://bare.example/v1" });
+  bare.llm.runMode.fusion.orchestratorProvider = "bare";
+  assert.equal(M.legRef(bare, "orchestrator"), null);
+  assert.match(M.planAddReviewer(bare, "codex-cli:default").error, /pick a model for the Director seat/);
+  assert.equal(M.legRef(config(), "worker"), "local-llama:local-llama");
+});
+
+test("a moved seat replaces the member the desktop added for it, in place; one removed by hand is not re-added", () => {
+  const cfg = config({ directors: ["x-user:model", "anthropic:model-a"], reviewers: ["codex-cli:default"] });
+  const last = { director: "anthropic:model-a" };
+  assert.equal(M.planFollowLegs(cfg, last).write, false);
   cfg.llm.runMode.fusion.orchestratorProvider = "openrouter";
-  const plan = M.planFollowLegs(cfg);
+  const plan = M.planFollowLegs(cfg, last);
   assert.equal(plan.write, true);
-  assert.deepEqual(plan.team.directors, ["openrouter:model-o", "anthropic:model-a"]);
-  assert.deepEqual(plan.team.reviewers, ["codex-cli:default"]);
-  assert.equal(M.planFollowLegs(config()).write, false);
+  assert.deepEqual(plan.team.directors, ["x-user:model", "openrouter:model-o"]);
+  assert.deepEqual(plan.legs, { director: "openrouter:model-o" });
+  // The person removed the desktop's entry by hand: only the current leg is added, at the end.
+  const removed = config({ directors: ["x-user:model"] });
+  removed.llm.runMode.fusion.orchestratorProvider = "openrouter";
+  assert.deepEqual(M.planFollowLegs(removed, { director: "anthropic:model-a" }).team.directors, ["x-user:model", "openrouter:model-o"]);
+  // Never more than 8 directors.
+  const full = config({ directors: Array.from({ length: 8 }, (_, n) => `anthropic:m${n}`) });
+  assert.equal(M.planFollowLegs(full, {}).write, false);
+  assert.equal(M.planFollowLegs(config(), {}).write, false);
 });
 
 test("a turn names the seats' members the chat can use, and the chat's reviewer", () => {
-  const cfg = config({ directors: ["anthropic:model-a"], workers: ["local-llama:default"], reviewers: ["codex-cli:default"] });
+  const cfg = config({ directors: ["anthropic:model-a"], workers: ["local-llama:local-llama"], reviewers: ["codex-cli:default"] });
   const roster = M.readFusionTeam({ status: 200, body: ROSTER_BODY });
   assert.deepEqual(M.turnTeamFields(cfg, roster, "codex-cli:default"),
-    { director: "anthropic:model-a", worker: "local-llama:default", reviewer: "codex-cli:default" });
-  assert.deepEqual(M.turnTeamFields(cfg, roster, "none"), { director: "anthropic:model-a", worker: "local-llama:default", reviewer: "none" });
+    { director: "anthropic:model-a", worker: "local-llama:local-llama", reviewer: "codex-cli:default" });
+  assert.deepEqual(M.turnTeamFields(cfg, roster, "none"), { director: "anthropic:model-a", worker: "local-llama:local-llama", reviewer: "none" });
   // A seat the folder refuses is not named: the agent then runs Fusion as the folder allows.
   const refused = M.readFusionTeam({ status: 200, body: { ...ROSTER_BODY, directors: [member("anthropic:model-a", { usable: false, reason: "folder", why: "x" })] } });
-  assert.deepEqual(M.turnTeamFields(cfg, refused, undefined), { worker: "local-llama:default" });
+  assert.deepEqual(M.turnTeamFields(cfg, refused, undefined), { worker: "local-llama:local-llama" });
   // No team, or another route: nothing, so a setup without a team works as before.
   assert.deepEqual(M.turnTeamFields(config(), roster, "codex-cli:default"), {});
   const cloud = config({ directors: ["anthropic:model-a"] });
@@ -105,6 +132,7 @@ test("a turn names the seats' members the chat can use, and the chat's reviewer"
   assert.deepEqual(M.turnTeamFields(cloud, roster, "none"), {});
   assert.deepEqual(M.teamChoiceFromWindow({ reviewer: "codex-cli:default" }), { reviewer: "codex-cli:default" });
   assert.deepEqual(M.teamChoiceFromWindow({ reviewer: "none" }), { reviewer: "none" });
+  assert.deepEqual(M.teamChoiceFromWindow({ reviewer: "team" }), { reviewer: "team" });
   assert.deepEqual(M.teamChoiceFromWindow({ reviewer: "bad" }), {});
   assert.deepEqual(M.teamChoiceFromWindow(null), {});
 });
@@ -143,7 +171,7 @@ test("client: the turn carries director, worker and reviewer; the team is read f
     assert.equal("worker" in turn, false);
     const answer = await client.fusionTeam("s1");
     assert.equal(answer.status, 200);
-    assert.equal(M.readFusionTeam(answer).reviewers.length, 2);
+    assert.equal(M.readFusionTeam(answer).reviewers.length, 3);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -158,10 +186,13 @@ test("the Reviewer seat lists the usable reviewers, the others disabled with why
     ["auto", null, false, true],
     ["member", "codex-cli:default", false, false],
     ["member", "openrouter:model-o", true, false],
+    ["member", "codex-b:default", true, false],
     ["none", null, false, false],
     ["add", null, false, false],
   ]);
   assert.equal(rows[2].detail, "this folder (/w) does not allow openrouter");
+  assert.equal(rows[3].detail, "codex-b keeps its own read-only shell, which can read outside this restricted folder");
+  assert.equal(M.readFusionTeam({ status: 200, body: ROSTER_BODY }).reviewers[2].reason, "cli-tools");
   assert.equal(rows[1].label, "Codex");
   assert.equal(R.fzrSeatWord(roster, null, word), "Team picks");
   assert.equal(R.fzrSeatWord(roster, "none", word), "No review");
@@ -213,15 +244,31 @@ function seatContext(roster, writes) {
   return ctx;
 }
 
-test("window: a pick rides on the chat's next turn once; Add a reviewer writes the team and becomes the choice", async () => {
+test("window: a pick rides on every turn until the agent's stamp shows it; a refusal keeps it and says why", async () => {
   const writes = [];
-  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), writes);
+  let roster = M.readFusionTeam({ status: 200, body: ROSTER_BODY });
+  const c = seatContext(null, writes);
+  c.BR.fusionTeam = async () => roster;
   await c.fzrRefresh("s1");
   assert.match(c.fzrSeatHTML(), /Team picks/);
   await c.fzrAct("pick:none");
   assert.match(c.fzrSeatHTML(), /No review/);
   assert.deepEqual({ ...c.fzrTurnTeam("s1") }, { reviewer: "none" });
-  c.fzrTurnSent("s1");
+  // The agent refused the turn (say, the folder): the choice stays, with the agent's words on the seat.
+  await c.fzrTurnEnded("s1", "provider not allowed here");
+  assert.deepEqual({ ...c.fzrTurnTeam("s1") }, { reviewer: "none" });
+  assert.match(c.fzrSeatHTML(), /Not applied yet: provider not allowed here/);
+  // The agent stamped it: the pick is used up, and the seat reads the stamp.
+  roster = M.readFusionTeam({ status: 200, body: { ...ROSTER_BODY, chat: { ...ROSTER_BODY.chat, reviewer: "none" } } });
+  await c.fzrTurnEnded("s1", null);
+  assert.equal(c.fzrTurnTeam("s1"), null);
+  assert.match(c.fzrSeatHTML(), /No review/);
+  // Team picks clears the stamp: sent as "team" until the agent's answer has none.
+  await c.fzrAct("pick:");
+  assert.deepEqual({ ...c.fzrTurnTeam("s1") }, { reviewer: "team" });
+  assert.match(c.fzrSeatHTML(), /Team picks/);
+  roster = M.readFusionTeam({ status: 200, body: ROSTER_BODY });
+  await c.fzrTurnEnded("s1", null);
   assert.equal(c.fzrTurnTeam("s1"), null);
   await c.fzrAct("add:anthropic:model-a");
   assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ op: "addReviewer", ref: "anthropic:model-a" }]);
@@ -230,6 +277,28 @@ test("window: a pick rides on the chat's next turn once; Add a reviewer writes t
   c.LIVE_CONFIG.llm.runMode.fusion.team = { directors: ["anthropic:model-a"] };
   await c.fzrLegsMoved();
   assert.deepEqual({ ...writes.at(-1) }, { op: "followLegs" });
+});
+
+test("window: a new chat's pick moves to the chat once the agent names it", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:codex-cli:default");
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "codex-cli:default" });
+  c.fzrTurnSent(undefined);
+  c.S.agentSession = "s9";
+  await c.fzrRefresh("s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "codex-cli:default" });
+  assert.equal(c.fzrTurnTeam(undefined), null);
+});
+
+test("Add a reviewer: an API provider with no model is listed disabled, with where to pick one", () => {
+  const roster = M.readFusionTeam({ status: 200, body: { ...ROSTER_BODY, reviewers: [] } });
+  const list = R.fzrCandidates({ llm: { providers: [...providers, { id: "bare", kind: "openai-compatible", baseUrl: "https://bare.example/v1" }] } }, roster, word);
+  const bare = list.find((c) => c.providerId === "bare");
+  assert.equal(bare.disabled, true);
+  assert.match(bare.detail, /pick a model for it in Settings › Models/);
+  assert.equal(R.fzrEntryRef({ id: "openrouter", kind: "openrouter" }), null);
+  assert.equal(R.fzrEntryRef({ id: "codex-cli", kind: "subscription-cli", subscriptionCli: { cli: "codex" } }), "codex-cli:default");
 });
 
 test("window: an unusable reviewer cannot be picked, and an older agent shows no seat", async () => {
