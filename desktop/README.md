@@ -329,6 +329,18 @@ chat's session the window asks the agent at once, and until the agent
 answers for a chat it has not stored yet (item 27's pending row; its route
 answers 404 until then) the provisional chip stays.
 
+### Opening files the agent names
+
+`app:openPath`, `app:statPaths` and `app:fileMenu` take only an absolute local
+path (`localPathArg` in `main/reply-paths.ts`); on Windows a network or device
+path (`\\host\share`, `//host/share`, `\\?\…`) is refused, as it is for a
+path in a reply (issue #74). A file that would run, install, mount or follow a
+link when opened (`RUNS` there: scripts, installers, shortcuts, and since #74
+also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
+`.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
+`.xbap`, and macOS `.mobileconfig`/`.configprofile`) is shown in the file
+manager instead.
+
 ## Process model
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`.

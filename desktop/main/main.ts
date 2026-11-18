@@ -284,7 +284,7 @@ import { handoffList, handoffStart } from "./handoff.js";
 // Backlog 03 — the first-run probe's frame log, summarised.
 import { summarizeBootPaint, type BootPaintLog } from "./boot-paint.js";
 import { expandHome, fileManagerLabel, isAbsoluteOn, lastSegment, titleBarOverlayColors, TOOLBAR_HEIGHT, voiceSupported, windowChrome } from "./platform.js";
-import { openTarget, replyPathVerdict } from "./reply-paths.js";
+import { localPathArg, openTarget, replyPathVerdict } from "./reply-paths.js";
 import { appWindows, createScreenMarksOverlay } from "./screen-overlay-window.js";
 import { isQuickEntryWindow, wireQuickEntry } from "./quick-entry-window.js";
 import { KEEPS_CRASHING, RenderRecovery } from "./render-recovery.js";
@@ -2833,11 +2833,8 @@ function wireIpc(client: AgentClient): void {
   });
 
   // Files the agent produced: open, reveal, copy, save elsewhere.
-  const safePath = (p: unknown): string | null => {
-    // Absolute by this platform's rules: `/x` here, `C:\x` on Windows.
-    if (typeof p !== "string" || !isAbsoluteOn(process.platform, p) || p.includes("\0")) return null;
-    return p;
-  };
+  // Absolute by this platform's rules: `/x` here, `C:\x` on Windows; never a `\\host\share` (issue #74).
+  const safePath = (p: unknown): string | null => localPathArg(process.platform, p);
   /* Chat review Д23: opening a file the agent produced never runs it. An app,
      a script, an installer, a link file or a Finder alias (openTarget) is
      shown in the file manager instead — the agent writes these too, and a

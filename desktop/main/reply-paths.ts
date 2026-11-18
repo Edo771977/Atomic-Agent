@@ -38,6 +38,8 @@ const RUNS = new Set([
   // macOS
   ".command", ".tool", ".terminal", ".pkg", ".mpkg", ".dmg", ".scpt", ".scptd", ".applescript",
   ".webloc", ".inetloc", ".fileloc", ".jar",
+  // Issue #74: configuration profiles, which System Settings offers to install.
+  ".mobileconfig", ".configprofile",
   // scripts
   ".sh", ".bash", ".zsh", ".csh", ".tcsh", ".ksh", ".fish", ".py", ".pyw", ".pyc", ".rb", ".pl", ".php", ".lua", ".tcl",
   // Windows
@@ -45,6 +47,11 @@ const RUNS = new Set([
   ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsc", ".wsf", ".wsh", ".hta", ".scr", ".lnk", ".url",
   ".website", ".reg", ".cpl", ".msc", ".pif", ".scf", ".appref-ms", ".application", ".gadget", ".inf", ".sct",
   ".shb", ".shs", ".chm", ".diagcab", ".jnlp",
+  // Issue #74: library/search-connector/settings shortcuts (followed to a remote or a command), disk
+  // images Explorer mounts (and whose contents then run), Excel add-ins, Sandbox configs, PowerShell
+  // type data, web archives and browser applications. Lower case: compared against extname().toLowerCase().
+  ".library-ms", ".searchconnector-ms", ".settingcontent-ms", ".iso", ".img", ".vhd", ".vhdx",
+  ".xll", ".wsb", ".ps1xml", ".mht", ".mhtml", ".xbap",
   // Linux
   ".desktop", ".run", ".bin", ".appimage", ".deb", ".rpm", ".snap", ".flatpakref",
 ]);
@@ -61,6 +68,19 @@ export function runsWhenOpened(platform: Platform, p: string, kind: "file" | "di
   if (kind === "dir") return BUNDLES.has(ext) || RUNS.has(ext);
   if (RUNS.has(ext)) return true;
   return platform !== "win32" && ext === "" && (mode & 0o111) !== 0;
+}
+
+/**
+ * Issue #74: a path the open/reveal/stat/file-menu IPCs accept — absolute by
+ * the platform's rules, without NUL, and on Windows never a network or device
+ * path (`\\host\share`, `//host/share`, `\\?\…`, `\\.\…`): opening one
+ * reaches out to that host (and hands it the person's NTLM credentials), as
+ * replyPathVerdict already refuses for a path in a reply.
+ */
+export function localPathArg(platform: Platform, p: unknown): string | null {
+  if (typeof p !== "string" || p.includes("\0") || !isAbsoluteOn(platform, p)) return null;
+  if (platform === "win32" && /^[\\/]{2}/.test(p)) return null;
+  return p;
 }
 
 /** A Finder alias: a bookmark file (`book␀␀␀␀mark…`), which realpath leaves as it
