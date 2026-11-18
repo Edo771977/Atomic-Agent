@@ -85,6 +85,22 @@ export function writeTargetsOf(tool: string, args: Record<string, unknown>, work
     case "os.code.rewrite":
       if (args.apply === true) raw.push(str(args.path) ?? workingDir);
       break;
+    // A clone writes the repository at `dest` (its default is a folder
+    // under the working directory); the git mutations write into `repo`
+    // (default: the working directory): objects, the index, the files a
+    // checkout or merge changes (issue #74 item 10).
+    case "os.git.clone":
+      raw.push(str(args.dest) ?? workingDir);
+      break;
+    case "os.git.init":
+      raw.push(str(args.path) ?? workingDir);
+      break;
+    case "os.git.add":
+    case "os.git.commit":
+    case "os.git.checkout":
+    case "os.git.merge":
+      raw.push(str(args.repo) ?? workingDir);
+      break;
     default:
       return [];
   }
