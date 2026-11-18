@@ -10437,6 +10437,7 @@ function startLiveTurn(text) {
   // Issue #74: a new chat queued during a switch (`waiting-…`) was filed in its project when it was queued.
   const waiting = session && typeof projectWaitingTurn === 'function' ? projectWaitingTurn(session) : null;
   const turnPid = waiting ? waiting.pid : forProject;
+  if (waiting) waiting.sending = true;   // on its way: the list settling does not unfile it (projectWaitingCancelled)
   live.folder = firstTurnFolder(waiting ? undefined : session, turnPid);   // review of #67: the folder this new chat's turn runs in
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
@@ -10444,6 +10445,7 @@ function startLiveTurn(text) {
   (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
     if (res && res.ok && teamChoice) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's
     if (res && res.ok && waiting) projectWaitingSent(session);
+    else if (waiting) waiting.sending = false;
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -10549,7 +10551,11 @@ function settlePendingChats() {
     if (SESSIONS.some((s) => s.id === id)) { PENDING_CHATS.delete(id); continue; }
     if (running.has(id)) { row.endedAt = null; continue; }
     if (row.endedAt === null) row.endedAt = now;   // its turn left RUNNING without a last frame
-    if (now - row.endedAt >= PENDING_GRACE_MS) PENDING_CHATS.delete(id);
+    if (now - row.endedAt >= PENDING_GRACE_MS) {
+      PENDING_CHATS.delete(id);
+      // Issue #74: a waiting chat whose queued message never went out is gone: so is its filing.
+      if (typeof projectWaitingCancelled === 'function') projectWaitingCancelled(id);
+    }
   }
 }
 
@@ -12204,6 +12210,7 @@ function unqueueMessage(at) {
 /** A deleted chat's queue goes with it, sent nowhere. */
 function forgetQueue(sid) {
   QUEUES.delete(sid);
+  if (typeof projectWaitingCancelled === 'function') projectWaitingCancelled(sid);   // issue #74: a waiting chat filed when it was queued
   if (sid && sid === queueKey()) { S.queued.length = 0; STEER.ahead = 0; DRAIN_OWED = false; }
 }
 /** Queued messages with no chat left to run in: said, not dropped quietly. */

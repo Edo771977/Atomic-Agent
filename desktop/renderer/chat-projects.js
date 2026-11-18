@@ -209,9 +209,12 @@ function projectFileWaitingChat(sid, pid) {
 /** The waiting chat `sid`'s project and its filing, until its first turn went out (projectWaitingSent); or null. */
 function projectWaitingTurn(sid) { return PROJECTS.waiting.get(sid) || null; }
 function projectWaitingSent(sid) { PROJECTS.waiting.delete(sid); }
-/** The waiting chat's last message was cancelled before it went out: the chat is gone, and so is its filing. */
+/* The waiting chat is gone before its message went out (cancelled, the chat
+   deleted, its stand-in dropped from the list): so is its filing. Not while
+   its first turn is on its way (`sending`, startLiveTurn). */
 function projectWaitingCancelled(sid) {
-  if (!PROJECTS.waiting.has(sid)) return;
+  const e = PROJECTS.waiting.get(sid);
+  if (!e || e.sending) return;
   PROJECTS.waiting.delete(sid);
   projectPutChat(sid, '');
 }

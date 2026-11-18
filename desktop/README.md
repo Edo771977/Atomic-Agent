@@ -517,7 +517,7 @@ Real, driven by the running agent:
   gives the chat its `waiting-…` id at once, and main reads a turn with an id
   as a known chat's: so the chat is filed in the project when the message is
   queued, its first turn waits for that write, and its Reviewer pick is keyed
-  by that id (issue #74; cancelling the message unfiles it). A chat folder's
+  by that id (issue #74). A waiting chat that goes before its message went out (the message cancelled, the chat deleted, or its stand-in dropped from the list) is unfiled. A chat folder's
   import directory does not apply to such a chat: main reads it only for a
   turn with no id. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn

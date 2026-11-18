@@ -51,7 +51,8 @@ function fixture() {
   for (const f of ["chat-list.js", "chat-folders.js", "chat-projects.js", "fusion-reviewer.js"]) vm.runInContext(src("../renderer/" + f), c);
   vm.runInContext("PROJECTS.state = {projects: [" + JSON.stringify(STORE) + "], chats: {}};", c);
   for (const name of ["chatTitle", "submit", "swxWaitsForRoute", "openHoldsComposer", "noteWaitingChat", "drainQueued", "drainOwed",
-    "queueKey", "startLiveTurn", "firstTurnFolder", "firstTurnSent", "projectNoteTurn", "unqueueMessage", "queueChatRunning"]) {
+    "queueKey", "startLiveTurn", "firstTurnFolder", "firstTurnSent", "projectNoteTurn", "unqueueMessage", "queueChatRunning",
+    "forgetQueue", "settlePendingChats", "stashQueue", "mergeQueue", "restoreQueue", "queueTurnEnded", "chatQueuedCount", "notSent", "droppedPreview"]) {
     const fn = functions.get(name);
     if (fn) vm.runInContext(fn, c);
   }
@@ -102,4 +103,62 @@ test("a queued new chat cancelled before it went out leaves its project", async 
   await settle();
   assert.deepEqual(calls.filter((x) => x[0] === "assign").map((x) => x.map(String).join(" ")), ["assign " + sid + " pris1234", "assign " + sid + " null"]);
   assert.equal(vm.runInContext("PROJECTS.state.chats[" + JSON.stringify(sid) + "]", c), undefined);
+});
+
+// Review of #74: only unqueueMessage unfiled a waiting chat. Deleting it, or
+// its queued message being dropped some other way (the stand-in then leaves
+// the list, settlePendingChats), left it in projects.json and PROJECTS.waiting,
+// so the project counted a chat that never existed.
+const unfiled = (calls, sid) => calls.filter((x) => x[0] === "assign" && x[1] === sid && x[2] === null).length;
+const waitingHas = (c, sid) => vm.runInContext("PROJECTS.waiting.has(" + JSON.stringify(sid) + ")", c);
+
+test("a waiting chat deleted before its message went out leaves its project", async () => {
+  const { c, calls } = fixture();
+  vm.runInContext("PROJECTS.newFor = {id: 'pris1234', log: S.log};", c);
+  c.submit();
+  const sid = c.S.sessionId;
+  await settle();
+  c.forgetQueue(sid);   // the sidebar's Delete
+  await settle();
+  assert.equal(unfiled(calls, sid), 1, "the deleted waiting chat is still filed in the project");
+  assert.equal(waitingHas(c, sid), false);
+  assert.equal(vm.runInContext("PROJECTS.state.chats[" + JSON.stringify(sid) + "]", c), undefined);
+});
+
+test("a waiting chat left with its queued message dropped leaves its project when its stand-in goes", async () => {
+  const { c, calls } = fixture();
+  c.PENDING_GRACE_MS = 0;
+  vm.runInContext("PROJECTS.newFor = {id: 'pris1234', log: S.log};", c);
+  c.submit();
+  const sid = c.S.sessionId;
+  await settle();
+  // The person opens another chat: the waiting chat's queue goes with it, then is dropped unsent.
+  c.stashQueue();
+  c.S.sessionId = "other"; c.S.agentSession = "other";
+  c.QUEUES.delete(sid);
+  c.settlePendingChats();
+  c.settlePendingChats();
+  await settle();
+  assert.equal(c.PENDING_CHATS.has(sid), false);
+  assert.equal(unfiled(calls, sid), 1, "the dropped waiting chat is still filed in the project");
+  assert.equal(waitingHas(c, sid), false);
+});
+
+test("a waiting chat whose first turn is on its way is not unfiled by the list settling", async () => {
+  const { c, calls } = fixture();
+  c.PENDING_GRACE_MS = 0;
+  let release;
+  c.BR.chat = () => new Promise((r) => { release = r; });
+  vm.runInContext("PROJECTS.newFor = {id: 'pris1234', log: S.log};", c);
+  c.submit();
+  const sid = c.S.sessionId;
+  c.SWX.pending = 0;
+  c.drainOwed();
+  await settle();
+  c.settlePendingChats(); c.settlePendingChats();
+  await settle();
+  assert.equal(unfiled(calls, sid), 0);
+  release({ ok: true, turnId: "t-on" });
+  await settle();
+  assert.equal(waitingHas(c, sid), false, "sent: nothing is waiting any more");
 });
