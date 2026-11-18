@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from "./session-state.js";
 import { normalizeSessionState } from "./normalize-session-state.js";
+import { READ_TAINT_METADATA_KEY, withReadTaintFrom } from "./stored-read-taint.js";
 import {
   SESSION_ARCHIVED_METADATA_KEY,
   SESSION_ARCHIVED_SET_AT_KEY,
@@ -227,6 +228,8 @@ interface StoredRow {
   chatArchived: boolean;
   /** When the operator last archived or unarchived it, `null` when never. */
   chatArchivedSetAt: number | null;
+  /** The stored read taint stamp (`stored-read-taint.ts`), `undefined` when none. */
+  readTaint: unknown;
 }
 
 /**
@@ -476,7 +479,8 @@ export class SessionStore {
               json_extract(payload, '$.metadata.${SESSION_TITLE_USER_SET_AT_KEY}') AS titleSetByUserAt,
               json_extract(payload, '$.${ARCHIVED_TURNS_KEY}.count') AS archivedCount,
               json_extract(payload, '$.metadata.${SESSION_ARCHIVED_METADATA_KEY}') AS chatArchived,
-              json_extract(payload, '$.metadata.${SESSION_ARCHIVED_SET_AT_KEY}') AS chatArchivedSetAt
+              json_extract(payload, '$.metadata.${SESSION_ARCHIVED_SET_AT_KEY}') AS chatArchivedSetAt,
+              payload -> '$.metadata.${READ_TAINT_METADATA_KEY}' AS readTaint
        FROM sessions WHERE id = ?`,
     );
     this.selectStoredBareStmt = this.db.prepare(
@@ -676,7 +680,7 @@ export class SessionStore {
         warnArchivedWriteSkipped(state.id);
         throw ROLLBACK;
       }
-      const row = this.serialize(withStoredArchive(withStoredTitle(state, stored), stored), archive);
+      const row = this.serialize(withStoredReadTaint(withStoredArchive(withStoredTitle(state, stored), stored), stored), archive);
       const result = progressStatements.checkpoint.run({
         id: state.id,
         owner,
@@ -883,7 +887,7 @@ export class SessionStore {
         this.insertStmt.run(this.serialize(next, archive));
         return true;
       }
-      next = withStoredArchive(withStoredTitle(next, stored), stored);
+      next = withStoredReadTaint(withStoredArchive(withStoredTitle(next, stored), stored), stored);
       const update = endsTurn ? this.finishTurnStmt : this.updateStmt;
       update.run(this.serialize(next, archive));
       return true;
@@ -950,6 +954,7 @@ export class SessionStore {
           archivedCount?: unknown;
           chatArchived?: unknown;
           chatArchivedSetAt?: unknown;
+          readTaint?: unknown;
         }
       | undefined;
     try {
@@ -983,6 +988,7 @@ export class SessionStore {
         Number.isFinite(row.chatArchivedSetAt)
           ? row.chatArchivedSetAt
           : null,
+      readTaint: parseStoredReadTaint(row.readTaint),
     };
   }
 
@@ -1465,6 +1471,34 @@ function withStoredArchive(
       stored.chatArchivedSetAt,
     ),
   };
+}
+
+/**
+ * `next` with the read taint the stored row carries intersected into its
+ * own (issue #74): a copy read before a tool, a Fusion worker or a move
+ * tainted the row (a turn's own copy, another process) never writes the
+ * taint away. Shared by every write that replaces a row's payload.
+ */
+function withStoredReadTaint(
+  next: SessionState,
+  stored: StoredRow | undefined,
+): SessionState {
+  return stored === undefined ? next : withReadTaintFrom(next, stored.readTaint);
+}
+
+/**
+ * The stamp a row's `payload -> '$.metadata.providerReadTaint'` names:
+ * `undefined` for none, the parsed JSON otherwise (an unreadable one is
+ * kept as it is, and reading it fails closed).
+ */
+function parseStoredReadTaint(raw: unknown): unknown {
+  if (typeof raw !== "string") return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed === null ? undefined : parsed;
+  } catch {
+    return raw;
+  }
 }
 
 /**
