@@ -45,4 +45,21 @@ describe("provider policy read taint", () => {
     // The stamp keeps it across /resume.
     expect(providerPolicyFromStamp(toProviderPolicyStamp(both))?.readFrom).toEqual(["/work/secret"]);
   });
+
+  it("same key or a covered key: the lists still intersect, so a stricter snapshot is kept (issue #74)", () => {
+    // A Retry stamp taken while /work/secret allowed only local-llama, applied after it was loosened.
+    const loosened = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama", "openai"], allowedEgress: ["web", "git"], matchedDir: "/work/secret" });
+    const stamp = makeProviderPolicy({ key: "/work/secret", allowedProviders: ["local-llama"], allowedEgress: ["git"], matchedDir: "/work/secret", movedFrom: ["/work/old"] });
+    const both = intersectProviderPolicies(loosened, stamp);
+    expect(both.key).toBe("/work/secret");
+    expect(both.allowedProviders).toEqual(["local-llama"]);
+    expect(both.allowedEgress).toEqual(["git"]);
+    expect(both.movedFrom).toEqual(["/work/old"]);
+    // `a` already carries b's key as a part: still the stricter lists.
+    const joined = makeProviderPolicy({ key: "/work/a + /work/secret", allowedProviders: ["local-llama", "openai"], allowedEgress: ["web"], matchedDir: "/work/a" });
+    const covered = intersectProviderPolicies(joined, stamp);
+    expect(covered.key).toBe("/work/a + /work/secret");
+    expect(covered.allowedProviders).toEqual(["local-llama"]);
+    expect(covered.allowedEgress).toEqual([]);
+  });
 });

@@ -90,5 +90,69 @@ describe("serve on a network host with per-folder constraints", () => {
     const listed = await fetch(`${harness.baseUrl}/api/ideas`);
     expect(await listed.text()).not.toContain("acme");
   });
-});
 
+  // Issue #74 item 9: task prompts and errors are the session's content.
+  it("withholds a restricted session's tasks on /api/tasks, /api/tasks/{id} and /runs", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save(session);
+    const store = harness.runtime.taskStore;
+    const t = store.create({ userMessage: "send the acme figures", origin: "cli", maxAttempts: 1, sessionId: session.id });
+    store.markRunning(t.id);
+    store.markFailed(t.id, { category: "transport", message: "acme provider timed out" });
+    const orphan = store.create({ userMessage: "acme orphan task", origin: "cli", maxAttempts: 1 });
+    const list = await fetch(`${harness.baseUrl}/api/tasks`);
+    expect(list.status).toBe(200);
+    expect(await list.text()).not.toContain("acme");
+    const bySession = await fetch(`${harness.baseUrl}/api/tasks?session=${session.id}`);
+    expect(await bySession.text()).not.toContain("acme");
+    for (const id of [t.id, orphan.id]) {
+      for (const path of [`/api/tasks/${id}`, `/api/tasks/${id}/runs`]) {
+        const res = await fetch(`${harness.baseUrl}${path}`);
+        expect(res.status, path).toBe(403);
+        expect(await res.text(), path).not.toContain("acme");
+      }
+      for (const path of [`/api/tasks/${id}/pause`, `/api/tasks/${id}/run`]) {
+        const res = await fetch(`${harness.baseUrl}${path}`, { method: "POST" });
+        expect(res.status, path).toBe(403);
+      }
+      expect((await fetch(`${harness.baseUrl}/api/tasks/${id}`, { method: "DELETE" })).status).toBe(403);
+    }
+    const created = await fetch(`${harness.baseUrl}/api/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: session.id, userMessage: "more acme" }),
+    });
+    expect(created.status).toBe(403);
+  });
+
+  it("still lists tasks with \"serve\" in allowedEgress", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"], allowedEgress: ["serve"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save(session);
+    const t = harness.runtime.taskStore.create({ userMessage: "acme ok", origin: "cli", maxAttempts: 1, sessionId: session.id });
+    expect(await (await fetch(`${harness.baseUrl}/api/tasks`)).text()).toContain("acme ok");
+    expect((await fetch(`${harness.baseUrl}/api/tasks/${t.id}`)).status).toBe(200);
+  });
+
+  it("blanks a restricted session's title, error, goal and next step on GET /api/sessions", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const session = harness.runtime.createSession();
+    harness.runtime.sessionStore.save({ ...session, lastError: "acme error", metadata: { ...session.metadata, title: "Acme figures" } });
+    const res = await fetch(`${harness.baseUrl}/api/sessions?scope=all`);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain(session.id);
+    expect(text.toLowerCase()).not.toContain("acme");
+    const row = ((JSON.parse(text) as { sessions: Array<Record<string, unknown>> }).sessions).find((s) => s.id === session.id);
+    expect(row?.restricted).toBe(true);
+  });
+
+  // Issue #74 review: a task with no session runs in the server's folder; only that folder's policy hides it.
+  it("shows a session-less task when only another folder is constrained", async () => {
+    harness = await startTestHarness({ host: "0.0.0.0", constraints: { "/elsewhere-constrained": { allowedProviders: ["local-llama"] } } });
+    const t = harness.runtime.taskStore.create({ userMessage: "acme orphan task", origin: "cli", maxAttempts: 1 });
+    expect(await (await fetch(`${harness.baseUrl}/api/tasks`)).text()).toContain("acme orphan task");
+    expect((await fetch(`${harness.baseUrl}/api/tasks/${t.id}`)).status).toBe(200);
+  });
+});

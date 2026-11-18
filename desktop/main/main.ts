@@ -19,7 +19,7 @@ import { openLoginTerminal } from "./subscription-cli-login.js";
 import { resetCoreForRedownload, seedBundledCore } from "./core-seed.js";
 import { engineBusy, retryWhileEngineBusy } from "./engine-busy-retry.js";
 import { coreUpdateNoticeVersion, readDismissedCoreUpdate, writeDismissedCoreUpdate } from "./core-update-notice.js";
-import { folderForTurn, folderTurnDir, readChatFolders, writeChatFolders } from "./chat-folders.js";
+import { folderDirForTurn, folderForTurn, readChatFolders, writeChatFolders } from "./chat-folders.js";
 import { assignChat, deleteProject, readProjects, saveProject, turnProject, updateProjects } from "./projects-store.js";
 import { newChatSessionId } from "./chat-session.js";
 import { cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
@@ -274,7 +274,7 @@ import { curatedMeta, curatedMetaIds, spotlightIds } from "./model-catalog.js";
 import { catalogPullWantsProjector, weightsOnDisk, wholePullProgress, withoutLivePullGap } from "./pull-projector.js";
 import { memoryQuery } from "./memory-db.js";
 // r5 item 9 — the desktop's own state directory and the TUI import offer.
-import { agentEnv, claimPortsIn, DESKTOP_EMBEDDING_PORT, DESKTOP_MANAGED_PORT, DESKTOP_STATE_DIR, desktopOwnsItsPorts, LEGACY_DESKTOP_STATE_DIR, SHARES_TERMINAL_STATE, STATE_DIR_FROM_ENV, TUI_STATE_DIR, underDesktopState } from "./state-dir.js";
+import { agentEnv, claimPortsIn, DESKTOP_EMBEDDING_PORT, DESKTOP_MANAGED_PORT, DESKTOP_STATE_DIR, desktopOwnsItsPorts, LEGACY_DESKTOP_STATE_DIR, SHARES_TERMINAL_STATE, STATE_DIR_FROM_ENV, TUI_STATE_DIR, desktopStateDirArg } from "./state-dir.js";
 // ATO-416 — one state directory with the terminal agent: the shared model's session marker, and the one-time notice.
 import { registerModelSession } from "./model-sessions.js";
 import { readConfigFile, readStateDirsRecord, recordStateDirRun, sharedSetupNoticeDue, stateDirsRecordPath } from "./shared-state-notice.js";
@@ -284,7 +284,7 @@ import { handoffList, handoffStart } from "./handoff.js";
 // Backlog 03 — the first-run probe's frame log, summarised.
 import { summarizeBootPaint, type BootPaintLog } from "./boot-paint.js";
 import { expandHome, fileManagerLabel, isAbsoluteOn, lastSegment, titleBarOverlayColors, TOOLBAR_HEIGHT, voiceSupported, windowChrome } from "./platform.js";
-import { openTarget, replyPathVerdict } from "./reply-paths.js";
+import { localPathCheck, openTarget, replyPathVerdict, type LocalPathRefusal } from "./reply-paths.js";
 import { appWindows, createScreenMarksOverlay } from "./screen-overlay-window.js";
 import { isQuickEntryWindow, wireQuickEntry } from "./quick-entry-window.js";
 import { KEEPS_CRASHING, RenderRecovery } from "./render-recovery.js";
@@ -1449,7 +1449,9 @@ function wireIpc(client: AgentClient): void {
      future one that computes a path instead of reading it — must not be
      able to address the operator's tree through an IPC that reads .env or
      a sqlite file. Anything outside DESKTOP_STATE_DIR is refused here. */
-  const ownDir = (p: unknown): p is string => typeof p === "string" && underDesktopState(p);
+  // Issue #74: not a prefix test any more — the value must name the directory
+  // itself, canonically, and the handler is handed DESKTOP_STATE_DIR (or null).
+  const ownDir = (p: unknown): string | null => desktopStateDirArg(p);
 
   ipcMain.handle("agent:status", () => client.status);
   ipcMain.handle("agent:start", () => client.start());
@@ -1712,6 +1714,24 @@ function wireIpc(client: AgentClient): void {
        a message queued behind that turn goes out at that very moment. A turn
        asked for while a switch's restart runs waits for it, and runs on the
        agent it brings up rather than on one being stopped. */
+    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
+    /* Review of #62 and #74: a chat in a chat folder the import sorted by a
+       project directory works in that directory while it has no stored turns
+       (a new chat, or a queued `waiting-…` one filed there). Asked before the
+       switch wait below, which must be the last await before the turn starts. */
+    const folders = readChatFolders(DESKTOP_STATE_DIR);
+    const filedDir = await folderDirForTurn(folders, known, projectId, {
+      remote: client.isRemote,
+      isStored: async (sid) => {
+        try {
+          const s = (await client.session(sid)) as { turns?: unknown } | null;
+          return !Array.isArray(s?.turns) || s.turns.length > 0;
+        } catch (err) {
+          if (/HTTP 404\b/.test(String(err))) return false;
+          throw err;
+        }
+      },
+    });
     // One restart can follow another; the turn starts with no await after the last look.
     let waited = false;
     for (let r = switchRestartOnItsWay(); r; r = switchRestartOnItsWay()) {
@@ -1721,7 +1741,6 @@ function wireIpc(client: AgentClient): void {
     if (waited && client.status.state !== "connected") {
       return { ok: false, error: client.status.error ?? "the agent did not come back after the switch restarted it" };
     }
-    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
     turnNotifier.begin(turnId, known);   // the chat, for a turn refused before any frame names it
     chatTurns.begin(turnId, Date.now() - queuedAt, A.turnRoute());   // ATO-1026: the route, read as the turn goes out
     if (!listed) {
@@ -1748,11 +1767,8 @@ function wireIpc(client: AgentClient): void {
     /* W2 QA: a chat in a project with no disk folder (a chat folder, which the
        sidebar draws as a project, and where it wins over a project by path)
        takes that one's instructions. */
-    const folders = readChatFolders(DESKTOP_STATE_DIR);
     const filed = folderForTurn(folders, known, projectId);
     const instructions = filed ? (filed.instructions ? { name: filed.name, text: filed.instructions } : null) : proj.instructions;
-    // Review of #62: a new chat in a chat folder the import sorted by a project directory works in that directory.
-    const filedDir = !known && filed && !client.isRemote ? folderTurnDir(folders, filed.id) : undefined;
     void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined, team);
     return { ok: true, turnId };
   }
@@ -2464,16 +2480,18 @@ function wireIpc(client: AgentClient): void {
   ipcMain.handle("engine:cpuFallback", () => engineCpuFallback);
   ipcMain.handle("engine:launchInstall", () => ({ running: launchInstall }));
   ipcMain.handle("cli:traceUsage", (_event, payload: unknown) => {
-    const { stateDir, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
-    if (!ownDir(stateDir) || typeof sessionId !== "string") {
+    const { stateDir: stateDirArg, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof sessionId !== "string") {
       return { ok: false, error: "stateDir and sessionId are required" };
     }
     return traceUsage(stateDir, sessionId);
   });
   // item 4: per-call tool durations from the trace
   ipcMain.handle("cli:traceTools", (_event, payload: unknown) => {
-    const { stateDir, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
-    if (!ownDir(stateDir) || typeof sessionId !== "string") {
+    const { stateDir: stateDirArg, sessionId } = (payload ?? {}) as { stateDir?: unknown; sessionId?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof sessionId !== "string") {
       return { ok: false, error: "stateDir and sessionId are required" };
     }
     return traceTools(stateDir, sessionId);
@@ -2769,8 +2787,9 @@ function wireIpc(client: AgentClient): void {
 
   // --- Lane B — context before the first message (item 3) ---
   ipcMain.handle("cli:traceBaseline", (_event, payload: unknown) => {
-    const { stateDir, model, workingDir } = (payload ?? {}) as { stateDir?: unknown; model?: unknown; workingDir?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, error: "stateDir is required" };
+    const { stateDir: stateDirArg, model, workingDir } = (payload ?? {}) as { stateDir?: unknown; model?: unknown; workingDir?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, error: "stateDir is required" };
     return traceBaseline(stateDir, {
       model: typeof model === "string" && model ? model : null,
       workingDir: typeof workingDir === "string" && workingDir ? workingDir : null,
@@ -2828,10 +2847,13 @@ function wireIpc(client: AgentClient): void {
   });
 
   // Files the agent produced: open, reveal, copy, save elsewhere.
+  /* Absolute by this platform's rules: `/x` here, `C:\x` (or `\\?\C:\x`) on
+     Windows; a `\\host\share` path only inside the working folder when that
+     is on a share, never a device path (issue #74, localPathCheck). */
+  const checkPath = (p: unknown) => localPathCheck(process.platform, p, [client.status.workingDir]);
   const safePath = (p: unknown): string | null => {
-    // Absolute by this platform's rules: `/x` here, `C:\x` on Windows.
-    if (typeof p !== "string" || !isAbsoluteOn(process.platform, p) || p.includes("\0")) return null;
-    return p;
+    const checked = checkPath(p);
+    return checked.ok ? checked.path : null;
   };
   /* Chat review Д23: opening a file the agent produced never runs it. An app,
      a script, an installer, a link file or a Finder alias (openTarget) is
@@ -2860,13 +2882,19 @@ function wireIpc(client: AgentClient): void {
   // file is not silently dropped.
   ipcMain.handle("app:statPaths", async (_event, list: unknown) => {
     if (!Array.isArray(list)) return { ok: false, error: "not a list" };
-    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number }> = [];
+    const files: Array<{ path: string; exists: boolean; kind: "file" | "dir" | null; size: number; mtimeMs: number; refused?: LocalPathRefusal }> = [];
     for (const raw of list.slice(0, 64)) {
-      const expanded = typeof raw === "string" ? expandHome(process.platform, raw, homedir()) : raw;
-      const path = safePath(expanded);
-      if (!path) continue;
+      if (typeof raw !== "string") continue;
+      const expanded = expandHome(process.platform, raw, homedir());
+      // Review of #74: a path refused here is answered, not dropped: not there, and why.
+      const checked = checkPath(expanded);
+      if (!checked.ok) {
+        files.push({ path: expanded, exists: false, kind: null, size: 0, mtimeMs: 0, refused: checked.why });
+        continue;
+      }
+      const path = expanded;
       try {
-        const st = await stat(path);
+        const st = await stat(checked.path);
         files.push({ path, exists: true, kind: st.isDirectory() ? "dir" : "file", size: st.size, mtimeMs: st.mtimeMs });
       } catch {
         files.push({ path, exists: false, kind: null, size: 0, mtimeMs: 0 });
@@ -3342,8 +3370,9 @@ function wireIpc(client: AgentClient): void {
   });
   // Read-only sqlite over <stateDir>/memory.sqlite; the statement is named, never free SQL.
   ipcMain.handle("app:memoryQuery", (_event, payload: unknown) => {
-    const { stateDir, name, params } = (payload ?? {}) as { stateDir?: unknown; name?: unknown; params?: unknown };
-    if (!ownDir(stateDir) || typeof name !== "string") return { ok: false, error: "stateDir and name are required" };
+    const { stateDir: stateDirArg, name, params } = (payload ?? {}) as { stateDir?: unknown; name?: unknown; params?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir || typeof name !== "string") return { ok: false, error: "stateDir and name are required" };
     return memoryQuery(stateDir, name, Array.isArray(params) ? params : []);
   });
   // ATO-582: edits and deletes go through the agent (its FTS and vectors stay in step), never SQL of ours.
@@ -3748,9 +3777,10 @@ function wireIpc(client: AgentClient): void {
   ipcMain.handle("app:llamaProbe", (_event, url: unknown) =>
     typeof url === "string" ? llamaProbe(url) : { ok: false, error: "url required" },
   );
-  ipcMain.handle("app:dotenvKeys", (_event, stateDir: unknown) =>
-    ownDir(stateDir) ? dotenvKeys(stateDir) : { ok: false, keys: [], exists: false, error: "state dir required" },
-  );
+  ipcMain.handle("app:dotenvKeys", (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    return stateDir ? dotenvKeys(stateDir) : { ok: false, keys: [], exists: false, error: "state dir required" };
+  });
   ipcMain.handle("app:envPresent", (_event, names: unknown) =>
     envPresent(Array.isArray(names) ? names.filter((n): n is string => typeof n === "string").slice(0, 64) : []),
   );
@@ -3758,8 +3788,9 @@ function wireIpc(client: AgentClient): void {
   // telegram-settings.ts setToken), the Exa key for web search (ATO-328) and the Discord bot token
   // (ATO-516, discord-settings.ts writeDiscordToken). Never logged, never echoed back.
   ipcMain.handle("app:dotenvSet", async (_event, payload: unknown) => {
-    const { stateDir, key, value } = (payload ?? {}) as { stateDir?: unknown; key?: unknown; value?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, error: "state dir required" };
+    const { stateDir: stateDirArg, key, value } = (payload ?? {}) as { stateDir?: unknown; key?: unknown; value?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, error: "state dir required" };
     const refused = desktopDotenvError(key, value);
     if (refused) return { ok: false, error: refused };
     const res = await dotenvSet(stateDir, key as string, value as string | null);
@@ -3783,20 +3814,23 @@ function wireIpc(client: AgentClient): void {
   const composioOutcome = (res: ComposioKeyResult): "ok" | "unverified" | "rejected" | "error" =>
     res.ok ? (res.verified ? "ok" : "unverified") : res.rejected ? "rejected" : "error";
   ipcMain.handle("composio:saveKey", async (_event, payload: unknown) => {
-    const { stateDir, value } = (payload ?? {}) as { stateDir?: unknown; value?: unknown };
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+    const { stateDir: stateDirArg, value } = (payload ?? {}) as { stateDir?: unknown; value?: unknown };
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await saveComposioKey(composioDeps(stateDir), typeof value === "string" ? value.trim() : value);
     A.composioStep("key_saved", composioOutcome(res));   // never the key
     return res;
   });
-  ipcMain.handle("composio:removeKey", async (_event, stateDir: unknown) => {
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+  ipcMain.handle("composio:removeKey", async (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await removeComposioKey(composioDeps(stateDir));
     A.composioStep("key_removed", res.ok ? "ok" : "error");
     return res;
   });
-  ipcMain.handle("composio:check", async (_event, stateDir: unknown) => {
-    if (!ownDir(stateDir)) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
+  ipcMain.handle("composio:check", async (_event, stateDirArg: unknown) => {
+    const stateDir = ownDir(stateDirArg);
+    if (!stateDir) return { ok: false, verified: false, shadowed: false, error: "state dir required" };
     const res = await checkSavedComposioKey(composioDeps(stateDir));
     A.composioStep("key_checked", composioOutcome(res));
     return res;

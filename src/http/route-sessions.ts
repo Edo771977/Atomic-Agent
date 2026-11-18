@@ -60,7 +60,7 @@ export function createListSessionsHandler(): HttpHandler {
       ? ctx.runtime.sessionStore.listRecent(limit)
       : ctx.runtime.sessionStore.listByWorkingDir(workingDir, limit);
     sendJson(res, 200, {
-      sessions: sessions.map((s) => ({
+      sessions: sessions.map((s) => (serveWithheld(ctx, s)() ? withheldRow(s) : {
         id: s.id,
         workingDir: s.workingDir,
         // `running` while a turn is in flight on the session, in this
@@ -80,6 +80,29 @@ export function createListSessionsHandler(): HttpHandler {
         archived: readSessionArchived(s.metadata),
       })),
     });
+  };
+}
+
+/**
+ * Issue #74: a network server lists a restricted chat so the client can
+ * place it, but none of its content: the title, error, goal and next
+ * step are `null` and `restricted` is `true` (its own routes answer 403).
+ */
+function withheldRow(s: Pick<SessionState, "id" | "workingDir" | "status" | "turnCount" | "stepCount" | "createdAt" | "updatedAt" | "metadata">): Record<string, unknown> {
+  return {
+    id: s.id,
+    workingDir: s.workingDir,
+    status: s.status,
+    turnCount: s.turnCount,
+    stepCount: s.stepCount,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+    lastError: null,
+    title: null,
+    goal: null,
+    nextStep: null,
+    archived: readSessionArchived(s.metadata),
+    restricted: true,
   };
 }
 

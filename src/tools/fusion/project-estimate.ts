@@ -381,6 +381,15 @@ export interface VariantContext {
   reviewerFor?: (worker: TeamMember) => TeamMember | null;
   /** The team's reviewers in config order: the next one stands in when a row's reviewer would be lost. */
   reviewers?: readonly TeamMember[];
+  /** {@link estimateRow} for a reviewer in role `review` (issue #74); absent: rows cost their worker only. */
+  reviewEstimate?: (reviewer: TeamMember) => RowEstimate;
+}
+
+/** The review estimate of `ref` (null: no reviewer, or no estimator). */
+function reviewOf(ref: string | null, ctx: Pick<VariantContext, "reviewEstimate">): RowEstimate | null {
+  if (ref === null || ctx.reviewEstimate === undefined) return null;
+  const member = parseTeamMember(ref);
+  return member === null ? null : ctx.reviewEstimate(member);
 }
 
 /** Local below any cloud member; a cloud member by tier; null: a cloud member without a tier. */
@@ -438,9 +447,38 @@ export function withRowEstimate(row: AssignmentRow, est: RowEstimate, reason: st
   };
 }
 
+/**
+ * `row` with its review's cost added (issue #74): `review` is
+ * {@link estimateRow} for the row's reviewer in role `review` (one review
+ * call at the preset's review tokens, or its measured median), null when
+ * the row has no reviewer. A review of unknown price keeps the worker's
+ * figure and says so in the reason; an unknown worker cost stays unknown.
+ * A row is `local` ($0) only while the total is 0. The vision judgement
+ * of a page check is not estimated: the checks are not known at plan time.
+ */
+export function withReviewEstimate(row: AssignmentRow, review: RowEstimate | null): AssignmentRow {
+  if (row.reviewer === null || review === null) return row;
+  if (review.estCostUsd === null) return { ...row, reason: `${row.reason}; review on ${row.reviewer} unpriced` };
+  if (row.estCostUsd === null || review.estCostUsd === 0) return row;
+  const { local: _local, ...rest } = row;
+  return {
+    ...rest,
+    estCostUsd: roundUsd(row.estCostUsd + review.estCostUsd),
+    reason: `${row.reason}; review on ${row.reviewer} ~$${review.estCostUsd.toFixed(2)}`,
+  };
+}
+
 function reassign(row: AssignmentRow, worker: TeamMember, est: RowEstimate, why: string, ctx: VariantContext): AssignmentRow {
   const reviewer = reassignedReviewer(row, worker, ctx);
-  return withRowEstimate({ ...row, worker: worker.ref, reviewer }, est, `${why} (${est.reason})`);
+  const moved = withRowEstimate({ ...row, worker: worker.ref, reviewer }, est, `${why} (${est.reason})`);
+  return withReviewEstimate(moved, reviewOf(reviewer, ctx));
+}
+
+/** A candidate's cost for the cheaper comparison: its worker plus the review it would get. */
+function costWithReview(member: TeamMember, row: AssignmentRow, est: RowEstimate, ctx: VariantContext): number | null {
+  if (est.estCostUsd === null) return null;
+  const review = reviewOf(reassignedReviewer(row, member, ctx), ctx);
+  return review === null || review.estCostUsd === null ? est.estCostUsd : est.estCostUsd + review.estCostUsd;
 }
 
 /**
@@ -457,9 +495,10 @@ export function cheaperVariant(rows: readonly AssignmentRow[], ctx: VariantConte
     for (const member of ctx.members) {
       if (member.ref === current.ref || !notWeaker(member, current, ctx)) continue;
       const est = ctx.estimate(member, row);
-      if (est.estCostUsd !== null && est.estCostUsd < bestCost) {
+      const cost = costWithReview(member, row, est, ctx);
+      if (cost !== null && cost < bestCost) {
         best = { member, est };
-        bestCost = est.estCostUsd;
+        bestCost = cost;
       }
     }
     return best === null ? row : reassign(row, best.member, best.est, "cheapest known cost not weaker than the planned worker", ctx);

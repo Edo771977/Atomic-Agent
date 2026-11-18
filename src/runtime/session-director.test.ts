@@ -11,6 +11,7 @@ import {
   resolveSessionWorker,
   sessionDirectorChoice,
   sessionDirectorOptions,
+  teamChoiceMembershipError,
   teamMemberByRef,
 } from "./session-director.js";
 
@@ -152,5 +153,22 @@ describe("fusionTeamRoster (issue #71)", () => {
 
   it("is null without a team", () => {
     expect(fusionTeamRoster({ orchestratorProvider: "api" }, {}, null, all)).toBeNull();
+  });
+});
+
+// Issue #74: the HTTP ingress answers 400 for a member the live team does not list.
+describe("teamChoiceMembershipError", () => {
+  it("accepts listed members, none and team", () => {
+    expect(teamChoiceMembershipError(fusion, { director: "api:model-a", worker: "local:model-l", reviewer: "codex:model-r" })).toBeNull();
+    expect(teamChoiceMembershipError(fusion, { reviewer: "none" })).toBeNull();
+    expect(teamChoiceMembershipError(fusion, { reviewer: "team" })).toBeNull();
+    expect(teamChoiceMembershipError(undefined, {})).toBeNull();
+  });
+
+  it("names the role a member is missing from, and a missing team", () => {
+    expect(teamChoiceMembershipError(fusion, { director: "cli:model-w" })).toMatchObject({ param: "director" });
+    expect(teamChoiceMembershipError(fusion, { worker: "api:model-a" })).toMatchObject({ param: "worker" });
+    expect(teamChoiceMembershipError(fusion, { reviewer: "api:model-a" })).toMatchObject({ param: "reviewer" });
+    expect(teamChoiceMembershipError({ orchestratorProvider: "api" }, { reviewer: "none" })).toMatchObject({ param: "reviewer" });
   });
 });

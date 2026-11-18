@@ -109,34 +109,41 @@ export function currentProviderPolicyCell(): ProviderPolicyCell | undefined {
 }
 
 /**
- * The policy satisfying both `a` and `b`: the providers both allow and
- * the egress classes both allow.
+ * The policy satisfying both `a` and `b`: the providers both allow,
+ * the egress classes both allow and the other machines both allow.
  * Keys join with " + " (a memory row written under it is seen by
  * neither folder alone, unless the allowed list is a subset of the
- * row's); `readFrom` is the union. Same key: `a` unchanged.
+ * row's); `readFrom` and `movedFrom` are the union. Same key, or `a`
+ * already carrying b's key parts: `a`'s key, with the lists still
+ * intersected (issue #74: a stamp taken when the folder was stricter
+ * keeps its lists after the folder is loosened), and `a` itself when
+ * nothing changes.
  */
 export function intersectProviderPolicies(a: ProviderPolicy, b: ProviderPolicy): ProviderPolicy {
+  const providers = a.allowedProviders.filter((id) => b.allowedProviders.includes(id));
+  const egress = a.allowedEgress.filter((cls) => b.allowedEgress.includes(cls));
   const hosts = a.allowedProviderHosts.filter((host) => b.allowedProviderHosts.includes(host));
-  if (hosts.length !== a.allowedProviderHosts.length) {
-    // The other machines both allow (issue #60): same key or not.
-    a = makeProviderPolicy({ ...a, allowedProviderHosts: hosts });
-  }
+  const readFrom = unionOf(a.readFrom, b.readFrom);
+  const movedFrom = unionOf(a.movedFrom, b.movedFrom);
   if (a.key === b.key || policyCovers(a, b)) {
-    const hasAll = (mine: readonly string[] | undefined, theirs: readonly string[] | undefined): boolean =>
-      theirs === undefined || theirs.every((dir) => mine?.includes(dir));
-    return hasAll(a.readFrom, b.readFrom) && hasAll(a.movedFrom, b.movedFrom)
+    const unchanged = providers.length === a.allowedProviders.length
+      && egress.length === a.allowedEgress.length
+      && hosts.length === a.allowedProviderHosts.length
+      && readFrom.length === (a.readFrom?.length ?? 0)
+      && movedFrom.length === (a.movedFrom?.length ?? 0);
+    return unchanged
       ? a
-      : makeProviderPolicy({ ...a, readFrom: unionOf(a.readFrom, b.readFrom), movedFrom: unionOf(a.movedFrom, b.movedFrom) });
+      : makeProviderPolicy({ ...a, allowedProviders: providers, allowedEgress: egress, allowedProviderHosts: hosts, readFrom, movedFrom });
   }
   return makeProviderPolicy({
     // A part both keys carry is named once ("/a + /b" with "/b + /c").
     key: [...new Set([...a.key.split(" + "), ...b.key.split(" + ")])].join(" + "),
-    allowedProviders: a.allowedProviders.filter((id) => b.allowedProviders.includes(id)),
-    allowedEgress: a.allowedEgress.filter((cls) => b.allowedEgress.includes(cls)),
+    allowedProviders: providers,
+    allowedEgress: egress,
     allowedProviderHosts: hosts,
     matchedDir: a.matchedDir,
-    readFrom: unionOf(a.readFrom, b.readFrom),
-    movedFrom: unionOf(a.movedFrom, b.movedFrom),
+    readFrom,
+    movedFrom,
   });
 }
 

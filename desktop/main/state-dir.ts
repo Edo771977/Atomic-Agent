@@ -51,7 +51,8 @@
  */
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { isAbsoluteOn, isUnder, trimTrailingSep } from "./platform.js";
 import { agentAnalyticsEnv } from "./analytics/environment.js";
@@ -207,11 +208,55 @@ export function agentEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/** Is `p` the desktop's state directory, or inside it? */
-export function underDesktopState(p: string): boolean {
+/**
+ * Issue #74: `p` made absolute and canonical — `..` and `.` resolved, and the
+ * longest part of it that exists followed through its symlinks — or null for
+ * a path that is not absolute on this platform. What does not exist yet keeps
+ * its resolved name after the real ancestor.
+ */
+function canonicalPath(p: string): string | null {
+  if (!isAbsoluteOn(process.platform, p)) return null;
+  const abs = resolve(p);
+  const rest: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      const real = realpathSync.native(cur);
+      return rest.length ? join(real, ...rest.reverse()) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return abs;
+      rest.push(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * Is `p` the desktop's state directory, or inside it? Issue #74: compared
+ * after canonicalPath on both sides, so `<state>/../x` and a symlink inside
+ * the state dir that leads out of it are not "inside" (it was a string prefix).
+ */
+export function underDesktopState(p: unknown): boolean {
   if (typeof p !== "string") return false;
+  const real = canonicalPath(p);
+  const root = canonicalPath(DESKTOP_STATE_DIR);
+  if (!real || !root) return false;
   // Windows: drive paths, `\\` separators, case-insensitive (platform.ts).
-  if (process.platform === "win32") return isUnder("win32", DESKTOP_STATE_DIR, p);
-  if (!p.startsWith("/")) return false;
-  return p === DESKTOP_STATE_DIR || p.startsWith(DESKTOP_STATE_DIR + "/");
+  return isUnder(process.platform, root, real);
+}
+
+/**
+ * Issue #74: the IPC handlers that take a `stateDir` from the renderer (main.ts
+ * ownDir: .env keys, Composio, memory.sqlite, traces) want the desktop's own
+ * directory and nothing else. The renderer's string is only checked to name
+ * it (canonically); the handler is handed DESKTOP_STATE_DIR itself, or null.
+ */
+export function desktopStateDirArg(p: unknown): string | null {
+  if (typeof p !== "string") return null;
+  const real = canonicalPath(p);
+  const root = canonicalPath(DESKTOP_STATE_DIR);
+  if (!real || !root) return null;
+  const same = process.platform === "win32" ? real.toLowerCase() === root.toLowerCase() : real === root;
+  return same ? DESKTOP_STATE_DIR : null;
 }

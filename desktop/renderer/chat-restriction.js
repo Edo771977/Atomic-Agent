@@ -13,10 +13,33 @@
    the allowed side runs).
 
    Asked when a chat is opened and when each of its turns ends (a read inside
-   a restricted folder narrows the chat mid-turn). An older agent, an error,
+   a restricted folder narrows the chat mid-turn), and again for the chat on
+   screen when a new agent connects (issue #74). An older agent, an error,
    an unrestricted chat, or a new chat before its first turn: no chip. */
 
-const RESTRICT = {sid: null, info: null, token: 0};
+const RESTRICT = {sid: null, info: null, token: 0, gen: null};
+
+/* Issue #74: the answers are the agent's that gave them. A new agent
+   (renderer.js AGENT_GEN moves when one connects: a restart, a switch to a
+   remote agent) drops them, a pending ask's answer included, and the chat on
+   screen is asked again. True when it did. */
+function restrictionAgentSeen() {
+  const gen = typeof AGENT_GEN === 'number' ? AGENT_GEN : 0;
+  if (RESTRICT.gen === gen) return false;
+  const first = RESTRICT.gen === null;
+  RESTRICT.gen = gen;
+  if (first) return false;
+  RESTRICT.sid = null; RESTRICT.info = null; RESTRICT.token++;
+  restrictionProvisionalForget();
+  return true;
+}
+/** A new agent is up (renderer.js applyStatus): the chat on screen is asked again. */
+function restrictionAgentChanged() {
+  restrictionAgentSeen();
+  const sid = typeof S !== 'undefined' ? S.agentSession : null;
+  if (sid && !String(sid).startsWith('waiting-')) void restrictionRefresh(sid);
+  else if (typeof document !== 'undefined') restrictionRepaint();
+}
 
 /** The chip's words: the agent's label ("restricted to: local-llama"). */
 function restrictionChipLabel(info) {
@@ -122,6 +145,7 @@ function restrictionNewChatDir() {
 
 /** The chip for the chat on screen, or '' (renderer.js composer(), after the route chips). */
 function restrictionChipHTML() {
+  if (restrictionAgentSeen() && S.agentSession) void restrictionRefresh(S.agentSession);
   const answered = S.agentSession && RESTRICT.sid && RESTRICT.sid === S.sessionId ? RESTRICT.info : null;
   /* Review of #67: a chat named mid first turn, which the agent has not
      stored yet (no answer, or a 404), keeps the provisional chip; a stored
@@ -159,6 +183,7 @@ function restrictionRepaint() {
 /** Ask the agent about chat `sid` (on open, and when its turn ends). */
 async function restrictionRefresh(sid, retried) {
   if (!sid || typeof BR === 'undefined' || !BR || !BR.providerRestriction) return;
+  restrictionAgentSeen();
   const token = ++RESTRICT.token;
   let info = null;
   try { info = await BR.providerRestriction(sid); } catch (e) { info = null; }

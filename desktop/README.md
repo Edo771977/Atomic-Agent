@@ -19,12 +19,16 @@ npm start
 One child process, one transport. The main process spawns
 
 ```
-atag serve --host 127.0.0.1 --port <ephemeral> --api-key <random per launch>
+ATOMIC_AGENT_API_KEY=<random per launch> atag serve --host 127.0.0.1 --port <ephemeral>
 ```
 
 with `cwd` set to the chosen workspace, waits for `/health`, and speaks HTTP to
 it. The port is ephemeral, the bind is loopback-only, and the bearer token is
-generated per launch, so nothing outside this app can reach the agent.
+generated per launch, so nothing outside this app can reach the agent. The
+token travels in the child's environment, not as `--api-key` on the command
+line other users see in `ps` (issue #74); every agent the app can pick reads
+it there (serve's env fallback predates the desktop app), so no flag fallback
+is kept, and a current agent deletes it from its own environment once read.
 
 **Folder trust (ATO-1250).** A folder's own skills and instruction files
 (`AGENTS.md`, `.atomic-agent/skills`, …) load only after the person trusts
@@ -70,7 +74,9 @@ Cheaper, Better quality and Cancel Fusion project at the plan; Approve milestone
 Correct (a note of at most 2000 characters) and Cancel at a milestone;
 Approve, Revise in chat and Cancel at the brief. A decision goes through
 `agent:projectDecision` (rebuilt field by field in `main/project-ipc.ts`) to
-`POST /api/project/decision` with the view's `gate` and `version`. A stale
+`POST /api/project/decision` with the view's `gate` and `version`; until it
+answers, that gate's buttons stay disabled (Sending…), also after leaving the
+chat and coming back (issue #74). A stale
 version or another gate (`409`) redraws the current view with a notice, a
 running turn (`409 turn-running`) and a hard cap (`422`) say why, and `404`
 closes the card. When the answer carries `continue_message`, the window sends
@@ -145,6 +151,15 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | Compacting a chat's context now | `POST /api/sessions/{id}/compact` |
 | "Trust this folder?" and Settings › Skills' folder-trust switch (ATO-1250) | `GET` / `POST /api/project-trust` |
 | The grey next-step suggestion in the empty composer, Tab takes it (ATO-1094; only while Settings › General › Suggest a next step, `tui.nextStepSuggestions`, is on; hidden on an agent without the route) | `GET /api/sessions/{id}/next-step` |
+
+**Events stream reconnects (issue #74).** `GET /api/events` is reopened only
+after a pause: 1 s after a healthy stream (one that delivered frames, or was
+accepted and lived 5 s: an idle stream of `: keepalive` comments a proxy cuts
+is healthy), and 1 s doubling to 30 s while answers are refused
+(401/404/429/5xx, the body is cancelled), fetches fail or streams end empty
+at once. A remote agent answering 401/403 puts the
+status in `error` ("refused the access token"), which the `/health` watch does
+not clear until a stream is accepted again.
 
 The turn stream is sent with `X-Atomic-Extensions: 1`, which upgrades it from
 plain OpenAI chunks to atomic's named frames — `session_id`,
@@ -275,7 +290,10 @@ without `advice`, and the 400 a turn's own provider gets before the stream
 agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
 be used here." (a policy of several folders, keyed "A + B", reads "The
 folders A and B are"; a shell command refused for running a network client
-reads "… runs curl, which could send content off this machine.") (`constraintTurnLine` in renderer.js, ahead of every other
+reads "… runs curl, which could send content off this machine."; an allowed
+provider whose endpoint is another machine reads "… is allowed, but its
+endpoint H is another machine. To allow it, add "H" to
+projects.constraints[…].allowedProviderHosts.", issue #74) (`constraintTurnLine` in renderer.js, ahead of every other
 wording of a failed turn). A chain that went on past the refused link
 (`fallback_failures` in the frame) ended on a later one: when the verdict
 says that was the managed local model with its engine gone
@@ -293,7 +311,10 @@ is opened, when each of its turns ends (a read inside a restricted
 folder narrows the chat mid-turn) and when a config read finds
 `projects.constraints` changed (`restrictionConfigChanged`, from
 `refreshLiveConfig`), and when the workspace chip moves the open chat to
-another folder (`applyWorkspaceChoice`). The tooltip says why (the chat's folder,
+another folder (`applyWorkspaceChoice`). Its answers, the provisional ones
+too, are the agent's that gave them: when a new agent connects (`AGENT_GEN`:
+a restart, a switch to a remote agent) they are dropped and the chat on
+screen is asked again, as the Reviewer seat's team is (issue #74). The tooltip says why (the chat's folder,
 or the restricted folders it read from), the providers allowed, whether chat
 channels and phone push are allowed (always the agent's `channelsAllowed`),
 the egress classes allowed (the intersection of this window's config
@@ -317,6 +338,22 @@ confirms it once the first message is sent. When the stream names a new
 chat's session the window asks the agent at once, and until the agent
 answers for a chat it has not stored yet (item 27's pending row; its route
 answers 404 until then) the provisional chip stays.
+
+### Opening files the agent names
+
+`app:openPath`, `app:statPaths` and `app:fileMenu` take only an absolute local
+path (`localPathCheck` in `main/reply-paths.ts`, issue #74). On Windows a long
+path `\\?\C:\…` is the local `C:\…`; a network path (`\\host\share`,
+`//host/share`, `\\?\UNC\…`) is accepted only inside the working folder when
+that folder is itself on a share (`..` resolved first), and a device path
+(`\\.\…`, other `\\?\…`) never. `app:statPaths` answers a refused path as
+`exists: false` with `refused` (`network-path`, `device-path`, `not-a-path`)
+instead of dropping it. A path in a reply still refuses every share. A file that would run, install, mount or follow a
+link when opened (`RUNS` there: scripts, installers, shortcuts, and since #74
+also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
+`.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
+`.xbap`, and macOS `.mobileconfig`/`.configprofile`) is shown in the file
+manager instead.
 
 ## Process model
 
@@ -503,9 +540,17 @@ Real, driven by the running agent:
   made the project: New chat, and that chat's first turn opens in the project
   (its folder and instructions; a chat folder files the chat, and one the
   import sorted by a project directory works in that directory when this
-  computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
+  computer has it, `main/chat-folders.ts` folderTurnDir; also a queued
+  `waiting-…` chat filed there while the agent has no stored turns for it,
+  folderDirForTurn). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
-  opens in the project. Until that turn, the model chip and the switcher read
+  opens in the project. A first message queued while the model switches
+  gives the chat its `waiting-…` id at once, and main reads a turn with an id
+  as a known chat's: so the chat is filed in the project when the message is
+  queued, its first turn waits for that write, and its Reviewer pick is keyed
+  by that id (issue #74). A waiting chat that goes before its message went out (the message cancelled, the chat deleted, or its stand-in dropped from the list) is unfiled. A chat folder's
+  import directory does not apply to such a chat: main reads it only for a
+  turn with no id. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn
   runs in. The empty chat says "New chat in <name>" and names that folder
   while the mark holds; Clear Transcript before the first turn keeps it, a
@@ -524,7 +569,11 @@ Real, driven by the running agent:
   what came meanwhile (`projectStandInShow`); it has no menu, rename or drag
   until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
-  hides the headers; the drawer (⌘ \) shows them.
+  hides the headers; the drawer (⌘ \) shows them. A chat is under the
+  project it was put in, else the deepest project whose folder it ran in; a
+  project on a broad folder (the filesystem or a drive root such as `C:\`,
+  the home folder or its parent, as the core's isTooBroadScope) holds only
+  chats run in that very folder (`chat-list.js` projectOf, issue #74).
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per
   machine, per viewer — because the agent has no route and no store field for
   either, and its `config.json` is the operator's file. On a machine that has
@@ -878,7 +927,8 @@ Honestly degraded, and labelled as such in the UI:
   would refuse the host gets "Folder F allows <id> only on this computer;
   it will refuse <host>" and an "Allow <host> for F" button
   ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
-  The decision mirrors the agent's `providerEndpointRefusal`: a
+  Only the newest ask for a field is drawn (leaving the field and Check can
+  answer out of order, issue #74). The decision mirrors the agent's `providerEndpointRefusal`: a
   private-network host that is not this machine by literal address, for a
   provider judged by place, not already in `allowedProviderHosts`. Only the
   click writes, through the whole-file compare-and-swap write. The main
@@ -1745,6 +1795,24 @@ through an env var.
   `config.json` and make it look otherwise), and creates the directory.
   Every spawn site names `agentEnv()` as well, so inheritance is never the
   only guarantee.
+- **The `stateDir` an IPC is handed (issue #74).** `cli:trace*`,
+  `app:memoryQuery`, `app:dotenvKeys`/`dotenvSet` and `composio:*` take a
+  `stateDir` from the renderer. It must name the desktop's directory itself
+  once both sides are canonical (`..` resolved, symlinks followed:
+  `desktopStateDirArg`), and the handler then works on `DESKTOP_STATE_DIR`,
+  never on the renderer's string. `underDesktopState` (containment) compares
+  the same canonical forms, so `<state>/../x` is not inside.
+- **`projects.json` (`main/projects-store.ts`, issue #74).** Every change is
+  made under `projects.json.lock` (O_EXCL, holding pid and a random token; a
+  lock older than 10 s is a crashed writer's and is broken, by renaming it
+  aside and removing it only if it is still the lock seen stale, so a fresh
+  lock another writer took meanwhile is put back; release removes only our
+  own token; one that cannot be removed waits like a held lock;
+  waiting longer than 2 s answers "being changed in another window") and as a compare-and-swap: the file is read again before
+  the write and the change is made again on what is there now (3 tries). A
+  rewrite keeps unknown top-level and per-project fields and entries this
+  version cannot read, with their chats. A file that does not parse is read
+  once more after 100 ms before it is set aside as `projects.json.bad-<ms>`.
 - **On a directory of its own, the model weights are shared; nothing else
   is.** On a fresh such directory, `<dir>/models/models` is symlinked to the terminal
   agent's, so the gigabytes are not downloaded twice, and `models/backend`
@@ -2295,9 +2363,9 @@ Issue #71. The Fusion strip has three seats. **Director** and **Worker** are the
 - "No review".
 - "Add a reviewer…".
 
-A pick rides on each of the chat's turns as `reviewer` (a member, `"none"` or `"team"`) until the agent's answer shows it stamped; then it is used up and the seat reads the stamp. A turn the agent refuses (a reviewer the folder does not allow, say) keeps the pick, and the seat's tooltip says "Not applied yet:" with the agent's words. A new chat's pick moves to the chat once the agent names it. An agent without the route shows no Reviewer seat.
+A pick rides on each of the chat's turns as `reviewer` (a member, `"none"` or `"team"`) until the agent's answer shows it stamped; then it is used up and the seat reads the stamp. A turn the agent refuses (a reviewer the folder does not allow, say) keeps the pick, and the seat's tooltip says "Not applied yet:" with the agent's words. A new chat's pick goes with its first turn and becomes the chat's when that turn's stream names it (`session_id`), never another chat's (issue #74). An agent without the route shows no Reviewer seat.
 
-"Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. An API provider that names no model is listed disabled: pick its model in Settings › Models first, since a reviewer is priced and tiered by its model. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json under the config lock and sent live as the `team` block (`PATCH /api/config`). An agent without live writes gets the whole-file write and a note to restart. With no team, the write creates one from the Director seat alone (`directors: [director seat]`) and the reviewer. It writes no `workers`, so the worker leg, `fusion.roles` and measured routing run as before. When that director is the orchestrator leg itself, the agent leads with it without a stamp or a notice. A member names a model. `"<id>:default"`, the entry's own model, is used only for a subscription CLI that names none (a Codex subscription on the account's default). The first reviewer of a team also writes `team.review: "off"` unless review was explicitly `"on"`. Otherwise listing a reviewer would turn review on, and its cost, for every chat; this way only chats that pick a reviewer are reviewed (a chat's own choice wins over `team.review`). The chat where "Add a reviewer…" was used gets that reviewer picked. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
+"Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. An API provider that names no model is listed disabled: pick its model in Settings › Models first, since a reviewer is priced and tiered by its model. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json and `fusion-team-legs.json`, both read under the config lock ([fusion-team-write.ts](main/fusion-team-write.ts)), and sent live as the `team` block (`PATCH /api/config`). That route takes no expected hash, so the file's sha256 is read again right before the PATCH: a file another writer changed meanwhile is read and planned again (3 tries, then "changed somewhere else"; issue #74). An agent without live writes gets the whole-file compare-and-swap write and a note to restart. With no team, the write creates one from the Director seat alone (`directors: [director seat]`) and the reviewer. It writes no `workers`, so the worker leg, `fusion.roles` and measured routing run as before. When that director is the orchestrator leg itself, the agent leads with it without a stamp or a notice. A member names a model. `"<id>:default"`, the entry's own model, is used only for a subscription CLI that names none (a Codex subscription on the account's default). The first reviewer of a team also writes `team.review: "off"` unless review was explicitly `"on"`. Otherwise listing a reviewer would turn review on, and its cost, for every chat; this way only chats that pick a reviewer are reviewed (a chat's own choice wins over `team.review`). The chat where "Add a reviewer…" was used gets that reviewer picked. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
 
 To make Codex the reviewer:
 

@@ -38,6 +38,8 @@ const RUNS = new Set([
   // macOS
   ".command", ".tool", ".terminal", ".pkg", ".mpkg", ".dmg", ".scpt", ".scptd", ".applescript",
   ".webloc", ".inetloc", ".fileloc", ".jar",
+  // Issue #74: configuration profiles, which System Settings offers to install.
+  ".mobileconfig", ".configprofile",
   // scripts
   ".sh", ".bash", ".zsh", ".csh", ".tcsh", ".ksh", ".fish", ".py", ".pyw", ".pyc", ".rb", ".pl", ".php", ".lua", ".tcl",
   // Windows
@@ -45,6 +47,11 @@ const RUNS = new Set([
   ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsc", ".wsf", ".wsh", ".hta", ".scr", ".lnk", ".url",
   ".website", ".reg", ".cpl", ".msc", ".pif", ".scf", ".appref-ms", ".application", ".gadget", ".inf", ".sct",
   ".shb", ".shs", ".chm", ".diagcab", ".jnlp",
+  // Issue #74: library/search-connector/settings shortcuts (followed to a remote or a command), disk
+  // images Explorer mounts (and whose contents then run), Excel add-ins, Sandbox configs, PowerShell
+  // type data, web archives and browser applications. Lower case: compared against extname().toLowerCase().
+  ".library-ms", ".searchconnector-ms", ".settingcontent-ms", ".iso", ".img", ".vhd", ".vhdx",
+  ".xll", ".wsb", ".ps1xml", ".mht", ".mhtml", ".xbap",
   // Linux
   ".desktop", ".run", ".bin", ".appimage", ".deb", ".rpm", ".snap", ".flatpakref",
 ]);
@@ -61,6 +68,50 @@ export function runsWhenOpened(platform: Platform, p: string, kind: "file" | "di
   if (kind === "dir") return BUNDLES.has(ext) || RUNS.has(ext);
   if (RUNS.has(ext)) return true;
   return platform !== "win32" && ext === "" && (mode & 0o111) !== 0;
+}
+
+/** Why localPathCheck refused a path. */
+export type LocalPathRefusal = "not-a-path" | "network-path" | "device-path";
+
+/**
+ * Issue #74 and its review: a path the open/reveal/stat/file-menu IPCs accept
+ * — absolute by the platform's rules, without NUL — and what it is to use.
+ * On Windows:
+ *   - a long path `\\?\C:\…` (or `//?/C:/…`) is the local path `C:\…`;
+ *   - a network path (`\\host\share\…`, `//host/share/…`, `\\?\UNC\host\share\…`)
+ *     reaches out to that host, handing it the person's NTLM credentials, so
+ *     it is accepted only inside one of `uncRoots` that is itself on a share
+ *     (the chat's working folder, main.ts), `..` resolved first;
+ *   - any other device path (`\\.\…`, `\\?\GLOBALROOT…`, `\\?\Volume{…}`) never.
+ * A path in a reply is judged by replyPathVerdict, which refuses every share.
+ */
+export function localPathCheck(
+  platform: Platform,
+  p: unknown,
+  uncRoots: readonly string[] = [],
+): { ok: true; path: string } | { ok: false; why: LocalPathRefusal } {
+  if (typeof p !== "string" || !p || p.includes("\0")) return { ok: false, why: "not-a-path" };
+  let path = p;
+  if (platform === "win32") {
+    if (/^[\\/]{2}\?[\\/]UNC[\\/]/i.test(path)) path = "\\\\" + path.slice(8);
+    else if (/^[\\/]{2}\?[\\/][A-Za-z]:[\\/]/.test(path)) path = path.slice(4);
+    else if (/^[\\/]{2}[.?][\\/]/.test(path)) return { ok: false, why: "device-path" };
+    if (/^[\\/]{2}/.test(path)) {
+      const W = pathFor("win32");
+      const target = W.resolve(path);
+      const inside = uncRoots.some((root) => typeof root === "string" && /^[\\/]{2}[^\\/?.]/.test(root)
+        && !/^[\\/]{2}[.?][\\/]/.test(root) && isUnder("win32", W.resolve(root), target));
+      return inside ? { ok: true, path: target } : { ok: false, why: "network-path" };
+    }
+  }
+  if (!isAbsoluteOn(platform, path)) return { ok: false, why: "not-a-path" };
+  return { ok: true, path };
+}
+
+/** localPathCheck's path, or null when it refused. */
+export function localPathArg(platform: Platform, p: unknown, uncRoots: readonly string[] = []): string | null {
+  const checked = localPathCheck(platform, p, uncRoots);
+  return checked.ok ? checked.path : null;
 }
 
 /** A Finder alias: a bookmark file (`book␀␀␀␀mark…`), which realpath leaves as it

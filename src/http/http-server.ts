@@ -14,7 +14,8 @@ import { openaiError } from "./openai-errors.js";
 import { UndeliveredSteerStore } from "./undelivered-steers.js";
 import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
-import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
+import { sessionIdError } from "../session/session-id.js";
 
 /** ATO-1126: one per process; loopback callers are never counted. */
 const authThrottle = new AuthThrottle();
@@ -270,11 +271,34 @@ async function dispatch(
   // A session's own routes (transcript, export, steer, compaction, ...)
   // carry its content (issue #33).
   const sessionId = url.pathname.startsWith("/api/sessions/") ? matched.params.id : undefined;
+  // Issue #74: a session id names files; refuse a path-like or control-character id before a handler sees it.
+  const sessionIdProblem = sessionId === undefined ? null : sessionIdError(sessionId);
+  if (sessionIdProblem !== null) {
+    sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "id"));
+    return;
+  }
   if (sessionId !== undefined && serveWithheld(ctx, sessionId)()) {
     sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
     return;
   }
+  // Issue #74: a task's prompt, result and errors are its session's content.
+  if (url.pathname.startsWith("/api/tasks/") && matched.params.id !== undefined && taskWithheld(ctx, matched.params.id)) {
+    sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+    return;
+  }
   await matched.route.handler(req, res, ctx);
+}
+
+/** A known task whose session this network server may not show; unknown ids fall through to the route's 404. */
+function taskWithheld(ctx: HandlerContext, taskId: string): boolean {
+  if (ctx.networkServe !== true) return false;
+  let record: { sessionId: string | null } | null;
+  try {
+    record = ctx.runtime.taskStore.get(taskId);
+  } catch {
+    return false;
+  }
+  return record !== null && serveWithheldRecord(ctx, record.sessionId);
 }
 
 function parseRequestUrl(req: IncomingMessage): URL | null {

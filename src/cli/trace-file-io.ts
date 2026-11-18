@@ -2,6 +2,7 @@ import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 
+import { sessionIdFromFileName } from "../session/session-id.js";
 import type { TraceEvent } from "../tracing/index.js";
 
 /**
@@ -64,7 +65,8 @@ export async function listTraceSummaries(
     const path = join(dir, name);
     const stat = statSync(path);
     return {
-      sessionId: name.replace(/\.ndjson$/, ""),
+      // Issue #74: the file is named by the id's safe form; a digest name keeps the file name.
+      sessionId: sessionIdFromFileName(name.replace(/\.ndjson$/, "")) ?? name.replace(/\.ndjson$/, ""),
       path,
       sizeBytes: stat.size,
       modifiedAt: stat.mtime,

@@ -7,6 +7,15 @@ import {
   retainToolOutput,
   type CompressedToolResult,
 } from "../compressor/result-compressor.js";
+import { makeProviderPolicy, toProviderPolicyStamp, type ProviderPolicy } from "../config/project-constraint-match.js";
+import { intersectProviderPolicies } from "../llm/provider-policy.js";
+import {
+  readTempCopyMarkerAt,
+  SPILL_BASE_NAME,
+  tempCopyMarkerPath,
+  writeTempCopyMarkerSync,
+} from "./read-scope/temp-copy-sources.js";
+import { sessionFileName } from "../session/session-id.js";
 
 /**
  * Full output of a clipped tool result, kept in a file (ATO-663).
@@ -33,10 +42,21 @@ import {
  * memory never write a file, and neither do file readers, whose source
  * already is a file.
  *
- * Where: `<tmp>/atomic-agent-tool-outputs/<session>/`. The temp folder is
- * already in every session's read scope, and the session's own folder is
- * added to a worker's (`read-scope.ts`), so the model can open the path
- * it is given. Folders are created owner-only. Bounded per file and per
+ * Where: `<tmp>/atomic-agent-tool-outputs/<session>/`, the folder named
+ * by `sessionFileName` (injective: `codex:a.b` and `codex:a_b` never share
+ * one, as they did under the older lossy names). The folder is a
+ * session's only when its marker names it: an existing folder without
+ * one, or naming another session, is never adopted, written to or removed
+ * by this session (it spills nothing; the folder is left to the stale
+ * sweep). So outputs from before markers existed, or under an older lossy
+ * name, are no longer the session's to read back or delete. The session's own
+ * folder is in its read scope, a worker's too, and a worker's folder is
+ * its orchestrators' (`parentsFor`, recorded in the marker; `read-scope.ts`), so the
+ * model can open the path it is given; another session's is not scratch
+ * (issue #74). The folder's marker (`read-scope/temp-copy-sources.ts`)
+ * names the session and the strictest policy it spilled under
+ * (`policyFor`, intersected across spills and restarts), so another
+ * session reading a file there is tainted with it. Folders are created owner-only. Bounded per file and per
  * session; removed when the session is deleted, and folders untouched
  * for `STALE_SPILL_MS` are swept at start (fusion workers are never
  * stored, so this is what clears theirs).
@@ -76,7 +96,7 @@ export const STALE_SPILL_MS = 7 * 24 * 60 * 60 * 1000;
 /** `details` key carrying the saved file's absolute path. */
 export const FULL_OUTPUT_PATH_DETAIL = "fullOutputPath";
 
-const BASE_NAME = "atomic-agent-tool-outputs";
+const BASE_NAME = SPILL_BASE_NAME;
 
 /** Base folder for every session's spill folders. Read per call so `TMPDIR` is honoured. */
 export function toolOutputBaseDir(): string {
@@ -88,12 +108,23 @@ export function toolOutputDir(
   sessionId: string,
   baseDir: string = toolOutputBaseDir(),
 ): string {
-  return join(baseDir, safeSegment(sessionId));
+  return join(baseDir, sessionFileName(sessionId));
 }
 
 export interface ToolOutputSpillOptions {
   /** Defaults to `toolOutputBaseDir()`. */
   baseDir?: string;
+  /**
+   * The session's effective provider policy at spill time, stamped into
+   * the folder's marker; `undefined` when unconstrained.
+   */
+  policyFor?: (sessionId: string) => ProviderPolicy | undefined;
+  /**
+   * A Fusion worker's orchestrators (parent first), recorded in the
+   * folder's marker so they read the paths its summary hands them as
+   * their own. Empty for any other session.
+   */
+  parentsFor?: (sessionId: string) => readonly string[];
   maxFileBytes?: number;
   maxSessionBytes?: number;
 }
@@ -104,9 +135,15 @@ export class ToolOutputSpill {
   private readonly maxSessionBytes: number;
   private readonly used = new Map<string, number>();
   private readonly counters = new Map<string, number>();
+  private readonly policyFor: ((sessionId: string) => ProviderPolicy | undefined) | undefined;
+  private readonly parentsFor: ((sessionId: string) => readonly string[]) | undefined;
+  /** The policy each session's marker holds now (`null`: written, unconstrained). */
+  private readonly stamped = new Map<string, ProviderPolicy | null>();
 
   constructor(options: ToolOutputSpillOptions = {}) {
     this.baseDir = options.baseDir;
+    this.policyFor = options.policyFor;
+    this.parentsFor = options.parentsFor;
     this.maxFileBytes = options.maxFileBytes ?? SPILL_MAX_FILE_BYTES;
     this.maxSessionBytes = options.maxSessionBytes ?? SPILL_MAX_SESSION_BYTES;
   }
@@ -186,8 +223,12 @@ export class ToolOutputSpill {
   removeSession(sessionId: string): void {
     this.used.delete(sessionId);
     this.counters.delete(sessionId);
+    this.stamped.delete(sessionId);
     const base = this.baseDir ?? toolOutputBaseDir();
     if (!isOwnPlainDir(base)) return;
+    // Only a folder whose marker names this session; anything else under
+    // its name is left to the stale sweep.
+    if (!spillMarkerNames(this.dirFor(sessionId), sessionId)) return;
     removeInside(base, this.dirFor(sessionId));
   }
 
@@ -225,13 +266,61 @@ export class ToolOutputSpill {
     const base = this.baseDir ?? toolOutputBaseDir();
     const dir = this.dirFor(sessionId);
     mkdirSync(base, { recursive: true, mode: 0o700 });
+    const existed = lstatSync(dir, { throwIfNoEntry: false }) !== undefined;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     for (const path of [base, dir]) {
       if (!isOwnPlainDir(path)) {
         throw new Error("tool output folder is a link or belongs to another user");
       }
     }
+    // A folder that was already there is this session's only when its
+    // marker says so: an older build named folders lossily, so another
+    // session's outputs can sit under this session's name. Never adopt
+    // (and so re-stamp) one: this session then spills nothing.
+    if (existed && !this.stamped.has(sessionId) && !spillMarkerNames(dir, sessionId)) {
+      throw new Error("tool output folder belongs to another session");
+    }
+    this.stampMarker(sessionId, dir);
     return dir;
+  }
+
+  /**
+   * Keep the folder's marker at the strictest policy the session spilled
+   * under: what is already there (from before a restart too) intersected
+   * with the policy now. An unreadable marker becomes "nothing allowed".
+   * A marker that cannot be written throws: no file is spilled.
+   */
+  private stampMarker(sessionId: string, dir: string): void {
+    let previous = this.stamped.get(sessionId);
+    let rewrite = false;
+    if (previous === undefined) {
+      const markerPath = tempCopyMarkerPath("spill", dir);
+      const onDisk = lstatSync(markerPath, { throwIfNoEntry: false }) === undefined
+        ? undefined
+        : readTempCopyMarkerAt(markerPath, "spill");
+      if (onDisk === null) {
+        // Unreachable after `ensureDir`'s check; kept fail closed.
+        previous = noProviders(dir);
+        rewrite = true;
+      } else if (onDisk !== undefined) {
+        previous = onDisk.policy ?? null;
+      }
+    }
+    const now = this.policyFor?.(sessionId);
+    const next = previous === undefined || previous === null
+      ? (now ?? null)
+      : (now === undefined ? previous : intersectProviderPolicies(previous, now));
+    if (!rewrite && previous !== undefined && sameStamp(previous, next)) {
+      this.stamped.set(sessionId, next);
+      return;
+    }
+    const parentSessionIds = this.parentsFor?.(sessionId) ?? [];
+    writeTempCopyMarkerSync("spill", dir, {
+      sessionId,
+      ...(parentSessionIds.length === 0 ? {} : { parentSessionIds }),
+      ...(next === null ? {} : { policy: next }),
+    });
+    this.stamped.set(sessionId, next);
   }
 }
 
@@ -266,10 +355,18 @@ export function fileStem(tool: string): string {
   return tool.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 40);
 }
 
-/** A session id as one safe path segment. */
-function safeSegment(value: string): string {
-  const cleaned = value.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 120);
-  return cleaned.length > 0 ? cleaned : "_";
+/** Whether `dir`'s spill marker is readable and names `sessionId`. */
+function spillMarkerNames(dir: string, sessionId: string): boolean {
+  return readTempCopyMarkerAt(tempCopyMarkerPath("spill", dir), "spill")?.sessionId === sessionId;
+}
+
+function noProviders(dir: string): ProviderPolicy {
+  return makeProviderPolicy({ key: `(unreadable temp copy marker) ${dir}`, allowedProviders: [], matchedDir: dir, readFrom: [dir] });
+}
+
+function sameStamp(a: ProviderPolicy | null, b: ProviderPolicy | null): boolean {
+  if (a === null || b === null) return a === b;
+  return JSON.stringify(toProviderPolicyStamp(a)) === JSON.stringify(toProviderPolicyStamp(b));
 }
 
 function removeInside(base: string, dir: string): boolean {

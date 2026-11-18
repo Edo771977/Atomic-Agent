@@ -101,5 +101,5 @@ test("an open window's plain new chat runs in the window's folder, with no restr
 });
 
 test("startLiveTurn keeps the folder in the turn's record", () => {
-  assert.match(fn("startLiveTurn"), /live\.folder = firstTurnFolder\(session, forProject\);/);
+  assert.match(fn("startLiveTurn"), /live\.folder = firstTurnFolder\(waiting \? undefined : session, turnPid\);/);
 });

@@ -120,7 +120,8 @@ describe("incognito sessions in the runtime", () => {
   it("never removes a file outside the traces folder", () => {
     const outside = join(dir, "keep.ndjson");
     writeFileSync(outside, "{}\n");
-    expect(removeIncognitoTrace(tracesDir, "../keep")).toBe(false);
+    // Issue #74: the id maps to a safe name inside the folder; the file outside stays.
+    removeIncognitoTrace(tracesDir, "../keep");
     expect(existsSync(outside)).toBe(true);
     expect(removeIncognitoTrace(null, "s-any")).toBe(false);
   });

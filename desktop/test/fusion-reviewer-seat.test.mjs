@@ -284,11 +284,42 @@ test("window: a new chat's pick moves to the chat once the agent names it", asyn
   c.S.agentSession = null;
   await c.fzrAct("pick:codex-cli:default");
   assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "codex-cli:default" });
-  c.fzrTurnSent(undefined);
+  c.fzrTurnSent(undefined, "t1", { reviewer: "codex-cli:default" });
+  if (typeof c.fzrTurnNamed === "function") c.fzrTurnNamed("t1", "s9");
   c.S.agentSession = "s9";
   await c.fzrRefresh("s9");
   assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "codex-cli:default" });
   assert.equal(c.fzrTurnTeam(undefined), null);
+});
+
+// Issue #74 (14): the pick moved to whichever chat was refreshed next, so an
+// unrelated chat opened before the stream named the new one was stamped with
+// a reviewer nobody chose for it. The pick is the turn's now, and moves only
+// when that turn's session_id frame names its chat (renderer.js firstTurnNamed).
+test("window: a new chat's pick goes with its turn, never to the chat refreshed next", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:codex-cli:default");
+  const sent = c.fzrTurnTeam(undefined);
+  c.fzrTurnSent(undefined, "t1", sent);
+  // The person opens chat B before the stream names the new chat.
+  c.S.agentSession = "chat-B";
+  await c.fzrRefresh("chat-B");
+  assert.equal(c.fzrTurnTeam("chat-B"), null, "chat B carries a reviewer nobody picked for it");
+  // Another new chat starts from the team's choice, not the first one's pick.
+  assert.equal(c.fzrTurnTeam(undefined), null);
+  // The stream names the first turn's chat: the pick is that chat's.
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "codex-cli:default" });
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  // A first turn that ended unnamed leaves nothing behind.
+  c.S.agentSession = null;
+  await c.fzrAct("pick:none");
+  c.fzrTurnSent(undefined, "t2", c.fzrTurnTeam(undefined));
+  c.fzrTurnNamed("t2", null);
+  c.fzrTurnNamed("t3", "s10");
+  assert.equal(c.fzrTurnTeam("s10"), null);
+  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
 });
 
 test("Add a reviewer: an API provider with no model is listed disabled, with where to pick one", () => {

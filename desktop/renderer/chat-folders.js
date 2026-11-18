@@ -308,7 +308,7 @@ async function loadFolders() {
 
 function saveFolders() {
   if (typeof BR === 'undefined' || !BR || !BR.foldersSet) return;
-  BR.foldersSet(JSON.parse(JSON.stringify(FOLDERS.state))).then((res) => {
+  return BR.foldersSet(JSON.parse(JSON.stringify(FOLDERS.state))).then((res) => {
     if (res && res.ok === false) toast('Could not save the folders', res.error || '', 'bad');
   }, () => {});
 }
