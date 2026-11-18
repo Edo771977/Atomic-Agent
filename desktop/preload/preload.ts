@@ -119,10 +119,12 @@ contextBridge.exposeInMainWorld("atomic", {
   // ATO-42: `projectId` puts a NEW chat (no sessionId yet) in that project from its first turn.
   /** ATO-490: `reasoning` is the chat's level (low | medium | high); absent for Auto. */
   /** ATO-1148: `turnModel` is the chat's project cloud model; absent for the agent's own. */
+  /** Issue #71: `team` is the chat's reviewer choice ({reviewer}); absent for none. */
   chat: (messages: Array<{ role: string; content: string }>, sessionId?: string, projectId?: string, reasoning?: string,
-    turnModel?: { providerId: string; model: string } | null) =>
+    turnModel?: { providerId: string; model: string } | null, team?: { reviewer?: string } | null) =>
     ipcRenderer.invoke("agent:chat", {
       messages, sessionId, ...(projectId ? { projectId } : {}), ...(reasoning ? { reasoning } : {}), ...(turnModel ? { turnModel } : {}),
+      ...(team ? { team } : {}),
     }),
   /** ATO-1148: each working folder's own cloud model (main/project-model.ts). */
   projectModels: () => ipcRenderer.invoke("app:projectModels"),
@@ -397,6 +399,9 @@ contextBridge.exposeInMainWorld("atomic", {
   nextStep: (sessionId: string) => ipcRenderer.invoke("agent:nextStep", sessionId),
   /** Issue #67: the chat's per-folder provider restriction, for the composer chip (main/provider-restriction.ts). */
   providerRestriction: (sessionId: string) => ipcRenderer.invoke("agent:providerRestriction", sessionId),
+  /** Issue #71: the Fusion team and what can serve the chat; the seat's config writes. */
+  fusionTeam: (sessionId?: string | null) => ipcRenderer.invoke("agent:fusionTeam", sessionId ?? null),
+  fusionTeamWrite: (payload: { op: "addReviewer"; ref: string } | { op: "followLegs" }) => ipcRenderer.invoke("agent:fusionTeamWrite", payload),
   /** Review of #67: the projects.constraints entry a folder falls under, matched as the agent matches it (main/folder-constraint.ts). */
   folderConstraint: (dir: string) => ipcRenderer.invoke("agent:folderConstraint", dir),
   taskCreate: (input: { message: string; kind: string; expression: string; tz?: string }) =>

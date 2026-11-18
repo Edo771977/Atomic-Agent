@@ -2283,3 +2283,25 @@ The installer carries Atomic Chat Core, so the first local model needs no Core d
 ### Composer inference engines
 
 Local mode shows the backend and model controls only; the engine is not named or chosen there. Fusion shows an engine/provider and model pair for each role (a local seat reads **Local models**, never an engine name, so it is not confused with the Atomic Chat (local) provider preset), separated by the swap control. Model catalogs and model pins follow their own role; changing a worker does not activate it as the orchestrator. The managed runtime has one local slot, which can move between roles with swap. A loaded local model must be stopped before its engine changes. Route changes keep the existing busy-turn and Stop guards.
+
+### Fusion seats: Director, Worker, Reviewer
+
+Issue #71. The Fusion strip has three seats. **Director** and **Worker** are the two legs, as before (`orchestratorProvider` / `workerProvider`, with the ⇄ swap). They are kept, not replaced by team pickers, because the legs already carry the engine, model, local-slot and swap rules, and a team the desktop writes is made from them. With a Fusion team (`llm.runMode.fusion.team`), each turn names the legs' members as `director` / `worker` ([fusion-team.ts](main/fusion-team.ts) `turnTeamFields`). They are named only while the team lists them and the agent says this chat can use them (`GET /api/fusion/team?session=`, which main asks for a stored chat). So the seat shown is the one that leads. A seat the folder refuses is not named, and the agent runs Fusion as the folder allows. When a leg moves to a model the team does not list, that model is added to the team's directors or workers (`planFollowLegs`, from `fzAfter`). Without a team nothing is named and Fusion runs as before.
+
+**Reviewer** ([fusion-reviewer.js](renderer/fusion-reviewer.js)) lists the team's reviewers from the agent (IPC `agent:fusionTeam`):
+
+- "Team picks": the agent's own pick per task.
+- Each reviewer. One the chat cannot use is disabled, with the agent's reason: the chat's folder refuses the provider, or it cannot answer now (signed out, not installed).
+- "No review".
+- "Add a reviewer…".
+
+A pick is sent once, as `reviewer` on the chat's next turn (a member, or `"none"`). The agent stamps it on the chat and keeps it, and the seat then reads it back from the agent. An agent without the route shows no Reviewer seat.
+
+"Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json under the config lock and sent live as the `team` block (`PATCH /api/config`). An agent without live writes gets the whole-file write and a note to restart. With no team, the write creates one from the legs (`directors: [director leg]`, `workers: [worker leg]`), so nothing else changes. A member names a model. An entry that names none (a Codex subscription on the account's default) is `"<id>:default"`, the entry's own model. `team.review` is left alone: listed reviewers turn review on unless it is `"off"`, and a chat that chooses a reviewer is reviewed whatever it says. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
+
+To make Codex the reviewer:
+
+1. Open Settings › Models › Add provider › "OpenAI Codex subscription" and sign in with `codex login`.
+2. In a chat on Fusion, open the Reviewer seat › Add a reviewer… › Codex.
+
+Codex then becomes that chat's reviewer, and other chats can pick it in their Reviewer seat. Codex reviews read-only (`codex exec -s read-only`).

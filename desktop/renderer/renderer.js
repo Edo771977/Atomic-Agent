@@ -4634,8 +4634,9 @@ function routeChipsHtml(backend) {
         // not a hard-coded `cloud` test — see selKinds(). Cloud and custom draw
         // the provider control; the managed-local route draws none, because on
         // that route the second control IS the model.
-        + (backend === 'fusion' ? '<span class="composer-seat" role="group" aria-label="Orchestrator">' : '')
-        + (backend === 'fusion' ? composerEngineChip('provider', composerSeatLocal(fzSeats().plans) ? composerEngineName(composerEngineId()) : fzSeats().plans.provider, composerSeatLocal(fzSeats().plans), 'Orchestrator')
+        // Issue #71: the three Fusion seats are Director (this one), Worker and Reviewer.
+        + (backend === 'fusion' ? '<span class="composer-seat" role="group" aria-label="Director">' : '')
+        + (backend === 'fusion' ? composerEngineChip('provider', composerSeatLocal(fzSeats().plans) ? composerEngineName(composerEngineId()) : fzSeats().plans.provider, composerSeatLocal(fzSeats().plans), 'Director')
           : selHasKind('provider')
             ? '<button class="cchip providerchip' + cchipOpen('provider') + '" data-sel-open="provider" data-id="' + esc(selProviderLabel()) + '"'
               + ' title="' + (backend === 'fusion' ? 'Plans the work: ' : 'Provider: ') + esc(providerWord(selProviderLabel())) + '"'
@@ -5609,6 +5610,7 @@ function overlaysHTML() {
   if (S.overlay === 'palette') html += paletteHTML();
   if (S.overlay === 'context') html += contextHTML();
   if (S.overlay === 'modes') html += modesHTML();
+  if (S.overlay === 'fzr' || S.overlay === 'fzradd') html += fzrPopoverHTML();   // Issue #71 (fusion-reviewer.js)
   if (S.overlay === 'sesmenu') html += chatMenuHTML();
   if (S.overlay === 'fmenu' || S.overlay === 'fpick') html += folderMenuHTML();   // ATO-1034 (chat-folders.js)
   if (S.overlay === 'rename') html += renameHTML();   // ATO-455 (chat-rename.js)
@@ -7522,6 +7524,8 @@ function act(a) {
   if (k === 'toastx') { S.toasts = S.toasts.filter((x) => String(x.id) !== v); renderToasts(); return; }
   // ATO-568: one Fusion worker's Stop / Steer (fusion-panel.js).
   if (k === 'fzp') { fzpAct(v); return; }
+  // Issue #71: the Fusion strip's Reviewer seat (fusion-reviewer.js).
+  if (k === 'fzr') { if (v !== 'open' && !(v || '').startsWith('pick:') && !(v || '').startsWith('add')) return; void fzrAct(v || ''); return; }
   // ATO-229: the update toast and Settings › General's update rows (app-update.js).
   if (k === 'appupd') { appUpdAct(v); return; }
   // Backlog 18: the download card's verbs (dlCardAct).
@@ -10422,7 +10426,10 @@ function startLiveTurn(text) {
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
   live.folder = firstTurnFolder(session, forProject);   // review of #67: the folder this new chat's turn runs in
-  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject)).then((res) => {
+  // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
+  const teamChoice = fzrTurnTeam(session);
+  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject), teamChoice).then((res) => {
+    if (res && res.ok && teamChoice) fzrTurnSent(session);
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -11483,6 +11490,7 @@ function onChatEvent(ev) {
       if (ev.kind === 'error' && sid) ATTN.add(sid);
       nextStepTurnEnded(sid, ev.kind);   // ATO-1094: retire the old suggestion; a finished turn asks for a new one
       void restrictionTurnEnded(sid);   // Issue #67: a read may have restricted the chat (chat-restriction.js)
+      if (sid === S.sessionId) void fzrRefresh(sid);   // Issue #71: the reviewer the turn stamped (fusion-reviewer.js)
       const endedSince = (LIVE_TURNS.get(ev.turnId) || {}).startedAt || 0;   // B01: closeChatApprovals, read before liveTurnEnded drops it
       const endedTools = turnToolNames(LIVE_TURNS.get(ev.turnId));          // ATO-203: and the calls it made
       liveTurnEnded(ev, sid);          // item 38: a failed or stopped turn is kept for its chat
@@ -11581,6 +11589,7 @@ function onChatEvent(ev) {
       S.sessionId = S.agentSession;
       reasoningAdoptDraft(S.agentSession);   // ATO-490: a new chat's reasoning pick is its own now
       void restrictionRefresh(S.agentSession);   // review of #67: the chip asks for the chat now named
+      void fzrRefresh(S.agentSession);   // Issue #71: the Reviewer seat, for the chat now named
       // Q60 review: a request this turn raised before it said its session waited for it (approvalOnScreen).
       if (showKeptApproval(S.agentSession)) render();
     }
@@ -19955,8 +19964,8 @@ function selectorHTML() {
 
   const title = SEL.kind === 'backend' ? 'Where it runs'
     : SEL.kind === 'workerProvider' ? 'Worker'
-    : SEL.kind === 'provider' ? (selBackend() === 'local' ? 'Inference engine' : selBackend() === 'fusion' ? 'Orchestrator' : 'Provider')
-    : SEL.kind === 'workers' ? 'Worker model' : selBackend() === 'fusion' ? 'Orchestrator model' : 'Model';
+    : SEL.kind === 'provider' ? (selBackend() === 'local' ? 'Inference engine' : selBackend() === 'fusion' ? 'Director' : 'Provider')
+    : SEL.kind === 'workers' ? 'Worker model' : selBackend() === 'fusion' ? 'Director model' : 'Model';
 
   // An empty list is not a list — it is one action. The provider and
   // local model panes always carry the TUI's action row ("Add a new
@@ -21436,7 +21445,9 @@ function fzChipsHtml() {
     + composerEngineChip('workerProvider', composerSeatLocal(fzSeats().works) ? composerEngineName(composerEngineId()) : fzSeats().works.provider, composerSeatLocal(fzSeats().works), 'Worker')
     + '<button class="cchip workerschip' + cchipOpen('workers') + '" data-sel-open="workers" data-id="' + esc(label) + '"'
       + ' title="Does the work: ' + esc(label) + '" aria-label="Does the work: ' + esc(fzSeatWord(label)) + '">' + modelMark(label, 'xs')
-      + '<span class="cval">' + esc(fzSeatWord(label)) + '</span>' + ic('chevD', 'chev') + '</button></span>';
+      + '<span class="cval">' + esc(fzSeatWord(label)) + '</span>' + ic('chevD', 'chev') + '</button></span>'
+    // Issue #71: the third seat, who reviews each task (fusion-reviewer.js).
+    + fzrSeatHTML();
 }
 /**
  * ATO-136 — the planner is a local model (after a ⇄, or picked so), as the
@@ -21570,6 +21581,8 @@ function fzAfter(res, before) {
     return res;
   }
   bswReport(res);
+  // Issue #71: a team follows the seats, so the one shown leads (fusion-reviewer.js).
+  void fzrLegsMoved();
   if (res.runMode && res.runMode.line) appSay(res.runMode.line);
   // ATO-1489: the subscription-CLI worker warning. The switch went ahead; this only says what it costs.
   if (res.notice) { appSay(res.notice, 'caution'); toast(res.notice); }
@@ -22008,6 +22021,7 @@ async function openSession(id) {
   S.sessionId = id;
   refreshSkillList();
   void restrictionRefresh(id);   // Issue #67: the composer's "restricted to: …" chip
+  void fzrRefresh(id);   // Issue #71: the Reviewer seat for this chat (fusion-reviewer.js)
   // Backlog 24: and until the answer lands, the composer holds what is sent here.
   const opening = {id, failed:false};
   OPENING = opening;
