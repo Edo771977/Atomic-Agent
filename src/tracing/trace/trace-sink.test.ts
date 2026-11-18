@@ -470,16 +470,20 @@ describe("trace path containment", () => {
     expect(traceFilePath(dir, "s-1")).toBe(join(dir, "s-1.ndjson"));
   });
 
-  it("reads and keeps appending to a trace an older build named with the raw id", () => {
+  // A legacy raw name. On Windows a ':' in a file name opens an alternate
+  // data stream, so an older build there never had `codex:abc.ndjson`: the
+  // colon case runs off Windows only, a space (legal everywhere) runs on all.
+  const legacyIds = process.platform === "win32" ? ["openclaw:my agent"].map((id) => id.replace(":", " ")) : ["codex:abc", "openclaw:my agent"];
+  it.each(legacyIds)("reads and keeps appending to a trace an older build named with the raw id (%s)", (id) => {
     const dir = join(root, "traces");
     mkdirSync(dir, { recursive: true });
-    const legacy = join(dir, "codex:abc.ndjson");
-    writeFileSync(legacy, `${JSON.stringify(baseEvent("codex:abc", 0, 0))}\n`);
-    expect(traceFilePath(dir, "codex:abc")).toBe(legacy);
+    const legacy = join(dir, `${id}.ndjson`);
+    writeFileSync(legacy, `${JSON.stringify(baseEvent(id, 0, 0))}\n`);
+    expect(traceFilePath(dir, id)).toBe(legacy);
     const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
-    sink(baseEvent("codex:abc", 1, 1));
+    sink(baseEvent(id, 1, 1));
     expect(readFileSync(legacy, "utf8").trim().split("\n")).toHaveLength(2);
-    expect(readdirSync(dir)).toEqual(["codex:abc.ndjson"]);
+    expect(readdirSync(dir)).toEqual([`${id}.ndjson`]);
   });
 
   it("never takes another session's file for a legacy raw name holding '~'", () => {
