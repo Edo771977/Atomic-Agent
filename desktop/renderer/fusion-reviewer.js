@@ -229,6 +229,13 @@ function fzrTurnSent(session, turnId, sent) {
   if (FZR.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZR.pending[FZR_NEW_CHAT];
   FZR.byTurn[turnId] = sent.reviewer;
 }
+/** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */
+function fzrAdoptNewChat(sid) {
+  if (!sid || FZR.pending[FZR_NEW_CHAT] === undefined) return;
+  if (FZR.pending[sid] === undefined) FZR.pending[sid] = FZR.pending[FZR_NEW_CHAT];
+  delete FZR.pending[FZR_NEW_CHAT];
+  delete FZR.note[FZR_NEW_CHAT];
+}
 /** Turn `turnId`'s stream named its chat `sid` (renderer.js firstTurnNamed), or ended unnamed (sid null). */
 function fzrTurnNamed(turnId, sid) {
   if (!turnId || !Object.prototype.hasOwnProperty.call(FZR.byTurn, turnId)) return;
@@ -289,5 +296,5 @@ async function fzrLegsMoved() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrReconcile, FZR, FZR_ADD_HINT};
+  module.exports = {fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrAdoptNewChat, fzrReconcile, FZR, FZR_ADD_HINT};
 }

@@ -8162,9 +8162,15 @@ function submit(preparedSkillText, opts) {
     // Give an unsaved chat an identity before accepting its first message.
     // The HTTP API creates this session on the first dispatched turn.
     if (!S.sessionId) {
+      // Issue #74: the project this new chat was opened in, read before the chat has an id (projectMarked).
+      const forProject = typeof projectForNewTurn === 'function' ? projectForNewTurn() : undefined;
       S.sessionId = 'waiting-' + crypto.randomUUID();
       S.agentSession = S.sessionId;
       noteWaitingChat(S.sessionId, text);
+      // Its turn goes out with this id, so the chat is filed in the project now (its turn waits for that),
+      // and its Reviewer pick is the chat's: both used to be lost at the drain.
+      if (typeof projectFileWaitingChat === 'function') projectFileWaitingChat(S.sessionId, forProject);
+      if (typeof fzrAdoptNewChat === 'function') fzrAdoptNewChat(S.sessionId);
     }
     S.queued.push(text); DRAIN_OWED = true;
     S.draft = ''; if (e) { e.value = ''; autosize(e); }
@@ -10425,11 +10431,16 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
-  live.folder = firstTurnFolder(session, forProject);   // review of #67: the folder this new chat's turn runs in
+  // Issue #74: a new chat queued during a switch (`waiting-…`) was filed in its project when it was queued.
+  const waiting = session && typeof projectWaitingTurn === 'function' ? projectWaitingTurn(session) : null;
+  const turnPid = waiting ? waiting.pid : forProject;
+  live.folder = firstTurnFolder(waiting ? undefined : session, turnPid);   // review of #67: the folder this new chat's turn runs in
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
-  BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject), teamChoice).then((res) => {
+  const send = () => BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(waiting ? undefined : session, turnPid), teamChoice);
+  (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
     if (res && res.ok && teamChoice) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's
+    if (res && res.ok && waiting) projectWaitingSent(session);
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
       S.busy = false; clearInterval(ticker);
@@ -12168,6 +12179,7 @@ function unqueueMessage(at) {
     const row = PENDING_CHATS.get(S.sessionId);
     if (row && row.waiting && !queueChatRunning(S.sessionId) && !SESSIONS.some(s => s.id === S.sessionId)) {
       PENDING_CHATS.delete(S.sessionId); QUEUES.delete(S.sessionId);
+      if (typeof projectWaitingCancelled === 'function') projectWaitingCancelled(S.sessionId);   // issue #74: filed when it was queued
       S.sessionId = ''; S.agentSession = null;
     }
   }

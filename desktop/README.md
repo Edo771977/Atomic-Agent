@@ -505,7 +505,13 @@ Real, driven by the running agent:
   import sorted by a project directory works in that directory when this
   computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
-  opens in the project. Until that turn, the model chip and the switcher read
+  opens in the project. A first message queued while the model switches
+  gives the chat its `waiting-…` id at once, and main reads a turn with an id
+  as a known chat's: so the chat is filed in the project when the message is
+  queued, its first turn waits for that write, and its Reviewer pick is keyed
+  by that id (issue #74; cancelling the message unfiles it). A chat folder's
+  import directory does not apply to such a chat: main reads it only for a
+  turn with no id. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn
   runs in. The empty chat says "New chat in <name>" and names that folder
   while the mark holds; Clear Transcript before the first turn keeps it, a
