@@ -256,8 +256,20 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     expect(fixture.setTurnPrimary).not.toHaveBeenCalledWith("s", "cloud-b");
   });
 
+  it("a team whose only director is the orchestrator leg changes nothing: no stamp, no notice (issue #71)", async () => {
+    const notices: unknown[] = [];
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["cloud-b:model-r"] };
+    const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event); } });
+    const output = await service.executeTurn(session("s"), "request");
+    expect(notices).toEqual([]);
+    expect(readSessionFusionDirector(output.session.metadata)).toBeNull();
+    // It still leads the turn.
+    expect(fixture.setTurnPrimary).toHaveBeenCalledWith("s", "cloud-a");
+  });
+
   it("auto-picks the only reachable director, stamps it and says so once", async () => {
     const notices: unknown[] = [];
+    fixture.config.llm!.runMode!.fusion!.orchestratorProvider = "cloud-b";
     fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"] };
     const service = createRuntimeTurnService(fixture.config, { ...fixture.deps, emitEvent: (_id, event) => { notices.push(event); } });
     const first = await service.executeTurn(session("s"), "request");

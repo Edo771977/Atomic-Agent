@@ -1,5 +1,6 @@
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { TEAM_MEMBER_PROVIDER_MODEL } from "../config/llm-fusion-team-config.js";
 import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
 import type { ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
 import {
@@ -148,6 +149,25 @@ export function isCodexCliProvider(resolved: ResolvedLlmConfig, providerId: stri
  */
 export function cliToolsReviewerWhy(providerId: string): string {
   return `${providerId} keeps its own read-only shell, which can read outside this restricted folder`;
+}
+
+/**
+ * Whether `member` is the orchestrator leg itself (`orchestratorProvider`
+ * with `orchestratorModel`, else the entry's own model; `default` names
+ * the entry's own on a subscription CLI).
+ */
+export function isOrchestratorLeg(
+  member: TeamMember,
+  fusion: UserLlmFusionConfig | undefined,
+  resolved: ResolvedLlmConfig,
+): boolean {
+  if (fusion?.orchestratorProvider !== member.providerId) return false;
+  const entry = resolved.providers.find((p) => p.id === member.providerId);
+  if (entry === undefined) return false;
+  const legModel = fusion.orchestratorModel ?? entry.defaultChatModel ?? entry.model;
+  if (member.model === legModel) return true;
+  return member.model === TEAM_MEMBER_PROVIDER_MODEL && entry.kind === SUBSCRIPTION_CLI_KIND &&
+    (legModel === undefined || legModel === "");
 }
 
 /** The Codex director's line, said once when a session starts on it. */

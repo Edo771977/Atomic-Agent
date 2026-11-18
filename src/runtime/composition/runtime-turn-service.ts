@@ -12,7 +12,7 @@ import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
 import { NO_REVIEWER, TEAM_PICKS_REVIEWER, withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../../session/session-fusion-team.js";
-import { cliToolsReviewerWhy, codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
+import { cliToolsReviewerWhy, isOrchestratorLeg, codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
 import type { TeamMember } from "../../llm/run-mode/index.js";
 import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
@@ -530,6 +530,19 @@ export function createRuntimeTurnService(
       };
     }
     assertProviderAllowed(choice.member.providerId, { constraintsActive: () => false, role: "the fusion director" });
+    // The only director being the orchestrator leg itself (a team the
+    // desktop made from its seats, issue #71) changes nothing for the
+    // chat: it leads, unstamped and unsaid, as the leg did before.
+    if (choice.reason === "only" && fusion.team.directors.length === 1 && isOrchestratorLeg(choice.member, fusion, resolveLlmConfig(getConfig()))) {
+      return {
+        session: metadata === session.metadata ? session : { ...session, metadata },
+        choice: {
+          director: choice.member,
+          worker: resolveSessionWorker(metadata, fusion, policy),
+          reviewer: resolveSessionReviewer(metadata, fusion, policy),
+        },
+      };
+    }
     if (choice.reason !== "stamped") {
       // Picked here, not by the person: stamped so the session keeps it
       // (a later turn does not re-pick), and said once. A frontend with
