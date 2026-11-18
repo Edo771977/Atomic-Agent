@@ -136,6 +136,45 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     rmSync(state, { recursive: true, force: true });
   });
 
+  it("a candidate run keeps its facts and shots under a real run id, with no resumable checkpoint (issue #74)", async () => {
+    const state = mkdtempSync(join(tmpdir(), "fusion-criteria-state-"));
+    const runsDir = join(state, "fusion-runs");
+    const store = new FusionRunStore({ dir: runsDir });
+    const start = vi.spyOn(store, "start");
+    const checkRuns: unknown[] = [];
+    const describeImage = vi.fn<VisionDescribe>(async () => ({ text: '[{"criterion":"board-looks-right","met":false,"why":"no squares"}]' }));
+    const { dir, run } = setup((d) => ({
+      resolveRunMode: () => ({ ...mode(), integration: "candidate" }),
+      runCheckpoints: store,
+      visionJudge: { sees: () => true, route: () => null, describe: describeImage },
+      createEphemeralSession: (meta, workingDir) =>
+        createEmptySessionState({ id: `${FUSION_WORKER_ID_PREFIX}${meta.taskId}`, workingDir: workingDir ?? d, metadata: { fusionWorker: { ...meta } } }),
+      runTurn: async (session) => {
+        writeFileSync(join(session.workingDir, "index.html"), "<title>Chess</title><div id=board></div>");
+        return { session, reason: "reply", stepCount: 1 } as RunTurnResult;
+      },
+      runChecks: async (_specs, ctx) => {
+        checkRuns.push(ctx.run);
+        return { ok: true, results: [{ ok: true, summary: "verify.run page: ok", screenshots: [{ path: join(d, "t-1.jpg"), bytes: 3, width: 10, height: 10 }] }] };
+      },
+    }));
+    const result = await run();
+    const update = result.details.projectUpdate as { kind: string; runId: string };
+    expect(update.kind).toBe("milestone_run");
+    expect(update.runId).not.toMatch(/^fanout-/);
+    expect(FusionRunStore.isValidRunId(update.runId)).toBe(true);
+    // Candidate mode stays non-resumable: no checkpoint, no resumable id.
+    expect(start).not.toHaveBeenCalled();
+    expect(result.details.runId).toBeUndefined();
+    expect(store.load(update.runId)).toBeNull();
+    // The checks' screenshots go to that run's folder, and its facts too.
+    expect(checkRuns).toContainEqual({ runId: update.runId, sessionId: "s-p" });
+    const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [update.runId], criteriaOrder: ["board-looks-right"] });
+    expect(evidence.facts[0]).toMatchObject({ id: "board-looks-right", state: "failed" });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
+  });
+
   it("does not close a task whose visual criterion has no vision judge: it goes to the director", async () => {
     const { dir, run } = setup();
     const result = await run();

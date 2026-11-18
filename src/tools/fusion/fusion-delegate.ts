@@ -98,7 +98,7 @@ import {
   hasSplitProposal,
   renderSplitInstructions,
 } from "./task-tree.js";
-import type { FusionRunRecorder, FusionRunStore } from "./run-checkpoint.js";
+import { newFusionRunId, type FusionRunRecorder, type FusionRunStore } from "./run-checkpoint.js";
 import { outcomeRowFor, type FusionOutcomeJournal } from "./outcome-journal.js";
 import {
   outcomeLogPath,
@@ -1604,7 +1604,21 @@ export function buildFusionDelegateTool(
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
       }) : undefined;
-      if (run !== undefined) checkRun = { runId: run.runId, sessionId: ctx.sessionId };
+      // The run folder the checks' screenshots and the criteria facts go
+      // to (issue #40). Candidate mode keeps no resumable checkpoint, but
+      // its evidence still needs a real run (issue #74): a fresh id whose
+      // folder holds only shots and facts, so the milestone reads them
+      // like any run's.
+      const evidenceRun: ContractCheckRun | undefined =
+        run !== undefined
+          ? { runId: run.runId, sessionId: ctx.sessionId }
+          : candidate !== undefined && deps.runCheckpoints !== undefined
+            ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
+            : undefined;
+      if (evidenceRun !== undefined) {
+        checkRun = evidenceRun;
+        admitted.runId = evidenceRun.runId;
+      }
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
         pricing: typeof workerPricing,
@@ -2980,10 +2994,10 @@ export function buildFusionDelegateTool(
         }
         // The run's success-criteria facts, kept with its screenshots for
         // the milestone report (issue #40, `run-criteria.ts`).
-        if (run !== undefined && deps.runCheckpoints !== undefined) {
+        if (evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
           writeRunCriteriaFacts(
             deps.runCheckpoints.runsDir,
-            { runId: run.runId, sessionId: ctx.sessionId },
+            evidenceRun,
             results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }])),
           );
         }
@@ -3395,12 +3409,15 @@ export function buildFusionDelegateTool(
 interface FanoutAdmission {
   milestoneId: string | null;
   started: boolean;
+  /** The run whose folder holds the fan-out's evidence (its checkpoint's, or a candidate run's; issue #74). */
+  runId?: string;
 }
 
 /**
  * The project update a fan-out of an approved milestone hands back
- * (issue #39): `milestone_run` with the run's checkpoint id (or a fresh
- * id when nothing was checkpointed), which the step commit folds to mark
+ * (issue #39): `milestone_run` with the run's id (the checkpoint's, or
+ * a candidate run's evidence folder, issue #74; a fresh id only when
+ * there is no run store), which the step commit folds to mark
  * the milestone in progress and remember the run. A fan-out whose workers
  * ran is recorded even when it failed (every task failed, an interrupted
  * run), so the milestone shows the work started and the run to resume;
@@ -3409,7 +3426,9 @@ interface FanoutAdmission {
 function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
   const milestoneId = admitted.milestoneId;
   if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;
-  const runId = typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`;
+  const runId =
+    admitted.runId ??
+    (typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`);
   const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
   const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
   // Keep the non-enumerable full output the result may carry.

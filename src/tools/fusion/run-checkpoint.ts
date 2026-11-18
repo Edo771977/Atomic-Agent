@@ -234,6 +234,11 @@ export interface FusionRunStoreOptions {
 }
 
 /** A run's own folder beside its checkpoint: `<runs>/<runId>/`, with `shots/` and `run.json`. */
+/** A fresh fusion run id (`fr-<uuid>`, a valid {@link FusionRunStore.isValidRunId}). */
+export function newFusionRunId(): string {
+  return `fr-${randomUUID()}`;
+}
+
 export const FUSION_RUN_SHOTS_DIR_NAME = "shots";
 const RUN_DIR_MARKER = "run.json";
 
@@ -301,7 +306,7 @@ export class FusionRunStore {
     const runId =
       input.runId !== undefined && FusionRunStore.isValidRunId(input.runId)
         ? input.runId
-        : `fr-${randomUUID()}`;
+        : newFusionRunId();
     const at = this.now();
     const before = new Map(
       (input.resumedFrom?.tasks ?? []).map((t) => [t.id, t]),
