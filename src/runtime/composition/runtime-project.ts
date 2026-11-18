@@ -33,6 +33,7 @@ import { teamContextFromConfig } from "../../tools/fusion/team-routing.js";
 import { projectPlanContextFrom } from "../../tools/fusion/project-plan-context.js";
 import { readRoutingHistory } from "../../tools/fusion/measured-routing.js";
 import { outcomeLogPath } from "../../tools/fusion/outcome-log.js";
+import { isCodexCliProvider } from "../session-director.js";
 
 /**
  * The person's side of the fusion project (issue #39): read the gate a
@@ -73,6 +74,10 @@ export interface LiveProjectInputsSource {
   allows: (providerId: string) => boolean;
   mode: Pick<ResolvedRunMode, "workerProviderId" | "workerModel" | "turnBudgetUsd">;
   currentWorker?: TeamMember | null;
+  /** The session's reviewer (issue #71); `"none"`: no review in this chat. */
+  currentReviewer?: TeamMember | "none" | null;
+  /** The chat's provider policy is restricted: no reviewer whose CLI keeps its tools on (issue #71). */
+  restricted?: boolean;
   /** The local leg's measured speed (`measuredTokensPerSecond`). */
   tokensPerSecond: () => number | null;
   /** What is left of today's limit; null: none. */
@@ -106,6 +111,9 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
         ? null
         : { providerId: source.mode.workerProviderId, model: source.mode.workerModel ?? source.mode.workerProviderId },
     ...(source.currentWorker === undefined ? {} : { currentWorker: source.currentWorker }),
+    ...(source.currentReviewer === undefined ? {} : { currentReviewer: source.currentReviewer }),
+    ...(source.restricted === undefined ? {} : { restricted: source.restricted }),
+    cliToolsStayOn: (providerId) => isCodexCliProvider(resolved, providerId),
     records: readRoutingHistory(outcomeLogPath(source.config.paths.stateDir)),
     pricing: (providerId, model) => resolveModelPricingFor(resolved, model, providerId)?.pricing,
     isLocal: localProvider,

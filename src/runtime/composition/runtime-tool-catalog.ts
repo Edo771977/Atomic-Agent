@@ -66,7 +66,7 @@ import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
-import { currentPolicyAllows } from "../../llm/provider-policy.js";
+import { currentPolicyAllows, currentProviderPolicy } from "../../llm/provider-policy.js";
 import {
   confineReads,
   createCommandReadCheck,
@@ -871,6 +871,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   resolveCurrentRunMode: FusionDelegateDeps["resolveRunMode"];
   /** The calling session's preferred worker (issue #37); see `FusionDelegateDeps.currentWorker`. */
   currentWorker?: FusionDelegateDeps["currentWorker"];
+  /** The calling session's reviewer (issue #71); see `FusionDelegateDeps.currentReviewer`. */
+  currentReviewer?: FusionDelegateDeps["currentReviewer"];
   /** Whether a team member can answer now (issue #37); `connectRuntimeProviders().teamMemberReachable`. */
   teamMemberReachable?: (member: TeamMember) => boolean;
   /** The provider `vision.describe` routes to now: the fusion vision judge's last fallback (issue #40). */
@@ -925,7 +927,7 @@ export function registerRuntimeFusionAndReadScope(input: {
     prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode, providerRegistry,
     llama, approvals, dangerous, slotManager, workingDir, logger, turnBudget,
     orchestratorTurnSpendUsd, liveWorkers, steerWorker, runCheckpoints, sessionUsage,
-    outcomeLog, outcomeJournal, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, teamMemberReachable } = input;
+    outcomeLog, outcomeJournal, turnLedger, localFormatCheck, costAccumulator, dailySpendLimit, currentWorker, currentReviewer, teamMemberReachable } = input;
 
 
   // The orchestrator's fan-out. Registered UNCONDITIONALLY: the tool
@@ -1157,6 +1159,7 @@ export function registerRuntimeFusionAndReadScope(input: {
         ? {}
         : { resolveFusionTeam: () => teamContextFromConfig(getConfig(), teamMemberReachable) }),
       ...(currentWorker === undefined ? {} : { currentWorker }),
+      ...(currentReviewer === undefined ? {} : { currentReviewer }),
       workerSupportsSlotAffinity: (providerId) =>
         providerRegistry.getProvider(providerId)?.capabilities
           .supportsSlotAffinity ?? false,
@@ -1236,6 +1239,8 @@ export function registerRuntimeFusionAndReadScope(input: {
         allows: currentPolicyAllows,
         mode,
         ...(currentWorker === undefined ? {} : { currentWorker: currentWorker() }),
+        ...(currentReviewer === undefined ? {} : { currentReviewer: currentReviewer() }),
+        restricted: currentProviderPolicy() !== undefined,
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
         dailyRemainingUsd: null,
       }).plan;

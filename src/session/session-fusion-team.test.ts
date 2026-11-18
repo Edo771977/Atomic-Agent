@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   readSessionFusionDirector,
+  readSessionFusionReviewer,
   readSessionFusionWorker,
   SESSION_FUSION_DIRECTOR_METADATA_KEY,
+  SESSION_FUSION_REVIEWER_METADATA_KEY,
   SESSION_FUSION_WORKER_METADATA_KEY,
   withSessionFusionDirector,
+  withSessionFusionReviewer,
   withSessionFusionWorker,
 } from "./session-fusion-team.js";
 import { SESSION_LLM_METADATA_KEY } from "./session-llm.js";
@@ -76,5 +79,28 @@ describe("session fusion worker stamp", () => {
     });
     expect(readSessionFusionWorker(metadata)?.member).toBe("w:model-b");
     expect(readSessionFusionWorker(withSessionFusionWorker(metadata, null))).toBeNull();
+  });
+});
+
+describe("session fusion reviewer stamp (issue #71)", () => {
+  it("writes, reads and clears the chat's reviewer", () => {
+    const metadata = withSessionFusionReviewer({ other: 1 }, { providerId: "codex", model: "model-r", ref: "codex:model-r" }, 3);
+    expect(metadata[SESSION_FUSION_REVIEWER_METADATA_KEY]).toEqual({
+      member: "codex:model-r", providerId: "codex", model: "model-r", chosenAt: 3,
+    });
+    expect(readSessionFusionReviewer(metadata)).toMatchObject({ member: "codex:model-r" });
+    expect(withSessionFusionReviewer(metadata, null)).toEqual({ other: 1 });
+  });
+
+  it("keeps \"none\" as its own choice: no review for this chat", () => {
+    const metadata = withSessionFusionReviewer({}, "none", 4);
+    expect(metadata[SESSION_FUSION_REVIEWER_METADATA_KEY]).toEqual({ member: "none", chosenAt: 4 });
+    expect(readSessionFusionReviewer(metadata)).toBe("none");
+  });
+
+  it("reads a malformed reviewer stamp as none chosen", () => {
+    for (const raw of [null, "none", { member: "nocolon" }, { member: "c:m", providerId: "x", model: "m" }]) {
+      expect(readSessionFusionReviewer({ [SESSION_FUSION_REVIEWER_METADATA_KEY]: raw })).toBeNull();
+    }
   });
 });
