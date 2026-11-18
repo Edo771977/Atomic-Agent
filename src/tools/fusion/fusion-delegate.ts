@@ -32,7 +32,7 @@ import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
-import { criteriaById, type ProjectUpdate } from "../../session/session-project.js";
+import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -1107,38 +1107,51 @@ export function buildFusionDelegateTool(
         const model = leg === undefined || leg.isWorkerLeg ? workerModel : leg.model;
         return { providerId, model, ref: leg?.member ?? `${providerId}:${model}` };
       };
-      // The reviewer the person picked for a plan row at the plan gate
-      // (`reviewerByPerson`; their "no review" is null) reviews that task
-      // (issue #74), before the chat's reviewer (issue #71), the team's
-      // pick and `team.review`, which stay the default for every other
-      // task. A pick that can no longer review here (the folder's policy,
-      // not reachable, now the task's worker) falls back to the default,
-      // so the plan no longer stands for the prompt, and the prompt and
-      // the task's row say so.
-      const personReviewers = new Map<string, string | null>();
+      // The approved plan row's reviewer reviews its task (issue #74),
+      // whoever set it: the person at the plan gate (`reviewerByPerson`)
+      // or the director's draft the person approved. It wins over the
+      // chat's reviewer (issue #71), the team's pick and `team.review`,
+      // which stay the default for a task outside the plan. A row's null
+      // is "no review" when a reviewer could have been named (the person
+      // chose it, or the team lists reviewers); without team reviewers it
+      // only says no team reviewer, and `judgeProvider` still judges. A
+      // reviewer that can no longer review here (not a team reviewer this
+      // folder can use now, or now the task's worker) falls back to the
+      // default, so the plan no longer stands for the prompt, and the
+      // prompt and the task's row say why.
+      const approvedRows = new Map<string, AssignmentRow>();
       if (projectVerdict.kind === "admit" && ctx.project?.plan?.status === "approved") {
         const planned = new Set(projectVerdict.planned);
-        for (const r of ctx.project.plan.rows) {
-          if (planned.has(r.taskId) && r.reviewerByPerson === true) personReviewers.set(r.taskId, r.reviewer);
-        }
+        for (const r of ctx.project.plan.rows) if (planned.has(r.taskId)) approvedRows.set(r.taskId, r);
+      }
+      const planReviewers = new Map<string, string | null>();
+      for (const [id, r] of approvedRows) {
+        if (r.reviewer !== null || r.reviewerByPerson === true || team?.hasReviewers === true) planReviewers.set(id, r.reviewer);
       }
       const unusablePlanReviewers = new Map<string, string>();
-      const taskReviewers = new Map<string, { member: TeamMember | null; byPerson: boolean }>();
+      const taskReviewers = new Map<string, { member: TeamMember | null; fromPlan: boolean }>();
       /** The team member that reviews the task (null: none; `judgeProvider` may still judge a default task). */
-      const taskReviewerOf = (taskId: string): { member: TeamMember | null; byPerson: boolean } => {
+      const taskReviewerOf = (taskId: string): { member: TeamMember | null; fromPlan: boolean } => {
         let found = taskReviewers.get(taskId);
         if (found === undefined) {
-          const picked = personReviewers.get(taskId);
+          const picked = planReviewers.get(taskId);
           const usable =
             picked === undefined || picked === null
               ? undefined
               : (team?.reviewers ?? []).find((m) => m.ref === picked && m.ref !== taskMember(taskId).ref);
-          if (picked === null || usable !== undefined) found = { member: usable ?? null, byPerson: true };
+          if (picked === null || usable !== undefined) found = { member: usable ?? null, fromPlan: true };
           else {
-            if (picked !== undefined) unusablePlanReviewers.set(taskId, picked);
+            if (picked !== undefined) {
+              unusablePlanReviewers.set(
+                taskId,
+                picked === taskMember(taskId).ref
+                  ? "it is now the task's worker"
+                  : "it is not a team reviewer this folder's policy allows and that can answer now",
+              );
+            }
             found = {
               member: teamReview?.on === false || team?.hasReviewers !== true ? null : team.reviewerFor(taskMember(taskId)),
-              byPerson: false,
+              fromPlan: false,
             };
           }
           taskReviewers.set(taskId, found);
@@ -1146,12 +1159,26 @@ export function buildFusionDelegateTool(
         return found;
       };
       for (const t of parsed.tasks) taskReviewerOf(t.id);
+      /** The team reviewer that would review the task here; null: none (no review runs without a completion seam for it). */
+      const reviewerRefOf = (taskId: string): string | null =>
+        deps.escalationComplete === undefined ? null : (taskReviewerOf(taskId).member?.ref ?? null);
+      /** Why the reviewer that would run is not the approved row's, or undefined when it is. */
       const planReviewerNote = (taskId: string): string | undefined => {
-        const picked = unusablePlanReviewers.get(taskId);
-        if (picked === undefined) return undefined;
-        const instead = taskReviewerOf(taskId).member;
-        return `plan reviewer ${picked} is no longer usable here; ${instead === null ? "no team reviewer reviews it" : `${instead.ref} reviews it instead`}`;
+        const row = approvedRows.get(taskId);
+        if (row === undefined) return undefined;
+        const runs = reviewerRefOf(taskId);
+        if (row.reviewer === runs) return undefined;
+        const instead = runs === null ? "no team reviewer reviews it" : `${runs} reviews it instead`;
+        if (row.reviewer === null) return `the plan has no review for it, but ${runs} would review it`;
+        const why = unusablePlanReviewers.get(taskId) ?? "no review can run here";
+        return `plan reviewer ${row.reviewer} is no longer usable here (${why}); ${instead}`;
       };
+      const planReviewerNotes = new Map(
+        parsed.tasks.flatMap((t) => {
+          const note = planReviewerNote(t.id);
+          return note === undefined ? [] : [[t.id, note] as const];
+        }),
+      );
       const declinedInScope =
         deps.approvals.hasDeclinedUnder?.(ctx.sessionId, writeScope) ?? false;
       // Nor after outside content (`agent.taintReview`): the standing yes
@@ -1173,8 +1200,7 @@ export function buildFusionDelegateTool(
             const leg = taskLegs.get(id);
             return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
           },
-          // No review runs without a completion seam for it.
-          (id) => (deps.escalationComplete === undefined ? null : (taskReviewerOf(id).member?.ref ?? null)),
+          reviewerRefOf,
           writeScope,
           [ctx.workingDir],
         );
@@ -1211,9 +1237,9 @@ export function buildFusionDelegateTool(
                   ? ""
                   : ` and ${[...roleLegs.values()].map((l) => l.model).join(", ")}`
               }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), parsed.tasks.length, mode) : ""}${describeOversizedLocalTasks(oversized)}${
-                unusablePlanReviewers.size === 0
+                planReviewerNotes.size === 0
                   ? ""
-                  : `; ${[...unusablePlanReviewers.keys()].map((id) => `task ${id}: ${planReviewerNote(id)}`).join("; ")}`
+                  : `; ${[...planReviewerNotes].map(([id, note]) => `task ${id}: ${note}`).join("; ")}`
               }`,
               preview: describeFanoutPreview(parsed.tasks, writeScope),
               affectedResources: [...writeScope],
@@ -1539,9 +1565,9 @@ export function buildFusionDelegateTool(
       const teamJudged = new Set<string>();
       const judgeTargetFor = (taskId: string): JudgeTarget | null => {
         if (!judgeTargets.has(taskId)) {
-          const { member: reviewer, byPerson } = taskReviewerOf(taskId);
-          // The person's "no review" for the row, or review off: none.
-          if (reviewer === null && (byPerson || teamReview?.on === false)) {
+          const { member: reviewer, fromPlan } = taskReviewerOf(taskId);
+          // The approved row's "no review", or review off: none.
+          if (reviewer === null && (fromPlan || teamReview?.on === false)) {
             judgeTargets.set(taskId, null);
             return null;
           }
@@ -1570,8 +1596,8 @@ export function buildFusionDelegateTool(
       const judging =
         deps.escalationComplete !== undefined &&
         ((teamReview === undefined ? judgeTarget !== null : teamReview.on) ||
-          // A reviewer the person picked for a plan row reviews it anyway.
-          parsed.tasks.some((t) => taskReviewerOf(t.id).byPerson && taskReviewerOf(t.id).member !== null));
+          // An approved plan row's reviewer reviews it anyway.
+          parsed.tasks.some((t) => taskReviewerOf(t.id).fromPlan && taskReviewerOf(t.id).member !== null));
       const acceptance = new Map(
         judging
           ? parsed.tasks
@@ -1898,8 +1924,8 @@ export function buildFusionDelegateTool(
           : (taskId: string): WorkerWatchPlan | undefined => {
               const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
               if (minutes <= 0) return undefined;
-              // The task's reviewer (`taskReviewerOf`: the plan row's
-              // person pick, else the default; `team.review: "off"` turns
+              // The task's reviewer (`taskReviewerOf`: the approved plan
+              // row's, else the default; `team.review: "off"` turns
               // the reviewers off for the watch too).
               const reviewer = taskReviewerOf(taskId).member;
               const lead: TeamMember | null =
@@ -3079,9 +3105,9 @@ export function buildFusionDelegateTool(
           `\n\nThis Fusion run cannot be resumed: ${run.checkpointWarning}. Plan any remaining work again after an interruption.`;
 
         // A plan reviewer that could not review rides its task's row (issue #74).
-        if (unusablePlanReviewers.size > 0) {
+        if (planReviewerNotes.size > 0) {
           results = results.map((r) => {
-            const note = planReviewerNote(r.id);
+            const note = planReviewerNotes.get(r.id);
             return note === undefined ? r : { ...r, notes: [...(r.notes ?? []), note] };
           });
         }

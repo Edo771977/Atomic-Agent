@@ -551,6 +551,25 @@ describe("one milestone open at a time (issue #74)", () => {
   });
 });
 
+describe("a re-plan keeps the person's reviewer pick (issue #74)", () => {
+  it("carries reviewerByPerson for a row whose worker and reviewer are unchanged, and only then", () => {
+    const p = running();
+    const picked: ProjectState = {
+      ...p,
+      plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, reviewer: null, reviewerByPerson: true as const })) },
+    };
+    const re = update(picked, {
+      ...planUpdate,
+      rows: [row("t1", "m1", { reviewer: null }), row("t2", "m2", { reviewer: "cloud:model-b" })],
+    } as ProjectUpdate);
+    expect(re.plan!.rows[0]).toMatchObject({ taskId: "t1", reviewer: null, reviewerByPerson: true });
+    expect(re.plan!.rows[1]!.reviewerByPerson).toBeUndefined();
+    // A director's row claiming the person's pick does not get one.
+    const claimed = update(running(), { ...planUpdate, rows: [row("t1", "m1", { reviewerByPerson: true }), row("t2", "m2")] } as ProjectUpdate);
+    expect(claimed.plan!.rows[0]!.reviewerByPerson).toBeUndefined();
+  });
+});
+
 describe("projectExpectation", () => {
   it("covers every stage", () => {
     expect(projectExpectation(undefined)).toEqual({ kind: "draft_brief" });

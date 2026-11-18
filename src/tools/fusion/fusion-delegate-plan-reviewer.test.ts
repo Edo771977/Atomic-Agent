@@ -68,7 +68,7 @@ const project = (reviewer: string | null, byPerson: boolean): ProjectState => {
   return byPerson ? { ...p, plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, reviewerByPerson: true as const })) } } : p;
 };
 
-async function run(p: ProjectState, over: Partial<FusionDelegateDeps> = {}) {
+async function run(p: ProjectState, over: Partial<FusionDelegateDeps> = {}, taskId = "t") {
   const dir = mkdtempSync(join(tmpdir(), "plan-reviewer-"));
   const calls: string[] = [];
   const briefs: string[] = [];
@@ -109,7 +109,7 @@ async function run(p: ProjectState, over: Partial<FusionDelegateDeps> = {}) {
     ...over,
   };
   const result = await buildFusionDelegateTool(d).run(
-    { tasks: [{ id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] }] },
+    { tasks: [{ id: taskId, title: "T", instructions: "write a.txt", files: ["a.txt"] }] },
     { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: p },
   );
   rmSync(dir, { recursive: true, force: true });
@@ -140,23 +140,34 @@ describe("the plan row's reviewer reviews the task (issue #74)", () => {
     expect(picked.prompts).toEqual([]);
   });
 
-  it("without a person's pick the chat's reviewer stays the default; a reviewer other than the row's asks", async () => {
+  it("the approved row's reviewer binds whoever named it: the director's draft wins over the chat's reviewer", async () => {
     const chat = (): TeamMember => ({ providerId: "api-a", model: "model-o", ref: "api-a:model-o" });
     const drafted = await run(project("cli-b:model-r", false), { currentReviewer: chat });
-    expect(drafted.calls).toEqual(["api-a:model-o"]);
-    expect(drafted.prompts.map((q) => q.tool)).toEqual(["fusion.delegate"]);
-    // The person's pick wins over the chat's.
-    const person = await run(project("cli-b:model-r", true), { currentReviewer: chat });
-    expect(person.calls).toEqual(["cli-b:model-r"]);
-    expect(person.prompts).toEqual([]);
+    expect(drafted.calls).toEqual(["cli-b:model-r"]);
+    expect(drafted.prompts).toEqual([]);
+    const named = await run(project("api-a:model-o", false));
+    expect(named.calls).toEqual(["api-a:model-o"]);
+    expect(named.prompts).toEqual([]);
+  });
+
+  it("the director's \"no review\" the person approved reviews nothing and does not ask", async () => {
+    const none = await run(project(null, false));
+    expect(none.calls).toEqual([]);
+    expect(none.prompts).toEqual([]);
+  });
+
+  it("a task outside the plan keeps the chat's reviewer", async () => {
+    const chat = (): TeamMember => ({ providerId: "api-a", model: "model-o", ref: "api-a:model-o" });
+    const outside = await run(project("cli-b:model-r", false), { currentReviewer: chat }, "x");
+    expect(outside.calls).toEqual(["api-a:model-o"]);
   });
 
   it("the person's reviewer no longer usable: the fan-out asks and says so", async () => {
     const gone = await run(project("api-a:model-o", true), { resolveFusionTeam: () => team({ reachable: (m) => m.ref !== "api-a:model-o" }) });
     expect(gone.prompts).toHaveLength(1);
-    expect(gone.prompts[0]!.reason).toMatch(/api-a:model-o.*no longer usable/);
+    expect(gone.prompts[0]!.reason).toMatch(/task t: plan reviewer api-a:model-o is no longer usable here \(it is not a team reviewer this folder's policy allows and that can answer now\); cli-b:model-r reviews it instead/);
     expect(gone.calls).toEqual(["cli-b:model-r"]);
     const rows = gone.result.details.tasks as Array<{ notes?: string[] }>;
-    expect(rows[0]!.notes).toContain("plan reviewer api-a:model-o is no longer usable here; cli-b:model-r reviews it instead");
+    expect(rows[0]!.notes?.join("\n")).toContain("plan reviewer api-a:model-o is no longer usable here");
   });
 });

@@ -1058,8 +1058,15 @@ function planUpdate(
       return invalid(named ? `task ${i + 1} names milestone ${String(r.milestoneId)}, which the plan does not list` : `task ${i + 1} is malformed`);
     }
     if (rows.some((x) => x.taskId === read.taskId)) return invalid(`task id ${read.taskId} is used twice`);
-    // The director's plan: no row carries a person's pick.
+    // The director's plan carries no person's pick of its own; a row whose
+    // worker and reviewer match the person's pick on the plan before
+    // keeps it (issue #74), so a re-plan cannot quietly undo their
+    // "no review" or their reviewer.
     delete read.reviewerByPerson;
+    const before = project.plan?.rows.find((x) => x.taskId === read.taskId);
+    if (before?.reviewerByPerson === true && before.worker === read.worker && before.reviewer === read.reviewer) {
+      read.reviewerByPerson = true;
+    }
     rows.push(read);
   }
   const plan: ProjectPlan = {
