@@ -62,9 +62,10 @@ function planContext(): ProjectPlanContext {
   };
 }
 
-function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState } = {}) {
+function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"] } = {}) {
   let stored: SessionState | null = {
     ...createEmptySessionState({ id: "s1", workingDir: "/w" }),
+    ...(options.status === undefined ? {} : { status: options.status }),
     ...(options.project === undefined ? {} : { project: options.project }),
   };
   const events: Array<{ sessionId: string; event: ProjectGateEvent }> = [];
@@ -115,6 +116,11 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
     const busy = harness({ busy: true, project: up(undefined, brief) });
     expect(busy.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "turn-running" } });
+    // Issue #74: a turn another process runs on the state dir counts too (stored status).
+    const elsewhere = harness({ status: "running", project: up(undefined, brief) });
+    expect(elsewhere.runtime.projectDecision("s1", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
+      .toMatchObject({ ok: false, error: { code: "turn-running" } });
+    expect(elsewhere.save).not.toHaveBeenCalled();
     const h = harness({ project: up(undefined, brief) });
     expect(h.runtime.projectDecision("nope", { gate: { kind: "brief" }, version: 1, verdict: "approve" }))
       .toMatchObject({ ok: false, error: { code: "no-session" } });

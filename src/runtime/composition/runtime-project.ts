@@ -7,6 +7,7 @@ import {
   type ProjectState,
 } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
+import { LIVE_SESSION_STATUSES } from "../../session/session-retention.js";
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { ModelTier } from "../../llm/provider/presets/model-tiers.js";
 import {
@@ -236,11 +237,12 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
     },
     projectDecision(sessionId, decision) {
       // Between turns only: a running turn's save would put the old project back.
-      if (deps.isBusy(sessionId)) {
-        return { ok: false, error: { code: "turn-running", message: "Wait for the current work to finish, then decide." } };
-      }
+      const turnRunning = { ok: false as const, error: { code: "turn-running" as const, message: "Wait for the current work to finish, then decide." } };
+      if (deps.isBusy(sessionId)) return turnRunning;
       const session = deps.loadSession(sessionId);
       if (session === null) return { ok: false, error: { code: "no-session", message: `There is no session ${sessionId}.` } };
+      // Issue #74: a turn another process on the state dir runs shows only in the stored status.
+      if (LIVE_SESSION_STATUSES.includes(session.status)) return turnRunning;
       const project = session.project;
       const inputs = deps.liveInputs(session);
       const estimate = project === undefined ? null : estimateFor(project, inputs);

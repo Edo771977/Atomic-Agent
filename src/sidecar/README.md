@@ -21,6 +21,8 @@ Approvals ([approval-payload.ts](approval-payload.ts)): `approval_request` carri
 
 `get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom}`) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
 
+A request's `sessionId` on `compact_session`, `get_compaction`, `get_session`, `get_provider_restriction`, `get_project` and `project_decision` must pass the shared session id check (no `/`, `\`, `..`, leading `.` or control characters, at most 256 characters; issue #74, [session-id.ts](../session/session-id.ts)); any other value fails with `invalid sessionId: …` before the handler looks at the active runtime.
+
 `budget_notice` carries `{sessionId, providerId, reason, text}` when a request uses soft/meter budget enforcement or its output ceiling is reduced to fit. The notice belongs to that session and owning turn; retries do not repeat the same provider/reason warning.
 
 `send_message` takes optional `director` / `worker` / `reviewer` (`"<providerId>:<model>"`, issue #37; `reviewer` may be `"none"` or `"team"`, which clears the choice, issue #71), stamped on the session inside the already-locked turn; `fusion_director_notice` carries `{sessionId, member, reason, text}` when the runtime picked the session's director (`only`, `default`) or the director is a Codex CLI (`codex-direct-tasks`).

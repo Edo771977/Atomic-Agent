@@ -27,9 +27,9 @@ export function removeIncognitoTrace(
   sessionId: string,
 ): boolean {
   if (!tracesDir) return false;
-  const path = traceFilePath(tracesDir, sessionId);
-  if (!resolve(path).startsWith(`${resolve(tracesDir)}${sep}`)) return false;
   try {
+    const path = traceFilePath(tracesDir, sessionId);
+    if (!resolve(path).startsWith(`${resolve(tracesDir)}${sep}`)) return false;
     rmSync(path, { force: true });
     return true;
   } catch {

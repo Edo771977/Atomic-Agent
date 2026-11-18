@@ -158,3 +158,19 @@ describe("serve --tunnel without cloudflared", () => {
     expect(boot.options).toBeNull();
   });
 });
+
+// Issue #74: the desktop passes its per-launch key in the environment, not
+// on the command line `ps` shows. serve reads it and then removes it, so a
+// tool, a shell or any child serve starts never inherits it.
+describe("the API key from the environment", () => {
+  it("is taken out of process.env once serve has read it", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "k".repeat(32));
+    try {
+      await serveBootOptions();
+      expect(process.env.ATOMIC_AGENT_API_KEY).toBeUndefined();
+      expect("ATOMIC_AGENT_API_KEY" in process.env).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -37,6 +37,7 @@ const REFUSAL_MESSAGES: Record<RewindRefusal | ForkRefusal, string> = {
   nothing_to_rewind: "this chat has no question to go back to",
   turn_in_progress: "this chat has a turn in progress; try again when it finishes",
   point_compacted: "that message is inside the part of the chat already compacted into a summary",
+  incognito: "an incognito chat cannot be forked: it leaves nothing behind, a copy included",
   point_mismatch: "the chat's question at that position is not the one given (priorQuestions, expectText), so nothing was changed",
 };
 
@@ -94,24 +95,57 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     }
     // `files: false` takes back only the conversation.
     const restoreFiles = point.body.files !== false;
-    // A compaction started on this chat would summarise the rows removed.
-    ctx.runtime.cancelSessionCompaction(session.id);
-    const done = restoreFiles
-      ? await applyFileRestore(store, session.id, files)
-      : { restored: [], deleted: [], failed: [] };
-    ctx.runtime.sessionStore.save(plan.state);
-    ctx.runtime.sessionStore.clearTurnProgress(session.id);
-    // The turns those copies belong to are gone.
-    await store.dropSince(session.id, at);
+    // Issue #74: the restore and the save run under the chat's turn lock,
+    // so a turn sent meanwhile queues behind the rewind instead of being
+    // overwritten by it. Checked and queued in one tick: nothing can start
+    // between the two.
+    if (ctx.runtime.turnController.isBusy(session.id)) return refuse(res, "turn_in_progress");
+    const outcome = await ctx.runtime.turnController.enqueue({
+      sessionId: session.id,
+      origin: "http",
+      run: async (): Promise<RewindOutcome> => {
+        // The chat as it is now: a turn that ran while the plan was made changed it.
+        const current = ctx.runtime.sessionStore.load(session.id);
+        if (current === null || current.updatedAt !== session.updatedAt) return { refused: "point_mismatch" };
+        if (!planRewind(current, turnIndex).ok) return { refused: "turn_in_progress" };
+        // A compaction started on this chat would summarise the rows removed.
+        ctx.runtime.cancelSessionCompaction(session.id);
+        const done = restoreFiles
+          ? await applyFileRestore(store, session.id, files)
+          : { restored: [], deleted: [], failed: [] };
+        // Another process on the state dir may have started a turn during the restore.
+        const latest = ctx.runtime.sessionStore.load(session.id);
+        if (latest === null || latest.updatedAt !== session.updatedAt) return { refused: "turn_in_progress", done };
+        ctx.runtime.sessionStore.save(plan.state);
+        ctx.runtime.sessionStore.clearTurnProgress(session.id);
+        // The turns those copies belong to are gone.
+        await store.dropSince(session.id, at);
+        return { done };
+      },
+    });
+    if (outcome.refused !== undefined) {
+      if (outcome.done === undefined) return refuse(res, outcome.refused);
+      // Files were already put back; the chat was not cut. Say both.
+      sendJson(res, 409, {
+        ...openaiError(REFUSAL_MESSAGES.turn_in_progress, "invalid_request_error", null, "turn_in_progress"),
+        ...outcome.done,
+      });
+      return;
+    }
     sendJson(res, 200, {
       id: session.id,
       text,
-      ...done,
+      ...outcome.done,
       notRestorable: restoreFiles ? notRestorable : [],
       incomplete: restoreFiles && files.incomplete,
     });
   };
 }
+
+type RestoreDone = Awaited<ReturnType<typeof applyFileRestore>>;
+type RewindOutcome =
+  | { refused?: undefined; done: RestoreDone }
+  | { refused: RewindRefusal; done?: RestoreDone };
 
 export function createForkSessionHandler(): HttpHandler {
   return async (req, res, ctx) => {

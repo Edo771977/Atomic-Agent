@@ -9,7 +9,7 @@ import {
   type HttpHandler,
   type HandlerContext,
 } from "./request-context.js";
-import { serveWithheld } from "./serve-egress.js";
+import { serveWithheldRecord } from "./serve-egress.js";
 import { checkWorkingDir } from "./session-working-dir.js";
 import {
   IDEA_STATUSES,
@@ -64,13 +64,14 @@ function withIdeaStore(
 /**
  * Issue #33: on a network server an idea built from a restricted
  * session (a goal's criteria, a failed task's message) is not shown,
- * accepted or dismissed: it reads as unknown.
+ * accepted or dismissed: it reads as unknown. An idea with no session is
+ * withheld too while constraints exist (issue #74).
  */
 function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
   const sessionId = idea.evidence.source === "goal"
     ? idea.evidence.ref
     : ctx.runtime.taskStore.get(idea.evidence.ref)?.sessionId ?? idea.sessionId;
-  return sessionId !== null && serveWithheld(ctx, sessionId)();
+  return serveWithheldRecord(ctx, sessionId);
 }
 
 /** The runtime's seed (its live view of the original chat); without one, refused while constraints exist. */

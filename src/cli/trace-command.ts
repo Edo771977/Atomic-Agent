@@ -23,7 +23,8 @@ const HELP =
   [
     "atomic-agent trace — inspect append-only session traces",
     "",
-    "Traces live at <stateDir>/traces/<sessionId>.ndjson and are written by",
+    "Traces live at <stateDir>/traces/<sessionId>.ndjson (an id with other characters than",
+    "letters, digits, ., _ and - is ~xx-escaped in the name) and are written by",
     "default when running via `atomic-agent run`, `atomic-agent tui`, or",
     "`atomic-agent serve`. Sidecar mode is off unless configured.",
     "",
