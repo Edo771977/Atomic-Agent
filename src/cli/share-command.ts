@@ -19,6 +19,7 @@ import {
   type SessionSummaryCursor,
 } from "../session/index.js";
 import { getAppVersion } from "../version.js";
+import { sessionFileName } from "../session/session-id.js";
 import {
   askInTerminal,
   formatUploadPreview,
@@ -206,7 +207,7 @@ export async function shareCommand(args: string[], deps: ShareDeps = {}): Promis
   const content = renderChatExport(chat, format);
   const file = parsed.out
     ? resolve(cwd, parsed.out)
-    : join((deps.stateDir ?? (() => getConfig().paths.stateDir))(), "shared-chats", `chat-${sessionId}.${format}`);
+    : join((deps.stateDir ?? (() => getConfig().paths.stateDir))(), "shared-chats", `chat-${sessionFileName(sessionId)}.${format}`);
   (deps.writeFile ?? writeOwnerOnly)(file, content);
 
   if (parsed.json) {

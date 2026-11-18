@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { createNdjsonTraceSink, traceFilePath } from "./trace-sink.js";
 import type { TraceEvent } from "./trace-event.js";
@@ -460,19 +460,42 @@ describe("trace path containment", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("refuses an id that leaves the traces folder", () => {
+  it("maps every id to a file name inside the folder, with no ':'", () => {
     const dir = join(root, "traces");
-    expect(() => traceFilePath(dir, "../pwned")).toThrow(/outside the traces folder/);
-    expect(() => traceFilePath(dir, "a/b")).toThrow(/outside the traces folder/);
-    expect(traceFilePath(dir, "compaction:s-1")).toBe(join(dir, "compaction:s-1.ndjson"));
+    for (const id of ["../pwned", "a/b", "..\\x", "claude-code:6f1d", "compaction:s-1"]) {
+      const path = traceFilePath(dir, id);
+      expect(dirname(path), id).toBe(dir);
+      expect(basename(path), id).not.toContain(":");
+    }
+    expect(traceFilePath(dir, "s-1")).toBe(join(dir, "s-1.ndjson"));
+  });
+
+  it("reads and keeps appending to a trace an older build named with the raw id", () => {
+    const dir = join(root, "traces");
+    mkdirSync(dir, { recursive: true });
+    const legacy = join(dir, "codex:abc.ndjson");
+    writeFileSync(legacy, `${JSON.stringify(baseEvent("codex:abc", 0, 0))}\n`);
+    expect(traceFilePath(dir, "codex:abc")).toBe(legacy);
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    sink(baseEvent("codex:abc", 1, 1));
+    expect(readFileSync(legacy, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(readdirSync(dir)).toEqual(["codex:abc.ndjson"]);
+  });
+
+  it("writes a new imported chat's trace under its safe name", () => {
+    const dir = join(root, "traces");
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
+    sink(baseEvent("claude-code:6f1d", 0, 0));
+    const [name] = readdirSync(dir);
+    expect(name).not.toContain(":");
+    expect(traceFilePath(dir, "claude-code:6f1d")).toBe(join(dir, name!));
   });
 
   it("writes nothing outside the folder for an escaping session id", () => {
     const dir = join(root, "traces");
     const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1_000_000 });
     expect(() => sink(baseEvent("../pwned", 0, 0))).not.toThrow();
-    sink(baseEvent("ok", 0, 0));
     expect(readdirSync(root).sort()).toEqual(["traces"]);
-    expect(readdirSync(dir)).toEqual(["ok.ndjson"]);
   });
+
 });

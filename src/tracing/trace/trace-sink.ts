@@ -2,6 +2,7 @@ import {
   appendFileSync,
   chmodSync,
   closeSync,
+  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -14,6 +15,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { sessionFileName } from "../../session/session-id.js";
 import type { StructuredLogger } from "../structured-logger.js";
 
 import type { TraceEvent, TraceTruncated } from "./trace-event.js";
@@ -75,13 +77,24 @@ const TEMP_SUFFIX = ".trim-";
  * rewriting this file rather than by rolling over to a new one.
  */
 export function traceFilePath(dir: string, sessionId: string): string {
-  const path = join(dir, `${sessionId}.ndjson`);
-  // Issue #74: the id is a file name, never a path. Ingress validates
-  // ids; this is the last line for any id that reached a sink anyway.
-  if (sessionId.length === 0 || dirname(resolve(path)) !== resolve(dir)) {
+  // Issue #74: the file is named by the id's safe form (`sessionFileName`):
+  // an imported chat's `claude-code:<uuid>` never puts `:` in a Windows
+  // path, and no id names a path. A trace an older build wrote under the
+  // raw id is still read, and appended to, where it is.
+  const path = join(dir, `${sessionFileName(sessionId)}.ndjson`);
+  if (!existsSync(path)) {
+    const legacy = join(dir, `${sessionId}.ndjson`);
+    if (legacy !== path && insideDir(dir, legacy) && existsSync(legacy)) return legacy;
+  }
+  // The safe name holds no separator; this stays as the last line.
+  if (sessionId.length === 0 || !insideDir(dir, path)) {
     throw new Error("trace: session id would place its trace outside the traces folder");
   }
   return path;
+}
+
+function insideDir(dir: string, path: string): boolean {
+  return dirname(resolve(path)) === resolve(dir);
 }
 
 interface SessionWriterState {
@@ -138,7 +151,7 @@ let tempCounter = 0;
 
 /**
  * Build an append-only NDJSON sink that writes one file per session to
- * `<dir>/<sessionId>.ndjson`. The sink is resilient: filesystem errors
+ * `<dir>/<sessionFileName(sessionId)>.ndjson` (`traceFilePath`). The sink is resilient: filesystem errors
  * are logged once per session and the sink stops writing, but never
  * propagates to the caller.
  *

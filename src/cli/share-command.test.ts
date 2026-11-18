@@ -223,3 +223,14 @@ describe("share keeps restricted and incognito chats on this computer", () => {
   });
 });
 
+// Issue #74: an imported chat's id has a colon; the file name must not.
+describe("shareCommand file name for an imported chat", () => {
+  it("writes chat-<safe id>, with no ':' in the name", async () => {
+    const store = fakeStore([summary("codex:abc", "/Users/nadya/shop", 2)], LINES);
+    const h = harness({ openStore: () => store });
+    expect(await shareCommand(["--session", "codex:abc"], h.deps)).toBe(0);
+    const file = h.written[0]!.file;
+    expect(file.startsWith("/state/shared-chats/chat-")).toBe(true);
+    expect(file.slice("/state/shared-chats/".length)).not.toContain(":");
+  });
+});

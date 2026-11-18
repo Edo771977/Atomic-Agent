@@ -72,4 +72,14 @@ describe("session id ingress validation", () => {
     const r2 = await fetch(`${h.baseUrl}/api/sessions/s-unknown`);
     expect(r2.status).toBe(404);
   });
+
+  it("opens an imported chat whose id has a colon, on its routes and as a session_id", async () => {
+    const id = "claude-code:6f1d0c3a-9b7e-4a52-8c1d-2e3f4a5b6c7d";
+    h.runtime.sessionStore.save({ ...h.runtime.createSession({ persist: false }), id });
+    const r = await fetch(`${h.baseUrl}/api/sessions/${encodeURIComponent(id)}`);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { id: string }).id).toBe(id);
+    const chat = await post("/v1/chat/completions", { messages: [{ role: "user", content: "hello" }], session_id: id });
+    expect(chat.status).toBe(200);
+  });
 });

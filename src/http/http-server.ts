@@ -271,7 +271,7 @@ async function dispatch(
   // A session's own routes (transcript, export, steer, compaction, ...)
   // carry its content (issue #33).
   const sessionId = url.pathname.startsWith("/api/sessions/") ? matched.params.id : undefined;
-  // Issue #74: a session id names files; refuse anything but a plain token before a handler sees it.
+  // Issue #74: a session id names files; refuse a path-like or control-character id before a handler sees it.
   const sessionIdProblem = sessionId === undefined ? null : sessionIdError(sessionId);
   if (sessionIdProblem !== null) {
     sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "id"));

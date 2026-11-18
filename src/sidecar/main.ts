@@ -624,7 +624,7 @@ if (invokedDirectly) {
 
 /** `canvas` on a `tool_call_result` (ATO-1137): the file an ok `canvas.render` wrote. */
 /**
- * The `sessionId` of a request, refused unless it is a plain token
+ * The `sessionId` of a request, refused when it could name a path
  * (issue #74, `session/session-id.ts`): checked before anything else so a
  * bad id is named as such, whatever state the sidecar is in.
  */

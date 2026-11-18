@@ -1,5 +1,5 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import JSZip from "jszip";
 
 import {
@@ -102,7 +102,8 @@ export async function writeDebugBundleZip(
         continue;
       }
       const body = await readFile(path);
-      zip.file(`traces/${sessionId}.ndjson`, body);
+      // Issue #74: the entry is named like the file, never with a raw `:`.
+      zip.file(`traces/${basename(path)}`, body);
       manifest.traces.push({
         sessionId,
         included: true,

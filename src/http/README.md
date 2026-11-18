@@ -21,7 +21,7 @@ The HTTP server owns request handling and connection cancellation; route modules
 
 A request body that is valid JSON but not an object (`null`, an array, a scalar) is `400` on `POST /v1/chat/completions` (issue #74).
 
-Session ids from clients (issue #74, [session-id.ts](../session/session-id.ts)): a `session_id` body field or `X-Atomic-Session-Id` header, an AG-UI `threadId` and the `{id}` of every `/api/sessions/{id}` route must be one plain token: a letter or digit first, then letters, digits, `.`, `_` or `-`, at most 128 characters. Anything else is `400` (`param` `session_id`, or `id` on the session routes) before a handler runs, because the id names files such as the trace `<traces>/<id>.ndjson`; the trace sink also refuses a path outside its folder.
+Session ids from clients (issue #74, [session-id.ts](../session/session-id.ts)): a `session_id` body field or `X-Atomic-Session-Id` header, an AG-UI `threadId` and the `{id}` of every `/api/sessions/{id}` route may be any id the store holds, imported chats' `claude-code:<id>` and the like included, but not empty, longer than 256 characters, with `/` or `\`, with `..` or a leading `.`, or with control characters. Such an id is `400` (`param` `session_id`, or `id` on the session routes) before a handler runs. An id never names a file as it is: the trace is `<traces>/<sessionFileName(id)>.ndjson` (unchanged for `[A-Za-z0-9._-]` ids, `~xx` escapes otherwise, so no `:` reaches a Windows path); a trace an older build wrote under the raw id is still read and appended to.
 
 ## Task-specific reading
 
