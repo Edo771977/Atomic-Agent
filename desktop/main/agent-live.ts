@@ -1,7 +1,9 @@
 import { ipcMain, shell } from "electron";
 
 import type { AgentClient } from "./agent-client.js";
-import { readWholeConfig, withConfigLock } from "./agent-cli.js";
+import { readWholeConfig, rewriteWholeConfig, withConfigLock } from "./agent-cli.js";
+import { planAddReviewer, planFollowLegs, readFusionTeam, readLegMembers, writeLegMembers, type FusionTeamAnswer, type LegMembers, type TeamShape } from "./fusion-team.js";
+import { DESKTOP_STATE_DIR } from "./state-dir.js";
 import { folderConstraintFor, type FolderConstraint } from "./folder-constraint.js";
 import { isSafeSignInUrl } from "./mcp-auth-url.js";
 import { readProviderRestriction, type ProviderRestrictionAnswer } from "./provider-restriction.js";
@@ -158,5 +160,51 @@ export function wireAgentLiveIpc(client: AgentClient): void {
     } catch {
       return { ...readProviderRestriction(null), remote: client.isRemote, status: null };
     }
+  });
+
+  /* Issue #71: the Fusion team for the strip's seats (fusion-team.ts). */
+  ipcMain.handle("agent:fusionTeam", async (_event, sessionId: unknown): Promise<FusionTeamAnswer> => {
+    const sid = typeof sessionId === "string" && sessionId && sessionId.length <= 200 ? sessionId : null;
+    try {
+      return readFusionTeam(await client.fusionTeam(sid));
+    } catch {
+      return readFusionTeam(null);
+    }
+  });
+  /* "Add a reviewer…" and a leg moved off the team: planned from the file
+     under the config lock, then the team block sent live (PATCH replaces its
+     arrays whole), or, on an agent without live writes, the whole file. */
+  ipcMain.handle("agent:fusionTeamWrite", async (_event, payload: unknown): Promise<{ ok: boolean; changed?: boolean; live?: boolean; error?: string }> => {
+    const p = isPlainObject(payload) ? payload : {};
+    const op = p.op;
+    if (op !== "addReviewer" && op !== "followLegs") return { ok: false, error: "op must be addReviewer or followLegs" };
+    if (op === "addReviewer" && typeof p.ref !== "string") return { ok: false, error: "ref is required" };
+    // Which member the desktop last wrote for each seat, so a moved seat replaces it (fusion-team.ts).
+    const last = readLegMembers(DESKTOP_STATE_DIR);
+    const plan = (cfg: Parameters<typeof planFollowLegs>[0]): { write: boolean; team?: TeamShape; legs?: LegMembers; error?: string } =>
+      op === "addReviewer" ? planAddReviewer(cfg, p.ref as string) : planFollowLegs(cfg, last);
+    const remember = (legs: LegMembers | undefined): void => {
+      if (legs !== undefined) writeLegMembers(DESKTOP_STATE_DIR, { ...last, ...legs });
+    };
+    if (await agentHasLiveRoutes(client)) {
+      return withConfigLock(async () => {
+        const read = await readWholeConfig();
+        if (!read.ok || !read.config) return { ok: false, error: read.error ?? "could not read config.json" };
+        const verdict = plan(read.config);
+        if (verdict.error) return { ok: false, error: verdict.error };
+        if (!verdict.write || !verdict.team) return { ok: true, changed: false };
+        try {
+          await client.patchConfig({ llm: { runMode: { fusion: { team: verdict.team } } } });
+          remember(verdict.legs);
+          return { ok: true, changed: true, live: true };
+        } catch (err) {
+          return { ok: false, error: message(err) };
+        }
+      });
+    }
+    const res = await rewriteWholeConfig((cfg) => plan(cfg));
+    if (res.verdict?.error) return { ok: false, error: res.verdict.error };
+    if (res.ok && res.changed) remember(res.verdict?.legs);
+    return res.ok ? { ok: true, changed: res.changed, live: false } : { ok: false, error: res.error ?? "config write failed" };
   });
 }

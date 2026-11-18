@@ -1,5 +1,6 @@
 import { isSetAsideString } from "./config-primitives.js";
 import { ConfigValidationError } from "./config-validation-error.js";
+import { SUBSCRIPTION_CLI_KIND } from "./provider-auth-mode.js";
 
 /**
  * `llm.runMode.fusion.team` (issue #37): which models may direct a fusion
@@ -27,7 +28,9 @@ export type UserFusionTeamConfig = {
    * Models that may review a finished task, as `"<providerId>:<model>"`.
    * Listing any turns per-task review on unless `review` is `"off"`
    * (issue #38). No fitting reviewer for a task: `judgeProvider` reviews
-   * it when `judge` is on, else no model does.
+   * it when `judge` is on, else no model does. A Codex subscription
+   * (`subscription-cli`, cli `codex`, run read-only) can review; with no
+   * model of its own, list it as `"<providerId>:default"` (issue #71).
    */
   reviewers?: string[];
   /**
@@ -77,6 +80,17 @@ export const DEFAULT_FUSION_TEAM_WATCH_MAX_CHECKS = 3;
 export const FUSION_TEAM_WATCH_MAX_MINUTES = 60;
 export const FUSION_TEAM_WATCH_MAX_CHECKS_LIMIT = 10;
 
+/**
+ * The member model that means "the provider entry's own model" (issue
+ * #71), for a `subscription-cli` entry only: `"codex-cli:default"`
+ * reviews on a Codex subscription that names no model, so Codex uses the
+ * ChatGPT account's default. Its calls run on the entry itself
+ * (`ProviderRegistry.modelVariant`), never on a copy asking for a model
+ * called "default". Validation refuses it for any other kind: an API
+ * provider is priced and tiered by the model it names.
+ */
+export const TEAM_MEMBER_PROVIDER_MODEL = "default";
+
 /** The two halves of a team member; null when `raw` is not `"<providerId>:<model>"` with both halves non-blank. */
 export function splitTeamMemberRef(raw: string): { providerId: string; model: string } | null {
   const at = raw.indexOf(":");
@@ -92,6 +106,7 @@ function parseMembers(
   providerIds: ReadonlySet<string>,
   field: string,
   expectation: string,
+  kindOf: ((providerId: string) => string | undefined) | undefined,
 ): string[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new ConfigValidationError(field, expectation);
@@ -108,6 +123,15 @@ function parseMembers(
     if (!providerIds.has(split.providerId)) {
       throw new ConfigValidationError(at, `unknown provider id ${JSON.stringify(split.providerId)}`);
     }
+    // Issue #71: `default` stands for the entry's own model on a
+    // subscription CLI only. An API provider is priced and tiered by the
+    // model it names, and a server may serve a model called "default".
+    if (split.model === TEAM_MEMBER_PROVIDER_MODEL && kindOf?.(split.providerId) !== SUBSCRIPTION_CLI_KIND) {
+      throw new ConfigValidationError(
+        at,
+        `"${TEAM_MEMBER_PROVIDER_MODEL}" names the entry's own model only for a ${SUBSCRIPTION_CLI_KIND} provider; name the model of ${JSON.stringify(split.providerId)}`,
+      );
+    }
     if (seen.has(value)) throw new ConfigValidationError(at, `duplicate member ${JSON.stringify(value)}`);
     seen.add(value);
     return value;
@@ -119,17 +143,19 @@ export function parseFusionTeam(
   raw: unknown,
   providerIds: ReadonlySet<string>,
   field: string,
+  /** The provider entry's kind; `default` members are refused unless it is `subscription-cli`. */
+  kindOf?: (providerId: string) => string | undefined,
 ): UserFusionTeamConfig {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new ConfigValidationError(field, "expected object");
   }
   const obj = raw as Record<string, unknown>;
   const out: UserFusionTeamConfig = {
-    directors: parseMembers(obj.directors, providerIds, `${field}.directors`, "expected a non-empty array of members"),
+    directors: parseMembers(obj.directors, providerIds, `${field}.directors`, "expected a non-empty array of members", kindOf),
   };
   for (const key of ["workers", "reviewers"] as const) {
     if (obj[key] !== undefined) {
-      out[key] = parseMembers(obj[key], providerIds, `${field}.${key}`, "expected an array of members, at least one");
+      out[key] = parseMembers(obj[key], providerIds, `${field}.${key}`, "expected an array of members, at least one", kindOf);
     }
   }
   if (obj.crossFamilyReview !== undefined) {

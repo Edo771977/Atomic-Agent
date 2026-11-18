@@ -1,5 +1,5 @@
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
-import { createSessionTeamChoices, resolveSessionWorker } from "./session-director.js";
+import { createSessionTeamChoices, resolveSessionReviewer, resolveSessionWorker } from "./session-director.js";
 import { createRuntimeProject, liveProjectInputsFrom } from "./composition/runtime-project.js";
 import type { ResolvedRunMode } from "../llm/run-mode/index.js";
 import { PrefixInvalidationLedger, notePrefixInvalidation } from "../agent/prefix-drift-warning.js";
@@ -45,7 +45,7 @@ import { createRuntimeLifecycle } from "./composition/runtime-lifecycle.js";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal } from "./session-provider-policy.js";
+import { channelNotifyRefusal, createSessionProviderPolicy, egressRefusal, moveSessionFolder, retrySessionSeed, sessionPolicyStamp } from "./session-provider-policy.js";
 import { createRuntimeDispatchGuard } from "./composition/runtime-egress-guard.js";
 import type { McpManager } from "../mcp/mcp-manager.js";
 import { createSessionReadTaint } from "./session-read-taint.js";
@@ -1062,6 +1062,8 @@ export async function createAgentRuntime(
         allows,
         mode: resolveCurrentRunMode(),
         currentWorker: resolveSessionWorker(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
+        currentReviewer: resolveSessionReviewer(session.metadata, resolveLlmConfig(live).runMode?.fusion, policy),
+        restricted: policy !== undefined,
         tokensPerSecond: () => llama.measuredTokensPerSecond(),
         dailyRemainingUsd: dailySpendLimit.budget?.remainingUsd() ?? null,
         localSlots: slotManager.observedPoolSize(),
@@ -1128,6 +1130,7 @@ export async function createAgentRuntime(
     config, toolRegistry, runTurn, createEphemeralSession, resolveOriginalRequest: (id) => turnRequests.get(id),
     declaredInputs, prepareLocalLink, emitAgentLoopEventFor, resolveCurrentRunMode: resolveSessionRunMode,
     currentWorker: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.worker ?? null,
+    currentReviewer: () => sessionTeam.get(turnContext.getStore()?.sessionId)?.reviewer ?? null,
     teamMemberReachable: providers.teamMemberReachable,
     resolveCurrentVisionProvider,
     providerRegistry, llama, approvals, dangerous, slotManager, workingDir, logger,
@@ -1241,6 +1244,12 @@ export async function createAgentRuntime(
     // ATO-1084: the channels are attached below; read at call time.
     teamMemberReachable: providers.teamMemberReachable,
     providerRestrictionFor: (session) => describeProviderRestriction(sessionProviderPolicy.forSession(session)),
+    moveSessionFolder: (session, workingDir) => {
+      const moved = moveSessionFolder(sessionProviderPolicy, session, workingDir);
+      return { session: moved.session, restriction: describeProviderRestriction(moved.policy), restrictionKept: moved.kept !== undefined };
+    },
+    retrySessionSeed: (source, workingDir) => retrySessionSeed(sessionProviderPolicy, source, workingDir),
+    sessionPolicyStamp: (sessionId) => sessionPolicyStamp(sessionProviderPolicy, (id) => sessionStore.load(id), sessionId) as Record<string, unknown> | null | undefined,
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
     egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),

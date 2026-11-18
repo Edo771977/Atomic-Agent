@@ -29,6 +29,7 @@ describe("GET /api/sessions/{id}/provider-restriction", () => {
         allowedProviders: ["local-llama"],
         folder: "/work/secret",
         readFrom: ["/work/secret"],
+        movedFrom: [],
       },
       channelsAllowed: true,
     });

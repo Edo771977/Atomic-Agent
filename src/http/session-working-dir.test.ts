@@ -56,3 +56,113 @@ describe("POST /api/sessions/{id}/working-dir (ATO-731)", () => {
     expect((await post("wd-3", harness.workingDir)).status).toBe(409);
   });
 });
+
+/**
+ * Issue #68: moving a chat out of (or between) constrained folders never
+ * widens what it may reach. The old effective policy rides with the chat
+ * as its read taint, so the new folder's constraint is intersected with it.
+ */
+describe("POST /api/sessions/{id}/working-dir keeps a folder's restriction (issue #68)", () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.cleanup(); harness = undefined; });
+
+  const post = (h: Harness, id: string, workingDir: string) => fetch(`${h.baseUrl}/api/sessions/${id}/working-dir`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workingDir }),
+  });
+  const restrictionOf = async (h: Harness, id: string) =>
+    ((await (await fetch(`${h.baseUrl}/api/sessions/${id}/provider-restriction`)).json()) as { restriction: { allowedProviders: string[]; readFrom: string[]; movedFrom: string[] } | null }).restriction;
+
+  it("a restricted chat moved to an unconstrained folder still refuses a cloud provider and web egress", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const open = mkdtempSync(join(tmpdir(), "wd-open-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-r1", workingDir: harness.workingDir }));
+    const res = await post(harness, "wd-r1", open);
+    expect(res.status).toBe(200);
+    const moved = harness.runtime.sessionStore.load("wd-r1")!;
+    expect(moved.workingDir).toBe(open);
+    // The next turn's policy: no cloud provider, no web.
+    expect(harness.runtime.egressRefusal?.("wd-r1", "web")).toContain("restricted");
+    expect(harness.runtime.providerRestrictionFor?.(moved)?.allowedProviders).toEqual(["local-llama"]);
+    expect(await restrictionOf(harness, "wd-r1")).toMatchObject({ allowedProviders: ["local-llama"], readFrom: [], movedFrom: [harness.workingDir] });
+    const body = (await res.json()) as { workingDir: string; restrictionKept: boolean; restriction: { allowedProviders: string[] } | null };
+    expect(body.workingDir).toBe(open);
+    expect(body.restrictionKept).toBe(true);
+    expect(body.restriction?.allowedProviders).toEqual(["local-llama"]);
+  });
+
+  it("an unrestricted chat moved anywhere changes nothing", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const a = mkdtempSync(join(tmpdir(), "wd-a-"));
+    const b = mkdtempSync(join(tmpdir(), "wd-b-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-u1", workingDir: a }));
+    const res = await post(harness, "wd-u1", b);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "wd-u1", workingDir: b, restriction: null, restrictionKept: false });
+    const moved = harness.runtime.sessionStore.load("wd-u1")!;
+    expect(moved.metadata?.providerReadTaint).toBeUndefined();
+    expect(harness.runtime.egressRefusal?.("wd-u1", "web")).toBeNull();
+    // Into a constrained folder: that folder's own constraint, nothing carried.
+    const into = await post(harness, "wd-u1", harness.workingDir);
+    expect(((await into.json()) as { restrictionKept: boolean }).restrictionKept).toBe(false);
+    expect(harness.runtime.sessionStore.load("wd-u1")?.metadata?.providerReadTaint).toBeUndefined();
+  });
+
+  it("moving between constrained folders intersects their constraints", async () => {
+    const other = mkdtempSync(join(tmpdir(), "wd-c-"));
+    harness = await startTestHarness({
+      constraints: {
+        "<cwd>": { allowedProviders: ["local-llama", "openai"], allowedEgress: ["web", "http"] },
+        [other]: { allowedProviders: ["local-llama", "anthropic"], allowedEgress: ["web", "git"] },
+      },
+    });
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-i1", workingDir: harness.workingDir }));
+    const res = await post(harness, "wd-i1", other);
+    expect(res.status).toBe(200);
+    expect(harness.runtime.egressRefusal?.("wd-i1", "web")).toBeNull();
+    expect(harness.runtime.egressRefusal?.("wd-i1", "http")).toContain("restricted");
+    expect(harness.runtime.egressRefusal?.("wd-i1", "git")).toContain("restricted");
+    expect(await restrictionOf(harness, "wd-i1")).toMatchObject({ allowedProviders: ["local-llama"] });
+    expect(((await res.json()) as { restriction: { allowedProviders: string[] } }).restriction.allowedProviders).toEqual(["local-llama"]);
+  });
+
+  it("refuses the move while constraints exist when the runtime cannot carry a restriction", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const open = mkdtempSync(join(tmpdir(), "wd-nohook-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-n1", workingDir: harness.workingDir }));
+    Object.defineProperty(harness.runtime, "moveSessionFolder", { value: undefined, configurable: true });
+    const res = await post(harness, "wd-n1", open);
+    expect(res.status).toBe(501);
+    expect(harness.runtime.sessionStore.load("wd-n1")?.workingDir).toBe(harness.workingDir);
+  });
+
+  it("a refused move (turn in progress) leaves the stamp and folder as they were", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const first = mkdtempSync(join(tmpdir(), "wd-busy1-"));
+    const second = mkdtempSync(join(tmpdir(), "wd-busy2-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-b1", workingDir: harness.workingDir }));
+    expect((await post(harness, "wd-b1", first)).status).toBe(200);
+    const stamped = harness.runtime.sessionStore.load("wd-b1")!.metadata?.providerReadTaint;
+    expect(stamped).toBeDefined();
+    const busy = vi.spyOn(harness.runtime.turnController, "isBusy").mockReturnValue(true);
+    expect((await post(harness, "wd-b1", second)).status).toBe(409);
+    busy.mockRestore();
+    const after = harness.runtime.sessionStore.load("wd-b1")!;
+    expect(after.workingDir).toBe(first);
+    expect(after.metadata?.providerReadTaint).toEqual(stamped);
+    expect(harness.runtime.egressRefusal?.("wd-b1", "web")).toContain("restricted");
+  });
+
+  it("the carried restriction persists in the stored chat (reload, /resume) and through a second move", async () => {
+    harness = await startTestHarness({ constraints: { "<cwd>": { allowedProviders: ["local-llama"] } } });
+    const first = mkdtempSync(join(tmpdir(), "wd-p1-"));
+    const second = mkdtempSync(join(tmpdir(), "wd-p2-"));
+    harness.runtime.sessionStore.save(createEmptySessionState({ id: "wd-p", workingDir: harness.workingDir }));
+    expect((await post(harness, "wd-p", first)).status).toBe(200);
+    expect((await post(harness, "wd-p", second)).status).toBe(200);
+    const reloaded = harness.runtime.sessionStore.load("wd-p")!;
+    expect(reloaded.workingDir).toBe(second);
+    expect(reloaded.metadata?.providerReadTaint).toMatchObject({ key: harness.workingDir, allowedProviders: ["local-llama"], allowedEgress: [] });
+    expect(harness.runtime.egressRefusal?.("wd-p", "web")).toContain("restricted");
+    expect(await restrictionOf(harness, "wd-p")).toMatchObject({ allowedProviders: ["local-llama"] });
+  });
+});

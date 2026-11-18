@@ -141,7 +141,9 @@ export { goalIdeaInputs } from "./idea-goal-source.js";
 export {
   IDEA_REFRESH_SESSION_SCAN,
   IDEA_REFRESH_TASK_SCAN,
+  IdeaUnavailableError,
   acceptIdea,
+  ideaRetryFallbackDir,
   ideaSourceTaskId,
   ideaTaskCarry,
   ideaToJson,

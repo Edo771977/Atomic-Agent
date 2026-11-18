@@ -1,15 +1,19 @@
 import type { UserLlmFusionConfig } from "../config/llm-run-mode-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
+import { TEAM_MEMBER_PROVIDER_MODEL } from "../config/llm-fusion-team-config.js";
 import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
 import type { ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
 import {
   defaultDirector,
   filterByPolicy,
+  reviewEnabled,
   teamMembers,
   type TeamMember,
 } from "../llm/run-mode/fusion-team.js";
 import {
+  NO_REVIEWER,
   readSessionFusionDirector,
+  readSessionFusionReviewer,
   readSessionFusionWorker,
   stampMember,
 } from "../session/session-fusion-team.js";
@@ -102,6 +106,23 @@ export function resolveSessionWorker(
 }
 
 /**
+ * The session's reviewer (issue #71): `"none"` when the chat turned
+ * review off; its stamp while the team's `reviewers` list it and the
+ * folder allows it; else null (the team's pick, `pickReviewer`, decides).
+ */
+export function resolveSessionReviewer(
+  metadata: Record<string, unknown> | undefined,
+  fusion: UserLlmFusionConfig | undefined,
+  policy: Policy,
+): TeamMember | typeof NO_REVIEWER | null {
+  const stamp = readSessionFusionReviewer(metadata);
+  if (stamp === null || stamp === NO_REVIEWER) return stamp;
+  const listed = teamMembers(fusion?.team, "reviewers").some((r) => r.ref === stamp.member);
+  if (!listed || policy?.allows(stamp.providerId) === false) return null;
+  return stampMember(stamp);
+}
+
+/**
  * The one line a frontend shows when the runtime picked the session's
  * director itself (`fusion_director_notice`): which member and why, so
  * a person who has several can see they did not choose this one.
@@ -122,6 +143,33 @@ export function isCodexCliProvider(resolved: ResolvedLlmConfig, providerId: stri
   return entry?.kind === SUBSCRIPTION_CLI_KIND && entry.subscriptionCli?.cli === "codex";
 }
 
+/**
+ * Why a reviewer whose CLI keeps its own tools on (the Codex CLI's
+ * read-only shell) cannot review in a restricted chat (issue #71).
+ */
+export function cliToolsReviewerWhy(providerId: string): string {
+  return `${providerId} keeps its own read-only shell, which can read outside this restricted folder`;
+}
+
+/**
+ * Whether `member` is the orchestrator leg itself (`orchestratorProvider`
+ * with `orchestratorModel`, else the entry's own model; `default` names
+ * the entry's own on a subscription CLI).
+ */
+export function isOrchestratorLeg(
+  member: TeamMember,
+  fusion: UserLlmFusionConfig | undefined,
+  resolved: ResolvedLlmConfig,
+): boolean {
+  if (fusion?.orchestratorProvider !== member.providerId) return false;
+  const entry = resolved.providers.find((p) => p.id === member.providerId);
+  if (entry === undefined) return false;
+  const legModel = fusion.orchestratorModel ?? entry.defaultChatModel ?? entry.model;
+  if (member.model === legModel) return true;
+  return member.model === TEAM_MEMBER_PROVIDER_MODEL && entry.kind === SUBSCRIPTION_CLI_KIND &&
+    (legModel === undefined || legModel === "");
+}
+
 /** The Codex director's line, said once when a session starts on it. */
 export function codexDirectorNoticeText(): string {
   return 'codex director: tasks for the director itself (model: "orchestrator") go to the workers';
@@ -130,16 +178,18 @@ export function codexDirectorNoticeText(): string {
 /** A team member named by a caller (`--director`, a sidecar/HTTP field) that the team lists in `role`. */
 export function teamMemberByRef(
   fusion: UserLlmFusionConfig | undefined,
-  role: "directors" | "workers",
+  role: "directors" | "workers" | "reviewers",
   ref: string,
 ): TeamMember | null {
   return teamMembers(fusion?.team, role).find((m) => m.ref === ref) ?? null;
 }
 
-/** What one turn runs with: the run mode's `director` / `worker` options. */
+/** What one turn runs with: the run mode's `director` / `worker` options, and the chat's reviewer. */
 export interface SessionTeamChoice {
   readonly director: TeamMember | null;
   readonly worker: TeamMember | null;
+  /** The chat's reviewer (`resolveSessionReviewer`): a member, `"none"` (no review), or null/absent (the team picks). */
+  readonly reviewer?: TeamMember | typeof NO_REVIEWER | null;
 }
 
 /**
@@ -172,5 +222,79 @@ export function createSessionTeamChoices(): SessionTeamChoices {
       return parent === undefined ? () => {} : set(sessionId, parent);
     },
     get: (sessionId) => (sessionId === undefined ? undefined : held.get(sessionId)),
+  };
+}
+
+/** One team member as a frontend lists it (issue #71). */
+export interface TeamRosterMember {
+  readonly ref: string;
+  readonly providerId: string;
+  readonly model: string;
+  /** Whether the member can serve this chat now: reachable and allowed by its folder. */
+  readonly usable: boolean;
+  /**
+   * Why not: the folder refuses its provider, it cannot answer now, or
+   * (reviewers) its CLI keeps its own tools on in a restricted chat.
+   */
+  readonly reason?: "folder" | "unreachable" | "cli-tools";
+  /** The reason as one line to show as is. */
+  readonly why?: string;
+}
+
+/** The team for a frontend's seats (`GET /api/fusion/team`, issue #71). */
+export interface TeamRoster {
+  readonly directors: TeamRosterMember[];
+  readonly workers: TeamRosterMember[];
+  readonly reviewers: TeamRosterMember[];
+  /** Whether tasks get a review by the config alone (`reviewEnabled`); a chat's own choice can change it. */
+  readonly review: "on" | "off";
+  /** The chat's stamped choices; `reviewer: "none"` is no review in this chat. */
+  readonly chat: { director: string | null; worker: string | null; reviewer: string | null };
+}
+
+/**
+ * Every team member by role, each with whether this chat can use it:
+ * `restriction` is the chat folder's provider restriction (null: none),
+ * `reachable` the runtime's `teamMemberReachable`, `cliToolsStayOn` which
+ * providers keep their own CLI tools on (no reviewer in a restricted
+ * chat). Null without a team.
+ */
+export function fusionTeamRoster(
+  fusion: UserLlmFusionConfig | undefined,
+  metadata: Record<string, unknown> | undefined,
+  restriction: { allowedProviders: readonly string[]; folder: string } | null,
+  reachable: (member: TeamMember) => boolean,
+  cliToolsStayOn?: (providerId: string) => boolean,
+): TeamRoster | null {
+  const team = fusion?.team;
+  if (team === undefined) return null;
+  const row = (member: TeamMember): TeamRosterMember => {
+    const base = { ref: member.ref, providerId: member.providerId, model: member.model };
+    if (restriction !== null && !restriction.allowedProviders.includes(member.providerId)) {
+      return { ...base, usable: false, reason: "folder", why: `this folder (${restriction.folder}) does not allow ${member.providerId}` };
+    }
+    if (!reachable(member)) {
+      return {
+        ...base, usable: false, reason: "unreachable",
+        why: `${member.providerId} cannot answer now (not configured, signed out or not installed)`,
+      };
+    }
+    return { ...base, usable: true };
+  };
+  const reviewer = readSessionFusionReviewer(metadata);
+  return {
+    directors: teamMembers(team, "directors").map(row),
+    workers: teamMembers(team, "workers").map(row),
+    reviewers: teamMembers(team, "reviewers").map((member) => {
+      const base = row(member);
+      if (!base.usable || restriction === null || cliToolsStayOn?.(member.providerId) !== true) return base;
+      return { ...base, usable: false, reason: "cli-tools" as const, why: cliToolsReviewerWhy(member.providerId) };
+    }),
+    review: reviewEnabled(team, fusion?.judge) ? "on" : "off",
+    chat: {
+      director: readSessionFusionDirector(metadata)?.member ?? null,
+      worker: readSessionFusionWorker(metadata)?.member ?? null,
+      reviewer: reviewer === null ? null : reviewer === NO_REVIEWER ? NO_REVIEWER : reviewer.member,
+    },
   };
 }

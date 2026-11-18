@@ -2234,6 +2234,8 @@ export interface UserConfigShape {
         workers?: number;
         workerMaxSteps?: number;
         workerTimeoutMs?: number;
+        /* Issue #71: the Fusion team (main/fusion-team.ts); kept whole by every write. */
+        team?: { directors: string[]; workers?: string[]; reviewers?: string[]; [key: string]: unknown };
       };
     };
   };

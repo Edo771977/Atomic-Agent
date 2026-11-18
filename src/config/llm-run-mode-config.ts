@@ -805,7 +805,12 @@ function parseFusion(
     out.taskTree = parseTaskTree(obj.taskTree, `${field}.taskTree`);
   }
   if (obj.team !== undefined) {
-    out.team = parseFusionTeam(obj.team, new Set(providers.map((p) => p.id)), `${field}.team`);
+    out.team = parseFusionTeam(
+      obj.team,
+      new Set(providers.map((p) => p.id)),
+      `${field}.team`,
+      (id) => providers.find((p) => p.id === id)?.kind,
+    );
   }
   if (obj.project !== undefined) {
     const fieldName = `${field}.project`;

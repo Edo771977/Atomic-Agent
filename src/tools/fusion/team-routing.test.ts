@@ -87,3 +87,52 @@ describe("resolveTeamRouting reviewer strength (issue #38)", () => {
     expect(routing.reviewerFor(member("cli-b:model-b"))?.ref).toBe("cli-b:model-r");
   });
 });
+
+describe("resolveTeamRouting with the chat's reviewer (issue #71)", () => {
+  it("the chat's reviewer reviews every task, before the team's pick", () => {
+    const routing = resolveTeamRouting(context(), { allows: () => true, currentReviewer: () => member("cli-b:model-r") });
+    // The team would pick api-a:model-o (another family) for a cli-b worker.
+    expect(routing.reviewerFor(member("cli-b:model-b"))?.ref).toBe("cli-b:model-r");
+    expect(routing.reviewOff).toBe(false);
+  });
+
+  it("never the worker itself, nor one the folder refuses or that cannot answer: the team picks then", () => {
+    const self = resolveTeamRouting(context({ team: { ...context().team, workers: ["cli-b:model-r", "local-c:model-c"] } }), {
+      allows: () => true, currentReviewer: () => member("cli-b:model-r"),
+    });
+    expect(self.reviewerFor(member("cli-b:model-r"))?.ref).toBe("api-a:model-o");
+    const refused = resolveTeamRouting(context(), { allows: (id) => id !== "cli-b", currentReviewer: () => member("cli-b:model-r") });
+    expect(refused.reviewerFor(member("local-c:model-c"))?.ref).toBe("api-a:model-o");
+  });
+
+  it("\"none\" turns review off for the chat", () => {
+    const routing = resolveTeamRouting(context(), { allows: () => true, currentReviewer: () => "none" });
+    expect(routing.reviewOff).toBe(true);
+    expect(routing.reviewerFor(member("local-c:model-c"))).toBeNull();
+  });
+});
+
+describe("resolveTeamRouting reviewChosen (issue #71)", () => {
+  it("is true only for a chat reviewer that can serve here", () => {
+    expect(resolveTeamRouting(context(), { allows: () => true, currentReviewer: () => member("cli-b:model-r") }).reviewChosen).toBe(true);
+    expect(resolveTeamRouting(context(), { allows: (id) => id !== "cli-b", currentReviewer: () => member("cli-b:model-r") }).reviewChosen).toBe(false);
+    expect(resolveTeamRouting(context(), { allows: () => true }).reviewChosen).toBe(false);
+  });
+});
+
+describe("resolveTeamRouting: a reviewer whose CLI tools stay on (issue #71)", () => {
+  const stays = (id: string) => id === "cli-b";
+  it("is never a reviewer in a restricted chat, chosen or picked", () => {
+    const routing = resolveTeamRouting(context(), {
+      allows: () => true, restricted: true, cliToolsStayOn: stays, currentReviewer: () => member("cli-b:model-r"),
+    });
+    expect(routing.reviewers?.map((m) => m.ref)).toEqual(["api-a:model-o"]);
+    expect(routing.reviewChosen).toBe(false);
+    expect(routing.reviewerFor(member("local-c:model-c"))?.ref).toBe("api-a:model-o");
+  });
+
+  it("stays a reviewer in an unrestricted chat", () => {
+    const routing = resolveTeamRouting(context(), { allows: () => true, restricted: false, cliToolsStayOn: stays });
+    expect(routing.reviewerFor(member("local-c:model-c"))?.ref).toBe("cli-b:model-r");
+  });
+});

@@ -133,6 +133,7 @@ import {
 import { syncHfEndpoint, writeHfMirror, type HfMirrorSources } from "./hf-mirror.js";
 import { quantMachine, rateRepoChoices } from "./quant-fit.js";   // ATO-450: a badge, a speed estimate and the pick per quant
 import { readWorkspace, startupWorkspace, writeWorkspace } from "./workspace-pref.js";
+import { readFusionTeam, teamChoiceFromWindow, turnTeamFields } from "./fusion-team.js";
 import { LOCAL_MODEL_SHARED_NOTE, readProjectModels, turnModelFor, writeProjectModel, type ProjectModelPick } from "./project-model.js";
 import { probeLinuxSandbox, sandboxVerdict } from "./linux-sandbox.js";
 import { noteGpuCrash, readGpuState, setHardwareAcceleration, writeGpuState } from "./gpu-fallback.js";   // #680: the chosen folder survives a relaunch
@@ -308,6 +309,9 @@ registerArtifactScheme();
 // ATO-556: atomicagent:// links (Add to Atomic Agent buttons): a card, then an install only on a click.
 import { shouldRegisterProtocol, wireDeeplinks } from "./deeplink.js";
 import { reasoningLevelFromWindow, type ReasoningLevel } from "./reasoning-level.js";
+
+/** Issue #71: the Fusion team members one turn names (fusion-team.ts turnTeamFields). */
+type TurnTeam = { director?: string; worker?: string; reviewer?: string };
 
 const DEV = process.argv.includes("--dev");
 /** `--smoke` boots, waits for first paint, writes a screenshot, and exits. */
@@ -1641,7 +1645,7 @@ function wireIpc(client: AgentClient): void {
   });
 
   ipcMain.handle("agent:chat", async (_event, payload: unknown) => {
-    const { messages, sessionId, projectId, reasoning: reasoningRaw, turnModel: askedModel } = payload as {
+    const { messages, sessionId, projectId, reasoning: reasoningRaw, turnModel: askedModel, team: teamRaw } = payload as {
       messages?: Array<{ role: string; content: string }>;
       sessionId?: string;
       /** ATO-42: the project a NEW chat starts in (a stored chat's own project wins). */
@@ -1649,6 +1653,8 @@ function wireIpc(client: AgentClient): void {
       reasoning?: unknown;
       /** ATO-1148: the chat's project cloud model (renderer/project-model.js). */
       turnModel?: unknown;
+      /** Issue #71: the chat's reviewer choice (renderer/fusion-reviewer.js). */
+      team?: unknown;
     };
     const reasoning = reasoningLevelFromWindow(reasoningRaw);
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -1664,13 +1670,31 @@ function wireIpc(client: AgentClient): void {
        here, with its own line, until the generation ends and the model is on
        its way back; a cloud turn never asks. */
     // ATO-1148: checked against the config as it is now; a pick whose provider went (or is local) runs on the agent's own model.
+    const wholeConfig = (await readWholeConfig().catch(() => null))?.config;
     const turnModel = askedModel === undefined || askedModel === null ? null
-      : turnModelFor(askedModel, (await readWholeConfig().catch(() => null))?.config?.llm?.providers, { remote: client.isRemote });
+      : turnModelFor(askedModel, wholeConfig?.llm?.providers, { remote: client.isRemote });
+    // Issue #71: the seats' team members the chat can use, and its reviewer choice (fusion-team.ts).
+    const team = await turnTeamFor(wholeConfig, sessionId, teamChoiceFromWindow(teamRaw).reviewer);
     // A turn on a project's cloud model never needs the local model Studio holds.
     const held = !turnModel && chatRouteIsLocal() ? await gpuShare.chatTurn().catch(() => null) : null;
-    if (held) return holdForStudio(held, clean, sessionId, queuedAt, projectId, reasoning);
-    return startTurn(randomUUID(), clean, sessionId, queuedAt, false, projectId, reasoning, turnModel);
+    if (held) return holdForStudio(held, clean, sessionId, queuedAt, projectId, reasoning, team);
+    return startTurn(randomUUID(), clean, sessionId, queuedAt, false, projectId, reasoning, turnModel, team);
   });
+
+  /* Issue #71: a team's turn names the legs' members while the agent says
+     this chat can use them (GET /api/fusion/team, asked only for a stored
+     chat on a Fusion route with a team); no answer names none, and the
+     agent leads with the team's default the folder allows. */
+  async function turnTeamFor(
+    cfg: Parameters<typeof turnTeamFields>[0] | undefined,
+    sessionId: string | undefined,
+    reviewer: string | undefined,
+  ): Promise<TurnTeam> {
+    if (!cfg || cfg.llm?.runMode?.mode !== "fusion" || !cfg.llm.runMode.fusion?.team) return {};
+    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
+    const roster = known ? readFusionTeam(await client.fusionTeam(known).catch(() => null)) : null;
+    return turnTeamFields(cfg, roster && roster.known ? roster : null, reviewer);
+  }
 
   async function startTurn(
     turnId: string,
@@ -1681,6 +1705,7 @@ function wireIpc(client: AgentClient): void {
     projectId?: unknown,
     reasoning?: ReasoningLevel,
     turnModel: ProjectModelPick | null = null,
+    team: TurnTeam = {},
   ): Promise<{ ok: true; turnId: string } | { ok: false; error: string }> {
     /* Backlog 18 (its second review): a restart a switch held back for the
        turns runs as the last one ends (backend-switch restartAfterSwitch), and
@@ -1728,7 +1753,7 @@ function wireIpc(client: AgentClient): void {
     const instructions = filed ? (filed.instructions ? { name: filed.name, text: filed.instructions } : null) : proj.instructions;
     // Review of #62: a new chat in a chat folder the import sorted by a project directory works in that directory.
     const filedDir = !known && filed && !client.isRemote ? folderTurnDir(folders, filed.id) : undefined;
-    void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined);
+    void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined, team);
     return { ok: true, turnId };
   }
 
@@ -1744,6 +1769,7 @@ function wireIpc(client: AgentClient): void {
     queuedAt: number,
     projectId?: unknown,
     reasoning?: ReasoningLevel,
+    team: TurnTeam = {},
   ): { ok: true; turnId: string } {
     const turnId = randomUUID();
     const known = typeof sessionId === "string" && sessionId ? sessionId : null;
@@ -1768,7 +1794,7 @@ function wireIpc(client: AgentClient): void {
       heldForStudio.delete(turnId);
       if (dropped) return;
       client.emit("chat", { turnId, kind: "provider_recovered", payload: { waited_ms: Date.now() - queuedAt, studio: true } });
-      const res = await startTurn(turnId, clean, sessionId, queuedAt, true, projectId, reasoning);
+      const res = await startTurn(turnId, clean, sessionId, queuedAt, true, projectId, reasoning, null, team);
       if (!res.ok) client.emit("chat", { turnId, kind: "error", error: res.error });
     });
     return { ok: true, turnId };

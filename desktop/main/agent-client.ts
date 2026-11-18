@@ -18,6 +18,7 @@ import type { ProjectDecisionBody } from "./project-ipc.js";
 import { runMemoryWrite, type MemoryWriteResult } from "./memory-write.js";
 import { projectBodyFields as projectFields } from "./projects-store.js";
 import { reasoningBodyField, type ReasoningLevel } from "./reasoning-level.js";
+import { teamBodyFields } from "./fusion-team.js";
 import {
   pairingRequest,
   readPairingReply,
@@ -2170,6 +2171,20 @@ export class AgentClient extends EventEmitter {
    * body (null when there is none). chat-rewind.ts words the answer; a request
    * that never got one throws.
    */
+  /** Issue #71: `GET /api/fusion/team[?session=]`, the team and what can serve the chat; read by fusion-team.ts. */
+  async fusionTeam(sessionId?: string | null): Promise<{ status: number; body: unknown }> {
+    const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
+    const res = await fetch(`${this.base()}/api/fusion/team${query}`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
+    let body: unknown = null;
+    try {
+      const raw = await res.text();
+      body = raw ? JSON.parse(raw) : null;
+    } catch {
+      /* not JSON */
+    }
+    return { status: res.status, body };
+  }
+
   async sessionRoute(sessionId: string, path: string, method: "GET" | "POST", body?: unknown, timeoutMs = 60_000): Promise<{ status: number; body: unknown }> {
     const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/${path}`, {
       method,
@@ -2248,6 +2263,8 @@ export class AgentClient extends EventEmitter {
     reasoning?: ReasoningLevel,
     /** ATO-1148: this turn runs on the chat's project cloud model (main/project-model.ts). */
     turnModel?: { providerId: string; model: string },
+    /** Issue #71: the Fusion team members this turn names (main/fusion-team.ts turnTeamFields). */
+    team?: { director?: string; worker?: string; reviewer?: string },
   ): Promise<void> {
     const controller = new AbortController();
     this.turns.set(turnId, controller);
@@ -2284,6 +2301,8 @@ export class AgentClient extends EventEmitter {
           ...reasoningBodyField(reasoning),
           // ATO-1148: for this turn only; the agent's config and active model stay as they are.
           ...(turnModel ? { provider_id: turnModel.providerId, provider_model: turnModel.model } : {}),
+          // Issue #71: the agent checks these against the team and stamps them on the session.
+          ...teamBodyFields(team),
         }),
         signal: controller.signal,
       });

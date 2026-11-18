@@ -54,6 +54,13 @@ export interface IdeaCandidate {
   prompt: string;
   /** Session the accepted task runs in; `null` opens a fresh one. */
   sessionId: string | null;
+  /**
+   * A Retry card's original chat's provider policy when the card was
+   * offered (issue #68): a stamp (`ProviderPolicyStamp`), `null` for an
+   * unrestricted chat, absent when unknown. Lets the retry keep the
+   * restriction after that chat is deleted. Never shown on the card.
+   */
+  sourcePolicy?: Record<string, unknown> | null;
 }
 
 export interface IdeaRecord extends IdeaCandidate {

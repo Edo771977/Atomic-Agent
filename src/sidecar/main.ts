@@ -386,7 +386,7 @@ export async function bootstrapSidecar(): Promise<{
             `active session changed during queued send_message for ${sessionId}`,
           );
         }
-        const { maxSteps, director, worker } = request.payload;
+        const { maxSteps, director, worker, reviewer } = request.payload;
         const latest = runtime.sessionStore.load(sessionId) ?? active.session;
         return runtime.executeTurn(latest, request.payload.text, {
           // Only a client-supplied `maxSteps` becomes a ceiling. Filling
@@ -399,6 +399,7 @@ export async function bootstrapSidecar(): Promise<{
           // turn; `executeTurn` checks it against the team.
           ...(typeof director === "string" ? { director } : {}),
           ...(typeof worker === "string" ? { worker } : {}),
+          ...(typeof reviewer === "string" ? { reviewer } : {}),
           signal,
           // The desktop app: picks the reply's `### answer-style`.
           origin: "sidecar",

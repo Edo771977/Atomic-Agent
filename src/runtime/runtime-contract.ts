@@ -1,4 +1,5 @@
 import type { ProviderRestriction } from "../llm/provider-policy.js";
+import type { RetrySource, retrySessionSeed } from "./session-provider-policy.js";
 import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import type { TurnCheckpointOptions } from "./turn-checkpoints.js";
 import type { InterruptedTurns } from "./interrupted-turns.js";
@@ -416,6 +417,32 @@ export interface AgentRuntime {
   readonly providerRestrictionFor?: (
     session: { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ) => ProviderRestriction | null;
+  /**
+   * A copy of a stored session moved to `workingDir` (issue #68), for the
+   * caller to save: a restricted session keeps its policy as its read
+   * taint, so the move never widens what it may reach. `restriction` is
+   * the session's restriction after the move, `restrictionKept` whether
+   * the old one was carried. Optional so hand-built runtimes keep
+   * compiling (absent: only the folder changes).
+   */
+  readonly moveSessionFolder?: <T extends { id: string; workingDir: string; metadata?: Record<string, unknown> }>(
+    session: T,
+    workingDir: string,
+  ) => { session: T; restriction: ProviderRestriction | null; restrictionKept: boolean };
+  /**
+   * The metadata a Retry card's new chat starts with (issue #68): the
+   * original chat's restriction, read through the live view (a running
+   * turn's unsaved taint included), or why the retry is refused.
+   * Optional so hand-built runtimes keep compiling (absent while
+   * constraints exist: the retry is refused).
+   */
+  readonly retrySessionSeed?: (source: RetrySource, workingDir: string) => ReturnType<typeof retrySessionSeed>;
+  /**
+   * A chat's provider policy as a stamp for a Retry card to record
+   * (issue #68, `sessionPolicyStamp`): `null` unrestricted, `undefined`
+   * unknown. Optional (absent: nothing is recorded).
+   */
+  readonly sessionPolicyStamp?: (sessionId: string) => Record<string, unknown> | null | undefined;
   /**
    * Why a chat adapter may not send this session's content to its chat
    * right now (issue #33): a constrained folder, or a read taint, whose
