@@ -291,3 +291,5 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/webhooks` | Amministrazione (admin) |
 | `DELETE /api/webhooks/{name}` | Amministrazione (admin) |
 | `POST /webhooks/{name}` (listener tunnel) | Azione ordinaria (firma o segreto del binding) |
+
+An operator or administrator can resolve tool approvals. Grant those roles only to callers you trust to authorize tools, including shell commands.
