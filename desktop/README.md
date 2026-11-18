@@ -892,7 +892,8 @@ Honestly degraded, and labelled as such in the UI:
   would refuse the host gets "Folder F allows <id> only on this computer;
   it will refuse <host>" and an "Allow <host> for F" button
   ([folder-provider-hosts.ts](main/folder-provider-hosts.ts), issue #65).
-  The decision mirrors the agent's `providerEndpointRefusal`: a
+  Only the newest ask for a field is drawn (leaving the field and Check can
+  answer out of order, issue #74). The decision mirrors the agent's `providerEndpointRefusal`: a
   private-network host that is not this machine by literal address, for a
   provider judged by place, not already in `allowedProviderHosts`. Only the
   click writes, through the whole-file compare-and-swap write. The main

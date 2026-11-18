@@ -283,3 +283,26 @@ test("renderer: leaving the address field asks for the folder warnings; an empty
   assert.equal(calls[0].url, "http://192.168.1.20:8080/v1");
   assert.equal(calls[0].field.fieldId, "wiz-url");
 });
+
+// Issue #74: the blur's ask and Check's ask for the same field could answer
+// out of order, and the older address's warnings overwrote the newer's.
+test("renderer: an older folder-hosts answer for a field does not overwrite a newer one", async () => {
+  const vm = await import("node:vm");
+  const src = readFileSync(new URL("../renderer/lan-find.js", import.meta.url), "utf8");
+  const slow = [];
+  const warn = (host) => ({ ok: true, warnings: [{ folder: "/work/secret", providerId: "custom", host }] });
+  const ctx = vm.createContext({
+    setTimeout: (f) => f(), console,
+    document: { addEventListener: () => {}, getElementById: () => null, querySelectorAll: () => [] },
+    window: { atomic: { lanFolderHosts: (url) => url.includes("10.0.0.1")
+      ? new Promise((r) => slow.push(() => r(warn("10.0.0.1")))) : Promise.resolve(warn("192.168.1.20")) } },
+    lanfProviderIdsFor: () => ["custom"],
+  });
+  vm.runInContext(src, ctx);
+  const first = ctx.lanfFolderHosts("wiz-url", "http://10.0.0.1:8080/v1");      // the blur, for the address typed before
+  await ctx.lanfFolderHosts("wiz-url", "http://192.168.1.20:8080/v1");          // Check, for the address now in the field
+  slow.forEach((f) => f());
+  await first;
+  assert.equal(vm.runInContext("LANF.hostWarnings['wiz-url'].url", ctx), "http://192.168.1.20:8080/v1", "the older answer won");
+  assert.equal(vm.runInContext("LANF.hostWarnings['wiz-url'].list[0].host", ctx), "192.168.1.20");
+});

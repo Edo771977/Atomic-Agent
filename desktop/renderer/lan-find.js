@@ -24,7 +24,8 @@
    before renderer.js; the pure part is exported for the unit suite. */
 
 /** state: idle | finding | done | error */
-const LANF = {state: 'idle', servers: [], networks: [], error: '', checks: {}, seq: 0, hostWarnings: {}};
+/* hostSeq: fieldId → the newest folder-hosts ask for that field (issue #74: a blur's and Check's asks answer out of order). */
+const LANF = {state: 'idle', servers: [], networks: [], error: '', checks: {}, seq: 0, hostWarnings: {}, hostSeq: {}};
 
 /* ---------- pure ---------- */
 
@@ -173,10 +174,17 @@ function lanfFieldOf(fieldId) {
   return {fieldId, editingId};
 }
 
+/** A newer folder-hosts judgment of field `fieldId`: older answers are dropped. */
+function lanfHostsAsk(fieldId) {
+  LANF.hostSeq[fieldId] = (LANF.hostSeq[fieldId] || 0) + 1;
+  return LANF.hostSeq[fieldId];
+}
+
 /** Issue #65: ask main which folders would refuse the field's host for its provider. Read only. */
 async function lanfFolderHosts(fieldId, url, msg) {
   const BRG = typeof window !== 'undefined' ? window.atomic : null;
   if (!BRG || !BRG.lanFolderHosts) return;
+  const seq = lanfHostsAsk(fieldId);
   const ids = typeof lanfProviderIdsFor === 'function' ? lanfProviderIdsFor(fieldId, url) : [];
   if (!ids.length) { delete LANF.hostWarnings[fieldId]; return; }
   // A lan row's field takes `192.168.1.20:8080` without a scheme; the entry stores it as http://.
@@ -184,6 +192,7 @@ async function lanfFolderHosts(fieldId, url, msg) {
   let res = null;
   const field = lanfFieldOf(fieldId);
   try { res = await BRG.lanFolderHosts(sendUrl, ids, field); } catch (err) { res = null; }
+  if (seq !== LANF.hostSeq[fieldId]) return;   // a newer ask for this field answers for it
   const list = res && res.ok && Array.isArray(res.warnings) ? res.warnings : [];
   if (!list.length && !msg) delete LANF.hostWarnings[fieldId];
   else LANF.hostWarnings[fieldId] = {url, sendUrl, field, list, busy: false, msg: msg || null};
@@ -228,7 +237,7 @@ function lanfOnFieldLeft(e) {
   const t = e && e.target;
   if (!t || !LANF_FIELDS.includes(t.id)) return;
   const url = String(t.value || '').trim();
-  if (!url) { delete LANF.hostWarnings[t.id]; return; }
+  if (!url) { lanfHostsAsk(t.id); delete LANF.hostWarnings[t.id]; return; }
   const hw = LANF.hostWarnings[t.id];
   if (hw && hw.url === url && !hw.msg) return;   // already asked for this address
   lanfFolderHosts(t.id, url);
