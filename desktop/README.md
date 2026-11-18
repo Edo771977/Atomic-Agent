@@ -151,9 +151,11 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | The grey next-step suggestion in the empty composer, Tab takes it (ATO-1094; only while Settings › General › Suggest a next step, `tui.nextStepSuggestions`, is on; hidden on an agent without the route) | `GET /api/sessions/{id}/next-step` |
 
 **Events stream reconnects (issue #74).** `GET /api/events` is reopened only
-after a pause: 1 s after a stream that delivered frames, and 1 s doubling to
-30 s while answers are refused (401/404/429/5xx, the body is cancelled),
-fetches fail or streams end empty. A remote agent answering 401/403 puts the
+after a pause: 1 s after a healthy stream (one that delivered frames, or was
+accepted and lived 5 s: an idle stream of `: keepalive` comments a proxy cuts
+is healthy), and 1 s doubling to 30 s while answers are refused
+(401/404/429/5xx, the body is cancelled), fetches fail or streams end empty
+at once. A remote agent answering 401/403 puts the
 status in `error` ("refused the access token"), which the `/health` watch does
 not clear until a stream is accepted again.
 
