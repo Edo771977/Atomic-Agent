@@ -145,6 +145,11 @@ export interface RuntimeProjectDeps {
   saveSession: (session: SessionState) => void;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
   isBusy: (sessionId: string) => boolean;
+  /**
+   * A live stored status on the session is a turn a live process runs
+   * (`SessionStore.liveTurnElsewhere`); absent, every live status counts.
+   */
+  liveTurnElsewhere?: (sessionId: string) => boolean;
   liveInputs: (session: SessionState) => LiveProjectInputs;
   emit: (sessionId: string, event: ProjectGateEvent) => void;
   now?: () => number;
@@ -242,7 +247,8 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       const session = deps.loadSession(sessionId);
       if (session === null) return { ok: false, error: { code: "no-session", message: `There is no session ${sessionId}.` } };
       // Issue #74: a turn another process on the state dir runs shows only in the stored status.
-      if (LIVE_SESSION_STATUSES.includes(session.status)) return turnRunning;
+      // A status a crashed process left behind does not hold the gate shut (issue #74 review).
+      if (LIVE_SESSION_STATUSES.includes(session.status) && (deps.liveTurnElsewhere?.(sessionId) ?? true)) return turnRunning;
       const project = session.project;
       const inputs = deps.liveInputs(session);
       const estimate = project === undefined ? null : estimateFor(project, inputs);

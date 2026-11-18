@@ -793,6 +793,25 @@ export class SessionStore {
   }
 
   /**
+   * Whether a live stored status on `id` is a turn that is really running
+   * (issue #74 review): this store's own, or one whose owning process is
+   * still alive (`isTurnOwnerGone`, the boot sweep's rule). A status a
+   * crashed process left behind, or one with no mark (a database without
+   * turn marks), is not. Read only; the sweep still ends such rows.
+   */
+  liveTurnElsewhere(id: string): boolean {
+    if (this.ownTurns.has(id)) return true;
+    let row: { status: string; turnOwner: string | null } | undefined;
+    try {
+      row = this.selectStoredBareStmt.get(id) as typeof row;
+    } catch {
+      return false;
+    }
+    if (row === undefined || !LIVE_STATUSES.has(row.status)) return false;
+    return !isTurnOwnerGone(row.turnOwner, this.turnOwnerProbe, this.dbIdentity);
+  }
+
+  /**
    * The boot sweep: every row still claiming a live turn
    * (`LIVE_SESSION_STATUSES`) whose owning process is gone gets
    * `ending` — by default `INTERRUPTED_TURN_ENDING` — so lists stop
