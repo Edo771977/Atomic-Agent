@@ -10,7 +10,8 @@
    team's reviewers from the agent (GET /api/fusion/team, IPC
    agent:fusionTeam): the ones this chat can use, the others disabled with
    the reason (its folder refuses the provider, or it cannot answer now),
-   "No review", and "Add a reviewer…". The choice rides on the chat's next
+   "No review", and "Add a reviewer…" (asked again when a new agent
+   connects, issue #74). The choice rides on the chat's next
    turn as `reviewer`; the agent stamps it on the chat and keeps it. A new
    chat's pick goes with its first turn (FZR.byTurn) and becomes the chat's
    when that turn's stream names it, never another chat's (issue #74).
@@ -22,7 +23,7 @@
 
 /* `byTurn`: a new chat's pick, sent with its first turn, by that turn's id until
    the turn's session_id frame names the chat (fzrTurnNamed; issue #74). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -116,8 +117,28 @@ function fzrCandidates(config, roster, word) {
 
 /* ---- the seat in the window ---- */
 
+/* Issue #74: the roster is the agent's that answered. A new agent
+   (renderer.js AGENT_GEN: a restart, a switch to a remote agent) drops it,
+   and a pending ask's answer, and the seat asks again; the picks not sent
+   yet stay (they are the person's), the old agent's refusal words go. */
+function fzrAgentSeen() {
+  const gen = typeof AGENT_GEN === 'number' ? AGENT_GEN : 0;
+  if (FZR.gen === gen) return false;
+  const first = FZR.gen === null;
+  FZR.gen = gen;
+  if (first) return false;
+  FZR.roster = null; FZR.sid = null; FZR.asked = undefined; FZR.token++; FZR.note = {};
+  return true;
+}
+/** A new agent is up (renderer.js applyStatus): the seat asks it for the chat on screen. */
+function fzrAgentChanged() {
+  fzrAgentSeen();
+  void fzrRefresh((typeof S !== 'undefined' && S.agentSession) || null);
+}
+
 function fzrKey() { return (typeof S !== 'undefined' && S.agentSession) || FZR_NEW_CHAT; }
 function fzrRosterNow() {
+  fzrAgentSeen();
   const sid = (typeof S !== 'undefined' && S.agentSession) || null;
   return FZR.sid === sid ? FZR.roster : null;
 }
@@ -265,6 +286,7 @@ async function fzrTurnEnded(sid, error) {
 /** Ask the agent for the team as chat `sid` can use it (on open, at a turn's end, after a write). */
 async function fzrRefresh(sid) {
   if (typeof BR === 'undefined' || !BR || !BR.fusionTeam) return;
+  fzrAgentSeen();
   const token = ++FZR.token;
   if (FZR.sid !== sid) FZR.roster = null;
   FZR.sid = sid; FZR.asked = sid;

@@ -293,7 +293,10 @@ is opened, when each of its turns ends (a read inside a restricted
 folder narrows the chat mid-turn) and when a config read finds
 `projects.constraints` changed (`restrictionConfigChanged`, from
 `refreshLiveConfig`), and when the workspace chip moves the open chat to
-another folder (`applyWorkspaceChoice`). The tooltip says why (the chat's folder,
+another folder (`applyWorkspaceChoice`). Its answers, the provisional ones
+too, are the agent's that gave them: when a new agent connects (`AGENT_GEN`:
+a restart, a switch to a remote agent) they are dropped and the chat on
+screen is asked again, as the Reviewer seat's team is (issue #74). The tooltip says why (the chat's folder,
 or the restricted folders it read from), the providers allowed, whether chat
 channels and phone push are allowed (always the agent's `channelsAllowed`),
 the egress classes allowed (the intersection of this window's config

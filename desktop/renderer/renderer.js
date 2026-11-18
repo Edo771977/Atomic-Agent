@@ -10162,6 +10162,9 @@ function applyStatus(st) {
        held in memory (the coding mode) is gone with it, so the generation
        moves here, before loadResources can confirm anything against it. */
     AGENT_GEN++;
+    // Issue #74: the restriction chip and the Reviewer seat ask the new agent (chat-restriction.js, fusion-reviewer.js).
+    if (typeof restrictionAgentChanged === 'function') restrictionAgentChanged();
+    if (typeof fzrAgentChanged === 'function') fzrAgentChanged();
     appSay('Connected · ' + S.live.workingDir);
     loadResources();
     if (typeof ProjectModels !== 'undefined') ProjectModels.load(BR).then((ok) => { if (ok) render(); });   // ATO-1148
