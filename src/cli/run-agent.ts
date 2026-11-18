@@ -98,7 +98,7 @@ const HELP =
     "  --director <member>  Fusion director for this chat, one of llm.runMode.fusion.team.directors",
     "                       (\"<providerId>:<model>\"); default: the only one available, else the team's default",
     "  --worker <member>    Preferred fusion worker for this chat, one of the team's workers",
-    "  --reviewer <member>  Fusion reviewer for this chat, one of the team's reviewers, or \"none\" for no review",
+    "  --reviewer <member>  Fusion reviewer for this chat, one of the team's reviewers, \"none\" for no review, or \"team\" to let the team pick",
     "  --session <id>       Continue this stored chat",
     "  --approve <version>  Approve the chat's open fusion project gate (brief, plan or milestone)",
     "                       at the version printed with it, then continue; needs --session",
@@ -188,8 +188,8 @@ export function parseRunArgs(
         const value = args[++i];
         if (!value) return { error: `${flag} requires a value` };
         const colon = value.indexOf(":");
-        if (value !== "none" && (colon <= 0 || colon === value.length - 1)) {
-          return { error: `${flag} expects "<providerId>:<model>" or "none"` };
+        if (value !== "none" && value !== "team" && (colon <= 0 || colon === value.length - 1)) {
+          return { error: `${flag} expects "<providerId>:<model>", "none" or "team"` };
         }
         reviewer = value;
         break;

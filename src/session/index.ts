@@ -149,6 +149,7 @@ export {
   SESSION_FUSION_WORKER_METADATA_KEY,
   SESSION_FUSION_REVIEWER_METADATA_KEY,
   NO_REVIEWER,
+  TEAM_PICKS_REVIEWER,
   readSessionFusionDirector,
   readSessionFusionReviewer,
   readSessionFusionWorker,

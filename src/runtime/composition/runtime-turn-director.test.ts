@@ -11,6 +11,7 @@ import {
   readSessionFusionReviewer,
   readSessionFusionWorker,
   withSessionFusionDirector,
+  withSessionFusionReviewer,
   type SessionState,
 } from "../../session/index.js";
 import type { RunTurnOptions, RunTurnResult } from "../../agent/agent-loop.js";
@@ -217,6 +218,13 @@ describe("a session's fusion director in the turn (issue #37)", () => {
     // Unrestricted: allowed.
     const free = await fixture.service.executeTurn(session("t"), "request", { reviewer: "codex:default" });
     expect(readSessionFusionReviewer(free.session.metadata)).toMatchObject({ member: "codex:default" });
+  });
+
+  it("\"team\" clears the chat's reviewer, so the team picks again (issue #71)", async () => {
+    fixture.config.llm!.runMode!.fusion!.team = { directors: ["cloud-a:model-a"], reviewers: ["cloud-b:model-r"] };
+    const first = await fixture.service.executeTurn(session("s"), "request", { reviewer: "cloud-b:model-r" });
+    const cleared = await fixture.service.executeTurn(first.session, "again", { reviewer: "team" });
+    expect(readSessionFusionReviewer(cleared.session.metadata)).toBeNull();
   });
 
   it("outside the fusion mode keeps a stamped director the folder refuses and runs the turn", async () => {

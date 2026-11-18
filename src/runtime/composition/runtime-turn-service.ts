@@ -11,7 +11,7 @@ import type { ProviderRegistry } from "../../llm/provider/index.js";
 import { resolveLlmConfig } from "../../llm/provider/index.js";
 import type { ProviderFallbackChain } from "../../llm/fallback/index.js";
 import type { SessionStore } from "../../session/session-store.js";
-import { NO_REVIEWER, withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../../session/session-fusion-team.js";
+import { NO_REVIEWER, TEAM_PICKS_REVIEWER, withSessionFusionDirector, withSessionFusionReviewer, withSessionFusionWorker } from "../../session/session-fusion-team.js";
 import { cliToolsReviewerWhy, codexDirectorNoticeText, directorPickedNoticeText, isCodexCliProvider, resolveSessionReviewer, resolveSessionWorker, sessionDirectorChoice, sessionDirectorOptions, teamMemberByRef, type SessionTeamChoice, type SessionTeamChoices } from "../session-director.js";
 import { isIncognitoSession, readFusionWorkerMeta, SESSION_LLM_METADATA_KEY, SESSION_ROUTE_METADATA_KEY, readSessionRoute, resolveTurnRoute, SESSION_TITLE_METADATA_KEY, SESSION_TITLE_TIMEOUT_MS, generateSessionTitle, readSessionTitle, shouldNameSession, type SessionLlmStamp, type SessionRoute, type SessionState } from "../../session/index.js";
 import type { TeamMember } from "../../llm/run-mode/index.js";
@@ -491,6 +491,9 @@ export function createRuntimeTurnService(
     }
     if (namedReviewer === NO_REVIEWER) {
       metadata = withSessionFusionReviewer(metadata, NO_REVIEWER);
+    } else if (namedReviewer === TEAM_PICKS_REVIEWER) {
+      // "team": the chat's choice is cleared and the team picks again.
+      metadata = withSessionFusionReviewer(metadata, null);
     } else if (namedReviewer !== undefined) {
       const member = teamMemberByRef(fusion, "reviewers", namedReviewer);
       if (member === null) {

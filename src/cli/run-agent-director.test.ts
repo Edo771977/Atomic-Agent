@@ -18,7 +18,8 @@ describe("run --director / --worker", () => {
   it("takes --reviewer as a member or \"none\" (issue #71)", () => {
     expect(parseRunArgs(["--reviewer", "codex:model-r"])).toMatchObject({ reviewer: "codex:model-r" });
     expect(parseRunArgs(["--reviewer", "none"])).toMatchObject({ reviewer: "none" });
-    expect(parseRunArgs(["--reviewer", "nobody"])).toEqual({ error: '--reviewer expects "<providerId>:<model>" or "none"' });
+    expect(parseRunArgs(["--reviewer", "team"])).toMatchObject({ reviewer: "team" });
+    expect(parseRunArgs(["--reviewer", "nobody"])).toEqual({ error: '--reviewer expects "<providerId>:<model>", "none" or "team"' });
   });
 
   it("prints which director the runtime picked", () => {

@@ -24,6 +24,8 @@ export const SESSION_FUSION_WORKER_METADATA_KEY = "fusionWorker";
 export const SESSION_FUSION_REVIEWER_METADATA_KEY = "fusionReviewer";
 /** The reviewer choice that turns per-task review off for one chat. */
 export const NO_REVIEWER = "none";
+/** The reviewer a caller names to clear the chat's choice: the team picks again (issue #71). */
+export const TEAM_PICKS_REVIEWER = "team";
 
 /** One chosen member, as stored. */
 export interface SessionTeamMemberStamp {

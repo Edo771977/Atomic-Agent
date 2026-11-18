@@ -137,7 +137,8 @@ export interface SendMessagePayload {
   worker?: string;
   /**
    * The session's fusion reviewer (issue #71), stamped the same way: one
-   * of the team's reviewers, or `"none"` for no review in this chat.
+   * of the team's reviewers, `"none"` for no review in this chat, or
+   * `"team"` to clear the chat's choice so the team picks again.
    */
   reviewer?: string;
 }
