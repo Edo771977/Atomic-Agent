@@ -164,7 +164,7 @@ function folderGroups(state, rows) {
   const by = new Map(state.folders.map((f) => [f.id, []]));
   const loose = [];
   for (const r of rows || []) {
-    const fid = r && state.chats[r.id];
+    const fid = r && (state.chats[r.id] || r.folderId);   // issue #67: a new chat's stand-in carries its folder
     if (fid && by.has(fid)) by.get(fid).push(r); else loose.push(r);
   }
   return {groups: state.folders.map((f) => ({folder: f, rows: by.get(f.id)})), loose};

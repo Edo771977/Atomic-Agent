@@ -2537,7 +2537,7 @@ function renderSidebar() {
     (sidebarExpanded() ? '<div class="sb-top">' + searchBtnHTML(true) + sidebarToggleHTML() + '</div>'
       : drawer ? '<div class="sb-top">' + searchBtnHTML(true) + '</div>' : '')
     + '<div class="sb-head">' + MARK_COLOR
-      + '<button class="wschip" data-act="workspace" title="' + esc(BR ? WORKSPACE : '~/Teletubbies') + '"><span>' + esc(wsName(BR ? WORKSPACE : '~/Teletubbies')) + '</span>' + ic('chevD') + '</button>'
+      + workspaceChipHTML()   // issue #67: the open chat's folder, else the folder for new chats
       // ATO-1185: the downloads icon (renderDlcard paints it between renders).
       + '<span class="sb-dl" data-k="' + esc(DLC.indKey) + '">' + DLC.ind + '</span></div>'
     // ATO-1032: the chord is shown on the row (drawn by CSS from data-kbd, so the row's text stays "New chat").
@@ -2683,6 +2683,62 @@ function wsName(p) {
 function workingDir() {
   return String(WORKSPACE || S.live.workingDir || (SET.health && SET.health.workingDir) || '');
 }
+/* Issue #67: the folder the chat on screen works in, or '' when no chat with
+   a session is on screen. As the agent stored it (openSession) or moved it
+   (chooseWorkspace: ProjectModels' map), else its list row's, else the folder
+   of the project it is filed in. */
+function chatWorkingDir() {
+  if (S.room !== 'chat') return '';
+  if (!S.agentSession) return screenTurnFolder();   // review of #67: a new chat's first turn on screen
+  const sid = S.agentSession;
+  const kept = typeof ProjectModels !== 'undefined' && ProjectModels.state && ProjectModels.state.chats ? ProjectModels.state.chats[sid] : '';
+  if (kept) return String(kept);
+  const row = SESSIONS.find((x) => x.id === sid) || PENDING_CHATS.get(sid);
+  if (row && row.workingDir) return String(row.workingDir);
+  const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[sid] : null;
+  const p = pid ? PROJECTS.state.projects.find((x) => x.id === pid) : null;
+  return p && p.folder ? p.folder : '';
+}
+/* Issue #67: what the sidebar's workspace chip names. `kind`: 'chat' (the open
+   chat's own folder), 'project-new' (a new chat marked for a project: the
+   folder it opens in) or 'new' (the folder for new chats, workingDir()). */
+/* Review of #67: the session the chip's click hands app:chooseWorkspace (the
+   chat it moves), or null (the folder for new chats; a cloud agent's chat
+   opens a new chat there). The tooltip is decided from the same answer. */
+function workspaceChipTarget() {
+  return SK.workingDir ? null : (S.room === 'chat' && S.agentSession) || null;
+}
+function workspaceChipInfo() {
+  const own = chatWorkingDir();
+  const target = workspaceChipTarget();
+  if (target || (own && S.agentSession)) {
+    const pid = typeof PROJECTS !== 'undefined' ? PROJECTS.state.chats[S.agentSession] : null;
+    const folder = !pid && typeof FOLDERS !== 'undefined' && typeof folderOf === 'function' ? folderOf(FOLDERS.state, S.agentSession) : null;
+    const p = pid && typeof projectAny === 'function' ? projectAny(pid) : folder;
+    return {kind: target ? 'chat' : 'chat-cloud', dir: own, project: p ? p.name : ''};
+  }
+  // A new chat's first turn on screen, no session yet: the click changes the folder for new chats.
+  if (own) return {kind: 'first-turn', dir: own, project: ''};
+  const mark = typeof projectMarkedInfo === 'function' ? projectMarkedInfo() : null;
+  if (mark && mark.folder) return {kind: 'project-new', dir: mark.folder, project: mark.name};
+  return {kind: 'new', dir: workingDir(), project: ''};
+}
+/* The chip itself. Choosing a folder from it is the same act as before
+   (workspace → app:chooseWorkspace with the chat's session); the tooltip
+   says which folder that changes. */
+function workspaceChipHTML() {
+  if (!BR) return '<button class="wschip" data-act="workspace" title="~/Teletubbies"><span>' + esc(wsName('~/Teletubbies')) + '</span>' + ic('chevD') + '</button>';
+  const w = workspaceChipInfo();
+  const where = w.dir ? 'This chat works in ' + w.dir + (w.project ? ' (project ' + w.project + ')' : '') + '. ' : "This chat's folder is not known yet. ";
+  const tip = w.kind === 'chat' ? where + 'Choosing a folder moves this chat there; a restricted chat keeps its restriction.'
+    : w.kind === 'chat-cloud' ? where + 'Choosing a folder opens a new chat there.'
+    : w.kind === 'first-turn'
+      ? 'This new chat works in ' + w.dir + '. Choosing a folder changes where other new chats open.'
+    : w.kind === 'project-new'
+      ? 'This new chat in ' + w.project + ' opens in ' + w.dir + '. Choosing a folder changes where other new chats open.'
+      : w.dir ? 'New chats open in ' + w.dir + '. Choose another folder.' : 'Choose the folder new chats open in.';
+  return '<button class="wschip" data-act="workspace" data-kind="' + w.kind + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"><span>' + esc(w.dir ? wsName(w.dir) : 'This chat') + '</span>' + ic('chevD') + '</button>';
+}
 function workingDirLabel(p) {
   const s = String(p || '').replace(IS_WIN ? /(?<=.)[\\/]+$/ : /(?<=.)\/+$/, '');
   const home = homeDir();
@@ -2710,7 +2766,8 @@ function sidebarTasks() {
     order itself is chat-list.js orderChats (unit-tested). */
 function sidebarChats() {
   const stored = new Set(SESSIONS.map((s) => s.id));
-  const pending = [...PENDING_CHATS.values()].filter((p) => !stored.has(p.id)).reverse();
+  const pending = projectStandInRows()   // issue #67: a new chat in a project, before its session is named
+    .concat([...PENDING_CHATS.values()].filter((p) => !stored.has(p.id)).reverse());
   // ATO-1150: archived chats leave every list but their own section (chat-search.js).
   const arch = splitArchived(SESSIONS, chatArchivedIds());
   const order = orderChats(arch.live, pending, PREFS.pinned);
@@ -2815,7 +2872,8 @@ function chatRow(s) {
   const age = queued ? '' : chatAgeShort(s.updatedAt);
   if (age) ensureChatAgeTick();
   // ATO-1034: draggable onto a folder (chat-folders.js).
-  return '<button class="sesrow' + (s.id === S.sessionId && S.room !== 'studio' ? ' on' : '') + (pinned ? ' pinned' : '') + '" data-ses="' + esc(s.id) + '" draggable="true"'
+  // Issue #67: a stand-in (chat-projects.js) has no chat to drag into another project yet.
+  return '<button class="sesrow' + (s.id === S.sessionId && S.room !== 'studio' ? ' on' : '') + (pinned ? ' pinned' : '') + '" data-ses="' + esc(s.id) + '"' + (s.standIn ? '' : ' draggable="true"')
     + (queued ? ' data-m="' + queued + ' queued" data-queued="' + queued + '"' : age ? ' data-m="' + age + '" data-age="1" data-at="' + Number(s.updatedAt) + '"' : '')
     + (glyph ? ' data-g="' + esc(glyph) + '"' : '')
     + ' title="' + esc(s.t + ' · ' + tip + (queued ? ' · ' + queued + ' queued' : '') + (pinned ? ' · pinned' : '')) + '">'
@@ -4480,6 +4538,7 @@ function composer() {
          smoke compare. */
       + '<div class="cfoot' + (selHasKind('workers') ? ' is-fusion' : '') + '">'
         + (composerNeedsSetup() ? setupSlotHtml() : routeChipsHtml(backend))
+        + restrictionChipHTML()   // Issue #67: "restricted to: …" (chat-restriction.js)
         + '<span class="cgrow"></span>'
         + contextChip()
         // W2: Chat · Goal · Run overnight · Voice conversation, one chip (composer-mode.js).
@@ -6681,7 +6740,8 @@ function generalPane() {
       + '</div>'
       + '<div class="tk-setrow">'
         + '<div class="body"><div class="t">Working folder</div>'
-          + '<div class="d">' + (ws ? '<span class="mono set-path" title="' + esc(ws) + '">' + esc(workingDirLabel(ws)) + '</span>' : 'Not chosen yet.') + '</div></div>'
+          + '<div class="d">' + (ws ? '<span class="mono set-path" title="' + esc(ws) + '">' + esc(workingDirLabel(ws)) + '</span>' : 'Not chosen yet.')
+            + ' New chats open in this folder.</div></div>'
         + '<button class="btn btn-s sm" data-act="workspace:choose"' + (BR ? '' : ' disabled') + '>Change…</button>'
       + '</div>'
       + tpNotifyRowHTML()
@@ -8541,7 +8601,7 @@ document.addEventListener('click', (e) => {
     const fail = (why) => toast("Couldn't open Terminal", typeof why === 'string' ? why : '', 'bad');
     if (!text || !BR || typeof BR.terminalOpenWithCommand !== 'function') { fail(); return; }
     // ATO-1424 answers {ok:true, cwd, usedHome} or {ok:false, error, message}.
-    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: workingDir() || null }))
+    Promise.resolve().then(() => BR.terminalOpenWithCommand({ command: text, cwd: mdTermCwd() }))
       .then((r) => { if (!r || r.ok !== true) fail(r && r.message); }, () => fail());
     return;
   }
@@ -10361,6 +10421,7 @@ function startLiveTurn(text) {
   // ATO-1146: a new chat New project opened says its project, so main files it there before the turn.
   // ATO-490: the chat's reasoning level rides along (absent for Auto); ATO-1148: so does its project's cloud model.
   const forProject = session ? undefined : projectForNewTurn();
+  live.folder = firstTurnFolder(session, forProject);   // review of #67: the folder this new chat's turn runs in
   BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(session, forProject)).then((res) => {
     if (!res || !res.ok) {
       projectNewTurnFailed(forProject, live.log);   // review of #62: the retry still opens in the project
@@ -10378,11 +10439,50 @@ function startLiveTurn(text) {
     streaming.turn = res.turnId;
     // item 6: the sidebar's running dot follows the stream, not S.busy.
     RUNNING.set(res.turnId, session || null);
-    if (opensChat) FIRST_TURNS.set(res.turnId, text);
+    if (opensChat) firstTurnSent(res.turnId, text, forProject);
     projectNoteTurn(res.turnId, forProject);   // W2 QA: a new chat in a project with no disk folder is filed once it has an id
     liveTurnStarted(res.turnId, live, session || null);   // Item 38
     renderSidebar();
   });
+}
+
+/* A new chat's first turn, in the three steps the list follows (item 27,
+   issue #67): sent (its first prompt kept; in a project, a stand-in under it
+   from here, chat-projects.js), named (the stream's session_id: the chat's
+   own row takes the stand-in's place, filed by its id) and ended. */
+function firstTurnSent(turnId, text, forProject) {
+  FIRST_TURNS.set(turnId, text);
+  projectStandInNote(turnId, forProject, text);
+}
+/* Review of #67: the folder a new chat's first turn runs in, as main picks
+   it (startTurn: the project's folder, else the window's), or '' for a chat
+   that has a session (it keeps its own). Kept in the turn's record, as the
+   project mark is used up at the send. */
+function firstTurnFolder(session, forProject) {
+  if (session) return '';
+  return (typeof projectTurnFolder === 'function' ? projectTurnFolder(forProject) : '') || workingDir();
+}
+/** The folder of the new chat's first turn on screen (no session yet), or ''. */
+function screenTurnFolder() {
+  const rec = S.turnId ? LIVE_TURNS.get(S.turnId) : null;
+  return rec && !rec.ended && rec.folder && S.log.includes(rec.item) ? String(rec.folder) : '';
+}
+/* The Terminal button of a code block opens in the open chat's folder, else the window's. */
+function mdTermCwd() {
+  return chatWorkingDir() || workingDir() || null;
+}
+function firstTurnNamed(turnId, sid) {
+  noteFirstPrompt(turnId, sid);   // item 27: a new chat is on the list from here
+  // Review of #67: its row keeps the folder the turn runs in until the agent stores the chat.
+  const rec = LIVE_TURNS.get(turnId);
+  const row = sid ? PENDING_CHATS.get(sid) : null;
+  if (rec && rec.folder && row && !row.workingDir) row.workingDir = rec.folder;
+  projectFileNewChat(turnId, sid);
+  projectStandInSession(turnId, sid);
+}
+function firstTurnEnded(turnId) {
+  FIRST_TURNS.delete(turnId);   // item 27: a turn that ended before its stream named a session
+  projectStandInEnded(turnId);
 }
 
 /** Item 27: the stream named the session a new chat's first turn runs in.
@@ -11078,6 +11178,11 @@ function turnFailureLine(ev) {
   const id = selActiveProviderId();
   const entry = (selProviders() || []).find((p) => p.id === id);
   const waited = turnWaited();
+  /* Issue #67: a folder constraint refused the turn before anything was
+     sent. This machine's policy, not the provider failing: "<provider> is
+     not answering" sent the person to their network or key. */
+  const constraint = constraintTurnLine(ev);
+  if (constraint) return esc(constraint);
   /* Backlog 32: on a provider whose saved key the agent will not send, nothing
      reached it; whatever the chain's last link said ("fetch failed" from a
      local fallback) is not why the turn failed. */
@@ -11114,6 +11219,55 @@ function turnFailureLine(ev) {
      agent's sentence is raw (codes, stack words), so the row says one short
      phrase and keeps the sentence under Details (turnFailure). */
   return null;
+}
+/** Issue #67: a turn a per-folder constraint (`projects.constraints`)
+    refused, as "Turn stopped. <why>" (the TUI's words, agent-event-reducer.ts),
+    or ''. The agent's frame marks it with `code` ATOMIC_AGENT_PROVIDER_NOT_ALLOWED
+    or ATOMIC_AGENT_EGRESS_NOT_ALLOWED and words it in `advice`
+    (failure-reason-frame.ts: the sentence, " — ", the hint); the TUI's
+    "ctrl+r or " is not a key here, /runmode local is. A frame without
+    `advice`, and the 400 a turn's own provider gets before the stream
+    (turnModelPolicyRefusal, read by agent-client httpErrorDetail), only
+    have the agent's raw words (provider-policy.ts, tool-egress.ts). */
+function constraintTurnLine(ev) {
+  const p = (ev && ev.payload) || {};
+  /* Review of #67: a chain that went on past the refused link
+     (`fallback_failures` lists the links before the last) ended on a later
+     link. When that was the managed local model with its engine gone (the
+     verdict says so), the dead-engine row is the story (deadEngineRow, Start
+     model); any other ending keeps the refusal and says the fallback failed
+     too, beside the row's "Providers tried". */
+  const after = Array.isArray(p.fallback_failures) && p.fallback_failures.length > 0;
+  if (after && p.failure && p.failure.cause === 'local_engine_down') return '';
+  const line = constraintRefusalWords(ev, p);
+  return line && after ? line + ' The fallback after it failed too (Providers tried).' : line;
+}
+/** constraintTurnLine's sentence for the refusal itself, or ''. */
+function constraintRefusalWords(ev, p) {
+  const code = String(p.code || (ev && ev.code) || '');
+  const advice = String(p.advice || (ev && ev.advice) || '').trim();
+  if ((code === 'ATOMIC_AGENT_PROVIDER_NOT_ALLOWED' || code === 'ATOMIC_AGENT_EGRESS_NOT_ALLOWED') && advice) {
+    return 'Turn stopped. ' + advice.replace(/\bwith ctrl\+r or \/runmode local\b/, 'with /runmode local');
+  }
+  const said = String((ev && ev.error) || '').replace(/\s+\([\w.-]+\)$/, '');
+  const prov = /\b(?:llm )?provider "([^"]+)" may not (?:serve|receive)\b/.exec(said);
+  const who = prov ? prov[1] : 'this provider';
+  const read = /\bthis session read files from (.+?), which (is|are) restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  if (read) return 'Turn stopped. This session read files from ' + read[1] + ', which ' + read[2] + ' restricted to: ' + read[3] + ', so ' + who + " can't be used here.";
+  const folder = /\bfolder (.+?) is restricted to: ([^;]+?)(?:;|$)/.exec(said);
+  if (folder) return 'Turn stopped. ' + constraintFolderWords(folder[1]) + ' restricted to: ' + folder[2] + ', so ' + who + " can't be used here.";
+  const egress = /\bfolder (.+?) is restricted: (\S+) would send content off this machine\b/.exec(said);
+  if (egress) return 'Turn stopped. ' + constraintFolderWords(egress[1]) + ' restricted: ' + egress[2] + " can't send content off this machine here.";
+  // Review of #67: a shell command that runs a network client (tool-egress.ts ShellNetworkNotAllowedError).
+  const shell = /\bfolder (.+?) is restricted: (\S+) runs (\S+), a network client\b/.exec(said);
+  if (shell) return 'Turn stopped. ' + constraintFolderWords(shell[1]) + ' restricted: ' + shell[2] + ' runs ' + shell[3] + ', which could send content off this machine.';
+  return '';
+}
+/** "The folder A is" / "The folders A and B are": a policy of several folders is keyed "A + B" (provider-policy.ts intersectProviderPolicies). */
+function constraintFolderWords(key) {
+  const parts = String(key).split(' + ').filter(Boolean);
+  if (parts.length < 2) return 'The folder ' + key + ' is';
+  return 'The folders ' + parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] + ' are';
 }
 /** The agent's offline-mode sentence out of a failed turn, or null. */
 function offlineTurnLine(ev) {
@@ -11316,19 +11470,19 @@ function onChatEvent(ev) {
       RUNNING.set(ev.turnId, sid);
       // Backlog 26: a new chat's queue, waiting under its first turn, now goes by the chat's session.
       moveQueue('turn:' + ev.turnId, sid);
-      noteFirstPrompt(ev.turnId, sid);   // item 27: a new chat is on the list from here
-      projectFileNewChat(ev.turnId, sid);
+      firstTurnNamed(ev.turnId, sid);
       renderSidebar();
     }
     if (ev.kind === 'done' || ev.kind === 'aborted' || ev.kind === 'error') {
       const sid = RUNNING.get(ev.turnId);
       RUNNING.delete(ev.turnId);
       queueTurnEnded(sid, ev.turnId);   // Backlog 26
-      FIRST_TURNS.delete(ev.turnId);   // item 27: a turn that ended before its stream named a session
+      firstTurnEnded(ev.turnId);
       if (sid) notePendingEnded(sid);  // item 27: its stand-in waits for the agent to store the turn
       if (sid && typeof goalTurnEnded === 'function') void goalTurnEnded(sid);  // ATO-1040: a pause / clear asked of its goal has landed
       if (ev.kind === 'error' && sid) ATTN.add(sid);
       nextStepTurnEnded(sid, ev.kind);   // ATO-1094: retire the old suggestion; a finished turn asks for a new one
+      void restrictionTurnEnded(sid);   // Issue #67: a read may have restricted the chat (chat-restriction.js)
       const endedSince = (LIVE_TURNS.get(ev.turnId) || {}).startedAt || 0;   // B01: closeChatApprovals, read before liveTurnEnded drops it
       const endedTools = turnToolNames(LIVE_TURNS.get(ev.turnId));          // ATO-203: and the calls it made
       liveTurnEnded(ev, sid);          // item 38: a failed or stopped turn is kept for its chat
@@ -11426,6 +11580,7 @@ function onChatEvent(ev) {
       S.agentSession = pick(ev.payload, 'sessionId', 'session_id', 'id');
       S.sessionId = S.agentSession;
       reasoningAdoptDraft(S.agentSession);   // ATO-490: a new chat's reasoning pick is its own now
+      void restrictionRefresh(S.agentSession);   // review of #67: the chip asks for the chat now named
       // Q60 review: a request this turn raised before it said its session waited for it (approvalOnScreen).
       if (showKeptApproval(S.agentSession)) render();
     }
@@ -12761,7 +12916,7 @@ if (BR) {
          turn in the chat on screen holds the picker (main refuses again if one
          began meanwhile). A cloud chat keeps its folder and a new chat opens. */
       if (S.busy) { restartRefusedToast({here:true, title:''}); return; }
-      BR.chooseWorkspace(SK.workingDir ? null : (S.agentSession || null)).then(applyWorkspaceChoice);
+      BR.chooseWorkspace(workspaceChipTarget()).then(applyWorkspaceChoice);   // review of #67: the chat the chip's tooltip names
       return;
     }
     return originalAct(a);
@@ -12787,6 +12942,8 @@ function applyWorkspaceChoice(dir) {
   WORKSPACE = dir;
   // ATO-1148: the chat on screen moved, and with it into that folder's project.
   if (live && S.agentSession && typeof ProjectModels !== 'undefined') ProjectModels.noteChatFolder(S.agentSession, dir);
+  // Review of #67: its folder's restriction may have changed with it (the chip asks again).
+  if (live && S.agentSession) void restrictionRefresh(S.agentSession);
   if (cloud) act('session:new');
   S.log.push({id:nid(), k:'system', text:'workspace → ' + esc(dir) + (live ? ' · this chat works there now' : ' · the agent is restarting there')});
   render();
@@ -18522,7 +18679,9 @@ async function refreshLiveConfig() {
   // Lane B — item 3: a provider or model change moves the window and the baseline.
   const ctxWas = selActiveProviderId() + '\n' + activeModel();
   const cfg = await BR.configGet();
+  const cfgWas = LIVE_CONFIG;
   if (cfg && cfg.ok && cfg.config) LIVE_CONFIG = cfg.config;
+  void restrictionConfigChanged(cfgWas, LIVE_CONFIG);   // review of #67: a constraint edited or removed
   const provider = LIVE_CONFIG && LIVE_CONFIG.llm
     && (LIVE_CONFIG.llm.providers || []).find((p) => p.id === LIVE_CONFIG.llm.activeTextProvider);
   if (provider) {
@@ -21783,6 +21942,28 @@ function sessionTurnsToLog(turns) {
 /* Backlog 22: bumped by every openSession that starts a load, so an answer
    that a newer load overtook can tell (see the check after the await). */
 let OPEN_SEQ = 0;
+/* Review of #67: a project chat's stand-in clicked (its first turn running,
+   no session named yet). On screen: shown. Left for another chat: the turn
+   this window keeps for it (LIVE_TURNS) is the window's again, its rows and
+   what came meanwhile drawn, as openSession does for a chat whose turn runs
+   here (liveRebuild), with no stored transcript; the stream's session_id
+   frame then names the chat on screen. False when the turn is over or not
+   this window's (the stand-in goes with it). */
+function projectStandInShow(standIn) {
+  const rec = standIn ? LIVE_TURNS.get(standIn.turnId) : null;
+  if (!rec || rec.ended) return false;
+  if (S.turnId === standIn.turnId && !S.agentSession && S.log.includes(rec.item)) { S.room = 'chat'; render(); return true; }
+  stashQueue();   // Backlog 26: what was queued in the chat being left waits for it
+  liveLeave();    // Item 38: and a turn running there keeps its view
+  clearPlanOffer(); forgetApprovalCard(); dropChatToasts();
+  ++OPEN_SEQ;     // Backlog 22: a load still out for another chat does not land
+  S.room = 'chat'; S.sessionId = ''; S.agentSession = null; S.history = []; S.settings = null;
+  liveRebuild({turnId: standIn.turnId, rec}, []);
+  restoreQueue('turn:' + standIn.turnId);
+  S.busy = true; S.stick = true;
+  render();
+  return true;
+}
 /* ATO-131: the load (its OPEN_SEQ) that Clear Transcript was pressed under,
    or 0. Clear set S.log while the chat was still loading, and the answer
    then wrote the whole transcript back over it. Unlike New chat (item 22),
@@ -21792,6 +21973,10 @@ let OPEN_SEQ = 0;
 let OPEN_CLEARED = 0;
 async function openSession(id) {
   if (!BR || !id) return;
+  /* Issue #67: a new chat's stand-in under its project has no session to
+     load yet: projectStandInShow puts that chat on screen. */
+  const standIn = projectStandIn(id);
+  if (standIn) { projectStandInShow(standIn); return; }
   // item 6: is a turn of this session streaming into this window right now?
   const live = [...RUNNING.values()].includes(id);
   // The TUI's switchSession is a no-op ("already on session <id>") for the
@@ -21822,6 +22007,7 @@ async function openSession(id) {
   if (S.sessionId !== id) dropChatToasts();   // ATO-186: "New session" and the like were about the chat being left
   S.sessionId = id;
   refreshSkillList();
+  void restrictionRefresh(id);   // Issue #67: the composer's "restricted to: …" chip
   // Backlog 24: and until the answer lands, the composer holds what is sent here.
   const opening = {id, failed:false};
   OPENING = opening;
@@ -23745,6 +23931,7 @@ document.addEventListener('contextmenu', (e) => {
   const row = e.target.closest('[data-ses]');
   if (row) {
     e.preventDefault();
+    if (projectStandIn(row.dataset.ses)) return;   // issue #67: no chat to act on yet
     const s = chatById(row.dataset.ses);   // item 27: a stand-in's state too
     sendSessionMenu(row.dataset.ses, PREFS.pinned.includes(row.dataset.ses),
                     !!s && chatUnread(s, PREFS.seen[row.dataset.ses]),
@@ -23769,7 +23956,7 @@ document.addEventListener('dblclick', (e) => {
   const fh = t.closest('#sidebar .sb-fhead[data-ftoggle]');   // ATO-1034
   if (fh) { e.preventDefault(); renameStart(fh.dataset.ftoggle, 'folder'); return; }
   const row = t.closest('#sidebar .sesrow[data-ses]');
-  if (row) { e.preventDefault(); renameStart(row.dataset.ses, 'row'); return; }
+  if (row) { e.preventDefault(); if (!projectStandIn(row.dataset.ses)) renameStart(row.dataset.ses, 'row'); return; }
   if (S.room === 'chat' && S.sessionId && t.closest('#toolbar .tb-title b')) {
     e.preventDefault(); renameStart(S.sessionId, 'title');
   }

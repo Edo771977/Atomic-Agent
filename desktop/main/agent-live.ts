@@ -1,8 +1,10 @@
 import { ipcMain, shell } from "electron";
 
 import type { AgentClient } from "./agent-client.js";
-import { withConfigLock } from "./agent-cli.js";
+import { readWholeConfig, withConfigLock } from "./agent-cli.js";
+import { folderConstraintFor, type FolderConstraint } from "./folder-constraint.js";
 import { isSafeSignInUrl } from "./mcp-auth-url.js";
+import { readProviderRestriction, type ProviderRestrictionAnswer } from "./provider-restriction.js";
 import { isTelegramPairingOp } from "./telegram-pairing.js";
 
 /**
@@ -127,5 +129,34 @@ export function wireAgentLiveIpc(client: AgentClient): void {
   ipcMain.handle("agent:nextStep", (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { supported: true, text: null };
     return client.nextStep(sessionId);
+  });
+  /* Issue #67: the composer's "restricted to: …" chip (renderer/chat-restriction.js).
+     Read-only; the folder it names goes to the window and nowhere else. */
+  // `remote`: the agent is another computer's, so this window's config.json is not its policy (review of #67).
+  // `status`: the route's own (a 404 at a first turn's end is a chat not stored yet; the window asks once more).
+  /* Review of #67: the projects.constraints entry a folder falls under, as the
+     agent matches it (folder-constraint.ts), for the provisional chip of a chat
+     the agent has not answered for. A remote agent's config is not this one. */
+  ipcMain.handle("agent:folderConstraint", async (_event, dir: unknown): Promise<{ known: boolean; constraint: FolderConstraint | null }> => {
+    if (client.isRemote) return { known: false, constraint: null };
+    if (typeof dir !== "string" || !dir || dir.length > 4096) return { known: false, constraint: null };
+    const cfg = await readWholeConfig().catch(() => null);
+    if (!cfg || !cfg.ok || !cfg.config) return { known: false, constraint: null };
+    const constraints = (cfg.config as { projects?: { constraints?: unknown } }).projects?.constraints;
+    try {
+      return { known: true, constraint: folderConstraintFor(constraints, dir) };
+    } catch {
+      return { known: false, constraint: null };
+    }
+  });
+  ipcMain.handle("agent:providerRestriction", async (_event, sessionId: unknown): Promise<ProviderRestrictionAnswer & { remote: boolean; status: number | null }> => {
+    const remote = client.isRemote;
+    if (typeof sessionId !== "string" || !sessionId || sessionId.length > 200) return { ...readProviderRestriction(null), remote, status: null };
+    try {
+      const res = await client.sessionRoute(sessionId, "provider-restriction", "GET", undefined, 5_000);
+      return { ...readProviderRestriction(res), remote: client.isRemote, status: res.status };
+    } catch {
+      return { ...readProviderRestriction(null), remote: client.isRemote, status: null };
+    }
   });
 }

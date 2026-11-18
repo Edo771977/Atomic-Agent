@@ -18,7 +18,9 @@ const modules = new Map();
 const BUILTINS = new Set(['node:path', 'node:net']);
 const processShim = Object.freeze({ platform: process.platform, env: Object.freeze({}) });
 
-export function loadCore(url) {
+// `extra`: builtins one caller allows on top (folder-constraint.test.mjs: node:fs,
+// for the core's default real path and worktree reads, which it also replaces with fakes).
+export function loadCore(url, extra = []) {
   if (modules.has(url.href)) return modules.get(url.href);
   const exports = {};
   modules.set(url.href, exports);
@@ -28,9 +30,9 @@ export function loadCore(url) {
   runInNewContext(outputText, {
     exports, URL, Math, Number, String, Array, Object, JSON, Set, Map, process: processShim,
     require: (specifier) => {
-      if (BUILTINS.has(specifier)) return require(specifier);
+      if (BUILTINS.has(specifier) || extra.includes(specifier)) return require(specifier);
       assert.ok(specifier.startsWith('.'), `unexpected core dependency: ${specifier}`);
-      return loadCore(new URL(specifier.replace(/\.js$/, '.ts'), url));
+      return loadCore(new URL(specifier.replace(/\.js$/, '.ts'), url), extra);
     },
   }, { filename: url.pathname });
   return exports;

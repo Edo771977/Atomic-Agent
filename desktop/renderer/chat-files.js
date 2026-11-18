@@ -204,7 +204,8 @@ const CF = {sid: null, sig: '', files: [], missing: new Set(), stat: new Set(), 
 function chatFilesNow() {
   if (typeof S === 'undefined' || !S || S.room !== 'chat') return [];
   return chatFilesOf(S.log, {
-    workingDir: typeof workingDir === 'function' ? workingDir() : '',
+    // Issue #67: the open chat's own folder resolves its relative paths; the window's is for new chats.
+    workingDir: (typeof chatWorkingDir === 'function' ? chatWorkingDir() : '') || (typeof workingDir === 'function' ? workingDir() : ''),
     home: typeof homeDir === 'function' ? homeDir() : '',
     argsOf: (m) => (typeof toolArgsObj === 'function' ? toolArgsObj(m.args || m.arg) : {}),
     split: typeof attSplitMessage === 'function' ? attSplitMessage : null,

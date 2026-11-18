@@ -31,7 +31,10 @@ function engineDownReasonIn(ev) {
   const code = DEAD_ENGINE_REASON;
   // The agent's field is `code` (ATO-772); the others cost nothing to also accept.
   return p.code === code || ev.code === code
-    || (p.cause && p.cause.kind === code) || p.reason === code || p.category === code;
+    || (p.cause && p.cause.kind === code) || p.reason === code || p.category === code
+    // Review of #67: a chain whose first link a folder refused carries that
+    // link's constraint `code`; the ending's verdict (ATO-384) still says it.
+    || (!!p.failure && p.failure.cause === code);
 }
 
 /** Words of an older agent that mean nothing listens on the local port (not a timeout). */

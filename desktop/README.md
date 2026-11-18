@@ -103,6 +103,27 @@ begun meanwhile in another chat, a scheduled task or a Telegram reply,
 `main/workspace-busy.ts`, ATO-733). Then the folder stays as it was and the
 window shows "Not while a turn is running".
 
+The workspace chip at the top of the sidebar names the folder the chat on
+screen works in while a chat with a session is open (issue #67,
+`chatWorkingDir` / `workspaceChipInfo` in renderer.js): as the agent stored
+it or the chip moved it, else its list row's `workingDir`, else its
+project's folder; the tooltip says "This chat works in <path>" with its
+project, and that choosing a folder moves this chat there and that a
+restricted chat keeps its restriction (core issue #68) (a cloud chat: opens
+a new chat there). The tooltip is decided by the same session the click
+sends (`workspaceChipTarget`: the open chat's, none in Studio or for a cloud
+agent), so a named chat whose folder is not known yet says "This chat's
+folder is not known yet" and that choosing one moves it. With no chat on screen or a new chat it names the folder
+for new chats; a new chat marked for a project names the project folder it
+will open in. A new chat's first turn keeps the folder it runs in (the
+project's, else the window's, `firstTurnFolder`) in its `LIVE_TURNS` record,
+and the chat's pending row takes it when the stream names the session, so
+until the agent stores the chat the workspace chip ("This new chat works
+in …"), the provisional restriction chip and the Terminal button use that
+folder, not the window's. The code block's Terminal button and the chat's file list use
+the open chat's folder; the start screen, Settings › General ("New chats
+open in this folder.") and Diagnostics keep the folder for new chats.
+
 | Surface | Route |
 |---|---|
 | Liveness, llama-server reachability | `GET /health` |
@@ -239,6 +260,63 @@ sends no error text and no folder name; an unrestricted one sends the
 whole note. No chat id, no answer or an error answer sends nothing. An
 agent from before `channelsAllowed` is logged once; its unrestricted chats
 still push and its restricted ones do not.
+
+### Restricted folders
+
+A turn a per-folder constraint (`projects.constraints`) refuses never
+leaves the machine, so its failure row does not say the provider is "not
+answering". The agent's failure frame carries `code`
+`ATOMIC_AGENT_PROVIDER_NOT_ALLOWED` or `ATOMIC_AGENT_EGRESS_NOT_ALLOWED` and
+its sentence in `advice` (src/http/failure-reason-frame.ts); the row reads
+"Turn stopped. " and that sentence, as the TUI's chat line does, with the
+TUI's `ctrl+r` left out of the hint (`/runmode local` works here). A frame
+without `advice`, and the 400 a turn's own provider gets before the stream
+(the message agent-client's `httpErrorDetail` shows), are read from the
+agent's words: "Turn stopped. The folder … is restricted to: …, so … can't
+be used here." (a policy of several folders, keyed "A + B", reads "The
+folders A and B are"; a shell command refused for running a network client
+reads "… runs curl, which could send content off this machine.") (`constraintTurnLine` in renderer.js, ahead of every other
+wording of a failed turn). A chain that went on past the refused link
+(`fallback_failures` in the frame) ended on a later one: when the verdict
+says that was the managed local model with its engine gone
+(`failure.cause: "local_engine_down"`, which `dead-engine.js` now reads too),
+the row is the dead-engine one with Start model; any other ending keeps the
+refusal and adds "The fallback after it failed too (Providers tried)."
+
+A restricted chat wears a "restricted to: <providers>" chip after the
+composer's route chips, as the TUI composer does
+([chat-restriction.js](renderer/chat-restriction.js)). It is the agent's
+`GET /api/sessions/{id}/provider-restriction` (IPC
+`agent:providerRestriction`, read by
+[provider-restriction.ts](main/provider-restriction.ts)), asked when a chat
+is opened, when each of its turns ends (a read inside a restricted
+folder narrows the chat mid-turn) and when a config read finds
+`projects.constraints` changed (`restrictionConfigChanged`, from
+`refreshLiveConfig`), and when the workspace chip moves the open chat to
+another folder (`applyWorkspaceChoice`). The tooltip says why (the chat's folder,
+or the restricted folders it read from), the providers allowed, whether chat
+channels and phone push are allowed (always the agent's `channelsAllowed`),
+the egress classes allowed (the intersection of this window's config
+`allowedEgress` for the entries the agent names, shown only for an agent on
+this computer, IPC `remote: false`, whose config has every entry and agrees
+with `channelsAllowed`) and what
+Fusion does: both sides, the orchestrator alone, the workers' model alone,
+or neither. No answer, an error, a 404 (an older agent, or a chat not
+stored yet) or an unrestricted chat: no chip. A 404 is asked once more
+after `PENDING_GRACE_MS` (the agent stores a first turn as its loop winds
+down). A chat with no session yet (before its first message, a chat marked
+for a project included) wears a provisional chip (dashed, `provisional`)
+worked out from the folder it will open in (the project's, else the
+window's) by main (IPC `agent:folderConstraint`,
+[folder-constraint.ts](main/folder-constraint.ts)): config.json's
+`projects.constraints` matched as the agent matches them (normalised paths,
+real paths through links, a linked worktree's repository; the deepest entry
+wins), a port that `test/folder-constraint.test.mjs` runs against the
+agent's own `resolveProjectConstraint`; for an agent on this computer only; its tooltip says the agent
+confirms it once the first message is sent. When the stream names a new
+chat's session the window asks the agent at once, and until the agent
+answers for a chat it has not stored yet (item 27's pending row; its route
+answers 404 until then) the provisional chip stays.
 
 ## Process model
 
@@ -433,7 +511,18 @@ Real, driven by the running agent:
   while the mark holds; Clear Transcript before the first turn keeps it, a
   plain New chat or opening another chat drops it. As with New
   chat, a turn running in the chat on screen keeps running there, and in the
-  narrow window's drawer the click closes the drawer. An empty project says
+  narrow window's drawer the click closes the drawer. That chat is listed
+  under the project as soon as its first message is sent (issue #67): a
+  stand-in row keyed by the turn (`turn:<turnId>`, carrying the project)
+  stands there until the stream names the chat's session, and then the
+  chat's own row, filed by its id, takes its place, so it is never listed
+  twice. Until main's `projects:changed` read files it in the store, that
+  row carries the project itself; the store's map is never written here, so
+  an assignment main refused leaves the stored chat under Chats. A turn that ends before naming one takes its stand-in with it. The
+  stand-in shows the new chat when clicked, from another chat too: the turn
+  the window keeps for it (item 38's `LIVE_TURNS`) is put back on screen with
+  what came meanwhile (`projectStandInShow`); it has no menu, rename or drag
+  until it is a chat. An empty project says
   "No chats yet. Start one with + or drag a chat here". The collapsed rail
   hides the headers; the drawer (⌘ \) shows them.
   Pinning and the read stamps live in Electron's `userData/prefs.json` — per

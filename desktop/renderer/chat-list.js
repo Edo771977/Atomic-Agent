@@ -219,7 +219,8 @@ function projectOf(state, row, home) {
   if (!state || !row || !row.id) return null;
   const homeKey = home ? projectPathKey(home) : '';
   const projects = state.projects || [];
-  const put = state.chats && state.chats[row.id];
+  // Issue #67: a new chat's stand-in carries its project (chat-projects.js projectStandInNote).
+  const put = (state.chats && state.chats[row.id]) || row.projectId;
   if (put) { const p = projects.find((x) => x.id === put); if (p) return p; }
   const key = projectPathKey(row.workingDir);
   if (!key) return null;
@@ -245,7 +246,7 @@ function projectGroups(state, rows, folders, home) {
   const filed = (folders && folders.chats) || {};
   const rest = [];
   for (const r of rows || []) {
-    const fid = r && filed[r.id];
+    const fid = r && (filed[r.id] || r.folderId);
     const p = fid && folderIds.has(fid) ? null : projectOf(state, r, home);
     if (p && by.has(p.id)) by.get(p.id).push(r); else rest.push(r);
   }

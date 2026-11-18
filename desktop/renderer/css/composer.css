@@ -267,6 +267,13 @@
 .cfoot .cchip.setupchip > svg{color:var(--blue)}
 /* The wizard's download running: a status, not a control, so no hover. */
 .cfoot .cchip.pullchip,.cfoot .cchip.pullchip:hover{background:var(--brand-wash);cursor:default}
+/* Issue #67: the chat's folder constraint ("restricted to: local-llama"). A
+   status with a tooltip, not a control: no hover, focusable for the tooltip. */
+.cfoot .cchip.restrictchip,.cfoot .cchip.restrictchip:hover{background:var(--amber-wash);color:var(--amber-text);cursor:default}
+.cfoot .cchip.restrictchip > svg{color:var(--amber-text)}
+.cfoot .restrictchip .cval{max-width:26ch}
+/* Before the agent has answered for a new chat: worked out from this window's config. */
+.cfoot .cchip.restrictchip.provisional{background:transparent;box-shadow:inset 0 0 0 1px var(--amber-wash)}
 
 /* Fusion: the ⇄ between the two seats and the fourth control, `workers`
    (composer-meta-controls.tsx). Neutral like the rest of the row — the
