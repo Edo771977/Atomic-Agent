@@ -19,7 +19,7 @@ import { openLoginTerminal } from "./subscription-cli-login.js";
 import { resetCoreForRedownload, seedBundledCore } from "./core-seed.js";
 import { engineBusy, retryWhileEngineBusy } from "./engine-busy-retry.js";
 import { coreUpdateNoticeVersion, readDismissedCoreUpdate, writeDismissedCoreUpdate } from "./core-update-notice.js";
-import { folderForTurn, folderTurnDir, readChatFolders, writeChatFolders } from "./chat-folders.js";
+import { folderDirForTurn, folderForTurn, readChatFolders, writeChatFolders } from "./chat-folders.js";
 import { assignChat, deleteProject, readProjects, saveProject, turnProject, updateProjects } from "./projects-store.js";
 import { newChatSessionId } from "./chat-session.js";
 import { cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
@@ -1714,6 +1714,24 @@ function wireIpc(client: AgentClient): void {
        a message queued behind that turn goes out at that very moment. A turn
        asked for while a switch's restart runs waits for it, and runs on the
        agent it brings up rather than on one being stopped. */
+    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
+    /* Review of #62 and #74: a chat in a chat folder the import sorted by a
+       project directory works in that directory while it has no stored turns
+       (a new chat, or a queued `waiting-…` one filed there). Asked before the
+       switch wait below, which must be the last await before the turn starts. */
+    const folders = readChatFolders(DESKTOP_STATE_DIR);
+    const filedDir = await folderDirForTurn(folders, known, projectId, {
+      remote: client.isRemote,
+      isStored: async (sid) => {
+        try {
+          const s = (await client.session(sid)) as { turns?: unknown } | null;
+          return !Array.isArray(s?.turns) || s.turns.length > 0;
+        } catch (err) {
+          if (/HTTP 404\b/.test(String(err))) return false;
+          throw err;
+        }
+      },
+    });
     // One restart can follow another; the turn starts with no await after the last look.
     let waited = false;
     for (let r = switchRestartOnItsWay(); r; r = switchRestartOnItsWay()) {
@@ -1723,7 +1741,6 @@ function wireIpc(client: AgentClient): void {
     if (waited && client.status.state !== "connected") {
       return { ok: false, error: client.status.error ?? "the agent did not come back after the switch restarted it" };
     }
-    const known = typeof sessionId === "string" && sessionId ? sessionId : null;
     turnNotifier.begin(turnId, known);   // the chat, for a turn refused before any frame names it
     chatTurns.begin(turnId, Date.now() - queuedAt, A.turnRoute());   // ATO-1026: the route, read as the turn goes out
     if (!listed) {
@@ -1750,11 +1767,8 @@ function wireIpc(client: AgentClient): void {
     /* W2 QA: a chat in a project with no disk folder (a chat folder, which the
        sidebar draws as a project, and where it wins over a project by path)
        takes that one's instructions. */
-    const folders = readChatFolders(DESKTOP_STATE_DIR);
     const filed = folderForTurn(folders, known, projectId);
     const instructions = filed ? (filed.instructions ? { name: filed.name, text: filed.instructions } : null) : proj.instructions;
-    // Review of #62: a new chat in a chat folder the import sorted by a project directory works in that directory.
-    const filedDir = !known && filed && !client.isRemote ? folderTurnDir(folders, filed.id) : undefined;
     void client.chat(turnId, clean, chatId, filedDir ?? proj.workingDir, instructions, reasoning, turnModel ?? undefined, team);
     return { ok: true, turnId };
   }

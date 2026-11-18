@@ -253,8 +253,8 @@ test("a new chat in an import-sorted chat folder works in the folder's directory
   assert.equal(M.folderTurnDir(data, "fc"), undefined, "a folder made here has none");
   assert.equal(M.folderTurnDir(data, "fd"), undefined, "a directory no longer there");
   assert.equal(M.folderTurnDir(data, undefined), undefined);
-  // main.ts: only a new chat takes it, and never on a remote agent (that computer's paths are not this one's).
+  // main.ts: only a chat with no stored turns takes it, never on a remote agent (folderDirForTurn; test/chat-folder-turn-dir.test.mjs).
   const main = readFileSync(new URL("../main/main.ts", import.meta.url), "utf8");
-  assert.match(main, /const filedDir = !known && filed && !client\.isRemote \? folderTurnDir\(folders, filed\.id\) : undefined;/);
+  assert.match(main, /const filedDir = await folderDirForTurn\(folders, known, projectId, \{/);
   assert.match(main, /void client\.chat\(turnId, clean, chatId, filedDir \?\? proj\.workingDir, instructions,/);
 });

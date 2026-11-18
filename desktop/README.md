@@ -528,7 +528,9 @@ Real, driven by the running agent:
   made the project: New chat, and that chat's first turn opens in the project
   (its folder and instructions; a chat folder files the chat, and one the
   import sorted by a project directory works in that directory when this
-  computer has it, `main/chat-folders.ts` folderTurnDir). A first turn
+  computer has it, `main/chat-folders.ts` folderTurnDir; also a queued
+  `waiting-…` chat filed there while the agent has no stored turns for it,
+  folderDirForTurn). A first turn
   main refuses ("could not start the turn") keeps that, so the retry still
   opens in the project. Until that turn, the model chip and the switcher read
   and set the project folder's cloud model (ATO-1148), the folder that turn

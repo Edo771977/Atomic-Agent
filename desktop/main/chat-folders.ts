@@ -125,6 +125,34 @@ export function folderTurnDir(data: ChatFolders, folderId: unknown, isDir: (dir:
   return dir && isAbsolute(dir) && isDir(dir) ? dir : undefined;
 }
 
+/**
+ * Review of #74: the directory a turn in a chat folder works in, or undefined
+ * (the chat's own folder, or the window's). A new chat (no id) asked for
+ * folder `folderId`, and a chat the window gave an id that the agent has no
+ * stored turns for yet (a queued `waiting-…` chat filed in the folder), take
+ * folderTurnDir; a stored chat keeps its own folder. Never on a remote agent
+ * (this computer's paths mean nothing there). The agent is asked (`isStored`)
+ * only when there is a directory to give; an agent that cannot say counts the
+ * chat as stored.
+ */
+export async function folderDirForTurn(
+  data: ChatFolders,
+  sessionId: string | null,
+  folderId: unknown,
+  opts: { remote: boolean; isStored: (sessionId: string) => Promise<boolean>; isDir?: (dir: string) => boolean },
+): Promise<string | undefined> {
+  if (opts.remote) return undefined;
+  const filed = folderForTurn(data, sessionId, folderId);
+  if (!filed) return undefined;
+  const dir = folderTurnDir(data, filed.id, opts.isDir);
+  if (!dir || !sessionId) return dir;
+  try {
+    return (await opts.isStored(sessionId)) ? undefined : dir;
+  } catch {
+    return undefined;
+  }
+}
+
 function isDirectory(dir: string): boolean {
   try { return statSync(dir).isDirectory(); } catch { return false; }
 }
