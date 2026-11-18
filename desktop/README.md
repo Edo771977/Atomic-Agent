@@ -146,6 +146,13 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | "Trust this folder?" and Settings › Skills' folder-trust switch (ATO-1250) | `GET` / `POST /api/project-trust` |
 | The grey next-step suggestion in the empty composer, Tab takes it (ATO-1094; only while Settings › General › Suggest a next step, `tui.nextStepSuggestions`, is on; hidden on an agent without the route) | `GET /api/sessions/{id}/next-step` |
 
+**Events stream reconnects (issue #74).** `GET /api/events` is reopened only
+after a pause: 1 s after a stream that delivered frames, and 1 s doubling to
+30 s while answers are refused (401/404/429/5xx, the body is cancelled),
+fetches fail or streams end empty. A remote agent answering 401/403 puts the
+status in `error` ("refused the access token"), which the `/health` watch does
+not clear until a stream is accepted again.
+
 The turn stream is sent with `X-Atomic-Extensions: 1`, which upgrades it from
 plain OpenAI chunks to atomic's named frames — `session_id`,
 `reasoning_progress`, `tool_progress`, `tool_update` (a long call's progress,
