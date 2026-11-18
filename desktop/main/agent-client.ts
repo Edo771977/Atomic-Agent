@@ -391,6 +391,28 @@ async function freePort(): Promise<number> {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A sleep an abort ends early (the events stream's reconnect pause). */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+const EVENTS_RETRY_BASE_MS = 1000;
+const EVENTS_RETRY_MAX_MS = 30_000;
+
+/** Issue #74: the pause before reconnect number `failures` (0-based) of /api/events: 1 s doubling, capped at 30 s. */
+export function eventsRetryDelay(failures: number): number {
+  return Math.min(EVENTS_RETRY_MAX_MS, EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, Math.min(failures, 16)));
+}
 /** `4 s`, `0.3 s`: a wait as the log says it. */
 const seconds = (ms: number) => `${Number.isInteger(ms / 1000) ? ms / 1000 : (ms / 1000).toFixed(1)} s`;
 
@@ -705,6 +727,9 @@ export class AgentClient extends EventEmitter {
   private readonly opts: AgentClientOptions;
   private readonly recordPath: string;
 
+  /** Issue #74: the remote agent's /api/events refused the token (401/403); cleared by an accepted stream. */
+  private eventsRefused = false;
+
   status: AgentStatus = {
     state: "stopped",
     binary: null,
@@ -785,6 +810,7 @@ export class AgentClient extends EventEmitter {
     const r = this.remote!;
     const epoch = this.stopEpoch;
     this.stopping = false;
+    this.eventsRefused = false;
     let port: number;
     try {
       const u = new URL(r.url);
@@ -831,7 +857,8 @@ export class AgentClient extends EventEmitter {
       misses = up ? 0 : misses + 1;
       if (misses >= 3 && this.status.state === "connected") {
         this.setStatus({ state: "error", error: `The agent at ${r.url} stopped answering.` });
-      } else if (up && this.status.state === "error") {
+      } else if (up && this.status.state === "error" && !this.eventsRefused) {
+        // A refused token (openApprovalStream) is not cured by /health answering.
         this.setStatus({ state: "connected", error: null });
       }
       setTimeout(() => void tick(), 15_000).unref?.();
@@ -948,14 +975,18 @@ export class AgentClient extends EventEmitter {
           "127.0.0.1",
           "--port",
           String(port),
-          "--api-key",
-          token,
           ...serveWatchArgs(process.platform, sentinel?.pid),
         ],
         {
           cwd: this.status.workingDir,
           // r5 item 9: `atag serve` runs on the desktop's own state directory.
-          env: agentEnv(),
+          /* Issue #74: the per-launch key goes in the environment, not as
+             `--api-key` on the command line `ps` shows every user. Every agent
+             the desktop can pick (bundled or user-installed) reads it there:
+             serve-args.ts has fallen back to it since before the desktop app
+             existed, so no flag fallback is kept. A current agent also deletes
+             it from its own environment once read. */
+          env: { ...agentEnv(), ATOMIC_AGENT_API_KEY: token },
           stdio: ["ignore", "pipe", "pipe"],
           // Windows: a console child of a GUI app otherwise opens a console window.
           windowsHide: true,
@@ -1171,21 +1202,50 @@ export class AgentClient extends EventEmitter {
     return true;
   }
 
-  /** SSE stream of approval requests, reconnected while this child lives. */
+  /**
+   * SSE stream of approval requests, reconnected while this child lives.
+   *
+   * Issue #74: every reconnect waits. A refused answer (401/404/429/5xx), a
+   * failed fetch or a stream that ends without a frame waits longer each time
+   * (eventsRetryDelay: 1 s doubling to 30 s); a stream that delivered frames
+   * and then ended waits 1 s. Before this a refused answer was refetched at
+   * once, thousands of requests a second. A remote agent that refuses the
+   * token (401/403) also says so in the status, and the /health watch does not
+   * read it as connected again while the refusal lasts (health needs no token).
+   */
   private openApprovalStream(alive: () => boolean): void {
     this.events?.abort();
     const controller = new AbortController();
     this.events = controller;
+    const remote = this.remote;
 
     void (async () => {
+      let failures = 0;
       while (!controller.signal.aborted && alive()) {
+        let frames = 0;
         try {
           const res = await fetch(`${this.base()}/api/events`, {
             headers: { authorization: `Bearer ${this.authToken()}` },
             signal: controller.signal,
           });
+          if (!res.ok) {
+            void res.body?.cancel().catch(() => undefined);
+            if (remote && (res.status === 401 || res.status === 403) && alive()) {
+              this.eventsRefused = true;
+              this.setStatus({
+                state: "error",
+                error: `The agent at ${remote.url} refused the access token (HTTP ${res.status}). Check the token in Settings.`,
+              });
+            }
+            throw new Error(`/api/events → HTTP ${res.status}`);
+          }
           if (!res.body) throw new Error("no body");
+          if (this.eventsRefused && alive()) {
+            this.eventsRefused = false;
+            if (this.status.state === "error") this.setStatus({ state: "connected", error: null });
+          }
           for await (const frame of sseFrames(res.body, controller.signal)) {
+            frames++;
             // Issue #39: project_gate is the project card's, not an approval.
             const routed = routeEventsFrame(frame);
             if (!routed) continue;
@@ -1197,8 +1257,10 @@ export class AgentClient extends EventEmitter {
           }
         } catch {
           if (controller.signal.aborted) return;
-          await sleep(1000);
         }
+        // Ended, refused or failed: wait before the next try, longer while nothing comes through.
+        failures = frames > 0 ? 0 : failures + 1;
+        await abortableSleep(frames > 0 ? EVENTS_RETRY_BASE_MS : eventsRetryDelay(failures - 1), controller.signal);
       }
     })();
   }

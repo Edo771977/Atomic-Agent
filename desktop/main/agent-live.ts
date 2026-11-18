@@ -1,8 +1,9 @@
 import { ipcMain, shell } from "electron";
 
 import type { AgentClient } from "./agent-client.js";
-import { readWholeConfig, rewriteWholeConfig, withConfigLock } from "./agent-cli.js";
-import { planAddReviewer, planFollowLegs, readFusionTeam, readLegMembers, writeLegMembers, type FusionTeamAnswer, type LegMembers, type TeamShape } from "./fusion-team.js";
+import { CONFIG_CHANGED_ELSEWHERE, readConfigWithSha, readWholeConfig, rewriteWholeConfig, withConfigLock } from "./agent-cli.js";
+import { readFusionTeam, readLegMembers, writeLegMembers, type FusionTeamAnswer } from "./fusion-team.js";
+import { writeFusionTeam, type FusionTeamWriteResult } from "./fusion-team-write.js";
 import { DESKTOP_STATE_DIR } from "./state-dir.js";
 import { folderConstraintFor, type FolderConstraint } from "./folder-constraint.js";
 import { isSafeSignInUrl } from "./mcp-auth-url.js";
@@ -172,39 +173,19 @@ export function wireAgentLiveIpc(client: AgentClient): void {
     }
   });
   /* "Add a reviewer…" and a leg moved off the team: planned from the file
-     under the config lock, then the team block sent live (PATCH replaces its
-     arrays whole), or, on an agent without live writes, the whole file. */
-  ipcMain.handle("agent:fusionTeamWrite", async (_event, payload: unknown): Promise<{ ok: boolean; changed?: boolean; live?: boolean; error?: string }> => {
-    const p = isPlainObject(payload) ? payload : {};
-    const op = p.op;
-    if (op !== "addReviewer" && op !== "followLegs") return { ok: false, error: "op must be addReviewer or followLegs" };
-    if (op === "addReviewer" && typeof p.ref !== "string") return { ok: false, error: "ref is required" };
-    // Which member the desktop last wrote for each seat, so a moved seat replaces it (fusion-team.ts).
-    const last = readLegMembers(DESKTOP_STATE_DIR);
-    const plan = (cfg: Parameters<typeof planFollowLegs>[0]): { write: boolean; team?: TeamShape; legs?: LegMembers; error?: string } =>
-      op === "addReviewer" ? planAddReviewer(cfg, p.ref as string) : planFollowLegs(cfg, last);
-    const remember = (legs: LegMembers | undefined): void => {
-      if (legs !== undefined) writeLegMembers(DESKTOP_STATE_DIR, { ...last, ...legs });
-    };
-    if (await agentHasLiveRoutes(client)) {
-      return withConfigLock(async () => {
-        const read = await readWholeConfig();
-        if (!read.ok || !read.config) return { ok: false, error: read.error ?? "could not read config.json" };
-        const verdict = plan(read.config);
-        if (verdict.error) return { ok: false, error: verdict.error };
-        if (!verdict.write || !verdict.team) return { ok: true, changed: false };
-        try {
-          await client.patchConfig({ llm: { runMode: { fusion: { team: verdict.team } } } });
-          remember(verdict.legs);
-          return { ok: true, changed: true, live: true };
-        } catch (err) {
-          return { ok: false, error: message(err) };
-        }
-      });
-    }
-    const res = await rewriteWholeConfig((cfg) => plan(cfg));
-    if (res.verdict?.error) return { ok: false, error: res.verdict.error };
-    if (res.ok && res.changed) remember(res.verdict?.legs);
-    return res.ok ? { ok: true, changed: res.changed, live: false } : { ok: false, error: res.error ?? "config write failed" };
-  });
+     and the legs bookkeeping under the config lock, then the team block sent
+     live (PATCH replaces its arrays whole) after the file's hash is checked
+     again, or, on an agent without live writes, the whole file by
+     compare-and-swap (fusion-team-write.ts, issue #74). */
+  ipcMain.handle("agent:fusionTeamWrite", (_event, payload: unknown): Promise<FusionTeamWriteResult> =>
+    writeFusionTeam(payload, {
+      live: () => agentHasLiveRoutes(client),
+      withLock: withConfigLock,
+      readWithSha: readConfigWithSha,
+      patchTeam: (team) => client.patchConfig({ llm: { runMode: { fusion: { team } } } }),
+      rewrite: (plan) => rewriteWholeConfig(plan),
+      readLegs: () => readLegMembers(DESKTOP_STATE_DIR),
+      writeLegs: (legs) => writeLegMembers(DESKTOP_STATE_DIR, legs),
+      changedElsewhere: CONFIG_CHANGED_ELSEWHERE,
+    }));
 }

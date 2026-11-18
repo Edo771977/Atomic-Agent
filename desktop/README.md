@@ -19,12 +19,16 @@ npm start
 One child process, one transport. The main process spawns
 
 ```
-atag serve --host 127.0.0.1 --port <ephemeral> --api-key <random per launch>
+ATOMIC_AGENT_API_KEY=<random per launch> atag serve --host 127.0.0.1 --port <ephemeral>
 ```
 
 with `cwd` set to the chosen workspace, waits for `/health`, and speaks HTTP to
 it. The port is ephemeral, the bind is loopback-only, and the bearer token is
-generated per launch, so nothing outside this app can reach the agent.
+generated per launch, so nothing outside this app can reach the agent. The
+token travels in the child's environment, not as `--api-key` on the command
+line other users see in `ps` (issue #74); every agent the app can pick reads
+it there (serve's env fallback predates the desktop app), so no flag fallback
+is kept, and a current agent deletes it from its own environment once read.
 
 **Folder trust (ATO-1250).** A folder's own skills and instruction files
 (`AGENTS.md`, `.atomic-agent/skills`, …) load only after the person trusts
@@ -145,6 +149,13 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | Compacting a chat's context now | `POST /api/sessions/{id}/compact` |
 | "Trust this folder?" and Settings › Skills' folder-trust switch (ATO-1250) | `GET` / `POST /api/project-trust` |
 | The grey next-step suggestion in the empty composer, Tab takes it (ATO-1094; only while Settings › General › Suggest a next step, `tui.nextStepSuggestions`, is on; hidden on an agent without the route) | `GET /api/sessions/{id}/next-step` |
+
+**Events stream reconnects (issue #74).** `GET /api/events` is reopened only
+after a pause: 1 s after a stream that delivered frames, and 1 s doubling to
+30 s while answers are refused (401/404/429/5xx, the body is cancelled),
+fetches fail or streams end empty. A remote agent answering 401/403 puts the
+status in `error` ("refused the access token"), which the `/health` watch does
+not clear until a stream is accepted again.
 
 The turn stream is sent with `X-Atomic-Extensions: 1`, which upgrades it from
 plain OpenAI chunks to atomic's named frames — `session_id`,
@@ -317,6 +328,18 @@ confirms it once the first message is sent. When the stream names a new
 chat's session the window asks the agent at once, and until the agent
 answers for a chat it has not stored yet (item 27's pending row; its route
 answers 404 until then) the provisional chip stays.
+
+### Opening files the agent names
+
+`app:openPath`, `app:statPaths` and `app:fileMenu` take only an absolute local
+path (`localPathArg` in `main/reply-paths.ts`); on Windows a network or device
+path (`\\host\share`, `//host/share`, `\\?\…`) is refused, as it is for a
+path in a reply (issue #74). A file that would run, install, mount or follow a
+link when opened (`RUNS` there: scripts, installers, shortcuts, and since #74
+also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
+`.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
+`.xbap`, and macOS `.mobileconfig`/`.configprofile`) is shown in the file
+manager instead.
 
 ## Process model
 
@@ -1745,6 +1768,21 @@ through an env var.
   `config.json` and make it look otherwise), and creates the directory.
   Every spawn site names `agentEnv()` as well, so inheritance is never the
   only guarantee.
+- **The `stateDir` an IPC is handed (issue #74).** `cli:trace*`,
+  `app:memoryQuery`, `app:dotenvKeys`/`dotenvSet` and `composio:*` take a
+  `stateDir` from the renderer. It must name the desktop's directory itself
+  once both sides are canonical (`..` resolved, symlinks followed:
+  `desktopStateDirArg`), and the handler then works on `DESKTOP_STATE_DIR`,
+  never on the renderer's string. `underDesktopState` (containment) compares
+  the same canonical forms, so `<state>/../x` is not inside.
+- **`projects.json` (`main/projects-store.ts`, issue #74).** Every change is
+  made under `projects.json.lock` (O_EXCL; a lock older than 10 s is a crashed
+  writer's and is broken; waiting longer than 2 s answers "being changed in
+  another window") and as a compare-and-swap: the file is read again before
+  the write and the change is made again on what is there now (3 tries). A
+  rewrite keeps unknown top-level and per-project fields and entries this
+  version cannot read, with their chats. A file that does not parse is read
+  once more after 100 ms before it is set aside as `projects.json.bad-<ms>`.
 - **On a directory of its own, the model weights are shared; nothing else
   is.** On a fresh such directory, `<dir>/models/models` is symlinked to the terminal
   agent's, so the gigabytes are not downloaded twice, and `models/backend`
@@ -2297,7 +2335,7 @@ Issue #71. The Fusion strip has three seats. **Director** and **Worker** are the
 
 A pick rides on each of the chat's turns as `reviewer` (a member, `"none"` or `"team"`) until the agent's answer shows it stamped; then it is used up and the seat reads the stamp. A turn the agent refuses (a reviewer the folder does not allow, say) keeps the pick, and the seat's tooltip says "Not applied yet:" with the agent's words. A new chat's pick moves to the chat once the agent names it. An agent without the route shows no Reviewer seat.
 
-"Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. An API provider that names no model is listed disabled: pick its model in Settings › Models first, since a reviewer is priced and tiered by its model. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json under the config lock and sent live as the `team` block (`PATCH /api/config`). An agent without live writes gets the whole-file write and a note to restart. With no team, the write creates one from the Director seat alone (`directors: [director seat]`) and the reviewer. It writes no `workers`, so the worker leg, `fusion.roles` and measured routing run as before. When that director is the orchestrator leg itself, the agent leads with it without a stamp or a notice. A member names a model. `"<id>:default"`, the entry's own model, is used only for a subscription CLI that names none (a Codex subscription on the account's default). The first reviewer of a team also writes `team.review: "off"` unless review was explicitly `"on"`. Otherwise listing a reviewer would turn review on, and its cost, for every chat; this way only chats that pick a reviewer are reviewed (a chat's own choice wins over `team.review`). The chat where "Add a reviewer…" was used gets that reviewer picked. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
+"Add a reviewer…" lists the configured cloud providers that are not reviewers yet, with an OpenAI Codex (ChatGPT) subscription first. An API provider that names no model is listed disabled: pick its model in Settings › Models first, since a reviewer is priced and tiered by its model. Picking one writes `team.reviewers` (IPC `agent:fusionTeamWrite`, `planAddReviewer`). The write is planned from config.json and `fusion-team-legs.json`, both read under the config lock ([fusion-team-write.ts](main/fusion-team-write.ts)), and sent live as the `team` block (`PATCH /api/config`). That route takes no expected hash, so the file's sha256 is read again right before the PATCH: a file another writer changed meanwhile is read and planned again (3 tries, then "changed somewhere else"; issue #74). An agent without live writes gets the whole-file compare-and-swap write and a note to restart. With no team, the write creates one from the Director seat alone (`directors: [director seat]`) and the reviewer. It writes no `workers`, so the worker leg, `fusion.roles` and measured routing run as before. When that director is the orchestrator leg itself, the agent leads with it without a stamp or a notice. A member names a model. `"<id>:default"`, the entry's own model, is used only for a subscription CLI that names none (a Codex subscription on the account's default). The first reviewer of a team also writes `team.review: "off"` unless review was explicitly `"on"`. Otherwise listing a reviewer would turn review on, and its cost, for every chat; this way only chats that pick a reviewer are reviewed (a chat's own choice wins over `team.review`). The chat where "Add a reviewer…" was used gets that reviewer picked. With no cloud provider set up, the popover says to add one in Settings › Models with Add provider (Codex and Claude subscriptions are there) and shows the button.
 
 To make Codex the reviewer:
 
