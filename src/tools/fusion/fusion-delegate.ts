@@ -737,6 +737,14 @@ export function buildFusionDelegateTool(
       const orchestratorTaskIds = parsed.tasks
         .filter((t) => taskLegs.get(t.id)?.orchestrator === true)
         .map((t) => t.id);
+      // The tasks this call will run (issue #87): a resume's carried rows
+      // and those awaiting the person's yes never start here. One set for
+      // the admission check and for the accounting when workers start.
+      const notRunHere = new Set(
+        resume === undefined ? [] : [...resume.carried, ...resume.needsConfirmation].map((r) => r.id),
+      );
+      const actionableTaskCount = parsed.tasks.filter((t) => !notRunHere.has(t.id)).length;
+      const actionableOrchestratorTaskIds = orchestratorTaskIds.filter((id) => !notRunHere.has(id));
       const taskIsLocal = (t: DelegateTask): boolean =>
         deps.workerSupportsSlotAffinity(
           taskLegs.get(t.id)?.providerId ?? workerProviderId,
@@ -821,8 +829,8 @@ export function buildFusionDelegateTool(
         const countStop = turnBudget.checkCounts(
           ctx.sessionId,
           { ...countLimits, orchestratorTasks: orchestratorCap },
-          parsed.tasks.length,
-          orchestratorTaskIds.length,
+          actionableTaskCount,
+          actionableOrchestratorTaskIds.length,
         );
         if (countStop?.kind === "orchestrator-tasks") {
           return error(
@@ -836,10 +844,10 @@ export function buildFusionDelegateTool(
             { reason: "turn-count", kind: countStop.kind },
           );
         }
-      } else if (orchestratorTaskIds.length > orchestratorCap) {
+      } else if (actionableOrchestratorTaskIds.length > orchestratorCap) {
         // No turn state to count across calls: the cap still holds per call.
         return error(
-          `fusion.delegate did not run: ${orchestratorCapMessage(orchestratorTaskIds.length, 0, orchestratorCap)}. ${ORCHESTRATOR_TASK_CAP_INSTRUCTION}`,
+          `fusion.delegate did not run: ${orchestratorCapMessage(actionableOrchestratorTaskIds.length, 0, orchestratorCap)}. ${ORCHESTRATOR_TASK_CAP_INSTRUCTION}`,
           { reason: "turn-count", kind: "orchestrator-tasks", cap: orchestratorCap },
         );
       }
@@ -1236,7 +1244,7 @@ export function buildFusionDelegateTool(
                 roleLegs.size === 0
                   ? ""
                   : ` and ${[...roleLegs.values()].map((l) => l.model).join(", ")}`
-              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), parsed.tasks.length, mode) : ""}${describeOversizedLocalTasks(oversized)}${
+              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), actionableTaskCount, mode) : ""}${describeOversizedLocalTasks(oversized)}${
                 planReviewerNotes.size === 0
                   ? ""
                   : `; ${[...planReviewerNotes].map(([id, note]) => `task ${id}: ${note}`).join("; ")}`
@@ -2456,11 +2464,7 @@ export function buildFusionDelegateTool(
           // turn's caps (ATO-1406), with only the tasks it will run — a
           // resume's finished ones are not counted twice.
           if (tracksTurn) {
-            turnBudget.noteRound(
-              ctx.sessionId,
-              parsed.tasks.filter((t) => !finished.has(t.id)).length,
-            orchestratorTaskIds.filter((id) => !finished.has(id)).length,
-            );
+            turnBudget.noteRound(ctx.sessionId, actionableTaskCount, actionableOrchestratorTaskIds.length);
           }
           // Worker completion alone does not establish that a required
           // artifact is usable. Verify providers before releasing consumers,

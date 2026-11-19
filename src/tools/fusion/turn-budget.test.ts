@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -11,6 +14,7 @@ import {
   type FusionDelegateDeps,
 } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
+import { FusionRunStore } from "./run-checkpoint.js";
 import { TurnBudgetExhaustedError, findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 import { fanoutSpend, WorkerRunCollector } from "./worker-result.js";
 
@@ -744,5 +748,81 @@ describe("turn-cap request refusals (issue #29)", () => {
     const inner = new TurnBudgetExhaustedError({ capUsd: 1, accountedUsd: 1.13, heldUsd: 0, requestUsd: 0 });
     expect(findTurnBudgetExhaustedError(new Error("wrapped", { cause: inner }))).toBe(inner);
     expect(findTurnBudgetExhaustedError(new Error("other"))).toBeNull();
+  });
+});
+
+describe("a resume is admitted on the tasks it will run (issue #87)", () => {
+  type Task = { id: string; title: string; instructions: string; model?: string };
+  /** An interrupted run of `tasks` in a fresh store: `carried` finished, `pending` touched a side effect. */
+  function interrupted(tasks: Task[], carried: string[], pending: string[] = []) {
+    const dir = mkdtempSync(join(tmpdir(), "resume-caps-"));
+    const store = new FusionRunStore({ dir });
+    const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks, waveCount: 1, args: { tasks } });
+    for (const id of pending) run.noteTool(id, "deploy.push");
+    for (const id of carried) {
+      run.recordTask({ id, title: id, status: "ok", reply: "done before the restart", stepCount: 1, durationMs: 5,
+        tools: { calls: 0, errors: 0, writes: 0, byTool: {} } });
+    }
+    run.finish("interrupted");
+    return { store, runId: run.runId, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+  const task = (id: string, model?: string): Task => ({ id, title: id, instructions: `do ${id}`, ...(model === undefined ? {} : { model }) });
+
+  it("a two-task checkpoint with one carried task and room for one more: only the unfinished one starts and counts", async () => {
+    const r = interrupted([task("t1"), task("t2")], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.counts("s-parent").tasks).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("the orchestrator cap counts only the orchestrator tasks it will run", async () => {
+    const r = interrupted([task("o1", "orchestrator"), task("o2", "orchestrator")], ["o1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.orchestratorTasks("s-parent")).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("a row awaiting the person's confirmation is not counted", async () => {
+    const r = interrupted([task("t1"), task("t2")], [], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.counts("s-parent").tasks).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("a resume that really is over the cap is still refused", async () => {
+    const r = interrupted([task("t1"), task("t2"), task("t3")], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(0);
+      expect(result.details).toMatchObject({ reason: "turn-count", kind: "tasks" });
+      const o = interrupted([task("o1", "orchestrator"), task("o2", "orchestrator"), task("o3", "orchestrator")], ["o1"]);
+      try {
+        const d2 = deps({ turnBudget: budget, runCheckpoints: o.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 1 }) });
+        const again = await buildFusionDelegateTool(d2).run({ resume: o.runId }, ctx());
+        expect(d2.turns).toBe(0);
+        expect(again.details).toMatchObject({ reason: "turn-count", kind: "orchestrator-tasks" });
+      } finally { o.cleanup(); }
+    } finally { r.cleanup(); }
   });
 });
