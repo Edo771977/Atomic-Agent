@@ -131,15 +131,34 @@ describe("run facts are bound to the criterion text they tested (issue #87)", ()
     });
   }
 
-  it("a run file from before the binding (no text) counts as unverified once the brief was approved after it", () => {
+  it("a fact with no recorded text stands only while the brief was approved exactly once; file times play no part", async () => {
     const at = (ms: number) => ms / 1000;
-    writeRunCriteriaFacts(runs(), { runId: "fr-old", sessionId: "s1" }, [{ taskId: "t1", facts: [{ id: "a", state: "passed" }] }]);
-    const file = join(runs(), "fr-old", "criteria.json");
-    writeFileSync(file, JSON.stringify({ tasks: [{ taskId: "t1", facts: [{ id: "a", state: "passed" }] }] }));
-    utimesSync(file, at(NOW - 60_000), at(NOW - 60_000));
-    const read = (briefApprovedAt: number) =>
-      readMilestoneEvidence({ runsDir: runs(), stateDir: state, runIds: ["fr-old"], criteriaOrder: ["a"], criteria: [COLLAB], briefApprovedAt }).facts;
-    expect(read(NOW - 120_000)).toEqual([{ id: "a", state: "passed" }]);
-    expect(read(NOW)).toEqual([expect.objectContaining({ id: "a", state: "unverified" })]);
+    const oldFile = () => {
+      writeRunCriteriaFacts(runs(), { runId: "fr-old", sessionId: "s1" }, [{ taskId: "t1", facts: [{ id: "a", state: "passed" }] }]);
+      const file = join(runs(), "fr-old", "criteria.json");
+      // A run file from before the binding: no text on its fact.
+      writeFileSync(file, JSON.stringify({ tasks: [{ taskId: "t1", facts: [{ id: "a", state: "passed" }, { id: "b", state: "passed" }] }] }));
+      return file;
+    };
+    // Approved once: the brief cannot have changed since the run.
+    let p = fold(approve(fold(approve(fold(undefined, brief([OFFLINE, LEVELS]))), plan)), { kind: "milestone_run", id: "m1", runId: "fr-old" });
+    expect(p.briefApprovals).toBe(1);
+    const file = oldFile();
+    // A copy, restore or sync that makes the file look newer changes nothing.
+    utimesSync(file, at(Date.now() + 3_600_000), at(Date.now() + 3_600_000));
+    expect((await reportDone(p)).status).toBe("ok");
+    // Approved again (even unchanged): which text the fact tested is unknown.
+    p = revise(p, [OFFLINE, LEVELS]);
+    expect(p.briefApprovals).toBe(2);
+    utimesSync(file, at(Date.now() + 7_200_000), at(Date.now() + 7_200_000));
+    const refused = await reportDone(p);
+    expect(refused.status).toBe("error");
+    expect(refused.summary).toMatch(/a unverified/);
+    // A project with no count (or no approval) cannot vouch for it either.
+    const read = (briefApprovals?: number) =>
+      readMilestoneEvidence({ runsDir: runs(), stateDir: state, runIds: ["fr-old"], criteriaOrder: ["a"], criteria: [OFFLINE], ...(briefApprovals === undefined ? {} : { briefApprovals }) }).facts;
+    expect(read(1)).toEqual([{ id: "a", state: "passed" }]);
+    expect(read(undefined)).toEqual([expect.objectContaining({ id: "a", state: "unverified" })]);
+    expect(read(0)).toEqual([expect.objectContaining({ id: "a", state: "unverified" })]);
   });
 });

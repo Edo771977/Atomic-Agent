@@ -93,7 +93,7 @@ export interface ProjectToolDeps {
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
     /** The approved brief's criteria and approval time: run facts count only for the text they tested (issue #87). */
-    current: { criteria: readonly ProjectCriterion[]; briefApprovedAt?: number },
+    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number },
   ) => MilestoneEvidence;
 }
 
@@ -461,10 +461,10 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
-        const approvedAt = ctx.project?.brief?.approvedAt;
+        const approvals = ctx.project?.briefApprovals;
         const evidence = deps.milestoneEvidence(milestone, order, {
           criteria: ctx.project?.brief?.successCriteria ?? [],
-          ...(approvedAt === undefined ? {} : { briefApprovedAt: approvedAt }),
+          ...(approvals === undefined ? {} : { briefApprovals: approvals }),
         });
         // A milestone closes only when its tests AND criteria pass: the
         // person never sees "done" over a red or unverified criterion.

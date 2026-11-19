@@ -70,21 +70,16 @@ export function writeRunCriteriaFacts(
 }
 
 interface StoredRun {
-  /** When the file was written (its mtime). */
-  writtenAt: number;
   tasks: Array<{ taskId: string; facts: RunFact[] }>;
 }
 
 function readRunTasks(runsDir: string, runId: string): StoredRun {
-  const none: StoredRun = { writtenAt: 0, tasks: [] };
+  const none: StoredRun = { tasks: [] };
   if (!FusionRunStore.isValidRunId(runId)) return none;
   let raw: unknown;
-  let writtenAt: number;
   try {
     const path = join(runsDir, runId, FILE_NAME);
-    const info = statSync(path);
-    if (info.size > MAX_FILE_BYTES) return none;
-    writtenAt = info.mtimeMs;
+    if (statSync(path).size > MAX_FILE_BYTES) return none;
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return none;
@@ -109,7 +104,7 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
     }
     out.push({ taskId: t.taskId, facts });
   }
-  return { writtenAt, tasks: out };
+  return { tasks: out };
 }
 
 /** A criterion text as its meaning: case and runs of whitespace are editorial (as the brief's own check). */
@@ -145,16 +140,20 @@ export function readMilestoneEvidence(input: {
    */
   criteria?: readonly ProjectCriterion[];
   /**
-   * When the brief was last approved. A fact with no recorded text (a run
-   * file from before the binding) is stale when its file is older.
+   * How many times the project's brief was approved
+   * (`ProjectState.briefApprovals`). A fact with no recorded text (a run
+   * file from before the binding, or a resumed run whose checkpoint has
+   * no texts) stands only when this is exactly 1: the brief cannot have
+   * changed since. Absent or any other count: stale. File times are
+   * never read (a copy, restore or sync changes them).
    */
-  briefApprovedAt?: number;
+  briefApprovals?: number;
 }): MilestoneEvidence {
   const currentText = input.criteria === undefined ? undefined : new Map(input.criteria.map((c) => [c.id, meaning(c.text)]));
-  const stale = (fact: RunFact, writtenAt: number): boolean => {
+  const stale = (fact: RunFact): boolean => {
     if (currentText === undefined) return false;
     if (fact.text !== undefined) return currentText.get(fact.id) !== meaning(fact.text);
-    return input.briefApprovedAt !== undefined && writtenAt < input.briefApprovedAt;
+    return input.briefApprovals !== 1;
   };
   // A criterion's newest run stands for it, whichever task carried it
   // there (a fix may come under another task id); within one run, the
@@ -167,7 +166,7 @@ export function readMilestoneEvidence(input: {
     const run = readRunTasks(input.runsDir, runId);
     const inRun = new Map<string, ProjectCriterionFact>();
     for (const task of run.tasks) {
-      const valid = task.facts.filter((f) => !stale(f, run.writtenAt));
+      const valid = task.facts.filter((f) => !stale(f));
       for (const f of task.facts) if (!valid.includes(f)) staleIds.add(f.id);
       byTask.set(task.taskId, valid.map(({ text: _text, ...fact }) => fact));
       for (const { text: _text, ...fact } of valid) {
