@@ -118,7 +118,7 @@ function fakeWindow(calls) {
 
 function startEdit(preview) {
   Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false,
-    noSkip: false, skipPreview: null, skipPending: null, draft: "old text" });
+    skipPreview: null, skipPending: null, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -771,25 +771,30 @@ for (const [mode, label, files] of [["back", "Roll back without these files", un
   });
 }
 
-test("a preview that does not echo skipped: the agent ignores skip there, so only the #80 way out is offered", async () => {
-  const calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED],
-    skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [{ path: A_FILE, action: "restore" }, { path: B_FILE, action: "restore" }], notRestorable: [], uncovered: [] } }] });
+// Issue #83 review: a rollback whose 409 echoed `skipped` supports skip, even when its preview does not
+// (agents between the two changes). The skip rollback stays offered, with a plain warning; "Roll back
+// anyway" is only for an agent whose rollback 409 has no `skipped`.
+test("a skip preview without skipped still offers the skip rollback, warning that its list may include those files", async () => {
+  const calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [A_FILE], deleted: [], failed: [], skipped: [B_FILE] } }],
+    skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [{ path: A_FILE, action: "restore" }, { path: B_FILE, action: "restore" }],
+      notRestorable: [], uncovered: [], planHash: "plan-without-skip" } }] });
   await R.rewindAct("go");
   await R.rewindAct("go-skip");
   const html = R.rewindSheetHTML();
-  assert.match(html, /did not confirm it would leave those files alone/);
-  assert.doesNotMatch(html, /rewind:go-skip/);
-  assert.match(html, /data-act="rewind:go-accept"/);
-  assert.doesNotMatch(html, /leave the files listed above as they are/);
+  assert.match(html, /could not show a preview that leaves those files out, so the list above may include them/);
+  assert.doesNotMatch(html, /rewind:go-accept/, "the files to leave alone would be rewritten");
+  assert.deepEqual(footActs(html).at(-1), ["rewind:go-skip-confirm", "Roll back without these files"]);
+  assert.doesNotMatch(html, /agent confirmed it will skip/);
   assert.equal(agentBodies(calls).length, 1);
-  await R.rewindAct("go-accept");
-  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", acceptFailed: true });
+  await R.rewindAct("go-skip-confirm");
+  // Its planHash is for a plan without the skip: not sent.
+  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", skip: [B_FILE] });
 });
 
 // Issue #83 review: the fixtures did not reset the Continue state, so tests depended on their order.
 test("every fixture and every opening of the sheet starts without Continue state", () => {
-  const dirty = () => Object.assign(R.REWIND, { noSkip: true, skipPreview: { files: [] }, skipPending: ["/w/x"], opened: R.REWIND.opened });
-  const clean = (where) => assert.deepEqual([R.REWIND.noSkip, R.REWIND.skipPreview, R.REWIND.skipPending], [false, null, null], where);
+  const dirty = () => Object.assign(R.REWIND, { skipPreview: { files: [] }, skipPending: ["/w/x"], opened: R.REWIND.opened });
+  const clean = (where) => assert.deepEqual([R.REWIND.skipPreview, R.REWIND.skipPending], [null, null], where);
   dirty(); fakeWindow([]); startEdit(FILES_PREVIEW); clean("startEdit");
   dirty(); ipcWindow("back", { rewind: [] }); clean("ipcWindow");
   dirty(); agentWindow("back", { rewind: [] }); clean("agentWindow");
