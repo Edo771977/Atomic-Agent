@@ -589,9 +589,12 @@ export function buildFusionDelegateTool(
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }
       // What the run spent before the restart counts toward this turn's
-      // cap: a resume is the same run, not a fresh allowance.
+      // cap: a resume is the same run, not a fresh allowance. Once per run
+      // and turn (issue #87): a retry after a refused or timed-out
+      // approval, the checkpoint unchanged, adds nothing; new spend on the
+      // checkpoint adds only its increment.
       if (resume !== undefined && resume.carriedSpendUsd > 0) {
-        turnBudget.addWorkerSpend(ctx.sessionId, resume.carriedSpendUsd);
+        turnBudget.importRunSpend(ctx.sessionId, resume.runId, resume.carriedSpendUsd);
       }
 
       // Labels, never guesses: the resolver's pin when it has one, the
@@ -2622,6 +2625,7 @@ export function buildFusionDelegateTool(
           // orchestrator still gets a readable result rather than a dead turn.
           // The checkpoint stays: what finished can still be resumed.
           run?.finish("interrupted");
+          if (run !== undefined) turnBudget.noteRunSpend(ctx.sessionId, run.runId, run.snapshot().spentUsd);
           await releaseKept();
           if (candidate !== undefined) throw err;
           return error(
@@ -3095,6 +3099,9 @@ export function buildFusionDelegateTool(
             ? "interrupted"
             : "complete",
         );
+        // This turn counted the run's spend live: a resume later in the
+        // turn imports only what is new (issue #87).
+        if (run !== undefined) turnBudget.noteRunSpend(ctx.sessionId, run.runId, run.snapshot().spentUsd);
         const resumeNote =
           resume === undefined
             ? ""

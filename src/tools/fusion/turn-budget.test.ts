@@ -826,3 +826,76 @@ describe("a resume is admitted on the tasks it will run (issue #87)", () => {
     } finally { r.cleanup(); }
   });
 });
+
+describe("a retried resume imports the checkpoint's spend once (issue #87)", () => {
+  const tasks = [{ id: "t1", title: "t1", instructions: "do t1" }];
+  /** An interrupted run whose checkpoint already holds `spentUsd`, with t1 left to run. */
+  function interrupted(spentUsd: number) {
+    const dir = mkdtempSync(join(tmpdir(), "resume-spend-"));
+    const store = new FusionRunStore({ dir });
+    const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks, waveCount: 1, args: { tasks } });
+    run.addSpend(spentUsd);
+    run.finish("interrupted");
+    return { store, runId: run.runId, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+  /** Approvals answered in turn from `answers` (false: the person said no, or it timed out). */
+  function withApprovals(budget: FusionTurnBudget, store: FusionRunStore, answers: boolean[]) {
+    const d = deps({
+      turnBudget: budget,
+      runCheckpoints: store,
+      approvalRequired: true,
+      resolveRunMode: () => mode({ turnBudgetUsd: 1 }),
+      approvals: {
+        setSessionPolicy: () => {},
+        clearSessionPolicy: () => {},
+        fanoutScopes: new FanoutScopeRegistry(),
+        request: async () => ({ approved: answers.shift() ?? false }),
+      } as never,
+    });
+    // $0.20 per worker (200k prompt tokens at $1/M).
+    d.runTurn = (async (_s: unknown, _m: string, options: Parameters<FusionDelegateDeps["runTurn"]>[2]) => {
+      d.turns += 1;
+      options.eventHook?.(completedEvent(200_000));
+      return { session: createEmptySessionState({ id: "s-w", workingDir: "/repo" }), reason: "reply", stepCount: 1 } as RunTurnResult;
+    }) as FusionDelegateDeps["runTurn"];
+    return d;
+  }
+
+  it("a timed-out approval then a retry in the same turn: $0.60 counted once, the retry runs on the true remainder", async () => {
+    const r = interrupted(0.6);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = withApprovals(budget, r.store, [false, true]);
+      const tool = buildFusionDelegateTool(d);
+      const denied = await tool.run({ resume: r.runId }, ctx());
+      expect(denied.status).toBe("error");
+      expect(d.turns).toBe(0);
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.6);
+      const retry = await tool.run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(1);
+      expect(retry.details.turnBudget).toBeUndefined();
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.8);
+      expect((retry.details.resume as { carriedSpendUsd: number }).carriedSpendUsd).toBeCloseTo(0.6);
+    } finally { r.cleanup(); }
+  });
+
+  it("new spend on the checkpoint since the last import adds only the increment", async () => {
+    const r = interrupted(0.6);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = withApprovals(budget, r.store, [false, false, true]);
+      const tool = buildFusionDelegateTool(d);
+      await tool.run({ resume: r.runId }, ctx());
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.6);
+      const advanced = r.store.load(r.runId)!;
+      r.store.write({ ...advanced, spentUsd: 0.7 });
+      await tool.run({ resume: r.runId }, ctx());
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.7);
+      await tool.run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(1);
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.9);
+    } finally { r.cleanup(); }
+  });
+});

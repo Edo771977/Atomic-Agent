@@ -76,6 +76,12 @@ interface TurnState {
   orchestratorTasks: number;
   /** Every failure breaker that tripped this turn (ATO-1406). */
   trips: BreakerTrip[];
+  /**
+   * Per fusion run id, the checkpoint spend this turn has already
+   * counted (issue #87): a resume retried in the same turn adds only
+   * what the checkpoint gained since.
+   */
+  runSpend: Map<string, number>;
 }
 
 /**
@@ -155,6 +161,7 @@ export class FusionTurnBudget {
       tasks: 0,
       orchestratorTasks: 0,
       trips: [],
+      runSpend: new Map(),
     });
   }
 
@@ -177,6 +184,7 @@ export class FusionTurnBudget {
         tasks: 0,
         orchestratorTasks: 0,
         trips: [],
+        runSpend: new Map(),
       };
       this.turns.set(sessionId, state);
     }
@@ -188,6 +196,28 @@ export class FusionTurnBudget {
     const state = this.turn(sessionId);
     state.workerUsd += usd;
     if (state.requestLimits?.usd !== undefined && !alreadyAccounted) state.externalUsd += usd;
+  }
+
+  /**
+   * A resumed run's recorded spend, counted toward the turn (issue #87):
+   * once per run and turn, and on a later resume of the same run only the
+   * increment over what this turn already counted. Returns what was added.
+   */
+  importRunSpend(sessionId: string, runId: string, checkpointUsd: number): number {
+    if (!Number.isFinite(checkpointUsd) || checkpointUsd <= 0) return 0;
+    const state = this.turn(sessionId);
+    const known = state.runSpend.get(runId) ?? 0;
+    if (checkpointUsd <= known) return 0;
+    state.runSpend.set(runId, checkpointUsd);
+    this.addWorkerSpend(sessionId, checkpointUsd - known);
+    return checkpointUsd - known;
+  }
+
+  /** A run's checkpoint spend this turn counted live (its fan-out ended): a later resume does not import it again. */
+  noteRunSpend(sessionId: string, runId: string, checkpointUsd: number): void {
+    if (!Number.isFinite(checkpointUsd)) return;
+    const state = this.turn(sessionId);
+    if (checkpointUsd > (state.runSpend.get(runId) ?? 0)) state.runSpend.set(runId, checkpointUsd);
   }
 
   /** Bind only while the worker is alive; retain the owning turn generation. */
