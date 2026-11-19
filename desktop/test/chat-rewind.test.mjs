@@ -647,3 +647,15 @@ for (const mode of ["back", "edit"]) {
     assert.deepEqual([...R.REWIND.skip], []);
   });
 }
+
+// Issue #80 review: skip matching is exact, on the agent's own path string; a Windows path goes back unchanged.
+test("a Windows path the agent reported goes back in skip exactly as it came", async () => {
+  const win = "C:\\Users\\me\\proj\\src\\Locked File.txt";
+  const calls = ipcWindow("back", { rewind: [PARTIAL_409([{ path: win, error: "EBUSY" }]), { status: 200, body: { restored: [], deleted: [], failed: [], skipped: [win] } }] });
+  globalThis.WORKSPACE = "C:\\Users\\me\\proj";
+  await R.rewindAct("go");
+  assert.match(R.rewindSheetHTML(), /src\\Locked File\.txt/);
+  await R.rewindAct("go-skip");
+  assert.deepEqual(agentBodies(calls)[1].skip, [win]);
+  assert.match(src("../main/chat-rewind.ts"), /matched exactly/);
+});

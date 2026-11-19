@@ -13,6 +13,14 @@
  * as unsupported so the window hides the buttons. A rollback that put back
  * only some files answers 409 `restore_failed` with what was put back and
  * what was not (RewindPartial; the chat is not cut).
+ *
+ * Issue #80: `skip` names files to leave as they are. Its paths are the
+ * agent's own `failed[].path` strings, sent back unchanged: the agent's
+ * skip is matched exactly on that string. They are never normalised,
+ * resolved, case-folded or given another separator here (a Windows
+ * `C:\\…` path goes back as it came).
+ * The window shows them relative to the working folder, which changes only
+ * the label.
  */
 
 export type RewindRoute = "rewind/preview" | "rewind" | "fork";
