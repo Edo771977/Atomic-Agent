@@ -41,7 +41,12 @@ export interface FileRestoreItem {
 
 export interface FileNotRestorable {
   path: string;
-  reason: CheckpointSkip;
+  /**
+   * `move_source_not_restored`: a file the agent moved here from a source
+   * this rollback does not put back (no copy kept, binary, too large, or
+   * skipped); deleting it would lose the only copy, so it stays.
+   */
+  reason: CheckpointSkip | "move_source_not_restored";
 }
 
 export interface FileRestorePlan {
@@ -109,6 +114,12 @@ export async function planFileRestore(
   const items: FileRestoreItem[] = [];
   const notRestorable: FileNotRestorable[] = [];
   const skipped: string[] = [];
+  // A move's source is put back only from a kept copy, and not when skipped.
+  const sourceComesBack = (from: string): boolean => {
+    const k = key(from);
+    const source = first.get(k);
+    return source !== undefined && !skip.has(k) && source.existed && source.file !== undefined;
+  };
   for (const [k, entry] of first) {
     // Taken out whether or not the disk already matches: never inspected.
     if (skip.has(k)) {
@@ -131,6 +142,10 @@ export async function planFileRestore(
     }
     if (!entry.existed) {
       if (now.kind === "missing") continue;
+      if (entry.movedFrom !== undefined && !sourceComesBack(entry.movedFrom)) {
+        notRestorable.push({ path: entry.path, reason: "move_source_not_restored" });
+        continue;
+      }
       if (now.kind === "other") notRestorable.push({ path: entry.path, reason: "not_a_file" });
       else {
         const unread = now.kind === "file" && now.sha256 === undefined;

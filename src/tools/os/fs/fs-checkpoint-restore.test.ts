@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyFileRestore, planFileRestore, restorePathKey, uncoveredToolCalls } from "./fs-checkpoint-restore.js";
 import { FileCheckpointStore } from "./fs-checkpoint-store.js";
+import { checkpointBeforeInvoke } from "./fs-checkpoint-targets.js";
 
 describe("planFileRestore / applyFileRestore (ATO-1056)", () => {
   let root: string;
@@ -135,6 +136,64 @@ describe("a damaged saved copy (issue #87)", () => {
     // Planned again, the preview side sees it too.
     const again = await planFileRestore(store, "s-1", 0);
     expect(again.items).toEqual([expect.objectContaining({ path: hurt, blocked: "saved copy is damaged" })]);
+  });
+});
+
+describe("a move whose source was not kept (issue #87 review)", () => {
+  let root: string;
+  let work: string;
+  let store: FileCheckpointStore;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "aa-mv-root-"));
+    work = mkdtempSync(join(tmpdir(), "aa-mv-work-"));
+    store = new FileCheckpointStore(root, () => 100);
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  /** Run os.fs.move as the registry would: checkpoint its targets, then rename. */
+  async function move(from: string, to: string): Promise<void> {
+    await checkpointBeforeInvoke(store)("os.fs.move", { from, to }, { sessionId: "s-1", workingDir: work });
+    renameSync(from, to);
+  }
+
+  it("keeps the destination of a binary file it has no copy of, listed as not restorable", async () => {
+    const photo = join(work, "photo.bin");
+    const moved = join(work, "moved.bin");
+    writeFileSync(photo, Buffer.from([0, 1, 2, 3, 0, 255]));
+    await move(photo, moved);
+    const plan = await planFileRestore(store, "s-1", 0, { cwd: work });
+    expect(plan.items).toEqual([]);
+    expect(plan.notRestorable).toEqual([
+      { path: photo, reason: "binary" },
+      { path: moved, reason: "move_source_not_restored" },
+    ]);
+    await applyFileRestore(store, "s-1", plan);
+    expect(readFileSync(moved)).toEqual(Buffer.from([0, 1, 2, 3, 0, 255]));
+  });
+
+  it("keeps the destination when the source is skipped", async () => {
+    const from = join(work, "notes.txt");
+    const to = join(work, "renamed.txt");
+    writeFileSync(from, "notes");
+    await move(from, to);
+    const plan = await planFileRestore(store, "s-1", 0, { cwd: work, skip: [from] });
+    expect(plan.items).toEqual([]);
+    expect(plan.notRestorable).toEqual([{ path: to, reason: "move_source_not_restored" }]);
+  });
+
+  it("still undoes a normal move whose source copy exists", async () => {
+    const from = join(work, "notes.txt");
+    const to = join(work, "renamed.txt");
+    writeFileSync(from, "notes");
+    await move(from, to);
+    const plan = await planFileRestore(store, "s-1", 0, { cwd: work });
+    const done = await applyFileRestore(store, "s-1", plan);
+    expect(done).toEqual({ restored: [from], deleted: [to], failed: [] });
+    expect(readFileSync(from, "utf8")).toBe("notes");
+    expect(existsSync(to)).toBe(false);
   });
 });
 
