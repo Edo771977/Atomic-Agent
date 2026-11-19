@@ -1,7 +1,7 @@
 /* ---------------- Issue #71: the Fusion strip's Reviewer seat ----------------
    Loaded before renderer.js; declares only, and reads renderer.js globals
    (S, LIVE_CONFIG, BR, esc, ic, providerWord, render, act, toast, anchorStyle,
-   refreshLiveConfig, projectCloudEntry, screenTurnId, FIRST_TURNS) at call time.
+   refreshLiveConfig, projectCloudEntry, screenTurnId, FIRST_TURNS, chatById) at call time.
 
    Fusion shows three seats: Director (the orchestrator leg), Worker (the
    worker leg) and Reviewer. The first two stay the legs, as before; when a
@@ -26,7 +26,7 @@
 /* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
    read when the write started (issue #77): a new chat's follows it as it gets
    an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: []};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -201,8 +201,8 @@ function fzrPopoverHTML() {
 
 /** `fzr:` verbs (renderer.js act). */
 async function fzrAct(v) {
-  if (v === 'open') { S.overlay = 'fzr'; render(); void fzrRefresh(S.agentSession || null); return; }
-  if (v === 'addOpen') { S.overlay = 'fzradd'; render(); return; }
+  if (v === 'open') { S.overlay = 'fzr'; FZR.popFor = fzrKey(); render(); void fzrRefresh(S.agentSession || null); return; }
+  if (v === 'addOpen') { S.overlay = 'fzradd'; FZR.popFor = fzrKey(); render(); return; }
   if (v.startsWith('pick:')) {
     const ref = v.slice('pick:'.length);
     const stamped = fzrRosterNow() && fzrRosterNow().chat ? fzrRosterNow().chat.reviewer : null;
@@ -220,18 +220,28 @@ async function fzrAct(v) {
     // Issue #77: the chat it is added from, read now: the person can open another one during the write.
     // A new chat whose first turn already left, not named yet: the reviewer is that turn's chat's.
     const firstTurn = fzrKey() === FZR_NEW_CHAT ? fzrScreenFirstTurn() : null;
-    const target = firstTurn ? {key: null, turn: firstTurn} : {key: fzrKey(), turn: null};
+    const startKey = fzrKey();
+    const target = firstTurn ? {key: null, turn: firstTurn} : {key: startKey, turn: null};
     FZR.adds.push(target);
     FZR.adding = true; render();
     let res = null;
     try { res = await BR.fusionTeamWrite({op: 'addReviewer', ref}); } catch (e) { res = {ok: false, error: String(e)}; }
     FZR.adding = false;
     FZR.adds = FZR.adds.filter((t) => t !== target);
-    if (!res || !res.ok) { toast('Reviewer not added', (res && res.error) || 'the config write failed'); render(); return; }
+    // The seat's popover is that chat's while it was opened there (FZR.popFor); another chat's is left alone.
+    const ownPop = S.overlay === 'fzr' || S.overlay === 'fzradd' ? FZR.popFor === startKey : false;
+    if (!res || !res.ok) {
+      const why = (res && res.error) || 'the config write failed';
+      if (fzrOnScreen(target)) { toast('Reviewer not added', why); render(); return; }
+      // Issue #77: the person moved on; say which chat, and do not leave its popover over another one.
+      if (ownPop) S.overlay = null;
+      toast('Reviewer not added', 'In ' + fzrChatName(target) + ': ' + why);
+      render(); return;
+    }
     // The new reviewer is that chat's choice: that is why it was added from there.
     fzrAddPicked(target, ref);
     if (res.live === false) toast('Reviewer added', 'Restart the agent to use it: this agent cannot take config changes live.');
-    S.overlay = null;
+    if (ownPop) S.overlay = null;
     if (typeof refreshLiveConfig === 'function') await refreshLiveConfig();
     await fzrRefresh(S.agentSession || null);
     render();
@@ -243,6 +253,17 @@ function fzrScreenFirstTurn() {
   if (typeof screenTurnId !== 'function' || typeof FIRST_TURNS === 'undefined' || !FIRST_TURNS) return null;
   const turnId = screenTurnId();
   return turnId && FIRST_TURNS.has(turnId) ? turnId : null;
+}
+/** Whether the chat an add is for (fzrAct add:) is the one on screen. */
+function fzrOnScreen(target) {
+  if (target.turn) return fzrKey() === FZR_NEW_CHAT && fzrScreenFirstTurn() === target.turn;
+  return fzrKey() === target.key;
+}
+/** The chat an add is for, as the toast names it. */
+function fzrChatName(target) {
+  if (target.turn || !target.key || target.key === FZR_NEW_CHAT) return 'the new chat';
+  const row = typeof chatById === 'function' ? chatById(target.key) : null;
+  return row && row.t ? '“' + row.t + '”' : 'the chat you added it from';
 }
 /** A reviewer added from `target` (fzrAct add:) is that chat's pick, or its first turn's while that turn is unnamed. */
 function fzrAddPicked(target, ref) {

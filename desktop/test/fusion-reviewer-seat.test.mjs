@@ -462,3 +462,48 @@ test("window: Add a reviewer on a new chat whose first turn is still unnamed goe
   assert.match(renderer, /\nfunction screenTurnId\(\) \{/);
   assert.match(renderer, /\nconst FIRST_TURNS = new Map\(\);/);
 });
+
+// Issue #77 review: an add that failed after the person opened another chat
+// left the add popover open there, with a toast that did not say which chat.
+test("window: a failed add after a switch closes its own popover and names its chat, and leaves the other chat's alone", async () => {
+  const setup = () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = "chat-A";
+    c.toasts = [];
+    c.toast = (...a) => c.toasts.push(a);
+    c.chatById = (id) => ({ "chat-A": { id, t: "Plan the trip" }, "chat-B": { id, t: "Other" } })[id] || null;
+    const writes = [];
+    c.BR.fusionTeamWrite = () => new Promise((resolve) => writes.push(() => resolve({ ok: false, error: "disk full" })));
+    return { c, writes };
+  };
+  // Switched to B with A's popover still up: it closes, and the toast names A.
+  let { c, writes } = setup();
+  await c.fzrAct("addOpen");
+  let adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, null, "chat A's add popover stayed open in chat B");
+  assert.equal(c.toasts.length, 1);
+  assert.equal(c.toasts[0][0], "Reviewer not added");
+  assert.match(c.toasts[0][1], /“Plan the trip”/);
+  assert.match(c.toasts[0][1], /disk full/);
+  // B's own popover, opened meanwhile, stays.
+  ({ c, writes } = setup());
+  await c.fzrAct("addOpen");
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  await c.fzrAct("open");
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, "fzr");
+  // Still on A: the popover stays open to try again, and the toast is as before.
+  ({ c, writes } = setup());
+  await c.fzrAct("addOpen");
+  adding = c.fzrAct("add:anthropic:model-a");
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, "fzradd");
+  assert.deepEqual([...c.toasts[0]], ["Reviewer not added", "disk full"]);
+  assert.match(readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8"), /\nfunction chatById\(id\) \{/);
+});
