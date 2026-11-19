@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +88,28 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(readFileSync(a, "utf8")).toBe("a0");
     expect(readFileSync(b, "utf8")).toBe("b0");
     expect(turns()).toBe(2);
+    expect(await copies(store)).toEqual([]);
+  });
+
+  it("a file the agent created is removed even when it cannot be read (delete needs only stat)", async () => {
+    const { a, b, store } = await seed();
+    const created = join(harness.workingDir, "created.txt");
+    await store.capture("rw-io", created, "os.fs.write");
+    writeFileSync(created, "made by the agent");
+    io.failRead.add(created);
+    const res = await post("rw-io/rewind", point);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [a, b], deleted: [created], failed: [] });
+    expect(existsSync(created)).toBe(false);
+  });
+
+  it("a symlink loop (ELOOP) is not restorable, not a retryable failure", async () => {
+    const { a, b, store } = await seed();
+    rmSync(a);
+    symlinkSync(a, a);
+    const res = await post("rw-io/rewind", point);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [b], failed: [], notRestorable: [{ path: a, reason: "not_a_file" }] });
     expect(await copies(store)).toEqual([]);
   });
 

@@ -109,7 +109,12 @@ export async function planFileRestore(
       notRestorable.push({ path: entry.path, reason: entry.skipped });
       continue;
     }
-    const now = await currentState(entry.path);
+    // A file the agent created is only removed: rm needs no read.
+    const now = await currentState(entry.path, entry.existed);
+    if (now.kind === "permanent") {
+      notRestorable.push({ path: entry.path, reason: now.reason });
+      continue;
+    }
     if (now.kind === "blocked") {
       items.push({ path: entry.path, action: entry.existed ? "restore" : "delete", entry, blocked: now.error });
       continue;
@@ -193,22 +198,32 @@ function changesFilesUnseen(tool: string): boolean {
   return false;
 }
 
-/** `blocked`: stat or read failed for another reason than "not there" (issue #80). */
+/**
+ * What the disk holds at a path now (issue #80). ENOENT/ENOTDIR is
+ * `missing`; ELOOP (a symlink loop) and ENAMETOOLONG can never succeed
+ * and are `permanent`; any other stat or read error (EACCES, EPERM,
+ * EBUSY, EIO…) is `blocked`: it may pass, so the rollback reports it in
+ * `failed` and keeps the copies for a retry.
+ */
 type Current =
   | { kind: "missing" }
   | { kind: "other" }
-  | { kind: "file"; sha256: string }
+  | { kind: "file"; sha256?: string }
+  | { kind: "permanent"; reason: CheckpointSkip }
   | { kind: "blocked"; error: string };
 
-async function currentState(path: string): Promise<Current> {
+async function currentState(path: string, withContent: boolean): Promise<Current> {
   try {
     // Followed like the capture follows it (`stat`).
     const info = await stat(path);
     if (!info.isFile()) return { kind: "other" };
+    if (!withContent) return { kind: "file" };
     return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
+    if (code === "ELOOP") return { kind: "permanent", reason: "not_a_file" };
+    if (code === "ENAMETOOLONG") return { kind: "permanent", reason: "unreadable" };
     return { kind: "blocked", error: err instanceof Error ? err.message : String(err) };
   }
 }
