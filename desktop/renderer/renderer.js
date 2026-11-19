@@ -1419,6 +1419,7 @@ const LLMP = {
   embAct:null, embWatch:0, // ATO-900: {id, busy, error} for the memory model's card while its click runs, or after it failed; the load watch's token
   served:null, // ATO-125: {chat, embedding} — what the managed servers say they run, asked on their ports (cli:modelsServed)
   models:[], modelsFor:null, modelsBusy:false, modelsErr:null, // `atag models search --json` for the Cloud text-models block
+  modelsDone:null, // the provider id whose list was answered, even empty (Codex on a subscription lists none), so a repaint does not ask again
   modelsStale:false, modelsRetry:null, // ATO-318: the list is the app's built-in one (the live fetch did not come back); the one timed retry
   filter:'', filterFocused:false, pricing:'all',
   health:null, // /health.llama for the External row's status
@@ -27927,9 +27928,11 @@ function llmCloudSectionProvider(tab) {
 async function llmEnsureModels() {
   const p = llmCloudSectionProvider(llmProvTabNow());
   if (!p || !BR) return;
-  if (LLMP.modelsFor === p.id && (LLMP.modelsBusy || LLMP.models.length || LLMP.modelsErr)) return;
+  // An answered list, empty included, is not asked again on a repaint (it spun "Fetching the model list…"
+  // for good for Codex, whose list is empty on purpose); another provider or Retry asks again.
+  if (LLMP.modelsFor === p.id && (LLMP.modelsBusy || LLMP.models.length || LLMP.modelsErr || LLMP.modelsDone === p.id)) return;
   if (LLMP.modelsRetry) { clearTimeout(LLMP.modelsRetry); LLMP.modelsRetry = null; }
-  LLMP.modelsFor = p.id; LLMP.models = []; LLMP.modelsBusy = true; LLMP.modelsErr = null; LLMP.modelsStale = false;
+  LLMP.modelsFor = p.id; LLMP.models = []; LLMP.modelsBusy = true; LLMP.modelsErr = null; LLMP.modelsStale = false; LLMP.modelsDone = null;
   llmRepaint();
   await llmFetchModels(p);
 }
@@ -27946,7 +27949,7 @@ async function llmFetchModels(p) {
   if (!res || !res.ok) {
     if (!LLMP.models.length) LLMP.modelsErr = modelListFailLine(res, providerWord(p.id)) || (res && res.error) || 'could not list models';   // ATO-202
   } else {
-    LLMP.models = res.models || []; LLMP.modelsErr = null; LLMP.modelsStale = res.stale === true;
+    LLMP.models = res.models || []; LLMP.modelsErr = null; LLMP.modelsStale = res.stale === true; LLMP.modelsDone = p.id;
     if (LLMP.modelsStale && !LLMP.modelsRetry) {
       LLMP.modelsRetry = setTimeout(() => {
         const q = llmCloudSectionProvider(llmProvTabNow());
@@ -27961,7 +27964,7 @@ async function llmFetchModels(p) {
 function llmRetryModels() {
   const p = llmCloudSectionProvider(llmProvTabNow());
   if (!p || !BR || LLMP.modelsBusy) return;
-  LLMP.modelsFor = p.id; LLMP.modelsBusy = true; LLMP.modelsErr = null;
+  LLMP.modelsFor = p.id; LLMP.modelsBusy = true; LLMP.modelsErr = null; LLMP.modelsDone = null;
   llmRepaintList();
   llmFetchModels(p);
 }
@@ -29069,7 +29072,10 @@ function llmCloudModelListHTML(tab) {
   const cursorInSection = Math.max(0, Math.min(cursor - section.sectionStart, rows.length - 1));
   const start = Math.max(0, Math.min(cursorInSection - Math.floor(LLM_MODEL_WINDOW / 2), rows.length - LLM_MODEL_WINDOW));
   const visible = rows.slice(start, start + LLM_MODEL_WINDOW);
-  const counter = rows.length === 0 ? 'No model matches.'
+  // Codex on a subscription publishes no list and picks its model itself (main/subscription-cli-models.ts).
+  const codexPicks = rows.length === 0 && section.status === 'ready' && !LLMP.filter.trim() && section.provider && modelTierKey(section.provider) === 'codex-cli';
+  const counter = codexPicks ? 'Codex chooses its model itself, so there is nothing to pick here.'
+    : rows.length === 0 ? 'No model matches.'
     : rows.length > visible.length || rows.length !== section.models.length
       ? 'Showing ' + (start + 1) + '–' + (start + visible.length) + ' of ' + rows.length + (rows.length !== section.models.length ? ' (filtered from ' + section.models.length + ')' : '') + '. Filter to find the rest.'
       : '';
