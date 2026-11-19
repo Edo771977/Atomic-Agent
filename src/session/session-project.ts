@@ -1643,17 +1643,21 @@ function refuse(error: ProjectDecisionError): ProjectDecisionResult {
 const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.state === "failed";
 
 /**
- * The first planned milestone becomes approved (in plan order), but only
- * while nothing else is open anywhere in the plan (issues #74, #80): no
- * milestone approved or in_progress, and no done or failed result the
- * person has not decided on, wherever it sits. A milestone a re-plan reset
- * ahead of a running one waits for that one's verdict.
+ * The milestone an approval would approve next (issues #74, #80): the
+ * first `planned` one in plan order, but only while nothing else is open
+ * anywhere in the plan (no milestone approved or in_progress, no done or
+ * failed result the person has not decided on). Undefined otherwise. The
+ * one rule {@link approveNext} and the runtime's daily-limit check share.
  */
+export function milestoneToApproveNext(milestones: readonly ProjectMilestone[]): string | undefined {
+  if (milestones.some((m) => m.state === "approved" || m.state === "in_progress" || unreviewed(m))) return undefined;
+  return milestones.find((m) => m.state === "planned")?.id;
+}
+
+/** Approves {@link milestoneToApproveNext}, if any. */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  if (milestones.some((m) => m.state === "approved" || m.state === "in_progress" || unreviewed(m))) return [...milestones];
-  const next = milestones.findIndex((m) => m.state === "planned");
-  if (next < 0) return [...milestones];
-  return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
+  const next = milestoneToApproveNext(milestones);
+  return milestones.map((m) => (m.id === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }
 
 function editRows(

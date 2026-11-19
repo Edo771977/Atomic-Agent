@@ -199,4 +199,23 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
     const failed = up(running, { kind: "milestone", id: "m1", state: "failed", summary: "no" });
     expect(nextMilestoneOf(failed)).toBe("m1");
   });
+
+  it("nextMilestoneOf agrees with what an approval starts: a reset milestone ahead of a running one waits (issue #80)", () => {
+    let p = approved(up(approved(up(undefined, brief)), plan));
+    p = up(p, { kind: "milestone_run", id: "m1", runId: "r1" });
+    p = approved(up(p, { kind: "milestone", id: "m1", state: "done", summary: "ok" }));
+    p = up(p, { kind: "milestone_run", id: "m2", runId: "r2" });
+    // m1's work changes while m2 runs: m1 is reset ahead of the running m2.
+    p = up(p, { ...plan, rows: [row("t1", "m1", { title: "Rewrite the storage" }), row("t2", "m2", { estCostUsd: 3 })] } as ProjectUpdate);
+    expect(p.milestones.map((m) => m.state)).toEqual(["planned", "in_progress"]);
+    expect(nextMilestoneOf(p)).toBe("m2");
+    // The daily limit is held against m2's cost, the run that goes on.
+    const approvedPlan = approved(p);
+    expect(approvedPlan.milestones.map((m) => m.state)).toEqual(["planned", "in_progress"]);
+    expect(nextMilestoneOf(approvedPlan)).toBe("m2");
+    // m2's done result at its gate: m1 is what its approval starts.
+    const reported = up(approvedPlan, { kind: "milestone", id: "m2", state: "done", summary: "ok" });
+    expect(nextMilestoneOf(reported)).toBe("m1");
+    expect(approved(reported).milestones.map((m) => m.state)).toEqual(["approved", "reviewed"]);
+  });
 });

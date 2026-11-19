@@ -1,6 +1,7 @@
 import type { RuntimeProjectDecisionResult } from "../project-decision-contract.js";
 import {
   applyProjectDecision,
+  milestoneToApproveNext,
   withProject,
   type AssignmentRow,
   type ProjectDecision,
@@ -167,17 +168,19 @@ export interface RuntimeProject {
 
 /**
  * The milestone whose cost the daily limit must hold: the failed one at
- * its own gate (it runs again), else the first not finished — the one an
- * approval would start.
+ * its own gate (it runs again); else the one approved or running (its
+ * run goes on); else the one an approval would start, by the same rule
+ * as the approval itself (`milestoneToApproveNext`, issue #80), with a
+ * done result at its gate counted as reviewed.
  */
 export function nextMilestoneOf(project: ProjectState): string | undefined {
   const gate = project.gate;
-  if (gate.kind === "milestone") {
-    const at = project.milestones.find((m) => m.id === gate.id);
-    if (at?.state === "failed") return at.id;
-    return project.milestones.find((m) => m.id !== gate.id && (m.state === "planned" || m.state === "approved"))?.id;
-  }
-  return project.milestones.find((m) => m.state === "planned" || m.state === "approved" || m.state === "in_progress")?.id;
+  const at = gate.kind === "milestone" ? project.milestones.find((m) => m.id === gate.id) : undefined;
+  if (at?.state === "failed") return at.id;
+  const open = project.milestones.find((m) => m.id !== at?.id && (m.state === "approved" || m.state === "in_progress"));
+  if (open !== undefined) return open.id;
+  const decided = at === undefined ? project.milestones : project.milestones.map((m) => (m.id === at.id ? { ...m, state: "reviewed" as const } : m));
+  return milestoneToApproveNext(decided);
 }
 
 function estimateFor(project: ProjectState, inputs: LiveProjectInputs, rows?: readonly AssignmentRow[]): PlanEstimate | null {
