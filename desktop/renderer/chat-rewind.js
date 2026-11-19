@@ -134,8 +134,6 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
   const total = Math.max(Number(p.failedTotal) || 0, failed.length);
   const shown = failed.slice(0, REWIND_FAILED_SHOWN);
   const done = (Number(p.restoredTotal) || 0) + (Number(p.deletedTotal) || 0);
-  const buttons = rewindButtons(mode, {restore: [1]});
-  const again = buttons[buttons.length - 1][1];
   let html = '<p class="sd-cap"><b>' + esc(total === 1 ? 'This file could not be put back' : 'These files could not be put back') + '</b></p>';
   if (shown.length) {
     html += '<div class="rows">' + shown.map((f) => '<div class="row"><span class="main"><span class="t">' + esc(rewindPathLabel(f.path, workingDir)) + '</span>'
@@ -144,7 +142,7 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
   if (total > shown.length) html += '<p class="sd-cap">and ' + (total - shown.length) + ' more</p>';
   html += '<p class="sd-cap">The chat was left as it was. '
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
-    + 'Press “' + esc(again) + '” again to try the rest.</p>';
+    + 'Press “Check again” to see what a rollback would change now, then confirm it.</p>';
   // Issue #77: a file that fails on every try would keep the sheet here for good: the way out.
   if (total) {
     const before = Array.isArray(REWIND.skip) ? REWIND.skip.length : 0;
@@ -211,13 +209,14 @@ function rewindActsHTML(m) {
   return '';
 }
 
-/** `rewind:<verb>:<message id>` from act(): back · edit · fork · go · go-chat (edit, conversation only). */
+/** `rewind:<verb>:<message id>` from act(): back · edit · fork · go · go-chat (edit, conversation only) · go-skip · recheck (issue #80). */
 function rewindAct(v) {
   const colon = v.indexOf(':');
   const verb = colon < 0 ? v : v.slice(0, colon);
   const id = colon < 0 ? '' : v.slice(colon + 1);
   if (verb === 'go') return rewindConfirm(REWIND.mode === 'edit' ? true : undefined);
   if (verb === 'go-chat') return rewindConfirm(false);
+  if (verb === 'recheck') return rewindRecheck();
   // Issues #77 / #80: only from a partial restore's notice: the same rollback, leaving alone exactly the
   // files it listed (and those left alone before in this sheet). Never "accept failed": that plans every file again.
   if (verb === 'go-skip') {
@@ -252,6 +251,14 @@ async function rewindLoadPreview() {
   render();
 }
 
+/** Issue #80: "Check again" after a partial restore: drop the old preview and the notice, and show a fresh one. */
+function rewindRecheck() {
+  if (!REWIND.partial || REWIND.busy) return;
+  Object.assign(REWIND, {partial: null, partialCode: null, error: null, skip: [], preview: null, loading: true});
+  render();
+  return rewindLoadPreview();
+}
+
 function rewindSheetHTML() {
   const edit = REWIND.mode === 'edit';
   let body = '';
@@ -273,10 +280,11 @@ function rewindSheetHTML() {
     body += list('Put back as they were', s.restore) + list('Removed (the agent created them)', s.remove) + list('Cannot be put back', s.cannot);
     body += s.warnings.map((w) => '<div class="tk-notice tk-notice--amber">' + ic('alert') + '<span class="grow">' + esc(w) + '</span></div>').join('');
   }
-  const disabled = REWIND.loading || REWIND.busy || !REWIND.preview;
-  // Issue #77: after a partial restore, "Conversation only" is not offered. It would cut the chat, and the
-  // agent then drops the saved copies, so the files not put back could never be put back.
-  const buttons = rewindButtons(REWIND.mode, s).filter(([a]) => !(REWIND.partial && a === 'rewind:go-chat'));
+  const disabled = REWIND.loading || REWIND.busy || (!REWIND.preview && !REWIND.partial);
+  // Issue #80: after a partial restore the files on disk are not what the preview showed, so the only
+  // way to try again is "Check again": a fresh preview, then the normal confirm. This also keeps
+  // "Conversation only" away (issue #77): it would cut the chat and drop the saved copies.
+  const buttons = REWIND.partial ? [['rewind:recheck', 'Check again']] : rewindButtons(REWIND.mode, s);
   // The last button is the primary one.
   const foot = buttons.map(([a, label], i) => {
     const kind = i < buttons.length - 1 ? 'btn-s' : edit ? 'btn-p' : 'btn-df';
@@ -295,7 +303,8 @@ function rewindSheetHTML() {
  */
 async function rewindConfirm(files, skip) {
   if (REWIND.busy || !REWIND.preview) return;
-  if (files === false && REWIND.partial) return;   // issue #77: not offered after a partial restore (rewindSheetHTML)
+  // Issue #80: after a partial restore only Continue (skip) sends; anything else checks again first (rewindRecheck).
+  if (REWIND.partial && !(Array.isArray(skip) && skip.length)) return;
   const edit = REWIND.mode === 'edit';
   const box = document.getElementById('rw-edit');
   const draft = edit ? String(box ? box.value : REWIND.draft) : '';

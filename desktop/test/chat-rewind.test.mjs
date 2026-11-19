@@ -255,18 +255,17 @@ for (const mode of ["back", "edit"]) {
     assert.match(html, /and 4 more/);
     assert.match(html, /chat was left as it was/);
     assert.match(html, /3 files already put back stay put back/);
-    const button = mode === "edit" ? "Roll back files and conversation, then resend" : "Roll back";
-    assert.ok(html.includes(`Press “${button}” again`), html);
+    // Issue #80: trying again checks again first (a fresh preview), so the old one is never re-sent.
+    assert.ok(html.includes("Press “Check again”"), html);
     if (mode === "edit") {
       // Conversation only would cut the chat and drop the saved copies: the files not put back would be lost for good.
-      assert.deepEqual(footActs(html), [["rewind:go", button]]);
+      assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
       await R.rewindAct("go-chat");
       assert.deepEqual(calls.map((c) => c[0]), ["rewind"], "Conversation only ran after a partial restore");
     }
-    // Trying again starts clean.
-    globalThis.BR.rewind = async () => ({ ok: true, supported: true, data: { restored: [], deleted: [], failed: [] } });
-    await R.rewindAct("go");
-    globalThis.S.overlay = "rewind";
+    // Checking again starts clean.
+    globalThis.BR.rewindPreview = async () => ({ ok: true, supported: true, data: FILES_PREVIEW });
+    await R.rewindAct("recheck");
     assert.doesNotMatch(R.rewindSheetHTML(), /locked\.txt/);
   });
 }
@@ -388,3 +387,43 @@ test("no way out is offered for another refusal, or when nothing failed", async 
   await R.rewindAct("go-skip");
   assert.deepEqual(calls, []);
 });
+
+// Issue #80: Retry after a partial restore re-sent the rollback planned from the old preview, so the
+// person was never shown what would be overwritten now (a file they edited since, say).
+const FRESH_PREVIEW = {
+  removed: { questions: 1, replies: 1 },
+  files: [{ path: "/w/src/a.ts", action: "restore" }, { path: "/w/notes-edited-since.md", action: "restore" }],
+  notRestorable: [],
+  uncovered: [],
+};
+for (const [mode, confirm] of [["back", "Roll back"], ["edit", "Roll back files and conversation, then resend"]]) {
+  test(`${mode}: Retry fetches a fresh preview and shows it before the person confirms`, async () => {
+    const calls = agentWindow(mode, {
+      rewind: [
+        { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+        { status: 200, body: { restored: ["/w/src/a.ts", "/w/notes-edited-since.md"], deleted: [], failed: [] } },
+      ],
+      preview: [FRESH_PREVIEW],
+    });
+    await R.rewindAct("go");
+    let html = R.rewindSheetHTML();
+    // The primary button checks again; it does not roll back with the old preview.
+    assert.deepEqual(footActs(html).at(-1), ["rewind:recheck", "Check again"]);
+    assert.match(html, /Press “Check again”/);
+    await R.rewindAct("go");
+    assert.deepEqual(calls.map((c) => c[0]), ["rewind"], "Retry re-sent with the stale preview");
+    await R.rewindAct("recheck");
+    assert.deepEqual(calls.map((c) => c[0]), ["rewind", "preview"]);
+    html = R.rewindSheetHTML();
+    assert.match(html, /notes-edited-since\.md/, "the fresh preview is not shown");
+    assert.doesNotMatch(html, /could not be put back/);
+    assert.equal(footActs(html).at(-1)[1], confirm);
+    assert.equal(globalThis.S.overlay, "rewind");
+    // Only now does the person confirm, with a plain rollback.
+    await R.rewindAct("go");
+    const bodies = sentBodies(calls);
+    assert.equal(bodies.length, 2);
+    assert.ok(!("skip" in bodies[1]) && !("acceptFailed" in bodies[1]));
+    assert.deepEqual(calls.map((c) => c[0]).slice(0, 3), ["rewind", "preview", "rewind"]);
+  });
+}
