@@ -344,3 +344,166 @@ test("window: an unusable reviewer cannot be picked, and an older agent shows no
   await old.fzrRefresh("s1");
   assert.equal(old.fzrSeatHTML(), "");
 });
+
+// Issue #77: "Add a reviewer…" resolved the chat after awaiting the config
+// write, so switching chats during the write gave the reviewer to the chat
+// now on screen and none to the one it was added from.
+function delayedWrite(c) {
+  const writes = [];
+  c.BR.fusionTeamWrite = (payload) => new Promise((resolve) => writes.push({ payload, done: () => resolve({ ok: true, changed: true, live: true }) }));
+  return writes;
+}
+
+test("window: Add a reviewer picks it for the chat it was added from, even after a switch during the write", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = "chat-A";
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  // The person opens chat B before the write resolves.
+  c.S.agentSession = "chat-B"; c.S.sessionId = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam("chat-B"), null, "chat B got the reviewer picked in chat A");
+});
+
+test("window: Add a reviewer from a new chat stays the new chat's, or follows it once it is named", async () => {
+  // From a new chat, then chat B opened: the new chat (not B) has it.
+  let c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  let writes = delayedWrite(c);
+  let adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  // The new chat got its id (a queued first message) during the write: that chat has it.
+  c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  writes = delayedWrite(c);
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.fzrAdoptNewChat("waiting-1");
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam("waiting-1") }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam(undefined), null);
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  // The new chat's first turn went out (with an earlier pick) during the write: the turn's chat has it once named.
+  c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:none");
+  writes = delayedWrite(c);
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.fzrTurnSent(undefined, "t1", c.fzrTurnTeam(undefined));
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the first one's reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+});
+
+// Issue #77: a new chat's first turn that left without a pick during the add
+// write was not told to the seat, so the reviewer stayed on the new-chat slot
+// and went to the next new chat.
+test("window: Add a reviewer from a new chat whose first turn leaves without a pick goes to that turn's chat", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  // The first turn carries no pick (none was made yet); renderer.js reports every new chat's send.
+  const sent = c.fzrTurnTeam(undefined);
+  assert.equal(sent, null);
+  c.fzrTurnSent(undefined, "t1", sent);
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the first one's reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  // renderer.js tells the seat about a new chat's turn whether or not it carried a pick.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice\);/);
+});
+
+// Issue #77 review: Add a reviewer pressed after a new chat's first turn left,
+// before its stream named the chat, went to the next new chat.
+test("window: Add a reviewer on a new chat whose first turn is still unnamed goes to that turn's chat", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  // renderer.js: the turn the screen shows, and the new chats' first turns not named yet.
+  c.FIRST_TURNS = new Map([["t1", "hello"]]);
+  c.screenTurnId = () => "t1";
+  c.fzrTurnSent(undefined, "t1", null);
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B"; c.screenTurnId = () => null;
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.FIRST_TURNS.delete("t1");
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+  // A screen turn that is not a new chat's unnamed first turn leaves the add on the new-chat slot.
+  const d = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  d.S.agentSession = null;
+  d.FIRST_TURNS = new Map();
+  d.screenTurnId = () => "t2";
+  await d.fzrAct("add:anthropic:model-a");
+  assert.deepEqual({ ...d.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  // The renderer.js globals the seat reads.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  assert.match(renderer, /\nfunction screenTurnId\(\) \{/);
+  assert.match(renderer, /\nconst FIRST_TURNS = new Map\(\);/);
+});
+
+// Issue #77 review: an add that failed after the person opened another chat
+// left the add popover open there, with a toast that did not say which chat.
+test("window: a failed add after a switch closes its own popover and names its chat, and leaves the other chat's alone", async () => {
+  const setup = () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = "chat-A";
+    c.toasts = [];
+    c.toast = (...a) => c.toasts.push(a);
+    c.chatById = (id) => ({ "chat-A": { id, t: "Plan the trip" }, "chat-B": { id, t: "Other" } })[id] || null;
+    const writes = [];
+    c.BR.fusionTeamWrite = () => new Promise((resolve) => writes.push(() => resolve({ ok: false, error: "disk full" })));
+    return { c, writes };
+  };
+  // Switched to B with A's popover still up: it closes, and the toast names A.
+  let { c, writes } = setup();
+  await c.fzrAct("addOpen");
+  let adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, null, "chat A's add popover stayed open in chat B");
+  assert.equal(c.toasts.length, 1);
+  assert.equal(c.toasts[0][0], "Reviewer not added");
+  assert.match(c.toasts[0][1], /“Plan the trip”/);
+  assert.match(c.toasts[0][1], /disk full/);
+  // B's own popover, opened meanwhile, stays.
+  ({ c, writes } = setup());
+  await c.fzrAct("addOpen");
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  await c.fzrAct("open");
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, "fzr");
+  // Still on A: the popover stays open to try again, and the toast is as before.
+  ({ c, writes } = setup());
+  await c.fzrAct("addOpen");
+  adding = c.fzrAct("add:anthropic:model-a");
+  writes[0]();
+  await adding;
+  assert.equal(c.S.overlay, "fzradd");
+  assert.deepEqual([...c.toasts[0]], ["Reviewer not added", "disk full"]);
+  assert.match(readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8"), /\nfunction chatById\(id\) \{/);
+});

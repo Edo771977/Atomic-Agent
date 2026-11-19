@@ -1,7 +1,7 @@
 /* ---------------- Issue #71: the Fusion strip's Reviewer seat ----------------
    Loaded before renderer.js; declares only, and reads renderer.js globals
    (S, LIVE_CONFIG, BR, esc, ic, providerWord, render, act, toast, anchorStyle,
-   refreshLiveConfig, projectCloudEntry) at call time.
+   refreshLiveConfig, projectCloudEntry, screenTurnId, FIRST_TURNS, chatById) at call time.
 
    Fusion shows three seats: Director (the orchestrator leg), Worker (the
    worker leg) and Reviewer. The first two stay the legs, as before; when a
@@ -23,7 +23,10 @@
 
 /* `byTurn`: a new chat's pick, sent with its first turn, by that turn's id until
    the turn's session_id frame names the chat (fzrTurnNamed; issue #74). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null};
+/* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
+   read when the write started (issue #77): a new chat's follows it as it gets
+   an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -198,8 +201,8 @@ function fzrPopoverHTML() {
 
 /** `fzr:` verbs (renderer.js act). */
 async function fzrAct(v) {
-  if (v === 'open') { S.overlay = 'fzr'; render(); void fzrRefresh(S.agentSession || null); return; }
-  if (v === 'addOpen') { S.overlay = 'fzradd'; render(); return; }
+  if (v === 'open') { S.overlay = 'fzr'; FZR.popFor = fzrKey(); render(); void fzrRefresh(S.agentSession || null); return; }
+  if (v === 'addOpen') { S.overlay = 'fzradd'; FZR.popFor = fzrKey(); render(); return; }
   if (v.startsWith('pick:')) {
     const ref = v.slice('pick:'.length);
     const stamped = fzrRosterNow() && fzrRosterNow().chat ? fzrRosterNow().chat.reviewer : null;
@@ -214,18 +217,66 @@ async function fzrAct(v) {
   if (v.startsWith('add:')) {
     const ref = v.slice('add:'.length);
     if (!BR || !BR.fusionTeamWrite) return;
+    // Issue #77: the chat it is added from, read now: the person can open another one during the write.
+    // A new chat whose first turn already left, not named yet: the reviewer is that turn's chat's.
+    const firstTurn = fzrKey() === FZR_NEW_CHAT ? fzrScreenFirstTurn() : null;
+    const startKey = fzrKey();
+    const target = firstTurn ? {key: null, turn: firstTurn} : {key: startKey, turn: null};
+    FZR.adds.push(target);
     FZR.adding = true; render();
     let res = null;
     try { res = await BR.fusionTeamWrite({op: 'addReviewer', ref}); } catch (e) { res = {ok: false, error: String(e)}; }
     FZR.adding = false;
-    if (!res || !res.ok) { toast('Reviewer not added', (res && res.error) || 'the config write failed'); render(); return; }
-    // The new reviewer is the chat's choice: that is why it was added from here.
-    FZR.pending[fzrKey()] = ref;
+    FZR.adds = FZR.adds.filter((t) => t !== target);
+    // The seat's popover is that chat's while it was opened there (FZR.popFor); another chat's is left alone.
+    const ownPop = S.overlay === 'fzr' || S.overlay === 'fzradd' ? FZR.popFor === startKey : false;
+    if (!res || !res.ok) {
+      const why = (res && res.error) || 'the config write failed';
+      if (fzrOnScreen(target)) { toast('Reviewer not added', why); render(); return; }
+      // Issue #77: the person moved on; say which chat, and do not leave its popover over another one.
+      if (ownPop) S.overlay = null;
+      toast('Reviewer not added', 'In ' + fzrChatName(target) + ': ' + why);
+      render(); return;
+    }
+    // The new reviewer is that chat's choice: that is why it was added from there.
+    fzrAddPicked(target, ref);
     if (res.live === false) toast('Reviewer added', 'Restart the agent to use it: this agent cannot take config changes live.');
-    S.overlay = null;
+    if (ownPop) S.overlay = null;
     if (typeof refreshLiveConfig === 'function') await refreshLiveConfig();
     await fzrRefresh(S.agentSession || null);
     render();
+  }
+}
+
+/** The new chat on screen's first turn, sent and not named by its stream yet (renderer.js FIRST_TURNS), or null. */
+function fzrScreenFirstTurn() {
+  if (typeof screenTurnId !== 'function' || typeof FIRST_TURNS === 'undefined' || !FIRST_TURNS) return null;
+  const turnId = screenTurnId();
+  return turnId && FIRST_TURNS.has(turnId) ? turnId : null;
+}
+/** Whether the chat an add is for (fzrAct add:) is the one on screen. */
+function fzrOnScreen(target) {
+  if (target.turn) return fzrKey() === FZR_NEW_CHAT && fzrScreenFirstTurn() === target.turn;
+  return fzrKey() === target.key;
+}
+/** The chat an add is for, as the toast names it. */
+function fzrChatName(target) {
+  if (target.turn || !target.key || target.key === FZR_NEW_CHAT) return 'the new chat';
+  const row = typeof chatById === 'function' ? chatById(target.key) : null;
+  return row && row.t ? '“' + row.t + '”' : 'the chat you added it from';
+}
+/** A reviewer added from `target` (fzrAct add:) is that chat's pick, or its first turn's while that turn is unnamed. */
+function fzrAddPicked(target, ref) {
+  if (target.turn) { FZR.byTurn[target.turn] = ref; return; }
+  if (!target.key) return;   // a new chat whose first turn ended unnamed
+  FZR.pending[target.key] = ref;
+  delete FZR.note[target.key];
+}
+/** Issue #77: an add in flight from the new chat follows it (`to` is the chat's id, or `{turn}`). */
+function fzrAddsFollow(from, to) {
+  for (const t of FZR.adds) {
+    if (from.turn ? t.turn !== from.turn : (t.turn || t.key !== from.key)) continue;
+    if (to.turn) { t.key = null; t.turn = to.turn; } else { t.key = to.key; t.turn = null; }
   }
 }
 
@@ -240,18 +291,22 @@ function fzrTurnTeam(session) {
   return reviewer ? {reviewer} : null;
 }
 /**
- * The send went out as turn `turnId`. A new chat's pick leaves the new-chat
+ * The send went out as turn `turnId`, with the pick `sent` (or null). A new chat's pick leaves the new-chat
  * slot with it: it is that turn's, and becomes the chat's only when the
  * turn's stream names the chat (fzrTurnNamed). Issue #74: it used to move to
  * whichever chat was refreshed next, an unrelated one opened meanwhile.
  */
 function fzrTurnSent(session, turnId, sent) {
-  if (session || !turnId || !sent) return;
+  if (session || !turnId) return;
+  // Issue #77: a reviewer being added from the new chat is this turn's too, picked or not (`sent` null).
+  fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: turnId});
+  if (!sent) return;
   if (FZR.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZR.pending[FZR_NEW_CHAT];
   FZR.byTurn[turnId] = sent.reviewer;
 }
 /** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */
 function fzrAdoptNewChat(sid) {
+  if (sid) fzrAddsFollow({key: FZR_NEW_CHAT}, {key: sid});
   if (!sid || FZR.pending[FZR_NEW_CHAT] === undefined) return;
   if (FZR.pending[sid] === undefined) FZR.pending[sid] = FZR.pending[FZR_NEW_CHAT];
   delete FZR.pending[FZR_NEW_CHAT];
@@ -259,6 +314,7 @@ function fzrAdoptNewChat(sid) {
 }
 /** Turn `turnId`'s stream named its chat `sid` (renderer.js firstTurnNamed), or ended unnamed (sid null). */
 function fzrTurnNamed(turnId, sid) {
+  if (turnId) fzrAddsFollow({turn: turnId}, {key: sid || null});
   if (!turnId || !Object.prototype.hasOwnProperty.call(FZR.byTurn, turnId)) return;
   const pick = FZR.byTurn[turnId];
   delete FZR.byTurn[turnId];

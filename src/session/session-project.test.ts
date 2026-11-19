@@ -12,6 +12,7 @@ import {
   normalizeProject,
   planTotals,
   projectExpectation,
+  projectVerdictResets,
   readProject,
   withProject,
   type AssignmentRow,
@@ -906,5 +907,217 @@ describe("project instructions in the prompt", () => {
     const { text } = buildPrompt(i);
     expect(text).toContain("TAIL END");
     expect(text).toContain('the project "Docs"');
+  });
+});
+
+describe("a re-plan that changes a milestone's work drops its verdict (issue #77)", () => {
+  /** m1 run, reported done with evidence and a correction, then reviewed. */
+  const reviewedM1 = (): ProjectState => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = update(p, { kind: "milestone", id: "m1", state: "done", summary: "Base works", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    const attachments = [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }];
+    p = { ...p, milestones: p.milestones.map((m) => (m.id === "m1" ? { ...m, attachments, corrections: [{ note: "tidy", at: NOW }] } : m)) };
+    return approve(p);
+  };
+
+  it("new title, kind and task: the approved plan shows the new work as not reviewed, old evidence in history", () => {
+    const p = reviewedM1();
+    const re = approve(
+      update(
+        p,
+        {
+          ...planUpdate,
+          milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!],
+          rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")],
+        } as ProjectUpdate,
+        NOW + 5,
+      ),
+      NOW + 6,
+    );
+    const m1 = re.milestones[0]!;
+    expect(m1).toMatchObject({ id: "m1", title: "Physics", kind: "logic", state: "approved", runIds: [] });
+    for (const field of ["summary", "attachments", "criteriaFacts", "corrections"] as const) expect(m1[field]).toBeUndefined();
+    // A lean record: the work's titles, runs, a capped summary, the facts; counts for corrections and pictures.
+    expect(m1.history).toEqual([
+      {
+        title: "Base",
+        kind: "base",
+        state: "reviewed",
+        tasks: ["Task t1"],
+        runIds: ["run-1"],
+        summary: "Base works",
+        criteriaFacts: [{ id: "c1", state: "passed" }],
+        correctionCount: 1,
+        attachmentCount: 1,
+        cause: "plan",
+        supersededAt: NOW + 5,
+      },
+    ]);
+    // The person approving is told.
+    const draft = update(p, { ...planUpdate, milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")] } as ProjectUpdate);
+    expect(draft.plan!.verdictResets).toEqual(["m1"]);
+    expect(projectVerdictResets(p, { ...planUpdate, milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")] } as ProjectUpdate)).toEqual(["Physics"]);
+    expect(re.plan!.verdictResets).toBeUndefined();
+    // Attachments of the old runs cannot ride on a new report.
+    expect(
+      validateMilestoneAttachments({
+        stateDir: "/state",
+        milestone: m1,
+        attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }],
+        criterionIds: new Set(["c1"]),
+      }).ok,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["the kind", { milestones: [{ id: "m1", title: "Base", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t1", "m1"), row("t2", "m2")] }],
+    ["a task's title", { milestones: planUpdate.milestones, rows: [row("t1", "m1", { title: "Something else" }), row("t2", "m2")] }],
+    ["an added task", { milestones: planUpdate.milestones, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] }],
+    ["a task moved away", { milestones: planUpdate.milestones, rows: [row("t1", "m2"), row("t2", "m2")] }],
+  ])("changing %s is material", (_label, change) => {
+    const re = update(reviewedM1(), { ...planUpdate, ...change } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[0]!.summary).toBeUndefined();
+    expect(re.milestones[0]!.history).toHaveLength(1);
+  });
+
+  it("an editorial change (milestone title, whitespace or case of a task title, worker, order) keeps the verdict", () => {
+    const re = update(reviewedM1(), {
+      ...planUpdate,
+      milestones: [planUpdate.milestones[1]!, { id: "m1", title: "Base layer, renamed", kind: "base" }],
+      rows: [row("t2", "m2"), row("t1", "m1", { title: "  task   T1 ", worker: "cloud:other" })],
+    } as ProjectUpdate);
+    const m1 = re.milestones.find((m) => m.id === "m1")!;
+    expect(m1).toMatchObject({ title: "Base layer, renamed", state: "reviewed", runIds: ["run-1"], summary: "Base works", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(m1.attachments).toHaveLength(1);
+    expect(m1.history).toBeUndefined();
+  });
+
+  it("work without a verdict keeps its runs when the re-plan only adds tasks; any other change resets it", () => {
+    const inProgress = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    const added = update(inProgress, { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    expect(added.milestones[0]).toMatchObject({ state: "in_progress", runIds: ["run-1"] });
+    expect(added.milestones[0]!.history).toBeUndefined();
+    // The run still counts: the result can be reported done after the approval.
+    const approved = approve(added);
+    expect(applyProjectUpdate(approved, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW)).toMatchObject({ ok: true });
+    // An approved milestone holding a failed try's runs keeps them too.
+    let failed = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    failed = approve(update(failed, { kind: "milestone", id: "m1", state: "failed", summary: "broken" }));
+    const failedAdded = update(failed, { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    expect(failedAdded.milestones[0]).toMatchObject({ state: "planned", runIds: ["run-1"] });
+    // A removal, a changed title or a new kind still resets running work.
+    for (const change of [
+      { rows: [row("t3", "m1"), row("t2", "m2")] },
+      { milestones: [{ id: "m1", title: "Base", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] },
+    ]) {
+      const re = update(inProgress, { ...planUpdate, ...change } as ProjectUpdate);
+      expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+      expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "in_progress", runIds: ["run-1"] });
+    }
+    // A reviewed milestone has a verdict: an added task resets it.
+    expect(update(reviewedM1(), { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate).milestones[0])
+      .toMatchObject({ state: "planned", runIds: [] });
+  });
+
+  it("a task renamed to a new id with the same title is not a change of work", () => {
+    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t1-renamed", "m1", { title: "Task t1" }), row("t2", "m2")] } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
+    expect(re.milestones[0]!.history).toBeUndefined();
+  });
+
+  it("an approved milestone with runs of a failed try drops them when its work changes", () => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = approve(update(p, { kind: "milestone", id: "m1", state: "failed", summary: "broken" }));
+    expect(p.milestones[0]).toMatchObject({ state: "approved", runIds: ["run-1"] });
+    const re = update(p, { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[0]!.summary).toBeUndefined();
+    expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "approved", runIds: ["run-1"], summary: "broken" });
+  });
+
+  it("a brief that changes a criterion's text resets the milestones whose facts cite it; a case or spacing edit does not", () => {
+    const criteria = (c1: string) => ({ ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: c1 }, { id: "c2", text: "Has three levels" }] } }) as ProjectUpdate;
+    const changed = update(reviewedM1(), criteria("Runs offline on Windows"), NOW + 3);
+    expect(changed.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(changed.milestones[0]!.criteriaFacts).toBeUndefined();
+    expect(changed.milestones[0]!.history?.[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }], cause: "brief", supersededAt: NOW + 3 });
+    expect(changed.plan!.verdictResets).toEqual(["m1"]);
+    const edited = update(reviewedM1(), criteria("  runs in THE browser "));
+    expect(edited.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(edited.milestones[0]!.history).toBeUndefined();
+    // A change to a criterion no fact cites leaves the verdict.
+    const other = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has ten levels" }] } } as ProjectUpdate);
+    expect(other.milestones[0]).toMatchObject({ state: "reviewed" });
+  });
+
+  it("two milestones that swap ids with their tasks both start over; neither inherits the other's result", () => {
+    let p = reviewedM1();
+    p = update(p, { kind: "milestone_run", id: "m2", runId: "run-2" });
+    p = approve(update(p, { kind: "milestone", id: "m2", state: "done", summary: "UI works" }));
+    const re = update(p, {
+      ...planUpdate,
+      milestones: [{ id: "m1", title: "UI", kind: "ui" }, { id: "m2", title: "Base", kind: "base" }],
+      rows: [row("t2", "m1"), row("t1", "m2")],
+    } as ProjectUpdate);
+    for (const [i, was] of [["run-1", "Base works"], ["run-2", "UI works"]].entries()) {
+      expect(re.milestones[i]).toMatchObject({ state: "planned", runIds: [] });
+      expect(re.milestones[i]!.summary).toBeUndefined();
+      expect(re.milestones[i]!.history).toEqual([expect.objectContaining({ runIds: [was[0]], summary: was[1] })]);
+    }
+    expect(re.plan!.verdictResets).toEqual(["m1", "m2"]);
+  });
+
+  it("keeps the newest 4 revisions", () => {
+    let p = reviewedM1();
+    for (let round = 1; round <= 5; round++) {
+      p = approve(update(p, { ...planUpdate, rows: [row("t1", "m1", { title: `Work ${round}` }), row("t2", "m2")] } as ProjectUpdate, NOW + round));
+      p = update(p, { kind: "milestone_run", id: "m1", runId: `run-r${round}` });
+      p = approve(update(p, { kind: "milestone", id: "m1", state: "done", summary: `round ${round}` }));
+    }
+    const history = p.milestones[0]!.history!;
+    expect(history).toHaveLength(PROJECT_LIMITS.history);
+    expect(history.map((h) => h.supersededAt)).toEqual([NOW + 2, NOW + 3, NOW + 4, NOW + 5]);
+    expect(history.map((h) => h.summary)).toEqual(["round 1", "round 2", "round 3", "round 4"]);
+    expect(normalizeProject(JSON.parse(JSON.stringify(p)))!.milestones[0]!.history).toEqual(history);
+  });
+
+  it("one re-plan: an editorial edit keeps m1's verdict while a material change resets m2", () => {
+    let p = reviewedM1();
+    p = update(p, { kind: "milestone_run", id: "m2", runId: "run-2" });
+    p = approve(update(p, { kind: "milestone", id: "m2", state: "done", summary: "UI works" }));
+    const re = update(p, {
+      ...planUpdate,
+      milestones: [{ id: "m1", title: "Base, renamed", kind: "base" }, { id: "m2", title: "UI", kind: "ui" }],
+      rows: [row("t1-new-id", "m1", { title: " TASK t1" }), row("t2", "m2", { title: "A settings screen" })],
+    } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
+    expect(re.milestones[0]!.history).toBeUndefined();
+    expect(re.milestones[1]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[1]!.summary).toBeUndefined();
+    expect(re.plan!.verdictResets).toEqual(["m2"]);
+  });
+
+  it("history reads back from a stored session; older stores without it still read", () => {
+    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
+    const back = normalizeProject(JSON.parse(JSON.stringify(re)));
+    expect(back!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
+    const malformed = JSON.parse(JSON.stringify(re));
+    malformed.milestones[0].history.push({ title: 3 }, "x");
+    expect(normalizeProject(malformed)!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
+    const old = JSON.parse(JSON.stringify(reviewedM1()));
+    expect(normalizeProject(old)!.milestones[0]!.history).toBeUndefined();
+    // The first, richer revision shape still reads, as the lean one.
+    const rich = JSON.parse(JSON.stringify(re));
+    rich.milestones[0].history = [{
+      title: "Base", kind: "base", state: "reviewed", tasks: [{ taskId: "t1", title: "Task t1" }], runIds: ["run-1"],
+      summary: "x".repeat(3000), corrections: [{ note: "tidy", at: NOW }],
+      attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }], criteriaFacts: [{ id: "c1", state: "passed" }], supersededAt: NOW,
+    }];
+    const lean = normalizeProject(rich)!.milestones[0]!.history![0]!;
+    expect(lean).toMatchObject({ tasks: ["Task t1"], correctionCount: 1, attachmentCount: 1, cause: "plan", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(lean.summary!.length).toBeLessThanOrEqual(PROJECT_LIMITS.shortText);
+    expect(lean).not.toHaveProperty("attachments");
+    expect(lean).not.toHaveProperty("corrections");
   });
 });

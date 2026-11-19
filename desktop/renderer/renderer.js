@@ -10443,7 +10443,7 @@ function startLiveTurn(text) {
   const teamChoice = fzrTurnTeam(session);
   const send = () => BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(waiting ? undefined : session, turnPid), teamChoice);
   (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
-    if (res && res.ok && teamChoice) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's
+    if (res && res.ok) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's; #77: so is a reviewer being added
     if (res && res.ok && waiting) projectWaitingSent(session);
     else if (waiting) waiting.sending = false;
     if (!res || !res.ok) {
