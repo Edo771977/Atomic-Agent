@@ -117,7 +117,8 @@ function fakeWindow(calls) {
 }
 
 function startEdit(preview) {
-  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, draft: "old text" });
+  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false,
+    skipPreview: null, skipPending: null, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -175,7 +176,7 @@ test("only a rollback passes the files flag on to the agent", () => {
   assert.deepEqual(M.rewindRequestBody(0, "x", true), { priorQuestions: 0, expectText: "x", files: true });
   assert.deepEqual(M.rewindRequestBody(0, "x", "no"), { priorQuestions: 0, expectText: "x" });
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? files : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed)?)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed(, expectPlanHash)?)?)? \}/);
 });
 
 /* ---------- wiring ---------- */
@@ -312,8 +313,10 @@ test("skip is sent only as a list of at most 1000 paths, only for a rollback; ac
   }
   assert.equal(M.rewindRequestBody(0, "x", undefined, Array.from({ length: 1000 }, (_, i) => `/w/${i}`)).skip.length, 1000);
   const ipc = src("../main/chat-rewind-ipc.ts");
-  assert.match(ipc, /route === "rewind" \? skip : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed)? \}/);
+  assert.match(ipc, /takesSkip \? skip : undefined/);
+  assert.match(ipc, /const takesSkip = route === "rewind" \|\| route === "rewind\/preview";/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewindPreview", \{ sessionId, priorQuestions, expectText, skip \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed(, expectPlanHash)?)? \}/);
 });
 
 /** The fixture every button starts from: a rollback the agent answered with two files not put back. */
@@ -334,13 +337,19 @@ function agentWindow(mode, answers) {
     const next = answers.rewind.shift();
     return M.rewindAnswer(next.status, next.body);
   };
-  g.BR.rewindPreview = async () => { calls.push(["preview"]); return { ok: true, supported: true, data: answers.preview.shift() }; };
+  g.BR.rewindPreview = async (sid, p, t, skip) => {
+    calls.push(["preview"]);
+    if (skip) return { ok: true, supported: true, data: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: skip } };
+    return { ok: true, supported: true, data: answers.preview.shift() };
+  };
   g.toasts = [];
   g.toast = (...a) => g.toasts.push(a);
   startEdit(FILES_PREVIEW);
   R.REWIND.mode = mode;
   return calls;
 }
+/** Continue after a partial restore (issue #83): its fresh preview, then its confirm when it is offered. */
+const continueSkip = async () => { await R.rewindAct("go-skip"); await R.rewindAct("go-skip-confirm"); };
 const sentBodies = (calls) => calls.filter((c) => c[0] === "rewind").map((c) => c[1]);
 
 for (const [mode, label, files] of [["back", "Roll back without these files", undefined], ["edit", "Roll back without these files, then resend", true]]) {
@@ -356,7 +365,7 @@ for (const [mode, label, files] of [["back", "Roll back without these files", un
     const button = html.match(/<button[^>]*data-act="rewind:go-skip"[^>]*>([^<]*)</);
     assert.ok(button, "no Continue button after a partial restore");
     assert.equal(button[1], label);
-    await R.rewindAct("go-skip");
+    await continueSkip();
     const files0 = files === undefined ? {} : { files };
     assert.deepEqual(sentBodies(calls), [
       { priorQuestions: 1, expectText: "old text", ...files0 },
@@ -366,10 +375,10 @@ for (const [mode, label, files] of [["back", "Roll back without these files", un
     const again = R.rewindSheetHTML();
     assert.match(again, /late\.txt/);
     // Continue once more: the files already left alone stay in the list sent.
-    await R.rewindAct("go-skip");
+    await continueSkip();
     assert.deepEqual(sentBodies(calls)[2].skip, ["/w/locked.txt", "/w/dir/a.txt", "/w/late.txt"]);
     assert.ok(sentBodies(calls).every((b) => !("acceptFailed" in b)));
-    assert.deepEqual(calls.filter((c) => c[0] !== "rewind").map((c) => c[0]), mode === "edit" ? ["open", "submit"] : ["open"]);
+    assert.deepEqual(calls.filter((c) => c[0] !== "rewind" && c[0] !== "preview").map((c) => c[0]), mode === "edit" ? ["open", "submit"] : ["open"]);
   });
 }
 
@@ -384,7 +393,7 @@ test("no way out is offered for another refusal, or when nothing failed", async 
   // Without a partial restore on the sheet the verb sends nothing.
   R.REWIND.partial = null;
   globalThis.BR.rewind = async (...args) => { calls.push(["rewind", ...args]); return { ok: true, supported: true, data: {} }; };
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.deepEqual(calls, []);
 });
 
@@ -435,7 +444,7 @@ test("after Continue the toast names the files the agent left as they are", asyn
     { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
   ] });
   await R.rewindAct("go");
-  await R.rewindAct("go-skip");
+  await continueSkip();
   const [title, text] = globalThis.toasts.at(-1);
   assert.equal(title, "Rolled back");
   assert.match(text, /1 file put back/);
@@ -453,7 +462,7 @@ test("the notice asks the agent to leave the files alone, and a 200 without skip
   const html = R.rewindSheetHTML();
   assert.doesNotMatch(html, /stay as they are now/);
   assert.match(html, /asks the agent to leave the files listed above as they are/);
-  await R.rewindAct("go-skip");
+  await continueSkip();
   const [, text, kind] = globalThis.toasts.at(-1);
   assert.match(text, /your agent did not confirm it left those files alone/);
   assert.equal(kind, "bad");
@@ -484,7 +493,13 @@ function ipcWindow(mode, answers) {
     ipcRequire("../out/main/chat-rewind-ipc.js").wireChatRewindIpc({
       sessionRoute: async (sid, route, method, body) => {
         calls.push([route, JSON.parse(JSON.stringify(body))]);
-        const next = (route === "rewind/preview" ? answers.preview : answers.rewind).shift();
+        // A preview with a skip list (Continue, issue #83) answers from `skipPreview`, or like a new agent
+        // echoing it when the test queued none.
+        const queue = route === "rewind/preview" ? ((body.skip ? answers.skipPreview : answers.preview) || []) : answers.rewind;
+        if (route === "rewind/preview" && !queue.length && body.skip) {
+          return { status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: body.skip } };
+        }
+        const next = queue.shift();
         if (next instanceof Error) throw next;
         return next;
       },
@@ -492,9 +507,9 @@ function ipcWindow(mode, answers) {
   } finally {
     if (saved) ipcRequire.cache[electron] = saved; else delete ipcRequire.cache[electron];
   }
-  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed) =>
-    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed });
-  g.BR.rewindPreview = (sessionId, priorQuestions, expectText) => handlers["agent:rewindPreview"]({}, { sessionId, priorQuestions, expectText });
+  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash) =>
+    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash });
+  g.BR.rewindPreview = (sessionId, priorQuestions, expectText, skip) => handlers["agent:rewindPreview"]({}, { sessionId, priorQuestions, expectText, skip });
   g.toasts = [];
   g.toast = (...a) => g.toasts.push(a);
   startEdit(FILES_PREVIEW);
@@ -512,7 +527,7 @@ for (const [label, second] of [
     test(`${mode}: after Continue, a refusal that is not partial (${label}) keeps Check again only, and nothing plain is sent`, async () => {
       const calls = ipcWindow(mode, { rewind: [PARTIAL_409(FIRST_FAILED), second], preview: [{ status: 200, body: FILES_PREVIEW }] });
       await R.rewindAct("go");
-      await R.rewindAct("go-skip");
+      await continueSkip();
       assert.equal(agentBodies(calls).length, 2);
       assert.deepEqual(agentBodies(calls)[1].skip, ["/w/locked.txt", "/w/dir/a.txt"]);
       const html = R.rewindSheetHTML();
@@ -537,17 +552,17 @@ test("Continue is not offered when the files to leave alone are more than can be
   let html = R.rewindSheetHTML();
   assert.doesNotMatch(html, /rewind:go-skip/);
   assert.match(html, /Too many files could not be put back to leave each one alone/);
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.equal(agentBodies(calls).length, 1);
   // Merged with the ones left alone before, over the cap.
   calls = ipcWindow("back", { rewind: [PARTIAL_409(many(600)), PARTIAL_409(many(500, 600))] });
   await R.rewindAct("go");
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.equal(agentBodies(calls)[1].skip.length, 600);
   html = R.rewindSheetHTML();
   assert.doesNotMatch(html, /rewind:go-skip/);
   assert.match(html, /Too many files could not be put back to leave each one alone/);
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.equal(agentBodies(calls).length, 2, "an over-cap skip list was sent");
   assert.equal(R.REWIND.error === "The files to leave as they are could not be read", false);
 });
@@ -586,7 +601,7 @@ test("an agent without skip gets the #77 way out with plain words; from before s
   // A new agent that did not echo the earlier skip: no "from before".
   calls = ipcWindow("back", { rewind: [PARTIAL_409(FIRST_FAILED), PARTIAL_409([{ path: "/w/late.txt" }], { skipped: [] })] });
   await R.rewindAct("go");
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.doesNotMatch(R.rewindSheetHTML(), /from before/);
   assert.ok(agentBodies(calls).every((b) => !("acceptFailed" in b)));
 });
@@ -612,7 +627,7 @@ test("a late rollback answer is ignored by a sheet opened meanwhile", async () =
   assert.equal(R.REWIND.afterPartial, false);
   assert.equal(R.REWIND.error, null);
   assert.deepEqual(footActs(R.rewindSheetHTML()).map((a) => a[0]), ["rewind:go-chat", "rewind:go"]);
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.equal(calls.filter((c) => c[0] === "rewind").length, 1);
 });
 
@@ -625,11 +640,14 @@ for (const mode of ["back", "edit"]) {
     const calls = ipcWindow(mode, {
       rewind: [PARTIAL_409(FIRST_FAILED), { status: 409, body: { error: { code: "point_mismatch", message: "changed" } } },
         { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } }],
-      preview: [{ status: 200, body: fresh }],
+      // Continue's preview, then Check again's: both asked with the chosen files (issue #83 review).
+      skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
+        { status: 200, body: fresh }],
     });
     await R.rewindAct("go");
-    await R.rewindAct("go-skip");
+    await continueSkip();
     await R.rewindAct("recheck");
+    assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/locked.txt", "/w/dir/a.txt"], "Check again's preview was not asked with the chosen files");
     const html = R.rewindSheetHTML();
     const kept = html.split("Left as they are (you chose this)")[1];
     assert.ok(kept, "the files chosen to be left alone are not marked");
@@ -655,7 +673,241 @@ test("a Windows path the agent reported goes back in skip exactly as it came", a
   globalThis.WORKSPACE = "C:\\Users\\me\\proj";
   await R.rewindAct("go");
   assert.match(R.rewindSheetHTML(), /src\\Locked File\.txt/);
-  await R.rewindAct("go-skip");
+  await continueSkip();
   assert.deepEqual(agentBodies(calls)[1].skip, [win]);
   assert.match(src("../main/chat-rewind.ts"), /matched exactly/);
+});
+
+// Issue #83 (1): a late preview for message A showed in the sheet opened for message B of the same chat,
+// and confirming then sent B's position under A's file list.
+for (const late of ["files", "error"]) {
+  test(`a late preview (${late}) for a sheet closed meanwhile does not replace the sheet opened for another message`, async () => {
+    const calls = ipcWindow("back", { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+    const g = globalThis;
+    g.S.log = [{ id: "uA", k: "user", text: "question A" }, { id: "aA", k: "assistant", text: "a" }, { id: "uB", k: "user", text: "question B" }];
+    g.priorQuestions = (m) => (m.id === "uA" ? 0 : 1);
+    g.S.overlay = null;
+    const pending = {};
+    g.BR.rewindPreview = (sid, prior, text) => new Promise((resolve) => { pending[text] = resolve; });
+    R.rewindAct("back:uA");
+    g.S.overlay = null;   // the person closes A's sheet
+    R.rewindAct("back:uB");
+    const B_PREVIEW = { removed: { questions: 1, replies: 0 }, files: [{ path: "/w/b-only.txt", action: "restore" }], notRestorable: [], uncovered: [] };
+    const A_PREVIEW = { removed: { questions: 2, replies: 1 }, files: [{ path: "/w/a-only.txt", action: "restore" }], notRestorable: [], uncovered: [] };
+    pending["question B"]({ ok: true, supported: true, data: B_PREVIEW });
+    await new Promise((r) => setImmediate(r));
+    pending["question A"](late === "files" ? { ok: true, supported: true, data: A_PREVIEW } : { ok: false, supported: true, error: "A went wrong" });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(g.S.overlay, "rewind", "A's answer closed B's sheet");
+    const html = R.rewindSheetHTML();
+    assert.match(html, /b-only\.txt/);
+    assert.doesNotMatch(html, /a-only\.txt/, "A's file list is on B's sheet");
+    assert.doesNotMatch(html, /A went wrong/);
+    await R.rewindAct("go");
+    assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "question B" }]);
+  });
+}
+
+test("a late Check again preview does not land in a sheet opened meanwhile", async () => {
+  ipcWindow("back", { rewind: [PARTIAL_409(FIRST_FAILED)] });
+  const g = globalThis;
+  g.S.log = [{ id: "u1", k: "user", text: "old text" }, { id: "uB", k: "user", text: "question B" }];
+  g.priorQuestions = (m) => (m.id === "u1" ? 1 : 2);
+  await R.rewindAct("go");
+  let late;
+  g.BR.rewindPreview = () => new Promise((resolve) => { late = resolve; });
+  const checking = R.rewindAct("recheck");
+  g.S.overlay = null;
+  let fresh;
+  g.BR.rewindPreview = () => new Promise((resolve) => { fresh = resolve; });
+  R.rewindAct("back:uB");
+  fresh({ ok: true, supported: true, data: { removed: { questions: 1, replies: 0 }, files: [{ path: "/w/b-only.txt", action: "restore" }], notRestorable: [], uncovered: [] } });
+  await new Promise((r) => setImmediate(r));
+  late({ ok: true, supported: true, data: FILES_PREVIEW });
+  await checking;
+  const html = R.rewindSheetHTML();
+  assert.match(html, /b-only\.txt/);
+  assert.doesNotMatch(html, /src\/a\.ts/);
+});
+
+/* ---------- issue #83 (3): Continue checks a fresh preview with the skip list first ---------- */
+
+// The fixture: the first rollback put A back but could not write B (locked); then the person edited A and B.
+const A_FILE = "/w/src/a.ts";
+const B_FILE = "/w/locked.txt";
+const A_RESTORED_B_LOCKED = { status: 409, body: partialBody([{ path: B_FILE, error: "EBUSY" }], { partial: true, skipped: [], restored: [A_FILE], deleted: [] }) };
+const SKIP_PREVIEW = { status: 200, body: { removed: { questions: 1, replies: 1 }, files: [{ path: A_FILE, action: "restore" }], notRestorable: [], uncovered: [], skipped: [B_FILE] } };
+const previewBodies = (calls) => calls.filter((c) => c[0] === "rewind/preview").map((c) => c[1]);
+
+for (const [mode, label, files] of [["back", "Roll back without these files", undefined], ["edit", "Roll back without these files, then resend", true]]) {
+  test(`${mode}: Continue first shows a fresh preview with the skip list: what changes again, what is skipped`, async () => {
+    const calls = ipcWindow(mode, { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [A_FILE], deleted: [], failed: [], skipped: [B_FILE] } }], skipPreview: [SKIP_PREVIEW] });
+    await R.rewindAct("go");
+    await R.rewindAct("go-skip");
+    // Asked for a preview with skip [B]; no rollback sent yet.
+    assert.deepEqual(previewBodies(calls), [{ priorQuestions: 1, expectText: "old text", skip: [B_FILE] }]);
+    assert.equal(agentBodies(calls).length, 1, "Continue rolled back before showing the fresh preview");
+    const html = R.rewindSheetHTML();
+    const again = html.split("would be changed again")[1];
+    assert.ok(again, "the fresh preview is not shown");
+    assert.match(again.split("Left as they are")[0], /src\/a\.ts/);
+    assert.match(html.split("Left as they are")[1], /locked\.txt/);
+    assert.deepEqual(footActs(html).at(-1), ["rewind:go-skip-confirm", label]);
+    // Confirm: exactly one rollback, with skip [B].
+    await R.rewindAct("go-skip-confirm");
+    const bodies = agentBodies(calls);
+    assert.equal(bodies.length, 2);
+    assert.deepEqual(bodies[1], { priorQuestions: 1, expectText: "old text", ...(files === undefined ? {} : { files }), skip: [B_FILE] });
+  });
+
+  test(`${mode}: Cancel on the fresh preview sends no rollback`, async () => {
+    const calls = ipcWindow(mode, { rewind: [A_RESTORED_B_LOCKED], skipPreview: [SKIP_PREVIEW] });
+    await R.rewindAct("go");
+    await R.rewindAct("go-skip");
+    assert.match(R.rewindSheetHTML(), /would be changed again/);
+    globalThis.S.overlay = null;   // Cancel
+    await R.rewindAct("go-skip-confirm");
+    assert.equal(agentBodies(calls).length, 1);
+  });
+}
+
+// Issue #83 review: a rollback whose 409 echoed `skipped` supports skip, even when its preview does not
+// (agents between the two changes). The skip rollback stays offered, with a plain warning; "Roll back
+// anyway" is only for an agent whose rollback 409 has no `skipped`.
+test("a skip preview without skipped still offers the skip rollback, warning that its list may include those files", async () => {
+  const calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [A_FILE], deleted: [], failed: [], skipped: [B_FILE] } }],
+    skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [{ path: A_FILE, action: "restore" }, { path: B_FILE, action: "restore" }],
+      notRestorable: [], uncovered: [], planHash: "plan-without-skip" } }] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /could not show a preview that leaves those files out, so the list above may include them/);
+  assert.doesNotMatch(html, /rewind:go-accept/, "the files to leave alone would be rewritten");
+  assert.deepEqual(footActs(html).at(-1), ["rewind:go-skip-confirm", "Roll back without these files"]);
+  assert.doesNotMatch(html, /agent confirmed it will skip/);
+  assert.equal(agentBodies(calls).length, 1);
+  await R.rewindAct("go-skip-confirm");
+  // Its planHash is for a plan without the skip: not sent.
+  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", skip: [B_FILE] });
+});
+
+// Issue #83 review: the fixtures did not reset the Continue state, so tests depended on their order.
+test("every fixture and every opening of the sheet starts without Continue state", () => {
+  const dirty = () => Object.assign(R.REWIND, { skipPreview: { files: [] }, skipPending: ["/w/x"], opened: R.REWIND.opened });
+  const clean = (where) => assert.deepEqual([R.REWIND.skipPreview, R.REWIND.skipPending], [null, null], where);
+  dirty(); fakeWindow([]); startEdit(FILES_PREVIEW); clean("startEdit");
+  dirty(); ipcWindow("back", { rewind: [] }); clean("ipcWindow");
+  dirty(); agentWindow("back", { rewind: [] }); clean("agentWindow");
+  dirty();
+  globalThis.S.log = [{ id: "u1", k: "user", text: "old text" }];
+  globalThis.S.overlay = null;
+  globalThis.priorQuestions = () => 1;
+  globalThis.BR.rewindPreview = () => new Promise(() => {});
+  R.rewindAct("back:u1");
+  clean("rewindStart");
+});
+
+// Issue #83 review: Continue's preview dropped the warnings the normal preview shows.
+test("Continue's preview carries every warning of the normal preview, and each file's error", async () => {
+  const rich = { status: 200, body: {
+    removed: { questions: 1, replies: 1 },
+    files: [{ path: A_FILE, action: "restore" }, { path: "/w/gone.txt", action: "delete", error: "EACCES: permission denied" }],
+    notRestorable: [{ path: "/w/big.bin", reason: "too_large" }],
+    uncovered: [{ tool: "os.shell.run", count: 2 }],
+    incomplete: true,
+    skipped: [B_FILE],
+  } };
+  ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED], skipPreview: [rich] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /would be changed again/);
+  assert.match(html, /Cannot be put back/);
+  assert.match(html, /big\.bin \(too large to keep a copy of\)/);
+  assert.match(html, /not every file can be put back/);
+  assert.match(html, /also ran 2 shell commands/);
+  assert.match(html, /Shell commands and Fusion workers are never undone/);
+  assert.match(html, /gone\.txt[^]*EACCES: permission denied/);
+});
+
+/* ---------- issue #83 review: a confirm is tied to the plan its preview showed (planHash) ---------- */
+
+test("expectPlanHash is sent only as a string of at most 200 characters, only for a rollback", () => {
+  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, undefined, undefined, "h1"), { priorQuestions: 0, expectText: "x", expectPlanHash: "h1" });
+  assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, "h".repeat(200)).expectPlanHash.length, 200);
+  for (const bad of ["h".repeat(201), "", 5, {}]) assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, bad), null);
+  assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? expectPlanHash : undefined/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash \}/);
+});
+
+for (const [mode, act, files, hashed] of [["back", "go", undefined, true], ["edit", "go", true, true], ["edit", "go-chat", false, false]]) {
+  test(`${mode} ${act}: the confirm sends the preview's planHash${hashed ? "" : " (none: no files change)"}`, async () => {
+    const calls = ipcWindow(mode, { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+    R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1" };
+    await R.rewindAct(act);
+    assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "old text", ...(files === undefined ? {} : { files }), ...(hashed ? { expectPlanHash: "plan-1" } : {}) }]);
+  });
+}
+
+test("the skip confirm and Check again's confirm send their own preview's planHash", async () => {
+  let calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [], deleted: [], failed: [], skipped: [B_FILE] } }],
+    skipPreview: [{ ...SKIP_PREVIEW, body: { ...SKIP_PREVIEW.body, planHash: "plan-skip" } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1" };
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  await R.rewindAct("go-skip-confirm");
+  assert.equal(agentBodies(calls)[0].expectPlanHash, "plan-1");
+  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", skip: [B_FILE], expectPlanHash: "plan-skip" });
+  calls = ipcWindow("back", { rewind: [PARTIAL_409(FIRST_FAILED), { status: 200, body: { restored: [], deleted: [], failed: [] } }],
+    preview: [{ status: 200, body: { ...FILES_PREVIEW, planHash: "plan-fresh" } }] });
+  await R.rewindAct("go");
+  await R.rewindAct("recheck");
+  await R.rewindAct("go");
+  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", expectPlanHash: "plan-fresh" });
+});
+
+for (const mode of ["back", "edit"]) {
+  test(`${mode}: plan_changed says the files changed since the preview and offers only Check again`, async () => {
+    const calls = ipcWindow(mode, { rewind: [{ status: 409, body: { error: { code: "plan_changed", message: "plan changed" } } }],
+      preview: [{ status: 200, body: { ...FILES_PREVIEW, planHash: "plan-2" } }] });
+    R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1" };
+    await R.rewindAct("go");
+    const html = R.rewindSheetHTML();
+    assert.match(html, /files changed since the preview/);
+    assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
+    await R.rewindAct("go");
+    await R.rewindAct("go-chat");
+    assert.equal(agentBodies(calls).length, 1, "a confirm was sent after plan_changed");
+    await R.rewindAct("recheck");
+    assert.equal(calls.at(-1)[0], "rewind/preview");
+    assert.equal(R.REWIND.preview.planHash, "plan-2");
+  });
+}
+
+// Issue #83 review: a late Continue preview after the sheet was closed and opened again is ignored.
+test("a late Continue preview is ignored by a sheet closed and opened again, which does not stay loading", async () => {
+  const calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED] });
+  const g = globalThis;
+  g.S.log = [{ id: "u1", k: "user", text: "old text" }];
+  g.priorQuestions = () => 1;
+  await R.rewindAct("go");
+  let late;
+  g.BR.rewindPreview = () => new Promise((resolve) => { late = resolve; });
+  const checking = R.rewindAct("go-skip");
+  assert.equal(R.REWIND.loading, true);
+  g.S.overlay = null;   // closed
+  let fresh;
+  g.BR.rewindPreview = () => new Promise((resolve) => { fresh = resolve; });
+  R.rewindAct("back:u1");   // the same message again
+  fresh({ ok: true, supported: true, data: FILES_PREVIEW });
+  await new Promise((r) => setImmediate(r));
+  late({ ok: true, supported: true, data: SKIP_PREVIEW.body });
+  await checking;
+  assert.equal(R.REWIND.loading, false, "the new sheet stays loading");
+  assert.equal(R.REWIND.skipPreview, null, "the old Continue preview landed in the new sheet");
+  const html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /would be changed again/);
+  assert.deepEqual(footActs(html), [["rewind:go", "Roll back"]]);
+  await R.rewindAct("go-skip-confirm");
+  assert.equal(agentBodies(calls).length, 1);
 });
