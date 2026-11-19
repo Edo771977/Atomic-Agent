@@ -29,6 +29,24 @@ Drives your browser, edits files, runs approved commands, and remembers context 
 
 ---
 
+> [!IMPORTANT]
+> **This is a fork of [AtomicBot-ai/atomic-agent](https://github.com/AtomicBot-ai/atomic-agent).** It was last synced with upstream on 17 November 2026 (upstream `v0.8.0` and desktop `v0.0.9`).
+>
+> **What the fork adds:**
+> - **Fusion team.** Director, worker and reviewer seats, with a reviewer per chat; a ChatGPT/Codex subscription can be the reviewer.
+> - **Fusion projects with gates.** The brief, the plan and each milestone stop for the person to decide. Verdicts are tied to the work and the criteria they were given for.
+> - **Folder constraints for confidential data.** A folder can be limited to local models, with no network egress.
+> - **More reliable local workers.** Workers check their own work, and only green tasks are delivered.
+> - **Fusion setup and measurement.** `atomic-agent setup fusion` sets it up and `atomic-agent fusion report` measures it.
+> - **Safer chat rollback.** Partial restores, skipped files and a check that the plan has not changed since the preview.
+> - **Windows fixes.**
+>
+> Full list, with the PR behind each change: **[docs/user/fork-differences.md](docs/user/fork-differences.md)**.
+>
+> The Quick Install below and upstream's release packages install **upstream's** code, without these changes. To use the fork:
+> - **From source:** `npm ci && npm run build && npm link`.
+> - **Desktop app:** the `desktop-<platform>` artifact of this repository's **Desktop packages** workflow.
+
 A local-first AI agent that runs the control loop and all state on your machine. It works across your machine: browse the web, read and edit files, run approved shell commands, inspect documents, remember context across sessions, schedule follow-ups, and call external tools over MCP. Run it on a local model, a cloud model, or both at once in **Fusion** mode, where one model plans and a pool of workers executes. Embed it in your own apps over HTTP or a Tauri sidecar. `llama.cpp` first, so small quantized models stay useful for long, multi-step work on consumer hardware.
 
 ## Quick Install

@@ -57,6 +57,35 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 
   See [#75](https://github.com/Edo771977/atomic-agent/pull/75).
 
+### Milestone verdicts stay tied to their work
+
+- **A material change to a milestone's work resets its verdict.** A changed kind, or a task added, removed, moved or retitled, sends it back to planned. Its old evidence moves to a short per-milestone history. Editorial changes keep the verdict: the title, the order, or a task's worker, reviewer or estimate. Work that has no verdict yet keeps its runs when tasks are only added. The plan gate says `verdict reset: <title>` ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
+- **Criteria are judged when a brief is approved,** against the last approved brief:
+  - A criterion whose text changed resets the milestones that cite it.
+  - A removed criterion drops only its own facts and pictures, which go to history with its text.
+  - A reused id starts with no evidence.
+
+  See [#81](https://github.com/Edo771977/atomic-agent/pull/81).
+- **Projects saved before #81.** Evidence for criteria missing from the approved brief is retired. If no brief was approved, all criteria evidence is retired, because nothing tells which old results still apply. The plan gate says `evidence retired: <title>` ([#84](https://github.com/Edo771977/atomic-agent/pull/84)).
+- **One milestone open at a time, across the whole plan.** The daily-cap estimate is computed for the milestone that approval will actually start ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
+- **Desktop reviewer.** "Add a reviewer…" goes to the chat it was started from, even when the chat changes during the write ([#79](https://github.com/Edo771977/atomic-agent/pull/79)).
+
+## Chat rollback (rewind)
+
+- **A partial restore keeps the way back.** If any file fails, the rollback answers `409 restore_failed`, with `partial: true` and the lists of restored, deleted and failed files. The chat is not cut and the checkpoint copies are kept, so it can be retried ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
+- **A file that cannot be inspected counts as a failure,** not as "not a file". That covers EACCES, EPERM, EBUSY and EIO, for example a file locked by an editor. A file the agent created is removed after a stat alone. The plan is made again inside the turn lock ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
+- **`skip`.** It leaves the files the person chose exactly as they are. Paths are matched in a normalized form, case-folded on Windows. An unknown path is refused with `skip_unknown` ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
+- **`acceptFailed`.** It finishes the rollback past a failure that keeps coming back ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
+- **The preview's `planHash`.** A confirm sends it back as `expectPlanHash`. If the files changed in between, the confirm is refused with `plan_changed` ([#84](https://github.com/Edo771977/atomic-agent/pull/84)).
+- **In the desktop:**
+  - The sheet names the files that could not be put back.
+  - "Roll back without these files" shows a fresh preview with the skip list before it sends anything.
+  - Retry is "Check again", with a fresh preview.
+  - Late answers are bound to the sheet that asked.
+  - An older agent gets an honest "Roll back anyway".
+
+  See [#79](https://github.com/Edo771977/atomic-agent/pull/79), [#82](https://github.com/Edo771977/atomic-agent/pull/82) and [#85](https://github.com/Edo771977/atomic-agent/pull/85).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
@@ -121,3 +150,4 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 - [#33](https://github.com/Edo771977/atomic-agent/issues/33): multi-model team and an approvable assignment plan.
 - [#35](https://github.com/Edo771977/atomic-agent/issues/35): the Windows test run (install, Fusion costs, folder constraints, approvals, project quality).
 - [#47](https://github.com/Edo771977/atomic-agent/issues/47): the desktop line and its project card.
+- [#80](https://github.com/Edo771977/atomic-agent/issues/80): the Windows acceptance checks for the rollback and milestone fixes.
