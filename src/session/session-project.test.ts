@@ -949,6 +949,7 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
         criteriaFacts: [{ id: "c1", state: "passed" }],
         correctionCount: 1,
         attachmentCount: 1,
+        criteria: [{ id: "c1", text: "Runs in the browser" }],
         cause: "plan",
         supersededAt: NOW + 5,
       },

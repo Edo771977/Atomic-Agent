@@ -164,7 +164,13 @@ export interface ProjectMilestoneRevision {
   criteriaFacts?: ProjectCriterionFact[];
   correctionCount?: number;
   attachmentCount?: number;
-  /** `plan`: a re-plan changed the work; `brief`: a criterion its evidence cites changed. */
+  /**
+   * The brief's criteria its facts and pictures cite, with their text at
+   * the time (issue #80): a fact stays tied to the requirement it
+   * measured even after its id is removed or reused.
+   */
+  criteria?: ProjectCriterion[];
+  /** `plan`: a re-plan changed the work; `brief`: a criterion its evidence cites changed or was removed. */
   cause: "plan" | "brief";
   /** Epoch ms of the update that replaced this work. */
   supersededAt: number;
@@ -914,6 +920,12 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   const attachments = count(raw.attachments, raw.attachmentCount);
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
+  const criteria: ProjectCriterion[] = [];
+  for (const c of Array.isArray(raw.criteria) ? raw.criteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
+    const id = isObject(c) ? cleanCriterionId(c.id) : null;
+    if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
+    criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
+  }
   return {
     title: clip(raw.title, PROJECT_LIMITS.title),
     kind: raw.kind as MilestoneKind,
@@ -924,6 +936,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(corrections === 0 ? {} : { correctionCount: corrections }),
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
+    ...(criteria.length === 0 ? {} : { criteria }),
     cause: raw.cause === "brief" ? "brief" : "plan",
     supersededAt: raw.supersededAt as number,
   };
@@ -1090,7 +1103,7 @@ function briefUpdate(
   const changed = changedCriteria(base?.brief?.successCriteria ?? [], brief.successCriteria);
   const milestones = (base?.milestones ?? []).map((m) =>
     changed.size > 0 && citesCriteria(m, changed)
-      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now, "brief")
+      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now, "brief", base?.brief?.successCriteria ?? [])
       : m.state === "approved"
         ? { ...m, state: "planned" as const, updatedAt: now }
         : m,
@@ -1196,10 +1209,17 @@ const hasEvidence = (m: ProjectMilestone): boolean =>
  * runs, report, corrections, pictures or facts; what it held moves to
  * `history` with the work it was for (`tasks`, from the plan before).
  */
-function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now: number, cause: "plan" | "brief"): ProjectMilestone {
+function supersede(
+  old: ProjectMilestone,
+  oldTasks: ProjectMilestoneTask[],
+  now: number,
+  cause: "plan" | "brief",
+  criteria: readonly ProjectCriterion[],
+): ProjectMilestone {
   const history = [...(old.history ?? [])];
   if (hasEvidence(old)) {
     const summary = old.summary === undefined ? "" : clipText(old.summary, PROJECT_LIMITS.shortText);
+    const cited = criteria.filter((c) => citesCriteria(old, new Set([c.id]))).map((c) => ({ id: c.id, text: c.text }));
     history.push({
       title: old.title,
       kind: old.kind,
@@ -1210,6 +1230,7 @@ function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now:
       ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
       ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
       ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
+      ...(cited.length === 0 ? {} : { criteria: cited }),
       cause,
       supersededAt: now,
     });
@@ -1236,13 +1257,14 @@ function mergeResets(previous: ProjectPlan | undefined, fresh: readonly string[]
 }
 
 /**
- * Ids of the criteria a brief revision changed (issue #77): kept ids
- * whose text differs beyond case and whitespace. A removed criterion is
- * not a change: nothing new is measured under its id.
+ * Ids of the criteria a brief revision changed: kept ids whose text
+ * differs beyond case and whitespace (issue #77), and removed ids (issue
+ * #80), whose evidence is retired so a later revision reusing the id for
+ * another requirement cannot inherit its pass.
  */
 function changedCriteria(before: readonly ProjectCriterion[], after: readonly ProjectCriterion[]): Set<string> {
   const now = new Map(after.map((c) => [c.id, workText(c.text)]));
-  return new Set(before.filter((c) => now.has(c.id) && now.get(c.id) !== workText(c.text)).map((c) => c.id));
+  return new Set(before.filter((c) => now.get(c.id) !== workText(c.text)).map((c) => c.id));
 }
 
 /** Whether a milestone's evidence cites one of these criteria (its facts or its pictures). */
@@ -1263,6 +1285,7 @@ function replannedMilestone(
   oldRows: readonly AssignmentRow[],
   rows: readonly AssignmentRow[],
   now: number,
+  criteria: readonly ProjectCriterion[],
 ): ProjectMilestone {
   const base = { id: next.id, title: next.title, kind: next.kind };
   if (old === undefined) return { ...base, state: "planned", runIds: [], updatedAt: now };
@@ -1272,7 +1295,7 @@ function replannedMilestone(
   // when the re-plan only adds tasks to it: those runs did part of it.
   const grows = !VERDICT.has(old.state) && old.kind === next.kind && onlyAddsTasks(oldTasks, newTasks);
   if (!grows && milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: newTasks })) {
-    return { ...supersede(old, oldTasks, now, "plan"), ...base };
+    return { ...supersede(old, oldTasks, now, "plan", criteria), ...base };
   }
   const keep = FINISHED.has(old.state) || old.state === "in_progress";
   return {
@@ -1338,7 +1361,7 @@ function planUpdate(
     }
     rows.push(read);
   }
-  const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now));
+  const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
     totals: planTotals(rows),
