@@ -117,7 +117,7 @@ function fakeWindow(calls) {
 }
 
 function startEdit(preview) {
-  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, draft: "old text" });
+  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -175,7 +175,7 @@ test("only a rollback passes the files flag on to the agent", () => {
   assert.deepEqual(M.rewindRequestBody(0, "x", true), { priorQuestions: 0, expectText: "x", files: true });
   assert.deepEqual(M.rewindRequestBody(0, "x", "no"), { priorQuestions: 0, expectText: "x" });
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? files : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, acceptFailed)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip)? \}/);
 });
 
 /* ---------- wiring ---------- */
@@ -222,8 +222,11 @@ test("a partial restore (409 restore_failed) carries what was put back and what 
   assert.deepEqual([...mixed.restore.restored], ["/w/a", "/w/b"]);
   assert.deepEqual([mixed.restore.restoredTotal, mixed.restore.deletedTotal], [2, 1]);
   const many = M.rewindAnswer(409, partialBody(Array.from({ length: 500 }, (_, i) => ({ path: `/w/f${i}` }))));
-  assert.equal(many.restore.failed.length, 100);
+  // Every failed path is kept (up to the skip cap), so all of them can be left alone (issue #80).
+  assert.equal(many.restore.failed.length, 500);
   assert.equal(many.restore.failedTotal, 500);
+  const huge = M.rewindAnswer(409, partialBody(Array.from({ length: 1500 }, (_, i) => ({ path: `/w/f${i}` }))));
+  assert.equal(huge.restore.failed.length, 1000);
   // Another refusal carries them too when files were changed (see below); a body without arrays still reads as restore_failed.
   assert.equal(M.rewindAnswer(409, { error: { code: "turn_in_progress", message: "busy" } }).restore, undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(M.rewindAnswer(409, { error: { code: "restore_failed", message: "x" }, failed: "no" }).restore)),
@@ -297,46 +300,77 @@ test("a refusal after files were put back says which files changed and that the 
   assert.doesNotMatch(html, /again to try the rest/);
 });
 
-/* ---------- issue #77: a way out of a restore that keeps failing ---------- */
+/* ---------- issues #77 / #80: after a partial restore, Continue (skip) and Retry (Check again) ---------- */
 
-test("acceptFailed is sent only as a boolean, only for a rollback, and only when the person asks", () => {
-  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, true), { priorQuestions: 0, expectText: "x", acceptFailed: true });
-  assert.deepEqual(M.rewindRequestBody(0, "x", true, true), { priorQuestions: 0, expectText: "x", files: true, acceptFailed: true });
-  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, "yes"), { priorQuestions: 0, expectText: "x" });
-  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, 1), { priorQuestions: 0, expectText: "x" });
+test("skip is sent only as a list of at most 1000 paths, only for a rollback; acceptFailed is never sent", () => {
+  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, ["/w/a", "/w/b"]), { priorQuestions: 0, expectText: "x", skip: ["/w/a", "/w/b"] });
+  assert.deepEqual(M.rewindRequestBody(0, "x", true, ["/w/a"]), { priorQuestions: 0, expectText: "x", files: true, skip: ["/w/a"] });
+  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, []), { priorQuestions: 0, expectText: "x" });
+  for (const bad of ["/w/a", [1], [""], ["/w/a", null], Array.from({ length: 1001 }, (_, i) => `/w/${i}`), true]) {
+    assert.equal(M.rewindRequestBody(0, "x", undefined, bad), null, JSON.stringify(bad).slice(0, 40));
+  }
+  assert.equal(M.rewindRequestBody(0, "x", undefined, Array.from({ length: 1000 }, (_, i) => `/w/${i}`)).skip.length, 1000);
   const ipc = src("../main/chat-rewind-ipc.ts");
-  assert.match(ipc, /route === "rewind" \? acceptFailed : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, acceptFailed \}/);
+  assert.match(ipc, /route === "rewind" \? skip : undefined/);
+  assert.doesNotMatch(ipc, /acceptFailed/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip \}/);
+  assert.doesNotMatch(src("../renderer/chat-rewind.js"), /acceptFailed/);
 });
 
+/** The fixture every button starts from: a rollback the agent answered with two files not put back. */
+const FIRST_FAILED = [{ path: "/w/locked.txt", error: "EBUSY" }, { path: "/w/dir/a.txt", error: "EISDIR" }];
+
+/**
+ * A window whose BR answers like the agent: each rewind call goes through
+ * preload's argument order and main's rewindRequestBody, and the body the
+ * agent would get is recorded with the answer it gives.
+ */
+function agentWindow(mode, answers) {
+  const calls = [];
+  fakeWindow(calls);
+  const g = globalThis;
+  g.BR.rewind = async (sid, priorQuestions, expectText, files, skip) => {
+    const body = M.rewindRequestBody(priorQuestions, expectText, files, skip);
+    calls.push(["rewind", JSON.parse(JSON.stringify(body))]);
+    const next = answers.rewind.shift();
+    return M.rewindAnswer(next.status, next.body);
+  };
+  g.BR.rewindPreview = async () => { calls.push(["preview"]); return { ok: true, supported: true, data: answers.preview.shift() }; };
+  g.toasts = [];
+  g.toast = (...a) => g.toasts.push(a);
+  startEdit(FILES_PREVIEW);
+  R.REWIND.mode = mode;
+  return calls;
+}
+const sentBodies = (calls) => calls.filter((c) => c[0] === "rewind").map((c) => c[1]);
+
 for (const [mode, label, files] of [["back", "Roll back without these files", undefined], ["edit", "Roll back without these files, then resend", true]]) {
-  test(`after a partial restore the ${mode} sheet offers to go ahead without the failed files, and only then sends acceptFailed`, async () => {
-    const calls = [];
-    fakeWindow(calls);
-    let answer = M.rewindAnswer(409, partialBody([{ path: "/w/locked.txt", error: "EISDIR" }], { partial: true }));
-    globalThis.BR.rewind = async (...args) => { calls.push(["rewind", ...args]); return answer; };
-    startEdit(FILES_PREVIEW);
-    R.REWIND.mode = mode;
-    // The first try never sends it.
+  test(`${mode}: Continue sends skip with exactly the listed paths, never acceptFailed, and does not loop`, async () => {
+    const calls = agentWindow(mode, { rewind: [
+      { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+      // Another file failed this time: the notice comes back with it.
+      { status: 409, body: partialBody([{ path: "/w/late.txt", error: "EACCES" }], { partial: true }) },
+      { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt", "/w/late.txt"] } },
+    ] });
     await R.rewindAct("go");
-    assert.deepEqual(calls, [["rewind", "s-1", 1, "old text", files]]);
     const html = R.rewindSheetHTML();
-    const accept = html.match(/<button[^>]*data-act="rewind:go-accept"[^>]*>([^<]*)</);
-    assert.ok(accept, "no way out after a partial restore");
-    assert.equal(accept[1], label);
-    assert.match(html, /stay as they are now/);
-    assert.match(html, /saved copies are dropped/);
-    // An older agent answers 409 again: the notice shows again, nothing is retried.
-    await R.rewindAct("go-accept");
-    assert.deepEqual(calls.slice(1), [["rewind", "s-1", 1, "old text", files, true]]);
-    assert.equal(globalThis.S.overlay, "rewind");
-    assert.match(R.rewindSheetHTML(), /data-act="rewind:go-accept"/);
-    // The agent goes ahead: on 200 it continues as a normal rollback.
-    answer = { ok: true, supported: true, data: { restored: [], deleted: [], failed: [{ path: "/w/locked.txt", error: "EISDIR" }] } };
-    await R.rewindAct("go-accept");
-    const after = calls.slice(3).map((c) => c[0]);
-    assert.deepEqual(after, mode === "edit" ? ["open", "submit"] : ["open"]);
-    assert.equal(calls[2].at(-1), true);
+    const button = html.match(/<button[^>]*data-act="rewind:go-skip"[^>]*>([^<]*)</);
+    assert.ok(button, "no Continue button after a partial restore");
+    assert.equal(button[1], label);
+    await R.rewindAct("go-skip");
+    const files0 = files === undefined ? {} : { files };
+    assert.deepEqual(sentBodies(calls), [
+      { priorQuestions: 1, expectText: "old text", ...files0 },
+      { priorQuestions: 1, expectText: "old text", ...files0, skip: ["/w/locked.txt", "/w/dir/a.txt"] },
+    ]);
+    assert.equal(globalThis.S.overlay, "rewind", "the sheet closed on a second partial restore");
+    const again = R.rewindSheetHTML();
+    assert.match(again, /late\.txt/);
+    // Continue once more: the files already left alone stay in the list sent.
+    await R.rewindAct("go-skip");
+    assert.deepEqual(sentBodies(calls)[2].skip, ["/w/locked.txt", "/w/dir/a.txt", "/w/late.txt"]);
+    assert.ok(sentBodies(calls).every((b) => !("acceptFailed" in b)));
+    assert.deepEqual(calls.filter((c) => c[0] !== "rewind").map((c) => c[0]), mode === "edit" ? ["open", "submit"] : ["open"]);
   });
 }
 
@@ -347,10 +381,10 @@ test("no way out is offered for another refusal, or when nothing failed", async 
   startEdit(FILES_PREVIEW);
   R.REWIND.mode = "back";
   await R.rewindAct("go");
-  assert.doesNotMatch(R.rewindSheetHTML(), /go-accept/);
+  assert.doesNotMatch(R.rewindSheetHTML(), /go-skip/);
   // Without a partial restore on the sheet the verb sends nothing.
   R.REWIND.partial = null;
   globalThis.BR.rewind = async (...args) => { calls.push(["rewind", ...args]); return { ok: true, supported: true, data: {} }; };
-  await R.rewindAct("go-accept");
+  await R.rewindAct("go-skip");
   assert.deepEqual(calls, []);
 });

@@ -13,7 +13,7 @@
 import { ipcMain } from "electron";
 
 import { requestErrorText, type AgentClient } from "./agent-client.js";
-import { rewindAnswer, rewindRequestBody, type RewindAnswer, type RewindRoute } from "./chat-rewind.js";
+import { rewindAnswer, rewindRequestBody, rewindSkipList, type RewindAnswer, type RewindRoute } from "./chat-rewind.js";
 
 const CHANNELS: ReadonlyArray<[string, RewindRoute]> = [
   ["agent:rewindPreview", "rewind/preview"],
@@ -24,13 +24,16 @@ const CHANNELS: ReadonlyArray<[string, RewindRoute]> = [
 export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): void {
   for (const [channel, route] of CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown): Promise<RewindAnswer> => {
-      const { sessionId, priorQuestions, expectText, files, acceptFailed } = (payload ?? {}) as {
-        sessionId?: unknown; priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown;
+      const { sessionId, priorQuestions, expectText, files, skip } = (payload ?? {}) as {
+        sessionId?: unknown; priorQuestions?: unknown; expectText?: unknown; files?: unknown; skip?: unknown;
       };
       if (typeof sessionId !== "string" || !sessionId) return { ok: false, supported: true, code: "session_not_found", error: "This chat is not saved yet" };
+      // Issue #80: the files to leave as they are, a list of paths only; anything else is refused, not dropped
+      // (dropped, the agent would put those files back after all).
+      if (route === "rewind" && rewindSkipList(skip) === null) return { ok: false, supported: true, error: "The files to leave as they are could not be read" };
       // Only a rollback takes `files` (ATO-1056: Edit, files and conversation or the conversation only)
-      // and `acceptFailed` (issue #77: go ahead without the files a restore could not put back).
-      const body = rewindRequestBody(priorQuestions, expectText, route === "rewind" ? files : undefined, route === "rewind" ? acceptFailed : undefined);
+      // and `skip` (issue #80: go ahead without the files a partial restore could not put back).
+      const body = rewindRequestBody(priorQuestions, expectText, route === "rewind" ? files : undefined, route === "rewind" ? skip : undefined);
       if (body === null) return { ok: false, supported: true, error: "No message to go back to" };
       try {
         const res = await client.sessionRoute(sessionId, route, "POST", body);
