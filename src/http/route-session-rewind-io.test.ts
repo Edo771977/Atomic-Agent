@@ -208,6 +208,22 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(await copies(store)).toEqual([]);
   });
 
+  it("skip with acceptFailed: skip wins for its paths, acceptFailed covers the failures of the rest", async () => {
+    const { a, b, store } = await partlyRestoredThenEdited();
+    io.failWrite.add(b);
+    io.failRead.add(a);
+    const res = await post("rw-io/rewind", { ...point, skip: [a], acceptFailed: true });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { skipped: string[]; restored: string[]; failed: { path: string }[] };
+    expect(body).toMatchObject({ skipped: [a], restored: [] });
+    expect(body.failed.map((f) => f.path)).toEqual([b]);
+    io.failRead.clear();
+    expect(readFileSync(a, "utf8")).toBe("a edited by the person");
+    expect(readFileSync(b, "utf8")).toBe("b edited by the person");
+    expect(turns()).toBe(2);
+    expect(await copies(store)).toEqual([]);
+  });
+
   it("failures outside skip still refuse with 409 restore_failed", async () => {
     const { a, b, store } = await seed();
     io.failWrite.add(b);
