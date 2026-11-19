@@ -963,7 +963,6 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
 
   it.each([
     ["the kind", { milestones: [{ id: "m1", title: "Base", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t1", "m1"), row("t2", "m2")] }],
-    ["the task ids", { milestones: planUpdate.milestones, rows: [row("t7", "m1", { title: "Task t1" }), row("t2", "m2")] }],
     ["a task's title", { milestones: planUpdate.milestones, rows: [row("t1", "m1", { title: "Something else" }), row("t2", "m2")] }],
     ["an added task", { milestones: planUpdate.milestones, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] }],
     ["a task moved away", { milestones: planUpdate.milestones, rows: [row("t1", "m2"), row("t2", "m2")] }],
@@ -986,18 +985,24 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(m1.history).toBeUndefined();
   });
 
+  it("a task renamed to a new id with the same title is not a change of work", () => {
+    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t1-renamed", "m1", { title: "Task t1" }), row("t2", "m2")] } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
+    expect(re.milestones[0]!.history).toBeUndefined();
+  });
+
   it("an approved milestone with runs of a failed try drops them when its work changes", () => {
     let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
     p = approve(update(p, { kind: "milestone", id: "m1", state: "failed", summary: "broken" }));
     expect(p.milestones[0]).toMatchObject({ state: "approved", runIds: ["run-1"] });
-    const re = update(p, { ...planUpdate, rows: [row("t5", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    const re = update(p, { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
     expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
     expect(re.milestones[0]!.summary).toBeUndefined();
     expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "approved", runIds: ["run-1"], summary: "broken" });
   });
 
   it("history reads back from a stored session; older stores without it still read", () => {
-    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
     const back = normalizeProject(JSON.parse(JSON.stringify(re)));
     expect(back!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
     const malformed = JSON.parse(JSON.stringify(re));

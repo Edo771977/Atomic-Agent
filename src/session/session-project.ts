@@ -1081,20 +1081,24 @@ function milestoneTasks(rows: readonly AssignmentRow[], id: string): ProjectMile
 /** A task title as the work it names: case and runs of whitespace are editorial. */
 const workText = (title: string): string => title.replace(/\s+/g, " ").trim().toLowerCase();
 
+/** A milestone's task titles as work, sorted: ids are names, not work. */
+const workTitles = (tasks: readonly ProjectMilestoneTask[]): string[] => tasks.map((t) => workText(t.title)).sort();
+
 /**
  * Whether a re-plan changed the work a milestone's evidence stands on
- * (issue #77): its kind, or the tasks assigned to it (a task added,
- * removed or moved, or a task's title beyond case and whitespace). The
- * milestone's own title, the order of milestones and a task's worker,
- * reviewer or estimate are not the work.
+ * (issue #77): its kind, or its tasks compared by title (a task added,
+ * removed or moved, or a title changed beyond case and whitespace). Task
+ * ids, the milestone's own title, the order of milestones and a task's
+ * worker, reviewer or estimate are not the work.
  */
 export function milestoneWorkChanged(
   before: { kind: MilestoneKind; tasks: readonly ProjectMilestoneTask[] },
   after: { kind: MilestoneKind; tasks: readonly ProjectMilestoneTask[] },
 ): boolean {
-  if (before.kind !== after.kind || before.tasks.length !== after.tasks.length) return true;
-  const titles = new Map(before.tasks.map((t) => [t.taskId, workText(t.title)]));
-  return after.tasks.some((t) => titles.get(t.taskId) !== workText(t.title));
+  if (before.kind !== after.kind) return true;
+  const a = workTitles(before.tasks);
+  const b = workTitles(after.tasks);
+  return a.length !== b.length || a.some((t, i) => t !== b[i]);
 }
 
 /** Whether a milestone holds anything a revision should keep. */
