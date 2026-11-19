@@ -272,10 +272,24 @@ function rewindStart(mode, id) {
   rewindLoadPreview();
 }
 
+/**
+ * Issue #83: what an awaited call of the sheet was asked for. Its answer is
+ * the sheet's only while the same opening (REWIND.opened), chat, message and
+ * position are still on screen (rewindStillAsked); a sheet closed and opened
+ * for another message, or this one again, never takes it.
+ */
+function rewindAsked() {
+  return {opened: REWIND.opened, sid: REWIND.sid, id: REWIND.id, prior: REWIND.prior};
+}
+function rewindStillAsked(asked) {
+  return asked.opened === REWIND.opened && asked.sid === REWIND.sid && asked.id === REWIND.id && asked.prior === REWIND.prior
+    && S.overlay === 'rewind';
+}
+
 async function rewindLoadPreview() {
-  const sid = REWIND.sid;
-  const r = await BR.rewindPreview(sid, REWIND.prior, REWIND.text).catch((err) => ({ok: false, supported: true, error: String(err)}));
-  if (REWIND.sid !== sid || S.overlay !== 'rewind') return;
+  const asked = rewindAsked();
+  const r = await BR.rewindPreview(asked.sid, REWIND.prior, REWIND.text).catch((err) => ({ok: false, supported: true, error: String(err)}));
+  if (!rewindStillAsked(asked)) return;   // success and error alike
   REWIND.loading = false;
   if (r && r.supported === false) { REWIND.supported = false; S.overlay = null; render(); toast('Not available', 'This agent version cannot roll a chat back. Update Atomic Agent.', 'bad'); return; }
   if (!r || !r.ok) REWIND.error = rewindRefusalText(r);
@@ -364,14 +378,12 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (skipping) REWIND.skip = skipping;
   const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
     : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];
-  const asked = {opened: REWIND.opened, sid, id: REWIND.id, prior: REWIND.prior};
+  const asked = rewindAsked();
   const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
   // Issue #80 review: the answer is this sheet's only while it is still open on the same point. A sheet
   // opened meanwhile (another message, or this one again) never takes it, or its Continue would send
   // the old paths for a different point.
-  const same = asked.opened === REWIND.opened && asked.sid === REWIND.sid && asked.id === REWIND.id && asked.prior === REWIND.prior
-    && S.overlay === 'rewind';
-  if (!same) {
+  if (!rewindStillAsked(asked)) {
     // A rollback that went through still changed that chat: show it if it is on screen, but resend nothing.
     if (r && r.ok && S.agentSession === sid) { await openSession(sid); toast('Rolled back', edit ? 'The chat was rolled back; the edited message was not sent.' : 'The chat was rolled back.'); }
     return;

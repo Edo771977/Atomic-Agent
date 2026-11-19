@@ -659,3 +659,55 @@ test("a Windows path the agent reported goes back in skip exactly as it came", a
   assert.deepEqual(agentBodies(calls)[1].skip, [win]);
   assert.match(src("../main/chat-rewind.ts"), /matched exactly/);
 });
+
+// Issue #83 (1): a late preview for message A showed in the sheet opened for message B of the same chat,
+// and confirming then sent B's position under A's file list.
+for (const late of ["files", "error"]) {
+  test(`a late preview (${late}) for a sheet closed meanwhile does not replace the sheet opened for another message`, async () => {
+    const calls = ipcWindow("back", { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+    const g = globalThis;
+    g.S.log = [{ id: "uA", k: "user", text: "question A" }, { id: "aA", k: "assistant", text: "a" }, { id: "uB", k: "user", text: "question B" }];
+    g.priorQuestions = (m) => (m.id === "uA" ? 0 : 1);
+    g.S.overlay = null;
+    const pending = {};
+    g.BR.rewindPreview = (sid, prior, text) => new Promise((resolve) => { pending[text] = resolve; });
+    R.rewindAct("back:uA");
+    g.S.overlay = null;   // the person closes A's sheet
+    R.rewindAct("back:uB");
+    const B_PREVIEW = { removed: { questions: 1, replies: 0 }, files: [{ path: "/w/b-only.txt", action: "restore" }], notRestorable: [], uncovered: [] };
+    const A_PREVIEW = { removed: { questions: 2, replies: 1 }, files: [{ path: "/w/a-only.txt", action: "restore" }], notRestorable: [], uncovered: [] };
+    pending["question B"]({ ok: true, supported: true, data: B_PREVIEW });
+    await new Promise((r) => setImmediate(r));
+    pending["question A"](late === "files" ? { ok: true, supported: true, data: A_PREVIEW } : { ok: false, supported: true, error: "A went wrong" });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(g.S.overlay, "rewind", "A's answer closed B's sheet");
+    const html = R.rewindSheetHTML();
+    assert.match(html, /b-only\.txt/);
+    assert.doesNotMatch(html, /a-only\.txt/, "A's file list is on B's sheet");
+    assert.doesNotMatch(html, /A went wrong/);
+    await R.rewindAct("go");
+    assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "question B" }]);
+  });
+}
+
+test("a late Check again preview does not land in a sheet opened meanwhile", async () => {
+  ipcWindow("back", { rewind: [PARTIAL_409(FIRST_FAILED)] });
+  const g = globalThis;
+  g.S.log = [{ id: "u1", k: "user", text: "old text" }, { id: "uB", k: "user", text: "question B" }];
+  g.priorQuestions = (m) => (m.id === "u1" ? 1 : 2);
+  await R.rewindAct("go");
+  let late;
+  g.BR.rewindPreview = () => new Promise((resolve) => { late = resolve; });
+  const checking = R.rewindAct("recheck");
+  g.S.overlay = null;
+  let fresh;
+  g.BR.rewindPreview = () => new Promise((resolve) => { fresh = resolve; });
+  R.rewindAct("back:uB");
+  fresh({ ok: true, supported: true, data: { removed: { questions: 1, replies: 0 }, files: [{ path: "/w/b-only.txt", action: "restore" }], notRestorable: [], uncovered: [] } });
+  await new Promise((r) => setImmediate(r));
+  late({ ok: true, supported: true, data: FILES_PREVIEW });
+  await checking;
+  const html = R.rewindSheetHTML();
+  assert.match(html, /b-only\.txt/);
+  assert.doesNotMatch(html, /src\/a\.ts/);
+});
