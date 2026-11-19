@@ -23,6 +23,13 @@ export interface FileRestoreItem {
   /** `restore` writes the saved content back; `delete` removes a file the agent created. */
   action: "restore" | "delete";
   entry: CheckpointEntry;
+  /**
+   * Set when the file could not be inspected now (issue #80: a read or
+   * stat failing with EACCES, EPERM, EBUSY, EIO…): the plan cannot tell
+   * whether it changed, so applying reports it in `failed` and leaves it
+   * alone, and a caller keeps the copies for a retry.
+   */
+  blocked?: string;
 }
 
 export interface FileNotRestorable {
@@ -57,9 +64,13 @@ export async function planFileRestore(
   const items: FileRestoreItem[] = [];
   const notRestorable: FileNotRestorable[] = [];
   for (const entry of first.values()) {
-    const now = await currentState(entry.path);
     if (entry.skipped !== undefined) {
       notRestorable.push({ path: entry.path, reason: entry.skipped });
+      continue;
+    }
+    const now = await currentState(entry.path);
+    if (now.kind === "blocked") {
+      items.push({ path: entry.path, action: entry.existed ? "restore" : "delete", entry, blocked: now.error });
       continue;
     }
     if (!entry.existed) {
@@ -91,6 +102,10 @@ export async function applyFileRestore(
 ): Promise<FileRestoreResult> {
   const result: FileRestoreResult = { restored: [], deleted: [], failed: [] };
   for (const item of plan.items) {
+    if (item.blocked !== undefined) {
+      result.failed.push({ path: item.path, error: `could not check it now: ${item.blocked}` });
+      continue;
+    }
     try {
       if (item.action === "delete") {
         await rm(item.path, { force: true });
@@ -136,7 +151,12 @@ function changesFilesUnseen(tool: string): boolean {
   return false;
 }
 
-type Current = { kind: "missing" } | { kind: "other" } | { kind: "file"; sha256: string };
+/** `blocked`: stat or read failed for another reason than "not there" (issue #80). */
+type Current =
+  | { kind: "missing" }
+  | { kind: "other" }
+  | { kind: "file"; sha256: string }
+  | { kind: "blocked"; error: string };
 
 async function currentState(path: string): Promise<Current> {
   try {
@@ -146,6 +166,7 @@ async function currentState(path: string): Promise<Current> {
     return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    return code === "ENOENT" || code === "ENOTDIR" ? { kind: "missing" } : { kind: "other" };
+    if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
+    return { kind: "blocked", error: err instanceof Error ? err.message : String(err) };
   }
 }

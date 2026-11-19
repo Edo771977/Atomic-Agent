@@ -103,7 +103,9 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         turnIndex,
         text,
         removed: removedCounts(removed),
-        files: files.items.map((item) => ({ path: item.path, action: item.action })),
+        // `error`: the file could not be checked now; the rollback would report it in `failed` (issue #80).
+        files: files.items.map((item) =>
+          item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
         notRestorable,
         incomplete: files.incomplete,
         uncovered: uncoveredToolCalls(removed),
