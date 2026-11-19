@@ -1,5 +1,5 @@
 // Issue #74 (16): the "restricted to: …" chip (chat-restriction.js RESTRICT,
-// PROV) and the Reviewer seat (fusion-reviewer.js FZR.roster, FZR.asked)
+// PROV) and the Reviewer seat (fusion-reviewer.js FZRV.roster, FZRV.asked)
 // kept the answers of the agent that gave them after the agent restarted or
 // the window switched to a remote agent, unlike the project trust, approval
 // rules, offline mode or webhooks state (renderer.js PT_GEN and the like):
