@@ -568,3 +568,31 @@ test("window: a new chat's first send that fails gives its pick and an add in fl
   assert.match(body, /fzrTurnSent\(session, res\.turnId, teamChoice, fzrToken\)/);
   assert.match(body, /fzrTurnUndispatched\(fzrToken\)/);
 });
+
+// Issue #87 review: after A's first send, before its acknowledgment, the person opened a fresh New chat
+// and added a reviewer there: the add joined A's dispatched turn.
+for (const order of ["write-first", "ack-first"]) {
+  test(`window: Add a reviewer in a fresh new chat opened while A's first send is unacknowledged is the fresh chat's (${order})`, async () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = null;
+    c.S.log = [{ id: "u1", k: "user", text: "A's first message" }];
+    c.FIRST_TURNS = new Map();
+    c.screenTurnId = () => null;
+    const sendA = sendFirstTurn(c);
+    // The person opens a fresh New chat (renderer.js session:new gives the screen a new log).
+    c.S.log = [];
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    if (order === "ack-first") { sendA.ack("tA"); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; sendA.ack("tA"); }
+    c.fzrTurnNamed("tA", "chat-A");
+    assert.equal(c.fzrTurnTeam("chat-A"), null, "chat A got the reviewer added in the fresh new chat");
+    // The fresh new chat sends its first message with it.
+    const sendFresh = sendFirstTurn(c);
+    assert.deepEqual({ ...sendFresh.teamChoice }, { reviewer: "anthropic:model-a" });
+    sendFresh.ack("tF");
+    c.fzrTurnNamed("tF", "chat-F");
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-F") }, { reviewer: "anthropic:model-a" });
+    assert.equal(c.fzrTurnTeam("chat-A"), null);
+  });
+}

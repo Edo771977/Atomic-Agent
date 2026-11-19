@@ -26,7 +26,7 @@
 /* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
    read when the write started (issue #77): a new chat's follows it as it gets
    an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null, newDispatchLog: null};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -220,7 +220,7 @@ async function fzrAct(v) {
     // Issue #77: the chat it is added from, read now: the person can open another one during the write.
     // A new chat whose first turn already left, not named yet: the reviewer is that turn's chat's.
     // Issue #87: or one sent and not acknowledged yet (no turn id): its dispatch token stands for the turn.
-    const firstTurn = fzrKey() === FZR_NEW_CHAT ? (fzrScreenFirstTurn() || FZR.newDispatch) : null;
+    const firstTurn = fzrKey() === FZR_NEW_CHAT ? (fzrScreenFirstTurn() || fzrScreenDispatch()) : null;
     const startKey = fzrKey();
     const target = firstTurn ? {key: null, turn: firstTurn} : {key: startKey, turn: null};
     FZR.adds.push(target);
@@ -325,13 +325,27 @@ function fzrTurnDispatch(session) {
     delete FZR.pending[FZR_NEW_CHAT];
   }
   FZR.newDispatch = token;
+  // The screen that sent it: its transcript (renderer.js S.log). A fresh New chat, or any other chat
+  // opened, gives the screen another one (fzrScreenDispatch).
+  FZR.newDispatchLog = typeof S !== 'undefined' ? S.log : null;
   return token;
+}
+/**
+ * Issue #87 review: the new chat on screen's first turn, sent and not
+ * acknowledged yet: its dispatch token while the screen still shows the chat
+ * that sent it, else null (the person opened a fresh New chat meanwhile: an
+ * add there is that chat's slot's, never the sent one's).
+ */
+function fzrScreenDispatch() {
+  if (!FZR.newDispatch) return null;
+  const log = typeof S !== 'undefined' ? S.log : null;
+  return log === FZR.newDispatchLog ? FZR.newDispatch : null;
 }
 /** Issue #87: the send's answer named the turn: what the dispatch token held is the turn id's. */
 function fzrRekeyTurn(token, turnId) {
   fzrAddsFollow({turn: token}, {turn: turnId});
   if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) { FZR.byTurn[turnId] = FZR.byTurn[token]; delete FZR.byTurn[token]; }
-  if (FZR.newDispatch === token) FZR.newDispatch = null;
+  if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchLog = null; }
 }
 /** Issue #87: the send failed (no turn): its pick and adds go back to the new-chat slot, for the retry. */
 function fzrTurnUndispatched(token) {
@@ -341,7 +355,7 @@ function fzrTurnUndispatched(token) {
     if (FZR.pending[FZR_NEW_CHAT] === undefined) FZR.pending[FZR_NEW_CHAT] = FZR.byTurn[token];
     delete FZR.byTurn[token];
   }
-  if (FZR.newDispatch === token) FZR.newDispatch = null;
+  if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchLog = null; }
 }
 /** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */
 function fzrAdoptNewChat(sid) {
