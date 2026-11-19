@@ -258,7 +258,8 @@ function fzrScreenFirstTurn() {
 }
 /** Whether the chat an add is for (fzrAct add:) is the one on screen. */
 function fzrOnScreen(target) {
-  if (target.turn) return fzrKey() === FZR_NEW_CHAT && fzrScreenFirstTurn() === target.turn;
+  // The turn shown, named by its id once the send answered, or by its dispatch token until then (issue #87).
+  if (target.turn) return fzrKey() === FZR_NEW_CHAT && (fzrScreenFirstTurn() === target.turn || fzrScreenDispatch() === target.turn);
   return fzrKey() === target.key;
 }
 /** The chat an add is for, as the toast names it. */

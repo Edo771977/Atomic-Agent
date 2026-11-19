@@ -674,3 +674,17 @@ test("live: a send that rejects gives the pick back, and a later add is the new 
   c.fzrScreenChanged();
   assert.equal(vm.runInContext("FZR.newDispatch", c), null);
 });
+
+// Issue #87 review: a failed add made before the send's answer, the person still on that chat, was
+// taken as coming from another chat: its popover closed and the toast named "the new chat".
+test("live: a failed add before the send's answer, still on that chat, keeps its popover and its toast", async () => {
+  const { c } = liveContext();
+  c.toasts = [];
+  c.toast = (...a) => c.toasts.push(a);
+  c.startLiveTurn("A's first message");
+  await c.fzrAct("addOpen");
+  c.BR.fusionTeamWrite = async () => ({ ok: false, error: "disk full" });
+  await c.fzrAct("add:anthropic:model-a");
+  assert.equal(c.S.overlay, "fzradd", "the popover closed on the chat it was opened in");
+  assert.deepEqual([...c.toasts.at(-1)], ["Reviewer not added", "disk full"]);
+});
