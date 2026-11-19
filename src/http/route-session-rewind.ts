@@ -186,7 +186,8 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         }
         // Issue #83: not what the preview showed; refused before anything changes.
         if (typeof expectPlanHash === "string" && hashOf(applied, current) !== expectPlanHash) return { refused: "plan_changed" };
-        if (typeof expectTranscriptRev === "string" && transcriptRev(current, turnIndex) !== expectTranscriptRev) return { refused: "plan_changed" };
+        const checkedRev = transcriptRev(current, turnIndex);
+        if (typeof expectTranscriptRev === "string" && checkedRev !== expectTranscriptRev) return { refused: "plan_changed" };
         // A compaction started on this chat would summarise the rows removed.
         ctx.runtime.cancelSessionCompaction(session.id);
         const done = restoreFiles
@@ -200,6 +201,10 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         // await between: a turn another process started during the restore
         // refuses, and a write that left the transcript alone is kept.
         const latest = ctx.runtime.sessionStore.load(session.id);
+        // Rows after the point rewritten meanwhile by another process, the
+        // count kept, slip past sameTranscript: compare the whole revision
+        // with the one checked above (issue #87).
+        if (latest !== null && transcriptRev(latest, turnIndex) !== checkedRev) return { refused: "plan_changed", done };
         const final = latest === null ? null : replan(latest);
         if (final === null || !final.ok) return { refused: final?.code ?? "point_mismatch", done };
         ctx.runtime.sessionStore.save(final.state);
@@ -214,7 +219,14 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       // Files were already put back; the chat was not cut. Say both:
       // unlike every other 409 here, this one changed something.
       sendJson(res, 409, {
-        ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
+        ...openaiError(
+          outcome.refused === "restore_failed"
+            ? REFUSAL_MESSAGES[outcome.refused]
+            : `${REFUSAL_MESSAGES[outcome.refused]} (the chat was not cut, but files were already put back: see restored and deleted)`,
+          "invalid_request_error",
+          null,
+          outcome.refused,
+        ),
         partial: true,
         ...outcome.done,
         notRestorable: restoreFiles ? applied.notRestorable : [],

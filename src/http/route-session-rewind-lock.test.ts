@@ -86,4 +86,37 @@ describe("rewind holds the chat's turn lock", () => {
     expect(stored.turns.map((t) => t.kind)).toEqual(["user", "assistant_reply"]);
     expect(stored.metadata.note).toBe("kept");
   });
+
+  it("a row after the point rewritten during the restore, count unchanged, refuses with plan_changed (issue #87)", async () => {
+    const state: SessionState = {
+      ...createEmptySessionState({ id: "rw-row", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "first", at: 100 },
+        { kind: "assistant_reply", text: "one", at: 110 },
+        { kind: "user", text: "second", at: 200 },
+        { kind: "assistant_reply", text: "two", at: 210 },
+      ],
+      turnCount: 2,
+      macroTurnStarts: [2, 4],
+    };
+    harness.runtime.sessionStore.save(state);
+    hooks.duringRestore = async () => {
+      hooks.duringRestore = null;
+      // Another process rewrites the reply: same count, same last row time and kind.
+      const latest = harness.runtime.sessionStore.load("rw-row")!;
+      const turns = latest.turns.map((t, i) => (i === 3 ? { ...t, text: "two, rewritten" } : t));
+      harness.runtime.sessionStore.save({ ...latest, turns });
+    };
+    const res = await fetch(`${harness.baseUrl}/api/sessions/rw-row/rewind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ priorQuestions: 1, expectText: "second" }),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("plan_changed");
+    const stored = harness.runtime.sessionStore.load("rw-row")!;
+    expect(stored.turns).toHaveLength(4);
+    expect((stored.turns[3] as { text: string }).text).toBe("two, rewritten");
+  });
 });
