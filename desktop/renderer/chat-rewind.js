@@ -121,6 +121,8 @@ function rewindRefusalText(r) {
 
 /* Issue #77: at most this many files that could not be put back are listed. */
 const REWIND_FAILED_SHOWN = 8;
+/* Issue #80: the most paths a rollback's `skip` may name (main/chat-rewind.ts REWIND_SKIP_CAP). */
+const REWIND_SKIP_CAP = 1000;
 
 /**
  * The sheet's words for a rollback that put back only some files (rewindAnswer
@@ -144,7 +146,9 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
     + 'Press “Check again” to see what a rollback would change now, then confirm it.</p>';
   // Issue #77: a file that fails on every try would keep the sheet here for good: the way out.
-  if (total) {
+  if (total && !rewindSkipFor(p)) {
+    html += '<p class="sd-cap">Too many files could not be put back to leave each one alone. Press “Check again” to see what would change now.</p>';
+  } else if (total) {
     const before = Array.isArray(REWIND.skip) ? REWIND.skip.length : 0;
     html += (before ? '<p class="sd-cap">Also left as they are: ' + rewindPlural(before, 'file', 'files') + ' from before.</p>' : '')
       // Issue #80: no promise beyond what the agent confirms (an older agent ignores `skip`).
@@ -181,6 +185,18 @@ function rewindChangedHTML(p, workingDir) {
       + rewindShortList(failed.map((f) => f.path), failedTotal, workingDir, failed.map((f) => f.error));
   }
   return html;
+}
+
+/**
+ * Issue #80: the paths a Continue would leave alone, or null when they cannot
+ * all be named: more failed than the answer lists, or more than REWIND_SKIP_CAP.
+ */
+function rewindSkipFor(partial) {
+  const p = partial || {};
+  const failed = Array.isArray(p.failed) ? p.failed : [];
+  if ((Number(p.failedTotal) || 0) > failed.length) return null;
+  const skip = rewindSkipPaths(REWIND.skip, failed);
+  return skip.length && skip.length <= REWIND_SKIP_CAP ? skip : null;
 }
 
 /** Issue #80: the paths a Continue leaves alone: those left alone before, then the newly failed ones, each once. */
@@ -222,8 +238,8 @@ function rewindAct(v) {
   // files it listed (and those left alone before in this sheet). Never "accept failed": that plans every file again.
   if (verb === 'go-skip') {
     if (!REWIND.partial || REWIND.partialCode !== 'restore_failed') return;
-    const skip = rewindSkipPaths(REWIND.skip, REWIND.partial.failed);
-    if (!skip.length) return;
+    const skip = rewindSkipFor(REWIND.partial);
+    if (!skip) return;   // not offered (rewindPartialHTML)
     return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, skip);
   }
   if (verb === 'back' || verb === 'edit' || verb === 'fork') rewindStart(verb, id);
@@ -367,5 +383,5 @@ if (typeof document !== 'undefined') {
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'rw-edit') REWIND.draft = e.target.value; });
 }
 
-if (typeof module !== 'undefined') module.exports = {rewindQuestionFor, rewindPathLabel, rewindPartialHTML, rewindSummary, rewindRefusalText, rewindButtons, rewindShowsFiles,
+if (typeof module !== 'undefined') module.exports = {REWIND_SKIP_CAP, rewindQuestionFor, rewindPathLabel, rewindPartialHTML, rewindSummary, rewindRefusalText, rewindButtons, rewindShowsFiles,
   REWIND, rewindSheetHTML, rewindAct, rewindConfirm};

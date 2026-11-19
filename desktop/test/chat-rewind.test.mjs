@@ -525,3 +525,29 @@ for (const [label, second] of [
     });
   }
 }
+
+// Issue #80 review: a skip list the window cannot send in full (over the cap, or failed paths the
+// answer did not list) must not be offered as "leave these files alone".
+test("Continue is not offered when the files to leave alone are more than can be named", async () => {
+  const many = (n, from = 0) => Array.from({ length: n }, (_, i) => ({ path: `/w/f${from + i}` }));
+  assert.equal(R.REWIND_SKIP_CAP, M.REWIND_SKIP_CAP);
+  // More failed than the answer lists.
+  let calls = ipcWindow("back", { rewind: [PARTIAL_409(many(1500))] });
+  await R.rewindAct("go");
+  let html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /rewind:go-skip/);
+  assert.match(html, /Too many files could not be put back to leave each one alone/);
+  await R.rewindAct("go-skip");
+  assert.equal(agentBodies(calls).length, 1);
+  // Merged with the ones left alone before, over the cap.
+  calls = ipcWindow("back", { rewind: [PARTIAL_409(many(600)), PARTIAL_409(many(500, 600))] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  assert.equal(agentBodies(calls)[1].skip.length, 600);
+  html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /rewind:go-skip/);
+  assert.match(html, /Too many files could not be put back to leave each one alone/);
+  await R.rewindAct("go-skip");
+  assert.equal(agentBodies(calls).length, 2, "an over-cap skip list was sent");
+  assert.equal(R.REWIND.error === "The files to leave as they are could not be read", false);
+});
