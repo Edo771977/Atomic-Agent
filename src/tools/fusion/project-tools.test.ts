@@ -280,7 +280,9 @@ describe("project.milestone", () => {
     }));
     const project = { milestones: [{ id: "base", runIds: ["r1"] }], brief: { successCriteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Arrow keys steer" }] } } as unknown as ProjectState;
     const result = await tools({ evidence }).milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project });
-    expect(evidence).toHaveBeenCalledWith(expect.objectContaining({ id: "base", runIds: ["r1"] }), ["c1", "c2"]);
+    expect(evidence).toHaveBeenCalledWith(expect.objectContaining({ id: "base", runIds: ["r1"] }), ["c1", "c2"], {
+      criteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Arrow keys steer" }],
+    });
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({
       kind: "milestone", id: "base", state: "done", summary: "Board drawn\nWarning: not covered by a check: c2.",
       criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed" }], attachments: shots,

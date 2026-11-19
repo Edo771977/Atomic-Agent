@@ -10,7 +10,7 @@ import {
   restorePlanHash,
   uncoveredToolCalls,
 } from "../tools/os/fs/fs-checkpoint-restore.js";
-import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
+import { FileCheckpointStore, fileCheckpointsRoot, sha256Of } from "../tools/os/fs/fs-checkpoint-store.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
 
@@ -51,7 +51,7 @@ const REFUSAL_MESSAGES: Record<Refusal, string> = {
   incognito: "an incognito chat cannot be forked: it leaves nothing behind, a copy included",
   point_mismatch: "the chat's question at that position is not the one given (priorQuestions, expectText), so nothing was changed",
   plan_changed:
-    "the files changed since the preview (an edit, or another turn changed more files), so the rollback would not do what the preview showed; nothing was changed. Check the preview again",
+    "the files or the messages changed since the preview (an edit, another turn that changed more files or added messages), so the rollback would not do what the preview showed; nothing was changed. Check the preview again",
   restore_failed:
     "some files could not be put back (see failed); the chat was not cut and the saved copies were kept. Try the rollback again, or send acceptFailed: true to roll back without the files that failed: they stay as they are now and lose their saved copies",
 };
@@ -63,7 +63,7 @@ interface Point {
   priorQuestions: number;
   text: string;
   at: number;
-  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown };
+  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown; expectTranscriptRev?: unknown };
 }
 
 export function createListRewindPointsHandler(): HttpHandler {
@@ -108,22 +108,35 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       sendError(res, 400, openaiError("expectPlanHash must be a non-empty string of at most 200 characters", "invalid_request_error", "expectPlanHash"));
       return;
     }
+    // Issue #87: the transcript the preview showed, so a conversation-only
+    // rollback (files: false) can be bound to it too.
+    const expectTranscriptRev = point.body.expectTranscriptRev;
+    if (!preview && expectTranscriptRev !== undefined && !(typeof expectTranscriptRev === "string" && expectTranscriptRev.length > 0 && expectTranscriptRev.length <= 200)) {
+      sendError(res, 400, openaiError("expectTranscriptRev must be a non-empty string of at most 200 characters", "invalid_request_error", "expectTranscriptRev"));
+      return;
+    }
     const plan = planRewind(session, turnIndex);
     if (!plan.ok) return refuse(res, plan.code);
     const store = checkpointStore(ctx);
     const files = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
     if (files.unknownSkip.length > 0) {
-      sendError(res, 400, openaiError(
-        `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
-        "invalid_request_error",
-        "skip",
-        "skip_unknown",
-      ));
+      // `unknownSkip`: the paths exactly as sent, so a client need not parse the message (issue #87).
+      sendJson(res, 400, {
+        ...openaiError(
+          `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
+          "invalid_request_error",
+          "skip",
+          "skip_unknown",
+        ),
+        unknownSkip: files.unknownSkip,
+      });
       return;
     }
     const removed = session.turns.slice(turnIndex);
-    const hashOf = (filePlan: typeof files): string =>
-      restorePlanHash(filePlan, { priorQuestions: point.priorQuestions, expectText: text });
+    // The planHash binds the transcript too (issue #87): a turn another
+    // client completed since the preview changes it.
+    const hashOf = (filePlan: typeof files, chat: SessionState): string =>
+      restorePlanHash(filePlan, { priorQuestions: point.priorQuestions, expectText: text, transcriptRev: transcriptRev(chat, turnIndex) });
     if (preview) {
       sendJson(res, 200, {
         id: session.id,
@@ -131,13 +144,19 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         text,
         removed: removedCounts(removed),
         // `error`: the file could not be checked now; the rollback would report it in `failed` (issue #80).
-        files: files.items.map((item) =>
-          item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
+        // `contentUnchecked`: a file not read, fingerprinted by its stat only (issue #87): `contentUncheckedReason` says why.
+        files: files.items.map((item) => ({
+          path: item.path,
+          action: item.action,
+          ...(item.blocked !== undefined ? { error: item.blocked } : {}),
+          ...(item.contentUnchecked ? { contentUnchecked: true, contentUncheckedReason: item.contentUncheckedReason } : {}),
+        })),
         notRestorable: files.notRestorable,
         incomplete: files.incomplete,
         skipped: files.skipped,
         uncovered: uncoveredToolCalls(removed),
-        planHash: hashOf(files),
+        planHash: hashOf(files, session),
+        transcriptRev: transcriptRev(session, turnIndex),
       });
       return;
     }
@@ -161,7 +180,8 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         // write (a next-step suggestion, a title) is no reason to refuse.
         const current = ctx.runtime.sessionStore.load(session.id);
         const before = current === null ? null : replan(current);
-        if (before === null || !before.ok) return { refused: before?.code ?? "point_mismatch" };
+        if (current === null || before === null) return { refused: "point_mismatch" };
+        if (!before.ok) return { refused: before.code };
         // Planned again under the lock (issue #80): the disk may have
         // changed since the request was checked, a file blocked then (a
         // lock, a permission) may be free now.
@@ -169,7 +189,9 @@ export function createRewindHandler(preview: boolean): HttpHandler {
           applied = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
         }
         // Issue #83: not what the preview showed; refused before anything changes.
-        if (typeof expectPlanHash === "string" && hashOf(applied) !== expectPlanHash) return { refused: "plan_changed" };
+        if (typeof expectPlanHash === "string" && hashOf(applied, current) !== expectPlanHash) return { refused: "plan_changed" };
+        const checkedRev = transcriptRev(current, turnIndex);
+        if (typeof expectTranscriptRev === "string" && checkedRev !== expectTranscriptRev) return { refused: "plan_changed" };
         // A compaction started on this chat would summarise the rows removed.
         ctx.runtime.cancelSessionCompaction(session.id);
         const done = restoreFiles
@@ -183,6 +205,10 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         // await between: a turn another process started during the restore
         // refuses, and a write that left the transcript alone is kept.
         const latest = ctx.runtime.sessionStore.load(session.id);
+        // Rows after the point rewritten meanwhile by another process, the
+        // count kept, slip past sameTranscript: compare the whole revision
+        // with the one checked above (issue #87).
+        if (latest !== null && transcriptRev(latest, turnIndex) !== checkedRev) return { refused: "plan_changed", done };
         const final = latest === null ? null : replan(latest);
         if (final === null || !final.ok) return { refused: final?.code ?? "point_mismatch", done };
         ctx.runtime.sessionStore.save(final.state);
@@ -197,7 +223,14 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       // Files were already put back; the chat was not cut. Say both:
       // unlike every other 409 here, this one changed something.
       sendJson(res, 409, {
-        ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
+        ...openaiError(
+          outcome.refused === "restore_failed"
+            ? REFUSAL_MESSAGES[outcome.refused]
+            : `${REFUSAL_MESSAGES[outcome.refused]} (the chat was not cut, but files were already put back: see restored and deleted)`,
+          "invalid_request_error",
+          null,
+          outcome.refused,
+        ),
         partial: true,
         ...outcome.done,
         notRestorable: restoreFiles ? applied.notRestorable : [],
@@ -221,6 +254,15 @@ const MAX_SKIP = 1000;
 
 function isSkipList(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= MAX_SKIP && value.every((path) => typeof path === "string" && path.length > 0);
+}
+
+/**
+ * The transcript a preview showed (issue #87): how many rows the chat
+ * has and a sha256 of every row from the point on (kind, text, tool
+ * calls, times). Titles and other metadata are not part of it.
+ */
+function transcriptRev(chat: SessionState, turnIndex: number): string {
+  return sha256Of(Buffer.from(JSON.stringify({ rows: chat.turns.length, after: chat.turns.slice(turnIndex) }), "utf8"));
 }
 
 /** Same rows as when the request was checked (a turn appends rows, a compaction or rollback removes some). */
@@ -258,7 +300,7 @@ async function readPoint(
   ctx: HandlerContext,
 ): Promise<Point | null> {
   const id = ctx.params.id ?? "";
-  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown } | null;
+  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown; expectTranscriptRev?: unknown } | null;
   try {
     body = (await readJsonBody<unknown>(req)) as typeof body;
   } catch (err) {

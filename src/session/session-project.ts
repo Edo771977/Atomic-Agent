@@ -287,6 +287,13 @@ export interface ProjectState {
    * approval; an older store with an approved brief reads its criteria.
    */
   approvedCriteria?: ProjectCriterion[];
+  /**
+   * How many times the person approved this project's brief (issue #87):
+   * 1 means the brief is the one first approved, with no later approval.
+   * Absent in a store from before the count (unknown). A run fact with
+   * no recorded criterion text stands only while this is exactly 1.
+   */
+  briefApprovals?: number;
   /** Epoch ms the person cancelled the project; a new brief starts over. */
   cancelledAt?: number;
   /**
@@ -1079,6 +1086,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     milestones,
     gate,
     ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+    ...(isCount(raw.briefApprovals) && (raw.briefApprovals as number) > 0 ? { briefApprovals: raw.briefApprovals as number } : {}),
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
   };
@@ -1161,6 +1169,7 @@ function briefUpdate(
       milestones,
       gate: { kind: "brief" },
       ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+      ...(base?.briefApprovals === undefined ? {} : { briefApprovals: base.briefApprovals }),
       ...floorOf(project),
     },
   };
@@ -1359,6 +1368,8 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     ...(plan === undefined ? {} : { plan }),
     milestones,
     approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
+    // A store from before the count that had an approved brief: at least two now.
+    briefApprovals: project.briefApprovals !== undefined ? project.briefApprovals + 1 : before === undefined ? 1 : 2,
     gate: { kind: "none" },
   };
 }
@@ -1586,6 +1597,7 @@ function planUpdate(
       milestones,
       gate: { kind: "plan" },
       ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
+      ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
       ...floorOf(project),
     },
   };
