@@ -7,6 +7,7 @@ import type { SessionState } from "../session/session-state.js";
 import {
   applyFileRestore,
   planFileRestore,
+  restorePlanHash,
   uncoveredToolCalls,
 } from "../tools/os/fs/fs-checkpoint-restore.js";
 import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
@@ -41,7 +42,7 @@ import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandle
  * holds open) is not told apart from a transient one: `acceptFailed: true`
  * rolls back anyway, leaving the files that failed as they are.
  */
-type Refusal = RewindRefusal | ForkRefusal | "restore_failed";
+type Refusal = RewindRefusal | ForkRefusal | "restore_failed" | "plan_changed";
 
 const REFUSAL_MESSAGES: Record<Refusal, string> = {
   nothing_to_rewind: "this chat has no question to go back to",
@@ -49,6 +50,8 @@ const REFUSAL_MESSAGES: Record<Refusal, string> = {
   point_compacted: "that message is inside the part of the chat already compacted into a summary",
   incognito: "an incognito chat cannot be forked: it leaves nothing behind, a copy included",
   point_mismatch: "the chat's question at that position is not the one given (priorQuestions, expectText), so nothing was changed",
+  plan_changed:
+    "the files changed since the preview (an edit, or another turn changed more files), so the rollback would not do what the preview showed; nothing was changed. Check the preview again",
   restore_failed:
     "some files could not be put back (see failed); the chat was not cut and the saved copies were kept. Try the rollback again, or send acceptFailed: true to roll back without the files that failed: they stay as they are now and lose their saved copies",
 };
@@ -60,7 +63,7 @@ interface Point {
   priorQuestions: number;
   text: string;
   at: number;
-  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown };
+  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown };
 }
 
 export function createListRewindPointsHandler(): HttpHandler {
@@ -98,6 +101,13 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       sendError(res, 400, openaiError(`skip must be an array of at most ${MAX_SKIP} non-empty paths`, "invalid_request_error", "skip"));
       return;
     }
+    // Issue #83: the preview's planHash, so a rollback confirmed later
+    // refuses if what it would do changed in between.
+    const expectPlanHash = point.body.expectPlanHash;
+    if (!preview && expectPlanHash !== undefined && !(typeof expectPlanHash === "string" && expectPlanHash.length > 0 && expectPlanHash.length <= 200)) {
+      sendError(res, 400, openaiError("expectPlanHash must be a non-empty string of at most 200 characters", "invalid_request_error", "expectPlanHash"));
+      return;
+    }
     const plan = planRewind(session, turnIndex);
     if (!plan.ok) return refuse(res, plan.code);
     const store = checkpointStore(ctx);
@@ -112,6 +122,8 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       return;
     }
     const removed = session.turns.slice(turnIndex);
+    const hashOf = (filePlan: typeof files): string =>
+      restorePlanHash(filePlan, { priorQuestions: point.priorQuestions, expectText: text });
     if (preview) {
       sendJson(res, 200, {
         id: session.id,
@@ -125,6 +137,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         incomplete: files.incomplete,
         skipped: files.skipped,
         uncovered: uncoveredToolCalls(removed),
+        planHash: hashOf(files),
       });
       return;
     }
@@ -149,12 +162,16 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         const current = ctx.runtime.sessionStore.load(session.id);
         const before = current === null ? null : replan(current);
         if (before === null || !before.ok) return { refused: before?.code ?? "point_mismatch" };
-        // A compaction started on this chat would summarise the rows removed.
-        ctx.runtime.cancelSessionCompaction(session.id);
         // Planned again under the lock (issue #80): the disk may have
         // changed since the request was checked, a file blocked then (a
         // lock, a permission) may be free now.
-        if (restoreFiles) applied = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
+        if (restoreFiles || expectPlanHash !== undefined) {
+          applied = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
+        }
+        // Issue #83: not what the preview showed; refused before anything changes.
+        if (typeof expectPlanHash === "string" && hashOf(applied) !== expectPlanHash) return { refused: "plan_changed" };
+        // A compaction started on this chat would summarise the rows removed.
+        ctx.runtime.cancelSessionCompaction(session.id);
         const done = restoreFiles
           ? await applyFileRestore(store, session.id, applied)
           : { restored: [], deleted: [], failed: [] };
@@ -214,7 +231,7 @@ function sameTranscript(a: SessionState, b: SessionState): boolean {
 type RestoreDone = Awaited<ReturnType<typeof applyFileRestore>>;
 type RewindOutcome =
   | { refused?: undefined; done: RestoreDone }
-  | { refused: RewindRefusal | "restore_failed"; done?: RestoreDone };
+  | { refused: RewindRefusal | "restore_failed" | "plan_changed"; done?: RestoreDone };
 
 export function createForkSessionHandler(): HttpHandler {
   return async (req, res, ctx) => {
@@ -241,7 +258,7 @@ async function readPoint(
   ctx: HandlerContext,
 ): Promise<Point | null> {
   const id = ctx.params.id ?? "";
-  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown } | null;
+  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown; expectPlanHash?: unknown } | null;
   try {
     body = (await readJsonBody<unknown>(req)) as typeof body;
   } catch (err) {
