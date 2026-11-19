@@ -441,3 +441,24 @@ test("after Continue the toast names the files the agent left as they are", asyn
   assert.match(text, /1 file put back/);
   assert.match(text, /Left as they are: locked\.txt, dir\/a\.txt/);
 });
+
+// Issue #80: an older agent ignores `skip` and may plan every file again; the window cannot tell, so it
+// promises no more than the agent confirms.
+test("the notice asks the agent to leave the files alone, and a 200 without skipped says it was not confirmed", async () => {
+  agentWindow("back", { rewind: [
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 200, body: { restored: ["/w/src/a.ts", "/w/locked.txt"], deleted: [], failed: [] } },
+  ] });
+  await R.rewindAct("go");
+  const html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /stay as they are now/);
+  assert.match(html, /asks the agent to leave the files listed above as they are/);
+  await R.rewindAct("go-skip");
+  const [, text, kind] = globalThis.toasts.at(-1);
+  assert.match(text, /your agent did not confirm it left those files alone/);
+  assert.equal(kind, "bad");
+  // A plain rollback that sent no skip says nothing of the kind.
+  agentWindow("back", { rewind: [{ status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [] } }] });
+  await R.rewindAct("go");
+  assert.doesNotMatch(globalThis.toasts.at(-1)[1], /did not confirm/);
+});

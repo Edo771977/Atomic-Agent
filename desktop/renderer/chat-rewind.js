@@ -147,8 +147,9 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
   if (total) {
     const before = Array.isArray(REWIND.skip) ? REWIND.skip.length : 0;
     html += (before ? '<p class="sd-cap">Also left as they are: ' + rewindPlural(before, 'file', 'files') + ' from before.</p>' : '')
-      + '<p class="sd-cap">Or go ahead without them: the files listed above stay as they are now, '
-      + 'and their saved copies are dropped, so they cannot be put back later.</p>'
+      // Issue #80: no promise beyond what the agent confirms (an older agent ignores `skip`).
+      + '<p class="sd-cap">Or go ahead without them: this asks the agent to leave the files listed above as they are now. '
+      + 'Their saved copies are dropped, so they cannot be put back later.</p>'
       + '<button class="btn btn-s sm" data-act="rewind:go-skip"' + (REWIND.busy ? ' disabled' : '') + '>'
       + esc(mode === 'edit' ? 'Roll back without these files, then resend' : 'Roll back without these files') + '</button>';
   }
@@ -336,9 +337,12 @@ async function rewindConfirm(files, skip) {
   const wd = typeof WORKSPACE === 'string' ? WORKSPACE : '';
   const skipped = Array.isArray(d.skipped) ? d.skipped.filter((p) => typeof p === 'string' && p) : [];
   const shown = skipped.slice(0, REWIND_FAILED_SHOWN).map((p) => rewindPathLabel(p, wd));
-  const left = skipped.length ? 'Left as they are: ' + shown.join(', ') + (skipped.length > shown.length ? ' and ' + (skipped.length - shown.length) + ' more' : '') + '. ' : '';
+  // An agent that does not answer `skipped` may not know `skip` and may have put those files back too.
+  const unconfirmed = !!skipping && !Array.isArray(d.skipped);
+  const left = unconfirmed ? 'Check those files: your agent did not confirm it left those files alone. '
+    : skipped.length ? 'Left as they are: ' + shown.join(', ') + (skipped.length > shown.length ? ' and ' + (skipped.length - shown.length) + ' more' : '') + '. ' : '';
   toast(edit ? 'Message edited' : 'Rolled back', (n ? rewindPlural(n, 'file', 'files') + ' put back. ' : '') + left
-    + (failed.length ? failed.length + ' could not be written: ' + failed.map((f) => f.path).join(', ') : ''), failed.length ? 'bad' : undefined);
+    + (failed.length ? failed.length + ' could not be written: ' + failed.map((f) => f.path).join(', ') : ''), failed.length || unconfirmed ? 'bad' : undefined);
   if (edit) submit();
 }
 
