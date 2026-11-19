@@ -936,4 +936,28 @@ describe("a resume imports only what the turn has not counted for its run (issue
       expect(counted(budget)).toBeCloseTo(0.3);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("a cancelled fan-out that unwinds after the next turn began records nothing into that turn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-turns-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const controller = new AbortController();
+      const d = production(budget, store, (n) => {
+        if (n !== 1) return;
+        // The person stopped the turn; the next one starts (and spends) before this fan-out unwinds.
+        budget.begin("s-parent", 0, { usd: 1 });
+        budget.reserveRequest("s-parent", 0.1).settle(0.1);
+        controller.abort();
+      });
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ tasks: two }, { ...ctx(), signal: controller.signal });
+      const runId = first.details.runId as string;
+      expect(counted(budget)).toBeCloseTo(0.1);
+      // The new turn resumes the run: all $0.20 on its checkpoint is new to this turn.
+      await tool.run({ resume: runId }, ctx());
+      expect(counted(budget)).toBeCloseTo(0.4);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

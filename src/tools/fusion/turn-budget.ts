@@ -215,16 +215,21 @@ export class FusionTurnBudget {
    * during the fan-out: requests and carried spend under a request cap,
    * worker spend otherwise), never the checkpoint's own figure, which
    * holds estimates the cap may not have seen: a later resume imports
-   * that difference.
+   * that difference. Both act only while the turn the call started in is
+   * still the session's.
    */
   openRunAccounting(sessionId: string): RunAccounting {
     const counted = (state: TurnState): number =>
       state.requestLimits?.usd !== undefined ? state.requestUsd + state.externalUsd : state.workerUsd;
-    const base = counted(this.turn(sessionId));
+    // The turn the call started in: a fan-out that unwinds after the next
+    // turn began writes nothing into that one.
+    const state = this.turn(sessionId);
+    const current = (): boolean => this.turns.get(sessionId) === state;
+    const base = counted(state);
     let known: number | undefined;
     return {
       importCarried: (runId, checkpointUsd) => {
-        const state = this.turn(sessionId);
+        if (!current()) return 0;
         known = state.runSpend.get(runId) ?? 0;
         if (!Number.isFinite(checkpointUsd) || checkpointUsd <= known) return 0;
         // Recorded at once: a call that stops before its fan-out (a refused
@@ -234,7 +239,7 @@ export class FusionTurnBudget {
         return checkpointUsd - known;
       },
       close: (runId) => {
-        const state = this.turn(sessionId);
+        if (!current()) return;
         const recorded = (known ?? state.runSpend.get(runId) ?? 0) + Math.max(0, counted(state) - base);
         if (recorded > (state.runSpend.get(runId) ?? 0)) state.runSpend.set(runId, recorded);
       },
