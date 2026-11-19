@@ -427,3 +427,17 @@ for (const [mode, confirm] of [["back", "Roll back"], ["edit", "Roll back files 
     assert.deepEqual(calls.map((c) => c[0]).slice(0, 3), ["rewind", "preview", "rewind"]);
   });
 }
+
+// Issue #80: the toast after Continue names the files the agent left as they are.
+test("after Continue the toast names the files the agent left as they are", async () => {
+  agentWindow("back", { rewind: [
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
+  ] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  const [title, text] = globalThis.toasts.at(-1);
+  assert.equal(title, "Rolled back");
+  assert.match(text, /1 file put back/);
+  assert.match(text, /Left as they are: locked\.txt, dir\/a\.txt/);
+});

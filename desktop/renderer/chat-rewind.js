@@ -332,7 +332,12 @@ async function rewindConfirm(files, skip) {
   if (e) { e.value = S.draft; autosize(e); e.focus(); }
   refreshSend();
   const n = (d.restored || []).length + (d.deleted || []).length;
-  toast(edit ? 'Message edited' : 'Rolled back', (n ? rewindPlural(n, 'file', 'files') + ' put back. ' : '')
+  // Issue #80: the files the agent says it left as they are (`skip`).
+  const wd = typeof WORKSPACE === 'string' ? WORKSPACE : '';
+  const skipped = Array.isArray(d.skipped) ? d.skipped.filter((p) => typeof p === 'string' && p) : [];
+  const shown = skipped.slice(0, REWIND_FAILED_SHOWN).map((p) => rewindPathLabel(p, wd));
+  const left = skipped.length ? 'Left as they are: ' + shown.join(', ') + (skipped.length > shown.length ? ' and ' + (skipped.length - shown.length) + ' more' : '') + '. ' : '';
+  toast(edit ? 'Message edited' : 'Rolled back', (n ? rewindPlural(n, 'file', 'files') + ' put back. ' : '') + left
     + (failed.length ? failed.length + ' could not be written: ' + failed.map((f) => f.path).join(', ') : ''), failed.length ? 'bad' : undefined);
   if (edit) submit();
 }
