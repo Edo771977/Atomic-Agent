@@ -899,3 +899,41 @@ describe("a retried resume imports the checkpoint's spend once (issue #87)", () 
     } finally { r.cleanup(); }
   });
 });
+
+describe("a resume imports only what the turn has not counted for its run (issue #87)", () => {
+  const two = [{ id: "t1", title: "t1", instructions: "do t1" }, { id: "t2", title: "t2", instructions: "do t2" }];
+  /** The production accounting path: a request cap, each worker request settled through the seam at $0.10 while its priced event says $0.20. */
+  function production(budget: FusionTurnBudget, store: FusionRunStore, onTurn: (n: number) => void = () => {}) {
+    const d = deps({ turnBudget: budget, runCheckpoints: store, requestBudgetAccounting: true, resolveRunMode: () => mode({ turnBudgetUsd: 1 }) });
+    d.runTurn = (async (_s: unknown, _m: string, options: Parameters<FusionDelegateDeps["runTurn"]>[2]) => {
+      d.turns += 1;
+      budget.reserveRequest("s-parent", 0.1).settle(0.1);
+      options.eventHook?.(completedEvent(200_000));
+      onTurn(d.turns);
+      return { session: createEmptySessionState({ id: "s-w", workingDir: "/repo" }), reason: "reply", stepCount: 1 } as RunTurnResult;
+    }) as FusionDelegateDeps["runTurn"];
+    return d;
+  }
+  const counted = (budget: FusionTurnBudget): number => budget.check("s-parent", { usd: 1e-9 })!.spentUsd;
+
+  it("a fan-out cut off mid-run records what the cap counted, not the checkpoint's figure", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-counted-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const controller = new AbortController();
+      const d = production(budget, store, (n) => { if (n === 1) controller.abort(); });
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ tasks: two }, { ...ctx(), signal: controller.signal });
+      const runId = first.details.runId as string;
+      // The cap saw $0.10; the checkpoint priced the worker at $0.20.
+      expect(counted(budget)).toBeCloseTo(0.1);
+      expect(store.load(runId)!.spentUsd).toBeCloseTo(0.2);
+      // Resumed in the same turn: the $0.10 the cap never saw is counted now, then t2's request.
+      await tool.run({ resume: runId }, ctx());
+      expect(d.turns).toBe(2);
+      expect(counted(budget)).toBeCloseTo(0.3);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

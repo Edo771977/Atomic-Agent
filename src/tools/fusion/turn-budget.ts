@@ -134,6 +134,14 @@ function continuationRoot(
   return taskId;
 }
 
+/** {@link FusionTurnBudget.openRunAccounting}'s handle for one fan-out. */
+export interface RunAccounting {
+  /** A resume: count the checkpoint's recorded spend not yet counted this turn; returns what was added. */
+  importCarried(runId: string, checkpointUsd: number): number;
+  /** The fan-out ended: record what this turn counted for the run. */
+  close(runId: string): void;
+}
+
 export class FusionTurnBudget {
   private readonly turns = new Map<string, TurnState>();
   private readonly owners = new Map<string, { parent: string; state: TurnState }>();
@@ -199,25 +207,38 @@ export class FusionTurnBudget {
   }
 
   /**
-   * A resumed run's recorded spend, counted toward the turn (issue #87):
-   * once per run and turn, and on a later resume of the same run only the
-   * increment over what this turn already counted. Returns what was added.
+   * The accounting of one fan-out's run (issue #87), opened when the call
+   * starts. `importCarried` counts a resumed checkpoint's recorded spend
+   * once per run and turn: only the increment over what this turn already
+   * counted for the run. `close` records, for the run, what the turn
+   * actually counted (the import plus the growth of the cap's figure
+   * during the fan-out: requests and carried spend under a request cap,
+   * worker spend otherwise), never the checkpoint's own figure, which
+   * holds estimates the cap may not have seen: a later resume imports
+   * that difference.
    */
-  importRunSpend(sessionId: string, runId: string, checkpointUsd: number): number {
-    if (!Number.isFinite(checkpointUsd) || checkpointUsd <= 0) return 0;
-    const state = this.turn(sessionId);
-    const known = state.runSpend.get(runId) ?? 0;
-    if (checkpointUsd <= known) return 0;
-    state.runSpend.set(runId, checkpointUsd);
-    this.addWorkerSpend(sessionId, checkpointUsd - known);
-    return checkpointUsd - known;
-  }
-
-  /** A run's checkpoint spend this turn counted live (its fan-out ended): a later resume does not import it again. */
-  noteRunSpend(sessionId: string, runId: string, checkpointUsd: number): void {
-    if (!Number.isFinite(checkpointUsd)) return;
-    const state = this.turn(sessionId);
-    if (checkpointUsd > (state.runSpend.get(runId) ?? 0)) state.runSpend.set(runId, checkpointUsd);
+  openRunAccounting(sessionId: string): RunAccounting {
+    const counted = (state: TurnState): number =>
+      state.requestLimits?.usd !== undefined ? state.requestUsd + state.externalUsd : state.workerUsd;
+    const base = counted(this.turn(sessionId));
+    let known: number | undefined;
+    return {
+      importCarried: (runId, checkpointUsd) => {
+        const state = this.turn(sessionId);
+        known = state.runSpend.get(runId) ?? 0;
+        if (!Number.isFinite(checkpointUsd) || checkpointUsd <= known) return 0;
+        // Recorded at once: a call that stops before its fan-out (a refused
+        // or timed-out approval) is retried without counting it again.
+        state.runSpend.set(runId, checkpointUsd);
+        this.addWorkerSpend(sessionId, checkpointUsd - known);
+        return checkpointUsd - known;
+      },
+      close: (runId) => {
+        const state = this.turn(sessionId);
+        const recorded = (known ?? state.runSpend.get(runId) ?? 0) + Math.max(0, counted(state) - base);
+        if (recorded > (state.runSpend.get(runId) ?? 0)) state.runSpend.set(runId, recorded);
+      },
+    };
   }
 
   /** Bind only while the worker is alive; retain the owning turn generation. */
