@@ -1051,6 +1051,53 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(other.milestones[0]).toMatchObject({ state: "reviewed" });
   });
 
+  it("two milestones that swap ids with their tasks both start over; neither inherits the other's result", () => {
+    let p = reviewedM1();
+    p = update(p, { kind: "milestone_run", id: "m2", runId: "run-2" });
+    p = approve(update(p, { kind: "milestone", id: "m2", state: "done", summary: "UI works" }));
+    const re = update(p, {
+      ...planUpdate,
+      milestones: [{ id: "m1", title: "UI", kind: "ui" }, { id: "m2", title: "Base", kind: "base" }],
+      rows: [row("t2", "m1"), row("t1", "m2")],
+    } as ProjectUpdate);
+    for (const [i, was] of [["run-1", "Base works"], ["run-2", "UI works"]].entries()) {
+      expect(re.milestones[i]).toMatchObject({ state: "planned", runIds: [] });
+      expect(re.milestones[i]!.summary).toBeUndefined();
+      expect(re.milestones[i]!.history).toEqual([expect.objectContaining({ runIds: [was[0]], summary: was[1] })]);
+    }
+    expect(re.plan!.verdictResets).toEqual(["m1", "m2"]);
+  });
+
+  it("keeps the newest 4 revisions", () => {
+    let p = reviewedM1();
+    for (let round = 1; round <= 5; round++) {
+      p = approve(update(p, { ...planUpdate, rows: [row("t1", "m1", { title: `Work ${round}` }), row("t2", "m2")] } as ProjectUpdate, NOW + round));
+      p = update(p, { kind: "milestone_run", id: "m1", runId: `run-r${round}` });
+      p = approve(update(p, { kind: "milestone", id: "m1", state: "done", summary: `round ${round}` }));
+    }
+    const history = p.milestones[0]!.history!;
+    expect(history).toHaveLength(PROJECT_LIMITS.history);
+    expect(history.map((h) => h.supersededAt)).toEqual([NOW + 2, NOW + 3, NOW + 4, NOW + 5]);
+    expect(history.map((h) => h.summary)).toEqual(["round 1", "round 2", "round 3", "round 4"]);
+    expect(normalizeProject(JSON.parse(JSON.stringify(p)))!.milestones[0]!.history).toEqual(history);
+  });
+
+  it("one re-plan: an editorial edit keeps m1's verdict while a material change resets m2", () => {
+    let p = reviewedM1();
+    p = update(p, { kind: "milestone_run", id: "m2", runId: "run-2" });
+    p = approve(update(p, { kind: "milestone", id: "m2", state: "done", summary: "UI works" }));
+    const re = update(p, {
+      ...planUpdate,
+      milestones: [{ id: "m1", title: "Base, renamed", kind: "base" }, { id: "m2", title: "UI", kind: "ui" }],
+      rows: [row("t1-new-id", "m1", { title: " TASK t1" }), row("t2", "m2", { title: "A settings screen" })],
+    } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
+    expect(re.milestones[0]!.history).toBeUndefined();
+    expect(re.milestones[1]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[1]!.summary).toBeUndefined();
+    expect(re.plan!.verdictResets).toEqual(["m2"]);
+  });
+
   it("history reads back from a stored session; older stores without it still read", () => {
     const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
     const back = normalizeProject(JSON.parse(JSON.stringify(re)));
