@@ -21536,9 +21536,12 @@ function fzIntroParagraphs(rm) {
   const orchestrator = rm.orchestratorModel ?? fzProviderWord(rm.orchestratorProviderId) ?? 'your cloud provider';
   const worker = rm.workerModel ?? fzProviderWord(rm.workerProviderId) ?? 'the local model';
   return [
-    'Fusion splits the work between two models: one decides, the other does.',
+    'Fusion splits the work in a small team: one model decides, others do, and a reviewer can check.',
     'Right now, ' + orchestrator + ' plans. It reads enough to choose an approach, breaks the job into self-contained parts, writes the brief for each, then reads what comes back, judges it, and sends anything weak out again.'
       + ' ' + worker + ' executes: each worker takes one part and reports. They cannot reach you or ask for approval, so anything needing a person comes back up.',
+    'A third seat, the reviewer, checks each worker\'s result before the orchestrator takes it. Pick it per chat with the last chip in the strip: “Team picks” lets the team choose, “No review” turns review off, and “Add a reviewer…” adds one. A Claude Code or Codex (ChatGPT) subscription can review, read-only, on your plan.',
+    'Ask for something bigger and it becomes a project that stops for you three times: the brief, the plan (each task\'s worker, reviewer and estimated cost), and each finished milestone with its checks.',
+    'In a folder restricted to local models, Fusion runs on the local worker alone and cloud reviewers are not offered.',
     'How many run at once is not a setting. The orchestrator sizes each fan-out to the job at hand, up to what this machine can serve.',
     'Either seat takes either kind, and the pairing is the interesting part. Cloud planning with local workers is the usual one: sharp judgement, cheap bulk. Invert it and a local model plans while cloud workers execute: your reasoning never leaves the machine and you rent only the lifting. Two cloud models work as well, a careful one directing a fast one, even from the same provider. This setup has one managed local engine, which can serve either role.',
     'Worth playing with: a result is only as good as the model that did the work, and only as sensible as the model that planned it. Move that line and the output changes character.',
