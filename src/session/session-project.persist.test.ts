@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { SessionStore } from "./session-store.js";
@@ -13,6 +14,7 @@ import {
   applyProjectDecision,
   applyProjectUpdate,
   gateVersion,
+  normalizeProject,
   readProject,
   withProject,
   type AssignmentRow,
@@ -123,5 +125,27 @@ describe("project state across a session save and load (issue #80)", () => {
     // B reviewed: A is next.
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["approved", "reviewed"]);
+  });
+
+  it("a project saved before issue #80 that kept a removed criterion's pass does not lend it to a reused id (issue #83)", () => {
+    // Built with src/session/session-project.ts at 68e709d: `a` "works offline"
+    // passed on m1, then a brief without `a` was approved; that version kept
+    // `a`'s fact and pictures and recorded no approved criteria.
+    const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "project-saved-before-80.json"), "utf8")) as { project: unknown };
+    let p = normalizeProject(fixture.project)!;
+    expect(p.milestones[0]!.criteriaFacts).toEqual([{ id: "a", state: "passed" }, { id: "b", state: "passed" }]);
+    const collaboration = { id: "a", text: "supports live collaboration" };
+    p = reopen(approve(fold(p, brief([{ id: "b", text: "has three levels" }, collaboration]))));
+    for (const q of [p, reopen(p)]) {
+      const m = q.milestones[0]!;
+      // The new `a` has no passing evidence; `b` keeps its own.
+      expect(m.state).toBe("reviewed");
+      expect(m.criteriaFacts).toEqual([{ id: "b", state: "passed" }]);
+      expect((m.attachments ?? []).map((x) => [x.caption, x.criteria])).toEqual([["both", ["b"]], ["levels", ["b"]]]);
+      // The old pass is in history, never labelled with the new text.
+      const retired = (m.history ?? []).find((h) => (h.criteriaFacts ?? []).some((f) => f.id === "a"));
+      expect(retired).toMatchObject({ cause: "brief-removed", criteriaFacts: [{ id: "a", state: "passed" }], unknownCriteria: ["a"], attachmentCount: 1 });
+      expect(JSON.stringify(m.history)).not.toContain(collaboration.text);
+    }
   });
 });

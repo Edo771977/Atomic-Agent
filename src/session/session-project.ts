@@ -173,6 +173,13 @@ export interface ProjectMilestoneRevision {
    */
   criteria?: ProjectCriterion[];
   /**
+   * Ids of retired criteria whose text was never recorded (issue #83):
+   * evidence a project saved before issue #80 kept for a criterion
+   * already gone from its approved brief. Their text is unknown, so none
+   * is written; the id alone may since name another requirement.
+   */
+  unknownCriteria?: string[];
+  /**
    * `plan`: a re-plan changed the work; `brief`: the text of a criterion
    * its evidence cites changed; `brief-removed` (issue #80): cited
    * criteria were removed, and this entry holds only their facts and the
@@ -934,6 +941,11 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   const attachments = count(raw.attachments, raw.attachmentCount);
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
+  const unknownCriteria: string[] = [];
+  for (const u of Array.isArray(raw.unknownCriteria) ? raw.unknownCriteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
+    const id = cleanCriterionId(u);
+    if (id !== null && !unknownCriteria.includes(id)) unknownCriteria.push(id);
+  }
   const criteria: ProjectCriterion[] = [];
   for (const c of Array.isArray(raw.criteria) ? raw.criteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
     const id = isObject(c) ? cleanCriterionId(c.id) : null;
@@ -951,6 +963,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     ...(corrections === 0 ? {} : { correctionCount: corrections }),
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
     ...(criteria.length === 0 ? {} : { criteria }),
+    ...(unknownCriteria.length === 0 ? {} : { unknownCriteria }),
     cause: raw.cause === "brief" || raw.cause === "brief-removed" ? raw.cause : "plan",
     supersededAt: raw.supersededAt as number,
   };
@@ -1294,8 +1307,9 @@ function approvedCriteriaOf(project: ProjectState): ProjectCriterion[] | undefin
 function approveBrief(project: ProjectState, now: number): ProjectState {
   const brief = project.brief!;
   const before = approvedCriteriaOf(project);
+  const rows = project.plan?.rows ?? [];
   const milestones =
-    before === undefined ? project.milestones : judgeCriteria(project.milestones, project.plan?.rows ?? [], before, brief.successCriteria, now);
+    before === undefined ? project.milestones : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
   const plan =
     project.plan === undefined || project.plan.status !== "draft"
       ? project.plan
@@ -1311,6 +1325,27 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
     gate: { kind: "none" },
   };
+}
+
+/**
+ * Retires evidence citing a criterion id absent from the last approved
+ * brief (issue #83): a project saved before issue #80 kept it after the
+ * criterion was removed, and the id could since be reused for another
+ * requirement. Same path as a removal (cause `brief-removed`); the text
+ * is unknown, so the entry lists the ids in `unknownCriteria`.
+ */
+function retireOrphans(
+  milestones: readonly ProjectMilestone[],
+  rows: readonly AssignmentRow[],
+  baseline: readonly ProjectCriterion[],
+  now: number,
+): ProjectMilestone[] {
+  const known = new Set(baseline.map((c) => c.id));
+  return milestones.map((m) => {
+    const cited = [...(m.criteriaFacts ?? []).map((f) => f.id), ...(m.attachments ?? []).flatMap((a) => a.criteria ?? [])];
+    const orphans = new Set(cited.filter((id) => !known.has(id)));
+    return orphans.size === 0 ? m : retireCriteria(m, orphans, milestoneTasks(rows, m.id), [], now);
+  });
 }
 
 /** Ids of kept criteria whose text a brief revision changed beyond case and whitespace (issue #77). */
@@ -1378,6 +1413,7 @@ function retireCriteria(
     else keptPictures.push(left.length === a.criteria.length ? a : { ...a, criteria: left });
   }
   const cited = criteria.filter((c) => removed.has(c.id) && citesCriteria(m, new Set([c.id]))).map((c) => ({ id: c.id, text: c.text }));
+  const unknown = [...removed].filter((id) => !cited.some((c) => c.id === id) && citesCriteria(m, new Set([id])));
   const entry: ProjectMilestoneRevision = {
     title: m.title,
     kind: m.kind,
@@ -1387,6 +1423,7 @@ function retireCriteria(
     ...(droppedFacts.length === 0 ? {} : { criteriaFacts: droppedFacts }),
     ...(droppedPictures === 0 ? {} : { attachmentCount: droppedPictures }),
     ...(cited.length === 0 ? {} : { criteria: cited }),
+    ...(unknown.length === 0 ? {} : { unknownCriteria: unknown }),
     cause: "brief-removed",
     supersededAt: now,
   };
