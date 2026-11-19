@@ -65,6 +65,20 @@ describe("POST /api/sessions/{id}/fs/restore (ATO-563, from the ATO-1056 checkpo
     expect(await again.json()).toMatchObject({ action: "unchanged" });
   });
 
+  it("a damaged saved copy answers 409 copy_damaged and leaves the file as it is (issue #87)", async () => {
+    const file = join(harness.workingDir, "hurt.txt");
+    writeFileSync(file, "orig");
+    await agentWrites("fr-dmg", file, "edited", 110);
+    seed("fr-dmg");
+    const entry = (await store().since("fr-dmg", 0)).entries[0]!;
+    writeFileSync(join(store().sessionDir("fr-dmg"), entry.file!), "ORIG");
+    const res = await post("fr-dmg", { path: file, priorQuestions: 0, expectText: "write notes" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; type: string } };
+    expect(body.error).toMatchObject({ code: "copy_damaged", type: "invalid_request_error" });
+    expect(readFileSync(file, "utf8")).toBe("edited");
+  });
+
   it("restores the second reply's own starting point, not the first reply's", async () => {
     const file = join(harness.workingDir, "two.txt");
     writeFileSync(file, "orig");

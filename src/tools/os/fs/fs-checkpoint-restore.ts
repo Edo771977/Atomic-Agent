@@ -180,7 +180,9 @@ export async function planFileRestore(
   return { cwd, platform: options.platform, items, notRestorable, incomplete, skipped, unknownSkip };
 }
 
-const DAMAGED = "saved copy is damaged";
+/** The `failed[].error` of a file whose saved copy no longer matches its sha256: permanent, never written. */
+export const COPY_DAMAGED_ERROR = "saved copy is damaged";
+const DAMAGED = COPY_DAMAGED_ERROR;
 
 /** Whether a saved copy still holds the bytes its sha256 names; a copy that cannot be read is left for the apply step to report. */
 async function copyState(store: Store, sessionId: string, entry: CheckpointEntry): Promise<"intact" | "damaged" | "unread"> {
