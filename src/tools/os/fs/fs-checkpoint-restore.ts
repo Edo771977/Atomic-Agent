@@ -30,6 +30,8 @@ export interface FileRestoreItem {
    * alone, and a caller keeps the copies for a retry.
    */
   blocked?: string;
+  /** What the disk holds now, as the plan compared it (a sha, or size and mtime for a delete); part of `restorePlanHash`. */
+  now?: string;
 }
 
 export interface FileNotRestorable {
@@ -38,6 +40,9 @@ export interface FileNotRestorable {
 }
 
 export interface FileRestorePlan {
+  /** The chat's folder the paths were keyed against. */
+  cwd: string;
+  platform?: NodeJS.Platform;
   items: FileRestoreItem[];
   notRestorable: FileNotRestorable[];
   /** Some changes from that point on are no longer kept (the store's bounds). */
@@ -122,7 +127,7 @@ export async function planFileRestore(
     if (!entry.existed) {
       if (now.kind === "missing") continue;
       if (now.kind === "other") notRestorable.push({ path: entry.path, reason: "not_a_file" });
-      else items.push({ path: entry.path, action: "delete", entry });
+      else items.push({ path: entry.path, action: "delete", entry, now: describe(now) });
       continue;
     }
     if (now.kind === "file" && now.sha256 === entry.sha256) continue;
@@ -130,9 +135,41 @@ export async function planFileRestore(
       notRestorable.push({ path: entry.path, reason: "not_a_file" });
       continue;
     }
-    items.push({ path: entry.path, action: "restore", entry });
+    items.push({ path: entry.path, action: "restore", entry, now: describe(now) });
   }
-  return { items, notRestorable, incomplete, skipped, unknownSkip };
+  return { cwd, platform: options.platform, items, notRestorable, incomplete, skipped, unknownSkip };
+}
+
+function describe(now: Current): string {
+  if (now.kind === "file") return now.sha256 !== undefined ? `sha256:${now.sha256}` : `stat:${now.size}:${now.mtimeMs}`;
+  return now.kind;
+}
+
+/**
+ * A fingerprint of what carrying out `plan` would do (issue #83): each
+ * file's key, action, saved copy and what the disk holds now (blocked or
+ * not), the files not restorable, the skipped ones and `incomplete`,
+ * sorted, plus the caller's `extra` (the point). Equal plans hash equal;
+ * an edit to a listed file or a new copy changes it. No content beyond
+ * the shas the plan already compares.
+ */
+export function restorePlanHash(plan: FileRestorePlan, extra: unknown): string {
+  const key = (path: string): string => restorePathKey(path, plan.cwd, plan.platform);
+  const sorted = <T extends unknown[]>(rows: T[]): T[] => rows.sort((x, y) => (String(x[0]) < String(y[0]) ? -1 : String(x[0]) > String(y[0]) ? 1 : 0));
+  const shape = {
+    extra,
+    items: sorted(plan.items.map((item) => [
+      key(item.path),
+      item.action,
+      item.entry.n,
+      item.entry.sha256 ?? null,
+      item.blocked === undefined ? (item.now ?? null) : "blocked",
+    ])),
+    notRestorable: sorted(plan.notRestorable.map((row) => [key(row.path), row.reason])),
+    skipped: plan.skipped.map(key).sort(),
+    incomplete: plan.incomplete,
+  };
+  return sha256Of(Buffer.from(JSON.stringify(shape), "utf8"));
 }
 
 /**
@@ -208,7 +245,7 @@ function changesFilesUnseen(tool: string): boolean {
 type Current =
   | { kind: "missing" }
   | { kind: "other" }
-  | { kind: "file"; sha256?: string }
+  | { kind: "file"; sha256?: string; size?: number; mtimeMs?: number }
   | { kind: "permanent"; reason: CheckpointSkip }
   | { kind: "blocked"; error: string };
 
@@ -217,7 +254,7 @@ async function currentState(path: string, withContent: boolean): Promise<Current
     // Followed like the capture follows it (`stat`).
     const info = await stat(path);
     if (!info.isFile()) return { kind: "other" };
-    if (!withContent) return { kind: "file" };
+    if (!withContent) return { kind: "file", size: info.size, mtimeMs: info.mtimeMs };
     return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
