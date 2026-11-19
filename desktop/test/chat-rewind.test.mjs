@@ -253,7 +253,13 @@ for (const mode of ["back", "edit"]) {
     assert.match(html, /chat was left as it was/);
     assert.match(html, /3 files already put back stay put back/);
     const button = mode === "edit" ? "Roll back files and conversation, then resend" : "Roll back";
-    assert.ok(html.includes(`Press ${button} again`), html);
+    assert.ok(html.includes(`Press “${button}” again`), html);
+    if (mode === "edit") {
+      // Conversation only would cut the chat and drop the saved copies: the files not put back would be lost for good.
+      assert.deepEqual(footActs(html), [["rewind:go", button]]);
+      await R.rewindAct("go-chat");
+      assert.deepEqual(calls.map((c) => c[0]), ["rewind"], "Conversation only ran after a partial restore");
+    }
     // Trying again starts clean.
     globalThis.BR.rewind = async () => ({ ok: true, supported: true, data: { restored: [], deleted: [], failed: [] } });
     await R.rewindAct("go");

@@ -143,7 +143,7 @@ function rewindPartialHTML(partial, mode, workingDir) {
   if (total > shown.length) html += '<p class="sd-cap">and ' + (total - shown.length) + ' more</p>';
   html += '<p class="sd-cap">The chat was left as it was. '
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
-    + 'Press ' + esc(again) + ' again to try the rest.</p>';
+    + 'Press “' + esc(again) + '” again to try the rest.</p>';
   return html;
 }
 
@@ -220,7 +220,9 @@ function rewindSheetHTML() {
     body += s.warnings.map((w) => '<div class="tk-notice tk-notice--amber">' + ic('alert') + '<span class="grow">' + esc(w) + '</span></div>').join('');
   }
   const disabled = REWIND.loading || REWIND.busy || !REWIND.preview;
-  const buttons = rewindButtons(REWIND.mode, s);
+  // Issue #77: after a partial restore, "Conversation only" is not offered. It would cut the chat, and the
+  // agent then drops the saved copies, so the files not put back could never be put back.
+  const buttons = rewindButtons(REWIND.mode, s).filter(([a]) => !(REWIND.partial && a === 'rewind:go-chat'));
   // The last button is the primary one.
   const foot = buttons.map(([a, label], i) => {
     const kind = i < buttons.length - 1 ? 'btn-s' : edit ? 'btn-p' : 'btn-df';
@@ -234,6 +236,7 @@ function rewindSheetHTML() {
 /** `files`: undefined (roll back, the agent's default), true or false (edit). */
 async function rewindConfirm(files) {
   if (REWIND.busy || !REWIND.preview) return;
+  if (files === false && REWIND.partial) return;   // issue #77: not offered after a partial restore (rewindSheetHTML)
   const edit = REWIND.mode === 'edit';
   const box = document.getElementById('rw-edit');
   const draft = edit ? String(box ? box.value : REWIND.draft) : '';
