@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -112,6 +112,130 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     // Going back to the very start now restores only the first write.
     const again = await post("rw-1/rewind/preview", { priorQuestions: 0, expectText: "make a.txt" });
     expect(((await again.json()) as { files: unknown }).files).toEqual([{ path: a, action: "delete" }]);
+  });
+
+  it("keeps the chat and the saved copies after a file fails, so the rollback can be tried again (issue #77)", async () => {
+    const { a } = seed();
+    const c = join(harness.workingDir, "c.txt");
+    writeFileSync(a, "a0");
+    writeFileSync(c, "c0");
+    let clock = 210;
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir), () => clock);
+    await store.capture("rw-1", a, "os.fs.edit");
+    writeFileSync(a, "a1");
+    clock = 220;
+    await store.capture("rw-1", c, "os.fs.edit");
+    writeFileSync(c, "c1");
+    // One transient failure reading a's copy back.
+    const realReadCopy = FileCheckpointStore.prototype.readCopy;
+    let failures = 1;
+    vi.spyOn(FileCheckpointStore.prototype, "readCopy").mockImplementation(async function (this: FileCheckpointStore, id, entry) {
+      if (entry.path === a && failures > 0) {
+        failures -= 1;
+        throw new Error("EIO: transient");
+      }
+      return realReadCopy.call(this, id, entry);
+    });
+    const first = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(first.status).toBe(409);
+    const firstBody = (await first.json()) as { error: { code: string }; restored: string[]; failed: { path: string }[] };
+    expect(firstBody.error.code).toBe("restore_failed");
+    expect(firstBody.restored).toEqual([c]);
+    expect(firstBody.failed.map((f) => f.path)).toEqual([a]);
+    // Not cut, copies kept: the rewind point is still there.
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
+    expect((await store.since("rw-1", 200)).entries.map((e) => e.path)).toEqual([a, c]);
+    expect(readFileSync(c, "utf8")).toBe("c0");
+    // c, already back, is left alone by the retry.
+    const preview = await post("rw-1/rewind/preview", { priorQuestions: 1, expectText: "change it" });
+    expect(((await preview.json()) as { files: unknown }).files).toEqual([{ path: a, action: "restore" }]);
+
+    const retry = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ restored: [a], deleted: [], failed: [] });
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(readFileSync(c, "utf8")).toBe("c0");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(4);
+    expect((await store.since("rw-1", 200)).entries).toEqual([]);
+  });
+
+  it("a retry that fails again still keeps the chat and the copies (issue #77)", async () => {
+    const { a, b } = seed();
+    await replayFiles("rw-1", a, b);
+    vi.spyOn(FileCheckpointStore.prototype, "readCopy").mockRejectedValue(new Error("EIO: still failing"));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+      expect(res.status).toBe(409);
+      expect(await codeOf(res)).toBe("restore_failed");
+      expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
+    }
+    // b was deleted on the first attempt and is not planned again.
+    expect(existsSync(b)).toBe(false);
+    expect(readFileSync(a, "utf8")).toBe("v2");
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir));
+    expect((await store.since("rw-1", 200)).entries.length).toBeGreaterThan(0);
+  });
+
+  it("a failure that repeats answers 409 each time, then acceptFailed: true rolls back without it (issue #77)", async () => {
+    const { a, b } = seed();
+    await replayFiles("rw-1", a, b);
+    vi.spyOn(FileCheckpointStore.prototype, "readCopy").mockRejectedValue(new Error("EIO: keeps failing"));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it", acceptFailed: false });
+      expect(res.status).toBe(409);
+      expect(await codeOf(res)).toBe("restore_failed");
+    }
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it", acceptFailed: true });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { restored: string[]; deleted: string[]; failed: { path: string }[] };
+    expect(body.restored).toEqual([]);
+    expect(body.failed.map((f) => f.path)).toEqual([a]);
+    expect(readFileSync(a, "utf8")).toBe("v2");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(4);
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir));
+    expect((await store.since("rw-1", 200)).entries).toEqual([]);
+  });
+
+  it("refuses a non-boolean acceptFailed with 400 and changes nothing (issue #77)", async () => {
+    const { a, b } = seed();
+    await replayFiles("rw-1", a, b);
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it", acceptFailed: "yes" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { param: string } }).error.param).toBe("acceptFailed");
+    expect(readFileSync(a, "utf8")).toBe("v2");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
+  });
+
+  it("a write that fails (folder replaced by a file) answers a partial 409 with the plan's notes (issue #77)", async () => {
+    seed();
+    const sub = join(harness.workingDir, "sub");
+    const x = join(sub, "x.txt");
+    const c = join(harness.workingDir, "c.txt");
+    mkdirSync(sub);
+    writeFileSync(x, "x0");
+    writeFileSync(c, "c0");
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir), () => 210);
+    await store.capture("rw-1", x, "os.fs.edit");
+    writeFileSync(x, "x1");
+    await store.capture("rw-1", c, "os.fs.edit");
+    writeFileSync(c, "c1");
+    // The person then replaced the folder with a file.
+    rmSync(sub, { recursive: true });
+    writeFileSync(sub, "now a file");
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: { code: "restore_failed" },
+      partial: true,
+      restored: [c],
+      deleted: [],
+      failed: [{ path: x }],
+      notRestorable: [],
+      incomplete: false,
+    });
+    expect(readFileSync(sub, "utf8")).toBe("now a file");
+    expect(readFileSync(c, "utf8")).toBe("c0");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
   });
 
   it("takes back only the conversation with files: false", async () => {
