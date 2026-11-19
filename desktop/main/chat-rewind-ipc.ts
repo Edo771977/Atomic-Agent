@@ -24,10 +24,13 @@ const CHANNELS: ReadonlyArray<[string, RewindRoute]> = [
 export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): void {
   for (const [channel, route] of CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown): Promise<RewindAnswer> => {
-      const { sessionId, priorQuestions, expectText, files } = (payload ?? {}) as { sessionId?: unknown; priorQuestions?: unknown; expectText?: unknown; files?: unknown };
+      const { sessionId, priorQuestions, expectText, files, acceptFailed } = (payload ?? {}) as {
+        sessionId?: unknown; priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown;
+      };
       if (typeof sessionId !== "string" || !sessionId) return { ok: false, supported: true, code: "session_not_found", error: "This chat is not saved yet" };
-      // Only a rollback takes `files` (ATO-1056: Edit, files and conversation or the conversation only).
-      const body = rewindRequestBody(priorQuestions, expectText, route === "rewind" ? files : undefined);
+      // Only a rollback takes `files` (ATO-1056: Edit, files and conversation or the conversation only)
+      // and `acceptFailed` (issue #77: go ahead without the files a restore could not put back).
+      const body = rewindRequestBody(priorQuestions, expectText, route === "rewind" ? files : undefined, route === "rewind" ? acceptFailed : undefined);
       if (body === null) return { ok: false, supported: true, error: "No message to go back to" };
       try {
         const res = await client.sessionRoute(sessionId, route, "POST", body);

@@ -78,16 +78,25 @@ function rewindPartial(record: Record<string, unknown> | null): RewindPartial {
 /**
  * The body the window may send: a non-negative whole position, the question's
  * text and, for a rollback, whether the files go back too (`files: false` is
- * the conversation only; left out, the agent puts the files back).
+ * the conversation only; left out, the agent puts the files back) and, only
+ * when the person chose to go ahead after a partial restore (issue #77),
+ * `acceptFailed: true`: the agent then cuts the chat even though some files
+ * could not be put back, and drops their saved copies.
  */
 export function rewindRequestBody(
   priorQuestions: unknown,
   expectText: unknown,
   files?: unknown,
-): { priorQuestions: number; expectText: string; files?: boolean } | null {
+  acceptFailed?: unknown,
+): { priorQuestions: number; expectText: string; files?: boolean; acceptFailed?: boolean } | null {
   if (typeof priorQuestions !== "number" || !Number.isInteger(priorQuestions) || priorQuestions < 0) return null;
   if (typeof expectText !== "string" || !expectText.trim()) return null;
-  return typeof files === "boolean" ? { priorQuestions, expectText, files } : { priorQuestions, expectText };
+  return {
+    priorQuestions,
+    expectText,
+    ...(typeof files === "boolean" ? { files } : {}),
+    ...(typeof acceptFailed === "boolean" ? { acceptFailed } : {}),
+  };
 }
 
 /** The agent's answer to one of the routes, as the window reads it. */

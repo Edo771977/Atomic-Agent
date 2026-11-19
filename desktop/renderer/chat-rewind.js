@@ -145,6 +145,13 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
   html += '<p class="sd-cap">The chat was left as it was. '
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
     + 'Press “' + esc(again) + '” again to try the rest.</p>';
+  // Issue #77: a file that fails on every try would keep the sheet here for good: the way out.
+  if (total) {
+    html += '<p class="sd-cap">Or go ahead without them: the files listed above stay as they are now, '
+      + 'and their saved copies are dropped, so they cannot be put back later.</p>'
+      + '<button class="btn btn-s sm" data-act="rewind:go-accept"' + (REWIND.busy ? ' disabled' : '') + '>'
+      + esc(mode === 'edit' ? 'Roll back without these files, then resend' : 'Roll back without these files') + '</button>';
+  }
   return html;
 }
 
@@ -200,6 +207,11 @@ function rewindAct(v) {
   const id = colon < 0 ? '' : v.slice(colon + 1);
   if (verb === 'go') return rewindConfirm(REWIND.mode === 'edit' ? true : undefined);
   if (verb === 'go-chat') return rewindConfirm(false);
+  // Issue #77: only from a partial restore's notice, never by default.
+  if (verb === 'go-accept') {
+    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed') return;
+    return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, true);
+  }
   if (verb === 'back' || verb === 'edit' || verb === 'fork') rewindStart(verb, id);
 }
 
@@ -261,8 +273,12 @@ function rewindSheetHTML() {
     '<span class="grow"></span><button class="btn btn-s sm" data-act="close">Cancel</button>' + foot, 'sheet-rewind');
 }
 
-/** `files`: undefined (roll back, the agent's default), true or false (edit). */
-async function rewindConfirm(files) {
+/**
+ * `files`: undefined (roll back, the agent's default), true or false (edit).
+ * `acceptFailed`: true only from the partial-restore notice (issue #77); an
+ * older agent ignores it and refuses again, which shows the notice again.
+ */
+async function rewindConfirm(files, acceptFailed) {
   if (REWIND.busy || !REWIND.preview) return;
   if (files === false && REWIND.partial) return;   // issue #77: not offered after a partial restore (rewindSheetHTML)
   const edit = REWIND.mode === 'edit';
@@ -274,7 +290,8 @@ async function rewindConfirm(files) {
   if (typed || (typeof ATT !== 'undefined' && ATT.items.length)) { REWIND.error = 'Your draft is in the way. Send or clear the composer first.'; render(); return; }
   const sid = REWIND.sid;
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
-  const r = await BR.rewind(sid, REWIND.prior, REWIND.text, files).catch((err) => ({ok: false, supported: true, error: String(err)}));
+  const args = acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, true] : [sid, REWIND.prior, REWIND.text, files];
+  const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
   REWIND.busy = false;
   // Issue #77: a partial restore, or a refusal after files were put back, left the chat as it was;
   // the sheet says which files and stays open.
