@@ -200,8 +200,9 @@ test("the actions are drawn on messages, routed through act() and the overlay, a
 const PARTIAL_MESSAGE = "some files could not be put back (see failed); the chat was not cut and the saved copies were kept, so the rollback can be tried again";
 const partialBody = (failed, extra = {}) => ({
   error: { code: "restore_failed", message: PARTIAL_MESSAGE },
-  restored: [{ path: "/w/src/a.ts" }, { path: "/w/src/b.ts" }],
-  deleted: [{ path: "/w/new.txt" }],
+  // The agent's shape (applyFileRestore): restored and deleted are path strings, failed is {path, error}.
+  restored: ["/w/src/a.ts", "/w/src/b.ts"],
+  deleted: ["/w/new.txt"],
   failed,
   ...extra,
 });
@@ -216,6 +217,10 @@ test("a partial restore (409 restore_failed) carries what was put back and what 
     failed: [{ path: "/w/locked.txt", error: "EACCES: permission denied" }, { path: "/w/gone/x.ts" }, { path: "/w/y" }],
     restoredTotal: 2, deletedTotal: 1, failedTotal: 3,
   });
+  // A {path} entry reads too, and entries that are neither are dropped.
+  const mixed = M.rewindAnswer(409, partialBody([], { restored: ["/w/a", { path: "/w/b" }, 5, ""], deleted: [{ path: "/w/c" }] }));
+  assert.deepEqual([...mixed.restore.restored], ["/w/a", "/w/b"]);
+  assert.deepEqual([mixed.restore.restoredTotal, mixed.restore.deletedTotal], [2, 1]);
   const many = M.rewindAnswer(409, partialBody(Array.from({ length: 500 }, (_, i) => ({ path: `/w/f${i}` }))));
   assert.equal(many.restore.failed.length, 100);
   assert.equal(many.restore.failedTotal, 500);

@@ -39,11 +39,19 @@ export type RewindAnswer =
 export const REWIND_LIST_CAP = 100;
 const REWIND_ERROR_CAP = 300;
 
-/** The `{path, error?}` entries of a partial-restore list that have a path. */
+/**
+ * The entries of a restore list that name a path. The agent sends `restored`
+ * and `deleted` as path strings and `failed` as `{path, error}`
+ * (applyFileRestore); either form is read for any list.
+ */
 function rewindFileList(value: unknown): Array<{ path: string; error?: string }> {
   if (!Array.isArray(value)) return [];
   const out: Array<{ path: string; error?: string }> = [];
   for (const item of value) {
+    if (typeof item === "string") {
+      if (item) out.push({ path: item });
+      continue;
+    }
     if (typeof item !== "object" || item === null) continue;
     const { path, error } = item as { path?: unknown; error?: unknown };
     if (typeof path !== "string" || !path) continue;
