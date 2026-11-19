@@ -118,7 +118,7 @@ function fakeWindow(calls) {
 
 function startEdit(preview) {
   Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false,
-    skipPreview: null, skipPending: null, draft: "old text" });
+    skipPreview: null, skipPending: null, skipUnknown: null, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -176,7 +176,7 @@ test("only a rollback passes the files flag on to the agent", () => {
   assert.deepEqual(M.rewindRequestBody(0, "x", true), { priorQuestions: 0, expectText: "x", files: true });
   assert.deepEqual(M.rewindRequestBody(0, "x", "no"), { priorQuestions: 0, expectText: "x" });
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? files : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed(, expectPlanHash)?)?)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed(, expectPlanHash(, expectTranscriptRev)?)?)?)? \}/);
 });
 
 /* ---------- wiring ---------- */
@@ -316,7 +316,7 @@ test("skip is sent only as a list of at most 1000 paths, only for a rollback; ac
   assert.match(ipc, /takesSkip \? skip : undefined/);
   assert.match(ipc, /const takesSkip = route === "rewind" \|\| route === "rewind\/preview";/);
   assert.match(src("../preload/preload.ts"), /"agent:rewindPreview", \{ sessionId, priorQuestions, expectText, skip \}/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed(, expectPlanHash)?)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed(, expectPlanHash(, expectTranscriptRev)?)?)? \}/);
 });
 
 /** The fixture every button starts from: a rollback the agent answered with two files not put back. */
@@ -507,8 +507,8 @@ function ipcWindow(mode, answers) {
   } finally {
     if (saved) ipcRequire.cache[electron] = saved; else delete ipcRequire.cache[electron];
   }
-  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash) =>
-    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash });
+  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev) =>
+    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev });
   g.BR.rewindPreview = (sessionId, priorQuestions, expectText, skip) => handlers["agent:rewindPreview"]({}, { sessionId, priorQuestions, expectText, skip });
   g.toasts = [];
   g.toast = (...a) => g.toasts.push(a);
@@ -837,7 +837,7 @@ test("expectPlanHash is sent only as a string of at most 200 characters, only fo
   assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, "h".repeat(200)).expectPlanHash.length, 200);
   for (const bad of ["h".repeat(201), "", 5, {}]) assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, bad), null);
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? expectPlanHash : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash(, expectTranscriptRev)? \}/);
 });
 
 for (const [mode, act, files, hashed] of [["back", "go", undefined, true], ["edit", "go", true, true], ["edit", "go-chat", false, false]]) {
@@ -873,7 +873,7 @@ for (const mode of ["back", "edit"]) {
     R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1" };
     await R.rewindAct("go");
     const html = R.rewindSheetHTML();
-    assert.match(html, /files changed since the preview/);
+    assert.match(html, /the files or the messages changed since the preview/i);
     assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
     await R.rewindAct("go");
     await R.rewindAct("go-chat");
@@ -910,4 +910,186 @@ test("a late Continue preview is ignored by a sheet closed and opened again, whi
   assert.deepEqual(footActs(html), [["rewind:go", "Roll back"]]);
   await R.rewindAct("go-skip-confirm");
   assert.equal(agentBodies(calls).length, 1);
+});
+
+/* ---------- issue #87 (4): skip_unknown can be recovered from in the sheet ---------- */
+
+const SKIP_UNKNOWN = (paths) => ({ status: 400, body: { error: {
+  message: `skip names files with no saved copy since that question: ${paths.join(", ")}`, type: "invalid_request_error", param: "skip", code: "skip_unknown" } } });
+
+for (const [act, rest] of [["skip-drop-unknown", ["/w/dir/a.txt"]], ["skip-drop-all", undefined]]) {
+  test(`skip_unknown on Check again: the unknown paths are shown and ${act} fetches a valid preview, no rollback`, async () => {
+    const calls = ipcWindow("back", {
+      rewind: [PARTIAL_409(FIRST_FAILED), { status: 409, body: { error: { code: "point_mismatch", message: "changed" } } }],
+      // Check again's preview: one excluded path lost its saved copy meanwhile.
+      skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
+        SKIP_UNKNOWN(["/w/locked.txt"]), { status: 200, body: { ...FILES_PREVIEW, skipped: ["/w/dir/a.txt"], planHash: "ok" } }],
+      preview: [{ status: 200, body: { ...FILES_PREVIEW, planHash: "ok-all" } }],
+    });
+    await R.rewindAct("go");
+    await continueSkip();
+    await R.rewindAct("recheck");
+    const html = R.rewindSheetHTML();
+    assert.match(html, /locked\.txt/);
+    assert.match(html, /data-act="rewind:skip-drop-unknown"/, "no way to recover from skip_unknown");
+    assert.match(html, /data-act="rewind:skip-drop-all"/);
+    assert.doesNotMatch(html, /Press “Check again”\./);
+    const before = agentBodies(calls).length;
+    await R.rewindAct(act);
+    const last = previewBodies(calls).at(-1);
+    assert.deepEqual(last.skip, rest);
+    assert.equal(agentBodies(calls).length, before, "a rollback was sent on the way");
+    const after = R.rewindSheetHTML();
+    assert.doesNotMatch(after, /no saved copy/);
+    assert.ok(R.REWIND.preview && R.REWIND.preview.planHash, "no valid preview");
+    assert.equal(footActs(after).at(-1)[0], "rewind:go");
+  });
+}
+
+test("skip_unknown's paths: the answer's own list when it has one, else the sent paths its message names", () => {
+  const listed = M.rewindAnswer(400, { error: { code: "skip_unknown", message: "x", unknownSkip: ["/w/a, b.txt"] } });
+  assert.deepEqual([...listed.unknownSkip], ["/w/a, b.txt"]);
+  const plain = M.rewindAnswer(400, SKIP_UNKNOWN(["/w/a, b.txt", "/w/c"]).body);
+  assert.equal(plain.unknownSkip, undefined);
+  // A path with ", " in it is still found by the paths that were sent.
+  assert.deepEqual(R.rewindUnknownSkip(plain, ["/w/a, b.txt", "/w/c", "/w/kept"]), ["/w/a, b.txt", "/w/c"]);
+  assert.deepEqual(R.rewindUnknownSkip({ code: "skip_unknown", error: "no list here" }, ["/w/x"]), ["/w/x"]);
+});
+
+/* ---------- issue #87 (2): a confirm is tied to the messages its preview showed (transcriptRev) ---------- */
+
+test("expectTranscriptRev is sent only as a string of at most 200 characters, only for a rollback", () => {
+  assert.deepEqual(M.rewindRequestBody(0, "x", false, undefined, undefined, undefined, "rev"), { priorQuestions: 0, expectText: "x", files: false, expectTranscriptRev: "rev" });
+  for (const bad of ["r".repeat(201), "", 7, null]) assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, undefined, bad), null);
+  assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? expectTranscriptRev : undefined/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev \}/);
+});
+
+for (const [mode, act, files, plan] of [["edit", "go-chat", false, false], ["back", "go", undefined, true], ["edit", "go", true, true]]) {
+  test(`${mode} ${act}: the confirm sends the preview's transcriptRev`, async () => {
+    const calls = ipcWindow(mode, { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+    R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1", transcriptRev: "rev-1" };
+    await R.rewindAct(act);
+    assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "old text", ...(files === undefined ? {} : { files }),
+      ...(plan ? { expectPlanHash: "plan-1" } : {}), expectTranscriptRev: "rev-1" }]);
+  });
+}
+
+test("plan_changed after Conversation only says the files or the messages changed, and offers only Check again", async () => {
+  const calls = ipcWindow("edit", { rewind: [{ status: 409, body: { error: { code: "plan_changed", message: "changed" } } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW, transcriptRev: "rev-1" };
+  await R.rewindAct("go-chat");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /the files or the messages changed since the preview/i);
+  assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
+  await R.rewindAct("go-chat");
+  await R.rewindAct("go");
+  assert.equal(agentBodies(calls).length, 1);
+});
+
+test("an old agent's preview without transcriptRev sends none", async () => {
+  const calls = ipcWindow("edit", { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW };
+  await R.rewindAct("go-chat");
+  assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "old text", files: false }]);
+});
+
+test("the preview says when a file to delete could not be read, and shows a damaged saved copy", () => {
+  fakeWindow([]);
+  startEdit({ ...FILES_PREVIEW, files: [{ path: "/w/new.txt", action: "delete", contentUnchecked: true }, { path: "/w/src/a.ts", action: "restore", error: "saved copy is damaged" }] });
+  R.REWIND.mode = "back";
+  const html = R.rewindSheetHTML();
+  assert.match(html, /could not read new\.txt, so a same-size replacement would not be noticed/);
+  assert.match(html, /src\/a\.ts[^<]*saved copy is damaged/);
+});
+
+test("the skip confirm and Check again's confirm send their own preview's transcriptRev", async () => {
+  let calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [], deleted: [], failed: [], skipped: [B_FILE] } }],
+    skipPreview: [{ ...SKIP_PREVIEW, body: { ...SKIP_PREVIEW.body, planHash: "p-skip", transcriptRev: "rev-skip" } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW, transcriptRev: "rev-1" };
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  await R.rewindAct("go-skip-confirm");
+  assert.equal(agentBodies(calls)[0].expectTranscriptRev, "rev-1");
+  assert.equal(agentBodies(calls)[1].expectTranscriptRev, "rev-skip");
+  calls = ipcWindow("back", { rewind: [{ status: 409, body: { error: { code: "plan_changed", message: "x" } } }, { status: 200, body: { restored: [], deleted: [], failed: [] } }],
+    preview: [{ status: 200, body: { ...FILES_PREVIEW, transcriptRev: "rev-fresh" } }] });
+  await R.rewindAct("go");
+  await R.rewindAct("recheck");
+  await R.rewindAct("go");
+  assert.equal(agentBodies(calls)[1].expectTranscriptRev, "rev-fresh");
+});
+
+// Issue #87 review: after Continue, the list sent was the earlier skips plus the files that had just
+// failed; recovering from skip_unknown filtered only the earlier ones, so a just-failed file was put back.
+test("skip_unknown on Continue: dropping the unknown path keeps the files that had just failed left out", async () => {
+  const calls = ipcWindow("back", {
+    rewind: [PARTIAL_409([{ path: "/w/locked.txt", error: "EBUSY" }]),
+      PARTIAL_409([{ path: "/w/late.txt", error: "EACCES" }], { skipped: ["/w/locked.txt"] })],
+    skipPreview: [
+      { status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: ["/w/locked.txt"] } },
+      SKIP_UNKNOWN(["/w/locked.txt"]),
+      { status: 200, body: { ...FILES_PREVIEW, skipped: ["/w/late.txt"], planHash: "ok" } },
+    ],
+  });
+  await R.rewindAct("go");
+  await continueSkip();
+  // Continue again: [locked.txt, late.txt]; the agent no longer knows locked.txt.
+  await R.rewindAct("go-skip");
+  assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/locked.txt", "/w/late.txt"]);
+  await R.rewindAct("skip-drop-unknown");
+  assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/late.txt"], "late.txt would be put back");
+  assert.equal(agentBodies(calls).length, 2);
+});
+
+// Issue #87 review: in the message fallback, a sent path matched its own prefix ("/w/x" in "/w/x, y.txt").
+test("skip_unknown's message fallback does not match a path by its prefix; the top-level list is read first", () => {
+  const sent = ["/w/x", "/w/x, y.txt", "/w/z"];
+  const plain = M.rewindAnswer(400, SKIP_UNKNOWN(["/w/x, y.txt"]).body);
+  assert.deepEqual(R.rewindUnknownSkip(plain, sent), ["/w/x, y.txt"]);
+  assert.deepEqual(R.rewindUnknownSkip(M.rewindAnswer(400, SKIP_UNKNOWN(["/w/z", "/w/x"]).body), sent), ["/w/x", "/w/z"]);
+  // The agent's own list, next to `error`, wins over the message.
+  const listed = M.rewindAnswer(400, { ...SKIP_UNKNOWN(["/w/x"]).body, unknownSkip: ["/w/x, y.txt"] });
+  assert.deepEqual([...listed.unknownSkip], ["/w/x, y.txt"]);
+  assert.deepEqual(R.rewindUnknownSkip(listed, sent), ["/w/x, y.txt"]);
+});
+
+// Issue #87: why a file to delete could not be checked, a moved file whose original was not kept,
+// and a damaged saved copy on the one-file revert (POST /fs/restore).
+test("the preview words contentUnchecked by its reason and move_source_not_restored in Cannot be put back", () => {
+  fakeWindow([]);
+  startEdit({ ...FILES_PREVIEW, files: [
+    { path: "/w/a.bin", action: "delete", contentUnchecked: true, contentUncheckedReason: "unreadable" },
+    { path: "/w/b.bin", action: "delete", contentUnchecked: true, contentUncheckedReason: "too_large" },
+    { path: "/w/c.bin", action: "delete", contentUnchecked: true },
+  ], notRestorable: [{ path: "/w/moved.txt", reason: "move_source_not_restored" }] });
+  R.REWIND.mode = "back";
+  const html = R.rewindSheetHTML();
+  assert.match(html, /The agent could not read a\.bin, so a same-size replacement would not be noticed/);
+  assert.match(html, /b\.bin is too large to check, so a same-size replacement would not be noticed/);
+  assert.match(html, /The agent could not read c\.bin, so a same-size replacement would not be noticed/);
+  assert.match(html, /moved\.txt \(moved here from a file that was not kept; it stays where it is\)/);
+});
+
+test("a one-file revert whose saved copy is damaged says the file was left as it is", async () => {
+  const { createServer } = await import("node:http");
+  const { AgentClient } = ipcRequire("../out/main/agent-client.js");
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(409, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "saved copy is damaged", code: "copy_damaged" } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const client = new AgentClient(process.cwd());
+  client.port = server.address().port;
+  client.token = "t";
+  try {
+    const r = await client.restoreFile("s1", "/w/a.txt", 0, "q");
+    assert.equal(r.code, "copy_damaged");
+    assert.equal(r.error, "The saved copy is damaged, so the file was left as it is");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

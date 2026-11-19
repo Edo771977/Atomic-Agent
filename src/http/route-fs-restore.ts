@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import { questionRowIndex, questionTurnEnd } from "../session/session-fork.js";
-import { applyFileRestore } from "../tools/os/fs/fs-checkpoint-restore.js";
+import { applyFileRestore, COPY_DAMAGED_ERROR } from "../tools/os/fs/fs-checkpoint-restore.js";
 import {
   FileCheckpointStore,
   fileCheckpointsRoot,
@@ -131,6 +131,11 @@ export function createRestoreFileHandler(): HttpHandler {
     const action = first.existed ? "restore" : "delete";
     const done = await applyFileRestore(store, session.id, { items: [{ path: absolute, action, entry: first }], notRestorable: [], incomplete });
     const failed = done.failed[0];
+    if (failed?.error === COPY_DAMAGED_ERROR) {
+      // Permanent and not a server fault (issue #87): the file was left as it is.
+      refuse(res, 409, "copy_damaged", `the saved copy of ${absolute} is damaged, so it was left as it is`);
+      return;
+    }
     if (failed !== undefined) {
       sendError(res, 500, openaiError(`could not put ${absolute} back: ${failed.error}`, "server_error", "path", "restore_failed"));
       return;

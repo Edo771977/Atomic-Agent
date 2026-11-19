@@ -10,6 +10,7 @@ import {
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectCriterion,
   type ProjectCriterionInput,
   type ProjectMilestone,
   type ProjectMilestoneAttachment,
@@ -88,7 +89,12 @@ export interface ProjectToolDeps {
    * its screenshots, newest first. A done report carries the facts, and
    * the screenshots when it names no attachments. Absent: neither.
    */
-  milestoneEvidence?: (milestone: ProjectMilestone, criteriaOrder: readonly string[]) => MilestoneEvidence;
+  milestoneEvidence?: (
+    milestone: ProjectMilestone,
+    criteriaOrder: readonly string[],
+    /** The approved brief's criteria and approval time: run facts count only for the text they tested (issue #87). */
+    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number },
+  ) => MilestoneEvidence;
 }
 
 type Parsed<T> = { ok: true } & T | { ok: false; problems: string[] };
@@ -455,7 +461,11 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
-        const evidence = deps.milestoneEvidence(milestone, order);
+        const approvals = ctx.project?.briefApprovals;
+        const evidence = deps.milestoneEvidence(milestone, order, {
+          criteria: ctx.project?.brief?.successCriteria ?? [],
+          ...(approvals === undefined ? {} : { briefApprovals: approvals }),
+        });
         // A milestone closes only when its tests AND criteria pass: the
         // person never sees "done" over a red or unverified criterion.
         const open = evidence.facts.filter((f) => f.state !== "passed");

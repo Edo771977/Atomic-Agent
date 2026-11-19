@@ -2235,6 +2235,8 @@ export class AgentClient extends EventEmitter {
         not_restorable: "The agent could not keep a copy of this file (too large or not plain text)",
         point_mismatch: "The agent's chat no longer matches this window; reopen the chat and try again",
         turn_in_progress: "The agent is still working in this chat; revert the file when it finishes",
+        // Issue #87: the checkpoint's copy failed its check; the file was not touched.
+        copy_damaged: "The saved copy is damaged, so the file was left as it is",
       };
       return { ok: false, supported: true, ...(code ? { code } : {}), error: (code && words[code]) || message || `HTTP ${res.status}` };
     } catch (err) {

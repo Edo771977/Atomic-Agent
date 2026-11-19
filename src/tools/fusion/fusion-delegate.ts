@@ -589,9 +589,13 @@ export function buildFusionDelegateTool(
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }
       // What the run spent before the restart counts toward this turn's
-      // cap: a resume is the same run, not a fresh allowance.
+      // cap: a resume is the same run, not a fresh allowance. Once per run
+      // and turn (issue #87): a retry after a refused or timed-out
+      // approval, the checkpoint unchanged, adds nothing; new spend on the
+      // checkpoint adds only its increment.
+      const runAccounting = turnBudget.openRunAccounting(ctx.sessionId);
       if (resume !== undefined && resume.carriedSpendUsd > 0) {
-        turnBudget.addWorkerSpend(ctx.sessionId, resume.carriedSpendUsd);
+        runAccounting.importCarried(resume.runId, resume.carriedSpendUsd);
       }
 
       // Labels, never guesses: the resolver's pin when it has one, the
@@ -658,9 +662,16 @@ export function buildFusionDelegateTool(
       const orchestratorCap =
         mode.maxOrchestratorTasksPerTurn ??
         DEFAULT_FUSION_MAX_ORCHESTRATOR_TASKS_PER_TURN;
+      // The tasks this call will run (issue #87): a resume's carried rows
+      // and those awaiting the person's yes never start here. One set for
+      // the orchestrator target, measured routing's remaining orchestrator
+      // room, the admission check and the accounting when workers start.
+      const notRunHere = new Set(
+        resume === undefined ? [] : [...resume.carried, ...resume.needsConfirmation].map((r) => r.id),
+      );
       if (
         orchestratorCap === 0 &&
-        parsed.tasks.some((t) => t.model === ORCHESTRATOR_TASK_MODEL)
+        parsed.tasks.some((t) => t.model === ORCHESTRATOR_TASK_MODEL && !notRunHere.has(t.id))
       ) {
         return error(
           `validation: \`model: "orchestrator"\` is turned off here (llm.runMode.fusion.maxOrchestratorTasksPerTurn is 0). Send those tasks to a worker model: leave \`model\` out or name one from the \`### fusion\` list.`,
@@ -723,7 +734,7 @@ export function buildFusionDelegateTool(
           minSamples: mode.measuredRouting.minSamples,
           days: mode.measuredRouting.days,
           remainingOrchestrator: orchestratorCap - turnBudget.orchestratorTasks(ctx.sessionId) -
-            [...taskLegs.values()].filter((leg) => leg.orchestrator === true).length,
+            [...taskLegs.entries()].filter(([id, leg]) => leg.orchestrator === true && !notRunHere.has(id)).length,
           attempted: (id) => turnBudget.attempts(ctx.sessionId, id) > 0,
           cliToolsStayOn: (provider) => deps.cliToolsStayOn?.(provider) === true,
           identityFor: (provider) => deps.resolveRoutingIdentity?.(provider),
@@ -737,6 +748,8 @@ export function buildFusionDelegateTool(
       const orchestratorTaskIds = parsed.tasks
         .filter((t) => taskLegs.get(t.id)?.orchestrator === true)
         .map((t) => t.id);
+      const actionableTaskCount = parsed.tasks.filter((t) => !notRunHere.has(t.id)).length;
+      const actionableOrchestratorTaskIds = orchestratorTaskIds.filter((id) => !notRunHere.has(id));
       const taskIsLocal = (t: DelegateTask): boolean =>
         deps.workerSupportsSlotAffinity(
           taskLegs.get(t.id)?.providerId ?? workerProviderId,
@@ -821,8 +834,8 @@ export function buildFusionDelegateTool(
         const countStop = turnBudget.checkCounts(
           ctx.sessionId,
           { ...countLimits, orchestratorTasks: orchestratorCap },
-          parsed.tasks.length,
-          orchestratorTaskIds.length,
+          actionableTaskCount,
+          actionableOrchestratorTaskIds.length,
         );
         if (countStop?.kind === "orchestrator-tasks") {
           return error(
@@ -836,10 +849,10 @@ export function buildFusionDelegateTool(
             { reason: "turn-count", kind: countStop.kind },
           );
         }
-      } else if (orchestratorTaskIds.length > orchestratorCap) {
+      } else if (actionableOrchestratorTaskIds.length > orchestratorCap) {
         // No turn state to count across calls: the cap still holds per call.
         return error(
-          `fusion.delegate did not run: ${orchestratorCapMessage(orchestratorTaskIds.length, 0, orchestratorCap)}. ${ORCHESTRATOR_TASK_CAP_INSTRUCTION}`,
+          `fusion.delegate did not run: ${orchestratorCapMessage(actionableOrchestratorTaskIds.length, 0, orchestratorCap)}. ${ORCHESTRATOR_TASK_CAP_INSTRUCTION}`,
           { reason: "turn-count", kind: "orchestrator-tasks", cap: orchestratorCap },
         );
       }
@@ -1236,7 +1249,7 @@ export function buildFusionDelegateTool(
                 roleLegs.size === 0
                   ? ""
                   : ` and ${[...roleLegs.values()].map((l) => l.model).join(", ")}`
-              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), parsed.tasks.length, mode) : ""}${describeOversizedLocalTasks(oversized)}${
+              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), actionableTaskCount, mode) : ""}${describeOversizedLocalTasks(oversized)}${
                 planReviewerNotes.size === 0
                   ? ""
                   : `; ${[...planReviewerNotes].map(([id, note]) => `task ${id}: ${note}`).join("; ")}`
@@ -1346,6 +1359,16 @@ export function buildFusionDelegateTool(
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).
       const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
+      // The texts a run's facts are tagged with (issue #87): the criteria
+      // its checks were written for. A resume replays the checkpoint's own
+      // checks, so it keeps the checkpoint's texts (none in an older file),
+      // never this turn's brief.
+      const factCriteria: ReadonlyMap<string, { text: string }> | undefined =
+        resumedFrom === null
+          ? briefCriteria
+          : resumedFrom.criteria === undefined
+            ? undefined
+            : new Map(resumedFrom.criteria.map((c) => [c.id, { text: c.text }]));
       // The reply cap the local pool was divided by (`workerSlotFootprint`
       // sizes each worker's reply at `workerReplyAllowance`, not at the raw
       // `completionMaxTokens`). A cap above that allowance is sent as the
@@ -1629,6 +1652,7 @@ export function buildFusionDelegateTool(
         tasks: parsed.tasks,
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
+        ...(briefCriteria === undefined ? {} : { criteria: [...briefCriteria.values()] }),
       }) : undefined;
       // The run folder the checks' screenshots and the criteria facts go
       // to (issue #40). Candidate mode keeps no resumable checkpoint, but
@@ -2456,11 +2480,7 @@ export function buildFusionDelegateTool(
           // turn's caps (ATO-1406), with only the tasks it will run — a
           // resume's finished ones are not counted twice.
           if (tracksTurn) {
-            turnBudget.noteRound(
-              ctx.sessionId,
-              parsed.tasks.filter((t) => !finished.has(t.id)).length,
-            orchestratorTaskIds.filter((id) => !finished.has(id)).length,
-            );
+            turnBudget.noteRound(ctx.sessionId, actionableTaskCount, actionableOrchestratorTaskIds.length);
           }
           // Worker completion alone does not establish that a required
           // artifact is usable. Verify providers before releasing consumers,
@@ -2618,6 +2638,7 @@ export function buildFusionDelegateTool(
           // orchestrator still gets a readable result rather than a dead turn.
           // The checkpoint stays: what finished can still be resumed.
           run?.finish("interrupted");
+          if (run !== undefined) runAccounting.close(run.runId);
           await releaseKept();
           if (candidate !== undefined) throw err;
           return error(
@@ -3023,7 +3044,7 @@ export function buildFusionDelegateTool(
         // run's wait for its finish: the folder keeps only what was promoted.
         const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3091,6 +3112,9 @@ export function buildFusionDelegateTool(
             ? "interrupted"
             : "complete",
         );
+        // What this turn counted for the run: a resume later in the turn
+        // imports only what the cap has not seen (issue #87).
+        if (run !== undefined) runAccounting.close(run.runId);
         const resumeNote =
           resume === undefined
             ? ""
@@ -3233,6 +3257,7 @@ export function buildFusionDelegateTool(
                   taskId: t.taskId,
                   facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
                 })),
+            factCriteria,
           );
         }
         terminalTaskCount = results.length;

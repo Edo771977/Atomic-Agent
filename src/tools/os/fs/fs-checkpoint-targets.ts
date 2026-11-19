@@ -47,6 +47,21 @@ export function checkpointTargets(
   workingDir: string,
   deps: CheckpointTargetDeps = {},
 ): string[] {
+  return checkpointTargetsWithMoves(tool, args, workingDir, deps).paths;
+}
+
+/**
+ * The targets, and for each move destination the source it comes from
+ * (issue #87 review): a rollback deletes a move's destination only when
+ * it puts the source back, or the moved file would be lost.
+ */
+export function checkpointTargetsWithMoves(
+  tool: string,
+  args: Record<string, unknown>,
+  workingDir: string,
+  deps: CheckpointTargetDeps = {},
+): { paths: string[]; movedFrom: Map<string, string> } {
+  const movedFrom = new Map<string, string>();
   const isDirectory = deps.isDirectory ?? isDirectoryOnDisk;
   const readText = deps.readText ?? ((path: string) => readFileSync(path, "utf8"));
   const at = (path: unknown): string | null => {
@@ -95,7 +110,9 @@ export function checkpointTargets(
         if (to === null) continue;
         // "Inside it": a trailing separator or an existing folder (fs-move.ts).
         const intoFolder = /[\\/]$/.test(move.to) || isDirectory(to);
-        add(intoFolder && from !== null ? join(to, basename(from)) : to);
+        const dest = intoFolder && from !== null ? join(to, basename(from)) : to;
+        add(dest);
+        if (from !== null && dest !== from) movedFrom.set(dest, from);
       }
       break;
     }
@@ -105,7 +122,7 @@ export function checkpointTargets(
     default:
       break;
   }
-  return out;
+  return { paths: out, movedFrom };
 }
 
 function patchTargets(
@@ -162,12 +179,16 @@ export function checkpointBeforeInvoke(
 ): (tool: string, args: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Promise<void> {
   return async (tool, args, ctx) => {
     if (!CHECKPOINTED_TOOLS.has(tool)) return;
-    let paths: string[];
+    let targets: ReturnType<typeof checkpointTargetsWithMoves>;
     try {
-      paths = checkpointTargets(tool, args, ctx.workingDir);
+      targets = checkpointTargetsWithMoves(tool, args, ctx.workingDir);
     } catch {
       return;
     }
-    for (const path of paths) await store.capture(ctx.sessionId, path, tool);
+    for (const path of targets.paths) {
+      const from = targets.movedFrom.get(path);
+      if (from === undefined) await store.capture(ctx.sessionId, path, tool);
+      else await store.capture(ctx.sessionId, path, tool, { movedFrom: from });
+    }
   };
 }

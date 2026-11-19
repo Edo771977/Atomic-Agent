@@ -428,7 +428,7 @@ test("window: Add a reviewer from a new chat whose first turn leaves without a p
   assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
   // renderer.js tells the seat about a new chat's turn whether or not it carried a pick.
   const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
-  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice\);/);
+  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice(, fzrToken)?\);/);
 });
 
 // Issue #77 review: Add a reviewer pressed after a new chat's first turn left,
@@ -507,3 +507,207 @@ test("window: a failed add after a switch closes its own popover and names its c
   assert.deepEqual([...c.toasts[0]], ["Reviewer not added", "disk full"]);
   assert.match(readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8"), /\nfunction chatById\(id\) \{/);
 });
+
+// Issue #87 (5): an add that completed between a new chat's first send and the send's acknowledgment
+// (BR.chat's answer, which carries the turn id) stayed on the new-chat slot, so the next new chat got it.
+// The renderer's send path, as renderer.js runs it: the choice and the dispatch, synchronously; the ack later.
+function sendFirstTurn(c) {
+  const teamChoice = c.fzrTurnTeam(undefined);
+  const token = typeof c.fzrTurnDispatch === "function" ? c.fzrTurnDispatch(undefined) : undefined;
+  return { ack: (turnId) => c.fzrTurnSent(undefined, turnId, teamChoice, token), fail: () => typeof c.fzrTurnUndispatched === "function" && c.fzrTurnUndispatched(token), teamChoice };
+}
+for (const [label, order, prior] of [
+  ["the write ends before the ack", "write-first", null],
+  ["the ack comes before the write ends", "ack-first", null],
+  ["the add starts after the send, the write ends before the ack", "add-after-send", null],
+  ["a pick was made before, the write ends before the ack", "write-first", "none"],
+]) {
+  test(`window: Add a reviewer in a new chat whose first send is not acknowledged yet (${label}) stays that chat's`, async () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = null;
+    c.FIRST_TURNS = new Map();
+    c.screenTurnId = () => null;
+    if (prior) await c.fzrAct("pick:" + prior);
+    const writes = delayedWrite(c);
+    let send;
+    let adding;
+    if (order === "add-after-send") { send = sendFirstTurn(c); adding = c.fzrAct("add:anthropic:model-a"); }
+    else { adding = c.fzrAct("add:anthropic:model-a"); send = sendFirstTurn(c); }
+    if (prior) assert.deepEqual({ ...send.teamChoice }, { reviewer: prior });
+    if (order === "ack-first") { send.ack("t1"); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; send.ack("t1"); }
+    c.FIRST_TURNS.set("t1", "hello");
+    c.FIRST_TURNS.delete("t1");
+    c.fzrTurnNamed("t1", "chat-A");
+    c.S.agentSession = "chat-A";
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" }, "chat A lost the reviewer added from it");
+    // The person opens new chat B.
+    c.S.agentSession = null;
+    assert.equal(c.fzrTurnTeam(undefined), null, "new chat B inherited chat A's reviewer");
+    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  });
+}
+
+test("window: a new chat's first send that fails gives its pick and an add in flight back to the new-chat slot", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:none");
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  const send = sendFirstTurn(c);
+  send.fail();
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  // renderer.js ties the dispatch to the send synchronously and passes the token with the ack.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const at = renderer.indexOf("const teamChoice = fzrTurnTeam(session);");
+  const body = renderer.slice(at, at + 1600);
+  assert.match(body, /const fzrToken = fzrTurnDispatch\(session\);/);
+  assert.ok(body.indexOf("fzrTurnDispatch(session)") < body.indexOf("BR.chat("));
+  assert.match(body, /fzrTurnSent\(session, res\.turnId, teamChoice, fzrToken\)/);
+  assert.match(body, /fzrTurnUndispatched\(fzrToken\)/);
+});
+
+// Issue #87 review: after A's first send, before its acknowledgment, the person opened a fresh New chat
+// and added a reviewer there: the add joined A's dispatched turn.
+for (const order of ["write-first", "ack-first"]) {
+  test(`window: Add a reviewer in a fresh new chat opened while A's first send is unacknowledged is the fresh chat's (${order})`, async () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = null;
+    c.S.log = [{ id: "u1", k: "user", text: "A's first message" }];
+    c.FIRST_TURNS = new Map();
+    c.screenTurnId = () => null;
+    const sendA = sendFirstTurn(c);
+    // The person opens a fresh New chat (renderer.js session:new).
+    c.S.log = [];
+    c.fzrScreenChanged();
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    if (order === "ack-first") { sendA.ack("tA"); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; sendA.ack("tA"); }
+    c.fzrTurnNamed("tA", "chat-A");
+    assert.equal(c.fzrTurnTeam("chat-A"), null, "chat A got the reviewer added in the fresh new chat");
+    // The fresh new chat sends its first message with it.
+    const sendFresh = sendFirstTurn(c);
+    assert.deepEqual({ ...sendFresh.teamChoice }, { reviewer: "anthropic:model-a" });
+    sendFresh.ack("tF");
+    c.fzrTurnNamed("tF", "chat-F");
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-F") }, { reviewer: "anthropic:model-a" });
+    assert.equal(c.fzrTurnTeam("chat-A"), null);
+  });
+}
+
+/* ---------- issue #87 review: the send path as renderer.js runs it (startLiveTurn) ---------- */
+
+/**
+ * The seat with renderer.js's own startLiveTurn loaded beside it, its other
+ * collaborators stubbed. BR.chat answers when the test says (`chats[i].ok()`
+ * / `.reject()`), so the write and the send's answer end in either order.
+ */
+function liveContext() {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const at = renderer.indexOf("\nfunction startLiveTurn(");
+  const fn = renderer.slice(at, renderer.indexOf("\n}\n", at) + 3);
+  const chats = [];
+  let id = 0;
+  Object.assign(c, {
+    PENDING_CHATS: new Map(), FIRST_TURNS: new Map(), RUNNING: new Map(), PLAN: {}, MODE: { known: false }, FZ: {}, DRAIN_OWED: false, ticker: 0,
+    clearPlanOffer() {}, dropStaleGateNotices() {}, currentMode() { return null; }, pushHistory() {}, liveSetWait() {}, nid: () => "n" + (++id),
+    clearInterval() {}, liveAskedRow: () => null, livePriorAsks: () => [], projectForNewTurn: () => undefined, projectWaitingTurn: () => null,
+    firstTurnFolder: () => null, reasoningTurnLevel: () => undefined, projectTurnModel: () => undefined, projectWaitingSent() {},
+    projectNewTurnFailed() {}, liveShowsTurn: () => false, projectNoteTurn() {}, liveTurnStarted() {}, renderSidebar() {},
+    firstTurnSent(turnId, text) { c.FIRST_TURNS.set(turnId, text); },
+    screenTurnId: () => null,
+  });
+  c.S = { agentSession: null, sessionId: "", overlay: null, log: [], busy: false };
+  c.BR.chat = (...args) => new Promise((resolve, reject) => {
+    const team = args[5];
+    chats.push({ team: team ? { ...team } : null, ok: (turnId) => resolve({ ok: true, turnId }), fail: () => resolve({ ok: false, error: "x" }), reject: () => reject(new Error("ipc gone")) });
+  });
+  vm.runInContext(fn, c);
+  return { c, chats, settle: () => new Promise((r) => setImmediate(r)) };
+}
+
+for (const order of ["write-first", "ack-first"]) {
+  test(`live: Clear Transcript before the send's answer does not move a reviewer added in that chat (${order})`, async () => {
+    const { c, chats, settle } = liveContext();
+    c.startLiveTurn("A's first message");
+    // Clear Transcript (renderer.js clearTranscript: S.log = liveClearedLog()) gives the screen a new log array.
+    c.S.log = [];
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    if (order === "ack-first") { chats[0].ok("tA"); await settle(); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; chats[0].ok("tA"); await settle(); }
+    c.fzrTurnNamed("tA", "chat-A");
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" }, "chat A lost the reviewer after Clear Transcript");
+    assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got chat A's reviewer");
+  });
+}
+
+test("renderer.js counts a chat put on screen for the Reviewer seat, and Clear Transcript does not", () => {
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const fresh = renderer.slice(renderer.indexOf("if (a === 'session:new') {"), renderer.indexOf("if (a === 'session:new') {") + 800);
+  assert.match(fresh, /fzrScreenChanged\(\)/);
+  const open = renderer.slice(renderer.indexOf("\nasync function openSession("), renderer.indexOf("\nasync function openSession(") + 2500);
+  assert.match(open, /fzrScreenChanged\(\)/);
+  const clear = renderer.slice(renderer.indexOf("S.log = liveClearedLog(); S.history = [];") - 600, renderer.indexOf("S.log = liveClearedLog(); S.history = [];") + 200);
+  assert.doesNotMatch(clear, /fzrScreenChanged/);
+});
+
+// Issue #87 review: a BR.chat that rejected left the dispatch token set, so later adds were swallowed.
+test("live: a send that rejects gives the pick back, and a later add is the new chat's", async () => {
+  const { c, chats, settle } = liveContext();
+  await c.fzrAct("pick:none");
+  c.startLiveTurn("A's first message");
+  assert.deepEqual(chats[0].team, { reviewer: "none" });
+  chats[0].reject();
+  await settle(); await settle();
+  assert.equal(vm.runInContext("FZR.newDispatch", c), null, "the rejected send's token is still pending");
+  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "none" });
+  await c.fzrAct("add:anthropic:model-a");
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });  // Another chat on screen (session:new, openSession, a new agent) lets go of a waiting first turn too.
+  c.startLiveTurn("a second new chat");
+  assert.ok(vm.runInContext("FZR.newDispatch", c));
+  c.fzrScreenChanged();
+  assert.equal(vm.runInContext("FZR.newDispatch", c), null);
+});
+
+// Issue #87 review: a failed add made before the send's answer, the person still on that chat, was
+// taken as coming from another chat: its popover closed and the toast named "the new chat".
+test("live: a failed add before the send's answer, still on that chat, keeps its popover and its toast", async () => {
+  const { c } = liveContext();
+  c.toasts = [];
+  c.toast = (...a) => c.toasts.push(a);
+  c.startLiveTurn("A's first message");
+  await c.fzrAct("addOpen");
+  c.BR.fusionTeamWrite = async () => ({ ok: false, error: "disk full" });
+  await c.fzrAct("add:anthropic:model-a");
+  assert.equal(c.S.overlay, "fzradd", "the popover closed on the chat it was opened in");
+  assert.deepEqual([...c.toasts.at(-1)], ["Reviewer not added", "disk full"]);
+});
+
+// Issue #87 review: a failed first send gave A's pick and adds back to the new-chat slot even after the
+// person had opened a fresh New chat B, so B sent with A's reviewer.
+for (const how of ["fail", "reject"]) {
+  test(`live: a first send that ${how}s after a fresh New chat was opened gives B nothing of A's`, async () => {
+    const { c, chats, settle } = liveContext();
+    c.toasts = [];
+    c.toast = (...a) => c.toasts.push(a);
+    await c.fzrAct("pick:none");
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    c.startLiveTurn("A's first message");
+    // A fresh New chat B.
+    c.S.log = []; c.fzrScreenChanged();
+    chats[0][how]();
+    await settle(); await settle();
+    writes[0].done();
+    await adding;
+    assert.equal(c.fzrTurnTeam(undefined), null, "new chat B got chat A's reviewer");
+    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+    assert.ok(c.toasts.some(([t]) => /Reviewer/.test(t)), "nothing said the choice was dropped");
+  });
+}

@@ -6,6 +6,7 @@ import {
   normalizeCriterionId,
   PROJECT_LIMITS,
   type CriterionFactState,
+  type ProjectCriterion,
   type ProjectCriterionFact,
   type ProjectMilestoneAttachment,
 } from "../../session/session-project.js";
@@ -17,6 +18,10 @@ import { FusionRunStore, fusionRunShotTarget } from "./run-checkpoint.js";
  * run's screenshots and pruned with them, since the checkpoint goes
  * when the run ends. A milestone report (`project.milestone` done)
  * reads its runs' files and shots ({@link readMilestoneEvidence}).
+ *
+ * Each fact records the criterion text its checks tested (`text`, issue
+ * #87): a fact stands for a criterion only while that text is still the
+ * brief's, so an earlier result cannot pass a revised or reused id.
  */
 
 const FILE_NAME = "criteria.json";
@@ -30,13 +35,30 @@ export interface RunTaskCriteria {
   facts: readonly ProjectCriterionFact[];
 }
 
-/** Write one run's task facts. Best effort: a run that cannot keep them keeps none. */
+/** A stored fact: the criterion text its checks tested, when the run knew it. */
+type RunFact = ProjectCriterionFact & { text?: string };
+
+/**
+ * Write one run's task facts, each with the text of its criterion in
+ * `criteria` (the approved brief the run checked against). Best effort:
+ * a run that cannot keep them keeps none.
+ */
 export function writeRunCriteriaFacts(
   runsDir: string,
   run: { runId: string; sessionId: string },
   tasks: readonly RunTaskCriteria[],
+  criteria?: ReadonlyMap<string, { text: string }>,
 ): void {
-  const kept = tasks.filter((t) => t.facts.length > 0).slice(0, MAX_TASKS);
+  const kept = tasks
+    .filter((t) => t.facts.length > 0)
+    .slice(0, MAX_TASKS)
+    .map((t) => ({
+      taskId: t.taskId,
+      facts: t.facts.map((f): RunFact => {
+        const text = criteria?.get(f.id)?.text;
+        return text === undefined ? f : { ...f, text };
+      }),
+    }));
   if (kept.length === 0) return;
   const target = fusionRunShotTarget(runsDir, run, undefined);
   if (target === undefined) return;
@@ -47,33 +69,49 @@ export function writeRunCriteriaFacts(
   }
 }
 
-function readRunTasks(runsDir: string, runId: string): RunTaskCriteria[] {
-  if (!FusionRunStore.isValidRunId(runId)) return [];
+interface StoredRun {
+  tasks: Array<{ taskId: string; facts: RunFact[] }>;
+}
+
+function readRunTasks(runsDir: string, runId: string): StoredRun {
+  const none: StoredRun = { tasks: [] };
+  if (!FusionRunStore.isValidRunId(runId)) return none;
   let raw: unknown;
   try {
     const path = join(runsDir, runId, FILE_NAME);
-    if (statSync(path).size > MAX_FILE_BYTES) return [];
+    if (statSync(path).size > MAX_FILE_BYTES) return none;
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    return [];
+    return none;
   }
   const tasks = (raw as { tasks?: unknown })?.tasks;
-  if (!Array.isArray(tasks)) return [];
-  const out: RunTaskCriteria[] = [];
+  if (!Array.isArray(tasks)) return none;
+  const out: StoredRun["tasks"] = [];
   for (const t of tasks.slice(0, MAX_TASKS)) {
     if (typeof t !== "object" || t === null || typeof t.taskId !== "string" || !Array.isArray(t.facts)) continue;
-    const facts: ProjectCriterionFact[] = [];
+    const facts: RunFact[] = [];
     for (const f of t.facts as unknown[]) {
       if (typeof f !== "object" || f === null) continue;
-      const { id, state, why } = f as Record<string, unknown>;
+      const { id, state, why, text } = f as Record<string, unknown>;
       const clean = normalizeCriterionId(id);
       if (clean === null || !CRITERION_FACT_STATES.includes(state as CriterionFactState)) continue;
-      facts.push({ id: clean, state: state as CriterionFactState, ...(typeof why === "string" ? { why } : {}) });
+      facts.push({
+        id: clean,
+        state: state as CriterionFactState,
+        ...(typeof why === "string" ? { why } : {}),
+        ...(typeof text === "string" ? { text } : {}),
+      });
     }
     out.push({ taskId: t.taskId, facts });
   }
-  return out;
+  return { tasks: out };
 }
+
+/** A criterion text as its meaning: case and runs of whitespace are editorial (as the brief's own check). */
+const meaning = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Why a fact read for an earlier definition of its criterion stands as unverified. */
+export const STALE_FACT_WHY = "checked against an earlier text of this criterion: run its checks again";
 
 export interface MilestoneEvidence {
   /** One per criterion its runs' checks name, in `criteriaOrder`: its newest run's, the worst of that run's tasks. */
@@ -95,22 +133,51 @@ export function readMilestoneEvidence(input: {
   stateDir: string;
   runIds: readonly string[];
   criteriaOrder: readonly string[];
+  /**
+   * The approved brief's criteria (issue #87). Given, a fact counts only
+   * for the text it recorded; a fact recorded for another text, or for
+   * an id the brief no longer has, is stale.
+   */
+  criteria?: readonly ProjectCriterion[];
+  /**
+   * How many times the project's brief was approved
+   * (`ProjectState.briefApprovals`). A fact with no recorded text (a run
+   * file from before the binding, or a resumed run whose checkpoint has
+   * no texts) stands only when this is exactly 1: the brief cannot have
+   * changed since. Absent or any other count: stale. File times are
+   * never read (a copy, restore or sync changes them).
+   */
+  briefApprovals?: number;
 }): MilestoneEvidence {
+  const currentText = input.criteria === undefined ? undefined : new Map(input.criteria.map((c) => [c.id, meaning(c.text)]));
+  const stale = (fact: RunFact): boolean => {
+    if (currentText === undefined) return false;
+    if (fact.text !== undefined) return currentText.get(fact.id) !== meaning(fact.text);
+    return input.briefApprovals !== 1;
+  };
   // A criterion's newest run stands for it, whichever task carried it
   // there (a fix may come under another task id); within one run, the
-  // worst of its tasks.
+  // worst of its tasks. Stale facts stand only where no current one
+  // does, and then as unverified: never a pass.
   const byTask = new Map<string, readonly ProjectCriterionFact[]>();
   const worst = new Map<string, ProjectCriterionFact>();
+  const staleIds = new Set<string>();
   for (const runId of input.runIds) {
+    const run = readRunTasks(input.runsDir, runId);
     const inRun = new Map<string, ProjectCriterionFact>();
-    for (const task of readRunTasks(input.runsDir, runId)) {
-      byTask.set(task.taskId, task.facts);
-      for (const fact of task.facts) {
+    for (const task of run.tasks) {
+      const valid = task.facts.filter((f) => !stale(f));
+      for (const f of task.facts) if (!valid.includes(f)) staleIds.add(f.id);
+      byTask.set(task.taskId, valid.map(({ text: _text, ...fact }) => fact));
+      for (const { text: _text, ...fact } of valid) {
         const known = inRun.get(fact.id);
         if (known === undefined || RANK[fact.state] > RANK[known.state]) inRun.set(fact.id, fact);
       }
     }
     for (const [id, fact] of inRun) worst.set(id, fact);
+  }
+  for (const id of staleIds) {
+    if (!worst.has(id)) worst.set(id, { id, state: "unverified", why: STALE_FACT_WHY });
   }
   const facts = input.criteriaOrder.flatMap((id) => (worst.has(id) ? [worst.get(id)!] : []));
   const uncovered = input.criteriaOrder.filter((id) => !worst.has(id));

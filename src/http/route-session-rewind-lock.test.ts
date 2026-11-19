@@ -1,6 +1,10 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createEmptySessionState, type SessionState } from "../session/index.js";
+
+import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
 
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -85,5 +89,73 @@ describe("rewind holds the chat's turn lock", () => {
     const stored = harness.runtime.sessionStore.load("rw-meta")!;
     expect(stored.turns.map((t) => t.kind)).toEqual(["user", "assistant_reply"]);
     expect(stored.metadata.note).toBe("kept");
+  });
+
+  it("a row after the point rewritten during the restore, count unchanged, refuses with plan_changed (issue #87)", async () => {
+    const state: SessionState = {
+      ...createEmptySessionState({ id: "rw-row", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "first", at: 100 },
+        { kind: "assistant_reply", text: "one", at: 110 },
+        { kind: "user", text: "second", at: 200 },
+        { kind: "assistant_reply", text: "two", at: 210 },
+      ],
+      turnCount: 2,
+      macroTurnStarts: [2, 4],
+    };
+    harness.runtime.sessionStore.save(state);
+    hooks.duringRestore = async () => {
+      hooks.duringRestore = null;
+      // Another process rewrites the reply: same count, same last row time and kind.
+      const latest = harness.runtime.sessionStore.load("rw-row")!;
+      const turns = latest.turns.map((t, i) => (i === 3 ? { ...t, text: "two, rewritten" } : t));
+      harness.runtime.sessionStore.save({ ...latest, turns });
+    };
+    const res = await fetch(`${harness.baseUrl}/api/sessions/rw-row/rewind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ priorQuestions: 1, expectText: "second" }),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("plan_changed");
+    const stored = harness.runtime.sessionStore.load("rw-row")!;
+    expect(stored.turns).toHaveLength(4);
+    expect((stored.turns[3] as { text: string }).text).toBe("two, rewritten");
+  });
+
+  it("a copy damaged after the in-lock plan, right before the write, is caught by the apply step (issue #87)", async () => {
+    const state: SessionState = {
+      ...createEmptySessionState({ id: "rw-dmg", workingDir: harness.workingDir }),
+      status: "completed",
+      turns: [
+        { kind: "user", text: "first", at: 100 },
+        { kind: "assistant_reply", text: "one", at: 110 },
+        { kind: "user", text: "second", at: 200 },
+        { kind: "assistant_reply", text: "two", at: 210 },
+      ],
+      turnCount: 2,
+      macroTurnStarts: [2, 4],
+    };
+    harness.runtime.sessionStore.save(state);
+    const file = join(harness.workingDir, "f.txt");
+    writeFileSync(file, "f0");
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir), () => 205);
+    await store.capture("rw-dmg", file, "os.fs.edit");
+    writeFileSync(file, "f1");
+    hooks.duringRestore = async () => {
+      hooks.duringRestore = null;
+      const entry = (await store.since("rw-dmg", 200)).entries[0]!;
+      writeFileSync(join(store.sessionDir("rw-dmg"), entry.file!), "XX");
+    };
+    const res = await fetch(`${harness.baseUrl}/api/sessions/rw-dmg/rewind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ priorQuestions: 1, expectText: "second" }),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: "restore_failed" }, failed: [{ path: file, error: "saved copy is damaged" }] });
+    expect(readFileSync(file, "utf8")).toBe("f1");
+    expect(harness.runtime.sessionStore.load("rw-dmg")!.turns).toHaveLength(4);
   });
 });

@@ -600,8 +600,9 @@ contextBridge.exposeInMainWorld("atomic", {
   /** ATO-1056/1058: roll a chat back to a question (files first), preview it, or fork it there (chat-rewind-ipc.ts). */
   rewindPreview: (sessionId: string, priorQuestions: number, expectText: string, skip?: string[]) =>
     ipcRenderer.invoke("agent:rewindPreview", { sessionId, priorQuestions, expectText, skip }),
-  rewind: (sessionId: string, priorQuestions: number, expectText: string, files?: boolean, skip?: string[], acceptFailed?: boolean, expectPlanHash?: string) =>
-    ipcRenderer.invoke("agent:rewind", { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash }),
+  rewind: (sessionId: string, priorQuestions: number, expectText: string, files?: boolean, skip?: string[], acceptFailed?: boolean, expectPlanHash?: string,
+    expectTranscriptRev?: string) =>
+    ipcRenderer.invoke("agent:rewind", { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev }),
   forkSession: (sessionId: string, priorQuestions: number, expectText: string) =>
     ipcRenderer.invoke("agent:forkSession", { sessionId, priorQuestions, expectText }),
   /** ATO-448: continue a reply a restart cut off (POST /api/sessions/{id}/resume); `release` gives it back. */

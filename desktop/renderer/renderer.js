@@ -7621,6 +7621,7 @@ function act(a) {
                              stashQueue();   // Backlog 26: what was queued in the chat being left waits for it, read before the view goes
                              liveLeave();    // Item 38: and a turn running there keeps its view for when it is opened again
                              S.log = []; S.history = []; S.agentSession = null; S.busy = false;
+                             if (typeof fzrScreenChanged === 'function') fzrScreenChanged();   // issue #87: another chat on screen (fusion-reviewer.js)
                              forgetApprovalCard();   // item 6 review fix: a fresh thread does not answer the open gate — the other chat's dot keeps saying it is waiting
                              clearPlanOffer();   // Item 1: the plan belonged to the thread being left (see openSession)
                              S.room = 'chat';
@@ -10441,9 +10442,12 @@ function startLiveTurn(text) {
   live.folder = firstTurnFolder(waiting ? undefined : session, turnPid);   // review of #67: the folder this new chat's turn runs in
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
+  // Issue #87: a new chat's pick and a reviewer being added are this turn's from here, before BR.chat answers.
+  const fzrToken = fzrTurnDispatch(session);
   const send = () => BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(waiting ? undefined : session, turnPid), teamChoice);
   (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
-    if (res && res.ok) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's; #77: so is a reviewer being added
+    if (res && res.ok) fzrTurnSent(session, res.turnId, teamChoice, fzrToken);   // issue #74: a new chat's pick is this turn's; #77: so is a reviewer being added
+    else fzrTurnUndispatched(fzrToken);   // issue #87: no turn: back to the new-chat slot
     if (res && res.ok && waiting) projectWaitingSent(session);
     else if (waiting) waiting.sending = false;
     if (!res || !res.ok) {
@@ -10466,6 +10470,10 @@ function startLiveTurn(text) {
     projectNoteTurn(res.turnId, forProject);   // W2 QA: a new chat in a project with no disk folder is filed once it has an id
     liveTurnStarted(res.turnId, live, session || null);   // Item 38
     renderSidebar();
+  }, (err) => {
+    // Issue #87 review: a send that never answered (BR.chat rejected) leaves no turn either.
+    fzrTurnUndispatched(fzrToken);
+    if (typeof console !== 'undefined') console.error('the turn could not be sent', err);
   });
 }
 
@@ -22036,6 +22044,7 @@ async function openSession(id) {
   // Backlog 24: except after this chat failed to open. Clicking it again is
   // how that is retried, and its log is only the error line.
   if (live && S.sessionId === id && !(OPENING && OPENING.id === id && OPENING.failed)) { S.room = 'chat'; markSeen(id); render(); return; }
+  if (typeof fzrScreenChanged === 'function') fzrScreenChanged();   // issue #87: another chat on screen (fusion-reviewer.js)
   /* Item 1 (plan hand-off): a DELIBERATE divergence from the TUI. Its
      `session_switched` reducer resets messages, feed, pendingApproval,
      runHistory, queuedMessages and contextUsage but not `planHandoff`, so its
