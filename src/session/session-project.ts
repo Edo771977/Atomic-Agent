@@ -1054,8 +1054,14 @@ function briefUpdate(
     base?.plan === undefined || base.plan.status === "cancelled"
       ? base?.plan
       : { ...withoutApproval(base.plan), status: "draft", version: base.plan.version + 1 };
+  // A criterion whose meaning changed voids the evidence that cites it.
+  const changed = changedCriteria(base?.brief?.successCriteria ?? [], brief.successCriteria);
   const milestones = (base?.milestones ?? []).map((m) =>
-    m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m,
+    changed.size > 0 && citesCriteria(m, changed)
+      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now)
+      : m.state === "approved"
+        ? { ...m, state: "planned" as const, updatedAt: now }
+        : m,
   );
   return {
     ok: true,
@@ -1125,6 +1131,45 @@ const hasEvidence = (m: ProjectMilestone): boolean =>
   m.criteriaFacts !== undefined;
 
 /**
+ * The milestone started over on new work (issue #77): `planned`, no
+ * runs, report, corrections, pictures or facts; what it held moves to
+ * `history` with the work it was for (`tasks`, from the plan before).
+ */
+function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now: number): ProjectMilestone {
+  const history = [...(old.history ?? [])];
+  if (hasEvidence(old)) {
+    history.push({
+      title: old.title,
+      kind: old.kind,
+      state: old.state,
+      tasks: oldTasks,
+      runIds: old.runIds,
+      ...(old.summary === undefined ? {} : { summary: old.summary }),
+      ...(old.corrections === undefined ? {} : { corrections: old.corrections }),
+      ...(old.attachments === undefined ? {} : { attachments: old.attachments }),
+      ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
+      supersededAt: now,
+    });
+  }
+  const kept = history.slice(-PROJECT_LIMITS.history);
+  return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
+}
+
+/**
+ * Ids of the criteria a brief revision changed (issue #77): kept ids
+ * whose text differs beyond case and whitespace. A removed criterion is
+ * not a change: nothing new is measured under its id.
+ */
+function changedCriteria(before: readonly ProjectCriterion[], after: readonly ProjectCriterion[]): Set<string> {
+  const now = new Map(after.map((c) => [c.id, workText(c.text)]));
+  return new Set(before.filter((c) => now.has(c.id) && now.get(c.id) !== workText(c.text)).map((c) => c.id));
+}
+
+/** Whether a milestone's evidence cites one of these criteria (its facts or its pictures). */
+const citesCriteria = (m: ProjectMilestone, ids: ReadonlySet<string>): boolean =>
+  (m.criteriaFacts ?? []).some((f) => ids.has(f.id)) || (m.attachments ?? []).some((a) => (a.criteria ?? []).some((id) => ids.has(id)));
+
+/**
  * A milestone as a re-plan leaves it. Finished and running work keeps
  * its state and evidence; the rest waits for the new plan's approval
  * (keeping its runs). When the work itself changed
@@ -1147,23 +1192,7 @@ function replannedMilestone(
   // when the re-plan only adds tasks to it: those runs did part of it.
   const grows = !VERDICT.has(old.state) && old.kind === next.kind && onlyAddsTasks(oldTasks, newTasks);
   if (!grows && milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: newTasks })) {
-    const history = [...(old.history ?? [])];
-    if (hasEvidence(old)) {
-      history.push({
-        title: old.title,
-        kind: old.kind,
-        state: old.state,
-        tasks: oldTasks,
-        runIds: old.runIds,
-        ...(old.summary === undefined ? {} : { summary: old.summary }),
-        ...(old.corrections === undefined ? {} : { corrections: old.corrections }),
-        ...(old.attachments === undefined ? {} : { attachments: old.attachments }),
-        ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
-        supersededAt: now,
-      });
-    }
-    const kept = history.slice(-PROJECT_LIMITS.history);
-    return { ...base, state: "planned", runIds: [], ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
+    return { ...supersede(old, oldTasks, now), ...base };
   }
   const keep = FINISHED.has(old.state) || old.state === "in_progress";
   return {

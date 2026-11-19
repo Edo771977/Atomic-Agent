@@ -1028,6 +1028,20 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "approved", runIds: ["run-1"], summary: "broken" });
   });
 
+  it("a brief that changes a criterion's text resets the milestones whose facts cite it; a case or spacing edit does not", () => {
+    const criteria = (c1: string) => ({ ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: c1 }, { id: "c2", text: "Has three levels" }] } }) as ProjectUpdate;
+    const changed = update(reviewedM1(), criteria("Runs offline on Windows"), NOW + 3);
+    expect(changed.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(changed.milestones[0]!.criteriaFacts).toBeUndefined();
+    expect(changed.milestones[0]!.history?.[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }], supersededAt: NOW + 3 });
+    const edited = update(reviewedM1(), criteria("  runs in THE browser "));
+    expect(edited.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(edited.milestones[0]!.history).toBeUndefined();
+    // A change to a criterion no fact cites leaves the verdict.
+    const other = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has ten levels" }] } } as ProjectUpdate);
+    expect(other.milestones[0]).toMatchObject({ state: "reviewed" });
+  });
+
   it("history reads back from a stored session; older stores without it still read", () => {
     const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1", { title: "Other work" }), row("t2", "m2")] } as ProjectUpdate);
     const back = normalizeProject(JSON.parse(JSON.stringify(re)));
