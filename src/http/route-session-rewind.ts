@@ -60,7 +60,7 @@ interface Point {
   priorQuestions: number;
   text: string;
   at: number;
-  body: { files?: unknown; acceptFailed?: unknown };
+  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown };
 }
 
 export function createListRewindPointsHandler(): HttpHandler {
@@ -91,21 +91,39 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       sendError(res, 400, openaiError("acceptFailed must be a boolean", "invalid_request_error", "acceptFailed"));
       return;
     }
+    // Issue #80: files the person chose to leave as they are; never read, written or deleted.
+    // The preview applies and validates it the same way, so it shows what that rollback would do.
+    const skip = point.body.skip ?? [];
+    if (!isSkipList(skip)) {
+      sendError(res, 400, openaiError(`skip must be an array of at most ${MAX_SKIP} non-empty paths`, "invalid_request_error", "skip"));
+      return;
+    }
     const plan = planRewind(session, turnIndex);
     if (!plan.ok) return refuse(res, plan.code);
     const store = checkpointStore(ctx);
-    const files = await planFileRestore(store, session.id, at);
+    const files = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
+    if (files.unknownSkip.length > 0) {
+      sendError(res, 400, openaiError(
+        `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
+        "invalid_request_error",
+        "skip",
+        "skip_unknown",
+      ));
+      return;
+    }
     const removed = session.turns.slice(turnIndex);
-    const notRestorable = files.notRestorable;
     if (preview) {
       sendJson(res, 200, {
         id: session.id,
         turnIndex,
         text,
         removed: removedCounts(removed),
-        files: files.items.map((item) => ({ path: item.path, action: item.action })),
-        notRestorable,
+        // `error`: the file could not be checked now; the rollback would report it in `failed` (issue #80).
+        files: files.items.map((item) =>
+          item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
+        notRestorable: files.notRestorable,
         incomplete: files.incomplete,
+        skipped: files.skipped,
         uncovered: uncoveredToolCalls(removed),
       });
       return;
@@ -121,6 +139,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     // on since the request was checked, or with planRewind's own code.
     const replan = (chat: SessionState): ReturnType<typeof planRewind> =>
       sameTranscript(chat, session) ? planRewind(chat, turnIndex, text) : { ok: false, code: "point_mismatch" };
+    let applied = files;
     const outcome = await ctx.runtime.turnController.enqueue({
       sessionId: session.id,
       origin: "http",
@@ -132,8 +151,12 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         if (before === null || !before.ok) return { refused: before?.code ?? "point_mismatch" };
         // A compaction started on this chat would summarise the rows removed.
         ctx.runtime.cancelSessionCompaction(session.id);
+        // Planned again under the lock (issue #80): the disk may have
+        // changed since the request was checked, a file blocked then (a
+        // lock, a permission) may be free now.
+        if (restoreFiles) applied = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
         const done = restoreFiles
-          ? await applyFileRestore(store, session.id, files)
+          ? await applyFileRestore(store, session.id, applied)
           : { restored: [], deleted: [], failed: [] };
         // Issue #77: a file that did not go back keeps the point and every
         // copy, so the rollback can be retried; cutting the chat or dropping
@@ -160,8 +183,9 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
         partial: true,
         ...outcome.done,
-        notRestorable: restoreFiles ? notRestorable : [],
-        incomplete: restoreFiles && files.incomplete,
+        notRestorable: restoreFiles ? applied.notRestorable : [],
+        incomplete: restoreFiles && applied.incomplete,
+        skipped: restoreFiles ? applied.skipped : [],
       });
       return;
     }
@@ -169,10 +193,17 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       id: session.id,
       text,
       ...outcome.done,
-      notRestorable: restoreFiles ? notRestorable : [],
-      incomplete: restoreFiles && files.incomplete,
+      notRestorable: restoreFiles ? applied.notRestorable : [],
+      incomplete: restoreFiles && applied.incomplete,
+      skipped: restoreFiles ? applied.skipped : [],
     });
   };
+}
+
+const MAX_SKIP = 1000;
+
+function isSkipList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_SKIP && value.every((path) => typeof path === "string" && path.length > 0);
 }
 
 /** Same rows as when the request was checked (a turn appends rows, a compaction or rollback removes some). */
@@ -210,7 +241,7 @@ async function readPoint(
   ctx: HandlerContext,
 ): Promise<Point | null> {
   const id = ctx.params.id ?? "";
-  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown } | null;
+  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown } | null;
   try {
     body = (await readJsonBody<unknown>(req)) as typeof body;
   } catch (err) {

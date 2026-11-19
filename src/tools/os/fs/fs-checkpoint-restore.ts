@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, posix, win32 } from "node:path";
 import {
   sha256Of,
   type CheckpointEntry,
@@ -23,6 +23,13 @@ export interface FileRestoreItem {
   /** `restore` writes the saved content back; `delete` removes a file the agent created. */
   action: "restore" | "delete";
   entry: CheckpointEntry;
+  /**
+   * Set when the file could not be inspected now (issue #80: a read or
+   * stat failing with EACCES, EPERM, EBUSY, EIO…): the plan cannot tell
+   * whether it changed, so applying reports it in `failed` and leaves it
+   * alone, and a caller keeps the copies for a retry.
+   */
+  blocked?: string;
 }
 
 export interface FileNotRestorable {
@@ -35,6 +42,10 @@ export interface FileRestorePlan {
   notRestorable: FileNotRestorable[];
   /** Some changes from that point on are no longer kept (the store's bounds). */
   incomplete: boolean;
+  /** Paths left out because the caller asked to skip them (issue #80); never inspected. */
+  skipped: string[];
+  /** Skip paths, as given, that match no file with a copy since the point. */
+  unknownSkip: string[];
 }
 
 export interface FileRestoreResult {
@@ -45,21 +56,67 @@ export interface FileRestoreResult {
 
 type Store = Pick<FileCheckpointStore, "since" | "readCopy">;
 
+export interface FileRestoreOptions {
+  /** Files to leave out unread (issue #80), matched by `restorePathKey`. */
+  skip?: readonly string[];
+  /** The chat's folder: a relative skip path is read against it. */
+  cwd?: string;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * The one form two paths are compared in (issue #80): resolved against
+ * the chat's folder (dot segments, doubled and trailing separators go)
+ * and, on Windows, case-folded. Reported paths stay as captured.
+ */
+export function restorePathKey(path: string, cwd: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "win32") return win32.resolve(cwd, path).toLowerCase();
+  return posix.resolve(cwd, path);
+}
+
 export async function planFileRestore(
   store: Store,
   sessionId: string,
   sinceAt: number,
+  options: FileRestoreOptions = {},
 ): Promise<FileRestorePlan> {
   const { entries, incomplete } = await store.since(sessionId, sinceAt);
+  const cwd = options.cwd ?? process.cwd();
+  const key = (path: string): string => restorePathKey(path, cwd, options.platform);
   // The earliest copy of each path is what it held before the point.
   const first = new Map<string, CheckpointEntry>();
-  for (const entry of entries) if (!first.has(entry.path)) first.set(entry.path, entry);
+  for (const entry of entries) {
+    const k = key(entry.path);
+    if (!first.has(k)) first.set(k, entry);
+  }
+  const skip = new Set<string>();
+  const unknownSkip: string[] = [];
+  for (const path of options.skip ?? []) {
+    const k = key(path);
+    if (first.has(k)) skip.add(k);
+    else unknownSkip.push(path);
+  }
   const items: FileRestoreItem[] = [];
   const notRestorable: FileNotRestorable[] = [];
-  for (const entry of first.values()) {
-    const now = await currentState(entry.path);
+  const skipped: string[] = [];
+  for (const [k, entry] of first) {
+    // Taken out whether or not the disk already matches: never inspected.
+    if (skip.has(k)) {
+      skipped.push(entry.path);
+      continue;
+    }
     if (entry.skipped !== undefined) {
       notRestorable.push({ path: entry.path, reason: entry.skipped });
+      continue;
+    }
+    // A file the agent created is only removed: rm needs no read.
+    const now = await currentState(entry.path, entry.existed);
+    if (now.kind === "permanent") {
+      notRestorable.push({ path: entry.path, reason: now.reason });
+      continue;
+    }
+    if (now.kind === "blocked") {
+      items.push({ path: entry.path, action: entry.existed ? "restore" : "delete", entry, blocked: now.error });
       continue;
     }
     if (!entry.existed) {
@@ -75,7 +132,7 @@ export async function planFileRestore(
     }
     items.push({ path: entry.path, action: "restore", entry });
   }
-  return { items, notRestorable, incomplete };
+  return { items, notRestorable, incomplete, skipped, unknownSkip };
 }
 
 /**
@@ -87,10 +144,15 @@ export async function planFileRestore(
 export async function applyFileRestore(
   store: Store,
   sessionId: string,
-  plan: FileRestorePlan,
+  /** Only `items` is carried out; a skipped path is never in them. */
+  plan: Pick<FileRestorePlan, "items"> & Partial<FileRestorePlan>,
 ): Promise<FileRestoreResult> {
   const result: FileRestoreResult = { restored: [], deleted: [], failed: [] };
   for (const item of plan.items) {
+    if (item.blocked !== undefined) {
+      result.failed.push({ path: item.path, error: `could not check it now: ${item.blocked}` });
+      continue;
+    }
     try {
       if (item.action === "delete") {
         await rm(item.path, { force: true });
@@ -136,16 +198,32 @@ function changesFilesUnseen(tool: string): boolean {
   return false;
 }
 
-type Current = { kind: "missing" } | { kind: "other" } | { kind: "file"; sha256: string };
+/**
+ * What the disk holds at a path now (issue #80). ENOENT/ENOTDIR is
+ * `missing`; ELOOP (a symlink loop) and ENAMETOOLONG can never succeed
+ * and are `permanent`; any other stat or read error (EACCES, EPERM,
+ * EBUSY, EIO…) is `blocked`: it may pass, so the rollback reports it in
+ * `failed` and keeps the copies for a retry.
+ */
+type Current =
+  | { kind: "missing" }
+  | { kind: "other" }
+  | { kind: "file"; sha256?: string }
+  | { kind: "permanent"; reason: CheckpointSkip }
+  | { kind: "blocked"; error: string };
 
-async function currentState(path: string): Promise<Current> {
+async function currentState(path: string, withContent: boolean): Promise<Current> {
   try {
     // Followed like the capture follows it (`stat`).
     const info = await stat(path);
     if (!info.isFile()) return { kind: "other" };
+    if (!withContent) return { kind: "file" };
     return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    return code === "ENOENT" || code === "ENOTDIR" ? { kind: "missing" } : { kind: "other" };
+    if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
+    if (code === "ELOOP") return { kind: "permanent", reason: "not_a_file" };
+    if (code === "ENAMETOOLONG") return { kind: "permanent", reason: "unreadable" };
+    return { kind: "blocked", error: err instanceof Error ? err.message : String(err) };
   }
 }
