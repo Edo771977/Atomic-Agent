@@ -240,6 +240,41 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
   });
 
+  it("a single transient copy-read error while planning is absorbed and the file still restores (issue #87)", async () => {
+    const { a, b } = seed();
+    await replayFiles("rw-1", a, b);
+    const realReadCopy = FileCheckpointStore.prototype.readCopy;
+    let failures = 1;
+    vi.spyOn(FileCheckpointStore.prototype, "readCopy").mockImplementation(async function (this: FileCheckpointStore, id, entry) {
+      if (entry.path === a && failures > 0) {
+        failures -= 1;
+        throw new Error("EIO: transient");
+      }
+      return realReadCopy.call(this, id, entry);
+    });
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(failures).toBe(0);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [a], deleted: [b], failed: [] });
+    expect(readFileSync(a, "utf8")).toBe("v1");
+  });
+
+  it("a copy damaged between the preview and the rollback is not written (issue #87)", async () => {
+    const { a, b } = seed();
+    await replayFiles("rw-1", a, b);
+    const preview = await post("rw-1/rewind/preview", { priorQuestions: 1, expectText: "change it" });
+    expect(((await preview.json()) as { files: unknown }).files).toEqual([{ path: a, action: "restore" }, { path: b, action: "delete" }]);
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir));
+    const entry = (await store.since("rw-1", 200)).entries.find((e) => e.path === a)!;
+    writeFileSync(join(store.sessionDir("rw-1"), entry.file!), "XX");
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: "restore_failed" }, failed: [{ path: a, error: "saved copy is damaged" }], deleted: [b] });
+    expect(readFileSync(a, "utf8")).toBe("v2");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
+    expect((await store.since("rw-1", 200)).entries.length).toBeGreaterThan(0);
+  });
+
   it("takes back only the conversation with files: false", async () => {
     const { a, b } = seed();
     await replayFiles("rw-1", a, b);
