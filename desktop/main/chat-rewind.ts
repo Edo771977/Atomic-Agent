@@ -52,7 +52,7 @@ export type RewindPartial = {
 
 export type RewindAnswer =
   | { ok: true; supported: true; data: Record<string, unknown> }
-  | { ok: false; supported: boolean; code?: string; error: string; restore?: RewindPartial };
+  | { ok: false; supported: boolean; code?: string; error: string; restore?: RewindPartial; unknownSkip?: string[] };
 
 export const REWIND_LIST_CAP = 100;
 /** Issue #80: the most paths a rollback's `skip` may name. */
@@ -165,6 +165,13 @@ export function rewindAnswer(status: number, body: unknown): RewindAnswer {
     return { ok: false, supported: false, error: "This agent version cannot roll back or fork a chat" };
   }
   if (code === "restore_failed") return { ok: false, supported: true, code, error: message || `HTTP ${status}`, restore: rewindPartial(record) };
+  // Issue #87: skip_unknown names the skipped paths with no saved copy. Its message lists them; a body that
+  // also carries them as a list (`unknownSkip`, at the top or in `error`) is read as is.
+  if (code === "skip_unknown") {
+    const listed = Array.isArray(record?.unknownSkip) ? record?.unknownSkip : error?.unknownSkip;
+    const unknownSkip = rewindSkipList(listed);
+    return { ok: false, supported: true, code, error: message || `HTTP ${status}`, ...(unknownSkip ? { unknownSkip } : {}) };
+  }
   // Another refusal (the chat changed, a turn started) can come after files were put back: it says which.
   const partial = rewindPartial(record);
   const changed = partial.restoredTotal + partial.deletedTotal + partial.failedTotal > 0;

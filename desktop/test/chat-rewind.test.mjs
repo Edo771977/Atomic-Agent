@@ -118,7 +118,7 @@ function fakeWindow(calls) {
 
 function startEdit(preview) {
   Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false,
-    skipPreview: null, skipPending: null, draft: "old text" });
+    skipPreview: null, skipPending: null, skipUnknown: null, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -910,4 +910,48 @@ test("a late Continue preview is ignored by a sheet closed and opened again, whi
   assert.deepEqual(footActs(html), [["rewind:go", "Roll back"]]);
   await R.rewindAct("go-skip-confirm");
   assert.equal(agentBodies(calls).length, 1);
+});
+
+/* ---------- issue #87 (4): skip_unknown can be recovered from in the sheet ---------- */
+
+const SKIP_UNKNOWN = (paths) => ({ status: 400, body: { error: {
+  message: `skip names files with no saved copy since that question: ${paths.join(", ")}`, type: "invalid_request_error", param: "skip", code: "skip_unknown" } } });
+
+for (const [act, rest] of [["skip-drop-unknown", ["/w/dir/a.txt"]], ["skip-drop-all", undefined]]) {
+  test(`skip_unknown on Check again: the unknown paths are shown and ${act} fetches a valid preview, no rollback`, async () => {
+    const calls = ipcWindow("back", {
+      rewind: [PARTIAL_409(FIRST_FAILED), { status: 409, body: { error: { code: "point_mismatch", message: "changed" } } }],
+      // Check again's preview: one excluded path lost its saved copy meanwhile.
+      skipPreview: [{ status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
+        SKIP_UNKNOWN(["/w/locked.txt"]), { status: 200, body: { ...FILES_PREVIEW, skipped: ["/w/dir/a.txt"], planHash: "ok" } }],
+      preview: [{ status: 200, body: { ...FILES_PREVIEW, planHash: "ok-all" } }],
+    });
+    await R.rewindAct("go");
+    await continueSkip();
+    await R.rewindAct("recheck");
+    const html = R.rewindSheetHTML();
+    assert.match(html, /locked\.txt/);
+    assert.match(html, /data-act="rewind:skip-drop-unknown"/, "no way to recover from skip_unknown");
+    assert.match(html, /data-act="rewind:skip-drop-all"/);
+    assert.doesNotMatch(html, /Press “Check again”\./);
+    const before = agentBodies(calls).length;
+    await R.rewindAct(act);
+    const last = previewBodies(calls).at(-1);
+    assert.deepEqual(last.skip, rest);
+    assert.equal(agentBodies(calls).length, before, "a rollback was sent on the way");
+    const after = R.rewindSheetHTML();
+    assert.doesNotMatch(after, /no saved copy/);
+    assert.ok(R.REWIND.preview && R.REWIND.preview.planHash, "no valid preview");
+    assert.equal(footActs(after).at(-1)[0], "rewind:go");
+  });
+}
+
+test("skip_unknown's paths: the answer's own list when it has one, else the sent paths its message names", () => {
+  const listed = M.rewindAnswer(400, { error: { code: "skip_unknown", message: "x", unknownSkip: ["/w/a, b.txt"] } });
+  assert.deepEqual([...listed.unknownSkip], ["/w/a, b.txt"]);
+  const plain = M.rewindAnswer(400, SKIP_UNKNOWN(["/w/a, b.txt", "/w/c"]).body);
+  assert.equal(plain.unknownSkip, undefined);
+  // A path with ", " in it is still found by the paths that were sent.
+  assert.deepEqual(R.rewindUnknownSkip(plain, ["/w/a, b.txt", "/w/c", "/w/kept"]), ["/w/a, b.txt", "/w/c"]);
+  assert.deepEqual(R.rewindUnknownSkip({ code: "skip_unknown", error: "no list here" }, ["/w/x"]), ["/w/x"]);
 });
