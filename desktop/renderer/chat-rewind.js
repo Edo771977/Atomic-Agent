@@ -127,8 +127,9 @@ const REWIND_FAILED_SHOWN = 8;
  * `restore`): which could not be, that the chat stayed, that the others stay
  * put back, and which button tries again.
  */
-function rewindPartialHTML(partial, mode, workingDir) {
+function rewindPartialHTML(partial, mode, workingDir, code) {
   const p = partial || {};
+  if (code && code !== 'restore_failed') return rewindChangedHTML(p, workingDir);
   const failed = Array.isArray(p.failed) ? p.failed : [];
   const total = Math.max(Number(p.failedTotal) || 0, failed.length);
   const shown = failed.slice(0, REWIND_FAILED_SHOWN);
@@ -147,9 +148,36 @@ function rewindPartialHTML(partial, mode, workingDir) {
   return html;
 }
 
+/** Paths as the sheet lists them: at most REWIND_FAILED_SHOWN, then "and N more". */
+function rewindShortList(paths, total, workingDir, errors) {
+  const shown = paths.slice(0, REWIND_FAILED_SHOWN);
+  let html = shown.length ? '<div class="rows">' + shown.map((f, i) => '<div class="row"><span class="main"><span class="t">' + esc(rewindPathLabel(f, workingDir)) + '</span>'
+    + (errors && errors[i] ? '<span class="s">' + esc(errors[i]) + '</span>' : '') + '</span></div>').join('') + '</div>' : '';
+  if (total > shown.length) html += '<p class="sd-cap">and ' + (total - shown.length) + ' more</p>';
+  return html;
+}
+
+/** Issue #77: a refusal (not restore_failed) that came after files were put back: which ones, and that the chat stayed. */
+function rewindChangedHTML(p, workingDir) {
+  const changed = (Array.isArray(p.restored) ? p.restored : []).concat(Array.isArray(p.deleted) ? p.deleted : []);
+  const changedTotal = Math.max((Number(p.restoredTotal) || 0) + (Number(p.deletedTotal) || 0), changed.length);
+  const failed = Array.isArray(p.failed) ? p.failed : [];
+  const failedTotal = Math.max(Number(p.failedTotal) || 0, failed.length);
+  let html = '';
+  if (changedTotal) {
+    html += '<p class="sd-cap"><b>' + esc((changedTotal === 1 ? 'This file was' : 'These files were') + ' already put back, but the chat was not rolled back') + '</b></p>'
+      + rewindShortList(changed, changedTotal, workingDir);
+  }
+  if (failedTotal) {
+    html += '<p class="sd-cap"><b>' + esc(failedTotal === 1 ? 'This file could not be put back' : 'These files could not be put back') + '</b></p>'
+      + rewindShortList(failed.map((f) => f.path), failedTotal, workingDir, failed.map((f) => f.error));
+  }
+  return html;
+}
+
 /* ---- renderer side (globals from renderer.js, read at call time) ---- */
 
-const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, draft: ''};
+const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, draft: ''};
 
 function rewindReady() {
   return typeof BR !== 'undefined' && BR && BR.rewindPreview && REWIND.supported && S.agentSession && !S.busy && !S.pending;
@@ -180,7 +208,7 @@ function rewindStart(mode, id) {
   const q = rewindQuestionFor(S.log, m);
   if (!q || !rewindReady()) return;
   Object.assign(REWIND, {mode, id: q.id, sid: S.agentSession, prior: priorQuestions(q), text: String(q.text || ''),
-    preview: null, error: null, partial: null, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
+    preview: null, error: null, partial: null, partialCode: null, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
   if (mode === 'fork') { rewindFork(); return; }
   S.overlay = 'rewind';
   render();
@@ -206,7 +234,7 @@ function rewindSheetHTML() {
       + '<textarea id="rw-edit" class="tk-inp" rows="5" spellcheck="true">' + esc(REWIND.draft) + '</textarea>';
   }
   if (REWIND.error) body += '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">' + esc(REWIND.error) + '</span></div>';
-  if (REWIND.partial) body += rewindPartialHTML(REWIND.partial, REWIND.mode, typeof WORKSPACE === 'string' ? WORKSPACE : '');
+  if (REWIND.partial) body += rewindPartialHTML(REWIND.partial, REWIND.mode, typeof WORKSPACE === 'string' ? WORKSPACE : '', REWIND.partialCode);
   if (REWIND.loading) body += '<div class="tk-empty"><span class="tk-spin"></span><p>Checking what will change…</p></div>';
   const s = REWIND.preview ? rewindSummary(REWIND.preview, typeof WORKSPACE === 'string' ? WORKSPACE : '') : null;
   if (s && !rewindShowsFiles(REWIND.mode, s)) body += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
@@ -248,8 +276,9 @@ async function rewindConfirm(files) {
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
   const r = await BR.rewind(sid, REWIND.prior, REWIND.text, files).catch((err) => ({ok: false, supported: true, error: String(err)}));
   REWIND.busy = false;
-  // Issue #77: a partial restore left the chat as it was; the sheet says which files and stays open.
-  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.code === 'restore_failed' && r.restore ? r.restore : null; render(); return; }
+  // Issue #77: a partial restore, or a refusal after files were put back, left the chat as it was;
+  // the sheet says which files and stays open.
+  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.restore ? r.restore : null; REWIND.partialCode = r && r.code; render(); return; }
   S.overlay = null;
   await openSession(sid);
   if (S.agentSession !== sid) return;

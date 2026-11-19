@@ -20,7 +20,8 @@ export type RewindRoute = "rewind/preview" | "rewind" | "fork";
 /**
  * Issue #77: a rollback that put back only some files (409 `restore_failed`).
  * The agent left the chat as it was and kept its saved copies, so it can be
- * tried again. Each list holds at most REWIND_LIST_CAP entries; the totals
+ * tried again. Another refusal that comes after files were put back (the
+ * chat changed, a turn started) carries the same lists. Each list holds at most REWIND_LIST_CAP entries; the totals
  * count them all.
  */
 export type RewindPartial = {
@@ -103,5 +104,8 @@ export function rewindAnswer(status: number, body: unknown): RewindAnswer {
     return { ok: false, supported: false, error: "This agent version cannot roll back or fork a chat" };
   }
   if (code === "restore_failed") return { ok: false, supported: true, code, error: message || `HTTP ${status}`, restore: rewindPartial(record) };
-  return { ok: false, supported: true, ...(code ? { code } : {}), error: message || `HTTP ${status}` };
+  // Another refusal (the chat changed, a turn started) can come after files were put back: it says which.
+  const partial = rewindPartial(record);
+  const changed = partial.restoredTotal + partial.deletedTotal + partial.failedTotal > 0;
+  return { ok: false, supported: true, ...(code ? { code } : {}), error: message || `HTTP ${status}`, ...(changed ? { restore: partial } : {}) };
 }

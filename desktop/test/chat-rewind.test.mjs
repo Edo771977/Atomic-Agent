@@ -224,8 +224,8 @@ test("a partial restore (409 restore_failed) carries what was put back and what 
   const many = M.rewindAnswer(409, partialBody(Array.from({ length: 500 }, (_, i) => ({ path: `/w/f${i}` }))));
   assert.equal(many.restore.failed.length, 100);
   assert.equal(many.restore.failedTotal, 500);
-  // Only that code carries lists; a body without arrays still reads as restore_failed.
-  assert.equal(M.rewindAnswer(409, { ...partialBody([]), error: { code: "turn_in_progress", message: "busy" } }).restore, undefined);
+  // Another refusal carries them too when files were changed (see below); a body without arrays still reads as restore_failed.
+  assert.equal(M.rewindAnswer(409, { error: { code: "turn_in_progress", message: "busy" } }).restore, undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(M.rewindAnswer(409, { error: { code: "restore_failed", message: "x" }, failed: "no" }).restore)),
     { restored: [], deleted: [], failed: [], restoredTotal: 0, deletedTotal: 0, failedTotal: 0 });
 });
@@ -267,3 +267,32 @@ for (const mode of ["back", "edit"]) {
     assert.doesNotMatch(R.rewindSheetHTML(), /locked\.txt/);
   });
 }
+
+// Issue #77 review: another refusal (the chat changed, a turn started) can come after files were put back.
+test("a refusal after files were put back says which files changed and that the chat was not rolled back", async () => {
+  const body = (code, extra) => ({ error: { code, message: "refused" }, ...extra });
+  const a = M.rewindAnswer(409, body("point_mismatch", { restored: ["/w/src/a.ts"], deleted: ["/w/new.txt"], failed: [{ path: "/w/l.txt", error: "EBUSY" }] }));
+  assert.equal(a.code, "point_mismatch");
+  assert.deepEqual(JSON.parse(JSON.stringify(a.restore)), {
+    restored: ["/w/src/a.ts"], deleted: ["/w/new.txt"], failed: [{ path: "/w/l.txt", error: "EBUSY" }],
+    restoredTotal: 1, deletedTotal: 1, failedTotal: 1,
+  });
+  // No lists, or empty ones: nothing was changed, so nothing is carried.
+  assert.equal(M.rewindAnswer(409, body("turn_in_progress", {})).restore, undefined);
+  assert.equal(M.rewindAnswer(409, body("turn_in_progress", { restored: [], deleted: [], failed: [] })).restore, undefined);
+  const calls = [];
+  fakeWindow(calls);
+  globalThis.BR.rewind = async () => M.rewindAnswer(409, body("turn_in_progress", { restored: ["/w/src/a.ts"], deleted: ["/w/new.txt"], failed: [] }));
+  startEdit(FILES_PREVIEW);
+  R.REWIND.mode = "back";
+  await R.rewindAct("go");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /still working/);
+  assert.match(html, /already put back/);
+  assert.match(html, /the chat was not rolled back/);
+  const changed = html.split("already put back")[1];
+  assert.match(changed, /src\/a\.ts/);
+  assert.match(changed, /new\.txt/);
+  assert.doesNotMatch(html, /could not be put back/);
+  assert.doesNotMatch(html, /again to try the rest/);
+});
