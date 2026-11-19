@@ -143,9 +143,27 @@ export async function planFileRestore(
       notRestorable.push({ path: entry.path, reason: "not_a_file" });
       continue;
     }
+    // A copy whose bytes no longer match its sha would overwrite the
+    // file with garbage (issue #87): listed with an error, never written.
+    if ((await copyState(store, sessionId, entry)) === "damaged") {
+      items.push({ path: entry.path, action: "restore", entry, now: describe(now), blocked: DAMAGED });
+      continue;
+    }
     items.push({ path: entry.path, action: "restore", entry, now: describe(now) });
   }
   return { cwd, platform: options.platform, items, notRestorable, incomplete, skipped, unknownSkip };
+}
+
+const DAMAGED = "saved copy is damaged";
+
+/** Whether a saved copy still holds the bytes its sha256 names; a copy that cannot be read is left for the apply step to report. */
+async function copyState(store: Store, sessionId: string, entry: CheckpointEntry): Promise<"intact" | "damaged" | "unread"> {
+  if (entry.sha256 === undefined) return "unread";
+  try {
+    return sha256Of(await store.readCopy(sessionId, entry)) === entry.sha256 ? "intact" : "damaged";
+  } catch {
+    return "unread";
+  }
 }
 
 function describe(now: Current): string {
@@ -194,6 +212,10 @@ export async function applyFileRestore(
 ): Promise<FileRestoreResult> {
   const result: FileRestoreResult = { restored: [], deleted: [], failed: [] };
   for (const item of plan.items) {
+    if (item.blocked === DAMAGED) {
+      result.failed.push({ path: item.path, error: DAMAGED });
+      continue;
+    }
     if (item.blocked !== undefined) {
       result.failed.push({ path: item.path, error: `could not check it now: ${item.blocked}` });
       continue;
@@ -204,6 +226,11 @@ export async function applyFileRestore(
         result.deleted.push(item.path);
       } else {
         const content = await store.readCopy(sessionId, item.entry);
+        // Checked again right before the write: the copy may have been damaged since the plan.
+        if (item.entry.sha256 !== undefined && sha256Of(content) !== item.entry.sha256) {
+          result.failed.push({ path: item.path, error: DAMAGED });
+          continue;
+        }
         await mkdir(dirname(item.path), { recursive: true });
         await writeFile(item.path, content);
         result.restored.push(item.path);

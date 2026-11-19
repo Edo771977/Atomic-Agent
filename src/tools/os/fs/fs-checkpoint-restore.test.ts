@@ -98,6 +98,46 @@ describe("planFileRestore / applyFileRestore (ATO-1056)", () => {
   });
 });
 
+describe("a damaged saved copy (issue #87)", () => {
+  let root: string;
+  let work: string;
+  let store: FileCheckpointStore;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "aa-dmg-root-"));
+    work = mkdtempSync(join(tmpdir(), "aa-dmg-work-"));
+    store = new FileCheckpointStore(root, () => 100);
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it.each([
+    ["same-length corruption", "XXXXXXXX"],
+    ["a truncated copy", "orig"],
+  ])("is not written over the file (%s), is reported failed, and a valid copy still restores", async (_label, damaged) => {
+    const hurt = join(work, "hurt.txt");
+    const fine = join(work, "fine.txt");
+    writeFileSync(hurt, "original");
+    writeFileSync(fine, "fine0");
+    await store.capture("s-1", hurt, "os.fs.edit");
+    await store.capture("s-1", fine, "os.fs.edit");
+    writeFileSync(hurt, "edited!!");
+    writeFileSync(fine, "fine1");
+    const plan = await planFileRestore(store, "s-1", 0);
+    const entry = plan.items.find((item) => item.path === hurt)!.entry;
+    writeFileSync(join(store.sessionDir("s-1"), entry.file!), damaged);
+    const done = await applyFileRestore(store, "s-1", plan);
+    expect(done.failed).toEqual([{ path: hurt, error: "saved copy is damaged" }]);
+    expect(done.restored).toEqual([fine]);
+    expect(readFileSync(hurt, "utf8")).toBe("edited!!");
+    expect(readFileSync(fine, "utf8")).toBe("fine0");
+    // Planned again, the preview side sees it too.
+    const again = await planFileRestore(store, "s-1", 0);
+    expect(again.items).toEqual([expect.objectContaining({ path: hurt, blocked: "saved copy is damaged" })]);
+  });
+});
+
 describe("uncoveredToolCalls", () => {
   it("counts the calls whose file changes have no checkpoint", () => {
     const call = (tool: string) => ({ kind: "assistant_tool_call", tool });

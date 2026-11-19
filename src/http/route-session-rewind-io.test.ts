@@ -417,6 +417,21 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(turns()).toBe(4);
   });
 
+  it("a damaged saved copy leaves the file as it is and the rollback answers restore_failed (issue #87)", async () => {
+    const { a, b, store } = await seed();
+    const entry = (await store.since("rw-io", 200)).entries.find((e) => e.path === a)!;
+    writeFileSync(join(store.sessionDir("rw-io"), entry.file!), "zz");
+    const preview = (await (await post("rw-io/rewind/preview", point)).json()) as { files: unknown[] };
+    expect(preview.files).toContainEqual({ path: a, action: "restore", error: "saved copy is damaged" });
+    const res = await post("rw-io/rewind", point);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: "restore_failed" }, restored: [b], failed: [{ path: a, error: "saved copy is damaged" }] });
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
   it("skip is part of the planHash, and expectPlanHash is validated (issue #83)", async () => {
     const { a, b } = await seed();
     const all = await previewHash({});

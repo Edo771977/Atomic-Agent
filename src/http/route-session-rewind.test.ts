@@ -129,17 +129,16 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     clock = 220;
     await store.capture("rw-1", c, "os.fs.edit");
     writeFileSync(c, "c1");
-    // One transient failure reading a's copy back.
+    // A transient failure reading a's copy back, for the whole first attempt
+    // (the plan checks the copy too, issue #87, so it is read more than once).
     const realReadCopy = FileCheckpointStore.prototype.readCopy;
-    let failures = 1;
+    let failing = true;
     vi.spyOn(FileCheckpointStore.prototype, "readCopy").mockImplementation(async function (this: FileCheckpointStore, id, entry) {
-      if (entry.path === a && failures > 0) {
-        failures -= 1;
-        throw new Error("EIO: transient");
-      }
+      if (entry.path === a && failing) throw new Error("EIO: transient");
       return realReadCopy.call(this, id, entry);
     });
     const first = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    failing = false;
     expect(first.status).toBe(409);
     const firstBody = (await first.json()) as { error: { code: string }; restored: string[]; failed: { path: string }[] };
     expect(firstBody.error.code).toBe("restore_failed");
