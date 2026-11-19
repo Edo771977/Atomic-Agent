@@ -68,7 +68,17 @@ Everything below exists only in this fork. Links are to the fork's pull requests
   See [#81](https://github.com/Edo771977/atomic-agent/pull/81).
 - **Projects saved before #81.** Evidence for criteria missing from the approved brief is retired. If no brief was approved, all criteria evidence is retired, because nothing tells which old results still apply. The plan gate says `evidence retired: <title>` ([#84](https://github.com/Edo771977/atomic-agent/pull/84)).
 - **One milestone open at a time, across the whole plan.** The daily-cap estimate is computed for the milestone that approval will actually start ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
-- **Desktop reviewer.** "Add a reviewer…" goes to the chat it was started from, even when the chat changes during the write ([#79](https://github.com/Edo771977/atomic-agent/pull/79)).
+- **Run facts are bound to the criterion text they tested.** Each fact in a run's `criteria.json` records the criterion text it was checked against, and a resume uses the texts saved in its checkpoint. A fact whose text no longer matches the approved brief reads unverified, so an old pass cannot close a requirement that changed. A fact with no recorded text stands only while the brief has been approved exactly once. File times are never used ([#88](https://github.com/Edo771977/atomic-agent/pull/88)).
+- **Resume accounting.**
+  - A resumed Fusion run is admitted on the tasks it will actually run. Rows already finished or awaiting confirmation don't count, and that applies to the orchestrator cap too.
+  - Its earlier spend is counted once per run and turn, from what the turn really counted.
+
+  See [#88](https://github.com/Edo771977/atomic-agent/pull/88).
+- **Desktop reviewer.** "Add a reviewer…" goes to the chat it was started from ([#79](https://github.com/Edo771977/atomic-agent/pull/79), [#89](https://github.com/Edo771977/atomic-agent/pull/89)). That holds when:
+  - the chat changes during the write;
+  - the first message is still being sent;
+  - the transcript was cleared;
+  - the send failed.
 
 ## Chat rollback (rewind)
 
@@ -76,15 +86,20 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 - **A file that cannot be inspected counts as a failure,** not as "not a file". That covers EACCES, EPERM, EBUSY and EIO, for example a file locked by an editor. A file the agent created is removed after a stat alone. The plan is made again inside the turn lock ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
 - **`skip`.** It leaves the files the person chose exactly as they are. Paths are matched in a normalized form, case-folded on Windows. An unknown path is refused with `skip_unknown` ([#81](https://github.com/Edo771977/atomic-agent/pull/81)).
 - **`acceptFailed`.** It finishes the rollback past a failure that keeps coming back ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
-- **The preview's `planHash`.** A confirm sends it back as `expectPlanHash`. If the files changed in between, the confirm is refused with `plan_changed` ([#84](https://github.com/Edo771977/atomic-agent/pull/84)).
+- **The preview's `planHash` and `transcriptRev`.** A confirm sends them back as `expectPlanHash` and `expectTranscriptRev`. If the files or the messages changed since the preview, the agent refuses with `plan_changed`. That includes a "Conversation only" rollback.
+  - A file to delete is fingerprinted by its content, up to 64 MiB. Above that, or if it can't be read, it is fingerprinted by stat and flagged `contentUnchecked` ([#84](https://github.com/Edo771977/atomic-agent/pull/84), [#88](https://github.com/Edo771977/atomic-agent/pull/88)).
+- **Damaged saved copies are never written back.** Each copy is checked against its stored sha256 first. A damaged one leaves the file as it is and is reported as a failure (`copy_damaged` on `/fs/restore`) ([#88](https://github.com/Edo771977/atomic-agent/pull/88)).
+- **A move is not undone into data loss.** When the agent moved a file whose original it did not keep, the moved file stays where it is and is reported as `move_source_not_restored`. Before, it was deleted ([#88](https://github.com/Edo771977/atomic-agent/pull/88)).
 - **In the desktop:**
   - The sheet names the files that could not be put back.
   - "Roll back without these files" shows a fresh preview with the skip list before it sends anything.
   - Retry is "Check again", with a fresh preview.
   - Late answers are bound to the sheet that asked.
   - An older agent gets an honest "Roll back anyway".
+  - After `skip_unknown`, the person can stop leaving those files out and get a fresh preview.
+  - Every confirm carries the preview's fingerprints.
 
-  See [#79](https://github.com/Edo771977/atomic-agent/pull/79), [#82](https://github.com/Edo771977/atomic-agent/pull/82) and [#85](https://github.com/Edo771977/atomic-agent/pull/85).
+  See [#79](https://github.com/Edo771977/atomic-agent/pull/79), [#82](https://github.com/Edo771977/atomic-agent/pull/82), [#85](https://github.com/Edo771977/atomic-agent/pull/85) and [#89](https://github.com/Edo771977/atomic-agent/pull/89).
 
 ## Local workers
 
