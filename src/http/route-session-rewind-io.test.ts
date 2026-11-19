@@ -277,6 +277,73 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     },
   );
 
+  const previewHash = async (body: object): Promise<string> => {
+    const res = await post("rw-io/rewind/preview", { ...point, ...body });
+    expect(res.status).toBe(200);
+    const { planHash } = (await res.json()) as { planHash: unknown };
+    expect(typeof planHash).toBe("string");
+    return planHash as string;
+  };
+  const expectPlanChanged = async (res: Response) => {
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("plan_changed");
+    expect(body.error.message).toMatch(/preview/);
+  };
+
+  it("a rollback confirmed with the preview's planHash goes ahead (issue #83)", async () => {
+    const { a, b, store } = await seed();
+    const planHash = await previewHash({});
+    expect(await previewHash({})).toBe(planHash);
+    const res = await post("rw-io/rewind", { ...point, expectPlanHash: planHash });
+    expect(res.status).toBe(200);
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(await copies(store)).toEqual([]);
+  });
+
+  it("a listed file edited after the preview refuses with 409 plan_changed and changes nothing (issue #83)", async () => {
+    const { a, b, store } = await seed();
+    const planHash = await previewHash({});
+    writeFileSync(a, "a edited after the preview");
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: planHash }));
+    expect(readFileSync(a, "utf8")).toBe("a edited after the preview");
+    expect(readFileSync(b, "utf8")).toBe("b1");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
+  it("a file changed by the agent after the preview (a new copy) refuses with 409 plan_changed (issue #83)", async () => {
+    const { a, b, store } = await seed();
+    const planHash = await previewHash({});
+    const c = join(harness.workingDir, "c.txt");
+    writeFileSync(c, "c0");
+    await store.capture("rw-io", c, "os.fs.edit");
+    writeFileSync(c, "c1");
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: planHash }));
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(c, "utf8")).toBe("c1");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toEqual([a, b, c]);
+  });
+
+  it("skip is part of the planHash, and expectPlanHash is validated (issue #83)", async () => {
+    const { a, b } = await seed();
+    const all = await previewHash({});
+    const withoutB = await previewHash({ skip: [b] });
+    expect(withoutB).not.toBe(all);
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: all, skip: [b] }));
+    for (const expectPlanHash of ["", 7, "x".repeat(201)]) {
+      const res = await post("rw-io/rewind", { ...point, expectPlanHash });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { param: string } }).error.param).toBe("expectPlanHash");
+    }
+    const res = await post("rw-io/rewind", { ...point, expectPlanHash: withoutB, skip: [b] });
+    expect(res.status).toBe(200);
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(readFileSync(b, "utf8")).toBe("b1");
+  });
+
   it("refuses a malformed skip with 400 on skip and changes nothing", async () => {
     const { a } = await seed();
     for (const skip of ["a.txt", [""], [1], Array.from({ length: 1001 }, (_, i) => `/p${i}`)]) {
