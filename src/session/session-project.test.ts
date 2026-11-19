@@ -12,6 +12,7 @@ import {
   normalizeProject,
   planTotals,
   projectExpectation,
+  projectVerdictResets,
   readProject,
   withProject,
   type AssignmentRow,
@@ -936,20 +937,27 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     const m1 = re.milestones[0]!;
     expect(m1).toMatchObject({ id: "m1", title: "Physics", kind: "logic", state: "approved", runIds: [] });
     for (const field of ["summary", "attachments", "criteriaFacts", "corrections"] as const) expect(m1[field]).toBeUndefined();
+    // A lean record: the work's titles, runs, a capped summary, the facts; counts for corrections and pictures.
     expect(m1.history).toEqual([
       {
         title: "Base",
         kind: "base",
         state: "reviewed",
-        tasks: [{ taskId: "t1", title: "Task t1" }],
+        tasks: ["Task t1"],
         runIds: ["run-1"],
         summary: "Base works",
-        corrections: [{ note: "tidy", at: NOW }],
-        attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }],
         criteriaFacts: [{ id: "c1", state: "passed" }],
+        correctionCount: 1,
+        attachmentCount: 1,
+        cause: "plan",
         supersededAt: NOW + 5,
       },
     ]);
+    // The person approving is told.
+    const draft = update(p, { ...planUpdate, milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")] } as ProjectUpdate);
+    expect(draft.plan!.verdictResets).toEqual(["m1"]);
+    expect(projectVerdictResets(p, { ...planUpdate, milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")] } as ProjectUpdate)).toEqual(["Physics"]);
+    expect(re.plan!.verdictResets).toBeUndefined();
     // Attachments of the old runs cannot ride on a new report.
     expect(
       validateMilestoneAttachments({
@@ -1033,7 +1041,8 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     const changed = update(reviewedM1(), criteria("Runs offline on Windows"), NOW + 3);
     expect(changed.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
     expect(changed.milestones[0]!.criteriaFacts).toBeUndefined();
-    expect(changed.milestones[0]!.history?.[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }], supersededAt: NOW + 3 });
+    expect(changed.milestones[0]!.history?.[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }], cause: "brief", supersededAt: NOW + 3 });
+    expect(changed.plan!.verdictResets).toEqual(["m1"]);
     const edited = update(reviewedM1(), criteria("  runs in THE browser "));
     expect(edited.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
     expect(edited.milestones[0]!.history).toBeUndefined();
@@ -1051,5 +1060,17 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(normalizeProject(malformed)!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
     const old = JSON.parse(JSON.stringify(reviewedM1()));
     expect(normalizeProject(old)!.milestones[0]!.history).toBeUndefined();
+    // The first, richer revision shape still reads, as the lean one.
+    const rich = JSON.parse(JSON.stringify(re));
+    rich.milestones[0].history = [{
+      title: "Base", kind: "base", state: "reviewed", tasks: [{ taskId: "t1", title: "Task t1" }], runIds: ["run-1"],
+      summary: "x".repeat(3000), corrections: [{ note: "tidy", at: NOW }],
+      attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }], criteriaFacts: [{ id: "c1", state: "passed" }], supersededAt: NOW,
+    }];
+    const lean = normalizeProject(rich)!.milestones[0]!.history![0]!;
+    expect(lean).toMatchObject({ tasks: ["Task t1"], correctionCount: 1, attachmentCount: 1, cause: "plan", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(lean.summary!.length).toBeLessThanOrEqual(PROJECT_LIMITS.shortText);
+    expect(lean).not.toHaveProperty("attachments");
+    expect(lean).not.toHaveProperty("corrections");
   });
 });

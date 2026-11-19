@@ -6,6 +6,7 @@ import {
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   planTotals,
+  projectVerdictResets,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
@@ -18,6 +19,7 @@ import {
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
+import { verdictResetHint } from "./project-gate-view.js";
 import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
@@ -423,13 +425,19 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         "Use these task ids in fusion.delegate when the milestone is approved.",
         AWAIT_PERSON,
       ];
-      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), {
+      const update: ProjectUpdate = {
         kind: "plan",
         milestones: parsed.plan.milestones,
         rows,
         detail,
         draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
-      });
+      };
+      // Issue #77: say which results stop counting, so the reply can tell the person.
+      const resets = projectVerdictResets(ctx.project, update);
+      if (resets.length > 0) {
+        lines.splice(lines.length - 1, 0, ...resets.map(verdictResetHint), "Their earlier results moved to history; tell the person these run again.");
+      }
+      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), update);
     },
   };
   const milestone: ToolDefinition = {

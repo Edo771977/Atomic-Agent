@@ -139,29 +139,34 @@ export interface ProjectMilestone {
   updatedAt: number;
 }
 
-/** A task as a milestone revision recorded it. */
+/** A task as the work check reads it: its id and title in the plan. */
 export interface ProjectMilestoneTask {
   taskId: string;
   title: string;
 }
 
 /**
- * The evidence a milestone held for the work it had before a re-plan
- * changed that work (issue #77): what the work was (title, kind, tasks)
- * and where it stood (state, runs, report, the person's corrections,
- * pictures, criteria facts). Read-only record; nothing acts on it.
+ * What a milestone held for work a re-plan, or a changed criterion,
+ * replaced (issue #77): a lean, read-only record of what the work was
+ * (title, kind, task titles) and where it stood (state, runs, the report
+ * capped at {@link PROJECT_LIMITS}.shortText, criteria facts). The
+ * person's correction notes and the pictures are not copied, only
+ * counted: the runs' checkpoints keep the screenshots. Nothing acts on it.
  */
 export interface ProjectMilestoneRevision {
   title: string;
   kind: MilestoneKind;
   state: MilestoneState;
-  tasks: ProjectMilestoneTask[];
+  /** Task titles of the work, by task id. */
+  tasks: string[];
   runIds: string[];
   summary?: string;
-  corrections?: MilestoneCorrection[];
-  attachments?: ProjectMilestoneAttachment[];
   criteriaFacts?: ProjectCriterionFact[];
-  /** Epoch ms of the re-plan that replaced this work. */
+  correctionCount?: number;
+  attachmentCount?: number;
+  /** `plan`: a re-plan changed the work; `brief`: a criterion its evidence cites changed. */
+  cause: "plan" | "brief";
+  /** Epoch ms of the update that replaced this work. */
   supersededAt: number;
 }
 
@@ -226,6 +231,12 @@ export interface ProjectPlan {
    * stand in for the fan-out prompt (`planCoversFanout`).
    */
   approvedWithUntrustedWarning?: true;
+  /**
+   * Milestones (ids) this draft started over on new work, dropping a
+   * verdict or runs into their `history` (issue #77); the plan gate
+   * names them. Cleared when the plan is approved.
+   */
+  verdictResets?: string[];
 }
 
 export type ProjectGate =
@@ -880,28 +891,40 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
   };
 }
 
-/** A stored history entry (issue #77), or null when malformed: it is dropped, not the milestone. */
+/**
+ * A stored history entry (issue #77), or null when malformed: it is
+ * dropped, not the milestone. Reads the first, richer shape too (tasks
+ * as `{ taskId, title }`, full corrections and attachments) as the lean one.
+ */
 function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   if (!isObject(raw) || !isTime(raw.supersededAt) || !Array.isArray(raw.tasks)) return null;
-  const tasks: ProjectMilestoneTask[] = [];
+  const tasks: string[] = [];
   for (const t of raw.tasks.slice(0, PROJECT_LIMITS.rows)) {
-    const taskId = isObject(t) ? cleanId(t.taskId) : null;
-    if (taskId === null || typeof (t as { title?: unknown }).title !== "string") return null;
-    tasks.push({ taskId, title: clip((t as { title: string }).title, PROJECT_LIMITS.title) });
+    const title = typeof t === "string" ? t : isObject(t) && typeof t.title === "string" ? t.title : null;
+    if (title === null) return null;
+    tasks.push(clip(title, PROJECT_LIMITS.title));
   }
-  // The rest has a milestone's shape: read it as one.
-  const m = readMilestone({ ...raw, id: "revision", history: undefined, updatedAt: raw.supersededAt });
-  if (m === null) return null;
+  if (typeof raw.title !== "string" || !MILESTONE_KINDS.includes(raw.kind as MilestoneKind)) return null;
+  if (!MILESTONE_STATES.includes(raw.state as MilestoneState)) return null;
+  if (!Array.isArray(raw.runIds) || !raw.runIds.every((r) => cleanId(r) !== null)) return null;
+  if (raw.summary !== undefined && typeof raw.summary !== "string") return null;
+  const count = (list: unknown, n: unknown): number =>
+    Array.isArray(list) ? list.length : isCount(n) ? (n as number) : 0;
+  const corrections = count(raw.corrections, raw.correctionCount);
+  const attachments = count(raw.attachments, raw.attachmentCount);
+  const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
+  const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
   return {
-    title: m.title,
-    kind: m.kind,
-    state: m.state,
+    title: clip(raw.title, PROJECT_LIMITS.title),
+    kind: raw.kind as MilestoneKind,
+    state: raw.state as MilestoneState,
     tasks,
-    runIds: m.runIds,
-    ...(m.summary === undefined ? {} : { summary: m.summary }),
-    ...(m.corrections === undefined ? {} : { corrections: m.corrections }),
-    ...(m.attachments === undefined ? {} : { attachments: m.attachments }),
-    ...(m.criteriaFacts === undefined ? {} : { criteriaFacts: m.criteriaFacts }),
+    runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
+    ...(summary.length === 0 ? {} : { summary }),
+    ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
+    ...(corrections === 0 ? {} : { correctionCount: corrections }),
+    ...(attachments === 0 ? {} : { attachmentCount: attachments }),
+    cause: raw.cause === "brief" ? "brief" : "plan",
     supersededAt: raw.supersededAt as number,
   };
 }
@@ -987,6 +1010,10 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
       // Older stores have no flag: nothing recorded the taint then.
       draftedAfterUntrusted: p.draftedAfterUntrusted === true,
       ...(p.status === "approved" && p.approvedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
+      ...(() => {
+        const resets = p.status === "draft" ? cleanVerdictResets(p.verdictResets, ids) : [];
+        return resets.length === 0 ? {} : { verdictResets: resets };
+      })(),
     };
   }
   if (gate.kind === "brief" && brief === undefined) return undefined;
@@ -1002,6 +1029,17 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
   };
+}
+
+/** Stored reset ids: known milestones, once each; anything else dropped. */
+function cleanVerdictResets(raw: unknown, ids: ReadonlySet<string>): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const r of raw) {
+    const id = cleanId(r);
+    if (id !== null && ids.has(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 /** The version after `current`, never at or below the project's {@link ProjectState.versionFloor}. */
@@ -1048,25 +1086,48 @@ function briefUpdate(
     status: "draft",
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
   };
+  // A criterion whose meaning changed voids the evidence that cites it.
+  const changed = changedCriteria(base?.brief?.successCriteria ?? [], brief.successCriteria);
+  const milestones = (base?.milestones ?? []).map((m) =>
+    changed.size > 0 && citesCriteria(m, changed)
+      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now, "brief")
+      : m.state === "approved"
+        ? { ...m, state: "planned" as const, updatedAt: now }
+        : m,
+  );
   // The plan was approved against the old brief: back to a draft, and
   // milestones not started yet wait for its approval again.
   const plan: ProjectPlan | undefined =
     base?.plan === undefined || base.plan.status === "cancelled"
       ? base?.plan
-      : { ...withoutApproval(base.plan), status: "draft", version: base.plan.version + 1 };
-  // A criterion whose meaning changed voids the evidence that cites it.
-  const changed = changedCriteria(base?.brief?.successCriteria ?? [], brief.successCriteria);
-  const milestones = (base?.milestones ?? []).map((m) =>
-    changed.size > 0 && citesCriteria(m, changed)
-      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now)
-      : m.state === "approved"
-        ? { ...m, state: "planned" as const, updatedAt: now }
-        : m,
-  );
+      : {
+          ...withoutApproval(base.plan),
+          status: "draft",
+          version: base.plan.version + 1,
+          ...mergeResets(base.plan, freshResets(base.milestones, milestones), new Set(milestones.map((m) => m.id))),
+        };
   return {
     ok: true,
     project: { brief, ...(plan === undefined ? {} : { plan }), milestones, gate: { kind: "brief" }, ...floorOf(project) },
   };
+}
+
+function withoutResets(plan: ProjectPlan): ProjectPlan {
+  const copy = { ...plan };
+  delete copy.verdictResets;
+  return copy;
+}
+
+/**
+ * Titles of the milestones whose verdict or runs `update` would move to
+ * their history (issue #77), as the draft plan would name them; empty
+ * when the update would be refused. For a director tool's result.
+ */
+export function projectVerdictResets(project: ProjectState | undefined, update: ProjectUpdate): string[] {
+  const after = applyProjectUpdate(project, update, 0);
+  if (!after.ok) return [];
+  const fresh = freshResets(project?.milestones ?? [], after.project.milestones);
+  return after.project.milestones.filter((m) => fresh.includes(m.id)).map((m) => m.title);
 }
 
 function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true }>(value: T): T {
@@ -1135,24 +1196,43 @@ const hasEvidence = (m: ProjectMilestone): boolean =>
  * runs, report, corrections, pictures or facts; what it held moves to
  * `history` with the work it was for (`tasks`, from the plan before).
  */
-function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now: number): ProjectMilestone {
+function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now: number, cause: "plan" | "brief"): ProjectMilestone {
   const history = [...(old.history ?? [])];
   if (hasEvidence(old)) {
+    const summary = old.summary === undefined ? "" : clipText(old.summary, PROJECT_LIMITS.shortText);
     history.push({
       title: old.title,
       kind: old.kind,
       state: old.state,
-      tasks: oldTasks,
+      tasks: oldTasks.map((t) => t.title),
       runIds: old.runIds,
-      ...(old.summary === undefined ? {} : { summary: old.summary }),
-      ...(old.corrections === undefined ? {} : { corrections: old.corrections }),
-      ...(old.attachments === undefined ? {} : { attachments: old.attachments }),
+      ...(summary.length === 0 ? {} : { summary }),
       ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
+      ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
+      ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
+      cause,
       supersededAt: now,
     });
   }
   const kept = history.slice(-PROJECT_LIMITS.history);
   return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
+}
+
+/** Ids whose evidence an update just moved to history (a new newest revision). */
+function freshResets(before: readonly ProjectMilestone[], after: readonly ProjectMilestone[]): string[] {
+  const old = new Map(before.map((m) => [m.id, m.history?.at(-1)]));
+  return after.filter((m) => m.history !== undefined && old.has(m.id) && m.history.at(-1) !== old.get(m.id)).map((m) => m.id);
+}
+
+/**
+ * The draft's {@link ProjectPlan.verdictResets}: the milestones this
+ * update started over that held evidence, after those an earlier draft
+ * (not yet approved) already reset; only ids the plan still lists.
+ */
+function mergeResets(previous: ProjectPlan | undefined, fresh: readonly string[], ids: ReadonlySet<string>): { verdictResets?: string[] } {
+  const carried = previous?.status === "draft" ? (previous.verdictResets ?? []) : [];
+  const all = [...new Set([...carried, ...fresh])].filter((id) => ids.has(id));
+  return all.length === 0 ? {} : { verdictResets: all };
 }
 
 /**
@@ -1192,7 +1272,7 @@ function replannedMilestone(
   // when the re-plan only adds tasks to it: those runs did part of it.
   const grows = !VERDICT.has(old.state) && old.kind === next.kind && onlyAddsTasks(oldTasks, newTasks);
   if (!grows && milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: newTasks })) {
-    return { ...supersede(old, oldTasks, now), ...base };
+    return { ...supersede(old, oldTasks, now, "plan"), ...base };
   }
   const keep = FINISHED.has(old.state) || old.state === "in_progress";
   return {
@@ -1266,6 +1346,7 @@ function planUpdate(
     status: "draft",
     version: nextVersion(project, project.plan?.version),
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
+    ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids),
   };
   return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" }, ...floorOf(project) } };
 }
@@ -1508,7 +1589,7 @@ export function applyProjectDecision(
         project: {
           ...project,
           plan: {
-            ...project.plan!,
+            ...withoutResets(project.plan!),
             status: "approved",
             approvedAt: now,
             // Every surface draws the warning from the view it approves from.
