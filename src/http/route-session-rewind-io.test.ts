@@ -375,7 +375,7 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
       ...latest,
       turns: [...latest.turns, { kind: "user", text: "from telegram", at: 300 }, { kind: "assistant_reply", text: "answered", at: 310 }],
       turnCount: latest.turnCount + 1,
-      macroTurnStarts: [...latest.macroTurnStarts, latest.turns.length + 2],
+      macroTurnStarts: [...(latest.macroTurnStarts ?? []), latest.turns.length + 2],
     });
   };
 
@@ -401,7 +401,7 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     const res = await post("rw-io/rewind/preview", point);
     const { planHash, transcriptRev } = (await res.json()) as { planHash: string; transcriptRev: string };
     const latest = harness.runtime.sessionStore.load("rw-io")!;
-    harness.runtime.sessionStore.save({ ...latest, title: "renamed", metadata: { ...latest.metadata, note: "x" } });
+    harness.runtime.sessionStore.save({ ...latest, metadata: { ...latest.metadata, title: "renamed", note: "x" }, updatedAt: latest.updatedAt + 5 });
     const ok = await post("rw-io/rewind", { ...point, expectPlanHash: planHash, expectTranscriptRev: transcriptRev });
     expect(ok.status).toBe(200);
     expect(turns()).toBe(2);
