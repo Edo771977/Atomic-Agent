@@ -26,7 +26,7 @@
 /* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
    read when the write started (issue #77): a new chat's follows it as it gets
    an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null, screen: 0, newDispatchScreen: null};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null, screen: 0, newDispatchScreen: null, tokenScreen: {}};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -329,6 +329,7 @@ function fzrTurnDispatch(session) {
   FZR.newDispatch = token;
   // The screen that sent it (fzrScreenChanged counts each chat put on screen; Clear Transcript is not one).
   FZR.newDispatchScreen = FZR.screen;
+  FZR.tokenScreen[token] = FZR.screen;
   return token;
 }
 /**
@@ -354,6 +355,7 @@ function fzrScreenChanged() {
 }
 /** Issue #87: the send's answer named the turn: what the dispatch token held is the turn id's. */
 function fzrRekeyTurn(token, turnId) {
+  delete FZR.tokenScreen[token];
   fzrAddsFollow({turn: token}, {turn: turnId});
   if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) { FZR.byTurn[turnId] = FZR.byTurn[token]; delete FZR.byTurn[token]; }
   if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchScreen = null; }
@@ -361,11 +363,17 @@ function fzrRekeyTurn(token, turnId) {
 /** Issue #87: the send failed (no turn): its pick and adds go back to the new-chat slot, for the retry. */
 function fzrTurnUndispatched(token) {
   if (!token) return;
-  fzrAddsFollow({turn: token}, {key: FZR_NEW_CHAT});
+  // Issue #87 review: only while the screen still shows the chat that sent it. After a fresh New chat (or
+  // another chat) the new-chat slot is someone else's: the choice is dropped, and the toast says so.
+  const sameScreen = FZR.tokenScreen[token] === FZR.screen;
+  delete FZR.tokenScreen[token];
+  const held = Object.prototype.hasOwnProperty.call(FZR.byTurn, token) || FZR.adds.some((t) => t.turn === token);
+  fzrAddsFollow({turn: token}, {key: sameScreen ? FZR_NEW_CHAT : null});
   if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) {
-    if (FZR.pending[FZR_NEW_CHAT] === undefined) FZR.pending[FZR_NEW_CHAT] = FZR.byTurn[token];
+    if (sameScreen && FZR.pending[FZR_NEW_CHAT] === undefined) FZR.pending[FZR_NEW_CHAT] = FZR.byTurn[token];
     delete FZR.byTurn[token];
   }
+  if (!sameScreen && held && typeof toast === 'function') toast('Reviewer choice dropped', 'That chat\'s first message did not go out.');
   if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchScreen = null; }
 }
 /** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */

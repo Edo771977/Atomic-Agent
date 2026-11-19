@@ -688,3 +688,26 @@ test("live: a failed add before the send's answer, still on that chat, keeps its
   assert.equal(c.S.overlay, "fzradd", "the popover closed on the chat it was opened in");
   assert.deepEqual([...c.toasts.at(-1)], ["Reviewer not added", "disk full"]);
 });
+
+// Issue #87 review: a failed first send gave A's pick and adds back to the new-chat slot even after the
+// person had opened a fresh New chat B, so B sent with A's reviewer.
+for (const how of ["fail", "reject"]) {
+  test(`live: a first send that ${how}s after a fresh New chat was opened gives B nothing of A's`, async () => {
+    const { c, chats, settle } = liveContext();
+    c.toasts = [];
+    c.toast = (...a) => c.toasts.push(a);
+    await c.fzrAct("pick:none");
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    c.startLiveTurn("A's first message");
+    // A fresh New chat B.
+    c.S.log = []; c.fzrScreenChanged();
+    chats[0][how]();
+    await settle(); await settle();
+    writes[0].done();
+    await adding;
+    assert.equal(c.fzrTurnTeam(undefined), null, "new chat B got chat A's reviewer");
+    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+    assert.ok(c.toasts.some(([t]) => /Reviewer/.test(t)), "nothing said the choice was dropped");
+  });
+}
