@@ -3,7 +3,7 @@
  * "Fork from here" (renderer/chat-rewind.js), passed to the agent's rewind and
  * fork routes (chat-rewind.ts says which and how the answer is read):
  *
- *   agent:rewindPreview   what rolling back to a question would change
+ *   agent:rewindPreview   what rolling back to a question would change (with `skip`, issue #83)
  *   agent:rewind          roll back: the agent puts the files back, then cuts the chat
  *   agent:forkSession     a new chat with the history through that question's answer
  *
@@ -30,7 +30,9 @@ export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): vo
       if (typeof sessionId !== "string" || !sessionId) return { ok: false, supported: true, code: "session_not_found", error: "This chat is not saved yet" };
       // Issue #80: the files to leave as they are, a list of paths only; anything else is refused, not dropped
       // (dropped, the agent would put those files back after all).
-      if (route === "rewind" && rewindSkipList(skip) === null) return { ok: false, supported: true, error: "The files to leave as they are could not be read" };
+      // A rollback and, issue #83, its preview take `skip` (the preview to show what a Continue would change).
+      const takesSkip = route === "rewind" || route === "rewind/preview";
+      if (takesSkip && rewindSkipList(skip) === null) return { ok: false, supported: true, error: "The files to leave as they are could not be read" };
       // Only a rollback takes `files` (ATO-1056: Edit, files and conversation or the conversation only)
       // and `skip` (issue #80: go ahead without the files a partial restore could not put back), or for an
       // agent without `skip`, `acceptFailed` (issue #77: go ahead, trying every file again).
@@ -38,7 +40,7 @@ export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): vo
         priorQuestions,
         expectText,
         route === "rewind" ? files : undefined,
-        route === "rewind" ? skip : undefined,
+        takesSkip ? skip : undefined,
         route === "rewind" ? acceptFailed : undefined,
       );
       if (body === null) return { ok: false, supported: true, error: "No message to go back to" };

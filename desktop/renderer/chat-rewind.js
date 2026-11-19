@@ -116,6 +116,7 @@ function rewindRefusalText(r) {
   if (code === 'point_compacted') return 'This part of the chat was already summarized, so it cannot be taken back.';
   if (code === 'session_not_found') return 'This chat is not saved yet.';
   if (code === 'restore_failed') return 'Some files could not be put back.';
+  if (code === 'skip_unknown') return 'The agent no longer has one of these files to leave alone. Press “Check again”.';
   return (r && r.error) || 'The agent gave no reason. Nothing was changed.';
 }
 
@@ -146,7 +147,10 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
     + 'Press “Check again” to see what a rollback would change now, then confirm it.</p>';
   // Issue #77: a file that fails on every try would keep the sheet here for good: the way out.
-  if (total && !Array.isArray(p.skipped)) {
+  if (total && REWIND.noSkip) {
+    html += '<p class="sd-cap">Your agent did not confirm it would leave those files alone, so it cannot roll back without them.</p>';
+  }
+  if (total && (!Array.isArray(p.skipped) || REWIND.noSkip)) {
     // Issue #80: this agent ignores `skip` (its answer has no `skipped`), so the only way past a file that
     // keeps failing is the #77 one, which tries every file again. Nothing here says a file was left alone.
     html += '<p class="sd-cap">Or roll back anyway: this agent cannot leave single files alone, so “Roll back anyway” tries every file again '
@@ -219,7 +223,7 @@ function rewindSkipPaths(before, failed) {
 
 /* ---- renderer side (globals from renderer.js, read at call time) ---- */
 
-const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, opened: 0, draft: ''};
+const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, opened: 0, skipPreview: null, skipPending: null, noSkip: false, draft: ''};
 
 function rewindReady() {
   return typeof BR !== 'undefined' && BR && BR.rewindPreview && REWIND.supported && S.agentSession && !S.busy && !S.pending;
@@ -235,7 +239,7 @@ function rewindActsHTML(m) {
   return '';
 }
 
-/** `rewind:<verb>:<message id>` from act(): back · edit · fork · go · go-chat (edit, conversation only) · go-skip · recheck (issue #80). */
+/** `rewind:<verb>:<message id>` from act(): back · edit · fork · go · go-chat (edit, conversation only) · go-skip · go-skip-confirm · go-accept · recheck (issues #80, #83). */
 function rewindAct(v) {
   const colon = v.indexOf(':');
   const verb = colon < 0 ? v : v.slice(0, colon);
@@ -245,15 +249,21 @@ function rewindAct(v) {
   if (verb === 'recheck') return rewindRecheck();
   // Issues #77 / #80: only from a partial restore's notice: the same rollback, leaving alone exactly the
   // files it listed (and those left alone before in this sheet). Never "accept failed" to an agent that knows skip.
+  // Issue #83: Continue first fetches a fresh preview with the skip list (rewindSkipCheck): a file put back
+  // by the first try and edited since would be overwritten again. Only its confirm sends the rollback.
   if (verb === 'go-skip') {
-    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || !Array.isArray(REWIND.partial.skipped)) return;
+    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || !Array.isArray(REWIND.partial.skipped) || REWIND.noSkip) return;
     const skip = rewindSkipFor(REWIND.partial);
     if (!skip) return;   // not offered (rewindPartialHTML)
-    return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, skip);
+    return rewindSkipCheck(skip);
+  }
+  if (verb === 'go-skip-confirm') {
+    if (!REWIND.skipPreview || !Array.isArray(REWIND.skipPending) || !REWIND.skipPending.length || S.overlay !== 'rewind') return;
+    return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, REWIND.skipPending);
   }
   // Issue #80: only for an agent whose partial answer shows it does not know `skip` (no `skipped`).
   if (verb === 'go-accept') {
-    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || Array.isArray(REWIND.partial.skipped)) return;
+    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || (Array.isArray(REWIND.partial.skipped) && !REWIND.noSkip)) return;
     return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, null, true);
   }
   if (verb === 'back' || verb === 'edit' || verb === 'fork') rewindStart(verb, id);
@@ -265,7 +275,7 @@ function rewindStart(mode, id) {
   if (!q || !rewindReady()) return;
   REWIND.opened++;   // issue #80: a sheet's own answers only (rewindConfirm)
   Object.assign(REWIND, {mode, id: q.id, sid: S.agentSession, prior: priorQuestions(q), text: String(q.text || ''),
-    preview: null, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
+    preview: null, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, skipPreview: null, skipPending: null, noSkip: false, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
   if (mode === 'fork') { rewindFork(); return; }
   S.overlay = 'rewind';
   render();
@@ -297,12 +307,49 @@ async function rewindLoadPreview() {
   render();
 }
 
+/**
+ * Issue #83: Continue's fresh preview, with the files to leave alone. An
+ * agent that echoes `skipped` is shown with what would be changed again and
+ * what is skipped, then asks to confirm. One that does not echo it ignores
+ * `skip` in its preview: nothing is promised, and only the #80 way out
+ * (acceptFailed) is offered.
+ */
+async function rewindSkipCheck(skip) {
+  if (REWIND.busy || REWIND.loading) return;
+  const asked = rewindAsked();
+  REWIND.loading = true; REWIND.error = null; render();
+  const r = await BR.rewindPreview(asked.sid, REWIND.prior, REWIND.text, skip).catch((err) => ({ok: false, supported: true, error: String(err)}));
+  if (!rewindStillAsked(asked)) return;
+  REWIND.loading = false;
+  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); render(); return; }
+  const data = r.data || {};
+  if (!Array.isArray(data.skipped)) { REWIND.noSkip = true; render(); return; }
+  REWIND.skipPreview = data; REWIND.skipPending = skip;
+  render();
+}
+
+/** Issue #83: the sheet's body for Continue's fresh preview: the files changed again, the ones skipped. */
+function rewindSkipPreviewHTML(data, workingDir) {
+  const s = rewindSummary(data, workingDir);
+  const skipped = (Array.isArray(data.skipped) ? data.skipped : []).filter((p) => typeof p === 'string' && p);
+  const list = (items) => '<div class="rows">' + items.map((t) => '<div class="row"><span class="main"><span class="t">' + esc(t) + '</span></span></div>').join('') + '</div>';
+  let html = '<p class="sd-cap"><b>Before rolling back without these files</b></p>';
+  const again = s.restore.concat(s.remove);
+  html += again.length
+    ? '<p class="sd-cap">These files would be changed again (put back as they were, or removed). Edits you made to them since will be lost:</p>' + list(again)
+    : '<p class="sd-cap">No other file would be changed again.</p>';
+  if (skipped.length) html += '<p class="sd-cap">Left as they are (the agent confirmed it will skip them):</p>' + list(skipped.map((p) => rewindPathLabel(p, workingDir)));
+  html += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
+  return html;
+}
+
 /** Issue #80: "Check again" after a partial restore: drop the old preview and the notice, and show a fresh one. */
 function rewindRecheck() {
   if (!REWIND.afterPartial || REWIND.busy) return;
   // The files the person chose to leave alone stay chosen (issue #80 review): the fresh preview marks them
   // and the confirm sends them as skip. They go only when the sheet is opened again.
-  Object.assign(REWIND, {partial: null, partialCode: null, afterPartial: false, error: null, preview: null, loading: true});
+  Object.assign(REWIND, {partial: null, partialCode: null, afterPartial: false, error: null, preview: null, loading: true,
+    skipPreview: null, skipPending: null, noSkip: false});
   render();
   return rewindLoadPreview();
 }
@@ -315,6 +362,15 @@ function rewindSheetHTML() {
       + '<textarea id="rw-edit" class="tk-inp" rows="5" spellcheck="true">' + esc(REWIND.draft) + '</textarea>';
   }
   if (REWIND.error) body += '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">' + esc(REWIND.error) + '</span></div>';
+  // Issue #83: Continue's fresh preview stands in for the notice and the old preview until it is confirmed.
+  if (REWIND.skipPreview) {
+    body += rewindSkipPreviewHTML(REWIND.skipPreview, typeof WORKSPACE === 'string' ? WORKSPACE : '');
+    const label = edit ? 'Roll back without these files, then resend' : 'Roll back without these files';
+    return sheet(edit ? 'Edit message' : 'Roll back to this message', body,
+      '<span class="grow"></span><button class="btn btn-s sm" data-act="close">Cancel</button>'
+      + '<button class="btn ' + (edit ? 'btn-p' : 'btn-df') + ' sm" data-act="rewind:go-skip-confirm"' + (REWIND.busy ? ' disabled' : '') + '>'
+      + (REWIND.busy ? '<span class="tk-spin"></span>' : '') + esc(label) + '</button>', 'sheet-rewind');
+  }
   if (REWIND.partial) body += rewindPartialHTML(REWIND.partial, REWIND.mode, typeof WORKSPACE === 'string' ? WORKSPACE : '', REWIND.partialCode);
   if (REWIND.loading) body += '<div class="tk-empty"><span class="tk-spin"></span><p>Checking what will change…</p></div>';
   // Issue #80: files chosen to be left alone (REWIND.skip) are not listed as changing; they are marked instead.
@@ -372,6 +428,7 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (typed || (typeof ATT !== 'undefined' && ATT.items.length)) { REWIND.error = 'Your draft is in the way. Send or clear the composer first.'; render(); return; }
   const sid = REWIND.sid;
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
+  REWIND.skipPreview = null; REWIND.skipPending = null;
   // Issue #80 review: after Check again, the files chosen to be left alone go with the confirm too.
   const chosen = files !== false && Array.isArray(REWIND.skip) && REWIND.skip.length ? REWIND.skip : null;
   const skipping = Array.isArray(skip) && skip.length ? skip : acceptFailed === true ? null : chosen;

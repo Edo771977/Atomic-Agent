@@ -598,8 +598,8 @@ contextBridge.exposeInMainWorld("atomic", {
   fsRestore: (sessionId: string, path: string, priorQuestions: number, expectText: string) =>
     ipcRenderer.invoke("agent:fsRestore", { sessionId, path, priorQuestions, expectText }),
   /** ATO-1056/1058: roll a chat back to a question (files first), preview it, or fork it there (chat-rewind-ipc.ts). */
-  rewindPreview: (sessionId: string, priorQuestions: number, expectText: string) =>
-    ipcRenderer.invoke("agent:rewindPreview", { sessionId, priorQuestions, expectText }),
+  rewindPreview: (sessionId: string, priorQuestions: number, expectText: string, skip?: string[]) =>
+    ipcRenderer.invoke("agent:rewindPreview", { sessionId, priorQuestions, expectText, skip }),
   rewind: (sessionId: string, priorQuestions: number, expectText: string, files?: boolean, skip?: string[], acceptFailed?: boolean) =>
     ipcRenderer.invoke("agent:rewind", { sessionId, priorQuestions, expectText, files, skip, acceptFailed }),
   forkSession: (sessionId: string, priorQuestions: number, expectText: string) =>
