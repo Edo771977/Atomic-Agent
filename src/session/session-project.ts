@@ -1500,15 +1500,16 @@ function refuse(error: ProjectDecisionError): ProjectDecisionResult {
 const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.state === "failed";
 
 /**
- * The first planned milestone becomes approved (in plan order), never
- * past a done or failed result the person has not decided on, nor while
- * another milestone is approved or running (issue #74): one open at a time.
+ * The first planned milestone becomes approved (in plan order), but only
+ * while nothing else is open anywhere in the plan (issues #74, #80): no
+ * milestone approved or in_progress, and no done or failed result the
+ * person has not decided on, wherever it sits. A milestone a re-plan reset
+ * ahead of a running one waits for that one's verdict.
  */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  const next = milestones.findIndex(
-    (m) => m.state === "planned" || m.state === "approved" || m.state === "in_progress" || unreviewed(m),
-  );
-  if (next < 0 || milestones[next]!.state !== "planned") return [...milestones];
+  if (milestones.some((m) => m.state === "approved" || m.state === "in_progress" || unreviewed(m))) return [...milestones];
+  const next = milestones.findIndex((m) => m.state === "planned");
+  if (next < 0) return [...milestones];
   return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }
 
