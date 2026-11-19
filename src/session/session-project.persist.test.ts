@@ -85,18 +85,21 @@ describe("project state across a session save and load (issue #80)", () => {
     expect(p.milestones[0]!.state).toBe("reviewed");
     // Remove criterion a, keep the other; persist and reopen.
     p = reopen(approve(fold(p, brief([levels]))));
-    // Reuse the id for a different requirement.
-    p = reopen(fold(p, brief([levels, { id: "a", text: "supports live collaboration" }])));
+    // Reuse the id for a different requirement, approved in a later brief.
+    p = reopen(approve(fold(p, brief([levels, { id: "a", text: "supports live collaboration" }]))));
     const m = p.milestones[0]!;
-    expect(m.state).not.toBe("reviewed");
-    expect((m.criteriaFacts ?? []).filter((f) => f.id === "a" && f.state === "passed")).toEqual([]);
+    // The verdict on the kept criterion stands; the reused id has no evidence until it is verified.
+    expect(m.state).toBe("reviewed");
+    expect(m.criteriaFacts).toEqual([{ id: "lv", state: "passed" }]);
+    expect((m.criteriaFacts ?? []).some((f) => f.id === "a")).toBe(false);
+    // The earlier pass stays in history, tied to its original text.
     expect(m.history).toEqual([
       expect.objectContaining({
         state: "reviewed",
-        cause: "brief",
+        cause: "brief-removed",
         runIds: ["run-1"],
-        criteriaFacts: [{ id: "a", state: "passed" }, { id: "lv", state: "passed" }],
-        criteria: [offline, levels],
+        criteriaFacts: [{ id: "a", state: "passed" }],
+        criteria: [offline],
       }),
     ]);
   });
