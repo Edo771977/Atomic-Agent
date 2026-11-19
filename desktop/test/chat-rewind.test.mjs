@@ -1053,3 +1053,43 @@ test("skip_unknown's message fallback does not match a path by its prefix; the t
   assert.deepEqual([...listed.unknownSkip], ["/w/x, y.txt"]);
   assert.deepEqual(R.rewindUnknownSkip(listed, sent), ["/w/x, y.txt"]);
 });
+
+// Issue #87: why a file to delete could not be checked, a moved file whose original was not kept,
+// and a damaged saved copy on the one-file revert (POST /fs/restore).
+test("the preview words contentUnchecked by its reason and move_source_not_restored in Cannot be put back", () => {
+  fakeWindow([]);
+  startEdit({ ...FILES_PREVIEW, files: [
+    { path: "/w/a.bin", action: "delete", contentUnchecked: true, contentUncheckedReason: "unreadable" },
+    { path: "/w/b.bin", action: "delete", contentUnchecked: true, contentUncheckedReason: "too_large" },
+    { path: "/w/c.bin", action: "delete", contentUnchecked: true },
+  ], notRestorable: [{ path: "/w/moved.txt", reason: "move_source_not_restored" }] });
+  R.REWIND.mode = "back";
+  const html = R.rewindSheetHTML();
+  assert.match(html, /The agent could not read a\.bin, so a same-size replacement would not be noticed/);
+  assert.match(html, /b\.bin is too large to check, so a same-size replacement would not be noticed/);
+  assert.match(html, /The agent could not read c\.bin, so a same-size replacement would not be noticed/);
+  assert.match(html, /moved\.txt \(moved here from a file that was not kept; it stays where it is\)/);
+});
+
+test("a one-file revert whose saved copy is damaged says the file was left as it is", async () => {
+  const { createServer } = await import("node:http");
+  const { AgentClient } = ipcRequire("../out/main/agent-client.js");
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(409, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "saved copy is damaged", code: "copy_damaged" } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const client = new AgentClient(process.cwd());
+  client.port = server.address().port;
+  client.token = "t";
+  try {
+    const r = await client.restoreFile("s1", "/w/a.txt", 0, "q");
+    assert.equal(r.code, "copy_damaged");
+    assert.equal(r.error, "The saved copy is damaged, so the file was left as it is");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

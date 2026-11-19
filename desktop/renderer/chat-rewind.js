@@ -39,6 +39,8 @@ const REWIND_REASON = {
   binary: 'not a text file',
   not_a_file: 'a folder, not a file',
   unreadable: 'could not be read',
+  // Issue #87: the agent moved a file whose original it did not keep.
+  move_source_not_restored: 'moved here from a file that was not kept; it stays where it is',
 };
 
 const REWIND_TOOL_WORDS = [
@@ -77,7 +79,9 @@ function rewindSummary(preview, workingDir) {
   // Issue #87: a file to delete the agent could not read: only its size was compared.
   for (const f of files) {
     if (f && f.action === 'delete' && f.contentUnchecked === true) {
-      out.warnings.push('The agent could not read ' + rewindPathLabel(f.path, workingDir) + ', so a same-size replacement would not be noticed.');
+      const name = rewindPathLabel(f.path, workingDir);
+      out.warnings.push((f.contentUncheckedReason === 'too_large' ? name + ' is too large to check' : 'The agent could not read ' + name)
+        + ', so a same-size replacement would not be noticed.');
     }
   }
   if (p.incomplete) out.warnings.push('Some older file changes are no longer kept, so not every file can be put back.');
