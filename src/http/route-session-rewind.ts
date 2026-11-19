@@ -92,7 +92,8 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       return;
     }
     // Issue #80: files the person chose to leave as they are; never read, written or deleted.
-    const skip = preview ? [] : point.body.skip ?? [];
+    // The preview applies and validates it the same way, so it shows what that rollback would do.
+    const skip = point.body.skip ?? [];
     if (!isSkipList(skip)) {
       sendError(res, 400, openaiError(`skip must be an array of at most ${MAX_SKIP} non-empty paths`, "invalid_request_error", "skip"));
       return;
@@ -123,6 +124,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
           item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
         notRestorable,
         incomplete: files.incomplete,
+        skipped: files.skipped,
         uncovered: uncoveredToolCalls(removed),
       });
       return;

@@ -113,6 +113,21 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(await copies(store)).toEqual([]);
   });
 
+  it("the preview applies and validates skip like the rollback", async () => {
+    const { a, b } = await seed();
+    const res = await post("rw-io/rewind/preview", { ...point, skip: [a] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ files: [{ path: b, action: "restore" }], skipped: [a] });
+    const plain = await post("rw-io/rewind/preview", point);
+    expect(await plain.json()).toMatchObject({ files: [{ path: a, action: "restore" }, { path: b, action: "restore" }], skipped: [] });
+    const malformed = await post("rw-io/rewind/preview", { ...point, skip: "a.txt" });
+    expect(malformed.status).toBe(400);
+    expect(((await malformed.json()) as { error: { param: string } }).error.param).toBe("skip");
+    const unknown = await post("rw-io/rewind/preview", { ...point, skip: ["nowhere.txt"] });
+    expect(unknown.status).toBe(400);
+    expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("skip_unknown");
+  });
+
   /** A first attempt where a is locked: b goes back, a fails; then the person edits both and the lock goes. */
   async function partlyRestoredThenEdited(): Promise<{ a: string; b: string; store: FileCheckpointStore }> {
     const seeded = await seed();

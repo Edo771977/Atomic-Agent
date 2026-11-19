@@ -87,6 +87,7 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
       files: [{ path: a, action: "restore" }, { path: b, action: "delete" }],
       notRestorable: [],
       incomplete: false,
+      skipped: [],
       uncovered: [{ tool: "os.shell.run", count: 1 }],
     });
     // A preview changes nothing.
