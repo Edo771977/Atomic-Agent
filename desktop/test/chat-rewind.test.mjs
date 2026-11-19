@@ -117,7 +117,7 @@ function fakeWindow(calls) {
 }
 
 function startEdit(preview) {
-  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], draft: "old text" });
+  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -462,3 +462,66 @@ test("the notice asks the agent to leave the files alone, and a 200 without skip
   await R.rewindAct("go");
   assert.doesNotMatch(globalThis.toasts.at(-1)[1], /did not confirm/);
 });
+
+/* ---------- issue #80 review: the window driven through main's real agent:rewind handler ---------- */
+
+const ipcRequire = createRequire(import.meta.url);
+/**
+ * A window whose BR is preload's: each call is the object preload sends,
+ * handled by main's wireChatRewindIpc (electron's ipcMain stubbed), whose
+ * client answers like the agent. Records the route and body the agent gets.
+ */
+function ipcWindow(mode, answers) {
+  const calls = [];
+  fakeWindow(calls);
+  const g = globalThis;
+  const handlers = {};
+  const electron = ipcRequire.resolve("electron");
+  const saved = ipcRequire.cache[electron];
+  ipcRequire.cache[electron] = { id: electron, filename: electron, loaded: true, exports: { ipcMain: { handle: (ch, fn) => { handlers[ch] = fn; } } } };
+  try {
+    delete ipcRequire.cache[ipcRequire.resolve("../out/main/chat-rewind-ipc.js")];
+    ipcRequire("../out/main/chat-rewind-ipc.js").wireChatRewindIpc({
+      sessionRoute: async (sid, route, method, body) => {
+        calls.push([route, JSON.parse(JSON.stringify(body))]);
+        const next = (route === "rewind/preview" ? answers.preview : answers.rewind).shift();
+        if (next instanceof Error) throw next;
+        return next;
+      },
+    });
+  } finally {
+    if (saved) ipcRequire.cache[electron] = saved; else delete ipcRequire.cache[electron];
+  }
+  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed) =>
+    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed });
+  g.BR.rewindPreview = (sessionId, priorQuestions, expectText) => handlers["agent:rewindPreview"]({}, { sessionId, priorQuestions, expectText });
+  g.toasts = [];
+  g.toast = (...a) => g.toasts.push(a);
+  startEdit(FILES_PREVIEW);
+  R.REWIND.mode = mode;
+  return calls;
+}
+const agentBodies = (calls) => calls.filter((c) => c[0] === "rewind").map((c) => c[1]);
+const PARTIAL_409 = (failed, extra = {}) => ({ status: 409, body: partialBody(failed, { partial: true, skipped: [], ...extra }) });
+
+for (const [label, second] of [
+  ["a turn started", { status: 409, body: { error: { code: "turn_in_progress", message: "busy" } } }],
+  ["the request failed", new Error("socket hang up")],
+]) {
+  for (const mode of ["back", "edit"]) {
+    test(`${mode}: after Continue, a refusal that is not partial (${label}) keeps Check again only, and nothing plain is sent`, async () => {
+      const calls = ipcWindow(mode, { rewind: [PARTIAL_409(FIRST_FAILED), second], preview: [FILES_PREVIEW] });
+      await R.rewindAct("go");
+      await R.rewindAct("go-skip");
+      assert.equal(agentBodies(calls).length, 2);
+      assert.deepEqual(agentBodies(calls)[1].skip, ["/w/locked.txt", "/w/dir/a.txt"]);
+      const html = R.rewindSheetHTML();
+      assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]], "the stale Roll back came back");
+      await R.rewindAct("go");
+      await R.rewindAct("go-chat");
+      assert.equal(agentBodies(calls).length, 2, "a plain rollback was sent with the stale preview");
+      await R.rewindAct("recheck");
+      assert.equal(calls.at(-1)[0], "rewind/preview");
+    });
+  }
+}

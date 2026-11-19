@@ -194,7 +194,7 @@ function rewindSkipPaths(before, failed) {
 
 /* ---- renderer side (globals from renderer.js, read at call time) ---- */
 
-const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], draft: ''};
+const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, draft: ''};
 
 function rewindReady() {
   return typeof BR !== 'undefined' && BR && BR.rewindPreview && REWIND.supported && S.agentSession && !S.busy && !S.pending;
@@ -234,7 +234,7 @@ function rewindStart(mode, id) {
   const q = rewindQuestionFor(S.log, m);
   if (!q || !rewindReady()) return;
   Object.assign(REWIND, {mode, id: q.id, sid: S.agentSession, prior: priorQuestions(q), text: String(q.text || ''),
-    preview: null, error: null, partial: null, partialCode: null, skip: [], busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
+    preview: null, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
   if (mode === 'fork') { rewindFork(); return; }
   S.overlay = 'rewind';
   render();
@@ -254,8 +254,8 @@ async function rewindLoadPreview() {
 
 /** Issue #80: "Check again" after a partial restore: drop the old preview and the notice, and show a fresh one. */
 function rewindRecheck() {
-  if (!REWIND.partial || REWIND.busy) return;
-  Object.assign(REWIND, {partial: null, partialCode: null, error: null, skip: [], preview: null, loading: true});
+  if (!REWIND.afterPartial || REWIND.busy) return;
+  Object.assign(REWIND, {partial: null, partialCode: null, afterPartial: false, error: null, skip: [], preview: null, loading: true});
   render();
   return rewindLoadPreview();
 }
@@ -281,11 +281,12 @@ function rewindSheetHTML() {
     body += list('Put back as they were', s.restore) + list('Removed (the agent created them)', s.remove) + list('Cannot be put back', s.cannot);
     body += s.warnings.map((w) => '<div class="tk-notice tk-notice--amber">' + ic('alert') + '<span class="grow">' + esc(w) + '</span></div>').join('');
   }
-  const disabled = REWIND.loading || REWIND.busy || (!REWIND.preview && !REWIND.partial);
+  const disabled = REWIND.loading || REWIND.busy || (!REWIND.preview && !REWIND.afterPartial);
   // Issue #80: after a partial restore the files on disk are not what the preview showed, so the only
   // way to try again is "Check again": a fresh preview, then the normal confirm. This also keeps
   // "Conversation only" away (issue #77): it would cut the chat and drop the saved copies.
-  const buttons = REWIND.partial ? [['rewind:recheck', 'Check again']] : rewindButtons(REWIND.mode, s);
+  // It holds for every later refusal in this sheet too (afterPartial), not only while the notice is up.
+  const buttons = REWIND.afterPartial ? [['rewind:recheck', 'Check again']] : rewindButtons(REWIND.mode, s);
   // The last button is the primary one.
   const foot = buttons.map(([a, label], i) => {
     const kind = i < buttons.length - 1 ? 'btn-s' : edit ? 'btn-p' : 'btn-df';
@@ -304,8 +305,9 @@ function rewindSheetHTML() {
  */
 async function rewindConfirm(files, skip) {
   if (REWIND.busy || !REWIND.preview) return;
-  // Issue #80: after a partial restore only Continue (skip) sends; anything else checks again first (rewindRecheck).
-  if (REWIND.partial && !(Array.isArray(skip) && skip.length)) return;
+  // Issue #80: once a partial restore happened in this sheet, only Continue (skip) sends, and only from the
+  // notice; anything else checks again first (rewindRecheck), whatever the later answers were.
+  if (REWIND.afterPartial && !(REWIND.partial && Array.isArray(skip) && skip.length)) return;
   const edit = REWIND.mode === 'edit';
   const box = document.getElementById('rw-edit');
   const draft = edit ? String(box ? box.value : REWIND.draft) : '';
@@ -322,7 +324,11 @@ async function rewindConfirm(files, skip) {
   REWIND.busy = false;
   // Issue #77: a partial restore, or a refusal after files were put back, left the chat as it was;
   // the sheet says which files and stays open.
-  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.restore ? r.restore : null; REWIND.partialCode = r && r.code; render(); return; }
+  if (!r || !r.ok) {
+    REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.restore ? r.restore : null; REWIND.partialCode = r && r.code;
+    if (REWIND.partial) REWIND.afterPartial = true;   // cleared only by Check again or by opening the sheet again
+    render(); return;
+  }
   S.overlay = null;
   await openSession(sid);
   if (S.agentSession !== sid) return;
