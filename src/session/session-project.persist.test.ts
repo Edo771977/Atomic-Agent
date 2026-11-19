@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { SessionStore } from "./session-store.js";
@@ -13,6 +14,7 @@ import {
   applyProjectDecision,
   applyProjectUpdate,
   gateVersion,
+  normalizeProject,
   readProject,
   withProject,
   type AssignmentRow,
@@ -123,5 +125,65 @@ describe("project state across a session save and load (issue #80)", () => {
     // B reviewed: A is next.
     p = approve(p);
     expect(p.milestones.map((m) => m.state)).toEqual(["approved", "reviewed"]);
+  });
+
+  it("a project saved before issue #80 that kept a removed criterion's pass does not lend it to a reused id (issue #83)", () => {
+    // Built with src/session/session-project.ts at 68e709d: `a` "works offline"
+    // passed on m1, then a brief without `a` was approved; that version kept
+    // `a`'s fact and pictures and recorded no approved criteria.
+    const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "project-saved-before-80.json"), "utf8")) as { project: unknown };
+    let p = normalizeProject(fixture.project)!;
+    expect(p.milestones[0]!.criteriaFacts).toEqual([{ id: "a", state: "passed" }, { id: "b", state: "passed" }]);
+    const collaboration = { id: "a", text: "supports live collaboration" };
+    p = reopen(approve(fold(p, brief([{ id: "b", text: "has three levels" }, collaboration]))));
+    for (const q of [p, reopen(p)]) {
+      const m = q.milestones[0]!;
+      // The new `a` has no passing evidence; `b` keeps its own.
+      expect(m.state).toBe("reviewed");
+      expect(m.criteriaFacts).toEqual([{ id: "b", state: "passed" }]);
+      expect((m.attachments ?? []).map((x) => [x.caption, x.criteria])).toEqual([["both", ["b"]], ["levels", ["b"]]]);
+      // The old pass is in history, never labelled with the new text.
+      const retired = (m.history ?? []).find((h) => (h.criteriaFacts ?? []).some((f) => f.id === "a"));
+      expect(retired).toMatchObject({ cause: "brief-removed", criteriaFacts: [{ id: "a", state: "passed" }], unknownCriteria: ["a"], attachmentCount: 1 });
+      expect(JSON.stringify(m.history)).not.toContain(collaboration.text);
+    }
+  });
+
+  it("a project saved before issue #80 with its brief still a draft: approving it retires every criteria fact and picture (issue #83)", () => {
+    // Built like the fixture above, at 68e709d, then a brief [b, a: "supports
+    // live collaboration"] drafted and saved at its gate: no approved brief,
+    // no recorded criteria, nothing to compare against.
+    const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "project-saved-before-80-draft-brief.json"), "utf8")) as { project: unknown };
+    let p = normalizeProject(fixture.project)!;
+    expect(p.brief!.status).toBe("draft");
+    expect(p.approvedCriteria).toBeUndefined();
+    p = reopen(approve(p));
+    for (const q of [p, reopen(p)]) {
+      const m = q.milestones[0]!;
+      // The verdict stands; no fact or criteria picture of the old results does.
+      expect(m.state).toBe("reviewed");
+      expect(m.criteriaFacts).toBeUndefined();
+      expect(m.attachments).toBeUndefined();
+      expect(m.history?.at(-1)).toMatchObject({
+        cause: "brief-removed",
+        criteriaFacts: [{ id: "a", state: "passed" }, { id: "b", state: "passed" }],
+        unknownCriteria: ["a", "b"],
+        attachmentCount: 3,
+      });
+      expect(m.history?.at(-1)?.criteria).toBeUndefined();
+      expect(JSON.stringify(m.history)).not.toContain("supports live collaboration");
+      expect(q.plan!.evidenceRetired).toEqual(["m1"]);
+    }
+    // The director's re-plan keeps the note for the plan gate.
+    const replanned = fold(p, { kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }, { id: "m2", title: "UI", kind: "ui" }], rows: [row("t1", "m1"), row("t2", "m2")], detail: "compact" });
+    expect(replanned.plan!.evidenceRetired).toEqual(["m1"]);
+    expect(approve(replanned).plan!.evidenceRetired).toBeUndefined();
+  });
+
+  it("a new project's first brief approval retires nothing", () => {
+    const p = approve(fold(undefined, brief([{ id: "a", text: "works offline" }])));
+    expect(p.milestones).toEqual([]);
+    expect(p.plan).toBeUndefined();
+    expect(p.approvedCriteria).toEqual([{ id: "a", text: "works offline" }]);
   });
 });

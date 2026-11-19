@@ -144,6 +144,13 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
     expect(elsewhere.hints).toEqual([]);
   });
 
+  it("names each milestone that kept its verdict but lost criteria evidence (issue #83)", () => {
+    const project = planGate();
+    const retired: ProjectState = { ...project, plan: { ...project.plan!, verdictResets: ["m2"], evidenceRetired: ["m1"] } };
+    const view = projectGateView({ sessionId: "s", project: retired, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
+    expect(view.hints).toEqual(["verdict reset: UI", "evidence retired: Base"]);
+  });
+
   it("is editable without hints when there is a choice and reviewers are configured", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
     expect(view.plan!.editable).toBe(true);

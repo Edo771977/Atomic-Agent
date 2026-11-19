@@ -1,0 +1,119 @@
+{
+  "savedBy": "68e709d",
+  "note": "brief left as a draft at its gate",
+  "project": {
+    "brief": {
+      "version": 3,
+      "what": "A notes app",
+      "users": "Teams",
+      "how": "Web",
+      "successCriteria": [
+        {
+          "id": "b",
+          "text": "has three levels"
+        },
+        {
+          "id": "a",
+          "text": "supports live collaboration"
+        }
+      ],
+      "status": "draft",
+      "draftedAfterUntrusted": false
+    },
+    "plan": {
+      "rows": [
+        {
+          "taskId": "t1",
+          "title": "Task t1",
+          "milestoneId": "m1",
+          "worker": "local:a",
+          "reviewer": null,
+          "reason": "preset",
+          "basis": "preset",
+          "samples": 0,
+          "estCostUsd": 0.1,
+          "estMs": 1000
+        },
+        {
+          "taskId": "t2",
+          "title": "Task t2",
+          "milestoneId": "m2",
+          "worker": "local:a",
+          "reviewer": null,
+          "reason": "preset",
+          "basis": "preset",
+          "samples": 0,
+          "estCostUsd": 0.1,
+          "estMs": 1000
+        }
+      ],
+      "totals": {
+        "costUsd": 0.2,
+        "ms": 2000,
+        "unknownCostRows": 0
+      },
+      "detail": "compact",
+      "status": "draft",
+      "version": 4,
+      "draftedAfterUntrusted": false
+    },
+    "milestones": [
+      {
+        "id": "m1",
+        "title": "Base",
+        "kind": "base",
+        "state": "reviewed",
+        "runIds": [
+          "run-1"
+        ],
+        "summary": "Offline and levels work",
+        "attachments": [
+          {
+            "path": "/state/fusion-runs/run-1/shots/offline.png",
+            "caption": "offline",
+            "criteria": [
+              "a"
+            ]
+          },
+          {
+            "path": "/state/fusion-runs/run-1/shots/both.png",
+            "caption": "both",
+            "criteria": [
+              "a",
+              "b"
+            ]
+          },
+          {
+            "path": "/state/fusion-runs/run-1/shots/levels.png",
+            "caption": "levels",
+            "criteria": [
+              "b"
+            ]
+          }
+        ],
+        "criteriaFacts": [
+          {
+            "id": "a",
+            "state": "passed"
+          },
+          {
+            "id": "b",
+            "state": "passed"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "m2",
+        "title": "UI",
+        "kind": "ui",
+        "state": "planned",
+        "runIds": [],
+        "updatedAt": 1700000000000
+      }
+    ],
+    "gate": {
+      "kind": "brief"
+    }
+  }
+}

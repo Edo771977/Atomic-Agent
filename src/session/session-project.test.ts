@@ -1096,13 +1096,55 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(after.milestones[0]!.history).toBeUndefined();
   });
 
-  it("without an approved brief to compare with, an approval judges nothing", () => {
+  it("without an approved brief to compare with, an approval retires every criteria fact but keeps the verdict (issue #83)", () => {
     const draft = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c2", text: "Has three levels" }] } } as ProjectUpdate);
     // An older store mid-draft: no record of the approved criteria.
     const { approvedCriteria: _gone, ...older } = draft;
     const after = approve(older as ProjectState);
-    expect(after.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+    expect(after.milestones[0]!.criteriaFacts).toBeUndefined();
+    expect(after.milestones[0]!.history?.at(-1)).toMatchObject({ cause: "brief-removed", unknownCriteria: ["c1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.plan!.evidenceRetired).toEqual(["m1"]);
     expect(after.approvedCriteria).toEqual([{ id: "c2", text: "Has three levels" }]);
+  });
+
+  describe("a milestone left with no evidence is named at the plan gate (issue #83)", () => {
+    /** m1 reviewed with exactly this evidence; the brief approved with c1, c2. */
+    const reviewedWith = (evidence: { criteriaFacts?: ProjectState["milestones"][number]["criteriaFacts"]; attachments?: ProjectState["milestones"][number]["attachments"] }): ProjectState => {
+      let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+      p = update(p, { kind: "milestone", id: "m1", state: "done", summary: "Base works" });
+      p = { ...p, milestones: p.milestones.map((m) => (m.id === "m1" ? { ...m, ...evidence } : m)) };
+      return approve(p);
+    };
+    const sameBrief = { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has three levels" }] } } as ProjectUpdate;
+
+    it("its only evidence, a picture citing an orphan id, is retired: the verdict stays and the plan gate names it", () => {
+      const p = reviewedWith({ attachments: [{ path: "/state/fusion-runs/run-1/shots/x.png", caption: "x", criteria: ["zz"] }] });
+      const after = approve(update(p, sameBrief));
+      const m1 = after.milestones[0]!;
+      expect(m1).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+      expect(m1.attachments).toBeUndefined();
+      expect(m1.history?.at(-1)).toMatchObject({ cause: "brief-removed", unknownCriteria: ["zz"], attachmentCount: 1 });
+      expect(after.plan!.evidenceRetired).toEqual(["m1"]);
+    });
+
+    it("its only evidence, the facts of a removed criterion, is retired: named too", () => {
+      const p = reviewedWith({ criteriaFacts: [{ id: "c1", state: "passed" }] });
+      const after = approve(update(p, { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c2", text: "Has three levels" }] } } as ProjectUpdate));
+      expect(after.milestones[0]).toMatchObject({ state: "reviewed" });
+      expect(after.milestones[0]!.criteriaFacts).toBeUndefined();
+      expect(after.plan!.evidenceRetired).toEqual(["m1"]);
+    });
+
+    it("a failed fact on an orphan id is retired and never turns into a pass; evidence left: not named", () => {
+      const p = reviewedWith({ criteriaFacts: [{ id: "c1", state: "passed" }, { id: "zz", state: "failed", why: "check red" }] });
+      const after = approve(update(p, sameBrief));
+      const m1 = after.milestones[0]!;
+      expect(m1.criteriaFacts).toEqual([{ id: "c1", state: "passed" }]);
+      expect(m1.history?.at(-1)).toMatchObject({ cause: "brief-removed", unknownCriteria: ["zz"], criteriaFacts: [{ id: "zz", state: "failed", why: "check red" }] });
+      expect(JSON.stringify(after.milestones)).not.toMatch(/"id":"zz","state":"passed"/);
+      expect(after.plan!.evidenceRetired).toBeUndefined();
+    });
   });
 
   it("the person's brief edit is judged at approval: a changed text resets, a removal retires the facts", () => {
