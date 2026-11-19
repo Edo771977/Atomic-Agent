@@ -405,3 +405,28 @@ test("window: Add a reviewer from a new chat stays the new chat's, or follows it
   c.fzrTurnNamed("t1", "s9");
   assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
 });
+
+// Issue #77: a new chat's first turn that left without a pick during the add
+// write was not told to the seat, so the reviewer stayed on the new-chat slot
+// and went to the next new chat.
+test("window: Add a reviewer from a new chat whose first turn leaves without a pick goes to that turn's chat", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  // The first turn carries no pick (none was made yet); renderer.js reports every new chat's send.
+  const sent = c.fzrTurnTeam(undefined);
+  assert.equal(sent, null);
+  c.fzrTurnSent(undefined, "t1", sent);
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the first one's reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  // renderer.js tells the seat about a new chat's turn whether or not it carried a pick.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice\);/);
+});

@@ -262,14 +262,16 @@ function fzrTurnTeam(session) {
   return reviewer ? {reviewer} : null;
 }
 /**
- * The send went out as turn `turnId`. A new chat's pick leaves the new-chat
+ * The send went out as turn `turnId`, with the pick `sent` (or null). A new chat's pick leaves the new-chat
  * slot with it: it is that turn's, and becomes the chat's only when the
  * turn's stream names the chat (fzrTurnNamed). Issue #74: it used to move to
  * whichever chat was refreshed next, an unrelated one opened meanwhile.
  */
 function fzrTurnSent(session, turnId, sent) {
-  if (session || !turnId || !sent) return;
+  if (session || !turnId) return;
+  // Issue #77: a reviewer being added from the new chat is this turn's too, picked or not (`sent` null).
   fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: turnId});
+  if (!sent) return;
   if (FZR.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZR.pending[FZR_NEW_CHAT];
   FZR.byTurn[turnId] = sent.reviewer;
 }
