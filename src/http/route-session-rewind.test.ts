@@ -90,6 +90,7 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
       skipped: [],
       uncovered: [{ tool: "os.shell.run", count: 1 }],
       planHash: expect.any(String),
+      transcriptRev: expect.any(String),
     });
     // A preview changes nothing.
     expect(readFileSync(a, "utf8")).toBe("v2");

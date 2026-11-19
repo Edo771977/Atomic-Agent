@@ -368,6 +368,55 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(again.files).toContainEqual({ path: created, action: "delete" });
   });
 
+  /** Another client completes a question and its reply on the chat, touching no file. */
+  const anotherTurn = () => {
+    const latest = harness.runtime.sessionStore.load("rw-io")!;
+    harness.runtime.sessionStore.save({
+      ...latest,
+      turns: [...latest.turns, { kind: "user", text: "from telegram", at: 300 }, { kind: "assistant_reply", text: "answered", at: 310 }],
+      turnCount: latest.turnCount + 1,
+      macroTurnStarts: [...latest.macroTurnStarts, latest.turns.length + 2],
+    });
+  };
+
+  it.each([
+    ["with its files", {}],
+    ["conversation only (files: false)", { files: false }],
+  ])("a turn added after the preview refuses an old confirmation, %s (issue #87)", async (_label, extra) => {
+    const { a, b, store } = await seed();
+    const res = await post("rw-io/rewind/preview", point);
+    const { planHash, transcriptRev } = (await res.json()) as { planHash: string; transcriptRev: unknown };
+    expect(typeof transcriptRev).toBe("string");
+    anotherTurn();
+    const confirm = "files" in extra ? { expectTranscriptRev: transcriptRev } : { expectPlanHash: planHash };
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, ...extra, ...confirm }));
+    expect(turns()).toBe(6);
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(b, "utf8")).toBe("b1");
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
+  it("a title or other metadata change after the preview does not invalidate it (issue #87)", async () => {
+    await seed();
+    const res = await post("rw-io/rewind/preview", point);
+    const { planHash, transcriptRev } = (await res.json()) as { planHash: string; transcriptRev: string };
+    const latest = harness.runtime.sessionStore.load("rw-io")!;
+    harness.runtime.sessionStore.save({ ...latest, title: "renamed", metadata: { ...latest.metadata, note: "x" } });
+    const ok = await post("rw-io/rewind", { ...point, expectPlanHash: planHash, expectTranscriptRev: transcriptRev });
+    expect(ok.status).toBe(200);
+    expect(turns()).toBe(2);
+  });
+
+  it("expectTranscriptRev is validated (issue #87)", async () => {
+    await seed();
+    for (const expectTranscriptRev of ["", 3, "x".repeat(201)]) {
+      const res = await post("rw-io/rewind", { ...point, files: false, expectTranscriptRev });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { param: string } }).error.param).toBe("expectTranscriptRev");
+    }
+    expect(turns()).toBe(4);
+  });
+
   it("skip is part of the planHash, and expectPlanHash is validated (issue #83)", async () => {
     const { a, b } = await seed();
     const all = await previewHash({});
