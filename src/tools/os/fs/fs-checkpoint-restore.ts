@@ -31,13 +31,15 @@ export interface FileRestoreItem {
    */
   blocked?: string;
   /**
-   * A file to delete whose contents could not be read (issue #87): it is
-   * still removed, and only its stat (size, mtime, inode) fingerprints it.
+   * A file whose contents were not read (issue #87): a file to delete
+   * that could not be read (still removed), or any file past
+   * `RESTORE_HASH_MAX_BYTES`; only its stat (size, mtime, inode)
+   * fingerprints it.
    */
   contentUnchecked?: true;
   /** Why: it could not be read, or it is past `RESTORE_HASH_MAX_BYTES` and was not read. */
   contentUncheckedReason?: "unreadable" | "too_large";
-  /** What the disk holds now, as the plan compared it (its sha, or for a file to delete that cannot be read its size, mtime and inode); part of `restorePlanHash`. */
+  /** What the disk holds now, as the plan compared it (its sha, or its size, mtime and inode when `contentUnchecked`); part of `restorePlanHash`. */
   now?: string;
 }
 
