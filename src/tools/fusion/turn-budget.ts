@@ -76,6 +76,12 @@ interface TurnState {
   orchestratorTasks: number;
   /** Every failure breaker that tripped this turn (ATO-1406). */
   trips: BreakerTrip[];
+  /**
+   * Per fusion run id, the checkpoint spend this turn has already
+   * counted (issue #87): a resume retried in the same turn adds only
+   * what the checkpoint gained since.
+   */
+  runSpend: Map<string, number>;
 }
 
 /**
@@ -128,6 +134,14 @@ function continuationRoot(
   return taskId;
 }
 
+/** {@link FusionTurnBudget.openRunAccounting}'s handle for one fan-out. */
+export interface RunAccounting {
+  /** A resume: count the checkpoint's recorded spend not yet counted this turn; returns what was added. */
+  importCarried(runId: string, checkpointUsd: number): number;
+  /** The fan-out ended: record what this turn counted for the run. */
+  close(runId: string): void;
+}
+
 export class FusionTurnBudget {
   private readonly turns = new Map<string, TurnState>();
   private readonly owners = new Map<string, { parent: string; state: TurnState }>();
@@ -155,6 +169,7 @@ export class FusionTurnBudget {
       tasks: 0,
       orchestratorTasks: 0,
       trips: [],
+      runSpend: new Map(),
     });
   }
 
@@ -177,6 +192,7 @@ export class FusionTurnBudget {
         tasks: 0,
         orchestratorTasks: 0,
         trips: [],
+        runSpend: new Map(),
       };
       this.turns.set(sessionId, state);
     }
@@ -188,6 +204,46 @@ export class FusionTurnBudget {
     const state = this.turn(sessionId);
     state.workerUsd += usd;
     if (state.requestLimits?.usd !== undefined && !alreadyAccounted) state.externalUsd += usd;
+  }
+
+  /**
+   * The accounting of one fan-out's run (issue #87), opened when the call
+   * starts. `importCarried` counts a resumed checkpoint's recorded spend
+   * once per run and turn: only the increment over what this turn already
+   * counted for the run. `close` records, for the run, what the turn
+   * actually counted (the import plus the growth of the cap's figure
+   * during the fan-out: requests and carried spend under a request cap,
+   * worker spend otherwise), never the checkpoint's own figure, which
+   * holds estimates the cap may not have seen: a later resume imports
+   * that difference. Both act only while the turn the call started in is
+   * still the session's.
+   */
+  openRunAccounting(sessionId: string): RunAccounting {
+    const counted = (state: TurnState): number =>
+      state.requestLimits?.usd !== undefined ? state.requestUsd + state.externalUsd : state.workerUsd;
+    // The turn the call started in: a fan-out that unwinds after the next
+    // turn began writes nothing into that one.
+    const state = this.turn(sessionId);
+    const current = (): boolean => this.turns.get(sessionId) === state;
+    const base = counted(state);
+    let known: number | undefined;
+    return {
+      importCarried: (runId, checkpointUsd) => {
+        if (!current()) return 0;
+        known = state.runSpend.get(runId) ?? 0;
+        if (!Number.isFinite(checkpointUsd) || checkpointUsd <= known) return 0;
+        // Recorded at once: a call that stops before its fan-out (a refused
+        // or timed-out approval) is retried without counting it again.
+        state.runSpend.set(runId, checkpointUsd);
+        this.addWorkerSpend(sessionId, checkpointUsd - known);
+        return checkpointUsd - known;
+      },
+      close: (runId) => {
+        if (!current()) return;
+        const recorded = (known ?? state.runSpend.get(runId) ?? 0) + Math.max(0, counted(state) - base);
+        if (recorded > (state.runSpend.get(runId) ?? 0)) state.runSpend.set(runId, recorded);
+      },
+    };
   }
 
   /** Bind only while the worker is alive; retain the owning turn generation. */

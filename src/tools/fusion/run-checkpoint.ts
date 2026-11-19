@@ -208,6 +208,14 @@ export interface FusionRunCheckpoint {
    * Additive: version 1 files without it stay readable.
    */
   director?: string;
+  /**
+   * The approved brief's success criteria the run's checks were written
+   * for (issue #87): a resume tags its facts with these texts, never the
+   * brief of the turn that resumes it, so a criterion reworded since
+   * reads stale. Additive: absent in older files (facts then carry no
+   * text and fall under the approval-count rule).
+   */
+  criteria?: Array<{ id: string; text: string }>;
 }
 
 export interface FusionRunStartInput {
@@ -223,6 +231,8 @@ export interface FusionRunStartInput {
   resumedFrom?: FusionRunCheckpoint;
   /** The director the run runs under now (issue #37); absent keeps a resumed run's own. */
   director?: string;
+  /** The criteria a new run's checks are written for (issue #87); a resume always keeps its checkpoint's. */
+  criteria?: ReadonlyArray<{ id: string; text: string }>;
 }
 
 export interface FusionRunStoreOptions {
@@ -322,6 +332,10 @@ export class FusionRunStore {
       ...((input.director ?? input.resumedFrom?.director) === undefined
         ? {}
         : { director: (input.director ?? input.resumedFrom?.director)! }),
+      ...(() => {
+        const criteria = input.resumedFrom === undefined ? input.criteria : input.resumedFrom.criteria;
+        return criteria === undefined ? {} : { criteria: criteria.map((c) => ({ id: c.id, text: c.text })) };
+      })(),
       args: input.args,
       state: "running",
       owner: serializeTurnOwner(turnOwnerFor(this.probe, at)),
@@ -736,6 +750,11 @@ function readCheckpoint(file: string): FusionRunCheckpoint | null {
       boundedString(m.instructions, CHECKPOINT_MAX_BYTES) && stringList(m.files, CHECKPOINT_MAX_BYTES, CHECKPOINT_MAX_BYTES))))
   ) {
     return null;
+  }
+  // The criteria texts are an extra (issue #87): a malformed list is dropped, not the run.
+  if (c.criteria !== undefined && (!Array.isArray(c.criteria) || c.criteria.length > 64 ||
+    !c.criteria.every((x) => record(x) && boundedString(x.id, 64) && boundedString(x.text, CHECKPOINT_MAX_BYTES)))) {
+    delete c.criteria;
   }
   for (const task of c.tasks) {
     if (task.result?.artifactManifest !== undefined) {

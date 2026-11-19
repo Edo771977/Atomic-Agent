@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -11,6 +14,7 @@ import {
   type FusionDelegateDeps,
 } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
+import { FusionRunStore } from "./run-checkpoint.js";
 import { TurnBudgetExhaustedError, findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
 import { fanoutSpend, WorkerRunCollector } from "./worker-result.js";
 
@@ -744,5 +748,255 @@ describe("turn-cap request refusals (issue #29)", () => {
     const inner = new TurnBudgetExhaustedError({ capUsd: 1, accountedUsd: 1.13, heldUsd: 0, requestUsd: 0 });
     expect(findTurnBudgetExhaustedError(new Error("wrapped", { cause: inner }))).toBe(inner);
     expect(findTurnBudgetExhaustedError(new Error("other"))).toBeNull();
+  });
+});
+
+describe("a resume is admitted on the tasks it will run (issue #87)", () => {
+  type Task = { id: string; title: string; instructions: string; model?: string };
+  /** An interrupted run of `tasks` in a fresh store: `carried` finished, `pending` touched a side effect. */
+  function interrupted(tasks: Task[], carried: string[], pending: string[] = []) {
+    const dir = mkdtempSync(join(tmpdir(), "resume-caps-"));
+    const store = new FusionRunStore({ dir });
+    const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks, waveCount: 1, args: { tasks } });
+    for (const id of pending) run.noteTool(id, "deploy.push");
+    for (const id of carried) {
+      run.recordTask({ id, title: id, status: "ok", reply: "done before the restart", stepCount: 1, durationMs: 5,
+        tools: { calls: 0, errors: 0, writes: 0, byTool: {} } });
+    }
+    run.finish("interrupted");
+    return { store, runId: run.runId, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+  const task = (id: string, model?: string): Task => ({ id, title: id, instructions: `do ${id}`, ...(model === undefined ? {} : { model }) });
+
+  it("a two-task checkpoint with one carried task and room for one more: only the unfinished one starts and counts", async () => {
+    const r = interrupted([task("t1"), task("t2")], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.counts("s-parent").tasks).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("the orchestrator cap counts only the orchestrator tasks it will run", async () => {
+    const r = interrupted([task("o1", "orchestrator"), task("o2", "orchestrator")], ["o1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.orchestratorTasks("s-parent")).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("a row awaiting the person's confirmation is not counted", async () => {
+    const r = interrupted([task("t1"), task("t2")], [], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.counts("s-parent").tasks).toBe(1);
+    } finally { r.cleanup(); }
+  });
+
+  it("with the orchestrator target off, a resume whose only orchestrator row is carried is admitted", async () => {
+    const r = interrupted([task("o1", "orchestrator"), task("w1")], ["o1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 0 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.orchestratorTasks("s-parent")).toBe(0);
+    } finally { r.cleanup(); }
+  });
+
+  it("a resume that really is over the cap is still refused", async () => {
+    const r = interrupted([task("t1"), task("t2"), task("t3")], ["t1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxTasksPerTurn: 1 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(0);
+      expect(result.details).toMatchObject({ reason: "turn-count", kind: "tasks" });
+      const o = interrupted([task("o1", "orchestrator"), task("o2", "orchestrator"), task("o3", "orchestrator")], ["o1"]);
+      try {
+        const d2 = deps({ turnBudget: budget, runCheckpoints: o.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 1 }) });
+        const again = await buildFusionDelegateTool(d2).run({ resume: o.runId }, ctx());
+        expect(d2.turns).toBe(0);
+        expect(again.details).toMatchObject({ reason: "turn-count", kind: "orchestrator-tasks" });
+      } finally { o.cleanup(); }
+    } finally { r.cleanup(); }
+  });
+});
+
+describe("a retried resume imports the checkpoint's spend once (issue #87)", () => {
+  const tasks = [{ id: "t1", title: "t1", instructions: "do t1" }];
+  /** An interrupted run whose checkpoint already holds `spentUsd`, with t1 left to run. */
+  function interrupted(spentUsd: number) {
+    const dir = mkdtempSync(join(tmpdir(), "resume-spend-"));
+    const store = new FusionRunStore({ dir });
+    const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks, waveCount: 1, args: { tasks } });
+    run.addSpend(spentUsd);
+    run.finish("interrupted");
+    return { store, runId: run.runId, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+  /** Approvals answered in turn from `answers` (false: the person said no, or it timed out). */
+  function withApprovals(budget: FusionTurnBudget, store: FusionRunStore, answers: boolean[]) {
+    const d = deps({
+      turnBudget: budget,
+      runCheckpoints: store,
+      approvalRequired: true,
+      resolveRunMode: () => mode({ turnBudgetUsd: 1 }),
+      approvals: {
+        setSessionPolicy: () => {},
+        clearSessionPolicy: () => {},
+        fanoutScopes: new FanoutScopeRegistry(),
+        request: async () => ({ approved: answers.shift() ?? false }),
+      } as never,
+    });
+    // $0.20 per worker (200k prompt tokens at $1/M).
+    d.runTurn = (async (_s: unknown, _m: string, options: Parameters<FusionDelegateDeps["runTurn"]>[2]) => {
+      d.turns += 1;
+      options.eventHook?.(completedEvent(200_000));
+      return { session: createEmptySessionState({ id: "s-w", workingDir: "/repo" }), reason: "reply", stepCount: 1 } as RunTurnResult;
+    }) as FusionDelegateDeps["runTurn"];
+    return d;
+  }
+
+  it("a timed-out approval then a retry in the same turn: $0.60 counted once, the retry runs on the true remainder", async () => {
+    const r = interrupted(0.6);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = withApprovals(budget, r.store, [false, true]);
+      const tool = buildFusionDelegateTool(d);
+      const denied = await tool.run({ resume: r.runId }, ctx());
+      expect(denied.status).toBe("error");
+      expect(d.turns).toBe(0);
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.6);
+      const retry = await tool.run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(1);
+      expect(retry.details.turnBudget).toBeUndefined();
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.8);
+      expect((retry.details.resume as { carriedSpendUsd: number }).carriedSpendUsd).toBeCloseTo(0.6);
+    } finally { r.cleanup(); }
+  });
+
+  it("new spend on the checkpoint since the last import adds only the increment", async () => {
+    const r = interrupted(0.6);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = withApprovals(budget, r.store, [false, false, true]);
+      const tool = buildFusionDelegateTool(d);
+      await tool.run({ resume: r.runId }, ctx());
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.6);
+      const advanced = r.store.load(r.runId)!;
+      r.store.write({ ...advanced, spentUsd: 0.7 });
+      await tool.run({ resume: r.runId }, ctx());
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.7);
+      await tool.run({ resume: r.runId }, ctx());
+      expect(d.turns).toBe(1);
+      expect(budget.workerSpend("s-parent")).toBeCloseTo(0.9);
+    } finally { r.cleanup(); }
+  });
+});
+
+describe("a resume imports only what the turn has not counted for its run (issue #87)", () => {
+  const two = [{ id: "t1", title: "t1", instructions: "do t1" }, { id: "t2", title: "t2", instructions: "do t2" }];
+  /** The production accounting path: a request cap, each worker request settled through the seam at $0.10 while its priced event says $0.20. */
+  function production(budget: FusionTurnBudget, store: FusionRunStore, onTurn: (n: number) => void = () => {}) {
+    const d = deps({ turnBudget: budget, runCheckpoints: store, requestBudgetAccounting: true, resolveRunMode: () => mode({ turnBudgetUsd: 1 }) });
+    d.runTurn = (async (_s: unknown, _m: string, options: Parameters<FusionDelegateDeps["runTurn"]>[2]) => {
+      d.turns += 1;
+      budget.reserveRequest("s-parent", 0.1).settle(0.1);
+      options.eventHook?.(completedEvent(200_000));
+      onTurn(d.turns);
+      return { session: createEmptySessionState({ id: "s-w", workingDir: "/repo" }), reason: "reply", stepCount: 1 } as RunTurnResult;
+    }) as FusionDelegateDeps["runTurn"];
+    return d;
+  }
+  const counted = (budget: FusionTurnBudget): number => budget.check("s-parent", { usd: 1e-9 })!.spentUsd;
+
+  it("a fan-out cut off mid-run records what the cap counted, not the checkpoint's figure", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-counted-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const controller = new AbortController();
+      const d = production(budget, store, (n) => { if (n === 1) controller.abort(); });
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ tasks: two }, { ...ctx(), signal: controller.signal });
+      const runId = first.details.runId as string;
+      // The cap saw $0.10; the checkpoint priced the worker at $0.20.
+      expect(counted(budget)).toBeCloseTo(0.1);
+      expect(store.load(runId)!.spentUsd).toBeCloseTo(0.2);
+      // Resumed in the same turn: the $0.10 the cap never saw is counted now, then t2's request.
+      await tool.run({ resume: runId }, ctx());
+      expect(d.turns).toBe(2);
+      expect(counted(budget)).toBeCloseTo(0.3);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("the confirm flow: rows awaiting a yes keep the run interrupted; the confirm-resume in the same turn counts nothing twice", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-confirm-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks: two, waveCount: 1, args: { tasks: two } });
+      run.addSpend(0.6);
+      run.noteTool("t2", "deploy.push");
+      run.finish("interrupted");
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const d = production(budget, store);
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ resume: run.runId }, ctx());
+      expect((first.details.resume as { needsConfirmation: string[] }).needsConfirmation).toEqual(["t2"]);
+      expect(store.load(run.runId)!.state).toBe("interrupted");
+      expect(d.turns).toBe(1);
+      // $0.60 carried + t1's $0.10 request; the checkpoint now reads $0.80 (t1 priced at $0.20).
+      expect(counted(budget)).toBeCloseTo(0.7);
+      expect(store.load(run.runId)!.spentUsd).toBeCloseTo(0.8);
+      await tool.run({ resume: run.runId, confirm: ["t2"] }, ctx());
+      expect(d.turns).toBe(2);
+      // Only the $0.10 the cap had not seen, then t2's request: nothing of the $0.60 again.
+      expect(counted(budget)).toBeCloseTo(0.9);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("a cancelled fan-out that unwinds after the next turn began records nothing into that turn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-turns-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const controller = new AbortController();
+      const d = production(budget, store, (n) => {
+        if (n !== 1) return;
+        // The person stopped the turn; the next one starts (and spends) before this fan-out unwinds.
+        budget.begin("s-parent", 0, { usd: 1 });
+        budget.reserveRequest("s-parent", 0.1).settle(0.1);
+        controller.abort();
+      });
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ tasks: two }, { ...ctx(), signal: controller.signal });
+      const runId = first.details.runId as string;
+      expect(counted(budget)).toBeCloseTo(0.1);
+      // The new turn resumes the run: all $0.20 on its checkpoint is new to this turn.
+      await tool.run({ resume: runId }, ctx());
+      expect(counted(budget)).toBeCloseTo(0.4);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

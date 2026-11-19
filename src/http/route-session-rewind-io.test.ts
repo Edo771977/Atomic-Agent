@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -327,6 +327,111 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(await copies(store)).toEqual([a, b, c]);
   });
 
+  /** seed, plus created.txt that the agent made in that turn. */
+  async function seedWithCreated(): Promise<{ a: string; b: string; created: string; store: FileCheckpointStore }> {
+    const seeded = await seed();
+    const created = join(harness.workingDir, "created.txt");
+    await seeded.store.capture("rw-io", created, "os.fs.write");
+    writeFileSync(created, "made by the agent");
+    return { ...seeded, created };
+  }
+
+  it("a file to delete replaced by same-size bytes with its mtime kept changes the planHash (issue #87)", async () => {
+    const { a, created, store } = await seedWithCreated();
+    // A whole-second mtime, so it can be put back exactly.
+    utimesSync(created, 1_700_000_000, 1_700_000_000);
+    const before = statSync(created);
+    const planHash = await previewHash({});
+    writeFileSync(created, "made by the human");
+    utimesSync(created, 1_700_000_000, 1_700_000_000);
+    const after = statSync(created);
+    expect([after.size, after.mtimeMs, after.ino]).toEqual([before.size, before.mtimeMs, before.ino]);
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: planHash }));
+    expect(readFileSync(created, "utf8")).toBe("made by the human");
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toHaveLength(3);
+  });
+
+  it("a file to delete that cannot be read is fingerprinted by stat and the preview says so (issue #87)", async () => {
+    const { created } = await seedWithCreated();
+    io.failRead.add(created);
+    const res = await post("rw-io/rewind/preview", point);
+    const body = (await res.json()) as { files: unknown[]; planHash: string };
+    expect(body.files).toContainEqual({ path: created, action: "delete", contentUnchecked: true, contentUncheckedReason: "unreadable" });
+    writeFileSync(created, "a longer replacement written by the person");
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: body.planHash }));
+    expect(readFileSync(created, "utf8")).toBe("a longer replacement written by the person");
+    // Readable again: the preview no longer flags it.
+    io.failRead.clear();
+    const again = (await (await post("rw-io/rewind/preview", point)).json()) as { files: unknown[] };
+    expect(again.files).toContainEqual({ path: created, action: "delete" });
+  });
+
+  /** Another client completes a question and its reply on the chat, touching no file. */
+  const anotherTurn = () => {
+    const latest = harness.runtime.sessionStore.load("rw-io")!;
+    harness.runtime.sessionStore.save({
+      ...latest,
+      turns: [...latest.turns, { kind: "user", text: "from telegram", at: 300 }, { kind: "assistant_reply", text: "answered", at: 310 }],
+      turnCount: latest.turnCount + 1,
+      macroTurnStarts: [...(latest.macroTurnStarts ?? []), latest.turns.length + 2],
+    });
+  };
+
+  it.each([
+    ["with its files", {}],
+    ["conversation only (files: false)", { files: false }],
+  ])("a turn added after the preview refuses an old confirmation, %s (issue #87)", async (_label, extra) => {
+    const { a, b, store } = await seed();
+    const res = await post("rw-io/rewind/preview", point);
+    const { planHash, transcriptRev } = (await res.json()) as { planHash: string; transcriptRev: unknown };
+    expect(typeof transcriptRev).toBe("string");
+    anotherTurn();
+    const confirm = "files" in extra ? { expectTranscriptRev: transcriptRev } : { expectPlanHash: planHash };
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, ...extra, ...confirm }));
+    expect(turns()).toBe(6);
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(b, "utf8")).toBe("b1");
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
+  it("a title or other metadata change after the preview does not invalidate it (issue #87)", async () => {
+    await seed();
+    const res = await post("rw-io/rewind/preview", point);
+    const { planHash, transcriptRev } = (await res.json()) as { planHash: string; transcriptRev: string };
+    const latest = harness.runtime.sessionStore.load("rw-io")!;
+    harness.runtime.sessionStore.save({ ...latest, metadata: { ...latest.metadata, title: "renamed", note: "x" }, updatedAt: latest.updatedAt + 5 });
+    const ok = await post("rw-io/rewind", { ...point, expectPlanHash: planHash, expectTranscriptRev: transcriptRev });
+    expect(ok.status).toBe(200);
+    expect(turns()).toBe(2);
+  });
+
+  it("expectTranscriptRev is validated (issue #87)", async () => {
+    await seed();
+    for (const expectTranscriptRev of ["", 3, "x".repeat(201)]) {
+      const res = await post("rw-io/rewind", { ...point, files: false, expectTranscriptRev });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { param: string } }).error.param).toBe("expectTranscriptRev");
+    }
+    expect(turns()).toBe(4);
+  });
+
+  it("a damaged saved copy leaves the file as it is and the rollback answers restore_failed (issue #87)", async () => {
+    const { a, b, store } = await seed();
+    const entry = (await store.since("rw-io", 200)).entries.find((e) => e.path === a)!;
+    writeFileSync(join(store.sessionDir("rw-io"), entry.file!), "zz");
+    const preview = (await (await post("rw-io/rewind/preview", point)).json()) as { files: unknown[] };
+    expect(preview.files).toContainEqual({ path: a, action: "restore", error: "saved copy is damaged" });
+    const res = await post("rw-io/rewind", point);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: "restore_failed" }, restored: [b], failed: [{ path: a, error: "saved copy is damaged" }] });
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
   it("skip is part of the planHash, and expectPlanHash is validated (issue #83)", async () => {
     const { a, b } = await seed();
     const all = await previewHash({});
@@ -342,6 +447,20 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(res.status).toBe(200);
     expect(readFileSync(a, "utf8")).toBe("a0");
     expect(readFileSync(b, "utf8")).toBe("b1");
+  });
+
+  it("the 400 skip_unknown answer lists the unknown paths as sent, in the preview and the rollback (issue #87)", async () => {
+    const { a } = await seed();
+    const unknown = [join(harness.workingDir, "a, b.txt"), "./nowhere//x.txt"];
+    for (const route of ["rw-io/rewind/preview", "rw-io/rewind"]) {
+      const res = await post(route, { ...point, skip: [a, ...unknown] });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string }; unknownSkip: unknown };
+      expect(body.error.code).toBe("skip_unknown");
+      expect(body.unknownSkip).toEqual(unknown);
+    }
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
   });
 
   it("refuses a malformed skip with 400 on skip and changes nothing", async () => {

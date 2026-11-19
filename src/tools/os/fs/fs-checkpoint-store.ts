@@ -68,6 +68,8 @@ export interface CheckpointEntry {
   sha256?: string;
   /** Set when the path existed but no copy was taken. */
   skipped?: CheckpointSkip;
+  /** A move destination: the source path the file comes from (issue #87 review). */
+  movedFrom?: string;
 }
 
 interface CheckpointIndex {
@@ -118,7 +120,7 @@ export class FileCheckpointStore {
    * Record what `absolute` holds now, before a tool changes it. Never
    * throws: a checkpoint that cannot be taken must not stop the tool.
    */
-  async capture(sessionId: string, absolute: string, tool: string): Promise<void> {
+  async capture(sessionId: string, absolute: string, tool: string, extra: { movedFrom?: string } = {}): Promise<void> {
     try {
       if (!this.pruned) {
         this.pruned = true;
@@ -133,6 +135,7 @@ export class FileCheckpointStore {
         const n = index.next;
         const entry: CheckpointEntry = { n, path: absolute, at, tool, existed: before.existed };
         if (before.skipped !== undefined) entry.skipped = before.skipped;
+        if (extra.movedFrom !== undefined) entry.movedFrom = extra.movedFrom;
         if (before.content !== undefined) {
           entry.file = `${n}.bin`;
           entry.bytes = before.content.byteLength;
