@@ -154,10 +154,14 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     });
     if (outcome.refused !== undefined) {
       if (outcome.done === undefined) return refuse(res, outcome.refused);
-      // Files were already put back; the chat was not cut. Say both.
+      // Files were already put back; the chat was not cut. Say both:
+      // unlike every other 409 here, this one changed something.
       sendJson(res, 409, {
         ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
+        partial: true,
         ...outcome.done,
+        notRestorable: restoreFiles ? notRestorable : [],
+        incomplete: restoreFiles && files.incomplete,
       });
       return;
     }

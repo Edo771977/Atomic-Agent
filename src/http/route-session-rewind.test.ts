@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -203,6 +203,38 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { param: string } }).error.param).toBe("acceptFailed");
     expect(readFileSync(a, "utf8")).toBe("v2");
+    expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
+  });
+
+  it("a write that fails (folder replaced by a file) answers a partial 409 with the plan's notes (issue #77)", async () => {
+    seed();
+    const sub = join(harness.workingDir, "sub");
+    const x = join(sub, "x.txt");
+    const c = join(harness.workingDir, "c.txt");
+    mkdirSync(sub);
+    writeFileSync(x, "x0");
+    writeFileSync(c, "c0");
+    const store = new FileCheckpointStore(fileCheckpointsRoot(harness.runtime.config.paths.stateDir), () => 210);
+    await store.capture("rw-1", x, "os.fs.edit");
+    writeFileSync(x, "x1");
+    await store.capture("rw-1", c, "os.fs.edit");
+    writeFileSync(c, "c1");
+    // The person then replaced the folder with a file.
+    rmSync(sub, { recursive: true });
+    writeFileSync(sub, "now a file");
+    const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: { code: "restore_failed" },
+      partial: true,
+      restored: [c],
+      deleted: [],
+      failed: [{ path: x }],
+      notRestorable: [],
+      incomplete: false,
+    });
+    expect(readFileSync(sub, "utf8")).toBe("now a file");
+    expect(readFileSync(c, "utf8")).toBe("c0");
     expect(harness.runtime.sessionStore.load("rw-1")?.turns).toHaveLength(10);
   });
 
