@@ -286,7 +286,9 @@ async function rewindLoadPreview() {
 /** Issue #80: "Check again" after a partial restore: drop the old preview and the notice, and show a fresh one. */
 function rewindRecheck() {
   if (!REWIND.afterPartial || REWIND.busy) return;
-  Object.assign(REWIND, {partial: null, partialCode: null, afterPartial: false, error: null, skip: [], preview: null, loading: true});
+  // The files the person chose to leave alone stay chosen (issue #80 review): the fresh preview marks them
+  // and the confirm sends them as skip. They go only when the sheet is opened again.
+  Object.assign(REWIND, {partial: null, partialCode: null, afterPartial: false, error: null, preview: null, loading: true});
   render();
   return rewindLoadPreview();
 }
@@ -301,7 +303,12 @@ function rewindSheetHTML() {
   if (REWIND.error) body += '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">' + esc(REWIND.error) + '</span></div>';
   if (REWIND.partial) body += rewindPartialHTML(REWIND.partial, REWIND.mode, typeof WORKSPACE === 'string' ? WORKSPACE : '', REWIND.partialCode);
   if (REWIND.loading) body += '<div class="tk-empty"><span class="tk-spin"></span><p>Checking what will change…</p></div>';
-  const s = REWIND.preview ? rewindSummary(REWIND.preview, typeof WORKSPACE === 'string' ? WORKSPACE : '') : null;
+  // Issue #80: files chosen to be left alone (REWIND.skip) are not listed as changing; they are marked instead.
+  const keep = new Set(Array.isArray(REWIND.skip) ? REWIND.skip : []);
+  const allFiles = REWIND.preview && Array.isArray(REWIND.preview.files) ? REWIND.preview.files : [];
+  const kept = allFiles.filter((f) => f && keep.has(f.path)).map((f) => rewindPathLabel(f.path, typeof WORKSPACE === 'string' ? WORKSPACE : ''));
+  const shownPreview = REWIND.preview && kept.length ? Object.assign({}, REWIND.preview, {files: allFiles.filter((f) => !(f && keep.has(f.path)))}) : REWIND.preview;
+  const s = shownPreview ? rewindSummary(shownPreview, typeof WORKSPACE === 'string' ? WORKSPACE : '') : null;
   if (s && !rewindShowsFiles(REWIND.mode, s)) body += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
   else if (s) {
     const list = (title, items) => items.length
@@ -309,7 +316,8 @@ function rewindSheetHTML() {
       : '';
     body += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
     body += (s.restore.length || s.remove.length) ? '' : '<p class="sd-cap">No files will change.</p>';
-    body += list('Put back as they were', s.restore) + list('Removed (the agent created them)', s.remove) + list('Cannot be put back', s.cannot);
+    body += list('Put back as they were', s.restore) + list('Removed (the agent created them)', s.remove) + list('Cannot be put back', s.cannot)
+      + list('Left as they are (you chose this)', kept);
     body += s.warnings.map((w) => '<div class="tk-notice tk-notice--amber">' + ic('alert') + '<span class="grow">' + esc(w) + '</span></div>').join('');
   }
   const disabled = REWIND.loading || REWIND.busy || (!REWIND.preview && !REWIND.afterPartial);
@@ -350,7 +358,9 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (typed || (typeof ATT !== 'undefined' && ATT.items.length)) { REWIND.error = 'Your draft is in the way. Send or clear the composer first.'; render(); return; }
   const sid = REWIND.sid;
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
-  const skipping = Array.isArray(skip) && skip.length ? skip : null;
+  // Issue #80 review: after Check again, the files chosen to be left alone go with the confirm too.
+  const chosen = files !== false && Array.isArray(REWIND.skip) && REWIND.skip.length ? REWIND.skip : null;
+  const skipping = Array.isArray(skip) && skip.length ? skip : acceptFailed === true ? null : chosen;
   if (skipping) REWIND.skip = skipping;
   const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
     : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];

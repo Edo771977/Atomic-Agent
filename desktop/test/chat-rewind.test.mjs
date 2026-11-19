@@ -510,7 +510,7 @@ for (const [label, second] of [
 ]) {
   for (const mode of ["back", "edit"]) {
     test(`${mode}: after Continue, a refusal that is not partial (${label}) keeps Check again only, and nothing plain is sent`, async () => {
-      const calls = ipcWindow(mode, { rewind: [PARTIAL_409(FIRST_FAILED), second], preview: [FILES_PREVIEW] });
+      const calls = ipcWindow(mode, { rewind: [PARTIAL_409(FIRST_FAILED), second], preview: [{ status: 200, body: FILES_PREVIEW }] });
       await R.rewindAct("go");
       await R.rewindAct("go-skip");
       assert.equal(agentBodies(calls).length, 2);
@@ -615,3 +615,35 @@ test("a late rollback answer is ignored by a sheet opened meanwhile", async () =
   await R.rewindAct("go-skip");
   assert.equal(calls.filter((c) => c[0] === "rewind").length, 1);
 });
+
+// Issue #80 review: "Check again" dropped the person's skips silently, so the fresh preview listed those
+// files under "Put back" and the next Roll back overwrote them.
+for (const mode of ["back", "edit"]) {
+  test(`${mode}: Check again keeps the files chosen to be left alone, marks them, and sends them as skip`, async () => {
+    const fresh = { removed: { questions: 1, replies: 1 }, notRestorable: [], uncovered: [],
+      files: [{ path: "/w/src/a.ts", action: "restore" }, { path: "/w/locked.txt", action: "restore" }, { path: "/w/dir/a.txt", action: "delete" }] };
+    const calls = ipcWindow(mode, {
+      rewind: [PARTIAL_409(FIRST_FAILED), { status: 409, body: { error: { code: "point_mismatch", message: "changed" } } },
+        { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } }],
+      preview: [{ status: 200, body: fresh }],
+    });
+    await R.rewindAct("go");
+    await R.rewindAct("go-skip");
+    await R.rewindAct("recheck");
+    const html = R.rewindSheetHTML();
+    const kept = html.split("Left as they are (you chose this)")[1];
+    assert.ok(kept, "the files chosen to be left alone are not marked");
+    assert.match(kept, /locked\.txt/);
+    assert.match(kept, /dir\/a\.txt/);
+    const putBack = html.split("Put back as they were")[1].split("</div></div>")[0];
+    assert.doesNotMatch(putBack, /locked\.txt/, "a skipped file is listed as put back");
+    await R.rewindAct("go");
+    assert.deepEqual(agentBodies(calls)[2].skip, ["/w/locked.txt", "/w/dir/a.txt"]);
+    // Opening the sheet again drops them.
+    globalThis.S.log = [{ id: "u1", k: "user", text: "old text" }];
+    globalThis.priorQuestions = () => 1;
+    globalThis.S.overlay = null;
+    R.rewindAct("back:u1");
+    assert.deepEqual([...R.REWIND.skip], []);
+  });
+}
