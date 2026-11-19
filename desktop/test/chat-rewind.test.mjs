@@ -1019,3 +1019,25 @@ test("the skip confirm and Check again's confirm send their own preview's transc
   await R.rewindAct("go");
   assert.equal(agentBodies(calls)[1].expectTranscriptRev, "rev-fresh");
 });
+
+// Issue #87 review: after Continue, the list sent was the earlier skips plus the files that had just
+// failed; recovering from skip_unknown filtered only the earlier ones, so a just-failed file was put back.
+test("skip_unknown on Continue: dropping the unknown path keeps the files that had just failed left out", async () => {
+  const calls = ipcWindow("back", {
+    rewind: [PARTIAL_409([{ path: "/w/locked.txt", error: "EBUSY" }]),
+      PARTIAL_409([{ path: "/w/late.txt", error: "EACCES" }], { skipped: ["/w/locked.txt"] })],
+    skipPreview: [
+      { status: 200, body: { removed: { questions: 1, replies: 1 }, files: [], notRestorable: [], uncovered: [], skipped: ["/w/locked.txt"] } },
+      SKIP_UNKNOWN(["/w/locked.txt"]),
+      { status: 200, body: { ...FILES_PREVIEW, skipped: ["/w/late.txt"], planHash: "ok" } },
+    ],
+  });
+  await R.rewindAct("go");
+  await continueSkip();
+  // Continue again: [locked.txt, late.txt]; the agent no longer knows locked.txt.
+  await R.rewindAct("go-skip");
+  assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/locked.txt", "/w/late.txt"]);
+  await R.rewindAct("skip-drop-unknown");
+  assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/late.txt"], "late.txt would be put back");
+  assert.equal(agentBodies(calls).length, 2);
+});

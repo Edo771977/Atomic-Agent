@@ -392,7 +392,8 @@ function rewindUnknownSkip(r, sent) {
 /** Issue #87: a preview or rollback with skip `sent` answered skip_unknown: the sheet offers to stop leaving those out. */
 function rewindNoteSkipUnknown(r, sent) {
   if (!r || r.code !== 'skip_unknown') return false;
-  REWIND.skipUnknown = {unknown: rewindUnknownSkip(r, sent)};
+  // `sent`: the list the agent refused, which after Continue holds the files that had just failed too.
+  REWIND.skipUnknown = {unknown: rewindUnknownSkip(r, sent), sent: (Array.isArray(sent) ? sent : []).slice()};
   REWIND.skipPreview = null; REWIND.skipPending = null;
   return true;
 }
@@ -403,7 +404,9 @@ function rewindNoteSkipUnknown(r, sent) {
 function rewindDropSkips(which) {
   if (!REWIND.skipUnknown || REWIND.busy || REWIND.loading) return;
   const unknown = new Set(REWIND.skipUnknown.unknown);
-  REWIND.skip = which === 'all' ? [] : (Array.isArray(REWIND.skip) ? REWIND.skip : []).filter((p) => !unknown.has(p));
+  // Issue #87 review: from the list that was sent (rewindNoteSkipUnknown), not only the earlier skips.
+  const sent = REWIND.skipUnknown.sent.length ? REWIND.skipUnknown.sent : (Array.isArray(REWIND.skip) ? REWIND.skip : []);
+  REWIND.skip = which === 'all' ? [] : sent.filter((p) => !unknown.has(p));
   Object.assign(REWIND, {skipUnknown: null, error: null, partial: null, partialCode: null, afterPartial: false,
     skipPreview: null, skipPending: null, preview: null, loading: true});
   render();
