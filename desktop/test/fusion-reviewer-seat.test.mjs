@@ -655,3 +655,22 @@ test("renderer.js counts a chat put on screen for the Reviewer seat, and Clear T
   const clear = renderer.slice(renderer.indexOf("S.log = liveClearedLog(); S.history = [];") - 600, renderer.indexOf("S.log = liveClearedLog(); S.history = [];") + 200);
   assert.doesNotMatch(clear, /fzrScreenChanged/);
 });
+
+// Issue #87 review: a BR.chat that rejected left the dispatch token set, so later adds were swallowed.
+test("live: a send that rejects gives the pick back, and a later add is the new chat's", async () => {
+  const { c, chats, settle } = liveContext();
+  await c.fzrAct("pick:none");
+  c.startLiveTurn("A's first message");
+  assert.deepEqual(chats[0].team, { reviewer: "none" });
+  chats[0].reject();
+  await settle(); await settle();
+  assert.equal(vm.runInContext("FZR.newDispatch", c), null, "the rejected send's token is still pending");
+  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "none" });
+  await c.fzrAct("add:anthropic:model-a");
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });  // Another chat on screen (session:new, openSession, a new agent) lets go of a waiting first turn too.
+  c.startLiveTurn("a second new chat");
+  assert.ok(vm.runInContext("FZR.newDispatch", c));
+  c.fzrScreenChanged();
+  assert.equal(vm.runInContext("FZR.newDispatch", c), null);
+});

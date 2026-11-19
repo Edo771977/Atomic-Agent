@@ -348,6 +348,8 @@ function fzrScreenDispatch() {
  */
 function fzrScreenChanged() {
   FZR.screen++;
+  // The waiting turn is not this screen's: nothing started here joins it (its token still re-keys on the answer).
+  FZR.newDispatch = null; FZR.newDispatchScreen = null;
 }
 /** Issue #87: the send's answer named the turn: what the dispatch token held is the turn id's. */
 function fzrRekeyTurn(token, turnId) {

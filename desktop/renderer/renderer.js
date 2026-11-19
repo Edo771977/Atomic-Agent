@@ -10470,6 +10470,10 @@ function startLiveTurn(text) {
     projectNoteTurn(res.turnId, forProject);   // W2 QA: a new chat in a project with no disk folder is filed once it has an id
     liveTurnStarted(res.turnId, live, session || null);   // Item 38
     renderSidebar();
+  }, (err) => {
+    // Issue #87 review: a send that never answered (BR.chat rejected) leaves no turn either.
+    fzrTurnUndispatched(fzrToken);
+    if (typeof console !== 'undefined') console.error('the turn could not be sent', err);
   });
 }
 
