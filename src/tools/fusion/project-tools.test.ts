@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { parse, resolve } from "node:path";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
-import type { ProjectState, ProjectUpdate } from "../../session/session-project.js";
+import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { PRESET_REASON, estimateRow } from "./project-estimate.js";
@@ -334,5 +334,33 @@ describe("project tools in a folder too broad for a project (issue #53)", () => 
         expect(result.details[PROJECT_UPDATE_DETAIL]).toBeUndefined();
       }
     }
+  });
+});
+
+describe("project.plan tells the person which verdicts a re-plan resets (issue #77)", () => {
+  const fold = (p: ProjectState | undefined, u: ProjectUpdate): ProjectState => {
+    const r = applyProjectUpdate(p, u, NOW);
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const approve = (p: ProjectState): ProjectState => {
+    const r = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now: NOW });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const args = (boardTitle: string) => ({
+    milestones: [{ id: "base", title: "Board and snake", kind: "base" }, { id: "ui", title: "Score and menus", kind: "ui" }],
+    tasks: [{ id: "board", title: boardTitle, milestone: "base" }, { id: "score", title: "Score panel", milestone: "ui" }],
+  });
+
+  it("names a reviewed milestone whose work changed, and none for an editorial re-plan", async () => {
+    const first = await tools().plan.run(args("Draw the board"), ctx);
+    let project = approve(fold(approve(fold(undefined, { kind: "brief", brief: { ...briefArgs }, draftedAfterUntrusted: false })), first.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate));
+    project = fold(project, { kind: "milestone_run", id: "base", runId: "r1" });
+    project = approve(fold(project, { kind: "milestone", id: "base", state: "done", summary: "Board drawn" }));
+    const changed = await tools().plan.run(args("Draw a hex board"), { ...ctx, project });
+    expect(changed.summary).toContain("verdict reset: Board and snake");
+    const editorial = await tools().plan.run(args("draw the  board"), { ...ctx, project });
+    expect(editorial.summary).not.toContain("verdict reset");
   });
 });
