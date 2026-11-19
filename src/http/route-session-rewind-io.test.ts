@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -325,6 +325,47 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(readFileSync(c, "utf8")).toBe("c1");
     expect(turns()).toBe(4);
     expect(await copies(store)).toEqual([a, b, c]);
+  });
+
+  /** seed, plus created.txt that the agent made in that turn. */
+  async function seedWithCreated(): Promise<{ a: string; b: string; created: string; store: FileCheckpointStore }> {
+    const seeded = await seed();
+    const created = join(harness.workingDir, "created.txt");
+    await seeded.store.capture("rw-io", created, "os.fs.write");
+    writeFileSync(created, "made by the agent");
+    return { ...seeded, created };
+  }
+
+  it("a file to delete replaced by same-size bytes with its mtime kept changes the planHash (issue #87)", async () => {
+    const { a, created, store } = await seedWithCreated();
+    // A whole-second mtime, so it can be put back exactly.
+    utimesSync(created, 1_700_000_000, 1_700_000_000);
+    const before = statSync(created);
+    const planHash = await previewHash({});
+    writeFileSync(created, "made by the human");
+    utimesSync(created, 1_700_000_000, 1_700_000_000);
+    const after = statSync(created);
+    expect([after.size, after.mtimeMs, after.ino]).toEqual([before.size, before.mtimeMs, before.ino]);
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: planHash }));
+    expect(readFileSync(created, "utf8")).toBe("made by the human");
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toHaveLength(3);
+  });
+
+  it("a file to delete that cannot be read is fingerprinted by stat and the preview says so (issue #87)", async () => {
+    const { created } = await seedWithCreated();
+    io.failRead.add(created);
+    const res = await post("rw-io/rewind/preview", point);
+    const body = (await res.json()) as { files: unknown[]; planHash: string };
+    expect(body.files).toContainEqual({ path: created, action: "delete", contentUnchecked: true });
+    writeFileSync(created, "a longer replacement written by the person");
+    await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: body.planHash }));
+    expect(readFileSync(created, "utf8")).toBe("a longer replacement written by the person");
+    // Readable again: the preview no longer flags it.
+    io.failRead.clear();
+    const again = (await (await post("rw-io/rewind/preview", point)).json()) as { files: unknown[] };
+    expect(again.files).toContainEqual({ path: created, action: "delete" });
   });
 
   it("skip is part of the planHash, and expectPlanHash is validated (issue #83)", async () => {

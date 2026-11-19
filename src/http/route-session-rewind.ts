@@ -131,8 +131,13 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         text,
         removed: removedCounts(removed),
         // `error`: the file could not be checked now; the rollback would report it in `failed` (issue #80).
-        files: files.items.map((item) =>
-          item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
+        // `contentUnchecked`: a file to delete that could not be read, fingerprinted by its stat only (issue #87).
+        files: files.items.map((item) => ({
+          path: item.path,
+          action: item.action,
+          ...(item.blocked !== undefined ? { error: item.blocked } : {}),
+          ...(item.contentUnchecked ? { contentUnchecked: true } : {}),
+        })),
         notRestorable: files.notRestorable,
         incomplete: files.incomplete,
         skipped: files.skipped,

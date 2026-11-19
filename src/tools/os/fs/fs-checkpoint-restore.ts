@@ -30,7 +30,12 @@ export interface FileRestoreItem {
    * alone, and a caller keeps the copies for a retry.
    */
   blocked?: string;
-  /** What the disk holds now, as the plan compared it (a sha, or size and mtime for a delete); part of `restorePlanHash`. */
+  /**
+   * A file to delete whose contents could not be read (issue #87): it is
+   * still removed, and only its stat (size, mtime, inode) fingerprints it.
+   */
+  contentUnchecked?: true;
+  /** What the disk holds now, as the plan compared it (its sha, or for a file to delete that cannot be read its size, mtime and inode); part of `restorePlanHash`. */
   now?: string;
 }
 
@@ -127,7 +132,10 @@ export async function planFileRestore(
     if (!entry.existed) {
       if (now.kind === "missing") continue;
       if (now.kind === "other") notRestorable.push({ path: entry.path, reason: "not_a_file" });
-      else items.push({ path: entry.path, action: "delete", entry, now: describe(now) });
+      else {
+        const unread = now.kind === "file" && now.sha256 === undefined;
+        items.push({ path: entry.path, action: "delete", entry, now: describe(now), ...(unread ? { contentUnchecked: true as const } : {}) });
+      }
       continue;
     }
     if (now.kind === "file" && now.sha256 === entry.sha256) continue;
@@ -141,7 +149,7 @@ export async function planFileRestore(
 }
 
 function describe(now: Current): string {
-  if (now.kind === "file") return now.sha256 !== undefined ? `sha256:${now.sha256}` : `stat:${now.size}:${now.mtimeMs}`;
+  if (now.kind === "file") return now.sha256 !== undefined ? `sha256:${now.sha256}` : `unread-stat:${now.stat}`;
   return now.kind;
 }
 
@@ -245,7 +253,7 @@ function changesFilesUnseen(tool: string): boolean {
 type Current =
   | { kind: "missing" }
   | { kind: "other" }
-  | { kind: "file"; sha256?: string; size?: number; mtimeMs?: number }
+  | { kind: "file"; sha256?: string; stat?: string }
   | { kind: "permanent"; reason: CheckpointSkip }
   | { kind: "blocked"; error: string };
 
@@ -254,7 +262,16 @@ async function currentState(path: string, withContent: boolean): Promise<Current
     // Followed like the capture follows it (`stat`).
     const info = await stat(path);
     if (!info.isFile()) return { kind: "other" };
-    if (!withContent) return { kind: "file", size: info.size, mtimeMs: info.mtimeMs };
+    if (!withContent) {
+      // A file to delete (issue #87): its contents fingerprint it when they
+      // can be read; rm needs no read, so one that cannot be is still
+      // removed and is fingerprinted by stat alone (size, mtime, inode).
+      try {
+        return { kind: "file", sha256: sha256Of(await readFile(path)) };
+      } catch {
+        return { kind: "file", stat: `${info.size}:${info.mtimeMs}:${info.ino}` };
+      }
+    }
     return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
