@@ -344,3 +344,64 @@ test("window: an unusable reviewer cannot be picked, and an older agent shows no
   await old.fzrRefresh("s1");
   assert.equal(old.fzrSeatHTML(), "");
 });
+
+// Issue #77: "Add a reviewer…" resolved the chat after awaiting the config
+// write, so switching chats during the write gave the reviewer to the chat
+// now on screen and none to the one it was added from.
+function delayedWrite(c) {
+  const writes = [];
+  c.BR.fusionTeamWrite = (payload) => new Promise((resolve) => writes.push({ payload, done: () => resolve({ ok: true, changed: true, live: true }) }));
+  return writes;
+}
+
+test("window: Add a reviewer picks it for the chat it was added from, even after a switch during the write", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = "chat-A";
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  // The person opens chat B before the write resolves.
+  c.S.agentSession = "chat-B"; c.S.sessionId = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam("chat-B"), null, "chat B got the reviewer picked in chat A");
+});
+
+test("window: Add a reviewer from a new chat stays the new chat's, or follows it once it is named", async () => {
+  // From a new chat, then chat B opened: the new chat (not B) has it.
+  let c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  let writes = delayedWrite(c);
+  let adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  // The new chat got its id (a queued first message) during the write: that chat has it.
+  c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  writes = delayedWrite(c);
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.fzrAdoptNewChat("waiting-1");
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam("waiting-1") }, { reviewer: "anthropic:model-a" });
+  assert.equal(c.fzrTurnTeam(undefined), null);
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  // The new chat's first turn went out (with an earlier pick) during the write: the turn's chat has it once named.
+  c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:none");
+  writes = delayedWrite(c);
+  adding = c.fzrAct("add:anthropic:model-a");
+  c.fzrTurnSent(undefined, "t1", c.fzrTurnTeam(undefined));
+  c.S.agentSession = "chat-B";
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the first one's reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+});
