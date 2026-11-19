@@ -42,6 +42,8 @@ export interface FileRestorePlan {
   notRestorable: FileNotRestorable[];
   /** Some changes from that point on are no longer kept (the store's bounds). */
   incomplete: boolean;
+  /** Paths left out because the caller asked to skip them (issue #80); never inspected. */
+  skipped: string[];
 }
 
 export interface FileRestoreResult {
@@ -56,6 +58,8 @@ export async function planFileRestore(
   store: Store,
   sessionId: string,
   sinceAt: number,
+  /** Paths, in the form the plan reports them, to leave out unread (issue #80). */
+  skip: ReadonlySet<string> = new Set(),
 ): Promise<FileRestorePlan> {
   const { entries, incomplete } = await store.since(sessionId, sinceAt);
   // The earliest copy of each path is what it held before the point.
@@ -63,7 +67,12 @@ export async function planFileRestore(
   for (const entry of entries) if (!first.has(entry.path)) first.set(entry.path, entry);
   const items: FileRestoreItem[] = [];
   const notRestorable: FileNotRestorable[] = [];
+  const skipped: string[] = [];
   for (const entry of first.values()) {
+    if (skip.has(entry.path)) {
+      skipped.push(entry.path);
+      continue;
+    }
     if (entry.skipped !== undefined) {
       notRestorable.push({ path: entry.path, reason: entry.skipped });
       continue;
@@ -86,7 +95,7 @@ export async function planFileRestore(
     }
     items.push({ path: entry.path, action: "restore", entry });
   }
-  return { items, notRestorable, incomplete };
+  return { items, notRestorable, incomplete, skipped };
 }
 
 /**
@@ -98,7 +107,8 @@ export async function planFileRestore(
 export async function applyFileRestore(
   store: Store,
   sessionId: string,
-  plan: FileRestorePlan,
+  /** Only `items` is carried out; a skipped path is never in them. */
+  plan: Pick<FileRestorePlan, "items"> & Partial<FileRestorePlan>,
 ): Promise<FileRestoreResult> {
   const result: FileRestoreResult = { restored: [], deleted: [], failed: [] };
   for (const item of plan.items) {

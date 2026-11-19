@@ -60,7 +60,7 @@ interface Point {
   priorQuestions: number;
   text: string;
   at: number;
-  body: { files?: unknown; acceptFailed?: unknown };
+  body: { files?: unknown; acceptFailed?: unknown; skip?: unknown };
 }
 
 export function createListRewindPointsHandler(): HttpHandler {
@@ -91,10 +91,16 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       sendError(res, 400, openaiError("acceptFailed must be a boolean", "invalid_request_error", "acceptFailed"));
       return;
     }
+    // Issue #80: files the person chose to leave as they are; never read, written or deleted.
+    const skip = preview ? [] : point.body.skip ?? [];
+    if (!isSkipList(skip)) {
+      sendError(res, 400, openaiError(`skip must be an array of at most ${MAX_SKIP} non-empty paths`, "invalid_request_error", "skip"));
+      return;
+    }
     const plan = planRewind(session, turnIndex);
     if (!plan.ok) return refuse(res, plan.code);
     const store = checkpointStore(ctx);
-    const files = await planFileRestore(store, session.id, at);
+    const files = await planFileRestore(store, session.id, at, new Set(skip));
     const removed = session.turns.slice(turnIndex);
     const notRestorable = files.notRestorable;
     if (preview) {
@@ -164,6 +170,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         ...outcome.done,
         notRestorable: restoreFiles ? notRestorable : [],
         incomplete: restoreFiles && files.incomplete,
+        skipped: restoreFiles ? files.skipped : [],
       });
       return;
     }
@@ -173,8 +180,15 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       ...outcome.done,
       notRestorable: restoreFiles ? notRestorable : [],
       incomplete: restoreFiles && files.incomplete,
+      skipped: restoreFiles ? files.skipped : [],
     });
   };
+}
+
+const MAX_SKIP = 1000;
+
+function isSkipList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_SKIP && value.every((path) => typeof path === "string" && path.length > 0);
 }
 
 /** Same rows as when the request was checked (a turn appends rows, a compaction or rollback removes some). */
@@ -212,7 +226,7 @@ async function readPoint(
   ctx: HandlerContext,
 ): Promise<Point | null> {
   const id = ctx.params.id ?? "";
-  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown } | null;
+  let body: { priorQuestions?: unknown; expectText?: unknown; files?: unknown; acceptFailed?: unknown; skip?: unknown } | null;
   try {
     body = (await readJsonBody<unknown>(req)) as typeof body;
   } catch (err) {

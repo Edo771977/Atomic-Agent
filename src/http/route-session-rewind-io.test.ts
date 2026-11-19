@@ -90,5 +90,66 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(turns()).toBe(2);
     expect(await copies(store)).toEqual([]);
   });
+
+  /** A first attempt where a is locked: b goes back, a fails; then the person edits both and the lock goes. */
+  async function partlyRestoredThenEdited(): Promise<{ a: string; b: string; store: FileCheckpointStore }> {
+    const seeded = await seed();
+    io.failWrite.add(seeded.a);
+    const first = await post("rw-io/rewind", point);
+    expect(first.status).toBe(409);
+    expect(((await first.json()) as { failed: { path: string }[] }).failed.map((f) => f.path)).toEqual([seeded.a]);
+    expect(readFileSync(seeded.b, "utf8")).toBe("b0");
+    writeFileSync(seeded.a, "a edited by the person");
+    writeFileSync(seeded.b, "b edited by the person");
+    io.failWrite.clear();
+    return seeded;
+  }
+
+  it("skip leaves the files the person chose alone and rolls back the rest", async () => {
+    const { a, b, store } = await partlyRestoredThenEdited();
+    // A skipped path is not even read for the restore.
+    io.failRead.add(a);
+    const res = await post("rw-io/rewind", { ...point, skip: [a, join(harness.workingDir, "not-in-the-plan.txt")] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [b], deleted: [], failed: [], skipped: [a] });
+    io.failRead.clear();
+    expect(readFileSync(a, "utf8")).toBe("a edited by the person");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(turns()).toBe(2);
+    expect(await copies(store)).toEqual([]);
+  });
+
+  it("acceptFailed without skip plans every file again, overwriting the person's edits", async () => {
+    const { a, b, store } = await partlyRestoredThenEdited();
+    const res = await post("rw-io/rewind", { ...point, acceptFailed: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [a, b], failed: [], skipped: [] });
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(turns()).toBe(2);
+    expect(await copies(store)).toEqual([]);
+  });
+
+  it("failures outside skip still refuse with 409 restore_failed", async () => {
+    const { a, b, store } = await seed();
+    io.failWrite.add(b);
+    const res = await post("rw-io/rewind", { ...point, skip: [a] });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: "restore_failed" }, failed: [{ path: b }], restored: [], skipped: [a] });
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+    expect(await copies(store)).toEqual([a, b]);
+  });
+
+  it("refuses a malformed skip with 400 on skip and changes nothing", async () => {
+    const { a } = await seed();
+    for (const skip of ["a.txt", [""], [1], Array.from({ length: 1001 }, (_, i) => `/p${i}`)]) {
+      const res = await post("rw-io/rewind", { ...point, skip });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { param: string } }).error.param).toBe("skip");
+    }
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+  });
 });
 

@@ -101,7 +101,7 @@ describe("rewind and fork routes (ATO-1056, ATO-1058)", () => {
     const res = await post("rw-1/rewind", { priorQuestions: 1, expectText: "change it" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      id: "rw-1", text: "change it", restored: [a], deleted: [b], failed: [], notRestorable: [], incomplete: false,
+      id: "rw-1", text: "change it", restored: [a], deleted: [b], failed: [], notRestorable: [], incomplete: false, skipped: [],
     });
     expect(readFileSync(a, "utf8")).toBe("v1");
     expect(existsSync(b)).toBe(false);
