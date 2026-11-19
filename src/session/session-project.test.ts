@@ -1039,16 +1039,18 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
 
   it("a brief that changes a criterion's text resets the milestones whose facts cite it; a case or spacing edit does not", () => {
     const criteria = (c1: string) => ({ ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: c1 }, { id: "c2", text: "Has three levels" }] } }) as ProjectUpdate;
-    const changed = update(reviewedM1(), criteria("Runs offline on Windows"), NOW + 3);
+    // A draft alone resets nothing; the approval does.
+    expect(update(reviewedM1(), criteria("Runs offline on Windows")).milestones[0]).toMatchObject({ state: "reviewed" });
+    const changed = approve(update(reviewedM1(), criteria("Runs offline on Windows")), NOW + 3);
     expect(changed.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
     expect(changed.milestones[0]!.criteriaFacts).toBeUndefined();
     expect(changed.milestones[0]!.history?.[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }], cause: "brief", supersededAt: NOW + 3 });
     expect(changed.plan!.verdictResets).toEqual(["m1"]);
-    const edited = update(reviewedM1(), criteria("  runs in THE browser "));
+    const edited = approve(update(reviewedM1(), criteria("  runs in THE browser ")));
     expect(edited.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
     expect(edited.milestones[0]!.history).toBeUndefined();
     // A change to a criterion no fact cites leaves the verdict.
-    const other = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has ten levels" }] } } as ProjectUpdate);
+    const other = approve(update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has ten levels" }] } } as ProjectUpdate));
     expect(other.milestones[0]).toMatchObject({ state: "reviewed" });
   });
 
@@ -1082,6 +1084,41 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(m1).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
     expect(m1.criteriaFacts).toBeUndefined();
     expect(m1.history?.at(-1)).toMatchObject({ cause: "brief-removed", criteriaFacts: [{ id: "c1", state: "passed" }], criteria: [{ id: "c1", text: "Runs in the browser" }] });
+  });
+
+  it("criteria are judged at the brief's approval against the last approved one: a draft that drops one and a draft that restores it change nothing", () => {
+    const p = reviewedM1();
+    const v2 = update(p, { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c2", text: "Has three levels" }] } } as ProjectUpdate);
+    expect(v2.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    const v3 = update(v2, { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c1", text: "Runs in the browser" }, { id: "c2", text: "Has three levels" }] } } as ProjectUpdate);
+    const after = approve(v3);
+    expect(after.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.milestones[0]!.history).toBeUndefined();
+  });
+
+  it("without an approved brief to compare with, an approval judges nothing", () => {
+    const draft = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c2", text: "Has three levels" }] } } as ProjectUpdate);
+    // An older store mid-draft: no record of the approved criteria.
+    const { approvedCriteria: _gone, ...older } = draft;
+    const after = approve(older as ProjectState);
+    expect(after.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.approvedCriteria).toEqual([{ id: "c2", text: "Has three levels" }]);
+  });
+
+  it("the person's brief edit is judged at approval: a changed text resets, a removal retires the facts", () => {
+    const atGate = update(reviewedM1(), briefUpdate);
+    const edit = (successCriteria: ProjectCriterion[]) => {
+      const r = applyProjectDecision(atGate, { gate: { kind: "brief" }, version: gateVersion(atGate)!, verdict: "edit", edits: { brief: { successCriteria } } }, { now: NOW });
+      return approve(ok(r).project);
+    };
+    const changed = edit([{ id: "c1", text: "Runs offline on Windows" }, { id: "c2", text: "Has three levels" }]);
+    expect(changed.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(changed.milestones[0]!.history?.at(-1)).toMatchObject({ cause: "brief", state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }], criteria: [{ id: "c1", text: "Runs in the browser" }] });
+    expect(changed.plan!.verdictResets).toEqual(["m1"]);
+    const removed = edit([{ id: "c2", text: "Has three levels" }]);
+    expect(removed.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+    expect(removed.milestones[0]!.criteriaFacts).toBeUndefined();
+    expect(removed.milestones[0]!.history?.at(-1)).toMatchObject({ cause: "brief-removed", criteriaFacts: [{ id: "c1", state: "passed" }] });
   });
 
   it("two milestones that swap ids with their tasks both start over; neither inherits the other's result", () => {

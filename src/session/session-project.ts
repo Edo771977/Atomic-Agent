@@ -265,6 +265,13 @@ export interface ProjectState {
   milestones: ProjectMilestone[];
   /** What waits on the person; `none` while the director works (or nothing is open). */
   gate: ProjectGate;
+  /**
+   * The success criteria of the last brief the person approved (issue
+   * #80): a brief's approval judges its criteria against these, so
+   * drafts in between never reset anything. Absent before the first
+   * approval; an older store with an approved brief reads its criteria.
+   */
+  approvedCriteria?: ProjectCriterion[];
   /** Epoch ms the person cancelled the project; a new brief starts over. */
   cancelledAt?: number;
   /**
@@ -1040,12 +1047,16 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (gate.kind === "plan" && plan === undefined) return undefined;
   if (gate.kind === "milestone" && (plan === undefined || !ids.has(gate.id))) return undefined;
   if (raw.cancelledAt !== undefined && !isTime(raw.cancelledAt)) return undefined;
+  // Extras: a malformed list reads as absent (the approved brief's own criteria stand in).
+  const stored = raw.approvedCriteria === undefined ? null : cleanCriteria(raw.approvedCriteria, "lenient");
+  const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
     milestones,
     gate,
+    ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
   };
@@ -1106,8 +1117,9 @@ function briefUpdate(
     status: "draft",
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
   };
-  const judged = judgeCriteria(base?.milestones ?? [], base?.plan?.rows ?? [], base?.brief?.successCriteria ?? [], brief.successCriteria, now);
-  const milestones = judged.map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
+  // Criteria are judged when the person approves the brief (issue #80), not per draft.
+  const approvedCriteria = base === undefined ? undefined : approvedCriteriaOf(base);
+  const milestones = (base?.milestones ?? []).map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
   // The plan was approved against the old brief: back to a draft, and
   // milestones not started yet wait for its approval again.
   const plan: ProjectPlan | undefined =
@@ -1121,7 +1133,14 @@ function briefUpdate(
         };
   return {
     ok: true,
-    project: { brief, ...(plan === undefined ? {} : { plan }), milestones, gate: { kind: "brief" }, ...floorOf(project) },
+    project: {
+      brief,
+      ...(plan === undefined ? {} : { plan }),
+      milestones,
+      gate: { kind: "brief" },
+      ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+      ...floorOf(project),
+    },
   };
 }
 
@@ -1260,6 +1279,38 @@ function mergeResets(previous: ProjectPlan | undefined, fresh: readonly string[]
   const carried = previous?.status === "draft" ? (previous.verdictResets ?? []) : [];
   const all = [...new Set([...carried, ...fresh])].filter((id) => ids.has(id));
   return all.length === 0 ? {} : { verdictResets: all };
+}
+
+/** The last approved brief's criteria: recorded, or (an older store) the brief's own while it is approved. */
+function approvedCriteriaOf(project: ProjectState): ProjectCriterion[] | undefined {
+  return project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : undefined);
+}
+
+/**
+ * The person approves the brief (issue #80): its criteria are judged
+ * against the last approved brief's ({@link judgeCriteria}); without one
+ * nothing is judged. A reset lands on the draft plan's `verdictResets`.
+ */
+function approveBrief(project: ProjectState, now: number): ProjectState {
+  const brief = project.brief!;
+  const before = approvedCriteriaOf(project);
+  const milestones =
+    before === undefined ? project.milestones : judgeCriteria(project.milestones, project.plan?.rows ?? [], before, brief.successCriteria, now);
+  const plan =
+    project.plan === undefined || project.plan.status !== "draft"
+      ? project.plan
+      : (() => {
+          const { verdictResets: _old, ...rest } = project.plan;
+          return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), new Set(milestones.map((m) => m.id))) };
+        })();
+  return {
+    ...project,
+    brief: { ...brief, status: "approved", approvedAt: now },
+    ...(plan === undefined ? {} : { plan }),
+    milestones,
+    approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
+    gate: { kind: "none" },
+  };
 }
 
 /** Ids of kept criteria whose text a brief revision changed beyond case and whitespace (issue #77). */
@@ -1453,7 +1504,17 @@ function planUpdate(
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
     ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids),
   };
-  return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" }, ...floorOf(project) } };
+  return {
+    ok: true,
+    project: {
+      brief: project.brief,
+      plan,
+      milestones,
+      gate: { kind: "plan" },
+      ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
+      ...floorOf(project),
+    },
+  };
 }
 
 function milestoneUpdate(
@@ -1681,7 +1742,7 @@ export function applyProjectDecision(
 
   if (decision.verdict === "approve") {
     if (gate.kind === "brief") {
-      return { ok: true, project: { ...project, brief: { ...project.brief!, status: "approved", approvedAt: now }, gate: { kind: "none" } } };
+      return { ok: true, project: approveBrief(project, now) };
     }
     const violations = [...(options.hardViolations ?? [])];
     // At a milestone gate the person's decision on the result always
