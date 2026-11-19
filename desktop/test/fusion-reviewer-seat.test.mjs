@@ -430,3 +430,35 @@ test("window: Add a reviewer from a new chat whose first turn leaves without a p
   const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
   assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice\);/);
 });
+
+// Issue #77 review: Add a reviewer pressed after a new chat's first turn left,
+// before its stream named the chat, went to the next new chat.
+test("window: Add a reviewer on a new chat whose first turn is still unnamed goes to that turn's chat", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  // renderer.js: the turn the screen shows, and the new chats' first turns not named yet.
+  c.FIRST_TURNS = new Map([["t1", "hello"]]);
+  c.screenTurnId = () => "t1";
+  c.fzrTurnSent(undefined, "t1", null);
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  c.S.agentSession = "chat-B"; c.screenTurnId = () => null;
+  writes[0].done();
+  await adding;
+  assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got the reviewer");
+  assert.equal(c.fzrTurnTeam("chat-B"), null);
+  c.FIRST_TURNS.delete("t1");
+  c.fzrTurnNamed("t1", "s9");
+  assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
+  // A screen turn that is not a new chat's unnamed first turn leaves the add on the new-chat slot.
+  const d = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  d.S.agentSession = null;
+  d.FIRST_TURNS = new Map();
+  d.screenTurnId = () => "t2";
+  await d.fzrAct("add:anthropic:model-a");
+  assert.deepEqual({ ...d.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  // The renderer.js globals the seat reads.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  assert.match(renderer, /\nfunction screenTurnId\(\) \{/);
+  assert.match(renderer, /\nconst FIRST_TURNS = new Map\(\);/);
+});

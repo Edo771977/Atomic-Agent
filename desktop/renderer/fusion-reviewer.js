@@ -1,7 +1,7 @@
 /* ---------------- Issue #71: the Fusion strip's Reviewer seat ----------------
    Loaded before renderer.js; declares only, and reads renderer.js globals
    (S, LIVE_CONFIG, BR, esc, ic, providerWord, render, act, toast, anchorStyle,
-   refreshLiveConfig, projectCloudEntry) at call time.
+   refreshLiveConfig, projectCloudEntry, screenTurnId, FIRST_TURNS) at call time.
 
    Fusion shows three seats: Director (the orchestrator leg), Worker (the
    worker leg) and Reviewer. The first two stay the legs, as before; when a
@@ -218,7 +218,9 @@ async function fzrAct(v) {
     const ref = v.slice('add:'.length);
     if (!BR || !BR.fusionTeamWrite) return;
     // Issue #77: the chat it is added from, read now: the person can open another one during the write.
-    const target = {key: fzrKey(), turn: null};
+    // A new chat whose first turn already left, not named yet: the reviewer is that turn's chat's.
+    const firstTurn = fzrKey() === FZR_NEW_CHAT ? fzrScreenFirstTurn() : null;
+    const target = firstTurn ? {key: null, turn: firstTurn} : {key: fzrKey(), turn: null};
     FZR.adds.push(target);
     FZR.adding = true; render();
     let res = null;
@@ -236,6 +238,12 @@ async function fzrAct(v) {
   }
 }
 
+/** The new chat on screen's first turn, sent and not named by its stream yet (renderer.js FIRST_TURNS), or null. */
+function fzrScreenFirstTurn() {
+  if (typeof screenTurnId !== 'function' || typeof FIRST_TURNS === 'undefined' || !FIRST_TURNS) return null;
+  const turnId = screenTurnId();
+  return turnId && FIRST_TURNS.has(turnId) ? turnId : null;
+}
 /** A reviewer added from `target` (fzrAct add:) is that chat's pick, or its first turn's while that turn is unnamed. */
 function fzrAddPicked(target, ref) {
   if (target.turn) { FZR.byTurn[target.turn] = ref; return; }
