@@ -1357,6 +1357,16 @@ export function buildFusionDelegateTool(
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).
       const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
+      // The texts a run's facts are tagged with (issue #87): the criteria
+      // its checks were written for. A resume replays the checkpoint's own
+      // checks, so it keeps the checkpoint's texts (none in an older file),
+      // never this turn's brief.
+      const factCriteria: ReadonlyMap<string, { text: string }> | undefined =
+        resumedFrom === null
+          ? briefCriteria
+          : resumedFrom.criteria === undefined
+            ? undefined
+            : new Map(resumedFrom.criteria.map((c) => [c.id, { text: c.text }]));
       // The reply cap the local pool was divided by (`workerSlotFootprint`
       // sizes each worker's reply at `workerReplyAllowance`, not at the raw
       // `completionMaxTokens`). A cap above that allowance is sent as the
@@ -1640,6 +1650,7 @@ export function buildFusionDelegateTool(
         tasks: parsed.tasks,
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
+        ...(briefCriteria === undefined ? {} : { criteria: [...briefCriteria.values()] }),
       }) : undefined;
       // The run folder the checks' screenshots and the criteria facts go
       // to (issue #40). Candidate mode keeps no resumable checkpoint, but
@@ -3031,7 +3042,7 @@ export function buildFusionDelegateTool(
         // run's wait for its finish: the folder keeps only what was promoted.
         const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, briefCriteria);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3244,7 +3255,7 @@ export function buildFusionDelegateTool(
                   taskId: t.taskId,
                   facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
                 })),
-            briefCriteria,
+            factCriteria,
           );
         }
         terminalTaskCount = results.length;
