@@ -117,7 +117,8 @@ function fakeWindow(calls) {
 }
 
 function startEdit(preview) {
-  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, draft: "old text" });
+  Object.assign(R.REWIND, { mode: "edit", id: "u1", sid: "s-1", prior: 1, text: "old text", preview, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false,
+    noSkip: false, skipPreview: null, skipPending: null, draft: "old text" });
 }
 
 const footActs = (html) => [...html.split("<f>")[1].matchAll(/data-act="(rewind:[^"]+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
@@ -780,4 +781,20 @@ test("a preview that does not echo skipped: the agent ignores skip there, so onl
   assert.equal(agentBodies(calls).length, 1);
   await R.rewindAct("go-accept");
   assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", acceptFailed: true });
+});
+
+// Issue #83 review: the fixtures did not reset the Continue state, so tests depended on their order.
+test("every fixture and every opening of the sheet starts without Continue state", () => {
+  const dirty = () => Object.assign(R.REWIND, { noSkip: true, skipPreview: { files: [] }, skipPending: ["/w/x"], opened: R.REWIND.opened });
+  const clean = (where) => assert.deepEqual([R.REWIND.noSkip, R.REWIND.skipPreview, R.REWIND.skipPending], [false, null, null], where);
+  dirty(); fakeWindow([]); startEdit(FILES_PREVIEW); clean("startEdit");
+  dirty(); ipcWindow("back", { rewind: [] }); clean("ipcWindow");
+  dirty(); agentWindow("back", { rewind: [] }); clean("agentWindow");
+  dirty();
+  globalThis.S.log = [{ id: "u1", k: "user", text: "old text" }];
+  globalThis.S.overlay = null;
+  globalThis.priorQuestions = () => 1;
+  globalThis.BR.rewindPreview = () => new Promise(() => {});
+  R.rewindAct("back:u1");
+  clean("rewindStart");
 });
