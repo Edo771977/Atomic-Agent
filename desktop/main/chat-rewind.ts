@@ -107,6 +107,14 @@ export function rewindSkipList(value: unknown): string[] | undefined | null {
   return value.length ? [...(value as string[])] : undefined;
 }
 
+/** Issue #83 review: the most characters a preview's planHash may have. */
+export const REWIND_PLAN_HASH_CAP = 200;
+
+/** Issue #83 review: a preview's `planHash` as a rollback may send it back (`expectPlanHash`): a string of 1-200 characters. */
+export function rewindPlanHash(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= REWIND_PLAN_HASH_CAP;
+}
+
 /**
  * The body the window may send: a non-negative whole position, the question's
  * text and, for a rollback, whether the files go back too (`files: false` is
@@ -115,7 +123,10 @@ export function rewindSkipList(value: unknown): string[] | undefined | null {
  * without the ones a partial restore could not put back). `acceptFailed`
  * (boolean) is sent only to an agent whose partial answer shows it does not
  * know `skip` (no `skipped` list): it plans every file again. A `skip` that
- * is not a valid list refuses the body (null).
+ * is not a valid list refuses the body (null). `expectPlanHash` (issue #83
+ * review) is the preview's `planHash` the confirm was shown; the agent
+ * answers 409 `plan_changed` and changes nothing when its plan differs. One
+ * that is not a string of 1-200 characters refuses the body.
  */
 export function rewindRequestBody(
   priorQuestions: unknown,
@@ -123,17 +134,20 @@ export function rewindRequestBody(
   files?: unknown,
   skip?: unknown,
   acceptFailed?: unknown,
-): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean } | null {
+  expectPlanHash?: unknown,
+): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean; expectPlanHash?: string } | null {
   if (typeof priorQuestions !== "number" || !Number.isInteger(priorQuestions) || priorQuestions < 0) return null;
   if (typeof expectText !== "string" || !expectText.trim()) return null;
   const skipped = rewindSkipList(skip);
   if (skipped === null) return null;
+  if (expectPlanHash !== undefined && !rewindPlanHash(expectPlanHash)) return null;
   return {
     priorQuestions,
     expectText,
     ...(typeof files === "boolean" ? { files } : {}),
     ...(skipped ? { skip: skipped } : {}),
     ...(typeof acceptFailed === "boolean" ? { acceptFailed } : {}),
+    ...(expectPlanHash !== undefined ? { expectPlanHash: expectPlanHash as string } : {}),
   };
 }
 

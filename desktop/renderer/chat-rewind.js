@@ -116,6 +116,7 @@ function rewindRefusalText(r) {
   if (code === 'point_compacted') return 'This part of the chat was already summarized, so it cannot be taken back.';
   if (code === 'session_not_found') return 'This chat is not saved yet.';
   if (code === 'restore_failed') return 'Some files could not be put back.';
+  if (code === 'plan_changed') return 'The files changed since the preview, so nothing was rolled back. Press “Check again” to see what would change now.';
   if (code === 'skip_unknown') return 'The agent no longer has one of these files to leave alone. Press “Check again”.';
   return (r && r.error) || 'The agent gave no reason. Nothing was changed.';
 }
@@ -298,7 +299,11 @@ function rewindStillAsked(asked) {
 
 async function rewindLoadPreview() {
   const asked = rewindAsked();
-  const r = await BR.rewindPreview(asked.sid, REWIND.prior, REWIND.text).catch((err) => ({ok: false, supported: true, error: String(err)}));
+  // Issue #83 review: with files chosen to be left alone (Check again after a Continue), the preview is
+  // asked with them, so its planHash is the plan the confirm sends (with the same skip).
+  const chosen = Array.isArray(REWIND.skip) && REWIND.skip.length ? REWIND.skip.slice() : undefined;
+  const r = await (chosen ? BR.rewindPreview(asked.sid, REWIND.prior, REWIND.text, chosen) : BR.rewindPreview(asked.sid, REWIND.prior, REWIND.text))
+    .catch((err) => ({ok: false, supported: true, error: String(err)}));
   if (!rewindStillAsked(asked)) return;   // success and error alike
   REWIND.loading = false;
   if (r && r.supported === false) { REWIND.supported = false; S.overlay = null; render(); toast('Not available', 'This agent version cannot roll a chat back. Update Atomic Agent.', 'bad'); return; }
@@ -387,7 +392,7 @@ function rewindSheetHTML() {
   // Issue #80: files chosen to be left alone (REWIND.skip) are not listed as changing; they are marked instead.
   const keep = new Set(Array.isArray(REWIND.skip) ? REWIND.skip : []);
   const allFiles = REWIND.preview && Array.isArray(REWIND.preview.files) ? REWIND.preview.files : [];
-  const kept = allFiles.filter((f) => f && keep.has(f.path)).map((f) => rewindPathLabel(f.path, typeof WORKSPACE === 'string' ? WORKSPACE : ''));
+  const kept = REWIND.preview ? [...keep].map((p) => rewindPathLabel(p, typeof WORKSPACE === 'string' ? WORKSPACE : '')) : [];
   const shownPreview = REWIND.preview && kept.length ? Object.assign({}, REWIND.preview, {files: allFiles.filter((f) => !(f && keep.has(f.path)))}) : REWIND.preview;
   const s = shownPreview ? rewindSummary(shownPreview, typeof WORKSPACE === 'string' ? WORKSPACE : '') : null;
   if (s && !rewindShowsFiles(REWIND.mode, s)) body += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
@@ -438,6 +443,12 @@ async function rewindConfirm(files, skip, acceptFailed) {
   const typed = String((entry ? entry.value : S.draft) || '').trim();
   if (typed || (typeof ATT !== 'undefined' && ATT.items.length)) { REWIND.error = 'Your draft is in the way. Send or clear the composer first.'; render(); return; }
   const sid = REWIND.sid;
+  // Issue #83 review: the plan the person saw. The skip confirm's is its own preview's; any other confirm
+  // that changes files sends the sheet's preview's. "Conversation only" changes no files and sends none,
+  // nor does "Roll back anyway" (its preview is from before the partial restore). An agent whose preview
+  // has no planHash gets none.
+  const seen = Array.isArray(skip) && skip.length && REWIND.skipPreview ? REWIND.skipPreview : REWIND.preview;
+  const planHash = files !== false && acceptFailed !== true && seen && typeof seen.planHash === 'string' && seen.planHash ? seen.planHash : undefined;
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
   REWIND.skipPreview = null; REWIND.skipPending = null;
   // Issue #80 review: after Check again, the files chosen to be left alone go with the confirm too.
@@ -446,6 +457,7 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (skipping) REWIND.skip = skipping;
   const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
     : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];
+  if (planHash) { while (args.length < 6) args.push(undefined); args.push(planHash); }
   const asked = rewindAsked();
   const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
   // Issue #80 review: the answer is this sheet's only while it is still open on the same point. A sheet
@@ -462,6 +474,8 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (!r || !r.ok) {
     REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.restore ? r.restore : null; REWIND.partialCode = r && r.code;
     if (REWIND.partial) REWIND.afterPartial = true;   // cleared only by Check again or by opening the sheet again
+    // Issue #83 review: the plan changed since the preview (nothing was changed): only Check again, as above.
+    if (r && r.code === 'plan_changed') REWIND.afterPartial = true;
     render(); return;
   }
   S.overlay = null;

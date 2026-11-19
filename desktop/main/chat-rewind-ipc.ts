@@ -24,8 +24,9 @@ const CHANNELS: ReadonlyArray<[string, RewindRoute]> = [
 export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): void {
   for (const [channel, route] of CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown): Promise<RewindAnswer> => {
-      const { sessionId, priorQuestions, expectText, files, skip, acceptFailed } = (payload ?? {}) as {
+      const { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash } = (payload ?? {}) as {
         sessionId?: unknown; priorQuestions?: unknown; expectText?: unknown; files?: unknown; skip?: unknown; acceptFailed?: unknown;
+        expectPlanHash?: unknown;
       };
       if (typeof sessionId !== "string" || !sessionId) return { ok: false, supported: true, code: "session_not_found", error: "This chat is not saved yet" };
       // Issue #80: the files to leave as they are, a list of paths only; anything else is refused, not dropped
@@ -42,6 +43,8 @@ export function wireChatRewindIpc(client: Pick<AgentClient, "sessionRoute">): vo
         route === "rewind" ? files : undefined,
         takesSkip ? skip : undefined,
         route === "rewind" ? acceptFailed : undefined,
+        // Issue #83 review: the plan the confirm was shown; the agent refuses (plan_changed) when it differs.
+        route === "rewind" ? expectPlanHash : undefined,
       );
       if (body === null) return { ok: false, supported: true, error: "No message to go back to" };
       try {
