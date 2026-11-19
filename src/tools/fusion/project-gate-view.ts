@@ -48,6 +48,9 @@ export const NONE_REACHABLE_HINT = "no other team member is reachable now: the r
 /** The plan gate's hint for a milestone the draft starts over on new work, its earlier result in history (issue #77). */
 export const verdictResetHint = (title: string): string => `verdict reset: ${title}`;
 
+/** The plan gate's hint for a milestone that kept its verdict but lost its criteria evidence to history (issue #83). */
+export const evidenceRetiredHint = (title: string): string => `evidence retired: ${title}`;
+
 /** The gate card's payload. Pure. */
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
@@ -81,6 +84,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     for (const id of plan.verdictResets ?? []) {
       const m = project.milestones.find((x) => x.id === id);
       if (m !== undefined) hints.push(verdictResetHint(m.title));
+    }
+    // Issue #83: these keep their verdict, but their criteria evidence went to history.
+    for (const id of plan.evidenceRetired ?? []) {
+      const m = project.milestones.find((x) => x.id === id);
+      if (m !== undefined) hints.push(evidenceRetiredHint(m.title));
     }
   }
   return {

@@ -257,6 +257,13 @@ export interface ProjectPlan {
    * names them. Cleared when the plan is approved.
    */
   verdictResets?: string[];
+  /**
+   * Milestones (ids) that kept their state but lost criteria evidence at
+   * a brief approval (issue #83): a project saved before issue #80
+   * approved without a baseline. The plan gate names each
+   * ("evidence retired: <title>"); kept across drafts, cleared on approval.
+   */
+  evidenceRetired?: string[];
 }
 
 export type ProjectGate =
@@ -1052,7 +1059,8 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
       ...(p.status === "approved" && p.approvedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
       ...(() => {
         const resets = p.status === "draft" ? cleanVerdictResets(p.verdictResets, ids) : [];
-        return resets.length === 0 ? {} : { verdictResets: resets };
+        const retired = p.status === "draft" ? cleanVerdictResets(p.evidenceRetired, ids) : [];
+        return { ...(resets.length === 0 ? {} : { verdictResets: resets }), ...(retired.length === 0 ? {} : { evidenceRetired: retired }) };
       })(),
     };
   }
@@ -1160,6 +1168,7 @@ function briefUpdate(
 function withoutResets(plan: ProjectPlan): ProjectPlan {
   const copy = { ...plan };
   delete copy.verdictResets;
+  delete copy.evidenceRetired;
   return copy;
 }
 
@@ -1288,6 +1297,13 @@ function freshResets(before: readonly ProjectMilestone[], after: readonly Projec
  * update started over that held evidence, after those an earlier draft
  * (not yet approved) already reset; only ids the plan still lists.
  */
+/** The draft's {@link ProjectPlan.evidenceRetired}: an earlier draft's, then `fresh`; only ids the plan lists. */
+function mergeRetired(previous: ProjectPlan | undefined, fresh: readonly string[], ids: ReadonlySet<string>): { evidenceRetired?: string[] } {
+  const carried = previous?.status === "draft" ? (previous.evidenceRetired ?? []) : [];
+  const all = [...new Set([...carried, ...fresh])].filter((id) => ids.has(id));
+  return all.length === 0 ? {} : { evidenceRetired: all };
+}
+
 function mergeResets(previous: ProjectPlan | undefined, fresh: readonly string[], ids: ReadonlySet<string>): { verdictResets?: string[] } {
   const carried = previous?.status === "draft" ? (previous.verdictResets ?? []) : [];
   const all = [...new Set([...carried, ...fresh])].filter((id) => ids.has(id));
@@ -1302,20 +1318,28 @@ function approvedCriteriaOf(project: ProjectState): ProjectCriterion[] | undefin
 /**
  * The person approves the brief (issue #80): its criteria are judged
  * against the last approved brief's ({@link judgeCriteria}); without one
- * nothing is judged. A reset lands on the draft plan's `verdictResets`.
+ * no baseline only a project saved before issue #80 can hold evidence,
+ * and all of it that cites a criterion is retired (issue #83): which old
+ * result still applies cannot be told. A reset lands on the draft plan's
+ * `verdictResets`; a milestone that kept its state but lost evidence
+ * this way, on `evidenceRetired`.
  */
 function approveBrief(project: ProjectState, now: number): ProjectState {
   const brief = project.brief!;
   const before = approvedCriteriaOf(project);
   const rows = project.plan?.rows ?? [];
   const milestones =
-    before === undefined ? project.milestones : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
+    before === undefined
+      ? retireOrphans(project.milestones, rows, [], now)
+      : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
+  const retired = before === undefined ? milestones.filter((m, i) => m !== project.milestones[i]).map((m) => m.id) : [];
   const plan =
     project.plan === undefined || project.plan.status !== "draft"
       ? project.plan
       : (() => {
-          const { verdictResets: _old, ...rest } = project.plan;
-          return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), new Set(milestones.map((m) => m.id))) };
+          const { verdictResets: _old, evidenceRetired: _retired, ...rest } = project.plan;
+          const ids = new Set(milestones.map((m) => m.id));
+          return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids), ...mergeRetired(project.plan, retired, ids) };
         })();
   return {
     ...project,
@@ -1540,6 +1564,7 @@ function planUpdate(
     version: nextVersion(project, project.plan?.version),
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
     ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids),
+    ...mergeRetired(project.plan, [], ids),
   };
   return {
     ok: true,

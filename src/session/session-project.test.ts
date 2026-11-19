@@ -1096,12 +1096,15 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(after.milestones[0]!.history).toBeUndefined();
   });
 
-  it("without an approved brief to compare with, an approval judges nothing", () => {
+  it("without an approved brief to compare with, an approval retires every criteria fact but keeps the verdict (issue #83)", () => {
     const draft = update(reviewedM1(), { ...briefUpdate, brief: { ...briefUpdate.brief, successCriteria: [{ id: "c2", text: "Has three levels" }] } } as ProjectUpdate);
     // An older store mid-draft: no record of the approved criteria.
     const { approvedCriteria: _gone, ...older } = draft;
     const after = approve(older as ProjectState);
-    expect(after.milestones[0]).toMatchObject({ state: "reviewed", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+    expect(after.milestones[0]!.criteriaFacts).toBeUndefined();
+    expect(after.milestones[0]!.history?.at(-1)).toMatchObject({ cause: "brief-removed", unknownCriteria: ["c1"], criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(after.plan!.evidenceRetired).toEqual(["m1"]);
     expect(after.approvedCriteria).toEqual([{ id: "c2", text: "Has three levels" }]);
   });
 
