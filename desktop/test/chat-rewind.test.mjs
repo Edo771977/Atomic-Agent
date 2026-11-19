@@ -194,3 +194,65 @@ test("the actions are drawn on messages, routed through act() and the overlay, a
   for (const route of ['"rewind/preview"', '"rewind"', '"fork"']) assert.ok(ipc.includes(route), route);
   assert.match(src("../main/main.ts"), /wireChatRewindIpc\(client\)/);
 });
+
+/* ---------- issue #77: a rollback that could put back only some files ---------- */
+
+const PARTIAL_MESSAGE = "some files could not be put back (see failed); the chat was not cut and the saved copies were kept, so the rollback can be tried again";
+const partialBody = (failed, extra = {}) => ({
+  error: { code: "restore_failed", message: PARTIAL_MESSAGE },
+  restored: [{ path: "/w/src/a.ts" }, { path: "/w/src/b.ts" }],
+  deleted: [{ path: "/w/new.txt" }],
+  failed,
+  ...extra,
+});
+
+test("a partial restore (409 restore_failed) carries what was put back and what was not, checked and capped", () => {
+  const failed = [{ path: "/w/locked.txt", error: "EACCES: permission denied" }, { path: "/w/gone/x.ts" }, { path: 7 }, null, { path: "" }, { path: "/w/y", error: 3 }];
+  const a = M.rewindAnswer(409, partialBody(failed));
+  assert.equal(a.ok, false);
+  assert.equal(a.code, "restore_failed");
+  assert.deepEqual(JSON.parse(JSON.stringify(a.restore)), {
+    restored: ["/w/src/a.ts", "/w/src/b.ts"], deleted: ["/w/new.txt"],
+    failed: [{ path: "/w/locked.txt", error: "EACCES: permission denied" }, { path: "/w/gone/x.ts" }, { path: "/w/y" }],
+    restoredTotal: 2, deletedTotal: 1, failedTotal: 3,
+  });
+  const many = M.rewindAnswer(409, partialBody(Array.from({ length: 500 }, (_, i) => ({ path: `/w/f${i}` }))));
+  assert.equal(many.restore.failed.length, 100);
+  assert.equal(many.restore.failedTotal, 500);
+  // Only that code carries lists; a body without arrays still reads as restore_failed.
+  assert.equal(M.rewindAnswer(409, { ...partialBody([]), error: { code: "turn_in_progress", message: "busy" } }).restore, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(M.rewindAnswer(409, { error: { code: "restore_failed", message: "x" }, failed: "no" }).restore)),
+    { restored: [], deleted: [], failed: [], restoredTotal: 0, deletedTotal: 0, failedTotal: 0 });
+});
+
+for (const mode of ["back", "edit"]) {
+  test(`a partial restore keeps the ${mode} sheet open and says which files, that the chat stayed, and to press again`, async () => {
+    const calls = [];
+    fakeWindow(calls);
+    const failed = [{ path: "/w/locked.txt", error: "EACCES: permission denied" }, ...Array.from({ length: 11 }, (_, i) => ({ path: `/w/f${i}.txt` }))];
+    globalThis.BR.rewind = async (...args) => { calls.push(["rewind", ...args]); return M.rewindAnswer(409, partialBody(failed)); };
+    startEdit(FILES_PREVIEW);
+    R.REWIND.mode = mode;
+    await R.rewindAct("go");
+    assert.deepEqual(calls.map((c) => c[0]), ["rewind"], "the chat was opened or resent after a partial restore");
+    assert.equal(globalThis.S.overlay, "rewind");
+    const html = R.rewindSheetHTML();
+    assert.doesNotMatch(html, /see failed/);
+    assert.match(html, /could not be put back/i);
+    assert.match(html, /locked\.txt/);
+    assert.match(html, /permission denied/);
+    assert.doesNotMatch(html, /\/w\/locked/, "paths read from the working folder");
+    assert.match(html, /f6\.txt/);
+    assert.doesNotMatch(html, /f7\.txt/);
+    assert.match(html, /and 4 more/);
+    assert.match(html, /chat was left as it was/);
+    assert.match(html, /3 files already put back stay put back/);
+    const button = mode === "edit" ? "Roll back files and conversation, then resend" : "Roll back";
+    assert.ok(html.includes(`Press ${button} again`), html);
+    // Trying again starts clean.
+    globalThis.BR.rewind = async () => ({ ok: true, supported: true, data: { restored: [], deleted: [], failed: [] } });
+    await R.rewindAct("go");
+    globalThis.S.overlay = "rewind";
+    assert.doesNotMatch(R.rewindSheetHTML(), /locked\.txt/);
+  });
+}

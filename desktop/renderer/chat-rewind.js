@@ -115,12 +115,41 @@ function rewindRefusalText(r) {
   if (code === 'point_mismatch') return 'The chat changed on the agent side. Open it again, then try again.';
   if (code === 'point_compacted') return 'This part of the chat was already summarized, so it cannot be taken back.';
   if (code === 'session_not_found') return 'This chat is not saved yet.';
+  if (code === 'restore_failed') return 'Some files could not be put back.';
   return (r && r.error) || 'The agent gave no reason. Nothing was changed.';
+}
+
+/* Issue #77: at most this many files that could not be put back are listed. */
+const REWIND_FAILED_SHOWN = 8;
+
+/**
+ * The sheet's words for a rollback that put back only some files (rewindAnswer
+ * `restore`): which could not be, that the chat stayed, that the others stay
+ * put back, and which button tries again.
+ */
+function rewindPartialHTML(partial, mode, workingDir) {
+  const p = partial || {};
+  const failed = Array.isArray(p.failed) ? p.failed : [];
+  const total = Math.max(Number(p.failedTotal) || 0, failed.length);
+  const shown = failed.slice(0, REWIND_FAILED_SHOWN);
+  const done = (Number(p.restoredTotal) || 0) + (Number(p.deletedTotal) || 0);
+  const buttons = rewindButtons(mode, {restore: [1]});
+  const again = buttons[buttons.length - 1][1];
+  let html = '<p class="sd-cap"><b>' + esc(total === 1 ? 'This file could not be put back' : 'These files could not be put back') + '</b></p>';
+  if (shown.length) {
+    html += '<div class="rows">' + shown.map((f) => '<div class="row"><span class="main"><span class="t">' + esc(rewindPathLabel(f.path, workingDir)) + '</span>'
+      + (f.error ? '<span class="s">' + esc(f.error) + '</span>' : '') + '</span></div>').join('') + '</div>';
+  }
+  if (total > shown.length) html += '<p class="sd-cap">and ' + (total - shown.length) + ' more</p>';
+  html += '<p class="sd-cap">The chat was left as it was. '
+    + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
+    + 'Press ' + esc(again) + ' again to try the rest.</p>';
+  return html;
 }
 
 /* ---- renderer side (globals from renderer.js, read at call time) ---- */
 
-const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, draft: ''};
+const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, draft: ''};
 
 function rewindReady() {
   return typeof BR !== 'undefined' && BR && BR.rewindPreview && REWIND.supported && S.agentSession && !S.busy && !S.pending;
@@ -151,7 +180,7 @@ function rewindStart(mode, id) {
   const q = rewindQuestionFor(S.log, m);
   if (!q || !rewindReady()) return;
   Object.assign(REWIND, {mode, id: q.id, sid: S.agentSession, prior: priorQuestions(q), text: String(q.text || ''),
-    preview: null, error: null, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
+    preview: null, error: null, partial: null, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
   if (mode === 'fork') { rewindFork(); return; }
   S.overlay = 'rewind';
   render();
@@ -177,6 +206,7 @@ function rewindSheetHTML() {
       + '<textarea id="rw-edit" class="tk-inp" rows="5" spellcheck="true">' + esc(REWIND.draft) + '</textarea>';
   }
   if (REWIND.error) body += '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">' + esc(REWIND.error) + '</span></div>';
+  if (REWIND.partial) body += rewindPartialHTML(REWIND.partial, REWIND.mode, typeof WORKSPACE === 'string' ? WORKSPACE : '');
   if (REWIND.loading) body += '<div class="tk-empty"><span class="tk-spin"></span><p>Checking what will change…</p></div>';
   const s = REWIND.preview ? rewindSummary(REWIND.preview, typeof WORKSPACE === 'string' ? WORKSPACE : '') : null;
   if (s && !rewindShowsFiles(REWIND.mode, s)) body += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
@@ -212,10 +242,11 @@ async function rewindConfirm(files) {
   const typed = String((entry ? entry.value : S.draft) || '').trim();
   if (typed || (typeof ATT !== 'undefined' && ATT.items.length)) { REWIND.error = 'Your draft is in the way. Send or clear the composer first.'; render(); return; }
   const sid = REWIND.sid;
-  REWIND.busy = true; REWIND.error = null; render();
+  REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
   const r = await BR.rewind(sid, REWIND.prior, REWIND.text, files).catch((err) => ({ok: false, supported: true, error: String(err)}));
   REWIND.busy = false;
-  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); render(); return; }
+  // Issue #77: a partial restore left the chat as it was; the sheet says which files and stays open.
+  if (!r || !r.ok) { REWIND.error = rewindRefusalText(r); REWIND.partial = r && r.code === 'restore_failed' && r.restore ? r.restore : null; render(); return; }
   S.overlay = null;
   await openSession(sid);
   if (S.agentSession !== sid) return;
@@ -246,5 +277,5 @@ if (typeof document !== 'undefined') {
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'rw-edit') REWIND.draft = e.target.value; });
 }
 
-if (typeof module !== 'undefined') module.exports = {rewindQuestionFor, rewindPathLabel, rewindSummary, rewindRefusalText, rewindButtons, rewindShowsFiles,
+if (typeof module !== 'undefined') module.exports = {rewindQuestionFor, rewindPathLabel, rewindPartialHTML, rewindSummary, rewindRefusalText, rewindButtons, rewindShowsFiles,
   REWIND, rewindSheetHTML, rewindAct, rewindConfirm};

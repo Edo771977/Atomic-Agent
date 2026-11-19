@@ -10,14 +10,61 @@
  * Each takes `{ priorQuestions, expectText }`, the question by its position
  * and its text. Its own 404 is an unknown chat (`session_not_found`); an agent
  * without the routes answers its unknown-route 404 with no code, which reads
- * as unsupported so the window hides the buttons.
+ * as unsupported so the window hides the buttons. A rollback that put back
+ * only some files answers 409 `restore_failed` with what was put back and
+ * what was not (RewindPartial; the chat is not cut).
  */
 
 export type RewindRoute = "rewind/preview" | "rewind" | "fork";
 
+/**
+ * Issue #77: a rollback that put back only some files (409 `restore_failed`).
+ * The agent left the chat as it was and kept its saved copies, so it can be
+ * tried again. Each list holds at most REWIND_LIST_CAP entries; the totals
+ * count them all.
+ */
+export type RewindPartial = {
+  restored: string[];
+  deleted: string[];
+  failed: Array<{ path: string; error?: string }>;
+  restoredTotal: number;
+  deletedTotal: number;
+  failedTotal: number;
+};
+
 export type RewindAnswer =
   | { ok: true; supported: true; data: Record<string, unknown> }
-  | { ok: false; supported: boolean; code?: string; error: string };
+  | { ok: false; supported: boolean; code?: string; error: string; restore?: RewindPartial };
+
+export const REWIND_LIST_CAP = 100;
+const REWIND_ERROR_CAP = 300;
+
+/** The `{path, error?}` entries of a partial-restore list that have a path. */
+function rewindFileList(value: unknown): Array<{ path: string; error?: string }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ path: string; error?: string }> = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) continue;
+    const { path, error } = item as { path?: unknown; error?: unknown };
+    if (typeof path !== "string" || !path) continue;
+    out.push(typeof error === "string" && error ? { path, error: error.slice(0, REWIND_ERROR_CAP) } : { path });
+  }
+  return out;
+}
+
+function rewindPartial(record: Record<string, unknown> | null): RewindPartial {
+  const restored = rewindFileList(record?.restored);
+  const deleted = rewindFileList(record?.deleted);
+  const failed = rewindFileList(record?.failed);
+  return {
+    restored: restored.slice(0, REWIND_LIST_CAP).map((f) => f.path),
+    deleted: deleted.slice(0, REWIND_LIST_CAP).map((f) => f.path),
+    failed: failed.slice(0, REWIND_LIST_CAP),
+    restoredTotal: restored.length,
+    deletedTotal: deleted.length,
+    failedTotal: failed.length,
+  };
+}
 
 /**
  * The body the window may send: a non-negative whole position, the question's
@@ -47,5 +94,6 @@ export function rewindAnswer(status: number, body: unknown): RewindAnswer {
     }
     return { ok: false, supported: false, error: "This agent version cannot roll back or fork a chat" };
   }
+  if (code === "restore_failed") return { ok: false, supported: true, code, error: message || `HTTP ${status}`, restore: rewindPartial(record) };
   return { ok: false, supported: true, ...(code ? { code } : {}), error: message || `HTTP ${status}` };
 }
