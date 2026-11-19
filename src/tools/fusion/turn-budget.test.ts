@@ -807,6 +807,19 @@ describe("a resume is admitted on the tasks it will run (issue #87)", () => {
     } finally { r.cleanup(); }
   });
 
+  it("with the orchestrator target off, a resume whose only orchestrator row is carried is admitted", async () => {
+    const r = interrupted([task("o1", "orchestrator"), task("w1")], ["o1"]);
+    try {
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent");
+      const d = deps({ turnBudget: budget, runCheckpoints: r.store, resolveRunMode: () => mode({ maxOrchestratorTasksPerTurn: 0 }) });
+      const result = await buildFusionDelegateTool(d).run({ resume: r.runId }, ctx());
+      expect(result.details.reason).toBeUndefined();
+      expect(d.turns).toBe(1);
+      expect(budget.orchestratorTasks("s-parent")).toBe(0);
+    } finally { r.cleanup(); }
+  });
+
   it("a resume that really is over the cap is still refused", async () => {
     const r = interrupted([task("t1"), task("t2"), task("t3")], ["t1"]);
     try {

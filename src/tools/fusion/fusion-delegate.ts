@@ -662,9 +662,16 @@ export function buildFusionDelegateTool(
       const orchestratorCap =
         mode.maxOrchestratorTasksPerTurn ??
         DEFAULT_FUSION_MAX_ORCHESTRATOR_TASKS_PER_TURN;
+      // The tasks this call will run (issue #87): a resume's carried rows
+      // and those awaiting the person's yes never start here. One set for
+      // the orchestrator target, measured routing's remaining orchestrator
+      // room, the admission check and the accounting when workers start.
+      const notRunHere = new Set(
+        resume === undefined ? [] : [...resume.carried, ...resume.needsConfirmation].map((r) => r.id),
+      );
       if (
         orchestratorCap === 0 &&
-        parsed.tasks.some((t) => t.model === ORCHESTRATOR_TASK_MODEL)
+        parsed.tasks.some((t) => t.model === ORCHESTRATOR_TASK_MODEL && !notRunHere.has(t.id))
       ) {
         return error(
           `validation: \`model: "orchestrator"\` is turned off here (llm.runMode.fusion.maxOrchestratorTasksPerTurn is 0). Send those tasks to a worker model: leave \`model\` out or name one from the \`### fusion\` list.`,
@@ -727,7 +734,7 @@ export function buildFusionDelegateTool(
           minSamples: mode.measuredRouting.minSamples,
           days: mode.measuredRouting.days,
           remainingOrchestrator: orchestratorCap - turnBudget.orchestratorTasks(ctx.sessionId) -
-            [...taskLegs.values()].filter((leg) => leg.orchestrator === true).length,
+            [...taskLegs.entries()].filter(([id, leg]) => leg.orchestrator === true && !notRunHere.has(id)).length,
           attempted: (id) => turnBudget.attempts(ctx.sessionId, id) > 0,
           cliToolsStayOn: (provider) => deps.cliToolsStayOn?.(provider) === true,
           identityFor: (provider) => deps.resolveRoutingIdentity?.(provider),
@@ -741,12 +748,6 @@ export function buildFusionDelegateTool(
       const orchestratorTaskIds = parsed.tasks
         .filter((t) => taskLegs.get(t.id)?.orchestrator === true)
         .map((t) => t.id);
-      // The tasks this call will run (issue #87): a resume's carried rows
-      // and those awaiting the person's yes never start here. One set for
-      // the admission check and for the accounting when workers start.
-      const notRunHere = new Set(
-        resume === undefined ? [] : [...resume.carried, ...resume.needsConfirmation].map((r) => r.id),
-      );
       const actionableTaskCount = parsed.tasks.filter((t) => !notRunHere.has(t.id)).length;
       const actionableOrchestratorTaskIds = orchestratorTaskIds.filter((id) => !notRunHere.has(id));
       const taskIsLocal = (t: DelegateTask): boolean =>
