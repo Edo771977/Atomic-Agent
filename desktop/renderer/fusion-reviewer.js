@@ -13,7 +13,7 @@
    "No review", and "Add a reviewer…" (asked again when a new agent
    connects, issue #74). The choice rides on the chat's next
    turn as `reviewer`; the agent stamps it on the chat and keeps it. A new
-   chat's pick goes with its first turn (FZR.byTurn) and becomes the chat's
+   chat's pick goes with its first turn (FZRV.byTurn) and becomes the chat's
    when that turn's stream names it, never another chat's (issue #74).
 
    "Add a reviewer…" lists the configured cloud providers (a Codex
@@ -26,7 +26,7 @@
 /* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
    read when the write started (issue #77): a new chat's follows it as it gets
    an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null, screen: 0, newDispatchScreen: null, tokenScreen: {}};
+const FZRV = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null, screen: 0, newDispatchScreen: null, tokenScreen: {}};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -126,11 +126,11 @@ function fzrCandidates(config, roster, word) {
    yet stay (they are the person's), the old agent's refusal words go. */
 function fzrAgentSeen() {
   const gen = typeof AGENT_GEN === 'number' ? AGENT_GEN : 0;
-  if (FZR.gen === gen) return false;
-  const first = FZR.gen === null;
-  FZR.gen = gen;
+  if (FZRV.gen === gen) return false;
+  const first = FZRV.gen === null;
+  FZRV.gen = gen;
   if (first) return false;
-  FZR.roster = null; FZR.sid = null; FZR.asked = undefined; FZR.token++; FZR.note = {};
+  FZRV.roster = null; FZRV.sid = null; FZRV.asked = undefined; FZRV.token++; FZRV.note = {};
   return true;
 }
 /** A new agent is up (renderer.js applyStatus): the seat asks it for the chat on screen. */
@@ -144,7 +144,7 @@ function fzrKey() { return (typeof S !== 'undefined' && S.agentSession) || FZR_N
 function fzrRosterNow() {
   fzrAgentSeen();
   const sid = (typeof S !== 'undefined' && S.agentSession) || null;
-  return FZR.sid === sid ? FZR.roster : null;
+  return FZRV.sid === sid ? FZRV.roster : null;
 }
 function fzrWordFn() { return typeof providerWord === 'function' ? providerWord : (id) => id; }
 
@@ -153,14 +153,14 @@ function fzrSeatHTML() {
   const roster = fzrRosterNow();
   const sid = (typeof S !== 'undefined' && S.agentSession) || null;
   // Asked once per chat shown; a turn's end and a write ask again.
-  if (roster === null && FZR.asked !== sid) void fzrRefresh(sid);
+  if (roster === null && FZRV.asked !== sid) void fzrRefresh(sid);
   // An agent without the team route (older than issue #71): no seat, as before.
   if (roster && roster.known === false) return '';
-  const choice = fzrChoice(roster, FZR.pending[fzrKey()]);
+  const choice = fzrChoice(roster, FZRV.pending[fzrKey()]);
   const word = fzrSeatWord(roster, choice, fzrWordFn());
   const open = typeof S !== 'undefined' && (S.overlay === 'fzr' || S.overlay === 'fzradd') ? ' is-open' : '';
   // A pick the agent has not stamped: the agent's words for why, until it does.
-  const note = FZR.note[fzrKey()];
+  const note = FZRV.note[fzrKey()];
   const tip = 'Reviews the work: ' + word + (note ? '. Not applied yet: ' + note : '');
   return '<span class="composer-seat" role="group" aria-label="Reviewer">'
     + '<button class="cchip reviewerchip' + open + (note ? ' is-warn' : '') + '" data-act="fzr:open" data-id="' + esc(choice || '') + '"'
@@ -168,7 +168,7 @@ function fzrSeatHTML() {
     + ic('check') + '<span class="cval">' + esc(word) + '</span>' + ic('chevD', 'chev') + '</button></span>';
 }
 
-function fzrRowHTML(r, verb) {
+function fzrvRowHTML(r, verb) {
   const dis = r.disabled || !verb;
   return '<button class="poprow' + (r.active ? ' on' : '') + (dis ? ' dim' : '') + '"'
     + (dis ? ' disabled' : ' data-act="' + esc(verb) + '"') + (r.detail ? ' title="' + esc(r.detail) + '"' : '') + '>'
@@ -185,15 +185,15 @@ function fzrPopoverHTML() {
   if (S.overlay === 'fzradd') {
     const list = fzrCandidates(typeof LIVE_CONFIG !== 'undefined' ? LIVE_CONFIG : null, roster, word);
     body = '<div class="modehead"><span>Add a reviewer</span><span class="cap">added to the Fusion team; only chats that pick it are reviewed</span></div>'
-      + (list.length ? list.map((c) => fzrRowHTML({label: c.label, detail: c.detail, disabled: c.disabled}, FZR.adding || c.disabled ? '' : 'fzr:add:' + c.ref)).join('')
+      + (list.length ? list.map((c) => fzrvRowHTML({label: c.label, detail: c.detail, disabled: c.disabled}, FZRV.adding || c.disabled ? '' : 'fzr:add:' + c.ref)).join('')
         : '<div class="modenote"><p class="ob-help">' + esc(FZR_ADD_HINT) + '</p>'
           + '<button class="btn btn-s sm" data-act="sel:addProvider">' + ic('plus') + 'Add provider</button></div>');
   } else {
-    const choice = fzrChoice(roster, FZR.pending[fzrKey()]);
+    const choice = fzrChoice(roster, FZRV.pending[fzrKey()]);
     const verb = (r) => r.kind === 'auto' ? 'fzr:pick:' : r.kind === 'member' ? 'fzr:pick:' + r.ref
       : r.kind === 'none' ? 'fzr:pick:' + FZR_NO_REVIEW : r.kind === 'add' ? 'fzr:addOpen' : '';
     body = '<div class="modehead"><span>Reviewer</span><span class="cap">checks each task before it counts as done</span></div>'
-      + fzrRows(roster, choice, word).map((r) => fzrRowHTML(r, verb(r))).join('');
+      + fzrRows(roster, choice, word).map((r) => fzrvRowHTML(r, verb(r))).join('');
   }
   return '<div class="scrim" data-close="1" style="background:transparent">'
     + '<div class="popover modepop tk-pop fzrpop" style="width:360px;' + (typeof anchorStyle === 'function' ? anchorStyle('.reviewerchip', 360) : '') + '">'
@@ -202,16 +202,16 @@ function fzrPopoverHTML() {
 
 /** `fzr:` verbs (renderer.js act). */
 async function fzrAct(v) {
-  if (v === 'open') { S.overlay = 'fzr'; FZR.popFor = fzrKey(); render(); void fzrRefresh(S.agentSession || null); return; }
-  if (v === 'addOpen') { S.overlay = 'fzradd'; FZR.popFor = fzrKey(); render(); return; }
+  if (v === 'open') { S.overlay = 'fzr'; FZRV.popFor = fzrKey(); render(); void fzrRefresh(S.agentSession || null); return; }
+  if (v === 'addOpen') { S.overlay = 'fzradd'; FZRV.popFor = fzrKey(); render(); return; }
   if (v.startsWith('pick:')) {
     const ref = v.slice('pick:'.length);
     const stamped = fzrRosterNow() && fzrRosterNow().chat ? fzrRosterNow().chat.reviewer : null;
     // "Team picks" clears a stamp ("team"); with none stamped there is nothing to send.
-    if (ref) FZR.pending[fzrKey()] = ref;
-    else if (stamped) FZR.pending[fzrKey()] = FZR_TEAM_PICKS;
-    else delete FZR.pending[fzrKey()];
-    delete FZR.note[fzrKey()];
+    if (ref) FZRV.pending[fzrKey()] = ref;
+    else if (stamped) FZRV.pending[fzrKey()] = FZR_TEAM_PICKS;
+    else delete FZRV.pending[fzrKey()];
+    delete FZRV.note[fzrKey()];
     S.overlay = null; render();
     return;
   }
@@ -224,14 +224,14 @@ async function fzrAct(v) {
     const firstTurn = fzrKey() === FZR_NEW_CHAT ? (fzrScreenFirstTurn() || fzrScreenDispatch()) : null;
     const startKey = fzrKey();
     const target = firstTurn ? {key: null, turn: firstTurn} : {key: startKey, turn: null};
-    FZR.adds.push(target);
-    FZR.adding = true; render();
+    FZRV.adds.push(target);
+    FZRV.adding = true; render();
     let res = null;
     try { res = await BR.fusionTeamWrite({op: 'addReviewer', ref}); } catch (e) { res = {ok: false, error: String(e)}; }
-    FZR.adding = false;
-    FZR.adds = FZR.adds.filter((t) => t !== target);
-    // The seat's popover is that chat's while it was opened there (FZR.popFor); another chat's is left alone.
-    const ownPop = S.overlay === 'fzr' || S.overlay === 'fzradd' ? FZR.popFor === startKey : false;
+    FZRV.adding = false;
+    FZRV.adds = FZRV.adds.filter((t) => t !== target);
+    // The seat's popover is that chat's while it was opened there (FZRV.popFor); another chat's is left alone.
+    const ownPop = S.overlay === 'fzr' || S.overlay === 'fzradd' ? FZRV.popFor === startKey : false;
     if (!res || !res.ok) {
       const why = (res && res.error) || 'the config write failed';
       if (fzrOnScreen(target)) { toast('Reviewer not added', why); render(); return; }
@@ -270,14 +270,14 @@ function fzrChatName(target) {
 }
 /** A reviewer added from `target` (fzrAct add:) is that chat's pick, or its first turn's while that turn is unnamed. */
 function fzrAddPicked(target, ref) {
-  if (target.turn) { FZR.byTurn[target.turn] = ref; return; }
+  if (target.turn) { FZRV.byTurn[target.turn] = ref; return; }
   if (!target.key) return;   // a new chat whose first turn ended unnamed
-  FZR.pending[target.key] = ref;
-  delete FZR.note[target.key];
+  FZRV.pending[target.key] = ref;
+  delete FZRV.note[target.key];
 }
 /** Issue #77: an add in flight from the new chat follows it (`to` is the chat's id, or `{turn}`). */
 function fzrAddsFollow(from, to) {
-  for (const t of FZR.adds) {
+  for (const t of FZRV.adds) {
     if (from.turn ? t.turn !== from.turn : (t.turn || t.key !== from.key)) continue;
     if (to.turn) { t.key = null; t.turn = to.turn; } else { t.key = to.key; t.turn = null; }
   }
@@ -290,7 +290,7 @@ function fzrAddsFollow(from, to) {
  */
 function fzrTurnTeam(session) {
   const key = session || FZR_NEW_CHAT;
-  const reviewer = FZR.pending[key];
+  const reviewer = FZRV.pending[key];
   return reviewer ? {reviewer} : null;
 }
 /**
@@ -306,8 +306,8 @@ function fzrTurnSent(session, turnId, sent, token) {
   // Issue #77: a reviewer being added from the new chat is this turn's too, picked or not (`sent` null).
   fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: turnId});
   if (!sent) return;
-  if (FZR.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZR.pending[FZR_NEW_CHAT];
-  FZR.byTurn[turnId] = sent.reviewer;
+  if (FZRV.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZRV.pending[FZR_NEW_CHAT];
+  FZRV.byTurn[turnId] = sent.reviewer;
 }
 /**
  * Issue #87: renderer.js is sending a new chat's turn (`session` empty), right
@@ -320,16 +320,16 @@ function fzrTurnSent(session, turnId, sent, token) {
  */
 function fzrTurnDispatch(session) {
   if (session) return null;
-  const token = '\u0000dispatch:' + (++FZR.dispatch);
+  const token = '\u0000dispatch:' + (++FZRV.dispatch);
   fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: token});
-  if (FZR.pending[FZR_NEW_CHAT] !== undefined) {
-    FZR.byTurn[token] = FZR.pending[FZR_NEW_CHAT];
-    delete FZR.pending[FZR_NEW_CHAT];
+  if (FZRV.pending[FZR_NEW_CHAT] !== undefined) {
+    FZRV.byTurn[token] = FZRV.pending[FZR_NEW_CHAT];
+    delete FZRV.pending[FZR_NEW_CHAT];
   }
-  FZR.newDispatch = token;
+  FZRV.newDispatch = token;
   // The screen that sent it (fzrScreenChanged counts each chat put on screen; Clear Transcript is not one).
-  FZR.newDispatchScreen = FZR.screen;
-  FZR.tokenScreen[token] = FZR.screen;
+  FZRV.newDispatchScreen = FZRV.screen;
+  FZRV.tokenScreen[token] = FZRV.screen;
   return token;
 }
 /**
@@ -339,8 +339,8 @@ function fzrTurnDispatch(session) {
  * add there is that chat's slot's, never the sent one's).
  */
 function fzrScreenDispatch() {
-  if (!FZR.newDispatch) return null;
-  return FZR.newDispatchScreen === FZR.screen ? FZR.newDispatch : null;
+  if (!FZRV.newDispatch) return null;
+  return FZRV.newDispatchScreen === FZRV.screen ? FZRV.newDispatch : null;
 }
 /**
  * Issue #87 review: another chat is on screen (renderer.js session:new and
@@ -349,65 +349,65 @@ function fzrScreenDispatch() {
  * that turn's; adds from here on are the new screen's.
  */
 function fzrScreenChanged() {
-  FZR.screen++;
+  FZRV.screen++;
   // The waiting turn is not this screen's: nothing started here joins it (its token still re-keys on the answer).
-  FZR.newDispatch = null; FZR.newDispatchScreen = null;
+  FZRV.newDispatch = null; FZRV.newDispatchScreen = null;
 }
 /** Issue #87: the send's answer named the turn: what the dispatch token held is the turn id's. */
 function fzrRekeyTurn(token, turnId) {
-  delete FZR.tokenScreen[token];
+  delete FZRV.tokenScreen[token];
   fzrAddsFollow({turn: token}, {turn: turnId});
-  if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) { FZR.byTurn[turnId] = FZR.byTurn[token]; delete FZR.byTurn[token]; }
-  if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchScreen = null; }
+  if (Object.prototype.hasOwnProperty.call(FZRV.byTurn, token)) { FZRV.byTurn[turnId] = FZRV.byTurn[token]; delete FZRV.byTurn[token]; }
+  if (FZRV.newDispatch === token) { FZRV.newDispatch = null; FZRV.newDispatchScreen = null; }
 }
 /** Issue #87: the send failed (no turn): its pick and adds go back to the new-chat slot, for the retry. */
 function fzrTurnUndispatched(token) {
   if (!token) return;
   // Issue #87 review: only while the screen still shows the chat that sent it. After a fresh New chat (or
   // another chat) the new-chat slot is someone else's: the choice is dropped, and the toast says so.
-  const sameScreen = FZR.tokenScreen[token] === FZR.screen;
-  delete FZR.tokenScreen[token];
-  const held = Object.prototype.hasOwnProperty.call(FZR.byTurn, token) || FZR.adds.some((t) => t.turn === token);
+  const sameScreen = FZRV.tokenScreen[token] === FZRV.screen;
+  delete FZRV.tokenScreen[token];
+  const held = Object.prototype.hasOwnProperty.call(FZRV.byTurn, token) || FZRV.adds.some((t) => t.turn === token);
   fzrAddsFollow({turn: token}, {key: sameScreen ? FZR_NEW_CHAT : null});
-  if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) {
-    if (sameScreen && FZR.pending[FZR_NEW_CHAT] === undefined) FZR.pending[FZR_NEW_CHAT] = FZR.byTurn[token];
-    delete FZR.byTurn[token];
+  if (Object.prototype.hasOwnProperty.call(FZRV.byTurn, token)) {
+    if (sameScreen && FZRV.pending[FZR_NEW_CHAT] === undefined) FZRV.pending[FZR_NEW_CHAT] = FZRV.byTurn[token];
+    delete FZRV.byTurn[token];
   }
   if (!sameScreen && held && typeof toast === 'function') toast('Reviewer choice dropped', 'That chat\'s first message did not go out.');
-  if (FZR.newDispatch === token) { FZR.newDispatch = null; FZR.newDispatchScreen = null; }
+  if (FZRV.newDispatch === token) { FZRV.newDispatch = null; FZRV.newDispatchScreen = null; }
 }
 /** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */
 function fzrAdoptNewChat(sid) {
   if (sid) fzrAddsFollow({key: FZR_NEW_CHAT}, {key: sid});
-  if (!sid || FZR.pending[FZR_NEW_CHAT] === undefined) return;
-  if (FZR.pending[sid] === undefined) FZR.pending[sid] = FZR.pending[FZR_NEW_CHAT];
-  delete FZR.pending[FZR_NEW_CHAT];
-  delete FZR.note[FZR_NEW_CHAT];
+  if (!sid || FZRV.pending[FZR_NEW_CHAT] === undefined) return;
+  if (FZRV.pending[sid] === undefined) FZRV.pending[sid] = FZRV.pending[FZR_NEW_CHAT];
+  delete FZRV.pending[FZR_NEW_CHAT];
+  delete FZRV.note[FZR_NEW_CHAT];
 }
 /** Turn `turnId`'s stream named its chat `sid` (renderer.js firstTurnNamed), or ended unnamed (sid null). */
 function fzrTurnNamed(turnId, sid) {
   if (turnId) fzrAddsFollow({turn: turnId}, {key: sid || null});
-  if (!turnId || !Object.prototype.hasOwnProperty.call(FZR.byTurn, turnId)) return;
-  const pick = FZR.byTurn[turnId];
-  delete FZR.byTurn[turnId];
-  if (sid && FZR.pending[sid] === undefined) FZR.pending[sid] = pick;
+  if (!turnId || !Object.prototype.hasOwnProperty.call(FZRV.byTurn, turnId)) return;
+  const pick = FZRV.byTurn[turnId];
+  delete FZRV.byTurn[turnId];
+  if (sid && FZRV.pending[sid] === undefined) FZRV.pending[sid] = pick;
 }
 
 /** The agent's answer for chat `sid` shows its pick stamped: it is used up. */
 function fzrReconcile(sid) {
-  const pending = FZR.pending[sid];
-  if (pending === undefined || !FZR.roster || !FZR.roster.known) return;
-  const stamped = FZR.roster.chat ? FZR.roster.chat.reviewer : null;
+  const pending = FZRV.pending[sid];
+  if (pending === undefined || !FZRV.roster || !FZRV.roster.known) return;
+  const stamped = FZRV.roster.chat ? FZRV.roster.chat.reviewer : null;
   if (pending === stamped || (pending === FZR_TEAM_PICKS && stamped === null)) {
-    delete FZR.pending[sid];
-    delete FZR.note[sid];
+    delete FZRV.pending[sid];
+    delete FZRV.note[sid];
   }
 }
 
 /** A turn of chat `sid` ended (renderer.js): the stamp is read back; a refusal's words stay on the seat. */
 async function fzrTurnEnded(sid, error) {
   if (!sid) return;
-  if (FZR.pending[sid] !== undefined && error) FZR.note[sid] = String(error).slice(0, 300);
+  if (FZRV.pending[sid] !== undefined && error) FZRV.note[sid] = String(error).slice(0, 300);
   if (typeof S === 'undefined' || sid === S.agentSession) await fzrRefresh(sid);
 }
 
@@ -415,17 +415,17 @@ async function fzrTurnEnded(sid, error) {
 async function fzrRefresh(sid) {
   if (typeof BR === 'undefined' || !BR || !BR.fusionTeam) return;
   fzrAgentSeen();
-  const token = ++FZR.token;
-  if (FZR.sid !== sid) FZR.roster = null;
-  FZR.sid = sid; FZR.asked = sid;
+  const token = ++FZRV.token;
+  if (FZRV.sid !== sid) FZRV.roster = null;
+  FZRV.sid = sid; FZRV.asked = sid;
   let roster = null;
   try { roster = await BR.fusionTeam(sid); } catch (e) { roster = null; }
-  if (token !== FZR.token) return;
-  FZR.roster = roster && roster.known ? roster : {known: false, configured: false, directors: [], workers: [], reviewers: [], review: null, chat: null};
+  if (token !== FZRV.token) return;
+  FZRV.roster = roster && roster.known ? roster : {known: false, configured: false, directors: [], workers: [], reviewers: [], review: null, chat: null};
   if (sid) fzrReconcile(sid);
-  fzrRepaint();
+  fzrvRepaint();
 }
-function fzrRepaint() {
+function fzrvRepaint() {
   const el = typeof document !== 'undefined' ? document.querySelector('#composer .cfoot .reviewerchip') : null;
   if (!el) return;
   const seat = el.closest('.composer-seat');
@@ -446,5 +446,5 @@ async function fzrLegsMoved() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {fzrScreenChanged, fzrTurnDispatch, fzrTurnUndispatched, fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrAdoptNewChat, fzrReconcile, FZR, FZR_ADD_HINT};
+  module.exports = {fzrScreenChanged, fzrTurnDispatch, fzrTurnUndispatched, fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrAdoptNewChat, fzrReconcile, FZRV, FZR_ADD_HINT};
 }

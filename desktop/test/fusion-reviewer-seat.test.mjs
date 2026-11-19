@@ -319,7 +319,7 @@ test("window: a new chat's pick goes with its turn, never to the chat refreshed 
   c.fzrTurnNamed("t2", null);
   c.fzrTurnNamed("t3", "s10");
   assert.equal(c.fzrTurnTeam("s10"), null);
-  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  assert.equal(vm.runInContext("JSON.stringify(FZRV.byTurn)", c), "{}");
 });
 
 test("Add a reviewer: an API provider with no model is listed disabled, with where to pick one", () => {
@@ -425,7 +425,7 @@ test("window: Add a reviewer from a new chat whose first turn leaves without a p
   assert.equal(c.fzrTurnTeam("chat-B"), null);
   c.fzrTurnNamed("t1", "s9");
   assert.deepEqual({ ...c.fzrTurnTeam("s9") }, { reviewer: "anthropic:model-a" });
-  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  assert.equal(vm.runInContext("JSON.stringify(FZRV.byTurn)", c), "{}");
   // renderer.js tells the seat about a new chat's turn whether or not it carried a pick.
   const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
   assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice(, fzrToken)?\);/);
@@ -544,7 +544,7 @@ for (const [label, order, prior] of [
     // The person opens new chat B.
     c.S.agentSession = null;
     assert.equal(c.fzrTurnTeam(undefined), null, "new chat B inherited chat A's reviewer");
-    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+    assert.equal(vm.runInContext("JSON.stringify(FZRV.byTurn)", c), "{}");
   });
 }
 
@@ -664,15 +664,15 @@ test("live: a send that rejects gives the pick back, and a later add is the new 
   assert.deepEqual(chats[0].team, { reviewer: "none" });
   chats[0].reject();
   await settle(); await settle();
-  assert.equal(vm.runInContext("FZR.newDispatch", c), null, "the rejected send's token is still pending");
-  assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  assert.equal(vm.runInContext("FZRV.newDispatch", c), null, "the rejected send's token is still pending");
+  assert.equal(vm.runInContext("JSON.stringify(FZRV.byTurn)", c), "{}");
   assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "none" });
   await c.fzrAct("add:anthropic:model-a");
   assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });  // Another chat on screen (session:new, openSession, a new agent) lets go of a waiting first turn too.
   c.startLiveTurn("a second new chat");
-  assert.ok(vm.runInContext("FZR.newDispatch", c));
+  assert.ok(vm.runInContext("FZRV.newDispatch", c));
   c.fzrScreenChanged();
-  assert.equal(vm.runInContext("FZR.newDispatch", c), null);
+  assert.equal(vm.runInContext("FZRV.newDispatch", c), null);
 });
 
 // Issue #87 review: a failed add made before the send's answer, the person still on that chat, was
@@ -707,7 +707,7 @@ for (const how of ["fail", "reject"]) {
     writes[0].done();
     await adding;
     assert.equal(c.fzrTurnTeam(undefined), null, "new chat B got chat A's reviewer");
-    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+    assert.equal(vm.runInContext("JSON.stringify(FZRV.byTurn)", c), "{}");
     assert.ok(c.toasts.some(([t]) => /Reviewer/.test(t)), "nothing said the choice was dropped");
   });
 }
