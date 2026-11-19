@@ -10441,9 +10441,12 @@ function startLiveTurn(text) {
   live.folder = firstTurnFolder(waiting ? undefined : session, turnPid);   // review of #67: the folder this new chat's turn runs in
   // Issue #71: the chat's Reviewer seat choice, sent once; the agent stamps and keeps it (fusion-reviewer.js).
   const teamChoice = fzrTurnTeam(session);
+  // Issue #87: a new chat's pick and a reviewer being added are this turn's from here, before BR.chat answers.
+  const fzrToken = fzrTurnDispatch(session);
   const send = () => BR.chat([{role:'user', content:text}], session, forProject, reasoningTurnLevel(session), projectTurnModel(waiting ? undefined : session, turnPid), teamChoice);
   (waiting ? waiting.filed.then(send, send) : send()).then((res) => {
-    if (res && res.ok) fzrTurnSent(session, res.turnId, teamChoice);   // issue #74: a new chat's pick is this turn's; #77: so is a reviewer being added
+    if (res && res.ok) fzrTurnSent(session, res.turnId, teamChoice, fzrToken);   // issue #74: a new chat's pick is this turn's; #77: so is a reviewer being added
+    else fzrTurnUndispatched(fzrToken);   // issue #87: no turn: back to the new-chat slot
     if (res && res.ok && waiting) projectWaitingSent(session);
     else if (waiting) waiting.sending = false;
     if (!res || !res.ok) {

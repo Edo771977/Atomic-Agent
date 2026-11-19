@@ -26,7 +26,7 @@
 /* `adds`: the chats "Add a reviewer…" writes are in flight for, each `{key, turn}`
    read when the write started (issue #77): a new chat's follows it as it gets
    an id or its first turn leaves (fzrAdoptNewChat, fzrTurnSent, fzrTurnNamed). */
-const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null};
+const FZR = {sid: null, asked: undefined, roster: null, token: 0, pending: {}, note: {}, byTurn: {}, adding: false, gen: null, adds: [], popFor: null, dispatch: 0, newDispatch: null};
 const FZR_NO_REVIEW = 'none';
 /* Sent to clear the chat's stamp: the team picks again (issue #71). */
 const FZR_TEAM_PICKS = 'team';
@@ -219,7 +219,8 @@ async function fzrAct(v) {
     if (!BR || !BR.fusionTeamWrite) return;
     // Issue #77: the chat it is added from, read now: the person can open another one during the write.
     // A new chat whose first turn already left, not named yet: the reviewer is that turn's chat's.
-    const firstTurn = fzrKey() === FZR_NEW_CHAT ? fzrScreenFirstTurn() : null;
+    // Issue #87: or one sent and not acknowledged yet (no turn id): its dispatch token stands for the turn.
+    const firstTurn = fzrKey() === FZR_NEW_CHAT ? (fzrScreenFirstTurn() || FZR.newDispatch) : null;
     const startKey = fzrKey();
     const target = firstTurn ? {key: null, turn: firstTurn} : {key: startKey, turn: null};
     FZR.adds.push(target);
@@ -296,13 +297,51 @@ function fzrTurnTeam(session) {
  * turn's stream names the chat (fzrTurnNamed). Issue #74: it used to move to
  * whichever chat was refreshed next, an unrelated one opened meanwhile.
  */
-function fzrTurnSent(session, turnId, sent) {
+function fzrTurnSent(session, turnId, sent, token) {
   if (session || !turnId) return;
+  // Issue #87: tied to the turn at dispatch (fzrTurnDispatch): the token's pick and adds are the turn id's now.
+  if (token) { fzrRekeyTurn(token, turnId); return; }
   // Issue #77: a reviewer being added from the new chat is this turn's too, picked or not (`sent` null).
   fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: turnId});
   if (!sent) return;
   if (FZR.pending[FZR_NEW_CHAT] === sent.reviewer) delete FZR.pending[FZR_NEW_CHAT];
   FZR.byTurn[turnId] = sent.reviewer;
+}
+/**
+ * Issue #87: renderer.js is sending a new chat's turn (`session` empty), right
+ * before BR.chat, synchronously. The turn id comes only with BR.chat's answer,
+ * so a dispatch token stands for it until then: the pick the turn carries and
+ * any add in flight from the new chat are the token's from here, never the
+ * new-chat slot's, whichever of the add and the answer ends first. An add
+ * started before the answer joins it too (fzrAct add:). Returns the token, or
+ * null for a stored chat.
+ */
+function fzrTurnDispatch(session) {
+  if (session) return null;
+  const token = '\u0000dispatch:' + (++FZR.dispatch);
+  fzrAddsFollow({key: FZR_NEW_CHAT}, {turn: token});
+  if (FZR.pending[FZR_NEW_CHAT] !== undefined) {
+    FZR.byTurn[token] = FZR.pending[FZR_NEW_CHAT];
+    delete FZR.pending[FZR_NEW_CHAT];
+  }
+  FZR.newDispatch = token;
+  return token;
+}
+/** Issue #87: the send's answer named the turn: what the dispatch token held is the turn id's. */
+function fzrRekeyTurn(token, turnId) {
+  fzrAddsFollow({turn: token}, {turn: turnId});
+  if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) { FZR.byTurn[turnId] = FZR.byTurn[token]; delete FZR.byTurn[token]; }
+  if (FZR.newDispatch === token) FZR.newDispatch = null;
+}
+/** Issue #87: the send failed (no turn): its pick and adds go back to the new-chat slot, for the retry. */
+function fzrTurnUndispatched(token) {
+  if (!token) return;
+  fzrAddsFollow({turn: token}, {key: FZR_NEW_CHAT});
+  if (Object.prototype.hasOwnProperty.call(FZR.byTurn, token)) {
+    if (FZR.pending[FZR_NEW_CHAT] === undefined) FZR.pending[FZR_NEW_CHAT] = FZR.byTurn[token];
+    delete FZR.byTurn[token];
+  }
+  if (FZR.newDispatch === token) FZR.newDispatch = null;
 }
 /** A new chat got its id before its first turn (renderer.js submit, a `waiting-…` chat): its pick is that chat's. */
 function fzrAdoptNewChat(sid) {
@@ -374,5 +413,5 @@ async function fzrLegsMoved() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = {fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrAdoptNewChat, fzrReconcile, FZR, FZR_ADD_HINT};
+  module.exports = {fzrTurnDispatch, fzrTurnUndispatched, fzrRows, fzrSeatWord, fzrCandidates, fzrChoice, fzrMemberLabel, fzrEntryRef, fzrTurnTeam, fzrTurnSent, fzrTurnNamed, fzrAdoptNewChat, fzrReconcile, FZR, FZR_ADD_HINT};
 }

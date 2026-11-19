@@ -428,7 +428,7 @@ test("window: Add a reviewer from a new chat whose first turn leaves without a p
   assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
   // renderer.js tells the seat about a new chat's turn whether or not it carried a pick.
   const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
-  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice\);/);
+  assert.match(renderer, /if \(res && res\.ok\) fzrTurnSent\(session, res\.turnId, teamChoice(, fzrToken)?\);/);
 });
 
 // Issue #77 review: Add a reviewer pressed after a new chat's first turn left,
@@ -506,4 +506,65 @@ test("window: a failed add after a switch closes its own popover and names its c
   assert.equal(c.S.overlay, "fzradd");
   assert.deepEqual([...c.toasts[0]], ["Reviewer not added", "disk full"]);
   assert.match(readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8"), /\nfunction chatById\(id\) \{/);
+});
+
+// Issue #87 (5): an add that completed between a new chat's first send and the send's acknowledgment
+// (BR.chat's answer, which carries the turn id) stayed on the new-chat slot, so the next new chat got it.
+// The renderer's send path, as renderer.js runs it: the choice and the dispatch, synchronously; the ack later.
+function sendFirstTurn(c) {
+  const teamChoice = c.fzrTurnTeam(undefined);
+  const token = typeof c.fzrTurnDispatch === "function" ? c.fzrTurnDispatch(undefined) : undefined;
+  return { ack: (turnId) => c.fzrTurnSent(undefined, turnId, teamChoice, token), fail: () => typeof c.fzrTurnUndispatched === "function" && c.fzrTurnUndispatched(token), teamChoice };
+}
+for (const [label, order, prior] of [
+  ["the write ends before the ack", "write-first", null],
+  ["the ack comes before the write ends", "ack-first", null],
+  ["the add starts after the send, the write ends before the ack", "add-after-send", null],
+  ["a pick was made before, the write ends before the ack", "write-first", "none"],
+]) {
+  test(`window: Add a reviewer in a new chat whose first send is not acknowledged yet (${label}) stays that chat's`, async () => {
+    const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+    c.S.agentSession = null;
+    c.FIRST_TURNS = new Map();
+    c.screenTurnId = () => null;
+    if (prior) await c.fzrAct("pick:" + prior);
+    const writes = delayedWrite(c);
+    let send;
+    let adding;
+    if (order === "add-after-send") { send = sendFirstTurn(c); adding = c.fzrAct("add:anthropic:model-a"); }
+    else { adding = c.fzrAct("add:anthropic:model-a"); send = sendFirstTurn(c); }
+    if (prior) assert.deepEqual({ ...send.teamChoice }, { reviewer: prior });
+    if (order === "ack-first") { send.ack("t1"); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; send.ack("t1"); }
+    c.FIRST_TURNS.set("t1", "hello");
+    c.FIRST_TURNS.delete("t1");
+    c.fzrTurnNamed("t1", "chat-A");
+    c.S.agentSession = "chat-A";
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" }, "chat A lost the reviewer added from it");
+    // The person opens new chat B.
+    c.S.agentSession = null;
+    assert.equal(c.fzrTurnTeam(undefined), null, "new chat B inherited chat A's reviewer");
+    assert.equal(vm.runInContext("JSON.stringify(FZR.byTurn)", c), "{}");
+  });
+}
+
+test("window: a new chat's first send that fails gives its pick and an add in flight back to the new-chat slot", async () => {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  c.S.agentSession = null;
+  await c.fzrAct("pick:none");
+  const writes = delayedWrite(c);
+  const adding = c.fzrAct("add:anthropic:model-a");
+  const send = sendFirstTurn(c);
+  send.fail();
+  writes[0].done();
+  await adding;
+  assert.deepEqual({ ...c.fzrTurnTeam(undefined) }, { reviewer: "anthropic:model-a" });
+  // renderer.js ties the dispatch to the send synchronously and passes the token with the ack.
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const at = renderer.indexOf("const teamChoice = fzrTurnTeam(session);");
+  const body = renderer.slice(at, at + 1600);
+  assert.match(body, /const fzrToken = fzrTurnDispatch\(session\);/);
+  assert.ok(body.indexOf("fzrTurnDispatch(session)") < body.indexOf("BR.chat("));
+  assert.match(body, /fzrTurnSent\(session, res\.turnId, teamChoice, fzrToken\)/);
+  assert.match(body, /fzrTurnUndispatched\(fzrToken\)/);
 });
