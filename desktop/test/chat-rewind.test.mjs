@@ -176,7 +176,7 @@ test("only a rollback passes the files flag on to the agent", () => {
   assert.deepEqual(M.rewindRequestBody(0, "x", true), { priorQuestions: 0, expectText: "x", files: true });
   assert.deepEqual(M.rewindRequestBody(0, "x", "no"), { priorQuestions: 0, expectText: "x" });
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? files : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed(, expectPlanHash)?)?)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed(, expectPlanHash(, expectTranscriptRev)?)?)?)? \}/);
 });
 
 /* ---------- wiring ---------- */
@@ -316,7 +316,7 @@ test("skip is sent only as a list of at most 1000 paths, only for a rollback; ac
   assert.match(ipc, /takesSkip \? skip : undefined/);
   assert.match(ipc, /const takesSkip = route === "rewind" \|\| route === "rewind\/preview";/);
   assert.match(src("../preload/preload.ts"), /"agent:rewindPreview", \{ sessionId, priorQuestions, expectText, skip \}/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed(, expectPlanHash)?)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed(, expectPlanHash(, expectTranscriptRev)?)?)? \}/);
 });
 
 /** The fixture every button starts from: a rollback the agent answered with two files not put back. */
@@ -507,8 +507,8 @@ function ipcWindow(mode, answers) {
   } finally {
     if (saved) ipcRequire.cache[electron] = saved; else delete ipcRequire.cache[electron];
   }
-  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash) =>
-    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash });
+  g.BR.rewind = (sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev) =>
+    handlers["agent:rewind"]({}, { sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev });
   g.BR.rewindPreview = (sessionId, priorQuestions, expectText, skip) => handlers["agent:rewindPreview"]({}, { sessionId, priorQuestions, expectText, skip });
   g.toasts = [];
   g.toast = (...a) => g.toasts.push(a);
@@ -837,7 +837,7 @@ test("expectPlanHash is sent only as a string of at most 200 characters, only fo
   assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, "h".repeat(200)).expectPlanHash.length, 200);
   for (const bad of ["h".repeat(201), "", 5, {}]) assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, bad), null);
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? expectPlanHash : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash(, expectTranscriptRev)? \}/);
 });
 
 for (const [mode, act, files, hashed] of [["back", "go", undefined, true], ["edit", "go", true, true], ["edit", "go-chat", false, false]]) {
@@ -873,7 +873,7 @@ for (const mode of ["back", "edit"]) {
     R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1" };
     await R.rewindAct("go");
     const html = R.rewindSheetHTML();
-    assert.match(html, /files changed since the preview/);
+    assert.match(html, /the files or the messages changed since the preview/i);
     assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
     await R.rewindAct("go");
     await R.rewindAct("go-chat");
@@ -954,4 +954,68 @@ test("skip_unknown's paths: the answer's own list when it has one, else the sent
   // A path with ", " in it is still found by the paths that were sent.
   assert.deepEqual(R.rewindUnknownSkip(plain, ["/w/a, b.txt", "/w/c", "/w/kept"]), ["/w/a, b.txt", "/w/c"]);
   assert.deepEqual(R.rewindUnknownSkip({ code: "skip_unknown", error: "no list here" }, ["/w/x"]), ["/w/x"]);
+});
+
+/* ---------- issue #87 (2): a confirm is tied to the messages its preview showed (transcriptRev) ---------- */
+
+test("expectTranscriptRev is sent only as a string of at most 200 characters, only for a rollback", () => {
+  assert.deepEqual(M.rewindRequestBody(0, "x", false, undefined, undefined, undefined, "rev"), { priorQuestions: 0, expectText: "x", files: false, expectTranscriptRev: "rev" });
+  for (const bad of ["r".repeat(201), "", 7, null]) assert.equal(M.rewindRequestBody(0, "x", undefined, undefined, undefined, undefined, bad), null);
+  assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? expectTranscriptRev : undefined/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip, acceptFailed, expectPlanHash, expectTranscriptRev \}/);
+});
+
+for (const [mode, act, files, plan] of [["edit", "go-chat", false, false], ["back", "go", undefined, true], ["edit", "go", true, true]]) {
+  test(`${mode} ${act}: the confirm sends the preview's transcriptRev`, async () => {
+    const calls = ipcWindow(mode, { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+    R.REWIND.preview = { ...FILES_PREVIEW, planHash: "plan-1", transcriptRev: "rev-1" };
+    await R.rewindAct(act);
+    assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "old text", ...(files === undefined ? {} : { files }),
+      ...(plan ? { expectPlanHash: "plan-1" } : {}), expectTranscriptRev: "rev-1" }]);
+  });
+}
+
+test("plan_changed after Conversation only says the files or the messages changed, and offers only Check again", async () => {
+  const calls = ipcWindow("edit", { rewind: [{ status: 409, body: { error: { code: "plan_changed", message: "changed" } } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW, transcriptRev: "rev-1" };
+  await R.rewindAct("go-chat");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /the files or the messages changed since the preview/i);
+  assert.deepEqual(footActs(html), [["rewind:recheck", "Check again"]]);
+  await R.rewindAct("go-chat");
+  await R.rewindAct("go");
+  assert.equal(agentBodies(calls).length, 1);
+});
+
+test("an old agent's preview without transcriptRev sends none", async () => {
+  const calls = ipcWindow("edit", { rewind: [{ status: 200, body: { restored: [], deleted: [], failed: [] } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW };
+  await R.rewindAct("go-chat");
+  assert.deepEqual(agentBodies(calls), [{ priorQuestions: 1, expectText: "old text", files: false }]);
+});
+
+test("the preview says when a file to delete could not be read, and shows a damaged saved copy", () => {
+  fakeWindow([]);
+  startEdit({ ...FILES_PREVIEW, files: [{ path: "/w/new.txt", action: "delete", contentUnchecked: true }, { path: "/w/src/a.ts", action: "restore", error: "saved copy is damaged" }] });
+  R.REWIND.mode = "back";
+  const html = R.rewindSheetHTML();
+  assert.match(html, /could not read new\.txt, so a same-size replacement would not be noticed/);
+  assert.match(html, /src\/a\.ts[^<]*saved copy is damaged/);
+});
+
+test("the skip confirm and Check again's confirm send their own preview's transcriptRev", async () => {
+  let calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED, { status: 200, body: { restored: [], deleted: [], failed: [], skipped: [B_FILE] } }],
+    skipPreview: [{ ...SKIP_PREVIEW, body: { ...SKIP_PREVIEW.body, planHash: "p-skip", transcriptRev: "rev-skip" } }] });
+  R.REWIND.preview = { ...FILES_PREVIEW, transcriptRev: "rev-1" };
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  await R.rewindAct("go-skip-confirm");
+  assert.equal(agentBodies(calls)[0].expectTranscriptRev, "rev-1");
+  assert.equal(agentBodies(calls)[1].expectTranscriptRev, "rev-skip");
+  calls = ipcWindow("back", { rewind: [{ status: 409, body: { error: { code: "plan_changed", message: "x" } } }, { status: 200, body: { restored: [], deleted: [], failed: [] } }],
+    preview: [{ status: 200, body: { ...FILES_PREVIEW, transcriptRev: "rev-fresh" } }] });
+  await R.rewindAct("go");
+  await R.rewindAct("recheck");
+  await R.rewindAct("go");
+  assert.equal(agentBodies(calls)[1].expectTranscriptRev, "rev-fresh");
 });

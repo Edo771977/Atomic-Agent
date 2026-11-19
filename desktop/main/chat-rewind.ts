@@ -110,7 +110,7 @@ export function rewindSkipList(value: unknown): string[] | undefined | null {
 /** Issue #83 review: the most characters a preview's planHash may have. */
 export const REWIND_PLAN_HASH_CAP = 200;
 
-/** Issue #83 review: a preview's `planHash` as a rollback may send it back (`expectPlanHash`): a string of 1-200 characters. */
+/** Issue #83 review: a preview's `planHash` (or, issue #87, `transcriptRev`) as a rollback may send it back: a string of 1-200 characters. */
 export function rewindPlanHash(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= REWIND_PLAN_HASH_CAP;
 }
@@ -126,7 +126,10 @@ export function rewindPlanHash(value: unknown): value is string {
  * is not a valid list refuses the body (null). `expectPlanHash` (issue #83
  * review) is the preview's `planHash` the confirm was shown; the agent
  * answers 409 `plan_changed` and changes nothing when its plan differs. One
- * that is not a string of 1-200 characters refuses the body.
+ * that is not a string of 1-200 characters refuses the body. So does an
+ * `expectTranscriptRev` (issue #87, item 2) of that shape: the preview's
+ * `transcriptRev`, the chat's rows from the point on, refused the same way
+ * when the messages changed since; sent even with "Conversation only".
  */
 export function rewindRequestBody(
   priorQuestions: unknown,
@@ -135,12 +138,16 @@ export function rewindRequestBody(
   skip?: unknown,
   acceptFailed?: unknown,
   expectPlanHash?: unknown,
-): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean; expectPlanHash?: string } | null {
+  expectTranscriptRev?: unknown,
+): {
+  priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean; expectPlanHash?: string; expectTranscriptRev?: string;
+} | null {
   if (typeof priorQuestions !== "number" || !Number.isInteger(priorQuestions) || priorQuestions < 0) return null;
   if (typeof expectText !== "string" || !expectText.trim()) return null;
   const skipped = rewindSkipList(skip);
   if (skipped === null) return null;
   if (expectPlanHash !== undefined && !rewindPlanHash(expectPlanHash)) return null;
+  if (expectTranscriptRev !== undefined && !rewindPlanHash(expectTranscriptRev)) return null;
   return {
     priorQuestions,
     expectText,
@@ -148,6 +155,7 @@ export function rewindRequestBody(
     ...(skipped ? { skip: skipped } : {}),
     ...(typeof acceptFailed === "boolean" ? { acceptFailed } : {}),
     ...(expectPlanHash !== undefined ? { expectPlanHash: expectPlanHash as string } : {}),
+    ...(expectTranscriptRev !== undefined ? { expectTranscriptRev: expectTranscriptRev as string } : {}),
   };
 }
 

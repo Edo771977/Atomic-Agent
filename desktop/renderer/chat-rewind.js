@@ -67,12 +67,19 @@ function rewindSummary(preview, workingDir) {
   const files = Array.isArray(p.files) ? p.files : [];
   const out = {
     removedText: rewindPlural(q, 'message of yours', 'messages of yours') + ' and ' + rewindPlural(r, 'reply', 'replies') + ' will be removed from this chat.',
-    restore: files.filter((f) => f.action === 'restore').map((f) => rewindPathLabel(f.path, workingDir)),
-    remove: files.filter((f) => f.action === 'delete').map((f) => rewindPathLabel(f.path, workingDir)),
+    // A file the agent could not check now carries its error (issue #87: "saved copy is damaged", say).
+    restore: files.filter((f) => f.action === 'restore').map((f) => rewindPathLabel(f.path, workingDir) + (typeof f.error === 'string' && f.error ? ' (' + f.error + ')' : '')),
+    remove: files.filter((f) => f.action === 'delete').map((f) => rewindPathLabel(f.path, workingDir) + (typeof f.error === 'string' && f.error ? ' (' + f.error + ')' : '')),
     cannot: (Array.isArray(p.notRestorable) ? p.notRestorable : [])
       .map((f) => rewindPathLabel(f.path, workingDir) + ' (' + (REWIND_REASON[f.reason] || 'no copy was kept') + ')'),
     warnings: [],
   };
+  // Issue #87: a file to delete the agent could not read: only its size was compared.
+  for (const f of files) {
+    if (f && f.action === 'delete' && f.contentUnchecked === true) {
+      out.warnings.push('The agent could not read ' + rewindPathLabel(f.path, workingDir) + ', so a same-size replacement would not be noticed.');
+    }
+  }
   if (p.incomplete) out.warnings.push('Some older file changes are no longer kept, so not every file can be put back.');
   const counts = new Map();
   for (const u of Array.isArray(p.uncovered) ? p.uncovered : []) {
@@ -116,7 +123,7 @@ function rewindRefusalText(r) {
   if (code === 'point_compacted') return 'This part of the chat was already summarized, so it cannot be taken back.';
   if (code === 'session_not_found') return 'This chat is not saved yet.';
   if (code === 'restore_failed') return 'Some files could not be put back.';
-  if (code === 'plan_changed') return 'The files changed since the preview, so nothing was rolled back. Press “Check again” to see what would change now.';
+  if (code === 'plan_changed') return 'The files or the messages changed since the preview, so nothing was rolled back. Press “Check again” to see what would change now.';
   if (code === 'skip_unknown') return 'Some files you chose to leave as they are have no saved copy any more.';
   return (r && r.error) || 'The agent gave no reason. Nothing was changed.';
 }
@@ -510,6 +517,9 @@ async function rewindConfirm(files, skip, acceptFailed) {
   // has no planHash gets none.
   const seen = Array.isArray(skip) && skip.length && REWIND.skipPreview ? REWIND.skipPreview : REWIND.preview;
   const planHash = files !== false && acceptFailed !== true && seen && !seen.unconfirmed && typeof seen.planHash === 'string' && seen.planHash ? seen.planHash : undefined;
+  // Issue #87: the messages the person saw, sent with every confirm that follows a preview, "Conversation
+  // only" included; none when the preview has no transcriptRev (an older agent).
+  const transcriptRev = seen && typeof seen.transcriptRev === 'string' && seen.transcriptRev ? seen.transcriptRev : undefined;
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
   REWIND.skipPreview = null; REWIND.skipPending = null;
   // Issue #80 review: after Check again, the files chosen to be left alone go with the confirm too.
@@ -518,7 +528,8 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (skipping) REWIND.skip = skipping;
   const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
     : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];
-  if (planHash) { while (args.length < 6) args.push(undefined); args.push(planHash); }
+  if (planHash || transcriptRev) { while (args.length < 6) args.push(undefined); args.push(planHash); }
+  if (transcriptRev) args.push(transcriptRev);
   const asked = rewindAsked();
   const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
   // Issue #80 review: the answer is this sheet's only while it is still open on the same point. A sheet
