@@ -3023,7 +3023,7 @@ export function buildFusionDelegateTool(
         // run's wait for its finish: the folder keeps only what was promoted.
         const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, briefCriteria);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3233,6 +3233,7 @@ export function buildFusionDelegateTool(
                   taskId: t.taskId,
                   facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
                 })),
+            briefCriteria,
           );
         }
         terminalTaskCount = results.length;

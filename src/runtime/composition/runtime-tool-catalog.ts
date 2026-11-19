@@ -1248,12 +1248,13 @@ export function registerRuntimeFusionAndReadScope(input: {
     outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
     // A done milestone's criteria facts and screenshots, from its runs'
     // folders under `<stateDir>/fusion-runs` (issue #40).
-    milestoneEvidence: (milestone, criteriaOrder) =>
+    milestoneEvidence: (milestone, criteriaOrder, current) =>
       readMilestoneEvidence({
         runsDir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME),
         stateDir: config.paths.stateDir,
         runIds: milestone.runIds,
         criteriaOrder,
+        ...current,
       }),
   })) {
     toolRegistry.register(tool);
