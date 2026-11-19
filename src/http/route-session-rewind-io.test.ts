@@ -449,6 +449,20 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(readFileSync(b, "utf8")).toBe("b1");
   });
 
+  it("the 400 skip_unknown answer lists the unknown paths as sent, in the preview and the rollback (issue #87)", async () => {
+    const { a } = await seed();
+    const unknown = [join(harness.workingDir, "a, b.txt"), "./nowhere//x.txt"];
+    for (const route of ["rw-io/rewind/preview", "rw-io/rewind"]) {
+      const res = await post(route, { ...point, skip: [a, ...unknown] });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string }; unknownSkip: unknown };
+      expect(body.error.code).toBe("skip_unknown");
+      expect(body.unknownSkip).toEqual(unknown);
+    }
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+  });
+
   it("refuses a malformed skip with 400 on skip and changes nothing", async () => {
     const { a } = await seed();
     for (const skip of ["a.txt", [""], [1], Array.from({ length: 1001 }, (_, i) => `/p${i}`)]) {

@@ -120,12 +120,16 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     const store = checkpointStore(ctx);
     const files = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
     if (files.unknownSkip.length > 0) {
-      sendError(res, 400, openaiError(
-        `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
-        "invalid_request_error",
-        "skip",
-        "skip_unknown",
-      ));
+      // `unknownSkip`: the paths exactly as sent, so a client need not parse the message (issue #87).
+      sendJson(res, 400, {
+        ...openaiError(
+          `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
+          "invalid_request_error",
+          "skip",
+          "skip_unknown",
+        ),
+        unknownSkip: files.unknownSkip,
+      });
       return;
     }
     const removed = session.turns.slice(turnIndex);
