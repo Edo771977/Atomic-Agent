@@ -13,6 +13,14 @@
  * as unsupported so the window hides the buttons. A rollback that put back
  * only some files answers 409 `restore_failed` with what was put back and
  * what was not (RewindPartial; the chat is not cut).
+ *
+ * Issue #80: `skip` names files to leave as they are. Its paths are the
+ * agent's own `failed[].path` strings, sent back unchanged: the agent's
+ * skip is matched exactly on that string. They are never normalised,
+ * resolved, case-folded or given another separator here (a Windows
+ * `C:\\…` path goes back as it came).
+ * The window shows them relative to the working folder, which changes only
+ * the label.
  */
 
 export type RewindRoute = "rewind/preview" | "rewind" | "fork";
@@ -21,8 +29,10 @@ export type RewindRoute = "rewind/preview" | "rewind" | "fork";
  * Issue #77: a rollback that put back only some files (409 `restore_failed`).
  * The agent left the chat as it was and kept its saved copies, so it can be
  * tried again. Another refusal that comes after files were put back (the
- * chat changed, a turn started) carries the same lists. Each list holds at most REWIND_LIST_CAP entries; the totals
- * count them all.
+ * chat changed, a turn started) carries the same lists. `restored` and
+ * `deleted` hold at most REWIND_LIST_CAP entries; `failed` holds up to
+ * REWIND_SKIP_CAP, so all of them can be sent back as `skip` (issue #80).
+ * The totals count them all.
  */
 export type RewindPartial = {
   restored: string[];
@@ -31,6 +41,13 @@ export type RewindPartial = {
   restoredTotal: number;
   deletedTotal: number;
   failedTotal: number;
+  /**
+   * Issue #80: the paths the agent says it left alone for `skip`. An agent
+   * that knows `skip` sends this list (possibly empty) in every
+   * restore_failed body; one that does not leaves it out, so its absence
+   * means `skip` would be ignored.
+   */
+  skipped?: string[];
 };
 
 export type RewindAnswer =
@@ -38,6 +55,8 @@ export type RewindAnswer =
   | { ok: false; supported: boolean; code?: string; error: string; restore?: RewindPartial };
 
 export const REWIND_LIST_CAP = 100;
+/** Issue #80: the most paths a rollback's `skip` may name. */
+export const REWIND_SKIP_CAP = 1000;
 const REWIND_ERROR_CAP = 300;
 
 /**
@@ -68,33 +87,52 @@ function rewindPartial(record: Record<string, unknown> | null): RewindPartial {
   return {
     restored: restored.slice(0, REWIND_LIST_CAP).map((f) => f.path),
     deleted: deleted.slice(0, REWIND_LIST_CAP).map((f) => f.path),
-    failed: failed.slice(0, REWIND_LIST_CAP),
+    failed: failed.slice(0, REWIND_SKIP_CAP),
     restoredTotal: restored.length,
     deletedTotal: deleted.length,
     failedTotal: failed.length,
+    ...(Array.isArray(record?.skipped) ? { skipped: rewindFileList(record?.skipped).slice(0, REWIND_SKIP_CAP).map((f) => f.path) } : {}),
   };
+}
+
+/**
+ * Issue #80: the paths a rollback leaves alone, exactly as the agent named
+ * them in `failed[].path`: undefined when there are none, null when the value
+ * is not a list of at most REWIND_SKIP_CAP non-empty strings.
+ */
+export function rewindSkipList(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > REWIND_SKIP_CAP) return null;
+  if (!value.every((p) => typeof p === "string" && p.length > 0)) return null;
+  return value.length ? [...(value as string[])] : undefined;
 }
 
 /**
  * The body the window may send: a non-negative whole position, the question's
  * text and, for a rollback, whether the files go back too (`files: false` is
- * the conversation only; left out, the agent puts the files back) and, only
- * when the person chose to go ahead after a partial restore (issue #77),
- * `acceptFailed: true`: the agent then cuts the chat even though some files
- * could not be put back, and drops their saved copies.
+ * the conversation only; left out, the agent puts the files back) and the
+ * files to leave as they are (`skip`, issue #80: the person chose to go ahead
+ * without the ones a partial restore could not put back). `acceptFailed`
+ * (boolean) is sent only to an agent whose partial answer shows it does not
+ * know `skip` (no `skipped` list): it plans every file again. A `skip` that
+ * is not a valid list refuses the body (null).
  */
 export function rewindRequestBody(
   priorQuestions: unknown,
   expectText: unknown,
   files?: unknown,
+  skip?: unknown,
   acceptFailed?: unknown,
-): { priorQuestions: number; expectText: string; files?: boolean; acceptFailed?: boolean } | null {
+): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean } | null {
   if (typeof priorQuestions !== "number" || !Number.isInteger(priorQuestions) || priorQuestions < 0) return null;
   if (typeof expectText !== "string" || !expectText.trim()) return null;
+  const skipped = rewindSkipList(skip);
+  if (skipped === null) return null;
   return {
     priorQuestions,
     expectText,
     ...(typeof files === "boolean" ? { files } : {}),
+    ...(skipped ? { skip: skipped } : {}),
     ...(typeof acceptFailed === "boolean" ? { acceptFailed } : {}),
   };
 }

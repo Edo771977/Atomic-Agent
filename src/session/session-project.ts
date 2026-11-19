@@ -153,6 +153,8 @@ export interface ProjectMilestoneTask {
  * person's correction notes and the pictures are not copied, only
  * counted: the runs' checkpoints keep the screenshots. Nothing acts on it.
  */
+export type RevisionCause = "plan" | "brief" | "brief-removed";
+
 export interface ProjectMilestoneRevision {
   title: string;
   kind: MilestoneKind;
@@ -164,8 +166,19 @@ export interface ProjectMilestoneRevision {
   criteriaFacts?: ProjectCriterionFact[];
   correctionCount?: number;
   attachmentCount?: number;
-  /** `plan`: a re-plan changed the work; `brief`: a criterion its evidence cites changed. */
-  cause: "plan" | "brief";
+  /**
+   * The brief's criteria its facts and pictures cite, with their text at
+   * the time (issue #80): a fact stays tied to the requirement it
+   * measured even after its id is removed or reused.
+   */
+  criteria?: ProjectCriterion[];
+  /**
+   * `plan`: a re-plan changed the work; `brief`: the text of a criterion
+   * its evidence cites changed; `brief-removed` (issue #80): cited
+   * criteria were removed, and this entry holds only their facts and the
+   * count of their pictures; the milestone kept its state and the rest.
+   */
+  cause: RevisionCause;
   /** Epoch ms of the update that replaced this work. */
   supersededAt: number;
 }
@@ -252,6 +265,13 @@ export interface ProjectState {
   milestones: ProjectMilestone[];
   /** What waits on the person; `none` while the director works (or nothing is open). */
   gate: ProjectGate;
+  /**
+   * The success criteria of the last brief the person approved (issue
+   * #80): a brief's approval judges its criteria against these, so
+   * drafts in between never reset anything. Absent before the first
+   * approval; an older store with an approved brief reads its criteria.
+   */
+  approvedCriteria?: ProjectCriterion[];
   /** Epoch ms the person cancelled the project; a new brief starts over. */
   cancelledAt?: number;
   /**
@@ -914,6 +934,12 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   const attachments = count(raw.attachments, raw.attachmentCount);
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
+  const criteria: ProjectCriterion[] = [];
+  for (const c of Array.isArray(raw.criteria) ? raw.criteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
+    const id = isObject(c) ? cleanCriterionId(c.id) : null;
+    if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
+    criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
+  }
   return {
     title: clip(raw.title, PROJECT_LIMITS.title),
     kind: raw.kind as MilestoneKind,
@@ -924,7 +950,8 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(corrections === 0 ? {} : { correctionCount: corrections }),
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
-    cause: raw.cause === "brief" ? "brief" : "plan",
+    ...(criteria.length === 0 ? {} : { criteria }),
+    cause: raw.cause === "brief" || raw.cause === "brief-removed" ? raw.cause : "plan",
     supersededAt: raw.supersededAt as number,
   };
 }
@@ -1020,12 +1047,16 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (gate.kind === "plan" && plan === undefined) return undefined;
   if (gate.kind === "milestone" && (plan === undefined || !ids.has(gate.id))) return undefined;
   if (raw.cancelledAt !== undefined && !isTime(raw.cancelledAt)) return undefined;
+  // Extras: a malformed list reads as absent (the approved brief's own criteria stand in).
+  const stored = raw.approvedCriteria === undefined ? null : cleanCriteria(raw.approvedCriteria, "lenient");
+  const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
     milestones,
     gate,
+    ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
   };
@@ -1086,15 +1117,9 @@ function briefUpdate(
     status: "draft",
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
   };
-  // A criterion whose meaning changed voids the evidence that cites it.
-  const changed = changedCriteria(base?.brief?.successCriteria ?? [], brief.successCriteria);
-  const milestones = (base?.milestones ?? []).map((m) =>
-    changed.size > 0 && citesCriteria(m, changed)
-      ? supersede(m, milestoneTasks(base?.plan?.rows ?? [], m.id), now, "brief")
-      : m.state === "approved"
-        ? { ...m, state: "planned" as const, updatedAt: now }
-        : m,
-  );
+  // Criteria are judged when the person approves the brief (issue #80), not per draft.
+  const approvedCriteria = base === undefined ? undefined : approvedCriteriaOf(base);
+  const milestones = (base?.milestones ?? []).map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
   // The plan was approved against the old brief: back to a draft, and
   // milestones not started yet wait for its approval again.
   const plan: ProjectPlan | undefined =
@@ -1108,7 +1133,14 @@ function briefUpdate(
         };
   return {
     ok: true,
-    project: { brief, ...(plan === undefined ? {} : { plan }), milestones, gate: { kind: "brief" }, ...floorOf(project) },
+    project: {
+      brief,
+      ...(plan === undefined ? {} : { plan }),
+      milestones,
+      gate: { kind: "brief" },
+      ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+      ...floorOf(project),
+    },
   };
 }
 
@@ -1196,10 +1228,17 @@ const hasEvidence = (m: ProjectMilestone): boolean =>
  * runs, report, corrections, pictures or facts; what it held moves to
  * `history` with the work it was for (`tasks`, from the plan before).
  */
-function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now: number, cause: "plan" | "brief"): ProjectMilestone {
+function supersede(
+  old: ProjectMilestone,
+  oldTasks: ProjectMilestoneTask[],
+  now: number,
+  cause: "plan" | "brief",
+  criteria: readonly ProjectCriterion[],
+): ProjectMilestone {
   const history = [...(old.history ?? [])];
   if (hasEvidence(old)) {
     const summary = old.summary === undefined ? "" : clipText(old.summary, PROJECT_LIMITS.shortText);
+    const cited = criteria.filter((c) => citesCriteria(old, new Set([c.id]))).map((c) => ({ id: c.id, text: c.text }));
     history.push({
       title: old.title,
       kind: old.kind,
@@ -1210,6 +1249,7 @@ function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now:
       ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
       ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
       ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
+      ...(cited.length === 0 ? {} : { criteria: cited }),
       cause,
       supersededAt: now,
     });
@@ -1221,7 +1261,13 @@ function supersede(old: ProjectMilestone, oldTasks: ProjectMilestoneTask[], now:
 /** Ids whose evidence an update just moved to history (a new newest revision). */
 function freshResets(before: readonly ProjectMilestone[], after: readonly ProjectMilestone[]): string[] {
   const old = new Map(before.map((m) => [m.id, m.history?.at(-1)]));
-  return after.filter((m) => m.history !== undefined && old.has(m.id) && m.history.at(-1) !== old.get(m.id)).map((m) => m.id);
+  return after
+    .filter((m) => {
+      const newest = m.history?.at(-1);
+      // A retired criterion's evidence is not a reset: the verdict stands.
+      return newest !== undefined && old.has(m.id) && newest !== old.get(m.id) && newest.cause !== "brief-removed";
+    })
+    .map((m) => m.id);
 }
 
 /**
@@ -1235,14 +1281,123 @@ function mergeResets(previous: ProjectPlan | undefined, fresh: readonly string[]
   return all.length === 0 ? {} : { verdictResets: all };
 }
 
+/** The last approved brief's criteria: recorded, or (an older store) the brief's own while it is approved. */
+function approvedCriteriaOf(project: ProjectState): ProjectCriterion[] | undefined {
+  return project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : undefined);
+}
+
 /**
- * Ids of the criteria a brief revision changed (issue #77): kept ids
- * whose text differs beyond case and whitespace. A removed criterion is
- * not a change: nothing new is measured under its id.
+ * The person approves the brief (issue #80): its criteria are judged
+ * against the last approved brief's ({@link judgeCriteria}); without one
+ * nothing is judged. A reset lands on the draft plan's `verdictResets`.
  */
+function approveBrief(project: ProjectState, now: number): ProjectState {
+  const brief = project.brief!;
+  const before = approvedCriteriaOf(project);
+  const milestones =
+    before === undefined ? project.milestones : judgeCriteria(project.milestones, project.plan?.rows ?? [], before, brief.successCriteria, now);
+  const plan =
+    project.plan === undefined || project.plan.status !== "draft"
+      ? project.plan
+      : (() => {
+          const { verdictResets: _old, ...rest } = project.plan;
+          return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), new Set(milestones.map((m) => m.id))) };
+        })();
+  return {
+    ...project,
+    brief: { ...brief, status: "approved", approvedAt: now },
+    ...(plan === undefined ? {} : { plan }),
+    milestones,
+    approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
+    gate: { kind: "none" },
+  };
+}
+
+/** Ids of kept criteria whose text a brief revision changed beyond case and whitespace (issue #77). */
 function changedCriteria(before: readonly ProjectCriterion[], after: readonly ProjectCriterion[]): Set<string> {
   const now = new Map(after.map((c) => [c.id, workText(c.text)]));
   return new Set(before.filter((c) => now.has(c.id) && now.get(c.id) !== workText(c.text)).map((c) => c.id));
+}
+
+/** Ids of criteria a brief revision removed (issue #80). */
+function removedCriteria(before: readonly ProjectCriterion[], after: readonly ProjectCriterion[]): Set<string> {
+  const now = new Set(after.map((c) => c.id));
+  return new Set(before.filter((c) => !now.has(c.id)).map((c) => c.id));
+}
+
+/**
+ * The milestones after a brief's criteria went from `before` to `after`.
+ * A criterion whose text changed voids the evidence citing it: those
+ * milestones start over ({@link supersede}, cause `brief`). A removed one
+ * only retires its own evidence ({@link retireCriteria}): the verdict on
+ * the remaining criteria stands, and an id reused later has no facts.
+ */
+function judgeCriteria(
+  milestones: readonly ProjectMilestone[],
+  rows: readonly AssignmentRow[],
+  before: readonly ProjectCriterion[],
+  after: readonly ProjectCriterion[],
+  now: number,
+): ProjectMilestone[] {
+  const changed = changedCriteria(before, after);
+  const removed = removedCriteria(before, after);
+  return milestones.map((m) => {
+    if (changed.size > 0 && citesCriteria(m, changed)) return supersede(m, milestoneTasks(rows, m.id), now, "brief", before);
+    if (removed.size > 0 && citesCriteria(m, removed)) return retireCriteria(m, removed, milestoneTasks(rows, m.id), before, now);
+    return m;
+  });
+}
+
+/**
+ * Drops a milestone's evidence for removed criteria (issue #80): their
+ * facts, and pictures citing only removed criteria (a picture that also
+ * cites a kept one stays, without the removed ids). State, runs and
+ * report stay. What went is recorded as a history entry, cause
+ * `brief-removed`, with the criteria's text: the milestone's state at
+ * the time, the dropped facts and the count of dropped pictures.
+ */
+function retireCriteria(
+  m: ProjectMilestone,
+  removed: ReadonlySet<string>,
+  tasks: readonly ProjectMilestoneTask[],
+  criteria: readonly ProjectCriterion[],
+  now: number,
+): ProjectMilestone {
+  const facts = m.criteriaFacts ?? [];
+  const droppedFacts = facts.filter((f) => removed.has(f.id));
+  const keptFacts = facts.filter((f) => !removed.has(f.id));
+  let droppedPictures = 0;
+  const keptPictures: ProjectMilestoneAttachment[] = [];
+  for (const a of m.attachments ?? []) {
+    if (a.criteria === undefined || a.criteria.length === 0) {
+      keptPictures.push(a);
+      continue;
+    }
+    const left = a.criteria.filter((id) => !removed.has(id));
+    if (left.length === 0) droppedPictures++;
+    else keptPictures.push(left.length === a.criteria.length ? a : { ...a, criteria: left });
+  }
+  const cited = criteria.filter((c) => removed.has(c.id) && citesCriteria(m, new Set([c.id]))).map((c) => ({ id: c.id, text: c.text }));
+  const entry: ProjectMilestoneRevision = {
+    title: m.title,
+    kind: m.kind,
+    state: m.state,
+    tasks: tasks.map((t) => t.title),
+    runIds: m.runIds,
+    ...(droppedFacts.length === 0 ? {} : { criteriaFacts: droppedFacts }),
+    ...(droppedPictures === 0 ? {} : { attachmentCount: droppedPictures }),
+    ...(cited.length === 0 ? {} : { criteria: cited }),
+    cause: "brief-removed",
+    supersededAt: now,
+  };
+  const next: ProjectMilestone = { ...m, history: [...(m.history ?? []), entry].slice(-PROJECT_LIMITS.history), updatedAt: now };
+  delete next.criteriaFacts;
+  delete next.attachments;
+  return {
+    ...next,
+    ...(keptFacts.length === 0 ? {} : { criteriaFacts: keptFacts }),
+    ...(keptPictures.length === 0 ? {} : { attachments: keptPictures }),
+  };
 }
 
 /** Whether a milestone's evidence cites one of these criteria (its facts or its pictures). */
@@ -1263,6 +1418,7 @@ function replannedMilestone(
   oldRows: readonly AssignmentRow[],
   rows: readonly AssignmentRow[],
   now: number,
+  criteria: readonly ProjectCriterion[],
 ): ProjectMilestone {
   const base = { id: next.id, title: next.title, kind: next.kind };
   if (old === undefined) return { ...base, state: "planned", runIds: [], updatedAt: now };
@@ -1272,7 +1428,7 @@ function replannedMilestone(
   // when the re-plan only adds tasks to it: those runs did part of it.
   const grows = !VERDICT.has(old.state) && old.kind === next.kind && onlyAddsTasks(oldTasks, newTasks);
   if (!grows && milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: newTasks })) {
-    return { ...supersede(old, oldTasks, now, "plan"), ...base };
+    return { ...supersede(old, oldTasks, now, "plan", criteria), ...base };
   }
   const keep = FINISHED.has(old.state) || old.state === "in_progress";
   return {
@@ -1338,7 +1494,7 @@ function planUpdate(
     }
     rows.push(read);
   }
-  const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now));
+  const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
     totals: planTotals(rows),
@@ -1348,7 +1504,17 @@ function planUpdate(
     draftedAfterUntrusted: update.draftedAfterUntrusted === true,
     ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids),
   };
-  return { ok: true, project: { brief: project.brief, plan, milestones, gate: { kind: "plan" }, ...floorOf(project) } };
+  return {
+    ok: true,
+    project: {
+      brief: project.brief,
+      plan,
+      milestones,
+      gate: { kind: "plan" },
+      ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
+      ...floorOf(project),
+    },
+  };
 }
 
 function milestoneUpdate(
@@ -1477,16 +1643,21 @@ function refuse(error: ProjectDecisionError): ProjectDecisionResult {
 const unreviewed = (m: ProjectMilestone): boolean => m.state === "done" || m.state === "failed";
 
 /**
- * The first planned milestone becomes approved (in plan order), never
- * past a done or failed result the person has not decided on, nor while
- * another milestone is approved or running (issue #74): one open at a time.
+ * The milestone an approval would approve next (issues #74, #80): the
+ * first `planned` one in plan order, but only while nothing else is open
+ * anywhere in the plan (no milestone approved or in_progress, no done or
+ * failed result the person has not decided on). Undefined otherwise. The
+ * one rule {@link approveNext} and the runtime's daily-limit check share.
  */
+export function milestoneToApproveNext(milestones: readonly ProjectMilestone[]): string | undefined {
+  if (milestones.some((m) => m.state === "approved" || m.state === "in_progress" || unreviewed(m))) return undefined;
+  return milestones.find((m) => m.state === "planned")?.id;
+}
+
+/** Approves {@link milestoneToApproveNext}, if any. */
 function approveNext(milestones: readonly ProjectMilestone[], now: number): ProjectMilestone[] {
-  const next = milestones.findIndex(
-    (m) => m.state === "planned" || m.state === "approved" || m.state === "in_progress" || unreviewed(m),
-  );
-  if (next < 0 || milestones[next]!.state !== "planned") return [...milestones];
-  return milestones.map((m, i) => (i === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
+  const next = milestoneToApproveNext(milestones);
+  return milestones.map((m) => (m.id === next ? { ...m, state: "approved" as const, updatedAt: now } : m));
 }
 
 function editRows(
@@ -1575,7 +1746,7 @@ export function applyProjectDecision(
 
   if (decision.verdict === "approve") {
     if (gate.kind === "brief") {
-      return { ok: true, project: { ...project, brief: { ...project.brief!, status: "approved", approvedAt: now }, gate: { kind: "none" } } };
+      return { ok: true, project: approveBrief(project, now) };
     }
     const violations = [...(options.hardViolations ?? [])];
     // At a milestone gate the person's decision on the result always
