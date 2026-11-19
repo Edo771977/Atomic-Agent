@@ -937,6 +937,32 @@ describe("a resume imports only what the turn has not counted for its run (issue
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it("the confirm flow: rows awaiting a yes keep the run interrupted; the confirm-resume in the same turn counts nothing twice", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-confirm-"));
+    try {
+      const store = new FusionRunStore({ dir });
+      const run = store.start({ sessionId: "s-parent", workingDir: "/repo", tasks: two, waveCount: 1, args: { tasks: two } });
+      run.addSpend(0.6);
+      run.noteTool("t2", "deploy.push");
+      run.finish("interrupted");
+      const budget = new FusionTurnBudget();
+      budget.begin("s-parent", 0, { usd: 1 });
+      const d = production(budget, store);
+      const tool = buildFusionDelegateTool(d);
+      const first = await tool.run({ resume: run.runId }, ctx());
+      expect((first.details.resume as { needsConfirmation: string[] }).needsConfirmation).toEqual(["t2"]);
+      expect(store.load(run.runId)!.state).toBe("interrupted");
+      expect(d.turns).toBe(1);
+      // $0.60 carried + t1's $0.10 request; the checkpoint now reads $0.80 (t1 priced at $0.20).
+      expect(counted(budget)).toBeCloseTo(0.7);
+      expect(store.load(run.runId)!.spentUsd).toBeCloseTo(0.8);
+      await tool.run({ resume: run.runId, confirm: ["t2"] }, ctx());
+      expect(d.turns).toBe(2);
+      // Only the $0.10 the cap had not seen, then t2's request: nothing of the $0.60 again.
+      expect(counted(budget)).toBeCloseTo(0.9);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it("a cancelled fan-out that unwinds after the next turn began records nothing into that turn", async () => {
     const dir = mkdtempSync(join(tmpdir(), "resume-turns-"));
     try {
