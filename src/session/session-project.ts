@@ -260,7 +260,8 @@ export interface ProjectPlan {
   /**
    * Milestones (ids) that kept their state but lost criteria evidence at
    * a brief approval (issue #83): a project saved before issue #80
-   * approved without a baseline. The plan gate names each
+   * approved without a baseline, or a reviewed or done milestone whose
+   * only facts and pictures were retired. The plan gate names each
    * ("evidence retired: <title>"); kept across drafts, cleared on approval.
    */
   evidenceRetired?: string[];
@@ -1322,7 +1323,8 @@ function approvedCriteriaOf(project: ProjectState): ProjectCriterion[] | undefin
  * and all of it that cites a criterion is retired (issue #83): which old
  * result still applies cannot be told. A reset lands on the draft plan's
  * `verdictResets`; a milestone that kept its state but lost evidence
- * this way, on `evidenceRetired`.
+ * this way, or a reviewed or done one left with no facts or pictures at
+ * all, on `evidenceRetired`.
  */
 function approveBrief(project: ProjectState, now: number): ProjectState {
   const brief = project.brief!;
@@ -1332,7 +1334,17 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     before === undefined
       ? retireOrphans(project.milestones, rows, [], now)
       : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
-  const retired = before === undefined ? milestones.filter((m, i) => m !== project.milestones[i]).map((m) => m.id) : [];
+  const hasCriteriaEvidence = (m: ProjectMilestone): boolean => (m.criteriaFacts?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0;
+  const retired = milestones
+    .filter((m, i) => {
+      const was = project.milestones[i]!;
+      if (m === was) return false;
+      // Without a baseline every milestone that lost evidence; otherwise
+      // a finished one whose only evidence went (its verdict stands bare).
+      if (before === undefined) return true;
+      return m.state === was.state && (m.state === "reviewed" || m.state === "done") && hasCriteriaEvidence(was) && !hasCriteriaEvidence(m);
+    })
+    .map((m) => m.id);
   const plan =
     project.plan === undefined || project.plan.status !== "draft"
       ? project.plan
