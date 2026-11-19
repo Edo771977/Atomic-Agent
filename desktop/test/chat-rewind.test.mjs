@@ -883,3 +883,31 @@ for (const mode of ["back", "edit"]) {
     assert.equal(R.REWIND.preview.planHash, "plan-2");
   });
 }
+
+// Issue #83 review: a late Continue preview after the sheet was closed and opened again is ignored.
+test("a late Continue preview is ignored by a sheet closed and opened again, which does not stay loading", async () => {
+  const calls = ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED] });
+  const g = globalThis;
+  g.S.log = [{ id: "u1", k: "user", text: "old text" }];
+  g.priorQuestions = () => 1;
+  await R.rewindAct("go");
+  let late;
+  g.BR.rewindPreview = () => new Promise((resolve) => { late = resolve; });
+  const checking = R.rewindAct("go-skip");
+  assert.equal(R.REWIND.loading, true);
+  g.S.overlay = null;   // closed
+  let fresh;
+  g.BR.rewindPreview = () => new Promise((resolve) => { fresh = resolve; });
+  R.rewindAct("back:u1");   // the same message again
+  fresh({ ok: true, supported: true, data: FILES_PREVIEW });
+  await new Promise((r) => setImmediate(r));
+  late({ ok: true, supported: true, data: SKIP_PREVIEW.body });
+  await checking;
+  assert.equal(R.REWIND.loading, false, "the new sheet stays loading");
+  assert.equal(R.REWIND.skipPreview, null, "the old Continue preview landed in the new sheet");
+  const html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /would be changed again/);
+  assert.deepEqual(footActs(html), [["rewind:go", "Roll back"]]);
+  await R.rewindAct("go-skip-confirm");
+  assert.equal(agentBodies(calls).length, 1);
+});
