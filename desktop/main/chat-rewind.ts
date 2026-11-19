@@ -33,6 +33,13 @@ export type RewindPartial = {
   restoredTotal: number;
   deletedTotal: number;
   failedTotal: number;
+  /**
+   * Issue #80: the paths the agent says it left alone for `skip`. An agent
+   * that knows `skip` sends this list (possibly empty) in every
+   * restore_failed body; one that does not leaves it out, so its absence
+   * means `skip` would be ignored.
+   */
+  skipped?: string[];
 };
 
 export type RewindAnswer =
@@ -76,6 +83,7 @@ function rewindPartial(record: Record<string, unknown> | null): RewindPartial {
     restoredTotal: restored.length,
     deletedTotal: deleted.length,
     failedTotal: failed.length,
+    ...(Array.isArray(record?.skipped) ? { skipped: rewindFileList(record?.skipped).slice(0, REWIND_SKIP_CAP).map((f) => f.path) } : {}),
   };
 }
 
@@ -96,16 +104,18 @@ export function rewindSkipList(value: unknown): string[] | undefined | null {
  * text and, for a rollback, whether the files go back too (`files: false` is
  * the conversation only; left out, the agent puts the files back) and the
  * files to leave as they are (`skip`, issue #80: the person chose to go ahead
- * without the ones a partial restore could not put back). The window never
- * sends `acceptFailed`: the agent would plan every file again, a skipped one
- * included. A `skip` that is not a valid list refuses the body (null).
+ * without the ones a partial restore could not put back). `acceptFailed`
+ * (boolean) is sent only to an agent whose partial answer shows it does not
+ * know `skip` (no `skipped` list): it plans every file again. A `skip` that
+ * is not a valid list refuses the body (null).
  */
 export function rewindRequestBody(
   priorQuestions: unknown,
   expectText: unknown,
   files?: unknown,
   skip?: unknown,
-): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[] } | null {
+  acceptFailed?: unknown,
+): { priorQuestions: number; expectText: string; files?: boolean; skip?: string[]; acceptFailed?: boolean } | null {
   if (typeof priorQuestions !== "number" || !Number.isInteger(priorQuestions) || priorQuestions < 0) return null;
   if (typeof expectText !== "string" || !expectText.trim()) return null;
   const skipped = rewindSkipList(skip);
@@ -115,6 +125,7 @@ export function rewindRequestBody(
     expectText,
     ...(typeof files === "boolean" ? { files } : {}),
     ...(skipped ? { skip: skipped } : {}),
+    ...(typeof acceptFailed === "boolean" ? { acceptFailed } : {}),
   };
 }
 

@@ -146,12 +146,21 @@ function rewindPartialHTML(partial, mode, workingDir, code) {
     + (done ? rewindPlural(done, 'file', 'files') + ' already put back stay put back. ' : '')
     + 'Press “Check again” to see what a rollback would change now, then confirm it.</p>';
   // Issue #77: a file that fails on every try would keep the sheet here for good: the way out.
-  if (total && !rewindSkipFor(p)) {
+  if (total && !Array.isArray(p.skipped)) {
+    // Issue #80: this agent ignores `skip` (its answer has no `skipped`), so the only way past a file that
+    // keeps failing is the #77 one, which tries every file again. Nothing here says a file was left alone.
+    html += '<p class="sd-cap">Or roll back anyway: this agent cannot leave single files alone, so “Roll back anyway” tries every file again '
+      + 'and may overwrite files you edited since, so close or save them first. Files that still fail are not put back, '
+      + 'and their saved copies are dropped.</p>'
+      + '<button class="btn btn-s sm" data-act="rewind:go-accept"' + (REWIND.busy ? ' disabled' : '') + '>'
+      + esc(mode === 'edit' ? 'Roll back anyway, then resend' : 'Roll back anyway') + '</button>';
+  } else if (total && !rewindSkipFor(p)) {
     html += '<p class="sd-cap">Too many files could not be put back to leave each one alone. Press “Check again” to see what would change now.</p>';
   } else if (total) {
-    const before = Array.isArray(REWIND.skip) ? REWIND.skip.length : 0;
+    // Only what the agent confirmed it left alone (its `skipped` echo).
+    const before = p.skipped.length;
     html += (before ? '<p class="sd-cap">Also left as they are: ' + rewindPlural(before, 'file', 'files') + ' from before.</p>' : '')
-      // Issue #80: no promise beyond what the agent confirms (an older agent ignores `skip`).
+      // Issue #80: no promise beyond what the agent confirms.
       + '<p class="sd-cap">Or go ahead without them: this asks the agent to leave the files listed above as they are now. '
       + 'Their saved copies are dropped, so they cannot be put back later.</p>'
       + '<button class="btn btn-s sm" data-act="rewind:go-skip"' + (REWIND.busy ? ' disabled' : '') + '>'
@@ -235,12 +244,17 @@ function rewindAct(v) {
   if (verb === 'go-chat') return rewindConfirm(false);
   if (verb === 'recheck') return rewindRecheck();
   // Issues #77 / #80: only from a partial restore's notice: the same rollback, leaving alone exactly the
-  // files it listed (and those left alone before in this sheet). Never "accept failed": that plans every file again.
+  // files it listed (and those left alone before in this sheet). Never "accept failed" to an agent that knows skip.
   if (verb === 'go-skip') {
-    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed') return;
+    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || !Array.isArray(REWIND.partial.skipped)) return;
     const skip = rewindSkipFor(REWIND.partial);
     if (!skip) return;   // not offered (rewindPartialHTML)
     return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, skip);
+  }
+  // Issue #80: only for an agent whose partial answer shows it does not know `skip` (no `skipped`).
+  if (verb === 'go-accept') {
+    if (!REWIND.partial || REWIND.partialCode !== 'restore_failed' || Array.isArray(REWIND.partial.skipped)) return;
+    return rewindConfirm(REWIND.mode === 'edit' ? true : undefined, null, true);
   }
   if (verb === 'back' || verb === 'edit' || verb === 'fork') rewindStart(verb, id);
 }
@@ -316,14 +330,16 @@ function rewindSheetHTML() {
 /**
  * `files`: undefined (roll back, the agent's default), true or false (edit).
  * `skip`: the paths to leave as they are, only from the partial-restore
- * notice (issue #80). Another partial restore shows the notice again; nothing
- * is retried on its own.
+ * notice (issue #80). `acceptFailed`: true only from the notice of an agent
+ * without `skip`. Another partial restore shows the notice again; nothing is
+ * retried on its own.
  */
-async function rewindConfirm(files, skip) {
+async function rewindConfirm(files, skip, acceptFailed) {
   if (REWIND.busy || !REWIND.preview) return;
   // Issue #80: once a partial restore happened in this sheet, only Continue (skip) sends, and only from the
   // notice; anything else checks again first (rewindRecheck), whatever the later answers were.
-  if (REWIND.afterPartial && !(REWIND.partial && Array.isArray(skip) && skip.length)) return;
+  const fromNotice = !!REWIND.partial && ((Array.isArray(skip) && skip.length > 0) || acceptFailed === true);
+  if (REWIND.afterPartial && !fromNotice) return;
   const edit = REWIND.mode === 'edit';
   const box = document.getElementById('rw-edit');
   const draft = edit ? String(box ? box.value : REWIND.draft) : '';
@@ -335,7 +351,8 @@ async function rewindConfirm(files, skip) {
   REWIND.busy = true; REWIND.error = null; REWIND.partial = null; render();
   const skipping = Array.isArray(skip) && skip.length ? skip : null;
   if (skipping) REWIND.skip = skipping;
-  const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping] : [sid, REWIND.prior, REWIND.text, files];
+  const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
+    : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];
   const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
   REWIND.busy = false;
   // Issue #77: a partial restore, or a refusal after files were put back, left the chat as it was;

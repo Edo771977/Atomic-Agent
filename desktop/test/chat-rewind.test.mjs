@@ -175,7 +175,7 @@ test("only a rollback passes the files flag on to the agent", () => {
   assert.deepEqual(M.rewindRequestBody(0, "x", true), { priorQuestions: 0, expectText: "x", files: true });
   assert.deepEqual(M.rewindRequestBody(0, "x", "no"), { priorQuestions: 0, expectText: "x" });
   assert.match(src("../main/chat-rewind-ipc.ts"), /route === "rewind" \? files : undefined/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip)? \}/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files(, skip(, acceptFailed)?)? \}/);
 });
 
 /* ---------- wiring ---------- */
@@ -301,7 +301,9 @@ test("a refusal after files were put back says which files changed and that the 
 
 /* ---------- issues #77 / #80: after a partial restore, Continue (skip) and Retry (Check again) ---------- */
 
-test("skip is sent only as a list of at most 1000 paths, only for a rollback; acceptFailed is never sent", () => {
+test("skip is sent only as a list of at most 1000 paths, only for a rollback; acceptFailed only as a boolean", () => {
+  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, undefined, true), { priorQuestions: 0, expectText: "x", acceptFailed: true });
+  assert.deepEqual(M.rewindRequestBody(0, "x", undefined, undefined, "yes"), { priorQuestions: 0, expectText: "x" });
   assert.deepEqual(M.rewindRequestBody(0, "x", undefined, ["/w/a", "/w/b"]), { priorQuestions: 0, expectText: "x", skip: ["/w/a", "/w/b"] });
   assert.deepEqual(M.rewindRequestBody(0, "x", true, ["/w/a"]), { priorQuestions: 0, expectText: "x", files: true, skip: ["/w/a"] });
   assert.deepEqual(M.rewindRequestBody(0, "x", undefined, []), { priorQuestions: 0, expectText: "x" });
@@ -311,9 +313,7 @@ test("skip is sent only as a list of at most 1000 paths, only for a rollback; ac
   assert.equal(M.rewindRequestBody(0, "x", undefined, Array.from({ length: 1000 }, (_, i) => `/w/${i}`)).skip.length, 1000);
   const ipc = src("../main/chat-rewind-ipc.ts");
   assert.match(ipc, /route === "rewind" \? skip : undefined/);
-  assert.doesNotMatch(ipc, /acceptFailed/);
-  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip \}/);
-  assert.doesNotMatch(src("../renderer/chat-rewind.js"), /acceptFailed/);
+  assert.match(src("../preload/preload.ts"), /"agent:rewind", \{ sessionId, priorQuestions, expectText, files, skip(, acceptFailed)? \}/);
 });
 
 /** The fixture every button starts from: a rollback the agent answered with two files not put back. */
@@ -346,9 +346,9 @@ const sentBodies = (calls) => calls.filter((c) => c[0] === "rewind").map((c) => 
 for (const [mode, label, files] of [["back", "Roll back without these files", undefined], ["edit", "Roll back without these files, then resend", true]]) {
   test(`${mode}: Continue sends skip with exactly the listed paths, never acceptFailed, and does not loop`, async () => {
     const calls = agentWindow(mode, { rewind: [
-      { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+      { status: 409, body: partialBody(FIRST_FAILED, { partial: true, skipped: [] }) },
       // Another file failed this time: the notice comes back with it.
-      { status: 409, body: partialBody([{ path: "/w/late.txt", error: "EACCES" }], { partial: true }) },
+      { status: 409, body: partialBody([{ path: "/w/late.txt", error: "EACCES" }], { partial: true, skipped: ["/w/locked.txt", "/w/dir/a.txt"] }) },
       { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt", "/w/late.txt"] } },
     ] });
     await R.rewindAct("go");
@@ -400,7 +400,7 @@ for (const [mode, confirm] of [["back", "Roll back"], ["edit", "Roll back files 
   test(`${mode}: Retry fetches a fresh preview and shows it before the person confirms`, async () => {
     const calls = agentWindow(mode, {
       rewind: [
-        { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+        { status: 409, body: partialBody(FIRST_FAILED, { partial: true, skipped: [] }) },
         { status: 200, body: { restored: ["/w/src/a.ts", "/w/notes-edited-since.md"], deleted: [], failed: [] } },
       ],
       preview: [FRESH_PREVIEW],
@@ -431,7 +431,7 @@ for (const [mode, confirm] of [["back", "Roll back"], ["edit", "Roll back files 
 // Issue #80: the toast after Continue names the files the agent left as they are.
 test("after Continue the toast names the files the agent left as they are", async () => {
   agentWindow("back", { rewind: [
-    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true, skipped: [] }) },
     { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: [], skipped: ["/w/locked.txt", "/w/dir/a.txt"] } },
   ] });
   await R.rewindAct("go");
@@ -446,7 +446,7 @@ test("after Continue the toast names the files the agent left as they are", asyn
 // promises no more than the agent confirms.
 test("the notice asks the agent to leave the files alone, and a 200 without skipped says it was not confirmed", async () => {
   agentWindow("back", { rewind: [
-    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true, skipped: [] }) },
     { status: 200, body: { restored: ["/w/src/a.ts", "/w/locked.txt"], deleted: [], failed: [] } },
   ] });
   await R.rewindAct("go");
@@ -550,4 +550,43 @@ test("Continue is not offered when the files to leave alone are more than can be
   await R.rewindAct("go-skip");
   assert.equal(agentBodies(calls).length, 2, "an over-cap skip list was sent");
   assert.equal(R.REWIND.error === "The files to leave as they are could not be read", false);
+});
+
+// Issue #80 review: an agent without `skip` ignores it, so a file that keeps failing could never be got past,
+// and "from before" claimed files were left alone. The 409 says which agent it is: a new one sends `skipped`.
+test("an agent without skip gets the #77 way out with plain words; from before shows only what the agent confirmed", async () => {
+  let calls = ipcWindow("back", { rewind: [
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 409, body: partialBody(FIRST_FAILED, { partial: true }) },
+    { status: 200, body: { restored: ["/w/src/a.ts"], deleted: [], failed: FIRST_FAILED } },
+  ] });
+  await R.rewindAct("go");
+  let html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /rewind:go-skip/, "an old agent was offered skip");
+  assert.doesNotMatch(html, /leave the files listed above as they are/);
+  const anyway = html.match(/<button[^>]*data-act="rewind:go-accept"[^>]*>([^<]*)</);
+  assert.ok(anyway, "no way past a file that keeps failing on an old agent");
+  assert.equal(anyway[1], "Roll back anyway");
+  assert.match(html, /tries every file again/);
+  assert.match(html, /may overwrite files you edited/);
+  assert.match(html, /close or save them first/);
+  await R.rewindAct("go-accept");
+  assert.deepEqual(agentBodies(calls)[1], { priorQuestions: 1, expectText: "old text", acceptFailed: true });
+  // The same file failed again: the notice comes back, and nothing claims it was left alone.
+  html = R.rewindSheetHTML();
+  assert.doesNotMatch(html, /from before/);
+  assert.match(html, /rewind:go-accept/);
+  await R.rewindAct("go-accept");
+  assert.equal(agentBodies(calls).length, 3);
+  assert.doesNotMatch(globalThis.toasts.at(-1)[1], /Left as they are/);
+  // Edit words it for the resend.
+  ipcWindow("edit", { rewind: [{ status: 409, body: partialBody(FIRST_FAILED, { partial: true }) }] });
+  await R.rewindAct("go");
+  assert.match(R.rewindSheetHTML(), />Roll back anyway, then resend</);
+  // A new agent that did not echo the earlier skip: no "from before".
+  calls = ipcWindow("back", { rewind: [PARTIAL_409(FIRST_FAILED), PARTIAL_409([{ path: "/w/late.txt" }], { skipped: [] })] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  assert.doesNotMatch(R.rewindSheetHTML(), /from before/);
+  assert.ok(agentBodies(calls).every((b) => !("acceptFailed" in b)));
 });
