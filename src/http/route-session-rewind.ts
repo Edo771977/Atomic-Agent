@@ -112,7 +112,6 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       return;
     }
     const removed = session.turns.slice(turnIndex);
-    const notRestorable = files.notRestorable;
     if (preview) {
       sendJson(res, 200, {
         id: session.id,
@@ -122,7 +121,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         // `error`: the file could not be checked now; the rollback would report it in `failed` (issue #80).
         files: files.items.map((item) =>
           item.blocked === undefined ? { path: item.path, action: item.action } : { path: item.path, action: item.action, error: item.blocked }),
-        notRestorable,
+        notRestorable: files.notRestorable,
         incomplete: files.incomplete,
         skipped: files.skipped,
         uncovered: uncoveredToolCalls(removed),
@@ -140,6 +139,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     // on since the request was checked, or with planRewind's own code.
     const replan = (chat: SessionState): ReturnType<typeof planRewind> =>
       sameTranscript(chat, session) ? planRewind(chat, turnIndex, text) : { ok: false, code: "point_mismatch" };
+    let applied = files;
     const outcome = await ctx.runtime.turnController.enqueue({
       sessionId: session.id,
       origin: "http",
@@ -151,8 +151,12 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         if (before === null || !before.ok) return { refused: before?.code ?? "point_mismatch" };
         // A compaction started on this chat would summarise the rows removed.
         ctx.runtime.cancelSessionCompaction(session.id);
+        // Planned again under the lock (issue #80): the disk may have
+        // changed since the request was checked, a file blocked then (a
+        // lock, a permission) may be free now.
+        if (restoreFiles) applied = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
         const done = restoreFiles
-          ? await applyFileRestore(store, session.id, files)
+          ? await applyFileRestore(store, session.id, applied)
           : { restored: [], deleted: [], failed: [] };
         // Issue #77: a file that did not go back keeps the point and every
         // copy, so the rollback can be retried; cutting the chat or dropping
@@ -179,9 +183,9 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         ...openaiError(REFUSAL_MESSAGES[outcome.refused], "invalid_request_error", null, outcome.refused),
         partial: true,
         ...outcome.done,
-        notRestorable: restoreFiles ? notRestorable : [],
-        incomplete: restoreFiles && files.incomplete,
-        skipped: restoreFiles ? files.skipped : [],
+        notRestorable: restoreFiles ? applied.notRestorable : [],
+        incomplete: restoreFiles && applied.incomplete,
+        skipped: restoreFiles ? applied.skipped : [],
       });
       return;
     }
@@ -189,9 +193,9 @@ export function createRewindHandler(preview: boolean): HttpHandler {
       id: session.id,
       text,
       ...outcome.done,
-      notRestorable: restoreFiles ? notRestorable : [],
-      incomplete: restoreFiles && files.incomplete,
-      skipped: restoreFiles ? files.skipped : [],
+      notRestorable: restoreFiles ? applied.notRestorable : [],
+      incomplete: restoreFiles && applied.incomplete,
+      skipped: restoreFiles ? applied.skipped : [],
     });
   };
 }

@@ -8,7 +8,7 @@ import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-chec
 import { startTestHarness, type Harness } from "./test-harness.js";
 
 /** Paths whose reads or writes fail, as a lock or a permission would (issue #80). */
-const io = vi.hoisted(() => ({ failRead: new Set<string>(), failWrite: new Set<string>() }));
+const io = vi.hoisted(() => ({ failRead: new Set<string>(), failReadOnce: new Set<string>(), failWrite: new Set<string>() }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -16,7 +16,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     throw Object.assign(new Error(`${code}: injected, ${String(path)}`), { code });
   };
   const readFile = ((path: unknown, ...rest: unknown[]) =>
-    io.failRead.has(String(path)) ? Promise.reject(Object.assign(new Error(`EACCES: injected, ${String(path)}`), { code: "EACCES" }))
+    io.failRead.has(String(path)) || io.failReadOnce.delete(String(path)) ? Promise.reject(Object.assign(new Error(`EACCES: injected, ${String(path)}`), { code: "EACCES" }))
       : (actual.readFile as (...a: unknown[]) => Promise<unknown>)(path, ...rest)) as typeof actual.readFile;
   const writeFile = ((path: unknown, ...rest: unknown[]) => {
     if (io.failWrite.has(String(path))) return Promise.resolve().then(() => fail("EBUSY", path));
@@ -29,7 +29,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 describe("rewind with files the disk will not let it read or write (issue #80)", () => {
   let harness: Harness;
   beforeEach(async () => { harness = await startTestHarness(); });
-  afterEach(async () => { io.failRead.clear(); io.failWrite.clear(); await harness.cleanup(); });
+  afterEach(async () => { io.failRead.clear(); io.failReadOnce.clear(); io.failWrite.clear(); await harness.cleanup(); });
 
   const post = (path: string, body: unknown) => fetch(`${harness.baseUrl}/api/sessions/${path}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -126,6 +126,17 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     const unknown = await post("rw-io/rewind/preview", { ...point, skip: ["nowhere.txt"] });
     expect(unknown.status).toBe(400);
     expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("skip_unknown");
+  });
+
+  it("a file blocked when the request is checked but free inside the turn lock is restored", async () => {
+    const { a, b, store } = await seed();
+    // Only the first read fails: the plan made when the request is checked.
+    io.failReadOnce.add(a);
+    const res = await post("rw-io/rewind", point);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [a, b], failed: [] });
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(await copies(store)).toEqual([]);
   });
 
   /** A first attempt where a is locked: b goes back, a fails; then the person edits both and the lock goes. */
