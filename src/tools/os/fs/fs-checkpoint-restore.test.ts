@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyFileRestore, planFileRestore, restorePathKey, uncoveredToolCalls } from "./fs-checkpoint-restore.js";
+import { applyFileRestore, planFileRestore, RESTORE_HASH_MAX_BYTES, restorePathKey, uncoveredToolCalls } from "./fs-checkpoint-restore.js";
 import { FileCheckpointStore } from "./fs-checkpoint-store.js";
 import { checkpointBeforeInvoke } from "./fs-checkpoint-targets.js";
 
@@ -194,6 +194,43 @@ describe("a move whose source was not kept (issue #87 review)", () => {
     expect(done).toEqual({ restored: [from], deleted: [to], failed: [] });
     expect(readFileSync(from, "utf8")).toBe("notes");
     expect(existsSync(to)).toBe(false);
+  });
+});
+
+describe("files too large to hash (issue #87 review)", () => {
+  let root: string;
+  let work: string;
+  let store: FileCheckpointStore;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "aa-big-root-"));
+    work = mkdtempSync(join(tmpdir(), "aa-big-work-"));
+    store = new FileCheckpointStore(root, () => 100);
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  it("past the cap, a file is fingerprinted by stat and marked contentUnchecked too_large, and still goes", async () => {
+    const created = join(work, "big.out");
+    const edited = join(work, "big.txt");
+    writeFileSync(edited, "e0");
+    await store.capture("s-1", created, "os.fs.write");
+    await store.capture("s-1", edited, "os.fs.edit");
+    writeFileSync(created, "0123456789");
+    writeFileSync(edited, "0123456789");
+    const plan = await planFileRestore(store, "s-1", 0, { cwd: work, maxHashBytes: 4 });
+    expect(plan.items.map((item) => [item.path, item.action, item.contentUnchecked, item.contentUncheckedReason])).toEqual([
+      [created, "delete", true, "too_large"],
+      [edited, "restore", true, "too_large"],
+    ]);
+    const done = await applyFileRestore(store, "s-1", plan);
+    expect(done).toEqual({ restored: [edited], deleted: [created], failed: [] });
+    expect(readFileSync(edited, "utf8")).toBe("e0");
+  });
+
+  it("the default cap is 64 MiB", () => {
+    expect(RESTORE_HASH_MAX_BYTES).toBe(64 * 1024 * 1024);
   });
 });
 

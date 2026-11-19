@@ -358,7 +358,7 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     io.failRead.add(created);
     const res = await post("rw-io/rewind/preview", point);
     const body = (await res.json()) as { files: unknown[]; planHash: string };
-    expect(body.files).toContainEqual({ path: created, action: "delete", contentUnchecked: true });
+    expect(body.files).toContainEqual({ path: created, action: "delete", contentUnchecked: true, contentUncheckedReason: "unreadable" });
     writeFileSync(created, "a longer replacement written by the person");
     await expectPlanChanged(await post("rw-io/rewind", { ...point, expectPlanHash: body.planHash }));
     expect(readFileSync(created, "utf8")).toBe("a longer replacement written by the person");

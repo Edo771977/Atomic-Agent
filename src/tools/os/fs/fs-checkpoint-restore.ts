@@ -35,6 +35,8 @@ export interface FileRestoreItem {
    * still removed, and only its stat (size, mtime, inode) fingerprints it.
    */
   contentUnchecked?: true;
+  /** Why: it could not be read, or it is past `RESTORE_HASH_MAX_BYTES` and was not read. */
+  contentUncheckedReason?: "unreadable" | "too_large";
   /** What the disk holds now, as the plan compared it (its sha, or for a file to delete that cannot be read its size, mtime and inode); part of `restorePlanHash`. */
   now?: string;
 }
@@ -77,7 +79,19 @@ export interface FileRestoreOptions {
   /** The chat's folder: a relative skip path is read against it. */
   cwd?: string;
   platform?: NodeJS.Platform;
+  /** Files larger than this are fingerprinted by stat, not read (default `RESTORE_HASH_MAX_BYTES`). */
+  maxHashBytes?: number;
 }
+
+/**
+ * The largest file the plan reads to fingerprint it (issue #87 review).
+ * A larger one is fingerprinted by size, mtime and inode and marked
+ * `contentUnchecked` `too_large`: hashing it would read it whole into
+ * memory twice per rollback (and fail at 2 GiB). A saved copy is never
+ * that large (`CHECKPOINT_MAX_FILE_BYTES`), so such a file to restore
+ * differs from it anyway.
+ */
+export const RESTORE_HASH_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
  * The one form two paths are compared in (issue #80): resolved against
@@ -131,7 +145,7 @@ export async function planFileRestore(
       continue;
     }
     // A file the agent created is only removed: rm needs no read.
-    const now = await currentState(entry.path, entry.existed);
+    const now = await currentState(entry.path, options.maxHashBytes ?? RESTORE_HASH_MAX_BYTES, !entry.existed);
     if (now.kind === "permanent") {
       notRestorable.push({ path: entry.path, reason: now.reason });
       continue;
@@ -147,10 +161,7 @@ export async function planFileRestore(
         continue;
       }
       if (now.kind === "other") notRestorable.push({ path: entry.path, reason: "not_a_file" });
-      else {
-        const unread = now.kind === "file" && now.sha256 === undefined;
-        items.push({ path: entry.path, action: "delete", entry, now: describe(now), ...(unread ? { contentUnchecked: true as const } : {}) });
-      }
+      else items.push({ path: entry.path, action: "delete", entry, now: describe(now), ...unchecked(now) });
       continue;
     }
     if (now.kind === "file" && now.sha256 === entry.sha256) continue;
@@ -164,7 +175,7 @@ export async function planFileRestore(
       items.push({ path: entry.path, action: "restore", entry, now: describe(now), blocked: DAMAGED });
       continue;
     }
-    items.push({ path: entry.path, action: "restore", entry, now: describe(now) });
+    items.push({ path: entry.path, action: "restore", entry, now: describe(now), ...unchecked(now) });
   }
   return { cwd, platform: options.platform, items, notRestorable, incomplete, skipped, unknownSkip };
 }
@@ -181,8 +192,12 @@ async function copyState(store: Store, sessionId: string, entry: CheckpointEntry
   }
 }
 
+function unchecked(now: Current): { contentUnchecked?: true; contentUncheckedReason?: "unreadable" | "too_large" } {
+  return now.kind === "file" && now.unchecked !== undefined ? { contentUnchecked: true, contentUncheckedReason: now.unchecked } : {};
+}
+
 function describe(now: Current): string {
-  if (now.kind === "file") return now.sha256 !== undefined ? `sha256:${now.sha256}` : `unread-stat:${now.stat}`;
+  if (now.kind === "file") return now.sha256 !== undefined ? `sha256:${now.sha256}` : `${now.unchecked ?? "unread"}-stat:${now.stat}`;
   return now.kind;
 }
 
@@ -295,26 +310,30 @@ function changesFilesUnseen(tool: string): boolean {
 type Current =
   | { kind: "missing" }
   | { kind: "other" }
-  | { kind: "file"; sha256?: string; stat?: string }
+  | { kind: "file"; sha256?: string; stat?: string; unchecked?: "unreadable" | "too_large" }
   | { kind: "permanent"; reason: CheckpointSkip }
   | { kind: "blocked"; error: string };
 
-async function currentState(path: string, withContent: boolean): Promise<Current> {
+/**
+ * `toDelete`: a file the agent created (issue #87). Its contents
+ * fingerprint it when they can be read; rm needs no read, so one that
+ * cannot be is still removed, fingerprinted by stat alone (size, mtime,
+ * inode) and marked `unreadable`. A file to restore that cannot be read
+ * is `blocked`. Either past `maxHashBytes` is not read (`too_large`).
+ */
+async function currentState(path: string, maxHashBytes: number, toDelete: boolean): Promise<Current> {
   try {
     // Followed like the capture follows it (`stat`).
     const info = await stat(path);
     if (!info.isFile()) return { kind: "other" };
-    if (!withContent) {
-      // A file to delete (issue #87): its contents fingerprint it when they
-      // can be read; rm needs no read, so one that cannot be is still
-      // removed and is fingerprinted by stat alone (size, mtime, inode).
-      try {
-        return { kind: "file", sha256: sha256Of(await readFile(path)) };
-      } catch {
-        return { kind: "file", stat: `${info.size}:${info.mtimeMs}:${info.ino}` };
-      }
+    const byStat = `${info.size}:${info.mtimeMs}:${info.ino}`;
+    if (info.size > maxHashBytes) return { kind: "file", stat: byStat, unchecked: "too_large" };
+    if (!toDelete) return { kind: "file", sha256: sha256Of(await readFile(path)) };
+    try {
+      return { kind: "file", sha256: sha256Of(await readFile(path)) };
+    } catch {
+      return { kind: "file", stat: byStat, unchecked: "unreadable" };
     }
-    return { kind: "file", sha256: sha256Of(await readFile(path)) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
