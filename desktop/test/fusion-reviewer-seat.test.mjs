@@ -579,8 +579,9 @@ for (const order of ["write-first", "ack-first"]) {
     c.FIRST_TURNS = new Map();
     c.screenTurnId = () => null;
     const sendA = sendFirstTurn(c);
-    // The person opens a fresh New chat (renderer.js session:new gives the screen a new log).
+    // The person opens a fresh New chat (renderer.js session:new).
     c.S.log = [];
+    c.fzrScreenChanged();
     const writes = delayedWrite(c);
     const adding = c.fzrAct("add:anthropic:model-a");
     if (order === "ack-first") { sendA.ack("tA"); writes[0].done(); await adding; }
@@ -596,3 +597,61 @@ for (const order of ["write-first", "ack-first"]) {
     assert.equal(c.fzrTurnTeam("chat-A"), null);
   });
 }
+
+/* ---------- issue #87 review: the send path as renderer.js runs it (startLiveTurn) ---------- */
+
+/**
+ * The seat with renderer.js's own startLiveTurn loaded beside it, its other
+ * collaborators stubbed. BR.chat answers when the test says (`chats[i].ok()`
+ * / `.reject()`), so the write and the send's answer end in either order.
+ */
+function liveContext() {
+  const c = seatContext(M.readFusionTeam({ status: 200, body: ROSTER_BODY }), []);
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const at = renderer.indexOf("\nfunction startLiveTurn(");
+  const fn = renderer.slice(at, renderer.indexOf("\n}\n", at) + 3);
+  const chats = [];
+  let id = 0;
+  Object.assign(c, {
+    PENDING_CHATS: new Map(), FIRST_TURNS: new Map(), RUNNING: new Map(), PLAN: {}, MODE: { known: false }, FZ: {}, DRAIN_OWED: false, ticker: 0,
+    clearPlanOffer() {}, dropStaleGateNotices() {}, currentMode() { return null; }, pushHistory() {}, liveSetWait() {}, nid: () => "n" + (++id),
+    clearInterval() {}, liveAskedRow: () => null, livePriorAsks: () => [], projectForNewTurn: () => undefined, projectWaitingTurn: () => null,
+    firstTurnFolder: () => null, reasoningTurnLevel: () => undefined, projectTurnModel: () => undefined, projectWaitingSent() {},
+    projectNewTurnFailed() {}, liveShowsTurn: () => false, projectNoteTurn() {}, liveTurnStarted() {}, renderSidebar() {},
+    firstTurnSent(turnId, text) { c.FIRST_TURNS.set(turnId, text); },
+    screenTurnId: () => null,
+  });
+  c.S = { agentSession: null, sessionId: "", overlay: null, log: [], busy: false };
+  c.BR.chat = (...args) => new Promise((resolve, reject) => {
+    const team = args[5];
+    chats.push({ team: team ? { ...team } : null, ok: (turnId) => resolve({ ok: true, turnId }), fail: () => resolve({ ok: false, error: "x" }), reject: () => reject(new Error("ipc gone")) });
+  });
+  vm.runInContext(fn, c);
+  return { c, chats, settle: () => new Promise((r) => setImmediate(r)) };
+}
+
+for (const order of ["write-first", "ack-first"]) {
+  test(`live: Clear Transcript before the send's answer does not move a reviewer added in that chat (${order})`, async () => {
+    const { c, chats, settle } = liveContext();
+    c.startLiveTurn("A's first message");
+    // Clear Transcript (renderer.js clearTranscript: S.log = liveClearedLog()) gives the screen a new log array.
+    c.S.log = [];
+    const writes = delayedWrite(c);
+    const adding = c.fzrAct("add:anthropic:model-a");
+    if (order === "ack-first") { chats[0].ok("tA"); await settle(); writes[0].done(); await adding; }
+    else { writes[0].done(); await adding; chats[0].ok("tA"); await settle(); }
+    c.fzrTurnNamed("tA", "chat-A");
+    assert.deepEqual({ ...c.fzrTurnTeam("chat-A") }, { reviewer: "anthropic:model-a" }, "chat A lost the reviewer after Clear Transcript");
+    assert.equal(c.fzrTurnTeam(undefined), null, "the next new chat got chat A's reviewer");
+  });
+}
+
+test("renderer.js counts a chat put on screen for the Reviewer seat, and Clear Transcript does not", () => {
+  const renderer = readFileSync(new URL("../renderer/renderer.js", import.meta.url), "utf8");
+  const fresh = renderer.slice(renderer.indexOf("if (a === 'session:new') {"), renderer.indexOf("if (a === 'session:new') {") + 800);
+  assert.match(fresh, /fzrScreenChanged\(\)/);
+  const open = renderer.slice(renderer.indexOf("\nasync function openSession("), renderer.indexOf("\nasync function openSession(") + 2500);
+  assert.match(open, /fzrScreenChanged\(\)/);
+  const clear = renderer.slice(renderer.indexOf("S.log = liveClearedLog(); S.history = [];") - 600, renderer.indexOf("S.log = liveClearedLog(); S.history = [];") + 200);
+  assert.doesNotMatch(clear, /fzrScreenChanged/);
+});

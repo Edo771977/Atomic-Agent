@@ -7621,6 +7621,7 @@ function act(a) {
                              stashQueue();   // Backlog 26: what was queued in the chat being left waits for it, read before the view goes
                              liveLeave();    // Item 38: and a turn running there keeps its view for when it is opened again
                              S.log = []; S.history = []; S.agentSession = null; S.busy = false;
+                             if (typeof fzrScreenChanged === 'function') fzrScreenChanged();   // issue #87: another chat on screen (fusion-reviewer.js)
                              forgetApprovalCard();   // item 6 review fix: a fresh thread does not answer the open gate — the other chat's dot keeps saying it is waiting
                              clearPlanOffer();   // Item 1: the plan belonged to the thread being left (see openSession)
                              S.room = 'chat';
@@ -22039,6 +22040,7 @@ async function openSession(id) {
   // Backlog 24: except after this chat failed to open. Clicking it again is
   // how that is retried, and its log is only the error line.
   if (live && S.sessionId === id && !(OPENING && OPENING.id === id && OPENING.failed)) { S.room = 'chat'; markSeen(id); render(); return; }
+  if (typeof fzrScreenChanged === 'function') fzrScreenChanged();   // issue #87: another chat on screen (fusion-reviewer.js)
   /* Item 1 (plan hand-off): a DELIBERATE divergence from the TUI. Its
      `session_switched` reducer resets messages, feed, pendingApproval,
      runHistory, queuedMessages and contextUsage but not `planHandoff`, so its
