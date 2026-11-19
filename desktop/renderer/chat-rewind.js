@@ -219,7 +219,7 @@ function rewindSkipPaths(before, failed) {
 
 /* ---- renderer side (globals from renderer.js, read at call time) ---- */
 
-const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, draft: ''};
+const REWIND = {supported: true, mode: null, id: null, sid: null, prior: 0, text: '', preview: null, loading: false, busy: false, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, opened: 0, draft: ''};
 
 function rewindReady() {
   return typeof BR !== 'undefined' && BR && BR.rewindPreview && REWIND.supported && S.agentSession && !S.busy && !S.pending;
@@ -263,6 +263,7 @@ function rewindStart(mode, id) {
   const m = S.log.find((x) => x.id === id);
   const q = rewindQuestionFor(S.log, m);
   if (!q || !rewindReady()) return;
+  REWIND.opened++;   // issue #80: a sheet's own answers only (rewindConfirm)
   Object.assign(REWIND, {mode, id: q.id, sid: S.agentSession, prior: priorQuestions(q), text: String(q.text || ''),
     preview: null, error: null, partial: null, partialCode: null, skip: [], afterPartial: false, busy: false, loading: mode !== 'fork', draft: attToEditor(String(q.text || ''))});
   if (mode === 'fork') { rewindFork(); return; }
@@ -353,7 +354,18 @@ async function rewindConfirm(files, skip, acceptFailed) {
   if (skipping) REWIND.skip = skipping;
   const args = skipping ? [sid, REWIND.prior, REWIND.text, files, skipping]
     : acceptFailed === true ? [sid, REWIND.prior, REWIND.text, files, undefined, true] : [sid, REWIND.prior, REWIND.text, files];
+  const asked = {opened: REWIND.opened, sid, id: REWIND.id, prior: REWIND.prior};
   const r = await BR.rewind(...args).catch((err) => ({ok: false, supported: true, error: String(err)}));
+  // Issue #80 review: the answer is this sheet's only while it is still open on the same point. A sheet
+  // opened meanwhile (another message, or this one again) never takes it, or its Continue would send
+  // the old paths for a different point.
+  const same = asked.opened === REWIND.opened && asked.sid === REWIND.sid && asked.id === REWIND.id && asked.prior === REWIND.prior
+    && S.overlay === 'rewind';
+  if (!same) {
+    // A rollback that went through still changed that chat: show it if it is on screen, but resend nothing.
+    if (r && r.ok && S.agentSession === sid) { await openSession(sid); toast('Rolled back', edit ? 'The chat was rolled back; the edited message was not sent.' : 'The chat was rolled back.'); }
+    return;
+  }
   REWIND.busy = false;
   // Issue #77: a partial restore, or a refusal after files were put back, left the chat as it was;
   // the sheet says which files and stays open.

@@ -590,3 +590,28 @@ test("an agent without skip gets the #77 way out with plain words; from before s
   assert.doesNotMatch(R.rewindSheetHTML(), /from before/);
   assert.ok(agentBodies(calls).every((b) => !("acceptFailed" in b)));
 });
+
+// Issue #80 review: a rollback's late answer landed in a sheet opened meanwhile for another message,
+// and Continue there then sent the old paths for a different point.
+test("a late rollback answer is ignored by a sheet opened meanwhile", async () => {
+  const calls = ipcWindow("back", { rewind: [] });
+  let release;
+  globalThis.BR.rewind = (...args) => { calls.push(["rewind", args]); return new Promise((r) => { release = r; }); };
+  const pending = R.rewindAct("go");
+  // The person cancels and opens Edit on another message (rewindStart's reset, a new sheet).
+  globalThis.S.log = [{ id: "u9", k: "user", text: "other" }];
+  globalThis.priorQuestions = () => 4;
+  globalThis.BR.rewindPreview = async () => ({ ok: true, supported: true, data: FILES_PREVIEW });
+  R.REWIND.busy = false;
+  R.rewindAct("edit:u9");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(R.REWIND.prior, 4);
+  release(M.rewindAnswer(409, partialBody(FIRST_FAILED, { partial: true, skipped: [] })));
+  await pending;
+  assert.equal(R.REWIND.partial, null, "the old answer's partial restore landed in the new sheet");
+  assert.equal(R.REWIND.afterPartial, false);
+  assert.equal(R.REWIND.error, null);
+  assert.deepEqual(footActs(R.rewindSheetHTML()).map((a) => a[0]), ["rewind:go-chat", "rewind:go"]);
+  await R.rewindAct("go-skip");
+  assert.equal(calls.filter((c) => c[0] === "rewind").length, 1);
+});
