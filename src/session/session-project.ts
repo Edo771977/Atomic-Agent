@@ -1101,6 +1101,21 @@ export function milestoneWorkChanged(
   return a.length !== b.length || a.some((t, i) => t !== b[i]);
 }
 
+/** Whether every task of `before` is still in `after` (by work title): the re-plan only added tasks. */
+function onlyAddsTasks(before: readonly ProjectMilestoneTask[], after: readonly ProjectMilestoneTask[]): boolean {
+  const left = new Map<string, number>();
+  for (const t of workTitles(after)) left.set(t, (left.get(t) ?? 0) + 1);
+  for (const t of workTitles(before)) {
+    const n = left.get(t) ?? 0;
+    if (n === 0) return false;
+    left.set(t, n - 1);
+  }
+  return true;
+}
+
+/** A person's verdict or a reported result: what a change of work must not carry over. */
+const VERDICT: ReadonlySet<MilestoneState> = new Set(["done", "failed", "reviewed"]);
+
 /** Whether a milestone holds anything a revision should keep. */
 const hasEvidence = (m: ProjectMilestone): boolean =>
   m.runIds.length > 0 ||
@@ -1127,7 +1142,11 @@ function replannedMilestone(
   const base = { id: next.id, title: next.title, kind: next.kind };
   if (old === undefined) return { ...base, state: "planned", runIds: [], updatedAt: now };
   const oldTasks = milestoneTasks(oldRows, old.id);
-  if (milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: milestoneTasks(rows, next.id) })) {
+  const newTasks = milestoneTasks(rows, next.id);
+  // Work with no verdict yet (planned, approved or running) keeps its runs
+  // when the re-plan only adds tasks to it: those runs did part of it.
+  const grows = !VERDICT.has(old.state) && old.kind === next.kind && onlyAddsTasks(oldTasks, newTasks);
+  if (!grows && milestoneWorkChanged({ kind: old.kind, tasks: oldTasks }, { kind: next.kind, tasks: newTasks })) {
     const history = [...(old.history ?? [])];
     if (hasEvidence(old)) {
       history.push({

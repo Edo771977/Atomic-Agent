@@ -985,6 +985,33 @@ describe("a re-plan that changes a milestone's work drops its verdict (issue #77
     expect(m1.history).toBeUndefined();
   });
 
+  it("work without a verdict keeps its runs when the re-plan only adds tasks; any other change resets it", () => {
+    const inProgress = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    const added = update(inProgress, { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    expect(added.milestones[0]).toMatchObject({ state: "in_progress", runIds: ["run-1"] });
+    expect(added.milestones[0]!.history).toBeUndefined();
+    // The run still counts: the result can be reported done after the approval.
+    const approved = approve(added);
+    expect(applyProjectUpdate(approved, { kind: "milestone", id: "m1", state: "done", summary: "ok" }, NOW)).toMatchObject({ ok: true });
+    // An approved milestone holding a failed try's runs keeps them too.
+    let failed = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    failed = approve(update(failed, { kind: "milestone", id: "m1", state: "failed", summary: "broken" }));
+    const failedAdded = update(failed, { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    expect(failedAdded.milestones[0]).toMatchObject({ state: "planned", runIds: ["run-1"] });
+    // A removal, a changed title or a new kind still resets running work.
+    for (const change of [
+      { rows: [row("t3", "m1"), row("t2", "m2")] },
+      { milestones: [{ id: "m1", title: "Base", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] },
+    ]) {
+      const re = update(inProgress, { ...planUpdate, ...change } as ProjectUpdate);
+      expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+      expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "in_progress", runIds: ["run-1"] });
+    }
+    // A reviewed milestone has a verdict: an added task resets it.
+    expect(update(reviewedM1(), { ...planUpdate, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] } as ProjectUpdate).milestones[0])
+      .toMatchObject({ state: "planned", runIds: [] });
+  });
+
   it("a task renamed to a new id with the same title is not a change of work", () => {
     const re = update(reviewedM1(), { ...planUpdate, rows: [row("t1-renamed", "m1", { title: "Task t1" }), row("t2", "m2")] } as ProjectUpdate);
     expect(re.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"], summary: "Base works" });
