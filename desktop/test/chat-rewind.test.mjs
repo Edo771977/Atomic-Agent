@@ -798,3 +798,26 @@ test("every fixture and every opening of the sheet starts without Continue state
   R.rewindAct("back:u1");
   clean("rewindStart");
 });
+
+// Issue #83 review: Continue's preview dropped the warnings the normal preview shows.
+test("Continue's preview carries every warning of the normal preview, and each file's error", async () => {
+  const rich = { status: 200, body: {
+    removed: { questions: 1, replies: 1 },
+    files: [{ path: A_FILE, action: "restore" }, { path: "/w/gone.txt", action: "delete", error: "EACCES: permission denied" }],
+    notRestorable: [{ path: "/w/big.bin", reason: "too_large" }],
+    uncovered: [{ tool: "os.shell.run", count: 2 }],
+    incomplete: true,
+    skipped: [B_FILE],
+  } };
+  ipcWindow("back", { rewind: [A_RESTORED_B_LOCKED], skipPreview: [rich] });
+  await R.rewindAct("go");
+  await R.rewindAct("go-skip");
+  const html = R.rewindSheetHTML();
+  assert.match(html, /would be changed again/);
+  assert.match(html, /Cannot be put back/);
+  assert.match(html, /big\.bin \(too large to keep a copy of\)/);
+  assert.match(html, /not every file can be put back/);
+  assert.match(html, /also ran 2 shell commands/);
+  assert.match(html, /Shell commands and Fusion workers are never undone/);
+  assert.match(html, /gone\.txt[^]*EACCES: permission denied/);
+});

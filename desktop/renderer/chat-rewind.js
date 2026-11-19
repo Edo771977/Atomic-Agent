@@ -328,18 +328,29 @@ async function rewindSkipCheck(skip) {
   render();
 }
 
-/** Issue #83: the sheet's body for Continue's fresh preview: the files changed again, the ones skipped. */
+/**
+ * Issue #83: the sheet's body for Continue's fresh preview: the files changed
+ * again (each with the agent's error for it, if any), the ones skipped, and
+ * every warning the normal preview shows (rewindSummary: cannot be put back,
+ * history no longer kept, shell and Fusion changes not undone).
+ */
 function rewindSkipPreviewHTML(data, workingDir) {
   const s = rewindSummary(data, workingDir);
   const skipped = (Array.isArray(data.skipped) ? data.skipped : []).filter((p) => typeof p === 'string' && p);
-  const list = (items) => '<div class="rows">' + items.map((t) => '<div class="row"><span class="main"><span class="t">' + esc(t) + '</span></span></div>').join('') + '</div>';
+  const row = (t, err) => '<div class="row"><span class="main"><span class="t">' + esc(t) + '</span>'
+    + (err ? '<span class="s">' + esc(err) + '</span>' : '') + '</span></div>';
+  const list = (items) => '<div class="rows">' + items.map((t) => row(t)).join('') + '</div>';
+  const files = (Array.isArray(data.files) ? data.files : []).filter((f) => f && (f.action === 'restore' || f.action === 'delete'));
   let html = '<p class="sd-cap"><b>Before rolling back without these files</b></p>';
-  const again = s.restore.concat(s.remove);
-  html += again.length
-    ? '<p class="sd-cap">These files would be changed again (put back as they were, or removed). Edits you made to them since will be lost:</p>' + list(again)
+  html += files.length
+    ? '<p class="sd-cap">These files would be changed again (put back as they were, or removed). Edits you made to them since will be lost:</p>'
+      + '<div class="rows">' + files.map((f) => row(rewindPathLabel(f.path, workingDir) + (f.action === 'delete' ? ' (removed)' : ''),
+        typeof f.error === 'string' ? f.error : '')).join('') + '</div>'
     : '<p class="sd-cap">No other file would be changed again.</p>';
   if (skipped.length) html += '<p class="sd-cap">Left as they are (the agent confirmed it will skip them):</p>' + list(skipped.map((p) => rewindPathLabel(p, workingDir)));
+  if (s.cannot.length) html += '<p class="sd-cap"><b>Cannot be put back</b></p>' + list(s.cannot);
   html += '<p class="sd-cap">' + esc(s.removedText) + '</p>';
+  html += s.warnings.map((w) => '<div class="tk-notice tk-notice--amber">' + ic('alert') + '<span class="grow">' + esc(w) + '</span></div>').join('');
   return html;
 }
 
