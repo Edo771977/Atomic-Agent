@@ -78,7 +78,12 @@ export async function planFileRestore(
   return { items, notRestorable, incomplete };
 }
 
-/** Carry out a plan. Each file is tried on its own; one failure does not stop the rest. */
+/**
+ * Carry out a plan. Each file is tried on its own; one failure does not
+ * stop the rest. With a non-empty `failed`, a caller keeps the copies
+ * (issue #77): planned again, the files already back match their copy
+ * and are left out, so a retry only touches the ones that failed.
+ */
 export async function applyFileRestore(
   store: Store,
   sessionId: string,

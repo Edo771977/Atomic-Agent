@@ -33,12 +33,20 @@ import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandle
  * commands, archive extractions and Fusion runs whose changes stay.
  */
 
-const REFUSAL_MESSAGES: Record<RewindRefusal | ForkRefusal, string> = {
+/**
+ * `restore_failed` (issue #77): a file could not be put back. The chat is
+ * not cut and the saved copies stay, so the same rollback can be sent
+ * again; files already back match their copy and are not planned again.
+ */
+type Refusal = RewindRefusal | ForkRefusal | "restore_failed";
+
+const REFUSAL_MESSAGES: Record<Refusal, string> = {
   nothing_to_rewind: "this chat has no question to go back to",
   turn_in_progress: "this chat has a turn in progress; try again when it finishes",
   point_compacted: "that message is inside the part of the chat already compacted into a summary",
   incognito: "an incognito chat cannot be forked: it leaves nothing behind, a copy included",
   point_mismatch: "the chat's question at that position is not the one given (priorQuestions, expectText), so nothing was changed",
+  restore_failed: "some files could not be put back (see failed); the chat was not cut and the saved copies were kept, so the rollback can be tried again",
 };
 
 interface Point {
@@ -118,6 +126,10 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         const done = restoreFiles
           ? await applyFileRestore(store, session.id, files)
           : { restored: [], deleted: [], failed: [] };
+        // Issue #77: a file that did not go back keeps the point and every
+        // copy, so the rollback can be retried; cutting the chat or dropping
+        // the copies now would lose the only way back.
+        if (done.failed.length > 0) return { refused: "restore_failed", done };
         // Planned again from the stored chat right before the save, with no
         // await between: a turn another process started during the restore
         // refuses, and a write that left the transcript alone is kept.
@@ -158,7 +170,7 @@ function sameTranscript(a: SessionState, b: SessionState): boolean {
 type RestoreDone = Awaited<ReturnType<typeof applyFileRestore>>;
 type RewindOutcome =
   | { refused?: undefined; done: RestoreDone }
-  | { refused: RewindRefusal; done?: RestoreDone };
+  | { refused: RewindRefusal | "restore_failed"; done?: RestoreDone };
 
 export function createForkSessionHandler(): HttpHandler {
   return async (req, res, ctx) => {
@@ -234,7 +246,7 @@ function checkpointStore(ctx: HandlerContext): FileCheckpointStore {
   return new FileCheckpointStore(fileCheckpointsRoot(ctx.runtime.config.paths.stateDir));
 }
 
-function refuse(res: ServerResponse, code: RewindRefusal | ForkRefusal): void {
+function refuse(res: ServerResponse, code: Refusal): void {
   sendError(res, 409, openaiError(REFUSAL_MESSAGES[code], "invalid_request_error", null, code));
 }
 
