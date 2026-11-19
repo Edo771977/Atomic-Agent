@@ -135,6 +135,15 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
     expect(view.hints).toEqual(["no other team member is reachable now: the rows keep their worker"]);
   });
 
+  it("names each milestone whose verdict the draft plan resets (issue #77)", () => {
+    const project = planGate();
+    const reset: ProjectState = { ...project, plan: { ...project.plan!, verdictResets: ["m2"] } };
+    const view = projectGateView({ sessionId: "s", project: reset, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
+    expect(view.hints).toEqual(["verdict reset: UI"]);
+    const elsewhere = projectGateView({ sessionId: "s", project: { ...reset, gate: { kind: "none" } }, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
+    expect(elsewhere.hints).toEqual([]);
+  });
+
   it("is editable without hints when there is a choice and reviewers are configured", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
     expect(view.plan!.editable).toBe(true);

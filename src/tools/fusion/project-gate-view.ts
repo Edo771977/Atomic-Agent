@@ -45,6 +45,9 @@ export const ONE_WORKER_HINT = "only one worker available: configure llm.runMode
 /** The same, when the team names other members but none can answer now (issue #54). */
 export const NONE_REACHABLE_HINT = "no other team member is reachable now: the rows keep their worker";
 
+/** The plan gate's hint for a milestone the draft starts over on new work, its earlier result in history (issue #77). */
+export const verdictResetHint = (title: string): string => `verdict reset: ${title}`;
+
 /** The gate card's payload. Pure. */
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
@@ -73,6 +76,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
       hints.push(others ? NONE_REACHABLE_HINT : ONE_WORKER_HINT);
+    }
+    // Issue #77: the person approves a plan that starts these over.
+    for (const id of plan.verdictResets ?? []) {
+      const m = project.milestones.find((x) => x.id === id);
+      if (m !== undefined) hints.push(verdictResetHint(m.title));
     }
   }
   return {

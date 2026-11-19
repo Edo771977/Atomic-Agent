@@ -1033,6 +1033,7 @@ Core docs:
 - [SKILLS.md](src/skills/docs/skill-format.md): skill format
 - [BUNDLING.md](scripts/docs/bundling.md): release packaging
 - [AGENTS.md](AGENTS.md): contributor invariants
+- [Fork differences](docs/user/fork-differences.md): what this fork adds to upstream, and when it last synced
 - [Large-model adaptation plan](docs/plans/cloud-model-adaptation.md): proposed context, research limits, Fusion review and automatic memory changes
 
 ## Acknowledgements
