@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyFileRestore, planFileRestore, uncoveredToolCalls } from "./fs-checkpoint-restore.js";
+import { applyFileRestore, planFileRestore, restorePathKey, uncoveredToolCalls } from "./fs-checkpoint-restore.js";
 import { FileCheckpointStore } from "./fs-checkpoint-store.js";
 
 describe("planFileRestore / applyFileRestore (ATO-1056)", () => {
@@ -124,3 +124,14 @@ describe("uncoveredToolCalls", () => {
     ]);
   });
 });
+
+describe("restorePathKey (issue #80)", () => {
+  it("resolves against the chat's folder and folds case only on win32", () => {
+    expect(restorePathKey("/w/x/../a.txt/", "/w", "linux")).toBe("/w/a.txt");
+    expect(restorePathKey("a.txt", "/w", "linux")).toBe("/w/a.txt");
+    expect(restorePathKey("/W/A.txt", "/w", "linux")).not.toBe(restorePathKey("/w/a.txt", "/w", "linux"));
+    expect(restorePathKey("c:\\Work\\.\\A.TXT", "C:\\work", "win32")).toBe(restorePathKey("C:\\work\\a.txt", "C:\\work", "win32"));
+    expect(restorePathKey("a.txt", "C:\\Work", "win32")).toBe("c:\\work\\a.txt");
+  });
+});
+
