@@ -90,7 +90,7 @@ function setup(over: Partial<FusionDelegateDeps> | ((dir: string) => Partial<Fus
       },
       { workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal, ...(withProject ? { project: project() } : {}) },
     );
-  return { dir, run };
+  return { dir, run, deps: d };
 }
 
 type Row = { status: string; notes?: string[]; criteria?: Array<{ id: string; state: string }>; judge?: { criteria?: Array<{ id: string; state: string }> } };
@@ -305,3 +305,59 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("a resumed run tags its facts with the criteria its checks were written for (issue #87)", () => {
+  const V1 = { id: "a", text: "Works offline" };
+  const V2 = { id: "a", text: "Supports live collaboration" };
+  const projectWith = (text: { id: string; text: string }, before?: ProjectState): ProjectState => {
+    const briefed = approve(up(before, { kind: "brief", brief: { what: "Notes", users: "Teams", how: "Web", successCriteria: [text] }, draftedAfterUntrusted: false }));
+    return approve(up(briefed, {
+      kind: "plan",
+      milestones: [{ id: "m1", title: "Base", kind: "base" }],
+      rows: ["t", "u"].map((taskId) => ({ taskId, title: taskId, milestoneId: "m1", worker: "local:small", reviewer: null, reason: "preset", basis: "preset" as const, samples: 0, estCostUsd: null, estMs: null })),
+      detail: "compact",
+    }));
+  };
+
+  it("a run interrupted under v1 and resumed under v2 writes v1-tagged facts, which read stale", async () => {
+    const state = mkdtempSync(join(tmpdir(), "fusion-criteria-resume-"));
+    const runsDir = join(state, "fusion-runs");
+    const store = new FusionRunStore({ dir: runsDir });
+    const controller = new AbortController();
+    let stop = true;
+    const d = setup((work) => ({
+      runCheckpoints: store,
+      runChecks: async () => ({ ok: true, results: [{ ok: true, summary: "offline test: ok" }] }),
+      runTurn: async () => {
+        // The first fan-out is cut off while its first worker runs: u never starts.
+        if (stop) controller.abort();
+        return { session: createEmptySessionState({ id: "s-w", workingDir: work }), reason: "reply", stepCount: 1 } as RunTurnResult;
+      },
+    }));
+    const tool = buildFusionDelegateTool(d.deps);
+    const args = {
+      tasks: [
+        { id: "t", title: "t", instructions: "set up the app" },
+        { id: "u", title: "u", instructions: "make it work offline" },
+      ],
+      contract: { checks: [{ task: "u", type: "command", command: "npm test", criteria: ["a"] }] },
+    };
+    const v1 = projectWith(V1);
+    const first = await tool.run(args, { workingDir: d.dir, sessionId: "s-p", stepIndex: 0, signal: controller.signal, project: v1 });
+    const runId = first.details.runId as string;
+    expect(store.load(runId)?.criteria).toEqual([V1]);
+    // Criterion a reworded; brief and plan approved again; the run resumed.
+    stop = false;
+    const v2 = projectWith(V2, v1);
+    const resumed = await tool.run({ resume: runId }, { workingDir: d.dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal, project: v2 });
+    expect(resumed.status).not.toBe("error");
+    expect((resumed.details.resume as { rerun: string[] }).rerun).toEqual(["u"]);
+    const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { tasks: Array<{ taskId: string; facts: Array<{ id: string; text?: string }> }> };
+    expect(stored.tasks.find((t) => t.taskId === "u")!.facts[0]).toMatchObject({ id: "a", state: "passed", text: V1.text });
+    const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: ["a"], criteria: [V2], briefApprovals: v2.briefApprovals! });
+    expect(evidence.facts).toEqual([expect.objectContaining({ id: "a", state: "unverified" })]);
+    rmSync(d.dir, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
+  });
+});
+
