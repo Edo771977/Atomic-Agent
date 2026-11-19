@@ -374,8 +374,9 @@ function rewindSkipPreviewHTML(data, workingDir) {
 
 /**
  * Issue #87: the paths a 400 skip_unknown names, out of the `sent` skip list:
- * the answer's own list when it has one, else the paths of `sent` its message
- * names (", "-separated after "since that question: "), else all of `sent`.
+ * the answer's own list when it has one (`unknownSkip`, next to `error`), else
+ * the paths of `sent` its message names (", "-separated after "since that
+ * question: ", longest first), else all of `sent`.
  */
 function rewindUnknownSkip(r, sent) {
   const list = (Array.isArray(sent) ? sent : []).filter((p) => typeof p === 'string' && p);
@@ -385,8 +386,17 @@ function rewindUnknownSkip(r, sent) {
   }
   const message = String((r && r.error) || '');
   const at = message.indexOf('since that question: ');
-  const tail = ', ' + (at >= 0 ? message.slice(at + 'since that question: '.length) : message) + ', ';
-  const named = list.filter((p) => tail.indexOf(', ' + p + ', ') >= 0);
+  // Longest first, each match taken out of the message, so a path never matches by its prefix
+  // ("/w/x" in "/w/x, y.txt"); the result keeps the order of `sent`.
+  let tail = ', ' + (at >= 0 ? message.slice(at + 'since that question: '.length) : message) + ', ';
+  const found = new Set();
+  for (const p of list.slice().sort((a, b) => b.length - a.length)) {
+    const i = tail.indexOf(', ' + p + ', ');
+    if (i < 0) continue;
+    found.add(p);
+    tail = tail.slice(0, i) + ', ' + tail.slice(i + p.length + 4);
+  }
+  const named = list.filter((p) => found.has(p));
   return named.length ? named : list;
 }
 /** Issue #87: a preview or rollback with skip `sent` answered skip_unknown: the sheet offers to stop leaving those out. */

@@ -1041,3 +1041,15 @@ test("skip_unknown on Continue: dropping the unknown path keeps the files that h
   assert.deepEqual(previewBodies(calls).at(-1).skip, ["/w/late.txt"], "late.txt would be put back");
   assert.equal(agentBodies(calls).length, 2);
 });
+
+// Issue #87 review: in the message fallback, a sent path matched its own prefix ("/w/x" in "/w/x, y.txt").
+test("skip_unknown's message fallback does not match a path by its prefix; the top-level list is read first", () => {
+  const sent = ["/w/x", "/w/x, y.txt", "/w/z"];
+  const plain = M.rewindAnswer(400, SKIP_UNKNOWN(["/w/x, y.txt"]).body);
+  assert.deepEqual(R.rewindUnknownSkip(plain, sent), ["/w/x, y.txt"]);
+  assert.deepEqual(R.rewindUnknownSkip(M.rewindAnswer(400, SKIP_UNKNOWN(["/w/z", "/w/x"]).body), sent), ["/w/x", "/w/z"]);
+  // The agent's own list, next to `error`, wins over the message.
+  const listed = M.rewindAnswer(400, { ...SKIP_UNKNOWN(["/w/x"]).body, unknownSkip: ["/w/x, y.txt"] });
+  assert.deepEqual([...listed.unknownSkip], ["/w/x, y.txt"]);
+  assert.deepEqual(R.rewindUnknownSkip(listed, sent), ["/w/x, y.txt"]);
+});
