@@ -109,7 +109,7 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     const { a, b, store } = await partlyRestoredThenEdited();
     // A skipped path is not even read for the restore.
     io.failRead.add(a);
-    const res = await post("rw-io/rewind", { ...point, skip: [a, join(harness.workingDir, "not-in-the-plan.txt")] });
+    const res = await post("rw-io/rewind", { ...point, skip: [a] });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ restored: [b], deleted: [], failed: [], skipped: [a] });
     io.failRead.clear();
@@ -117,6 +117,36 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(readFileSync(b, "utf8")).toBe("b0");
     expect(turns()).toBe(2);
     expect(await copies(store)).toEqual([]);
+  });
+
+  it.each([
+    ["a trailing slash", (a: string) => `${a}/`],
+    ["a doubled separator", (a: string) => a.replace(/\/a\.txt$/, "//a.txt")],
+    ["a dot segment", (a: string) => a.replace(/\/a\.txt$/, "/./a.txt")],
+    ["a path relative to the chat's folder", () => "a.txt"],
+  ])("skip matches a path written with %s", async (_form, write) => {
+    const { a, b } = await partlyRestoredThenEdited();
+    const res = await post("rw-io/rewind", { ...point, skip: [write(a)] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ restored: [b], skipped: [a] });
+    expect(readFileSync(a, "utf8")).toBe("a edited by the person");
+  });
+
+  it("a skip path with no copy since the point is 400 skip_unknown naming it; one already back is accepted", async () => {
+    const { a, b } = await seed();
+    const unknown = join(harness.workingDir, "never-touched.txt");
+    const res = await post("rw-io/rewind", { ...point, skip: [a, unknown] });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; param: string; message: string } };
+    expect(body.error).toMatchObject({ code: "skip_unknown", param: "skip" });
+    expect(body.error.message).toContain(unknown);
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(turns()).toBe(4);
+    // b already holds its saved content: skipping it is accepted and reported.
+    writeFileSync(b, "b0");
+    const ok = await post("rw-io/rewind", { ...point, skip: [b] });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ restored: [a], skipped: [b] });
   });
 
   it("acceptFailed without skip plans every file again, overwriting the person's edits", async () => {

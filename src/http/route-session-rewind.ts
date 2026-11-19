@@ -100,7 +100,16 @@ export function createRewindHandler(preview: boolean): HttpHandler {
     const plan = planRewind(session, turnIndex);
     if (!plan.ok) return refuse(res, plan.code);
     const store = checkpointStore(ctx);
-    const files = await planFileRestore(store, session.id, at, new Set(skip));
+    const files = await planFileRestore(store, session.id, at, { skip, cwd: session.workingDir });
+    if (files.unknownSkip.length > 0) {
+      sendError(res, 400, openaiError(
+        `skip names files with no saved copy since that question: ${files.unknownSkip.join(", ")}`,
+        "invalid_request_error",
+        "skip",
+        "skip_unknown",
+      ));
+      return;
+    }
     const removed = session.turns.slice(turnIndex);
     const notRestorable = files.notRestorable;
     if (preview) {

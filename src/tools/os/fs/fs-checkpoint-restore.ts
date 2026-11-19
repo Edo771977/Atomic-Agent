@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, posix, win32 } from "node:path";
 import {
   sha256Of,
   type CheckpointEntry,
@@ -44,6 +44,8 @@ export interface FileRestorePlan {
   incomplete: boolean;
   /** Paths left out because the caller asked to skip them (issue #80); never inspected. */
   skipped: string[];
+  /** Skip paths, as given, that match no file with a copy since the point. */
+  unknownSkip: string[];
 }
 
 export interface FileRestoreResult {
@@ -54,22 +56,52 @@ export interface FileRestoreResult {
 
 type Store = Pick<FileCheckpointStore, "since" | "readCopy">;
 
+export interface FileRestoreOptions {
+  /** Files to leave out unread (issue #80), matched by `restorePathKey`. */
+  skip?: readonly string[];
+  /** The chat's folder: a relative skip path is read against it. */
+  cwd?: string;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * The one form two paths are compared in (issue #80): resolved against
+ * the chat's folder (dot segments, doubled and trailing separators go)
+ * and, on Windows, case-folded. Reported paths stay as captured.
+ */
+export function restorePathKey(path: string, cwd: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "win32") return win32.resolve(cwd, path).toLowerCase();
+  return posix.resolve(cwd, path);
+}
+
 export async function planFileRestore(
   store: Store,
   sessionId: string,
   sinceAt: number,
-  /** Paths, in the form the plan reports them, to leave out unread (issue #80). */
-  skip: ReadonlySet<string> = new Set(),
+  options: FileRestoreOptions = {},
 ): Promise<FileRestorePlan> {
   const { entries, incomplete } = await store.since(sessionId, sinceAt);
+  const cwd = options.cwd ?? process.cwd();
+  const key = (path: string): string => restorePathKey(path, cwd, options.platform);
   // The earliest copy of each path is what it held before the point.
   const first = new Map<string, CheckpointEntry>();
-  for (const entry of entries) if (!first.has(entry.path)) first.set(entry.path, entry);
+  for (const entry of entries) {
+    const k = key(entry.path);
+    if (!first.has(k)) first.set(k, entry);
+  }
+  const skip = new Set<string>();
+  const unknownSkip: string[] = [];
+  for (const path of options.skip ?? []) {
+    const k = key(path);
+    if (first.has(k)) skip.add(k);
+    else unknownSkip.push(path);
+  }
   const items: FileRestoreItem[] = [];
   const notRestorable: FileNotRestorable[] = [];
   const skipped: string[] = [];
-  for (const entry of first.values()) {
-    if (skip.has(entry.path)) {
+  for (const [k, entry] of first) {
+    // Taken out whether or not the disk already matches: never inspected.
+    if (skip.has(k)) {
       skipped.push(entry.path);
       continue;
     }
@@ -95,7 +127,7 @@ export async function planFileRestore(
     }
     items.push({ path: entry.path, action: "restore", entry });
   }
-  return { items, notRestorable, incomplete, skipped };
+  return { items, notRestorable, incomplete, skipped, unknownSkip };
 }
 
 /**
