@@ -908,3 +908,102 @@ describe("project instructions in the prompt", () => {
     expect(text).toContain('the project "Docs"');
   });
 });
+
+describe("a re-plan that changes a milestone's work drops its verdict (issue #77)", () => {
+  /** m1 run, reported done with evidence and a correction, then reviewed. */
+  const reviewedM1 = (): ProjectState => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = update(p, { kind: "milestone", id: "m1", state: "done", summary: "Base works", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    const attachments = [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }];
+    p = { ...p, milestones: p.milestones.map((m) => (m.id === "m1" ? { ...m, attachments, corrections: [{ note: "tidy", at: NOW }] } : m)) };
+    return approve(p);
+  };
+
+  it("new title, kind and task: the approved plan shows the new work as not reviewed, old evidence in history", () => {
+    const p = reviewedM1();
+    const re = approve(
+      update(
+        p,
+        {
+          ...planUpdate,
+          milestones: [{ id: "m1", title: "Physics", kind: "logic" }, planUpdate.milestones[1]!],
+          rows: [row("t9", "m1", { title: "Write the physics" }), row("t2", "m2")],
+        } as ProjectUpdate,
+        NOW + 5,
+      ),
+      NOW + 6,
+    );
+    const m1 = re.milestones[0]!;
+    expect(m1).toMatchObject({ id: "m1", title: "Physics", kind: "logic", state: "approved", runIds: [] });
+    for (const field of ["summary", "attachments", "criteriaFacts", "corrections"] as const) expect(m1[field]).toBeUndefined();
+    expect(m1.history).toEqual([
+      {
+        title: "Base",
+        kind: "base",
+        state: "reviewed",
+        tasks: [{ taskId: "t1", title: "Task t1" }],
+        runIds: ["run-1"],
+        summary: "Base works",
+        corrections: [{ note: "tidy", at: NOW }],
+        attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }],
+        criteriaFacts: [{ id: "c1", state: "passed" }],
+        supersededAt: NOW + 5,
+      },
+    ]);
+    // Attachments of the old runs cannot ride on a new report.
+    expect(
+      validateMilestoneAttachments({
+        stateDir: "/state",
+        milestone: m1,
+        attachments: [{ path: "/state/fusion-runs/run-1/shots/a.png", caption: "Board" }],
+        criterionIds: new Set(["c1"]),
+      }).ok,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["the kind", { milestones: [{ id: "m1", title: "Base", kind: "logic" }, planUpdate.milestones[1]!], rows: [row("t1", "m1"), row("t2", "m2")] }],
+    ["the task ids", { milestones: planUpdate.milestones, rows: [row("t7", "m1", { title: "Task t1" }), row("t2", "m2")] }],
+    ["a task's title", { milestones: planUpdate.milestones, rows: [row("t1", "m1", { title: "Something else" }), row("t2", "m2")] }],
+    ["an added task", { milestones: planUpdate.milestones, rows: [row("t1", "m1"), row("t3", "m1"), row("t2", "m2")] }],
+    ["a task moved away", { milestones: planUpdate.milestones, rows: [row("t1", "m2"), row("t2", "m2")] }],
+  ])("changing %s is material", (_label, change) => {
+    const re = update(reviewedM1(), { ...planUpdate, ...change } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[0]!.summary).toBeUndefined();
+    expect(re.milestones[0]!.history).toHaveLength(1);
+  });
+
+  it("an editorial change (milestone title, whitespace or case of a task title, worker, order) keeps the verdict", () => {
+    const re = update(reviewedM1(), {
+      ...planUpdate,
+      milestones: [planUpdate.milestones[1]!, { id: "m1", title: "Base layer, renamed", kind: "base" }],
+      rows: [row("t2", "m2"), row("t1", "m1", { title: "  task   T1 ", worker: "cloud:other" })],
+    } as ProjectUpdate);
+    const m1 = re.milestones.find((m) => m.id === "m1")!;
+    expect(m1).toMatchObject({ title: "Base layer, renamed", state: "reviewed", runIds: ["run-1"], summary: "Base works", criteriaFacts: [{ id: "c1", state: "passed" }] });
+    expect(m1.attachments).toHaveLength(1);
+    expect(m1.history).toBeUndefined();
+  });
+
+  it("an approved milestone with runs of a failed try drops them when its work changes", () => {
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = approve(update(p, { kind: "milestone", id: "m1", state: "failed", summary: "broken" }));
+    expect(p.milestones[0]).toMatchObject({ state: "approved", runIds: ["run-1"] });
+    const re = update(p, { ...planUpdate, rows: [row("t5", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    expect(re.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(re.milestones[0]!.summary).toBeUndefined();
+    expect(re.milestones[0]!.history?.[0]).toMatchObject({ state: "approved", runIds: ["run-1"], summary: "broken" });
+  });
+
+  it("history reads back from a stored session; older stores without it still read", () => {
+    const re = update(reviewedM1(), { ...planUpdate, rows: [row("t5", "m1"), row("t2", "m2")] } as ProjectUpdate);
+    const back = normalizeProject(JSON.parse(JSON.stringify(re)));
+    expect(back!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
+    const malformed = JSON.parse(JSON.stringify(re));
+    malformed.milestones[0].history.push({ title: 3 }, "x");
+    expect(normalizeProject(malformed)!.milestones[0]!.history).toEqual(re.milestones[0]!.history);
+    const old = JSON.parse(JSON.stringify(reviewedM1()));
+    expect(normalizeProject(old)!.milestones[0]!.history).toBeUndefined();
+  });
+});

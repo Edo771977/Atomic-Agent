@@ -99,6 +99,8 @@ export interface ProjectGateRow extends AssignmentRow {
  * renders the image only through its own safe file read) and
  * `criteriaFacts` (per success criterion id: passed, failed or
  * unverified, with a one-line why). Both are optional and additive.
+ * From issue #77 it may carry `history`, the evidence of earlier work a
+ * re-plan replaced (optional, additive; not the current result).
  */
 export interface ProjectGateMilestone extends ProjectMilestone {
   /** The milestone's estimate (`estimatePlan`); null when unknown. */
