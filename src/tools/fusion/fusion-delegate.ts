@@ -1,3 +1,4 @@
+import { checkDidNotRun } from "./check-ran.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import {
   reviewEnabled,
@@ -1868,6 +1869,8 @@ export function buildFusionDelegateTool(
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
         judgeTargetFor(r.id) !== null &&
+        // A verify-only regression is the director's to see, not a review pass's to redo (issue #100).
+        r.failure !== "regressed-verified" &&
         (r.status === "ok" ||
           r.status === "no_changes" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
@@ -3116,7 +3119,16 @@ export function buildFusionDelegateTool(
               const decision = r.judge?.review?.decision;
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
                 const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
-                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }) }];
+                // A needs-changes keeps its concrete blockers for a targeted
+                // fix (issue #100): a blocker naming a file or an item, not a
+                // fact whose check never ran (a missing binary is no finding).
+                const issues = decision === "needs-changes"
+                  ? (r.review?.issues ?? r.judge?.review?.issues ?? [])
+                      .filter((i) => i.severity === "blocker" && (i.file !== null || i.item !== null))
+                      .filter((i) => i.by !== "fact" || !checkDidNotRun(i.why))
+                      .map((i) => ({ severity: "blocker" as const, text: `${i.file === null ? "" : `${i.file}: `}${i.why}` }))
+                  : [];
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }) }];
               }
               const reason =
                 r.judge === undefined

@@ -294,6 +294,16 @@ describe("fusion report", () => {
     expect(old).toMatch(/small \(local-llama\)\s+local\s+1\s.*\s-\s+-\s/);
   });
 
+  it("leaves a verdict the facts decided out of the reviewer table (issue #100 review)", () => {
+    const records = [
+      task({ review: { decision: "accept", passes: 0, reviewer: "rev-a", blockers: 0, majors: 0, minors: 0 } }),
+      task({ review: { decision: "needs-changes", passes: 0, reviewer: "rev-a", reviewerSource: "facts", blockers: 1, majors: 0, minors: 0 } }),
+    ];
+    expect(aggregateOutcomes(records).reviewers).toEqual([
+      { reviewer: "rev-a", reviews: 1, accept: 1, needsChanges: 0, unverified: 0, medianPasses: 0, blockers: 0, majors: 0, minors: 0 },
+    ]);
+  });
+
   it("reports watch hints and stops per model; old records show - (issue #43)", () => {
     const watch = (hints: number, stopped: boolean) => ({ checks: 3, judgeCalls: 1, hints, stopped, judge: "rev-a" });
     const report = aggregateOutcomes([

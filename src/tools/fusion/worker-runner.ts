@@ -98,6 +98,7 @@ import {
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
 import { AttemptFilesTracker } from "./attempt-evidence.js";
+import { guardVerifiedVersion, verifiedSnapshot, WorkerWriteHashes } from "./verified-version.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
 import { estimatedOutputTokens } from "./worker-fit.js";
 
@@ -1932,6 +1933,11 @@ async function runOneTask(
       ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
     });
   };
+  // A verify-only task (issue #100): its declared files, when the task's
+  // own checks pass on them now, are the verified version to keep.
+  const verified = await verifiedSnapshot(task, options.contract, workingDir, deps.runChecks, options.signal);
+  // What the worker's own writes left in each file: only those bytes may be replaced.
+  const workerWrites = new WorkerWriteHashes(workingDir);
   let result: WorkerTaskResult;
   try {
     const workerTurnOptions = (
@@ -2010,6 +2016,7 @@ async function runOneTask(
           filesWritten.observeParsed(event.event.call, event.event.batchIndex);
           repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
           attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
+          workerWrites.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
           } catch {
@@ -2071,6 +2078,7 @@ async function runOneTask(
           }
           // The write trackers first: an identical rewrite does not make an earlier check stale.
           const identical = noteWriteOutcome(result, event.event.batchIndex);
+          workerWrites.observeExecuted(result, event.event.batchIndex);
           checkRuns.executed(
             result.tool,
             result.status,
@@ -2665,6 +2673,26 @@ async function runOneTask(
       hint: result.hint ?? cut.hint,
       notes: [cut.note, ...(result.notes ?? [])],
     };
+  }
+
+  // A verify-only task's changed files are checked again against its own
+  // checks; the verified version is put back when the new one fails.
+  if (verified !== undefined) {
+    const regressed = await guardVerifiedVersion({
+      verified,
+      task,
+      contract: options.contract,
+      workingDir,
+      writeScope: isolated?.writeScope ?? options.writeScope ?? [],
+      isolated: isolated !== undefined,
+      runChecks: deps.runChecks,
+      signal: options.signal,
+      writes: workerWrites,
+    });
+    // A regression is never `ok`, restored or not (issue #100).
+    if (regressed !== undefined) {
+      result = { ...result, status: "failed", failure: "regressed-verified", error: regressed, notes: [...(result.notes ?? []), regressed] };
+    }
   }
 
   // Ground truth before the orchestrator reads the reply: a worker that

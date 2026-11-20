@@ -114,6 +114,8 @@ describe("default tool argsJsonSchema map", () => {
         "outputLines",
         "profile",
         "watchMinutes",
+        // Issue #100: a verify-only task.
+        "verifyOnly",
       ].sort(),
     );
     // A plain number: `readEtaSeconds` rounds and ignores a bad estimate,

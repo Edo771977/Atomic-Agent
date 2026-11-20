@@ -643,7 +643,10 @@ export async function judgeTask(input: {
   planReviewerRef?: string | null;
   defaultModelOf?: DefaultModelOf;
 }): Promise<JudgeVerdict> {
-  const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
+  // A model named only by the `default` alias says nothing alone: the
+  // label names the provider with it (issue #100).
+  const asked = input.target.pinModel ?? input.target.model ?? input.target.providerId;
+  const reviewer = outcomeLabel(asked === "default" || asked.length === 0 ? `${input.target.providerId}:default` : asked);
   const factVerdicts: ItemVerdict[] = [];
   for (const item of input.items) {
     if (item.kind === "criterion") continue;
@@ -695,6 +698,8 @@ export async function judgeTask(input: {
         decision: green ? "accept" : "needs-changes",
         issues: factIssues(input.items, factVerdicts),
         reviewer: null,
+        // Decided by the facts, no reviewer asked: the configured reviewer is still named (issue #100).
+        reviewerIdentity: { ...reviewerIdentity(input.target.providerId, undefined, input.planReviewerRef, input.defaultModelOf), source: "facts" },
       },
     });
   }

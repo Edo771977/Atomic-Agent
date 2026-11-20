@@ -41,6 +41,8 @@ export interface ReviewerIdentity {
   provider: string;
   model?: string;
   planRef?: string;
+  /** `facts`: the verdict came from the task's scripted facts, the reviewer was not asked (issue #100). */
+  source?: "facts";
 }
 
 export function reviewerIdentity(

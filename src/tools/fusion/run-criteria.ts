@@ -50,8 +50,20 @@ export interface RunTaskReview {
    * under another task id).
    */
   criteria?: string[];
+  /**
+   * A needs-changes' concrete blockers (issue #100): blocker issues that
+   * name a file or an item, each with its severity and one line of text —
+   * what a targeted fix must address. A fact whose check never ran is none.
+   */
+  issues?: RunReviewIssue[];
   /** Who gave the verdict (issue #98): provider, effective model when reported, the plan's ref when it differs. */
-  reviewer?: { provider: string; model?: string; planRef?: string };
+  reviewer?: { provider: string; model?: string; planRef?: string; source?: "facts" };
+}
+
+/** One concrete blocker of a needs-changes, as the run file keeps it. */
+export interface RunReviewIssue {
+  severity: "blocker";
+  text: string;
 }
 
 /** A stored fact: the criterion text its checks tested, when the run knew it. */
@@ -93,6 +105,7 @@ export function writeRunCriteriaFacts(
     ...(r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) }),
     ...(r.criteria === undefined || r.criteria.length === 0 ? {} : { criteria: r.criteria.slice(0, 32) }),
     ...(r.reviewer === undefined ? {} : { reviewer: r.reviewer }),
+    ...(r.issues === undefined || r.issues.length === 0 ? {} : { issues: r.issues.slice(0, 5).map((i) => ({ severity: i.severity, text: i.text.slice(0, 200) })) }),
   }));
   const ran = meta === undefined ? undefined : [...new Set(meta.ran)].slice(0, MAX_TASKS);
   if (kept.length === 0 && keptReviews.length === 0 && (ran === undefined || ran.length === 0)) return;
@@ -122,6 +135,24 @@ interface StoredRun {
   judging?: boolean;
 }
 
+/** A stored review's reviewer, `source: "facts"` kept (issue #100 review); a malformed one is dropped. */
+function readReviewer(raw: unknown): RunTaskReview["reviewer"] {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { provider, model, planRef, source } = raw as Record<string, unknown>;
+  if (typeof provider !== "string" || provider.length === 0) return undefined;
+  return {
+    provider: provider.slice(0, 200),
+    ...(typeof model === "string" ? { model: model.slice(0, 200) } : {}),
+    ...(typeof planRef === "string" ? { planRef: planRef.slice(0, 200) } : {}),
+    ...(source === "facts" ? { source: "facts" as const } : {}),
+  };
+}
+
+/** One run's stored tasks, reviews and meta as the milestone reads them; for seam tests. */
+export function readRunCriteria(runsDir: string, runId: string): StoredRun {
+  return readRunTasks(runsDir, runId);
+}
+
 function readRunTasks(runsDir: string, runId: string): StoredRun {
   const none: StoredRun = { tasks: [], reviews: [] };
   if (!FusionRunStore.isValidRunId(runId)) return none;
@@ -140,10 +171,25 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
   const reviews: RunTaskReview[] = [];
   for (const r of Array.isArray(rawReviews) ? rawReviews.slice(0, MAX_TASKS) : []) {
     if (typeof r !== "object" || r === null) continue;
-    const { taskId, verdict, reason, criteria } = r as Record<string, unknown>;
+    const { taskId, verdict, reason, criteria, issues: rawIssues, reviewer: rawReviewer } = r as Record<string, unknown>;
+    const reviewer = readReviewer(rawReviewer);
+    // Only stored blockers count: an older file's bare lines carry no severity.
+    const issues = Array.isArray(rawIssues)
+      ? rawIssues
+          .filter((i): i is RunReviewIssue => typeof i === "object" && i !== null && (i as RunReviewIssue).severity === "blocker" && typeof (i as RunReviewIssue).text === "string")
+          .slice(0, 5)
+          .map((i) => ({ severity: "blocker" as const, text: i.text.slice(0, 200) }))
+      : [];
     if (typeof taskId !== "string" || (verdict !== "accept" && verdict !== "needs-changes" && verdict !== "none")) continue;
     const ids = Array.isArray(criteria) ? criteria.flatMap((id) => { const clean = normalizeCriterionId(id); return clean === null ? [] : [clean]; }) : [];
-    reviews.push({ taskId, verdict, ...(typeof reason === "string" ? { reason: reason.slice(0, 300) } : {}), ...(ids.length === 0 ? {} : { criteria: ids }) });
+    reviews.push({
+      taskId,
+      verdict,
+      ...(typeof reason === "string" ? { reason: reason.slice(0, 300) } : {}),
+      ...(ids.length === 0 ? {} : { criteria: ids }),
+      ...(issues.length === 0 ? {} : { issues }),
+      ...(reviewer === undefined ? {} : { reviewer }),
+    });
   }
   const rawRan = (raw as { ran?: unknown }).ran;
   const ran = Array.isArray(rawRan) ? rawRan.filter((id): id is string => typeof id === "string").slice(0, MAX_TASKS) : undefined;
@@ -196,6 +242,13 @@ export interface MilestoneEvidence {
    * any review (no reviewer was configured).
    */
   reviewBlocks?: Array<{ taskId: string; reason: string }>;
+  /**
+   * Issue #100: the required tasks whose newest review is a needs-changes
+   * with concrete (blocking) issues, and the correction rounds already
+   * used: every run after the first one in which a required task got
+   * needs-changes, whatever its task ids. Absent when no such task.
+   */
+  correction?: { roundsUsed: number; blocked: Array<{ taskId: string; issues: string[] }> };
 }
 
 /**
@@ -246,8 +299,13 @@ export function readMilestoneEvidence(input: {
   const coveredAt = new Map<string, number>();
   // Per task, its newest run: that run's review of it (if any) and whether review was on.
   const latestRun = new Map<string, { review: RunTaskReview | undefined; judging: boolean }>();
+  const required = new Set(input.requiredTasks ?? []);
+  // The first run in which a required task got needs-changes: every run
+  // after it is a correction round, whatever its task ids (issue #100).
+  let firstNeedsChanges: number | undefined;
   for (const [at, runId] of input.runIds.entries()) {
     const run = readRunTasks(input.runsDir, runId);
+    if (firstNeedsChanges === undefined && run.reviews.some((r) => r.verdict === "needs-changes" && required.has(r.taskId))) firstNeedsChanges = at;
     for (const review of run.reviews) reviewOf.set(review.taskId, { review, at });
     const ranHere = run.ran ?? [...run.reviews.map((r) => r.taskId), ...run.tasks.map((t) => t.taskId)];
     for (const taskId of new Set(ranHere)) {
@@ -337,11 +395,18 @@ export function readMilestoneEvidence(input: {
             : `no verdict: ${review.reason ?? "no verdict recorded"}`;
     return [{ taskId, reason }];
   });
+  const blocked = (input.requiredTasks ?? []).flatMap((taskId) => {
+    const review = latestRun.get(taskId)?.review;
+    return review?.verdict === "needs-changes" && (review.issues ?? []).length > 0 ? [{ taskId, issues: review.issues!.map((i) => i.text) }] : [];
+  });
   return {
     facts,
     attachments,
     uncovered,
     ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
     ...(reviewBlocks.length === 0 ? {} : { reviewBlocks }),
+    ...(blocked.length === 0 || firstNeedsChanges === undefined
+      ? {}
+      : { correction: { roundsUsed: input.runIds.length - 1 - firstNeedsChanges, blocked } }),
   };
 }
