@@ -2465,6 +2465,10 @@ export function buildFusionDelegateTool(
                   leg: legKind,
                   role: leg?.orchestrator === true ? "orchestrator" : (leg?.role ?? null),
                   taskRole: parsed.tasks.find((task) => task.id === r.id)?.role ?? null,
+                  ...(() => {
+                    const milestoneId = ctx.project?.plan?.rows.find((planRow) => planRow.taskId === r.id)?.milestoneId;
+                    return milestoneId === undefined ? {} : { milestoneId };
+                  })(),
                   ...(executionIdentities.get(r.id) !== undefined && executionIdentities.get(r.id) === deps.resolveRoutingIdentity?.(providerId)
                     ? { routingIdentity: executionIdentities.get(r.id) } : {}),
                   attempt: turnBudget.attempts(ctx.sessionId, r.id),

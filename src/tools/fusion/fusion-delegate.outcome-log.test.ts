@@ -127,7 +127,9 @@ describe("fusion.delegate → outcome log", () => {
       selfCheckPassed: false,
     });
     const text = JSON.stringify(written);
-    for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent", "t1", "t2"]) {
+    // The task id is written (issue #95: a report joins outcomes to plan rows); nothing it was told or said.
+    expect(tasks.map((t) => t.taskId)).toEqual(["t1", "t2"]);
+    for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent"]) {
       expect(text).not.toContain(leak);
     }
     // The turn's tally saw the same fan-out.

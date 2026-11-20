@@ -33,7 +33,9 @@ describe("candidate outcome telemetry", () => {
     expect(text).toContain("Candidate task runs (telemetry only)");
     expect(text).toContain("telemetry only");
     const serialized = JSON.stringify(candidate);
-    for (const secret of ["private-task", "private-title", "secret-reply", "command", "stdout"]) expect(serialized).not.toContain(secret);
+    // The task id is the record's join key since issue #95 (`taskId`); nothing else of the task is.
+    expect(JSON.parse(serialized).taskId).toBe("private-task");
+    for (const secret of ["private-title", "secret-reply", "command", "stdout"]) expect(serialized).not.toContain(secret);
   });
   it("does not turn call-level green into a task check and counts rejection reasons", () => {
     const rejected = withCandidateOutcome(record(), { ...receipt, disposition: "rejected", reason: "original-changed" }, [{ ok: true }], "private-task");

@@ -130,6 +130,14 @@ export interface TaskOutcomeRecord {
   ts: string;
   /** `sessionTag` of the orchestrator's session. */
   session: string;
+  /**
+   * The task's id in the fan-out (issue #95), the key a report joins to
+   * the plan's rows; written only when it is a short identifier
+   * (`OUTCOME_ID_PATTERN`). Absent on older records.
+   */
+  taskId?: string;
+  /** The project plan milestone the task's plan row belongs to, when the plan has one (issue #95). */
+  milestoneId?: string;
   provider: string;
   model: string;
   leg: OutcomeLeg;
@@ -303,6 +311,8 @@ export interface TaskOutcomeContext {
   role: string | null;
   taskRole?: string | null;
   routingIdentity?: string;
+  /** The task's plan milestone (the approved project plan's row), when known (issue #95). */
+  milestoneId?: string;
   attempt: number;
   pricing: WorkerPricing | undefined;
   merge: MergeOutcome | null;
@@ -471,7 +481,12 @@ export function rowCostUsd(
   return taskSpendUsd(row, pricing);
 }
 
-/** One task's line. Reads only counts and fixed categories off the row. */
+/** An id the log may carry: a short identifier, nothing that reads as text or a path. */
+export const OUTCOME_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/;
+const safeId = (id: string | undefined): string | undefined =>
+  id !== undefined && OUTCOME_ID_PATTERN.test(id) && !id.split("/").includes("..") ? id : undefined;
+
+/** One task's line. Reads only counts, fixed categories and the task's identifiers off the row. */
 export function taskOutcomeRecord(
   row: WorkerTaskResult,
   context: TaskOutcomeContext,
@@ -486,6 +501,8 @@ export function taskOutcomeRecord(
     type: "task",
     ts: now.toISOString(),
     session: sessionTag(sessionId),
+    ...(safeId(row.id) === undefined ? {} : { taskId: row.id }),
+    ...(safeId(context.milestoneId) === undefined ? {} : { milestoneId: context.milestoneId! }),
     provider: outcomeLabel(context.provider),
     model: outcomeLabel(context.model),
     leg: context.leg,
