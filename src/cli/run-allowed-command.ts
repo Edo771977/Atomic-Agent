@@ -31,10 +31,17 @@ export interface AllowedCommand {
 /** Characters a shell (or cmd.exe for a `.cmd` shim) reads specially. */
 const SHELL_SYNTAX_RE = /[|&;<>()$`"'*?[\]{}~#!^%\r\n]/;
 
+/** Printable ASCII only: a match never depends on Unicode case folding or look-alikes. */
+const PRINTABLE_ASCII_RE = /^[\x21-\x7e]+$/;
+
 export function parseAllowedCommand(value: string): AllowedCommand | { error: string } {
-  const argv = value.trim().split(/\s+/).filter((word) => word.length > 0);
+  // Spaces and printable ASCII only: a no-break space is not a separator here.
+  if (!/^[\x20-\x7e]*$/.test(value)) {
+    return { error: `--allow-command takes printable ASCII words separated by spaces: ${value}` };
+  }
+  const argv = value.trim().split(/ +/).filter((word) => word.length > 0);
   if (argv.length === 0) return { error: "--allow-command needs a command" };
-  if (argv.some((word) => SHELL_SYNTAX_RE.test(word))) {
+  if (argv.some((word) => SHELL_SYNTAX_RE.test(word) || !PRINTABLE_ASCII_RE.test(word))) {
     return {
       error: `--allow-command takes one plain command, words separated by spaces (no quotes, globs, ;, &, |, redirects or other shell syntax): ${value}`,
     };
@@ -100,12 +107,18 @@ export function pinAllowedCommand(
   return { file: program.file, argv: [...argv], cwd };
 }
 
+/** Lowercase A-Z only (no Unicode folding: U+212A KELVIN SIGN is not `k`). */
+function asciiLower(word: string): string {
+  return word.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
 function sameWords(allowed: readonly string[], words: readonly string[], platform: NodeJS.Platform): boolean {
   if (allowed.length !== words.length || allowed.length === 0) return false;
+  if (!words.every((word) => PRINTABLE_ASCII_RE.test(word))) return false;
   const first = words[0]!;
   const wanted = allowed[0]!;
   if (!/[\\/]/.test(wanted) && /[\\/]/.test(first)) return false;
-  const sameFirst = platform === "win32" ? wanted.toLowerCase() === first.toLowerCase() : wanted === first;
+  const sameFirst = platform === "win32" ? asciiLower(wanted) === asciiLower(first) : wanted === first;
   return sameFirst && allowed.every((token, i) => i === 0 || token === words[i]);
 }
 

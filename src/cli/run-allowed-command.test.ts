@@ -56,6 +56,15 @@ describe("allowedCommandMatches", () => {
     expect(allowedCommandMatches(shell({ commandArgv: ["node", "--TEST", "sales.test.cjs"] }), allowed, root, "win32")).toBe(false);
   });
 
+  it("folds ASCII letters only, and matches nothing outside printable ASCII", () => {
+    const kube = [parseAllowedCommand("kubectl get") as { argv: string[] }];
+    // U+212A KELVIN SIGN lowercases to "k" under Unicode folding.
+    expect(allowedCommandMatches(shell({ commandArgv: ["\u212Aubectl", "get"], commandSegments: [["\u212Aubectl", "get"]] }), kube, root, "win32")).toBe(false);
+    expect(allowedCommandMatches(shell({ commandArgv: ["KUBECTL", "get"] }), kube, root, "win32")).toBe(true);
+    expect(parseAllowedCommand("node t\u00e9st.cjs")).toHaveProperty("error");
+    expect(parseAllowedCommand("node\u00a0--test")).toHaveProperty("error");
+  });
+
   it("does not match another command, more or fewer words, a shell line, or a call that writes a file", () => {
     expect(allowedCommandMatches(shell({ commandArgv: ["node", "--test", "other.test.cjs"] }), allowed, root)).toBe(false);
     expect(allowedCommandMatches(shell({ commandArgv: ["node", "--test", "sales.test.cjs", "--watch"] }), allowed, root)).toBe(false);
