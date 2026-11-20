@@ -93,7 +93,7 @@ export interface ProjectToolDeps {
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
     /** The approved brief's criteria and approval time: run facts count only for the text they tested (issue #87). */
-    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number },
+    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number; requiredTasks?: readonly string[] },
   ) => MilestoneEvidence;
 }
 
@@ -459,12 +459,32 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       // and their screenshots when the report names none: the runtime's,
       // never the model's (its arguments cannot carry facts).
       const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
+      // The required tasks: the approved plan's rows for this milestone
+      // that name a reviewer (issue #98); a "no review" row records no
+      // verdict and never blocks.
+      const requiredTasks = (ctx.project?.plan?.rows ?? [])
+        .filter((r) => r.milestoneId === report.id && r.reviewer !== null)
+        .map((r) => r.taskId);
+      if (report.state === "failed" && milestone !== undefined && deps.milestoneEvidence !== undefined && requiredTasks.length > 0) {
+        // A failed result keeps its open reviews for the person's gate (issue #98).
+        const approvals = ctx.project?.briefApprovals;
+        const blocks = deps.milestoneEvidence(milestone, (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id), {
+          criteria: ctx.project?.brief?.successCriteria ?? [],
+          ...(approvals === undefined ? {} : { briefApprovals: approvals }),
+          requiredTasks,
+        }).reviewBlocks ?? [];
+        if (blocks.length > 0) {
+          report = { ...report, reviewBlocks: blocks };
+          lines.push(`Review open: ${blocks.map((b) => `${b.taskId} (${b.reason})`).join("; ")}.`);
+        }
+      }
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
         const approvals = ctx.project?.briefApprovals;
         const evidence = deps.milestoneEvidence(milestone, order, {
           criteria: ctx.project?.brief?.successCriteria ?? [],
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
+          ...(requiredTasks.length === 0 ? {} : { requiredTasks }),
         });
         // A milestone closes only when its tests AND criteria pass: the
         // person never sees "done" over a red or unverified criterion.
@@ -477,6 +497,16 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
           lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
+        }
+        if ((evidence.reviewBlocks ?? []).length > 0) {
+          // Issue #98: refused like a red criterion, so the milestone stays
+          // in progress and the director can still act on it.
+          const blocks = evidence.reviewBlocks!;
+          return refuse(PROJECT_MILESTONE_TOOL, [
+            `milestone ${report.id} cannot be reported done while a required task has no current accept from its reviewer: ${blocks
+              .map((b) => `${b.taskId} (${b.reason}): re-delegate it with its plan task id ${b.taskId}`)
+              .join("; ")}. A re-review of unchanged files is allowed when only the evidence changed (the worker may change nothing); a fix under another task id does not count. If the reviewer cannot run, report "failed" with the reason`,
+          ]);
         }
         if ((evidence.noReviewVerdict ?? []).length > 0) {
           // A task that ended with no review verdict (issue #95): the person sees it at the gate.

@@ -40,6 +40,10 @@ export const criticalFiles = [
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
   // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
   'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
+  // Issue #98: milestone review gate, stall recovery, member identity.
+  'src/tools/fusion/milestone-review-gate.test.ts',
+  'src/tools/fusion/stall-recovery.test.ts',
+  'src/tools/fusion/member-identity.test.ts',
   // Issue #95: stalled workers stopped on repeated identical writes, reviewer evidence per attempt.
   'src/tools/fusion/worker-repeated-writes.test.ts',
   'src/tools/fusion/attempt-evidence.test.ts',
@@ -133,6 +137,14 @@ export const supplementalFiles = [
   'src/config/project-constraint-match.test.ts',
   'src/runtime/session-provider-policy.test.ts',
   'src/llm/fallback/provider-policy-fallback.test.ts',
+  // Issue #98: --allow-command, its pinned exec and the unavailable
+  // approval (issues #95/#96), with link cases skipped where links cannot
+  // be made and POSIX-only cases (#!, executable bit) skipped on Windows.
+  'src/cli/run-agent-approval.test.ts',
+  'src/cli/run-allowed-command.test.ts',
+  'src/cli/run-allowed-executable.test.ts',
+  'src/tools/os/shell/shell-pinned-exec.test.ts',
+  'src/approval/unavailable-in-turn.test.ts',
 ];
 /**
  * Test files in coreDirectories deliberately outside the Windows gate: not yet

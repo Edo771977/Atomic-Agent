@@ -41,6 +41,9 @@ export const SELF_CHECK_GRACE_STEPS = 4;
  * with less of its budget left ends as it always did.
  */
 export const SELF_CHECK_MIN_GRACE_STEPS = 2;
+
+/** Passes in a row of the same check on unchanged files after which the runner stops the worker as done (issue #98). */
+export const GREEN_CHECK_REPEAT_LIMIT = 3;
 /** The longest the in-worker run of a task's own checks may take. */
 export const SELF_CHECK_MAX_MS = 120_000;
 /** Less of the worker's clock than this left, and nothing is checked. */
@@ -158,6 +161,8 @@ export class WorkerCheckRuns {
   private lastChangeStep = -1;
   /** The worker's most recent `verify.run`, whatever its spec. */
   private lastRun: { key: string; ok: boolean; step: number } | undefined;
+  /** Passes in a row of the same spec with no change between them (issue #98). */
+  private greenRuns = 0;
   private readonly parsed = new Map<number, Record<string, unknown>>();
 
   constructor(private readonly readOnlyTools: ReadonlySet<string>) {}
@@ -177,6 +182,9 @@ export class WorkerCheckRuns {
       this.parsed.delete(batchIndex);
       const key = args === undefined ? undefined : checkSpecKey(args);
       if (key === undefined) return;
+      const prev = this.lastRun;
+      const again = prev !== undefined && prev.key === key && prev.ok && prev.step > this.lastChangeStep;
+      this.greenRuns = status !== "ok" ? 0 : again ? this.greenRuns + 1 : 1;
       this.lastRun = { key, ok: status === "ok", step };
       if (status === "ok") this.passedAt.set(key, step);
       else this.passedAt.delete(key);
@@ -206,6 +214,16 @@ export class WorkerCheckRuns {
   lastRunOutcome(): { spec: string; ok: boolean; sinceLastChange: boolean } | undefined {
     const last = this.lastRun;
     return last === undefined ? undefined : { spec: last.key, ok: last.ok, sinceLastChange: last.step > this.lastChangeStep };
+  }
+
+  /**
+   * The same check passed this many times in a row with nothing changed
+   * between the runs (issue #98): the files it checks are passed and
+   * current, and running it again tells nobody anything.
+   */
+  greenRunsInARow(): { spec: string; runs: number } | undefined {
+    const last = this.lastRun;
+    return last === undefined || !last.ok || this.greenRuns === 0 ? undefined : { spec: last.key, runs: this.greenRuns };
   }
 
   /** Whether `check` passed after the worker's last change. */

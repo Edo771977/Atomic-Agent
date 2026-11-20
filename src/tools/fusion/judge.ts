@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { reviewerIdentity, type DefaultModelOf, type ReviewerIdentity } from "./member-identity.js";
 import { isAbsolute, resolve } from "node:path";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
 import type { DelegateTask } from "./delegate-args.js";
@@ -92,6 +93,8 @@ export interface ReviewVerdict {
   issues: ReviewIssue[];
   /** `outcomeLabel` of the reviewer model that was asked; null when no model was. */
   reviewer: string | null;
+  /** The reviewer's provider, effective model and differing plan ref (issue #98); absent when no reviewer answered. */
+  reviewerIdentity?: ReviewerIdentity;
 }
 
 /** Schema bounds of a reviewer's answer. */
@@ -636,6 +639,9 @@ export async function judgeTask(input: {
   successCriteria?: readonly string[];
   /** The task's attempts and the version under review (issue #95). */
   attemptEvidence?: string;
+  /** The approved plan row's reviewer ref, recorded when it names a different member (issue #98). */
+  planReviewerRef?: string | null;
+  defaultModelOf?: DefaultModelOf;
 }): Promise<JudgeVerdict> {
   const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
   const factVerdicts: ItemVerdict[] = [];
@@ -702,6 +708,7 @@ export async function judgeTask(input: {
   );
   let content: string;
   let costUsd: number | null = null;
+  let identity: ReviewerIdentity | undefined;
   try {
     const answer = await input.complete({
       providerId: input.target.providerId,
@@ -718,6 +725,7 @@ export async function judgeTask(input: {
       signal: input.signal,
     });
     content = answer.content;
+    identity = reviewerIdentity(input.target.providerId, answer.model, input.planReviewerRef, input.defaultModelOf);
     if (answer.usage !== undefined) {
       costUsd = completionCostUsd(answer.usage, input.pricing) ?? null;
     }
@@ -737,7 +745,7 @@ export async function judgeTask(input: {
       items: factVerdicts,
       unverified: `the judge's answer could not be read (${ruled.error})`,
       costUsd,
-      review: { decision: "unverified", issues: [], reviewer },
+      review: { decision: "unverified", issues: [], reviewer, ...(identity === undefined ? {} : { reviewerIdentity: identity }) },
     });
   }
   const issues: ReviewIssue[] = ruled.issues.map((issue) => ({ ...issue, by: "reviewer" }));
@@ -773,7 +781,7 @@ export async function judgeTask(input: {
     green,
     items: all,
     costUsd,
-    review: { decision: green ? "accept" : "needs-changes", issues, reviewer },
+    review: { decision: green ? "accept" : "needs-changes", issues, reviewer, ...(identity === undefined ? {} : { reviewerIdentity: identity }) },
   });
 }
 

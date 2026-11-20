@@ -1,10 +1,30 @@
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 import { allowedCommandMatches, parseAllowedCommand, pinAllowedCommand } from "./run-allowed-command.js";
+
+/**
+ * Whether this machine lets the test create a link of `kind` (issue #98):
+ * Windows needs a privilege (or Developer Mode) for a file symlink; a
+ * directory junction needs none. Detected, not assumed per platform.
+ */
+function canLink(kind: "file" | "junction"): boolean {
+  const dir = mkdtempSync(join(tmpdir(), "aa-can-link-"));
+  try {
+    const target = join(dir, "target");
+    if (kind === "file") writeFileSync(target, "");
+    else mkdirSync(target);
+    symlinkSync(target, join(dir, "link"), kind);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /** Issue #95: `run --allow-command "<exact command>"`. */
 describe("parseAllowedCommand", () => {
@@ -81,10 +101,11 @@ describe("allowedCommandMatches", () => {
     expect(allowedCommandMatches(shell({ affectedResources: [] }), allowed, root)).toBe(false);
   });
 
-  it("compares real paths: a link out of the folder does not match, and a folder that cannot be resolved fails closed", () => {
+  it.skipIf(!canLink("junction"))("compares real paths: a link out of the folder does not match, and a folder that cannot be resolved fails closed", () => {
     const real = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-real-")));
     const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-out-")));
-    symlinkSync(outside, join(real, "link"), "dir");
+    // A junction on Windows (no privilege needed); a plain symlink elsewhere.
+    symlinkSync(outside, join(real, "link"), "junction");
     expect(allowedCommandMatches(shell({ affectedResources: [real] }), allowed, real)).toBe(true);
     expect(allowedCommandMatches(shell({ affectedResources: [join(real, "link")] }), allowed, real)).toBe(false);
     expect(allowedCommandMatches(shell({ affectedResources: [join(real, "missing")] }), allowed, real)).toBe(false);
@@ -137,13 +158,19 @@ describe("pinAllowedCommand (issue #95, third review)", () => {
     const root = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pin-root-")));
     const programs = join(realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pin-progs-"))), "Program Files (x86) {x}");
     mkdirSync(programs, { recursive: true });
-    writeFileSync(join(programs, "tool"), "#!/bin/sh\nexit 0\n");
-    chmodSync(join(programs, "tool"), 0o755);
+    // A real program on each platform: a copy of node.exe on Windows (found
+    // through PATHEXT), an executable script elsewhere.
+    const program = process.platform === "win32" ? join(programs, "tool.exe") : join(programs, "tool");
+    if (process.platform === "win32") copyFileSync(process.execPath, program);
+    else {
+      writeFileSync(program, "#!/bin/sh\nexit 0\n");
+      chmodSync(program, 0o755);
+    }
     const request: ApprovalRequest = {
       approvalId: "a", sessionId: "s", tool: "os.shell.run", category: "shell", reason: "r",
       literalExec: true, commandArgv: ["tool", "--check"], commandSegments: [["tool", "--check"]], affectedResources: [root],
     };
     const allowed = [parseAllowedCommand("tool --check") as { argv: string[] }];
-    expect(pinAllowedCommand(request, allowed, root, { PATH: programs }, "linux")).toMatchObject({ file: join(programs, "tool"), argv: ["tool", "--check"], cwd: root });
+    expect(pinAllowedCommand(request, allowed, root, { PATH: programs, PATHEXT: ".COM;.EXE" })).toMatchObject({ file: program, argv: ["tool", "--check"], cwd: root });
   });
 });

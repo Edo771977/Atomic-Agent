@@ -18,8 +18,9 @@
  * the newest session in `--cwd` is used. `--run-exit` records the run's own
  * exit code (3: stopped at a project gate). Node built-ins only, no shell:
  * the same command works on Windows and POSIX. The report goes to stdout,
- * or to `--output`. Exit 0 when both test suites passed, 1 when either
- * failed or could not run, 2 on a usage error.
+ * or to `--output`. Exit 0 only when nothing blocks (`blocking`: both
+ * suites pass, every plan task's latest verdict is an accept, the milestone
+ * state agrees and no gate waits), 1 otherwise, 2 on a usage error.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -125,7 +126,100 @@ export function joinVerdictsAll(project, verdicts) {
     if (i < open.length) open[i].verdicts.push({ join: 'order (unjoined)', ...v });
     else unmatched.push(v);
   });
+  for (const t of tasks) {
+    const last = t.verdicts[t.verdicts.length - 1] || null;
+    t.latest = last ? { status: last.status, decision: last.review ? last.review.decision : null, attempt: last.attempt ?? null, join: last.join } : null;
+    t.latestReview = reviewIdentity(t);
+  }
   return { tasks, unmatched };
+}
+
+/**
+ * Issue #98: the reviewer of a task's latest reviewed verdict next to the
+ * plan's: `recorded` is the ref the row wrote, `provider` / `model` the
+ * effective ones and `planRef` the ref the plan named, when the row carries
+ * them. `mismatch`: the plan's ref is not the one the review ran under.
+ */
+function reviewIdentity(task) {
+  const reviewed = [...task.verdicts].reverse().find((v) => v.review);
+  if (!reviewed) return null;
+  const r = reviewed.review;
+  const planned = task.reviewer ?? null;
+  const recorded = r.reviewer ?? (r.provider && r.model ? `${r.provider}:${r.model}` : null);
+  return {
+    planned,
+    recorded,
+    ...(r.provider ? { provider: r.provider } : {}),
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.planRef ? { planRef: r.planRef } : {}),
+    mismatch: planned !== null && (r.planRef ? r.planRef !== planned : recorded !== planned),
+  };
+}
+
+/** Whether a plan task is done as the fixture requires: its latest verdict is a review's `accept` (or `ok` with no review planned). */
+function taskAccepted(task) {
+  const last = task.verdicts[task.verdicts.length - 1];
+  if (!last) return false;
+  if (task.reviewer === null || task.reviewer === undefined) return last.status === 'ok' || (last.review && last.review.decision === 'accept');
+  return Boolean(last.review && last.review.decision === 'accept');
+}
+
+/** Why a task is not accepted, in one line naming it. */
+function taskBlock(task) {
+  const name = `task ${task.taskId} (${task.title || 'untitled'})`;
+  if (task.verdicts.length === 0) return `${name}: no verdict`;
+  const last = task.verdicts[task.verdicts.length - 1];
+  const reviewed = [...task.verdicts].reverse().find((v) => v.review);
+  const said = reviewed
+    ? `${reviewed.review.decision}${reviewed.review.blockers ? ` (${reviewed.review.blockers} blocker${reviewed.review.blockers === 1 ? '' : 's'})` : ''}`
+    : 'no review';
+  return `${name}: not accepted: ${said}${reviewed && reviewed !== last ? `, then ${last.status} with no new verdict` : (!reviewed ? `, latest ${last.status}` : '')}`;
+}
+
+/**
+ * Issue #98: what keeps the run from passing. Both suites must pass, every
+ * plan task's latest verdict must be an accept, each milestone's state must
+ * agree (done or reviewed exactly when all its tasks are accepted) and no
+ * gate may be waiting.
+ */
+export function blockingReasons({ tests, project, tasks }) {
+  const out = [];
+  if (!tests || !tests.passed) out.push('the test suites did not both pass');
+  if (!project) { out.push('no project was stored for the session'); return out; }
+  if (!tasks.length) out.push('the plan has no tasks');
+  for (const t of tasks) if (!taskAccepted(t)) out.push(taskBlock(t));
+  for (const m of project.milestones || []) {
+    const mine = tasks.filter((t) => t.milestoneId === m.id);
+    const open = mine.filter((t) => !taskAccepted(t)).length;
+    const closed = m.state === 'done' || m.state === 'reviewed';
+    if (open > 0 && closed) out.push(`milestone ${m.id} is ${m.state} while ${open} required task${open === 1 ? ' is' : 's are'} not accepted`);
+    if (open === 0 && mine.length > 0 && !closed) out.push(`milestone ${m.id} is ${m.state} although every task is accepted`);
+  }
+  if (project.gate && project.gate.kind && project.gate.kind !== 'none') out.push(`the project waits at its ${project.gate.kind} gate`);
+  return out;
+}
+
+/** The texts `--auto-approve-project` sends after it approves a gate (src/session/project-continue.ts). */
+const AUTO_CONTINUE = [/^I approved the project brief\. Draft the plan\.$/, /^I approved\. Continue with milestone ".*"\.$/s];
+
+/**
+ * Issue #98: a single autonomous run, or a guided resume. A person's line
+ * after the first prompt (anything but an auto-approval continuation), or
+ * logs that stop at a project gate more than once (each stop ends a run),
+ * make it guided.
+ */
+export function runMode(turns, logText) {
+  const users = (Array.isArray(turns) ? turns : []).filter((t) => t && t.kind === 'user');
+  const human = users.slice(1).filter((u) => !AUTO_CONTINUE.some((re) => re.test(String(u.text || '').trim())));
+  const stops = [...String(logText).matchAll(/^session: \S+\s*$/gm)].length;
+  const runStarts = Math.max(1, stops);
+  const reasons = [];
+  if (human.length) {
+    const first = String(human[0].text || '').replace(/\s+/g, ' ').slice(0, 80);
+    reasons.push(`${human.length} line${human.length === 1 ? '' : 's'} from a person after the first prompt, first: "${first}"`);
+  }
+  if (runStarts > 1) reasons.push(`${runStarts} runs: the logs stop at a project gate ${stops} times`);
+  return { kind: reasons.length ? 'guided' : 'autonomous', userTurns: users.length, humanInputs: human.length, runStarts, reasons };
 }
 export function joinVerdicts(project, verdicts) {
   return joinVerdictsAll(project, verdicts).tasks;
@@ -161,7 +255,11 @@ export function outcomeSummary(lines, sessionId) {
         selfCheckPassed: rec.selfCheckPassed ?? null,
         review: rec.review
           ? { decision: rec.review.decision ?? null, reviewer: rec.review.reviewer ?? null, passes: rec.review.passes ?? null,
-            blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0 }
+            blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0,
+            // Issue #98: who reviewed, when the row says (provider, effective model, the ref the plan named).
+            ...(typeof rec.review.provider === 'string' ? { provider: rec.review.provider } : {}),
+            ...(typeof rec.review.model === 'string' ? { model: rec.review.model } : {}),
+            ...(typeof rec.review.planRef === 'string' ? { planRef: rec.review.planRef } : {}) }
           : null,
         costUsd: rec.costUsd ?? null,
         // Issue #95: keys of the plan row's task and milestone ids (outcomeKey); absent on older builds.
@@ -267,6 +365,8 @@ export async function buildReport(args, deps = {}) {
   const passed = acceptance.exitCode === 0 && agentTests.exitCode === 0;
   const project = stored.payload ? projectSummary(stored.payload.project) : null;
   const joined = joinVerdictsAll(project, outcomes ? outcomes.tasks : []);
+  const tests = { acceptance, agent: agentTests, passed };
+  const blocking = blockingReasons({ tests, project, tasks: joined.tasks });
   return {
     fixture: 'csv-sales',
     recordedAt: new Date().toISOString(),
@@ -274,7 +374,11 @@ export async function buildReport(args, deps = {}) {
     stateDir,
     run: { exitCode: args.runExit, logs: args.logs.map((f) => resolve(f)), printedSession: printed, receiptLines: receiptLines(logText) },
     session: stored.error ? { id: sessionId, error: stored.error } : { id: stored.id, status: stored.status, workingDir: stored.workingDir },
-    tests: { acceptance, agent: agentTests, passed },
+    // Issue #98: the run passes only when nothing blocks (both suites, an accept per task, a consistent milestone).
+    passed: blocking.length === 0,
+    blocking,
+    mode: runMode(stored.payload ? stored.payload.turns : [], logText),
+    tests,
     project,
     // Each plan task with its verdicts (joined by key, else by order and labelled), then the ones no task took.
     tasks: joined.tasks,
@@ -294,7 +398,7 @@ async function main() {
   if (args.output) writeFileSync(args.output, text);
   else process.stdout.write(text);
   if (args.output) process.stderr.write(`report: ${resolve(args.output)}\n`);
-  return report.tests.passed ? 0 : 1;
+  return report.passed ? 0 : 1;
 }
 
 /** Run as a script, not imported (a Windows drive letter may differ in case). */

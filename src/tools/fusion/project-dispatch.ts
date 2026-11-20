@@ -2,6 +2,7 @@ import { resolve as resolvePath } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import type { ProjectState } from "../../session/session-project.js";
+import { sameMember, type DefaultModelOf } from "./member-identity.js";
 
 /**
  * The fusion project's dispatch gate (issue #39), enforced by
@@ -81,7 +82,9 @@ export function checkProjectDispatch(project: ProjectState | undefined, taskIds:
  * it, null for no review; issue #74), and the write scope stays inside
  * what the plan was approved for (`approvedScope`: the session's folder).
  * Anything else — a new task, another milestone's, another worker or
- * reviewer, a write elsewhere — asks as before.
+ * reviewer, a write elsewhere — asks as before. Workers and reviewers are
+ * compared by identity (`sameMember`, issue #98): `codex-cli:default` and
+ * the provider's resolved default model (`defaultModelOf`) are one member.
  */
 export function planCoversFanout(
   project: ProjectState,
@@ -90,6 +93,7 @@ export function planCoversFanout(
   reviewerOf: (taskId: string) => string | null,
   writeScope: readonly string[],
   approvedScope: readonly string[],
+  defaultModelOf?: DefaultModelOf,
 ): boolean {
   const plan = project.plan;
   if (taskIds.length === 0 || plan === undefined || plan.status !== "approved") return false;
@@ -98,8 +102,8 @@ export function planCoversFanout(
   const byTask = new Map(plan.rows.map((r) => [r.taskId, r]));
   for (const id of taskIds) {
     const row = byTask.get(id);
-    if (row === undefined || !open.has(row.milestoneId) || row.worker !== workerOf(id)) return false;
-    if (row.reviewer !== reviewerOf(id)) return false;
+    if (row === undefined || !open.has(row.milestoneId) || !sameMember(row.worker, workerOf(id), defaultModelOf)) return false;
+    if (!sameMember(row.reviewer, reviewerOf(id), defaultModelOf)) return false;
   }
   const roots = approvedScope.map((dir) => resolvePath(dir));
   return writeScope.every((dir) => roots.some((root) => isInside(root, resolvePath(dir))));
