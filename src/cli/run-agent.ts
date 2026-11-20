@@ -401,8 +401,11 @@ const APPROVAL_UNAVAILABLE_REASON =
  * The unavailable reason, plus (issue #95) the commands `--allow-command`
  * pre-approves, so the model can retry in exactly that form.
  */
-function unavailableReason(allowed: readonly AllowedCommand[]): string {
+function unavailableReason(allowed: readonly AllowedCommand[], argv: readonly string[] | undefined, notPinned: string | null): string {
   if (allowed.length === 0) return APPROVAL_UNAVAILABLE_REASON;
+  if (notPinned !== null) {
+    return `${APPROVAL_UNAVAILABLE_REASON}. It is the allowed command \`${(argv ?? []).join(" ")}\`, but ${notPinned}, so it cannot run unattended`;
+  }
   const listed = allowed.map((command) => `\`${command.argv.join(" ")}\``).join(", ");
   return `${APPROVAL_UNAVAILABLE_REASON}. This run pre-approves only ${listed}, run as exactly those words in its folder`;
 }
@@ -817,7 +820,11 @@ export async function runAgentCommand(args: string[]): Promise<number> {
             // or below, runs unasked; everything else asks as before.
             // The approval pins the real program, argv and folder; the
             // tool spawns exactly that (`pinnedExec`).
-            const pinnedExec = request.question ? null : pinAllowedCommand(request, parsed.allowCommands, parsed.workingDir);
+            const pin = request.question ? null : pinAllowedCommand(request, parsed.allowCommands, parsed.workingDir);
+            // The allowed words, but nothing safe to pin: say why, so the
+            // model does not retry the same words in vain.
+            const notPinned = pin !== null && "refused" in pin ? pin.refused : null;
+            const pinnedExec = pin !== null && !("refused" in pin) ? pin : null;
             if (pinnedExec !== null) {
               process.stderr.write(`  approved by --allow-command: ${pinnedExec.argv.join(" ")} (runs ${pinnedExec.file})\n`);
               runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command", pinnedExec });
@@ -842,7 +849,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
               // the user's own words (see `ApprovalDecision.reason`). An
               // unavailable approval is the system's, and says so.
               ...(answer.approved ? { reason: "cli-approved" } : {}),
-              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: unavailableReason(parsed.allowCommands) } : {}),
+              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: unavailableReason(parsed.allowCommands, request.commandArgv, notPinned) } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
               ...(answer.answer ? { answer: answer.answer } : {}),
             });

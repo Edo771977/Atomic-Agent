@@ -318,6 +318,26 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
     });
 
+    it("says why the allowed words could not be pinned, instead of telling the model to retry them", async () => {
+      const bin = join(workingDir, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "tool"), "#!/bin/sh\nexit 0\n");
+      chmodSync(join(bin, "tool"), 0o755);
+      const realPath = process.env.PATH;
+      process.env.PATH = [bin, dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter);
+      try {
+        script.calls = [{ tool: "os.shell.run", args: { cmd: "tool" } }];
+        feed(["run the tool\n"]);
+        await runAgentCommand(["--cwd", workingDir, "--allow-command", "tool"]);
+      } finally {
+        process.env.PATH = realPath;
+      }
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(shellResult()).toContain("cannot run unattended");
+      expect(shellResult()).toContain("no program outside the project folder");
+      expect(shellResult()).not.toContain("pre-approves only");
+    });
+
     it("refuses a value that is not one simple command (exit 2)", async () => {
       feed([]);
       expect(await runAgentCommand(["--cwd", workingDir, "--allow-command", "node a.cjs && rm -rf x"])).toBe(2);

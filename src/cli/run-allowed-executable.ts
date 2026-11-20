@@ -71,12 +71,17 @@ const nodeFs: ExecutableFs = {
   },
 };
 
-export function resolveAllowedExecutable(word: string, options: ResolveExecutableOptions): PinnedProgram | null {
+/** Why nothing was pinned, said to the model (issue #95, third review). */
+export interface NotPinned {
+  refused: string;
+}
+
+export function resolveAllowedExecutable(word: string, options: ResolveExecutableOptions): PinnedProgram | NotPinned {
   const platform = options.platform ?? process.platform;
   const fs = options.fs ?? nodeFs;
   const path = platform === "win32" ? win32 : posix;
   const realRunDir = fs.realpath(options.runDir);
-  if (realRunDir === null) return null;
+  if (realRunDir === null) return { refused: "the run's folder cannot be resolved" };
   const outsideRunDir = (real: string): boolean => {
     const fold = (p: string): string => (platform === "win32" ? p.toLowerCase() : p);
     const rel = path.relative(fold(realRunDir), fold(real));
@@ -93,15 +98,18 @@ export function resolveAllowedExecutable(word: string, options: ResolveExecutabl
     safeEntries.push(realEntry);
   }
   const safePath = safeEntries.join(path.delimiter);
-  const accept = (candidate: string): PinnedProgram | null => {
-    if (!fs.isExecutableFile(candidate)) return null;
-    const real = fs.realpath(candidate);
-    if (real === null || !fs.isExecutableFile(real) || !outsideRunDir(real)) return null;
-    if (platform !== "win32" && !interpreterOutside(fs.readHead?.(real) ?? null, fs, path, outsideRunDir)) return null;
+  const accept = (candidate: string): PinnedProgram | NotPinned => {
+    const real = fs.isExecutableFile(candidate) ? fs.realpath(candidate) : null;
+    if (real === null || !fs.isExecutableFile(real)) return { refused: `\`${word}\` is not an executable file` };
+    if (!outsideRunDir(real)) return { refused: `\`${word}\` resolves to a file inside the project folder` };
+    if (platform !== "win32" && !interpreterOutside(fs.readHead?.(real) ?? null, fs, path, outsideRunDir)) {
+      return { refused: `the #! interpreter of \`${word}\` is inside the project folder or not an absolute path` };
+    }
     return { file: real, path: safePath };
   };
+  const shim: NotPinned = { refused: `\`${word}\` resolves to a .cmd or .bat script, which runs through cmd.exe` };
   const scriptExt = /\.(cmd|bat)$/i;
-  if (platform === "win32" && scriptExt.test(word)) return null;
+  if (platform === "win32" && scriptExt.test(word)) return shim;
   if (/[\\/]/.test(word)) {
     return accept(path.isAbsolute(word) ? word : path.resolve(options.runDir, word));
   }
@@ -112,11 +120,11 @@ export function resolveAllowedExecutable(word: string, options: ResolveExecutabl
       if (!fs.isExecutableFile(candidate)) continue;
       // The first match is what a plain run would start: a script shim
       // there means cmd.exe, so nothing is pinned.
-      if (scriptExt.test(candidate)) return null;
+      if (scriptExt.test(candidate)) return shim;
       return accept(candidate);
     }
   }
-  return null;
+  return { refused: `no program outside the project folder is named \`${word}\` on PATH` };
 }
 
 /**

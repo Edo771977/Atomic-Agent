@@ -3,7 +3,7 @@ import { isAbsolute, relative } from "node:path";
 
 import type { ApprovalRequest, PinnedExec } from "../approval/approval-gate.js";
 import { needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
-import { resolveAllowedExecutable } from "./run-allowed-executable.js";
+import { resolveAllowedExecutable, type NotPinned } from "./run-allowed-executable.js";
 
 /**
  * `run --allow-command "<exact command>"` (issue #95): a command the
@@ -92,21 +92,23 @@ export function pinAllowedCommand(
   runDir: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
   platform: NodeJS.Platform = process.platform,
-): PinnedExec | null {
+): PinnedExec | NotPinned | null {
   if (!allowedCommandMatches(request, allowed, runDir, platform)) return null;
   const argv = request.commandArgv!;
   const program = resolveAllowedExecutable(argv[0]!, { runDir, env, platform });
-  if (program === null) return null;
+  if ("refused" in program) return program;
   // os.shell.run spawns the pinned file directly, so its name needs no
   // check beyond the resolver's (.cmd/.bat refused): `C:\Program Files
   // (x86)\…` is fine. verify.run's runner still picks a shell from the
   // name, so a check whose pinned path it would hand to a shell asks.
-  if (request.tool === "verify.run" && needsShellInterpretation(program.file, argv.slice(1))) return null;
+  if (request.tool === "verify.run" && needsShellInterpretation(program.file, argv.slice(1))) {
+    return { refused: `verify.run would start ${program.file} through a shell` };
+  }
   let cwd: string;
   try {
     cwd = realpathSync.native(request.affectedResources![0]!);
   } catch {
-    return null;
+    return { refused: "the call's folder cannot be resolved" };
   }
   return { file: program.file, argv: [...argv], cwd, path: program.path };
 }

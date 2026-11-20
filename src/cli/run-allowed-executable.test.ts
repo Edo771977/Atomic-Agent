@@ -32,16 +32,16 @@ describe("resolveAllowedExecutable on POSIX", () => {
   });
 
   it("refuses when only --cwd holds it, or when the file it resolves to is a link into --cwd", () => {
-    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH: planted }, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH: planted }, platform: "linux" })).toHaveProperty("refused");
     const linkDir = join(base, "links");
     mkdirSync(linkDir, { recursive: true });
     symlinkSync(join(planted, "tool"), join(linkDir, "tool"));
-    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH: linkDir }, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH: linkDir }, platform: "linux" })).toHaveProperty("refused");
   });
 
   it("refuses a word with a path inside --cwd, takes an absolute one outside", () => {
-    expect(resolveAllowedExecutable(join(planted, "tool"), { runDir, env: { PATH: "" }, platform: "linux" })).toBeNull();
-    expect(resolveAllowedExecutable("./bin/tool", { runDir, env: { PATH: "" }, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable(join(planted, "tool"), { runDir, env: { PATH: "" }, platform: "linux" })).toHaveProperty("refused");
+    expect(resolveAllowedExecutable("./bin/tool", { runDir, env: { PATH: "" }, platform: "linux" })).toHaveProperty("refused");
     expect(resolveAllowedExecutable(real, { runDir, env: { PATH: "" }, platform: "linux" })).toMatchObject({ file: real });
   });
 
@@ -56,8 +56,8 @@ describe("resolveAllowedExecutable on POSIX", () => {
     write("relative", "#!bin/tool");
     write("viaenv", "#!/usr/bin/env node");
     const env = { PATH: ["", ".", planted, scripts, system].join(delimiter) };
-    expect(resolveAllowedExecutable("inside", { runDir, env, platform: "linux" })).toBeNull();
-    expect(resolveAllowedExecutable("relative", { runDir, env, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("inside", { runDir, env, platform: "linux" })).toHaveProperty("refused");
+    expect(resolveAllowedExecutable("relative", { runDir, env, platform: "linux" })).toHaveProperty("refused");
     expect(resolveAllowedExecutable("viaenv", { runDir, env, platform: "linux" })).toEqual({
       file: join(scripts, "viaenv"),
       path: [scripts, system].join(delimiter),
@@ -68,8 +68,8 @@ describe("resolveAllowedExecutable on POSIX", () => {
     const plain = join(system, "plain");
     writeFileSync(plain, "x");
     chmodSync(plain, 0o644);
-    expect(resolveAllowedExecutable("plain", { runDir, env: { PATH: system }, platform: "linux" })).toBeNull();
-    expect(resolveAllowedExecutable("nowhere", { runDir, env: { PATH: system }, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("plain", { runDir, env: { PATH: system }, platform: "linux" })).toHaveProperty("refused");
+    expect(resolveAllowedExecutable("nowhere", { runDir, env: { PATH: system }, platform: "linux" })).toHaveProperty("refused");
   });
 });
 
@@ -94,9 +94,9 @@ describe("resolveAllowedExecutable with Windows semantics (injected fs)", () => 
     files.clear();
     files.add("c:\\tools\\npm.cmd");
     files.add("c:\\node\\npm.exe");
-    expect(resolveAllowedExecutable("npm", opts(["C:\\tools", "C:\\node"].join(win32.delimiter)))).toBeNull();
-    expect(resolveAllowedExecutable("npm.cmd", opts("C:\\tools"))).toBeNull();
-    expect(resolveAllowedExecutable("run.bat", opts("C:\\tools"))).toBeNull();
+    expect(resolveAllowedExecutable("npm", opts(["C:\\tools", "C:\\node"].join(win32.delimiter)))).toHaveProperty("refused");
+    expect(resolveAllowedExecutable("npm.cmd", opts("C:\\tools"))).toHaveProperty("refused");
+    expect(resolveAllowedExecutable("run.bat", opts("C:\\tools"))).toHaveProperty("refused");
   });
 
   it("never uses --cwd, a relative entry or an empty one", () => {
@@ -104,6 +104,6 @@ describe("resolveAllowedExecutable with Windows semantics (injected fs)", () => 
     files.add("c:\\work\\proj\\node.exe");
     files.add("c:\\node\\node.exe");
     expect(resolveAllowedExecutable("node", opts(["C:\\work\\proj", "bin", "", "C:\\node"].join(win32.delimiter)))).toMatchObject({ file: "C:\\node\\node.exe" });
-    expect(resolveAllowedExecutable("node", opts("C:\\work\\proj"))).toBeNull();
+    expect(resolveAllowedExecutable("node", opts("C:\\work\\proj"))).toHaveProperty("refused");
   });
 });
