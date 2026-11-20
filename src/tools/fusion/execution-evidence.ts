@@ -307,7 +307,7 @@ export function renderCheckRunEvidence(
       ? ["(the output named no test case)"]
       : [frameUntrustedText([...run.tests.map((t, i) => `- ${t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok"}: ${names[i]}`), ...mapping].join("\n"), EXECUTION_OUTPUT_SOURCE)];
     const output = withOutput
-      ? [`Output${run.clipped === true ? ` (its last ${run.output.length} characters)` : ""}:`, frameUntrustedText(maskSecrets(run.output, knownSecrets), EXECUTION_OUTPUT_SOURCE)]
+      ? [`Output${run.clipped === true ? " (clipped: the tail of each stream)" : ""}:`, frameUntrustedText(maskSecrets(run.output, knownSecrets), EXECUTION_OUTPUT_SOURCE)]
       : ["(its output does not fit here)"];
     return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, "Cases:", ...cases, ...output].join("\n");
   };

@@ -153,7 +153,7 @@ export interface CheckRunRecord {
   command: string;
   exitCode: number | null;
   output: string;
-  /** The output was longer than {@link CHECK_RUN_OUTPUT_CHARS}: its head was cut. */
+  /** A stream was longer than its share of {@link CHECK_RUN_OUTPUT_CHARS}: its head was cut. */
   clipped?: true;
   tests: ExecutedTest[];
   counts?: { pass: number; fail: number; total: number };
@@ -166,12 +166,22 @@ function commandLineOf(check: ContractCheck): string {
 }
 
 /** The run record of a command check's result; undefined for a result that carries no command output. */
-function checkRunOf(check: ContractCheck, result: ContractCheckResult): CheckRunRecord | undefined {
+/** Of {@link CHECK_RUN_OUTPUT_CHARS}, what stderr gets at most (issue #104 review): stdout, where TAP is, keeps the larger share. */
+export const CHECK_RUN_STDERR_CHARS = 2_000;
+
+export function checkRunOf(check: ContractCheck, result: ContractCheckResult): CheckRunRecord | undefined {
   if ((check.kind ?? "command") !== "command") return undefined;
   if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
-  const text = [result.stdoutTail, result.stderrTail].filter((t): t is string => typeof t === "string" && t.length > 0).join("\n");
-  const clipped = text.length > CHECK_RUN_OUTPUT_CHARS;
-  const output = clipped ? text.slice(-CHECK_RUN_OUTPUT_CHARS) : text;
+  // Separate budgets, so a long stderr never pushes the TAP out; a share one stream leaves goes to the other.
+  const stdout = result.stdoutTail ?? "";
+  const stderr = result.stderrTail ?? "";
+  const errBudget = Math.min(stderr.length, Math.max(CHECK_RUN_STDERR_CHARS, CHECK_RUN_OUTPUT_CHARS - stdout.length));
+  const outBudget = CHECK_RUN_OUTPUT_CHARS - errBudget;
+  const out = stdout.length > outBudget ? stdout.slice(-outBudget) : stdout;
+  const err = stderr.length > errBudget ? stderr.slice(-errBudget) : stderr;
+  const clipped = out.length < stdout.length || err.length < stderr.length;
+  const output = [out, ...(err.length === 0 ? [] : [`--- stderr ---\n${err}`])].filter((t) => t.length > 0).join("\n");
+  const text = [stdout, stderr].filter((t) => t.length > 0).join("\n");
   return {
     command: (result.commandLine ?? commandLineOf(check)).slice(0, 300),
     exitCode: typeof result.exitCode === "number" ? result.exitCode : null,
