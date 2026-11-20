@@ -80,3 +80,27 @@ describe("a host's pinned exec on a verify.run check (issue #95)", () => {
     expect(await run({ kind: "command", cmd: "node", args: ["--test"], env: { A: "1" } }, ["node", "--test"])).toMatchObject({ cmd: "node" });
   });
 });
+
+describe("a pinned verify.run check run in a private copy (issue #95)", () => {
+  it("keeps the spec's own copy-relative args and swaps only the program", async () => {
+    const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const project = resolve("verification-project-fixture");
+    const copy = resolve("verification-private-copy-fixture");
+    const seen: Record<string, unknown>[] = [];
+    const approvals = {
+      request: async (req: Record<string, unknown>) => {
+        seen.push(req);
+        return { approvalId: "x", approved: true, pinnedExec: { file: process.execPath, argv: req.commandArgv as string[], cwd: project, path: "/usr/bin" } };
+      },
+    };
+    const [approved] = await authorizeVerifyBatch(
+      [{ kind: "command", cmd: "node", args: ["--test", `${copy}/a.test.js`] }],
+      { approvals: approvals as never, approvalRequired: true },
+      { sessionId: "s", workingDir: copy, ruleWorkdir: project, stepIndex: 0, signal: new AbortController().signal } as never,
+    );
+    // The person (and --allow-command) saw the project's path …
+    expect(seen[0]!.commandArgv).toEqual(["node", "--test", `${project}/a.test.js`]);
+    // … but the check still runs against the copy.
+    expect(approved).toMatchObject({ cmd: process.execPath, args: ["--test", `${copy}/a.test.js`] });
+  });
+});

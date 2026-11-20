@@ -240,11 +240,13 @@ export async function authorizeVerifyBatch(
       // real program file with the approved argv, never a name the copy's
       // PATH could resolve to something else. The private copy stays the cwd.
       if (outcome.pinnedExec !== undefined) {
-        const args = outcome.pinnedExec.argv.slice(1);
+        // requireApproval checked the pin's argv against this check's
+        // logical (project) argv; the spec keeps its own args, which name
+        // the private copy, and only the program is swapped.
+        const args = Array.isArray(spec.args) ? spec.args.map(String) : [];
         if (needsShellInterpretation(outcome.pinnedExec.file, args)) throw new Error("verify.run: the pinned program cannot be started without a shell");
         delete spec.command;
         spec.cmd = outcome.pinnedExec.file;
-        spec.args = args;
         // Only the pin's filtered PATH: see `PinnedExec.path`.
         spec.env = { PATH: outcome.pinnedExec.path };
       }
