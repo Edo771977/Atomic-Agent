@@ -298,7 +298,7 @@ describe("the reviewer's identity", () => {
     const blocked = runSample("sample-run-blocked").report;
     expect(blocked.tasks[1].latestReview).toMatchObject({ planned: "codex-cli:default", recorded: "default", mismatch: true });
     const accepted = runSample("sample-run-accepted").report;
-    expect(accepted.tasks[0].latestReview).toEqual({ planned: "codex-cli:default", recorded: "codex-cli:default", provider: "codex-cli",
+    expect(accepted.tasks[0].latestReview).toEqual({ planned: "codex-cli:default", reviewedBy: "reviewer", recorded: "codex-cli:default", provider: "codex-cli",
       model: "gpt-5.5-codex", planRef: "codex-cli:default", mismatch: false });
   });
 });
@@ -339,5 +339,39 @@ describe("a run passes only on a plan whose tasks and reviews can be accounted f
 
   it("the accepted sample still passes", () => {
     expect(runSample("sample-run-accepted").status).toBe(0);
+  });
+});
+
+/* ---------- issue #100: an accept decided by the task's own checks, no reviewer ---------- */
+
+describe("an accept by the task's checks alone", () => {
+  it("passes on green checks, but is listed apart and never shown as the reviewer's accept", () => {
+    const { status, report } = runSample("sample-run-facts-accept");
+    expect(report.blocking).toEqual([]);
+    expect(status).toBe(0);
+    expect(report.acceptedByChecksOnly).toEqual([{ taskId: "t2", title: "sales.test.cjs: its tests", configuredReviewer: "codex-cli", acceptance: "checks-passed" }]);
+    const t2 = report.tasks[1].latestReview;
+    expect(t2).toMatchObject({ reviewedBy: "facts", configured: "codex-cli", planned: "codex-cli:default" });
+    expect(t2.recorded).toBeUndefined();
+    expect(t2.provider).toBeUndefined();
+    expect(report.tasks[0].latestReview).toMatchObject({ reviewedBy: "reviewer", provider: "codex-cli" });
+    expect(runSample("sample-run-accepted").report.acceptedByChecksOnly).toEqual([]);
+  });
+
+  it("reads the source on the row or in its review, and an accept by checks that did not pass blocks", () => {
+    const project = { plan: { rows: [{ taskId: "a", title: "A", milestoneId: "m", reviewer: "codex-cli:default" }] }, milestones: [{ id: "m", state: "done" }], gate: { kind: "none" } };
+    const line = (extra: object, review: object) => JSON.stringify({ type: "task", ts: "1", session: runner.sessionTag("s"), status: "ok",
+      taskKey: runner.outcomeKey("a"), milestoneKey: runner.outcomeKey("m"), ...extra, review: { decision: "accept", provider: "codex-cli", ...review } });
+    const cases: Array<[object, object]> = [[{ reviewerSource: "facts", acceptance: "checks-passed" }, {}], [{ acceptance: "checks-passed" }, { source: "facts" }]];
+    for (const [extra, review] of cases) {
+      const tasks = runner.joinVerdicts(project, runner.outcomeSummary([line(extra, review)], "s").tasks);
+      expect(tasks[0].latestReview.reviewedBy).toBe("facts");
+      expect(runner.blockingReasons({ tests: { passed: true }, project, tasks })).toEqual([]);
+    }
+    const red = runner.joinVerdicts(project, runner.outcomeSummary([line({ reviewerSource: "facts", acceptance: "checks-failed" }, {})], "s").tasks);
+    expect(runner.blockingReasons({ tests: { passed: true }, project, tasks: red })).toEqual([
+      "task a (A): not accepted: accept by its checks, which did not pass",
+      "milestone m is done while 1 required task is not accepted",
+    ]);
   });
 });

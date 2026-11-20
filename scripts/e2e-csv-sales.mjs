@@ -145,9 +145,14 @@ function reviewIdentity(task) {
   if (!reviewed) return null;
   const r = reviewed.review;
   const planned = task.reviewer ?? null;
+  // Issue #100: decided by the task's checks: who was configured, never shown as that reviewer's own verdict.
+  if (r.source === 'facts') {
+    return { planned, reviewedBy: 'facts', configured: r.provider ?? r.reviewer ?? null, mismatch: false };
+  }
   const recorded = r.reviewer ?? (r.provider && r.model ? `${r.provider}:${r.model}` : null);
   return {
     planned,
+    reviewedBy: 'reviewer',
     recorded,
     ...(r.provider ? { provider: r.provider } : {}),
     ...(r.model ? { model: r.model } : {}),
@@ -168,7 +173,20 @@ function taskAccepted(task) {
   const last = task.verdicts[task.verdicts.length - 1];
   if (!last) return false;
   if (task.reviewer === null || task.reviewer === undefined) return last.status === 'ok' || (last.review && last.review.decision === 'accept');
-  return Boolean(last.review && last.review.decision === 'accept');
+  if (!last.review || last.review.decision !== 'accept') return false;
+  // An accept by the task's checks stands only while those checks passed (issue #100).
+  return last.review.source !== 'facts' || last.acceptance === 'checks-passed';
+}
+
+/** Issue #100: the tasks whose latest verdict is an accept decided by their own checks, which no reviewer saw. */
+export function acceptedByChecksOnly(tasks) {
+  return tasks.filter((t) => {
+    const last = t.verdicts[t.verdicts.length - 1];
+    return last && last.review && last.review.source === 'facts' && last.review.decision === 'accept' && taskAccepted(t);
+  }).map((t) => {
+    const last = t.verdicts[t.verdicts.length - 1];
+    return { taskId: t.taskId, title: t.title, configuredReviewer: last.review.provider ?? last.review.reviewer ?? null, acceptance: last.acceptance ?? null };
+  });
 }
 
 /** Why a task is not accepted, in one line naming it. */
@@ -177,6 +195,7 @@ function taskBlock(task) {
   if (task.verdicts.length === 0) return `${name}: no verdict`;
   const last = task.verdicts[task.verdicts.length - 1];
   const reviewed = [...task.verdicts].reverse().find((v) => v.review);
+  if (last.review && last.review.source === 'facts' && last.review.decision === 'accept') return `${name}: not accepted: accept by its checks, which did not pass`;
   const said = reviewed
     ? `${reviewed.review.decision}${reviewed.review.blockers ? ` (${reviewed.review.blockers} blocker${reviewed.review.blockers === 1 ? '' : 's'})` : ''}`
     : 'no review';
@@ -202,7 +221,7 @@ export function blockingReasons({ tests, project, tasks }) {
     const name = `task ${t.taskId} (${t.title || 'untitled'})`;
     if (!milestoneIds.has(t.milestoneId)) out.push(`${name} belongs to milestone ${t.milestoneId}, which the project does not have`);
     if (!taskAccepted(t)) out.push(taskBlock(t));
-    if (t.reviewer !== null && t.reviewer !== undefined && t.latestReview && reviewerProvider(t.latestReview) === null) {
+    if (t.reviewer !== null && t.reviewer !== undefined && t.latestReview && t.latestReview.reviewedBy !== 'facts' && reviewerProvider(t.latestReview) === null) {
       out.push(`${name}: its review names no reviewer provider (the plan names ${t.reviewer})`);
     }
   }
@@ -277,7 +296,9 @@ export function outcomeSummary(lines, sessionId) {
             // Issue #98: who reviewed, when the row says (provider, effective model, the ref the plan named).
             ...(typeof rec.review.provider === 'string' ? { provider: rec.review.provider } : {}),
             ...(typeof rec.review.model === 'string' ? { model: rec.review.model } : {}),
-            ...(typeof rec.review.planRef === 'string' ? { planRef: rec.review.planRef } : {}) }
+            ...(typeof rec.review.planRef === 'string' ? { planRef: rec.review.planRef } : {}),
+            // Issue #100: "facts" when the task's own scripted checks decided it and no reviewer saw it.
+            source: rec.reviewerSource === 'facts' || rec.review.source === 'facts' || rec.review.reviewerSource === 'facts' ? 'facts' : 'reviewer' }
           : null,
         costUsd: rec.costUsd ?? null,
         // Issue #95: keys of the plan row's task and milestone ids (outcomeKey); absent on older builds.
@@ -395,6 +416,8 @@ export async function buildReport(args, deps = {}) {
     // Issue #98: the run passes only when nothing blocks (both suites, an accept per task, a consistent milestone).
     passed: blocking.length === 0,
     blocking,
+    // Issue #100: accepts no reviewer saw (the task's checks decided them); they pass, and are listed here.
+    acceptedByChecksOnly: acceptedByChecksOnly(joined.tasks),
     mode: runMode(stored.payload ? stored.payload.turns : [], logText),
     tests,
     project,
