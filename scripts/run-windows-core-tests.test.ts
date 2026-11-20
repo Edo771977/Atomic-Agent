@@ -39,6 +39,14 @@ describe("Windows core gate scope", () => {
   it("validates the additional whole-file Windows regressions", () => {
     expect(supplementalFiles).toContain("src/tasks/task-store-open-failure.test.ts");
     expect(supplementalFiles).toContain("src/tools/os/shell/node-check-notice.test.ts");
+    // Issue #98: the --allow-command / unavailable-approval tests of #95/#96, made portable.
+    for (const file of [
+      "src/cli/run-agent-approval.test.ts",
+      "src/cli/run-allowed-command.test.ts",
+      "src/cli/run-allowed-executable.test.ts",
+      "src/tools/os/shell/shell-pinned-exec.test.ts",
+      "src/approval/unavailable-in-turn.test.ts",
+    ]) expect(supplementalFiles).toContain(file);
     expect(supplementalDrift(root)).toEqual({ missing: [], duplicated: [], insideCore: [] });
     expect(supplementalDrift(root, ["src/missing.test.ts", "src/missing.test.ts", criticalFiles[0]])).toEqual({
       missing: ["src/missing.test.ts"],

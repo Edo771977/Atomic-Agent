@@ -133,6 +133,14 @@ export const supplementalFiles = [
   'src/config/project-constraint-match.test.ts',
   'src/runtime/session-provider-policy.test.ts',
   'src/llm/fallback/provider-policy-fallback.test.ts',
+  // Issue #98: --allow-command, its pinned exec and the unavailable
+  // approval (issues #95/#96), with link cases skipped where links cannot
+  // be made and POSIX-only cases (#!, executable bit) skipped on Windows.
+  'src/cli/run-agent-approval.test.ts',
+  'src/cli/run-allowed-command.test.ts',
+  'src/cli/run-allowed-executable.test.ts',
+  'src/tools/os/shell/shell-pinned-exec.test.ts',
+  'src/approval/unavailable-in-turn.test.ts',
 ];
 /**
  * Test files in coreDirectories deliberately outside the Windows gate: not yet

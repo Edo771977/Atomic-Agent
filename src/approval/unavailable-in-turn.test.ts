@@ -59,7 +59,7 @@ describe("a call refused as unavailable is not asked again in the same turn", ()
 
   it("refuses a shell write of a file whose write was unavailable, unasked, and asks again in the next turn", async () => {
     await write();
-    const viaShell = await outcome(() => buildOsShellTool({ approvals: gate, approvalRequired: true }).run({ cmd: `printf x > ${join(dir, "x.txt")}` }, ctx()));
+    const viaShell = await outcome(() => buildOsShellTool({ approvals: gate, approvalRequired: true }).run({ cmd: "printf x > x.txt" }, ctx()));
     expect(prompts).toHaveLength(1);
     expect(viaShell).toContain("approval unavailable (non-interactive run)");
     expect(gate.hasDeclinedTarget({ sessionId: "s-1", tool: "os.shell.run", category: "shell", targetPaths: [join(dir, "x.txt")] })).toBe(true);
