@@ -1,0 +1,6 @@
+The CSV summarizer is written; the milestone's tests could not be run in this chat.
+The milestone failed: this needs a person, so it is not approved automatically.
+Milestone 1 of 1: CSV summarizer and its tests (failed)
+session: sess_95e2e7f1
+Approve with: atomic-agent run --session sess_95e2e7f1 --approve 4
+Or continue the chat with --session to ask the director for changes.

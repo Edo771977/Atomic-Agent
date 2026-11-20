@@ -1,0 +1,4 @@
+director: anthropic:claude-opus-5-5 · reviewer: codex-cli:default
+fusion receipt · strong $0.31, 7 requests, cache hit 81%
+fusion receipt · strong $0.42, 9 requests, cache hit 77% · workers 61.4k tokens, 10m02s · tasks 1 ok, 1 failed
+fusion receipt · strong $0.17, 4 requests, cache hit 85% · workers 12.0k tokens, 1m40s · tasks 1 ok

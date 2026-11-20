@@ -1,0 +1,6 @@
+{"id":"sess_95e2e7f1","status":"active","project":{"brief":{"status":"approved","version":2},"plan":{"status":"approved","version":4,"rows":[
+{"taskId":"t1","title":"sales.cjs: the summarizer","milestoneId":"m1","worker":"local-llama:qwen-3.6-35b-a3b","reviewer":"codex-cli:default","reason":"preset","basis":"preset","samples":0,"estCostUsd":0,"estMs":null,"local":true},
+{"taskId":"t2","title":"sales.test.cjs: its tests","milestoneId":"m1","worker":"local-llama:qwen-3.6-35b-a3b","reviewer":"codex-cli:default","reason":"preset","basis":"preset","samples":0,"estCostUsd":0,"estMs":null,"local":true}],
+"totals":{"costUsd":0,"ms":null,"unknownCostRows":0},"detail":"full","draftedAfterUntrusted":false},
+"milestones":[{"id":"m1","title":"CSV summarizer and its tests","kind":"logic","state":"failed","runIds":["run-a1"],"summary":"Tests could not be run: the command was held.","criteriaFacts":[{"id":"c1","state":"unverified","why":"node --test sales.test.cjs did not run"}],"updatedAt":1795640300000}],
+"gate":{"kind":"milestone","id":"m1"}}}
