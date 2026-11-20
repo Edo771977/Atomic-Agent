@@ -1724,7 +1724,14 @@ export function buildFusionDelegateTool(
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
         }
         // What the worker's own test runs showed, recorded from the tool results (issue #102).
-        const executed = renderExecutionEvidence(attempts.flatMap((a) => (a.executed ?? []).map((run) => ({ ...run, attempt: a.attempt }))), current);
+        // Without the secret metadata the section is left out, never shown unmasked.
+        let known: readonly KnownSecret[] | undefined;
+        try { known = collectKnownSecrets() ?? []; } catch { known = undefined; }
+        const executed = known === undefined ? "" : renderExecutionEvidence(
+          attempts.flatMap((a) => (a.executed ?? []).map((run) => ({ ...run, attempt: a.attempt }))),
+          current,
+          known,
+        );
         return [renderAttemptEvidence(attempts, current, task.files ?? []), executed].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.

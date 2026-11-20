@@ -1569,6 +1569,10 @@ async function runOneTask(
     workingDir,
     task.files ?? [],
     (args) => ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === checkSpecKey(args)),
+    () => {
+      // Unavailable metadata still leaves the pattern masking.
+      try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
+    },
   );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on

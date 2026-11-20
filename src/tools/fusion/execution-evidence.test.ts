@@ -278,3 +278,38 @@ describe("the reviewer is told the case names are the programs' own output (issu
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe("secrets in recorded runs are masked (issue #102 review)", () => {
+  it("a key on the command line is masked on the row and in the reviewer's prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "execution-evidence-secret-"));
+    try {
+      const key = "zq8Kf02LmXc93nWq7TzPa1";
+      let turns = 0;
+      const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
+        if (turns++ === 0) {
+          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "sales.cjs", content: PROGRAM } } }));
+          writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+          options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
+          options.eventHook?.({ type: "step_finished", stepIndex: 0, summary: "", durationMs: 1 } as never);
+          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.shell.run", args: { cmd: `API_KEY=sk-live-4eC39HqLyjWDarjtT1zdp7dc TOKEN=${key} npm test` } } }));
+          options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.shell.run", status: "ok", summary: "# pass 1\n# fail 0", details: { exitCode: 0 }, truncated: false } }));
+          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: { kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] } } }));
+          options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "passed", details: { exitCode: 0, stdoutTail: `ok 1 - uses ${key}\n# pass 1\n# fail 0` }, truncated: false } }));
+          options.eventHook?.({ type: "step_finished", stepIndex: 1, summary: "", durationMs: 1 } as never);
+        }
+        return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 2 } as RunTurnResult;
+      };
+      const prompts: string[] = [];
+      const complete: EscalationComplete = async (call) => { prompts.push(call.prompt); return { content: review("accept") }; };
+      const result = await buildFusionDelegateTool(deps(dir, complete, runTurn, { knownSecrets: () => [{ label: "TOKEN", value: key }] })).run({ tasks: program, contract }, ctx(dir));
+      const row = (result.details.tasks as Array<{ attempt?: { executed?: unknown } }>)[0]!;
+      const stored = JSON.stringify(row.attempt?.executed);
+      const prompt = prompts.find((p) => p.includes("strict acceptance judge"))!;
+      for (const text of [stored, prompt]) {
+        expect(text).not.toContain("sk-live-4eC39HqLyjWDarjtT1zdp7dc");
+        expect(text).not.toContain(key);
+      }
+      expect(stored).toContain("npm test");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
