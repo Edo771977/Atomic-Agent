@@ -6,7 +6,7 @@ import { evidencePath, fileSha256 } from "./attempt-evidence.js";
  * the worker's summary. In the live run the reviewer saw that the suite
  * passed but not which cases ran, and a worker that timed out before its
  * summary left nothing at all. Each `verify.run`, and each `os.shell.run`
- * that is a test command, keeps its command, the exit code, the SHA-256
+ * that runs a known test runner, keeps its command, the exit code, the SHA-256
  * of the task's declared files when it finished, and the test names with
  * their outcomes (`node --test` TAP or spec output; else the counts).
  */
@@ -36,7 +36,30 @@ export interface ExecutionRun {
 const MAX_TESTS = 60;
 const MAX_NAME = 120;
 const MAX_RUNS = 6;
-const TEST_COMMAND = /(^|[\s/\\])(test|tests|--test)\b|\b(jest|vitest|mocha|pytest|ava|tap)\b|\bnpm\s+(run\s+)?test\b|\.test\.[cm]?[jt]s\b/i;
+/**
+ * Whether a shell command line runs a known test runner, read from its
+ * first word (leading `NAME=value` assignments skipped): `node --test`,
+ * `npm test` / `npm run test`, `npx vitest` / `vitest`, `npx jest` /
+ * `jest`, `pytest`, `go test`, `cargo test`. Never from the shape of
+ * its output: any program can print `ok 1 - …` (issue #102 review).
+ */
+export function isTestRunnerCommand(command: string): boolean {
+  const words = command.trim().split(/\s+/).filter((w) => w.length > 0);
+  while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]!)) words.shift();
+  const base = (w: string | undefined): string => (w ?? "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+  let [first, ...rest] = words.map((w, i) => (i === 0 ? base(w) : w));
+  if (first === "npx" && rest.length > 0) [first, ...rest] = [base(rest[0]), ...rest.slice(1)];
+  switch (first) {
+    case "node": return rest.some((w) => w === "--test" || w.startsWith("--test="));
+    case "npm": return rest[0] === "test" || rest[0] === "t" || (rest[0] === "run" && rest[1] === "test");
+    case "vitest":
+    case "jest":
+    case "pytest": return true;
+    case "go":
+    case "cargo": return rest[0] === "test";
+    default: return false;
+  }
+}
 
 /**
  * The cases and totals in a test runner's output: TAP (`ok 1 - name`,
@@ -111,10 +134,9 @@ export class ExecutionEvidenceTracker {
     const pending = this.pending.get(batchIndex);
     this.pending.delete(batchIndex);
     if (pending === undefined || pending.tool !== result.tool) return;
+    // A verify.run always counts; a shell command only when it runs a known test runner.
+    if (pending.tool === "os.shell.run" && !isTestRunnerCommand(pending.command)) return;
     const parsed = parseTestOutput(outputOf(result));
-    // A shell command counts only when it is a test run: one whose output
-    // names cases or totals, or whose command reads as a test command.
-    if (pending.tool === "os.shell.run" && parsed.tests.length === 0 && parsed.counts === undefined && !TEST_COMMAND.test(pending.command)) return;
     const exit = result.details?.exitCode;
     const files = this.declaredFiles.flatMap((path) => {
       const inside = evidencePath([this.workingDir], path);

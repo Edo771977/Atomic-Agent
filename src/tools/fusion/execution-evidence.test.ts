@@ -63,7 +63,7 @@ function deps(dir: string, complete: EscalationComplete, runTurn: FusionDelegate
 }
 const ctx = (dir: string): ToolContext => ({ workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal });
 
-import { parseTestOutput } from "./execution-evidence.js";
+import { ExecutionEvidenceTracker, parseTestOutput } from "./execution-evidence.js";
 
 const PROGRAM = "module.exports = (text) => text.split('\\n').filter((l) => l.trim() !== '');\n";
 const TAP = [
@@ -213,5 +213,26 @@ describe("re-review from the recorded run after a timeout (issue #102)", () => {
       expect(row.review?.decision).not.toBe("accept");
       expect(row.status).not.toBe("ok");
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("which shell commands are test runs (issue #102 review)", () => {
+  const recorded = (cmd: string, output = "ok 1 - looks like a case\n# pass 1\n# fail 0") => {
+    const tracker = new ExecutionEvidenceTracker(tmpdir(), []);
+    tracker.observeParsed({ tool: "os.shell.run", args: { cmd } }, 0);
+    tracker.observeExecuted({ tool: "os.shell.run", status: "ok", summary: output, details: { exitCode: 0 } }, 0);
+    return tracker.recorded().length === 1;
+  };
+
+  it("not a command that only mentions tests, nor output that merely looks like TAP", () => {
+    for (const cmd of ["ls test", "echo test", "git diff tests/", "cat x.test.ts", "printf 'ok 1 - fine'", "node sales.test.cjs"]) {
+      expect(recorded(cmd), cmd).toBe(false);
+    }
+  });
+
+  it("a known test runner, first word, env assignments skipped", () => {
+    for (const cmd of ["node --test sales.test.cjs", "npm test", "npm run test", "npx vitest run", "vitest", "jest", "pytest -q", "go test ./...", "cargo test", "CI=1 npm test", "/usr/bin/node --test"]) {
+      expect(recorded(cmd, "all good"), cmd).toBe(true);
+    }
   });
 });
