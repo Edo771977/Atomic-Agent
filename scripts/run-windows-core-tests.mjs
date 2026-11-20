@@ -150,6 +150,11 @@ export const supplementalFiles = [
   'src/cli/run-allowed-executable.test.ts',
   'src/tools/os/shell/shell-pinned-exec.test.ts',
   'src/approval/unavailable-in-turn.test.ts',
+  // Issue #102: the real CLI with stdin closed must exit and close its
+  // pipes (exit 3 at a gate, 0 otherwise), and a Core it starts must not
+  // hold them; on Windows this is where an inherited handle would show.
+  'src/cli/run-stdin-closed.test.ts',
+  'src/local-llm/core/core-detached-handles.test.ts',
 ];
 /**
  * Test files in coreDirectories deliberately outside the Windows gate: not yet

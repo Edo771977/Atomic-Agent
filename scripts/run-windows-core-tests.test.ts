@@ -46,6 +46,9 @@ describe("Windows core gate scope", () => {
       "src/cli/run-allowed-executable.test.ts",
       "src/tools/os/shell/shell-pinned-exec.test.ts",
       "src/approval/unavailable-in-turn.test.ts",
+      // Issue #102: the real CLI's exit and pipe close, and a Core it starts.
+      "src/cli/run-stdin-closed.test.ts",
+      "src/local-llm/core/core-detached-handles.test.ts",
     ]) expect(supplementalFiles).toContain(file);
     expect(supplementalDrift(root)).toEqual({ missing: [], duplicated: [], insideCore: [] });
     expect(supplementalDrift(root, ["src/missing.test.ts", "src/missing.test.ts", criticalFiles[0]])).toEqual({
