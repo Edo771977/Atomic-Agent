@@ -96,6 +96,41 @@ export function sessionTag(sessionId) {
   return createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
 }
 
+/** An outcome row's `taskKey` / `milestoneKey`: sha256 of the UTF-8 id, its first 16 hex characters. */
+export function outcomeKey(id) {
+  return createHash('sha256').update(String(id), 'utf8').digest('hex').slice(0, 16);
+}
+
+/**
+ * The plan's tasks, each with its verdicts. A verdict with a `taskKey`
+ * goes to the row whose task id (and milestone id, when the verdict has
+ * one) gives the same keys: `join: "key"`. A verdict without keys (an
+ * older build) goes, in order, to the rows no keyed verdict reached:
+ * `join: "order (unjoined)"`, a guess. `unmatched` gets the rest.
+ */
+export function joinVerdictsAll(project, verdicts) {
+  const rows = project && project.plan ? project.plan.rows : [];
+  const tasks = rows.map((r) => ({ ...r, verdicts: [] }));
+  const byKey = new Map(tasks.map((t) => [outcomeKey(t.taskId), t]));
+  const unmatched = [];
+  const unkeyed = [];
+  for (const v of verdicts) {
+    if (!v.taskKey) { unkeyed.push(v); continue; }
+    const t = byKey.get(v.taskKey);
+    if (t && (!v.milestoneKey || v.milestoneKey === outcomeKey(t.milestoneId))) t.verdicts.push({ join: 'key', ...v });
+    else unmatched.push(v);
+  }
+  const open = tasks.filter((t) => t.verdicts.length === 0);
+  unkeyed.forEach((v, i) => {
+    if (i < open.length) open[i].verdicts.push({ join: 'order (unjoined)', ...v });
+    else unmatched.push(v);
+  });
+  return { tasks, unmatched };
+}
+export function joinVerdicts(project, verdicts) {
+  return joinVerdictsAll(project, verdicts).tasks;
+}
+
 const roundUsd = (n) => Math.round(n * 1e6) / 1e6;
 
 /**
@@ -129,6 +164,9 @@ export function outcomeSummary(lines, sessionId) {
             blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0 }
           : null,
         costUsd: rec.costUsd ?? null,
+        // Issue #95: keys of the plan row's task and milestone ids (outcomeKey); absent on older builds.
+        taskKey: typeof rec.taskKey === 'string' ? rec.taskKey : null,
+        milestoneKey: typeof rec.milestoneKey === 'string' ? rec.milestoneKey : null,
       });
     } else if (rec.type === 'turn') {
       const o = rec.orchestrator || {};
@@ -227,6 +265,8 @@ export async function buildReport(args, deps = {}) {
   const sessionId = stored.id || args.session || printed || null;
   const outcomes = sessionId ? outcomeSummary(readOutcomeLines(stateDir), sessionId) : null;
   const passed = acceptance.exitCode === 0 && agentTests.exitCode === 0;
+  const project = stored.payload ? projectSummary(stored.payload.project) : null;
+  const joined = joinVerdictsAll(project, outcomes ? outcomes.tasks : []);
   return {
     fixture: 'csv-sales',
     recordedAt: new Date().toISOString(),
@@ -235,7 +275,10 @@ export async function buildReport(args, deps = {}) {
     run: { exitCode: args.runExit, logs: args.logs.map((f) => resolve(f)), printedSession: printed, receiptLines: receiptLines(logText) },
     session: stored.error ? { id: sessionId, error: stored.error } : { id: stored.id, status: stored.status, workingDir: stored.workingDir },
     tests: { acceptance, agent: agentTests, passed },
-    project: stored.payload ? projectSummary(stored.payload.project) : null,
+    project,
+    // Each plan task with its verdicts (joined by key, else by order and labelled), then the ones no task took.
+    tasks: joined.tasks,
+    unmatchedVerdicts: joined.unmatched,
     verdicts: outcomes ? outcomes.tasks : [],
     unreviewedTasks: outcomes ? outcomes.unreviewedTasks : null,
     receipts: outcomes ? outcomes.receipts : null,

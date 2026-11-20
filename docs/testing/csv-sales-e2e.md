@@ -14,15 +14,15 @@ A repeatable live check of a three-role fusion run (issue #95, item 4): a cloud 
 
 ## Running it
 
-Use an empty folder for the run, and keep the logs and the report outside it. The flags below exist in `atomic-agent run --help`; `--worker` is optional (the issue #95 run used the local `qwen-3.6-35b-a3b`). PowerShell on Windows:
+Use an empty folder for the run, and keep the logs and the report outside it. The flags below are `atomic-agent run`'s (`--allow-command` from issue #95's non-interactive verification, in builds that have it); `--worker` is optional (the issue #95 run used the local `qwen-3.6-35b-a3b`). PowerShell on Windows:
 
 ```powershell
 $run = "C:\e2e\csv-sales"
 New-Item -ItemType Directory -Force $run | Out-Null
 Get-Content docs\testing\fixtures\csv-sales\prompt.txt | atomic-agent run --cwd $run --max-steps 12 `
   --director anthropic:claude-opus-5-5 --reviewer codex-cli:default --auto-approve-project `
+  --allow-command "node --test sales.test.cjs" `
   1> C:\e2e\run-stdout.txt 2> C:\e2e\run-stderr.txt
-# PLACEHOLDER (issue #95, non-interactive verification): the flag that pre-authorizes the test command goes on the line above, for example: --allow-command "node --test sales.test.cjs"
 $code = $LASTEXITCODE
 node scripts\e2e-csv-sales.mjs --cwd $run --log C:\e2e\run-stdout.txt --log C:\e2e\run-stderr.txt --run-exit $code --output C:\e2e\report.json
 ```
@@ -31,11 +31,13 @@ POSIX shells, the same command:
 
 ```sh
 atomic-agent run --cwd "$RUN" --max-steps 12 --director anthropic:claude-opus-5-5 --reviewer codex-cli:default --auto-approve-project \
+  --allow-command "node --test sales.test.cjs" \
   < docs/testing/fixtures/csv-sales/prompt.txt > run-stdout.txt 2> run-stderr.txt
 code=$?
-# PLACEHOLDER (issue #95, non-interactive verification): the test-command pre-authorization flag goes on the run line above.
 node scripts/e2e-csv-sales.mjs --cwd "$RUN" --log run-stdout.txt --log run-stderr.txt --run-exit "$code" --output report.json
 ```
+
+`--allow-command` pre-approves exactly that command, run directly with no shell and only in `--cwd`, so the piped run can run the agent's tests and the milestone gate gets their result; any other command still asks. The acceptance test is not pre-approved: the runner runs it after the run, and the agent never sees it.
 
 The runner reads the session store and the outcome log from `--state-dir`, which defaults to `ATOMIC_AGENT_STATE_DIR`, else `~/.atomic-agent`. It finds the session from `--session`, else from the `session: <id>` line printed at a project gate, else as the newest session in `--cwd`. It exits 0 when both suites pass and 1 otherwise.
 
@@ -43,7 +45,7 @@ The runner reads the session store and the outcome log from `--state-dir`, which
 
 - `tests`: the exit code, TAP counts and failing test names of the acceptance test and the agent's `sales.test.cjs`, and whether both passed.
 - `project`: the persisted gate, the plan rows (task, worker, reviewer) and each milestone's state, runs and criteria facts.
-- `verdicts`: one entry per finished worker task from `fusion/outcomes.ndjson`, oldest first, with its status, attempt and reviewer decision (null when no review ran); `unreviewedTasks` counts the latter. The outcome log holds no task id or title, so match the entries with the plan rows by order and role.
+- `tasks`: each plan row (task, milestone, worker, reviewer) with its verdicts from `fusion/outcomes.ndjson`: status, attempt and reviewer decision (null when no review ran). The log holds no plain id, only `taskKey` and `milestoneKey` (the first 16 hex characters of the sha256 of the UTF-8 id); the runner computes the same keys from the plan rows and joins on them (`join: "key"`). A row from an older build without keys goes, in order, to a task no keyed verdict reached, labelled `join: "order (unjoined)"`. `unmatchedVerdicts` lists the verdicts no task took; `verdicts` keeps them all, oldest first, and `unreviewedTasks` counts those without a review.
 - `receipts`: each turn receipt's strong-side and worker spend and their sums. `run.receiptLines` keeps the `fusion receipt ·` lines found in the logs.
 - `run`: the run's exit code (3: stopped at a project gate) and the session it printed.
 

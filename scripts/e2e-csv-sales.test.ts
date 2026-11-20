@@ -4,7 +4,7 @@
 // and loose number parsing; the runner must read a recorded run (its printed
 // session, receipts, the session store and the outcome log) into the report.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -160,5 +160,51 @@ describe("the runner's parsing", () => {
     expect(report.tests.passed).toBe(false);
     expect(report.session.error).toMatch(/no session store/);
     expect(report.project).toBeNull();
+  });
+});
+
+describe("verdicts joined to plan rows (taskKey / milestoneKey)", () => {
+  const plan = JSON.parse(readFileSync(join(SAMPLE, "session.json"), "utf8")).project;
+
+  it("keys an id as the outcome log does: sha256 of the UTF-8 id, 16 hex characters", () => {
+    expect(runner.outcomeKey("t1")).toBe("628b49d96dcde97a");
+    expect(runner.outcomeKey("ü")).toHaveLength(16);
+  });
+
+  it("puts each keyed verdict next to its task, and an old row without a key by order, labelled unjoined", () => {
+    const lines = readFileSync(join(SAMPLE, "outcomes.ndjson"), "utf8").split("\n");
+    const tasks = runner.joinVerdicts(runner.projectSummary(plan), runner.outcomeSummary(lines, "sess_95e2e7f1").tasks);
+    expect(tasks.map((t: { taskId: string }) => t.taskId)).toEqual(["t1", "t2"]);
+    expect(tasks[0]).toMatchObject({ milestoneId: "m1", reviewer: "codex-cli:default" });
+    expect(tasks[0].verdicts).toEqual([expect.objectContaining({ join: "key", status: "ok", review: expect.objectContaining({ decision: "needs-changes" }) })]);
+    // The test task's record is from an older build: no key, matched by order and said so.
+    expect(tasks[1].verdicts).toEqual([expect.objectContaining({ join: "order (unjoined)", status: "timeout", review: null })]);
+  });
+
+  it("never puts a keyed verdict of another task or milestone on a row", () => {
+    const keyed = (taskId: string, milestoneId: string) => ({ status: "ok", review: null, taskKey: runner.outcomeKey(taskId), milestoneKey: runner.outcomeKey(milestoneId) });
+    const tasks = runner.joinVerdicts(runner.projectSummary(plan), [keyed("t2", "m1"), keyed("t9", "m1"), keyed("t1", "m7")]);
+    expect(tasks[0].verdicts).toEqual([]);
+    expect(tasks[1].verdicts).toEqual([expect.objectContaining({ join: "key" })]);
+    expect(runner.joinVerdicts(null, [keyed("t1", "m1")])).toEqual([]);
+  });
+
+  it("the report lists the tasks with their verdicts, and verdicts no task took", async () => {
+    const cwd = temp("csv-sales-join-");
+    copyFileSync(join(FIXTURES, "reference-sales.cjs"), join(cwd, "sales.cjs"));
+    const stateDir = temp("csv-sales-join-state-");
+    mkdirSync(join(stateDir, "fusion"));
+    const extra = JSON.stringify({ v: 7, type: "task", ts: "2026-11-20T09:19:00.000Z", session: runner.sessionTag("sess_95e2e7f1"), provider: "p", model: "m",
+      status: "ok", attempt: 1, taskKey: runner.outcomeKey("gone"), milestoneKey: runner.outcomeKey("m1") });
+    writeFileSync(join(stateDir, "fusion", "outcomes.ndjson"), readFileSync(join(SAMPLE, "outcomes.ndjson"), "utf8") + extra + "\n");
+    const stored = JSON.parse(readFileSync(join(SAMPLE, "session.json"), "utf8"));
+    const db = new DatabaseSync(join(stateDir, "sessions.sqlite"));
+    db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, turn_owner TEXT)");
+    db.prepare("INSERT INTO sessions VALUES (?, ?, 'active', ?, 1, 2, NULL)").run(stored.id, cwd, JSON.stringify(stored));
+    db.close();
+    const report = await runner.buildReport({ cwd, stateDir, session: null, logs: [], runExit: null, output: null });
+    expect(report.tasks.map((t: { taskId: string; verdicts: Array<{ join: string }> }) => [t.taskId, t.verdicts.map((v) => v.join)]))
+      .toEqual([["t1", ["key"]], ["t2", ["order (unjoined)"]]]);
+    expect(report.unmatchedVerdicts).toEqual([expect.objectContaining({ taskKey: runner.outcomeKey("gone") })]);
   });
 });
