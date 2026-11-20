@@ -150,6 +150,20 @@ describe("project card keys", () => {
     });
   });
 
+  it("approves over an open review with `o` and a reason typed on the card (issue #98)", () => {
+    const view = fixtureProjectGateView(milestone, { allowedVerdicts: ["approve", "edit", "approveOverReview", "cancel"] } as Partial<ProjectGateView>);
+    const h = harness(withCard(view));
+    h.press("o");
+    expect(h.state.projectCard?.mode).toBe("note");
+    h.press("", { return: true });
+    expect(h.callbacks.onProjectDecision).not.toHaveBeenCalled();
+    for (const ch of "reviewer unreachable; tests pass") h.press(ch);
+    h.press("", { return: true });
+    expect(h.callbacks.onProjectDecision).toHaveBeenCalledWith("s1", {
+      gate: milestone, version: 3, verdict: "approveOverReview", edits: { note: "reviewer unreachable; tests pass" },
+    });
+  });
+
   it("does not send an empty correction", () => {
     const view = fixtureProjectGateView(milestone, { allowedVerdicts: ["approve", "edit", "cancel"] });
     const h = harness(withCard(view));

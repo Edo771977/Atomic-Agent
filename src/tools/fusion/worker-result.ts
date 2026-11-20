@@ -128,6 +128,7 @@ export interface WorkerToolStats {
 export type { StalledWrite } from "./worker-repeated-writes.js";
 import type { StalledWrite } from "./worker-repeated-writes.js";
 import type { AttemptFiles } from "./attempt-evidence.js";
+import type { ReviewerIdentity } from "./member-identity.js";
 
 export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set([
   "os.fs.write",
@@ -193,6 +194,8 @@ export interface TaskReview {
   decision: ReviewDecision;
   passes: number;
   reviewer: string | null;
+  /** Provider, effective model and differing plan ref of the reviewer (issue #98). */
+  reviewerIdentity?: ReviewerIdentity;
   issues: ReviewIssue[];
 }
 

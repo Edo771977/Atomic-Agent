@@ -28,6 +28,8 @@ function statusFor(code: string): number {
     case "stale-version":
     case "wrong-gate":
     case "turn-running":
+    // A required task has no current reviewer accept (issue #98): the state, not the request, is the problem.
+    case "review-open":
       return 409;
     case "over-cap":
     case "needs-estimates":

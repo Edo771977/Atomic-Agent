@@ -144,6 +144,22 @@ export function replanFix(
  * `orchestratorAvailable` is false when the target is off or this
  * turn's `maxOrchestratorTasksPerTurn` is used: then no fix names it.
  */
+/**
+ * Runs of one task in a turn after which a task stopped as stalled
+ * (`stalled`, repeated identical writes, issue #95) is not offered for
+ * re-delegation again (issue #98): the director's recovery of a stalled
+ * worker is bounded; past it, the director fixes it, accepts it with
+ * reasons, or asks the person.
+ */
+export const STALL_RECOVERY_ATTEMPTS = 2;
+
+/**
+ * A milestone's review is bound to the plan row's task id (issue #98): a
+ * fix delegated under another id never clears it. No delegate task
+ * carries a link to its plan row, so the director is told.
+ */
+const SAME_TASK_ID = " Keep its task id (the plan row's).";
+
 export function describeReplan(
   results: readonly WorkerTaskResult[],
   attempts: (taskId: string) => number,
@@ -196,7 +212,8 @@ export function describeReplan(
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
     else if (reviewed) {
       const bucket = result.failure === "stuck" ? stuck : reviewExhausted;
-      bucket.push(left > 0 ? task : { ...task, redelegate: false });
+      const recoveryUsed = result.stalled !== undefined && runs >= STALL_RECOVERY_ATTEMPTS;
+      bucket.push(left > 0 && !recoveryUsed ? task : { ...task, replansLeft: 0, redelegate: false });
     }
     else if (left > 0) pending.push(task);
     else exhausted.push(task);
@@ -249,7 +266,7 @@ export function renderReplanBlock(report: ReplanReport): string {
   if (redelegable.length > 0) {
     parts.push(
       [
-        `${reviewHead} re-delegate it with \`fusion.delegate\` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:`,
+        `${reviewHead} re-delegate it with \`fusion.delegate\` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged.${SAME_TASK_ID} Ask the person only if you cannot proceed:`,
         ...redelegable.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,
@@ -272,7 +289,7 @@ export function renderReplanBlock(report: ReplanReport): string {
   if (stuckAgain.length > 0) {
     parts.push(
       [
-        `${stuckHead} re-delegate it with \`fusion.delegate\` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged. Ask the person only if you cannot proceed:`,
+        `${stuckHead} re-delegate it with \`fusion.delegate\` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged.${SAME_TASK_ID} Ask the person only if you cannot proceed:`,
         ...stuckAgain.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation`,

@@ -135,6 +135,7 @@ import {
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
+import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   ORCHESTRATOR_TASK_MODEL,
@@ -274,6 +275,12 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   resolveOriginalRequest?: (sessionId: string) => string | undefined;
   /** Opaque SHA256 of known configured request identity; undefined means insufficient provenance. */
   resolveRoutingIdentity?: (providerId: string) => string | undefined;
+  /**
+   * A provider's resolved default model (issue #98): a member ref's
+   * `default` alias, or no model, stands for it when members are compared
+   * (`member-identity.ts`). Absent, `default` equals only itself.
+   */
+  resolveDefaultModel?: (providerId: string) => string | undefined;
   /**
    * Pricing for the worker model on the worker leg, when any is known
    * (`resolveModelPricingFor`). Present, the status table header states
@@ -1153,13 +1160,15 @@ export function buildFusionDelegateTool(
           const usable =
             picked === undefined || picked === null
               ? undefined
-              : (team?.reviewers ?? []).find((m) => m.ref === picked && m.ref !== taskMember(taskId).ref);
+              : (team?.reviewers ?? []).find(
+                  (m) => sameMember(m.ref, picked, deps.resolveDefaultModel) && !sameMember(m.ref, taskMember(taskId).ref, deps.resolveDefaultModel),
+                );
           if (picked === null || usable !== undefined) found = { member: usable ?? null, fromPlan: true };
           else {
             if (picked !== undefined) {
               unusablePlanReviewers.set(
                 taskId,
-                picked === taskMember(taskId).ref
+                sameMember(picked, taskMember(taskId).ref, deps.resolveDefaultModel)
                   ? "it is now the task's worker"
                   : "it is not a team reviewer this folder's policy allows and that can answer now",
               );
@@ -1182,7 +1191,7 @@ export function buildFusionDelegateTool(
         const row = approvedRows.get(taskId);
         if (row === undefined) return undefined;
         const runs = reviewerRefOf(taskId);
-        if (row.reviewer === runs) return undefined;
+        if (sameMember(row.reviewer, runs, deps.resolveDefaultModel)) return undefined;
         const instead = runs === null ? "no team reviewer reviews it" : `${runs} reviews it instead`;
         if (row.reviewer === null) return `the plan has no review for it, but ${runs} would review it`;
         const why = unusablePlanReviewers.get(taskId) ?? "no review can run here";
@@ -1218,6 +1227,7 @@ export function buildFusionDelegateTool(
           reviewerRefOf,
           writeScope,
           [ctx.workingDir],
+          deps.resolveDefaultModel,
         );
       const turnGrantCovers =
         deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
@@ -1300,6 +1310,7 @@ export function buildFusionDelegateTool(
       // Tasks the call meant to review that ended with no verdict, and why (issue #95).
       let noReviewVerdict: Array<{ taskId: string; reason: string }> = [];
       let runReviews: RunTaskReview[] = [];
+      let runMeta: () => { ran: readonly string[]; judging: boolean } | undefined = () => undefined;
       let secretCollectionFailed = false;
       const collectKnownSecrets = (): readonly KnownSecret[] | undefined => {
         if (secretCollectionFailed) throw new Error("Secret metadata unavailable");
@@ -1850,10 +1861,15 @@ export function buildFusionDelegateTool(
       // Every distinct judge that ruled (a team may ask several
       // reviewers), named on the spend line.
       const judgesUsed = new Set<string>();
+      // A task that changed nothing (`no_changes`) is judged too (issue #98):
+      // its files stand from an earlier attempt, and only the evidence
+      // (a check's counts, say) may be new; a re-review of the same files
+      // needs no new write.
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
         judgeTargetFor(r.id) !== null &&
         (r.status === "ok" ||
+          r.status === "no_changes" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
       // Tasks whose last review was cut short by the budget or a cancel:
       // a stop, never a review that ran out of passes (issue #38).
@@ -1947,6 +1963,8 @@ export function buildFusionDelegateTool(
         const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir);
         const judged = await judgeTask({
           ...input,
+          planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
+          ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
@@ -3037,6 +3055,7 @@ export function buildFusionDelegateTool(
                     decision: verdict.review.decision,
                     passes: passes.get(row.id) ?? 0,
                     reviewer: verdict.review.reviewer,
+                    ...(verdict.review.reviewerIdentity === undefined ? {} : { reviewerIdentity: verdict.review.reviewerIdentity }),
                     issues: verdict.review.issues,
                   },
                 };
@@ -3096,7 +3115,8 @@ export function buildFusionDelegateTool(
               if (!parsed.tasks.some((t) => t.id === r.id) || (acceptance.get(r.id)?.length ?? 0) === 0) return [];
               const decision = r.judge?.review?.decision;
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
-                return [{ taskId: r.id, verdict: decision }];
+                const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }) }];
               }
               const reason =
                 r.judge === undefined
@@ -3108,9 +3128,13 @@ export function buildFusionDelegateTool(
               return [{ taskId: r.id, verdict: "none", reason, ...(criteria.length === 0 ? {} : { criteria }) }];
             })
           : [];
+        // Which tasks this call ran (not those carried from a checkpoint or never started), and whether review was on (issue #98).
+        const carriedIds = new Set(resume?.carried.map((r) => r.id) ?? []);
+        const ranIds = results.filter((r) => !carriedIds.has(r.id) && !(r.error ?? "").startsWith("not started:")).map((r) => r.id);
+        runMeta = () => ({ ran: ranIds, judging });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3325,6 +3349,7 @@ export function buildFusionDelegateTool(
                 })),
             factCriteria,
             runReviews,
+            runMeta(),
           );
         }
         terminalTaskCount = results.length;
@@ -3420,7 +3445,7 @@ export function buildFusionDelegateTool(
             }${
               noReviewVerdict.length === 0
                 ? ""
-                : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`
+                : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}. To get one, re-delegate each with its own task id (the plan row's): a fix under another id does not count.`
             }${treeNote}${replan === undefined ? "" : renderReplanBlock(replan)}${renderMergeBlock(merges)}${resumeNote}${checkpointNote}${budgetNote}${breakerNote}${
               sizeWarnings.length === 0
                 ? ""

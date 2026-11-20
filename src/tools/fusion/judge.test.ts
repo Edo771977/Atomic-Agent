@@ -121,6 +121,8 @@ describe("the judge cannot pass what the facts fail", () => {
       decision: "needs-changes",
       issues: [{ item: "a3", severity: "major", file: "a.txt", why: "no score", by: "reviewer" }],
       reviewer: "judge-model",
+      // Issue #98: who answered; the provider reported no model here.
+      reviewerIdentity: { provider: "cloud" },
     });
   });
 
@@ -212,6 +214,7 @@ describe("the structured review verdict (issue #38)", () => {
         decision: "accept",
         issues: [{ item: "a2", severity: "minor", file: "a.txt", why: "rename x", by: "reviewer" }],
         reviewer: "judge-model",
+        reviewerIdentity: { provider: "cloud" },
       });
       expect(verdict.items.every((v) => v.pass)).toBe(true);
     }
@@ -232,7 +235,7 @@ describe("the structured review verdict (issue #38)", () => {
     const verdict = await judge(JSON.stringify({ items: [{ id: "a2", pass: true }] }), { ...TARGET, pinModel: "model-r" });
     expect(verdict.green).toBe(false);
     expect(verdict.unverified).toMatch(/could not be read/);
-    expect(verdict.review).toEqual({ decision: "unverified", issues: [], reviewer: "model-r" });
+    expect(verdict.review).toEqual({ decision: "unverified", issues: [], reviewer: "model-r", reviewerIdentity: { provider: "cloud" } });
   });
 
   it("makes red facts blocker issues by fact, without asking the reviewer", async () => {
@@ -911,7 +914,7 @@ describe("review passes with a fusion team (issue #38)", () => {
     const outcomeLog = { append: (records: readonly unknown[]) => { written.push(...(records as Array<Record<string, unknown>>)); } };
     await run(team(), () => blocker, { outcomeLog });
     const task = written.find((r) => r.type === "task")!;
-    expect(task.review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "model-r", blockers: 1, majors: 0, minors: 0 });
+    expect(task.review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "model-r", reviewerProvider: "cli-b", blockers: 1, majors: 0, minors: 0 });
     expect(task.judgeRetried).toBe(true);
     expect(task.failure).toBe("review-exhausted");
     expect(JSON.stringify(written)).not.toContain("no score");
@@ -1017,6 +1020,7 @@ describe("review exhausted: the director decides (issue #38)", () => {
       decision: "needs-changes",
       passes: 2,
       reviewer: "model-r",
+      reviewerIdentity: { provider: "cli-b" },
       issues: [{ item: "a2", severity: "blocker", file: "a.txt", why: "no score", by: "reviewer" }],
     });
   });

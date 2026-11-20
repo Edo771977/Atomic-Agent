@@ -192,7 +192,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   if (card.error !== null) text(card.error, "error");
 
   if (card.mode === "note") {
-    out.push(line(" Your correction:", "muted"));
+    out.push(line(card.noteFor === "approveOverReview" ? " Why approve over the open review:" : " Your correction:", "muted"));
     out.push({ segments: [{ text: `  ${card.note}` }, { text: " ", inverse: true }] });
     out.push(line(" enter send · esc back", "muted"));
     return out;
