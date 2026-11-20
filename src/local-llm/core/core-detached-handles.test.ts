@@ -24,7 +24,13 @@ describe("a Core started by a short-lived process (issue #102)", () => {
     if (daemonPid !== undefined) {
       try { process.kill(daemonPid); } catch { /* already gone */ }
     }
-    rmSync(base, { recursive: true, force: true });
+    // Windows keeps a just-killed process's files locked for a moment, so the
+    // first delete can fail with EPERM; retry, and never fail the test on cleanup.
+    try {
+      rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    } catch {
+      /* the OS temp cleaner takes it later */
+    }
   });
 
   it("keeps running while the starter exits and its pipes close in bounded time", async () => {
