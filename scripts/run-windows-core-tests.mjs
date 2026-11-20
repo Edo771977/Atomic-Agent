@@ -40,6 +40,11 @@ export const criticalFiles = [
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
   // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
   'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
+  // Issue #102: execution evidence, recovery after a timed-out passing run, both verdicts, plan-task steering.
+  'src/tools/fusion/execution-evidence.test.ts',
+  'src/tools/fusion/timeout-recovery-guard.test.ts',
+  'src/tools/fusion/both-verdicts.test.ts',
+  'src/tools/fusion/director-takeover.test.ts',
   // Issue #100: bounded correction rounds, verify-only tasks, timeout recovery, review issues.
   'src/tools/fusion/milestone-correction.test.ts',
   'src/tools/fusion/review-issues.test.ts',
