@@ -10,13 +10,13 @@ import { FILE_WRITING_TOOLS } from "./worker-result.js";
  * task ran on to its ten-minute limit.
  *
  * An identical rewrite is itself the no-progress signal: the file did
- * not change. After {@link REPEATED_WRITE_LIMIT} identical rewrites of
- * one path (the same path, the same SHA-256 of the content, each call
- * `ok`) the runner stops the worker the way the watch does (`failure:
+ * not change. After {@link REPEATED_WRITE_LIMIT} consecutive identical
+ * rewrites of one path (the same path, the same SHA-256 of the content,
+ * each call `ok`, with no other progress in between: see
+ * {@link RepeatedWritesTracker}) the runner stops the worker the way the watch does (`failure:
  * "stuck"`) and hands the director the file, its hash and the worker's
  * last check (`WorkerTaskResult.stalled`), so it can verify the file or
- * reassign the task. Any other successful write to the path (an edit, a
- * patch, different bytes) starts its count again.
+ * reassign the task.
  */
 export const REPEATED_WRITE_LIMIT = 3;
 
@@ -37,46 +37,71 @@ export interface StalledWrite {
   lastCheck?: { spec: string; ok: boolean; sinceLastChange: boolean; coversFile: boolean };
 }
 
-type Pending = { kind: "write"; path: string; sha256: string } | { kind: "other"; paths: readonly string[] | null };
+type Pending = { kind: "write"; path: string; sha256: string } | { kind: "other"; tool: string; paths: readonly string[] | null };
 
+/** Calls that change nothing a stall is about: a check, a reply, a finish. */
+const NEUTRAL_TOOLS: ReadonlySet<string> = new Set(["verify.run", "reply", "finish"]);
+
+/**
+ * Counts consecutive identical writes to one path. Any other successful
+ * call that is not read-only (a write to another file, an edit, a shell
+ * command) is progress and ends the run of repeats; failed calls,
+ * read-only ones and checks (`verify.run`) do not. `reset` starts over
+ * (the runner calls it when the self-check's grace turn begins).
+ */
 export class RepeatedWritesTracker {
   private readonly pending = new Map<number, Pending>();
-  private readonly last = new Map<string, { sha256: string; writes: number }>();
+  /** The last bytes written to each path, for `identical`. */
+  private readonly lastHash = new Map<string, string>();
+  /** The current run of writes since the last progress. */
+  private streak: { path: string; sha256: string; writes: number } | undefined;
+
+  constructor(private readonly readOnlyTools: ReadonlySet<string> = new Set()) {}
 
   observeParsed(call: { tool: string; args: Record<string, unknown> }, batchIndex: number): void {
-    if (!FILE_WRITING_TOOLS.has(call.tool)) {
-      this.pending.delete(batchIndex);
-      return;
-    }
     const path = typeof call.args.path === "string" && call.args.path.trim().length > 0 ? normalise(call.args.path) : null;
     if (call.tool === "os.fs.write" && path !== null && typeof call.args.content === "string") {
       this.pending.set(batchIndex, { kind: "write", path, sha256: createHash("sha256").update(call.args.content).digest("hex") });
       return;
     }
-    this.pending.set(batchIndex, { kind: "other", paths: path === null ? null : [path] });
+    this.pending.set(batchIndex, { kind: "other", tool: call.tool, paths: path === null ? null : [path] });
+  }
+
+  /** Forget the run of repeats (a new turn the runner gave the worker). */
+  reset(): void {
+    this.streak = undefined;
   }
 
   /**
-   * The write's outcome: `identical` when it rewrote the bytes the file
+   * The call's outcome: `identical` when it rewrote the bytes the file
    * already held; `repeat` when this one reaches the limit.
    */
   observeExecuted(
-    result: { tool: string; status: string },
+    result: { tool: string; status: string; details?: Record<string, unknown> },
     batchIndex: number,
   ): { identical: boolean; repeat?: Omit<StalledWrite, "reason" | "lastCheck"> } {
     const pending = this.pending.get(batchIndex);
     this.pending.delete(batchIndex);
-    if (pending === undefined || result.status !== "ok") return { identical: false };
-    if (pending.kind === "other") {
-      // Another change to the file (or to files it cannot name): the bytes may differ now.
-      if (pending.paths === null) this.last.clear();
-      else for (const path of pending.paths) this.last.delete(path);
+    if (result.status !== "ok") return { identical: false };
+    if (pending === undefined || pending.kind === "other") {
+      const tool = pending?.tool ?? result.tool;
+      if (NEUTRAL_TOOLS.has(tool) || this.readOnlyTools.has(tool)) return { identical: false };
+      // Progress: the run of repeats ends, and a changed file's bytes are unknown now.
+      this.streak = undefined;
+      if (FILE_WRITING_TOOLS.has(tool)) {
+        if (pending?.paths == null) this.lastHash.clear();
+        else for (const path of pending.paths) this.lastHash.delete(path);
+      }
       return { identical: false };
     }
-    const prev = this.last.get(pending.path);
-    const identical = prev?.sha256 === pending.sha256;
-    const writes = identical ? prev!.writes + 1 : 1;
-    this.last.set(pending.path, { sha256: pending.sha256, writes });
+    const identical = this.lastHash.get(pending.path) === pending.sha256;
+    this.lastHash.set(pending.path, pending.sha256);
+    const streak = this.streak;
+    this.streak =
+      streak !== undefined && streak.path === pending.path && streak.sha256 === pending.sha256
+        ? { ...streak, writes: streak.writes + 1 }
+        : { path: pending.path, sha256: pending.sha256, writes: 1 };
+    const writes = this.streak.writes;
     return writes - 1 >= REPEATED_WRITE_LIMIT ? { identical, repeat: { path: pending.path, sha256: pending.sha256, writes } } : { identical };
   }
 }

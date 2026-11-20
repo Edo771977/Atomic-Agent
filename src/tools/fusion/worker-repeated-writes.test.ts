@@ -22,13 +22,18 @@ const finished = (stepIndex: number): AgentLoopEvent => ({ type: "step_finished"
 
 type Hook = (event: AgentLoopEvent) => void;
 /** One worker run of `script`; it may return early once `aborted()` says the runner stopped it. */
-async function runScript(script: (hook: Hook, aborted: () => boolean) => void | "stopped") {
+async function runScript(
+  script: (hook: Hook, aborted: () => boolean, turn: number) => void | "stopped",
+  task: { id: string; title: string; instructions: string; files?: string[] } = { id: "tests", title: "Tests", instructions: "write sales.test.cjs" },
+) {
   let stopped = false;
   let minted = 0;
+  let turns = 0;
   const deps: WorkerRunnerDeps = {
     runTurn: async (_session, _message, options) => {
+      turns += 1;
       options.eventHook!({ type: "turn_started", turnIndex: 0 });
-      stopped = script(options.eventHook!, () => options.signal?.aborted === true) === "stopped";
+      stopped = script(options.eventHook!, () => options.signal?.aborted === true, turns) === "stopped" || stopped;
       return { session: createEmptySessionState({ id: "s-w", workingDir: REPO }), reason: stopped ? "cancelled" : "reply", stepCount: 1 } as RunTurnResult;
     },
     createEphemeralSession: (meta: FusionWorkerMeta) => {
@@ -41,9 +46,9 @@ async function runScript(script: (hook: Hook, aborted: () => boolean) => void | 
   };
   const [result] = await runWorkerTasks(deps, {
     parentSessionId: "s-parent", providerId: "local-llama", workerModel: "qwen", workerMaxSteps: 40, workerTimeoutMs: 600_000,
-    tasks: [{ id: "tests", title: "Tests", instructions: "write sales.test.cjs" }], maxWorkers: 1, signal: new AbortController().signal,
+    tasks: [task], maxWorkers: 1, signal: new AbortController().signal,
   });
-  return { result: result!, stopped };
+  return { result: result!, stopped, turns: () => turns };
 }
 let stepNo = 0;
 const step = (hook: Hook, tool: string, args: Record<string, unknown>, status: "ok" | "error" = "ok"): void => {
@@ -51,6 +56,63 @@ const step = (hook: Hook, tool: string, args: Record<string, unknown>, status: "
   hook(executed(tool, status));
   hook(finished(stepNo++));
 };
+
+describe("only consecutive identical writes with no other progress count (issue #95 review)", () => {
+  const X = { path: "a.test.js", content: "X" };
+  it("a productive cycle (the same test file, then the code, a formatter and a failing check) is never stopped", async () => {
+    const run = await runScript((hook, aborted) => {
+      for (let i = 0; i < 6; i += 1) {
+        if (aborted()) return "stopped";
+        step(hook, "os.fs.write", X);
+        step(hook, "os.fs.edit", { path: "impl.js", oldString: `v${i}`, newString: `v${i + 1}` });
+        step(hook, "os.shell.exec", { command: "npx prettier --write ." });
+        step(hook, "verify.run", { type: "command", command: "node --test a.test.js" }, "error");
+      }
+    });
+    expect(run.stopped).toBe(false);
+    expect(run.result.stalled).toBeUndefined();
+  });
+
+  it("identical writes with only failing checks between them are a stall", async () => {
+    const run = await runScript((hook, aborted) => {
+      for (let i = 0; i < 10; i += 1) {
+        if (aborted()) return "stopped";
+        step(hook, "os.fs.write", X);
+        step(hook, "verify.run", { type: "command", command: "node --test a.test.js" }, "error");
+      }
+    });
+    expect(run.stopped).toBe(true);
+    expect(run.result.stalled).toMatchObject({ path: "a.test.js", writes: 1 + REPEATED_WRITE_LIMIT });
+  });
+
+  it("progress in between resets the count: repeats that are not consecutive never stop the worker", async () => {
+    const run = await runScript((hook, aborted) => {
+      for (let round = 0; round < 3; round += 1) {
+        for (let i = 0; i < REPEATED_WRITE_LIMIT; i += 1) {
+          if (aborted()) return "stopped";
+          step(hook, "os.fs.write", X);
+        }
+        step(hook, "os.fs.write", { path: "impl.js", content: `round ${round}` });
+      }
+    });
+    expect(run.stopped).toBe(false);
+  });
+
+  it("the self-check's grace turn starts the count again", async () => {
+    // One write short of the limit in the first turn; the grace turn (the
+    // declared file is missing) writes the same bytes once more.
+    const run = await runScript((hook, aborted, turn) => {
+      const writes = turn === 1 ? REPEATED_WRITE_LIMIT : 1;
+      for (let i = 0; i < writes; i += 1) {
+        if (aborted()) return "stopped";
+        step(hook, "os.fs.write", X);
+      }
+    }, { id: "tests", title: "Tests", instructions: "write the tests", files: ["missing.test.js"] });
+    expect(run.turns()).toBe(2);
+    expect(run.stopped).toBe(false);
+    expect(run.result.stalled).toBeUndefined();
+  });
+});
 
 describe("a stalled worker's last check is reported as it stands (issue #95 review)", () => {
   it("a check that passed before the file changed is not run since the last change; one after it names whether it covered the file", async () => {
