@@ -3098,7 +3098,8 @@ export function buildFusionDelegateTool(
                     ? "not judged"
                     : `the task ended ${r.status} before review: ${(r.error ?? r.status).replace(/\s+/g, " ").slice(0, 160)}`
                   : `not verified: ${(r.judge.unverified ?? "no decision").replace(/\s+/g, " ").slice(0, 160)}`;
-              return [{ taskId: r.id, verdict: "none", reason }];
+              const criteria = [...new Set((parsed.contract?.checks ?? []).filter((c) => c.task === r.id).flatMap((c) => c.criteria ?? []))];
+              return [{ taskId: r.id, verdict: "none", reason, ...(criteria.length === 0 ? {} : { criteria }) }];
             })
           : [];
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));

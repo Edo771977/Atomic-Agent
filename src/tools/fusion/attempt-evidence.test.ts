@@ -21,7 +21,7 @@ import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-deleg
 import { ATTEMPT_EVIDENCE_CHARS, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
 import { buildProjectTools } from "./project-tools.js";
 import { FusionRunStore } from "./run-checkpoint.js";
-import { readMilestoneEvidence } from "./run-criteria.js";
+import { readMilestoneEvidence, writeRunCriteriaFacts } from "./run-criteria.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -196,6 +196,32 @@ describe("reviewer evidence across attempts (issue #95)", () => {
     expect(text).toContain("attempt 1: wrote sales.cjs (sha256 bbbbbbbbbbbb)");
     expect(text).toMatch(/\+\d+ files/);
     expect(text).toContain("## Version under review\n- sales.cjs sha256 bbbbbbbbbbbb");
+  });
+
+  it("reviews across runs: a later run that covers the task's criteria, or reviews the task, clears its no-verdict warning", () => {
+    const state = mkdtempSync(join(tmpdir(), "attempt-reviews-"));
+    try {
+      const runsDir = join(state, "fusion-runs");
+      const read = (runIds: string[]) => readMilestoneEvidence({ runsDir, stateDir: state, runIds, criteriaOrder: ["c1", "c2"] }).noReviewVerdict;
+      writeRunCriteriaFacts(runsDir, { runId: "fr-1", sessionId: "s" }, [], undefined, [
+        { taskId: "tests", verdict: "none", reason: "the task ended failed before review: timed out", criteria: ["c1"] },
+        { taskId: "docs", verdict: "none", reason: "not judged" },
+      ]);
+      expect(read(["fr-1"])).toEqual([
+        { taskId: "tests", reason: "the task ended failed before review: timed out" },
+        { taskId: "docs", reason: "not judged" },
+      ]);
+      // The fix came under another task id, and its run covered c1.
+      writeRunCriteriaFacts(runsDir, { runId: "fr-2", sessionId: "s" }, [{ taskId: "tests-fix", facts: [{ id: "c1", state: "passed" }] }], undefined, [
+        { taskId: "tests-fix", verdict: "accept" },
+      ]);
+      expect(read(["fr-1", "fr-2"])).toEqual([{ taskId: "docs", reason: "not judged" }]);
+      // Read in the other order, the old run is the newest: its warning stands.
+      expect(read(["fr-2", "fr-1"])).toHaveLength(2);
+      // A later run that reviews the task itself clears it too.
+      writeRunCriteriaFacts(runsDir, { runId: "fr-3", sessionId: "s" }, [], undefined, [{ taskId: "docs", verdict: "accept" }]);
+      expect(read(["fr-1", "fr-2", "fr-3"])).toBeUndefined();
+    } finally { rmSync(state, { recursive: true, force: true }); }
   });
 });
 

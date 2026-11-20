@@ -44,6 +44,12 @@ export interface RunTaskReview {
   taskId: string;
   verdict: "accept" | "needs-changes" | "none";
   reason?: string;
+  /**
+   * The criteria the task's checks name: a later run whose facts cover
+   * all of them (under any task id) clears a `none` (a fix often comes
+   * under another task id).
+   */
+  criteria?: string[];
 }
 
 /** A stored fact: the criterion text its checks tested, when the run knew it. */
@@ -75,6 +81,7 @@ export function writeRunCriteriaFacts(
     taskId: r.taskId,
     verdict: r.verdict,
     ...(r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) }),
+    ...(r.criteria === undefined || r.criteria.length === 0 ? {} : { criteria: r.criteria.slice(0, 32) }),
   }));
   if (kept.length === 0 && keptReviews.length === 0) return;
   const target = fusionRunShotTarget(runsDir, run, undefined);
@@ -113,9 +120,10 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
   const reviews: RunTaskReview[] = [];
   for (const r of Array.isArray(rawReviews) ? rawReviews.slice(0, MAX_TASKS) : []) {
     if (typeof r !== "object" || r === null) continue;
-    const { taskId, verdict, reason } = r as Record<string, unknown>;
+    const { taskId, verdict, reason, criteria } = r as Record<string, unknown>;
     if (typeof taskId !== "string" || (verdict !== "accept" && verdict !== "needs-changes" && verdict !== "none")) continue;
-    reviews.push({ taskId, verdict, ...(typeof reason === "string" ? { reason: reason.slice(0, 300) } : {}) });
+    const ids = Array.isArray(criteria) ? criteria.flatMap((id) => { const clean = normalizeCriterionId(id); return clean === null ? [] : [clean]; }) : [];
+    reviews.push({ taskId, verdict, ...(typeof reason === "string" ? { reason: reason.slice(0, 300) } : {}), ...(ids.length === 0 ? {} : { criteria: ids }) });
   }
   const out: StoredRun["tasks"] = [];
   for (const t of tasks.slice(0, MAX_TASKS)) {
@@ -195,10 +203,14 @@ export function readMilestoneEvidence(input: {
   const byTask = new Map<string, readonly ProjectCriterionFact[]>();
   const worst = new Map<string, ProjectCriterionFact>();
   const staleIds = new Set<string>();
-  const reviewOf = new Map<string, RunTaskReview>();
-  for (const runId of input.runIds) {
+  // Per task, its newest run's review and that run's position; per
+  // criterion, the newest run whose (current) facts name it.
+  const reviewOf = new Map<string, { review: RunTaskReview; at: number }>();
+  const coveredAt = new Map<string, number>();
+  for (const [at, runId] of input.runIds.entries()) {
     const run = readRunTasks(input.runsDir, runId);
-    for (const review of run.reviews) reviewOf.set(review.taskId, review);
+    for (const review of run.reviews) reviewOf.set(review.taskId, { review, at });
+    for (const task of run.tasks) for (const f of task.facts) if (!stale(f)) coveredAt.set(f.id, at);
     const inRun = new Map<string, ProjectCriterionFact>();
     for (const task of run.tasks) {
       const valid = task.facts.filter((f) => !stale(f));
@@ -255,8 +267,14 @@ export function readMilestoneEvidence(input: {
       ...(criteria.length === 0 ? {} : { criteria }),
     };
   });
-  const noReviewVerdict = [...reviewOf.values()].flatMap((r) =>
-    r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason ?? "no verdict recorded" }] : [],
-  );
+  // Warnings only: nothing gates on a review here (`project.milestone`
+  // appends them to its report). A `none` stands unless a later run's
+  // facts cover every criterion the task's checks named.
+  const noReviewVerdict = [...reviewOf.values()].flatMap(({ review: r, at }) => {
+    if (r.verdict !== "none") return [];
+    const ids = r.criteria ?? [];
+    if (ids.length > 0 && ids.every((id) => (coveredAt.get(id) ?? -1) > at)) return [];
+    return [{ taskId: r.taskId, reason: r.reason ?? "no verdict recorded" }];
+  });
   return { facts, attachments, uncovered, ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }) };
 }
