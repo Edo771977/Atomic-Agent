@@ -97,7 +97,7 @@ import {
   GREEN_CHECK_REPEAT_LIMIT,
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
-import { AttemptFilesTracker } from "./attempt-evidence.js";
+import { AttemptFilesTracker, fileSha256 } from "./attempt-evidence.js";
 import { ExecutionEvidenceTracker, runPassed } from "./execution-evidence.js";
 import { guardVerifiedVersion, verifiedSnapshot, WorkerWriteHashes } from "./verified-version.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
@@ -2537,22 +2537,30 @@ async function runOneTask(
   // worker's OWN timer is what ended the turn, and the orchestrator's
   // remedy for that is a longer deadline, not a bigger step budget.
   if (timedOutOutcome) {
-    // Out of time after its own test run passed (issue #102): the work is
-    // there and the run recorded it, so the row goes on to its checks and
-    // review like a reply would. The gate re-runs the task's own checks
-    // on the files as they are now, so a change after the run is checked
-    // again; the reviewer rules from the recorded run. No new worker.
-    const lastRun = executionEvidence.recorded().at(-1);
+    // Out of time after its own checks passed on its own work (issue
+    // #102): the row goes on to its checks and review like a reply would,
+    // with no new worker; the gate re-runs the task's own checks on the
+    // files as they are now. Only when all of these hold: the attempt
+    // wrote a declared file, the worker's last check run is one of the
+    // task's own contract checks, passed after its last change, and the
+    // declared files still hash as that run recorded them.
+    const declared = task.files ?? [];
+    const own = ownChecks(options.contract, task.id);
+    const lastVerify = executionEvidence.recorded().filter((r) => r.tool === "verify.run").at(-1);
     const recovered =
-      lastRun !== undefined && runPassed(lastRun) &&
-      ownChecks(options.contract, task.id).length > 0 && (task.files ?? []).length > 0 &&
+      declared.length > 0 && own.length > 0 &&
+      attemptFiles.wroteOneOf(declared) &&
+      checkRuns.lastRunPassedOneOf(own) &&
+      lastVerify !== undefined && runPassed(lastVerify) &&
+      lastVerify.files.length > 0 &&
+      lastVerify.files.every((f) => f.sha256 !== undefined && fileSha256(workingDir, f.path) === f.sha256) &&
       !stopByPerson.signal.aborted && !options.signal.aborted;
     result = recovered
       ? {
           ...result,
           status: "ok",
           timedOutAfterRun: true,
-          notes: [...(result.notes ?? []), `timed out before its reply, after its own test run passed (${lastRun!.command}); kept for its checks and review from the recorded run`],
+          notes: [...(result.notes ?? []), `timed out before its reply, after its own test run passed (${lastVerify!.command}); kept for its checks and review from the recorded run`],
         }
       : { ...result, status: "timeout" };
   }

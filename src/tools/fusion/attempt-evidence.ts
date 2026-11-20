@@ -111,6 +111,14 @@ export class AttemptFilesTracker {
     this.alreadyApplied.delete(pending.path);
   }
 
+  /** Whether the run wrote (an `ok` write, not a no-op) one of `paths`, as the task declares them. */
+  wroteOneOf(paths: readonly string[]): boolean {
+    return paths.some((path) => {
+      const inside = evidencePath([this.workingDir], path);
+      return inside !== undefined && this.wrote.has(inside.display);
+    });
+  }
+
   /** The run's evidence, hashed as the files stand now; undefined when it touched no file. */
   finish(): AttemptFiles | undefined {
     if (this.wrote.size === 0 && this.alreadyApplied.size === 0) return undefined;

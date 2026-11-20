@@ -105,7 +105,8 @@ function worker(dir: string, hang: boolean): FusionDelegateDeps["runTurn"] {
     return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 2 } as RunTurnResult;
   };
 }
-const contract = { checks: [{ task: "program", type: "command", command: "node --test sales.test.cjs" }] };
+// The task's own check: the same spec the worker runs through verify.run.
+const contract = { checks: [{ task: "program", kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] }] };
 const program = [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }];
 
 describe("execution evidence (issue #102)", () => {
