@@ -127,6 +127,7 @@ export interface WorkerToolStats {
 /** The calls that change a file. Shell commands can too, but the disk check catches those. */
 export type { StalledWrite } from "./worker-repeated-writes.js";
 import type { StalledWrite } from "./worker-repeated-writes.js";
+import type { AttemptFiles } from "./attempt-evidence.js";
 
 export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set([
   "os.fs.write",
@@ -299,6 +300,12 @@ export interface WorkerTaskResult {
    * the file, its SHA-256, how many identical writes, and the last check.
    */
   stalled?: StalledWrite;
+  /**
+   * This run's file evidence (issue #95, `attempt-evidence.ts`): what it
+   * wrote, hashed as it left it, and the edits that found their new text
+   * already present. The delegate binds it to the attempt for the reviewer.
+   */
+  attempt?: AttemptFiles;
   /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted

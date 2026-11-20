@@ -95,6 +95,7 @@ import {
   runSelfCheck,
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, type StalledWrite } from "./worker-repeated-writes.js";
+import { AttemptFilesTracker } from "./attempt-evidence.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
 import { estimatedOutputTokens } from "./worker-fit.js";
 
@@ -1556,8 +1557,11 @@ async function runOneTask(
   // Identical rewrites of one file (issue #95): the same stop, with the
   // file, its hash and the last check for the director.
   const repeatedWrites = new RepeatedWritesTracker();
+  // This attempt's file evidence for the reviewer (issue #95).
+  const attemptFiles = new AttemptFilesTracker(workingDir);
   let stalledWrite: StalledWrite | undefined;
-  const noteWriteOutcome = (result: { tool: string; status: string }, batchIndex: number): void => {
+  const noteWriteOutcome = (result: { tool: string; status: string; summary?: string }, batchIndex: number): void => {
+    attemptFiles.observeExecuted(result, batchIndex);
     const repeat = repeatedWrites.observeExecuted(result, batchIndex);
     if (repeat === undefined || stalledWrite !== undefined || stopByWatch.signal.aborted) return;
     const lastCheck = checkRuns.lastRunOutcome();
@@ -1995,6 +1999,7 @@ async function runOneTask(
           );
           filesWritten.observeParsed(event.event.call, event.event.batchIndex);
           repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
+          attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
           } catch {
@@ -2321,6 +2326,7 @@ async function runOneTask(
                 event.event.batchIndex,
               );
               repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
+              attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
               try {
                 options.onWorkerTool?.(task.id, event.event.call.tool);
               } catch {
@@ -2420,6 +2426,10 @@ async function runOneTask(
           failure: "stuck",
           error: `stuck: the watch (${watchPlan?.judgeLabel ?? "its judge"}) judged the worker stuck after ${checks} check${checks === 1 ? "" : "s"} and stopped it`,
         };
+  }
+  {
+    const files = attemptFiles.finish();
+    if (files !== undefined) result = { ...result, attempt: files };
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on

@@ -130,9 +130,11 @@ import {
   renderAcceptanceBlock,
   renderRetryFindings,
   renderReviewIssues,
+  type JudgeFacts,
   type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
+import { fileSha256, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   ORCHESTRATOR_TASK_MODEL,
@@ -188,7 +190,7 @@ import { currentPolicyAllows, currentProviderPolicy, runWithProviderRole } from 
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
-import { writeRunCriteriaFacts } from "./run-criteria.js";
+import { writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1295,6 +1297,9 @@ export function buildFusionDelegateTool(
       let candidateOutcomesRecorded = false;
       let completedCandidateReport: CandidateIntegrationReport | undefined;
       let terminalTaskCount = 0;
+      // Tasks the call meant to review that ended with no verdict, and why (issue #95).
+      let noReviewVerdict: Array<{ taskId: string; reason: string }> = [];
+      let runReviews: RunTaskReview[] = [];
       let secretCollectionFailed = false;
       const collectKnownSecrets = (): readonly KnownSecret[] | undefined => {
         if (secretCollectionFailed) throw new Error("Secret metadata unavailable");
@@ -1669,6 +1674,33 @@ export function buildFusionDelegateTool(
         checkRun = evidenceRun;
         admitted.runId = evidenceRun.runId;
       }
+      // Each worker run of a task is an attempt (issue #95): what it wrote
+      // and the edits it found already applied stay with that attempt, and
+      // the reviewer reads them with the version under review.
+      const attemptLedger = new Map<string, AttemptRecord[]>();
+      const noteAttempt = (result: WorkerTaskResult): void => {
+        const list = attemptLedger.get(result.id) ?? [];
+        list.push({ attempt: list.length + 1, wrote: result.attempt?.wrote ?? [], alreadyApplied: result.attempt?.alreadyApplied ?? [] });
+        attemptLedger.set(result.id, list);
+      };
+      /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
+      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string): string => {
+        const attempts = attemptLedger.get(task.id) ?? [];
+        const paths = [...new Set([...(task.files ?? []), ...attempts.flatMap((a) => [...a.wrote.map((w) => w.path), ...a.alreadyApplied])])];
+        const current = paths.map((path) => {
+          const sha256 = fileSha256(workingDir, path);
+          return sha256 === undefined ? { path } : { path, sha256 };
+        });
+        const own = (parsed.contract?.checks ?? []).flatMap((check, index) => {
+          const outcome = check.task === task.id ? facts.checkOutcomes[index] : undefined;
+          return outcome === undefined ? [] : [outcome];
+        });
+        const latest = attempts.at(-1);
+        if (latest !== undefined && own.length > 0) {
+          latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
+        }
+        return renderAttemptEvidence(attempts, current);
+      };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
         pricing: typeof workerPricing,
@@ -1677,11 +1709,12 @@ export function buildFusionDelegateTool(
         "onWorkerTool" | "onTaskFinished"
       > =>
         run === undefined
-          ? {}
+          ? { onTaskFinished: noteAttempt }
           : {
               onWorkerTool: (taskId: string, tool: string): void =>
                 run.noteTool(taskId, tool),
               onTaskFinished: (result: WorkerTaskResult): void => {
+                noteAttempt(result);
                 // Per call, as the turn budget was charged.
                 const costUsd = taskSpendUsd(result, pricing);
                 // A proposal is not an answer: its row is written once the
@@ -1905,8 +1938,10 @@ export function buildFusionDelegateTool(
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
+        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir);
         const judged = await judgeTask({
           ...input,
+          ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
           ...(deps.knownSecrets === undefined
@@ -3043,8 +3078,28 @@ export function buildFusionDelegateTool(
         // the milestone report (issue #40, `run-criteria.ts`). A candidate
         // run's wait for its finish: the folder keeps only what was promoted.
         const runFacts = results.flatMap((r) => (r.criteria === undefined ? [] : [{ taskId: r.id, facts: r.criteria }]));
+        // Every task the call meant to review, with its verdict or why it
+        // has none (issue #95): a task that ends unreviewed is said so, here
+        // and in the milestone report (the run keeps it beside its facts).
+        runReviews = judging
+          ? results.flatMap((r): RunTaskReview[] => {
+              if (!parsed.tasks.some((t) => t.id === r.id) || (acceptance.get(r.id)?.length ?? 0) === 0) return [];
+              const decision = r.judge?.review?.decision;
+              if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
+                return [{ taskId: r.id, verdict: decision }];
+              }
+              const reason =
+                r.judge === undefined
+                  ? r.status === "ok"
+                    ? "not judged"
+                    : `the task ended ${r.status} before review: ${(r.error ?? r.status).replace(/\s+/g, " ").slice(0, 160)}`
+                  : `not verified: ${(r.judge.unverified ?? "no decision").replace(/\s+/g, " ").slice(0, 160)}`;
+              return [{ taskId: r.id, verdict: "none", reason }];
+            })
+          : [];
+        noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3258,6 +3313,7 @@ export function buildFusionDelegateTool(
                   facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
                 })),
             factCriteria,
+            runReviews,
           );
         }
         terminalTaskCount = results.length;
@@ -3350,6 +3406,10 @@ export function buildFusionDelegateTool(
               roleSpendUsd > 0
                 ? `\n\nRole models cost ${formatUsd(roleSpendUsd)} this fan-out.`
                 : ""
+            }${
+              noReviewVerdict.length === 0
+                ? ""
+                : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`
             }${treeNote}${replan === undefined ? "" : renderReplanBlock(replan)}${renderMergeBlock(merges)}${resumeNote}${checkpointNote}${budgetNote}${breakerNote}${
               sizeWarnings.length === 0
                 ? ""
@@ -3357,6 +3417,7 @@ export function buildFusionDelegateTool(
             }`,
             details: {
               tasks: results,
+              ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
               ...(routing === undefined ? {} : { routing: routing.decisions }),
               outcome,
               maxWorkers,
