@@ -95,6 +95,10 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_JUDGE_API_KEY", null, "API key sent to the ATOMIC_AGENT_JUDGE_URL judge. Unset: OPENROUTER_API_KEY."),
   env("ATOMIC_AGENT_JUDGE_TIMEOUT_MS", 60000, "Per-call timeout of the skill eval judge, in ms."),
 
+  // Safe Mode: the OS sandbox around the agent's shell commands (ATO-469, ATO-472).
+  env("ATOMIC_AGENT_SANDBOX", "off", "Set to workspace to run the agent's shell commands in the OS sandbox: writes only in the working folder, temp and download caches, no reads of credential folders or the state directory. Where no sandbox exists (Windows, Linux without bwrap) commands are refused. Unset or any other value: off."),
+  env("ATOMIC_AGENT_SANDBOX_NETWORK", "off", "Set to on to let commands inside the Safe Mode sandbox reach the network; loopback always works. Unset or any other value: no network inside the sandbox."),
+
   // Browser tools.
   env("ATOMIC_AGENT_BROWSER_ENABLED", ENV_DEFAULTS.BROWSER_ENABLED, "Register the browser tools."),
   env("ATOMIC_AGENT_BROWSER_CHANNEL", ENV_DEFAULTS.BROWSER_CHANNEL, "Browser to launch: chrome, msedge or chromium."),
