@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { ApprovalGate, type ApprovalRequest } from "../../approval/approval-gate.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
-import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
   applyProjectDecision,
   applyProjectUpdate,
