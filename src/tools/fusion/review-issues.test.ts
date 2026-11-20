@@ -19,6 +19,7 @@ import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import { readRunCriteria } from "./run-criteria.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -67,7 +68,7 @@ const ctx = (dir: string): ToolContext => ({ workingDir: dir, sessionId: "s-p", 
 
 
 
-async function delegateOnce(answer: string, checks: { ok: boolean; summary: string } | undefined) {
+async function delegateOnce(answer: string, checks: { ok: boolean; summary: string } | undefined, records: Array<Record<string, unknown>> = []) {
   const dir = mkdtempSync(join(tmpdir(), "review-issues-"));
   const state = mkdtempSync(join(tmpdir(), "review-issues-state-"));
   try {
@@ -76,7 +77,10 @@ async function delegateOnce(answer: string, checks: { ok: boolean; summary: stri
       writeFileSync(join(dir, "sales.cjs"), "module.exports = () => 0;\n");
       return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
     };
-    const over: Partial<FusionDelegateDeps> = { runCheckpoints: new FusionRunStore({ dir: runsDir }) };
+    const over: Partial<FusionDelegateDeps> = {
+      runCheckpoints: new FusionRunStore({ dir: runsDir }),
+      outcomeLog: { append: (rows) => { records.push(...(rows as unknown as Array<Record<string, unknown>>)); } },
+    };
     if (checks !== undefined) over.runChecks = async (specs) => ({ ok: checks.ok, results: specs.map(() => ({ ...checks })) });
     const d = deps(dir, async () => ({ content: answer }), runTurn, over);
     const result = await buildFusionDelegateTool(d).run({
@@ -84,7 +88,8 @@ async function delegateOnce(answer: string, checks: { ok: boolean; summary: stri
       ...(checks === undefined ? {} : { contract: { checks: [{ task: "program", type: "command", command: "node --test sales.test.cjs" }] } }),
     }, ctx(dir));
     const runId = result.details.runId as string;
-    return JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews: Array<{ verdict: string; issues?: unknown[] }> };
+    const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews: Array<{ verdict: string; issues?: unknown[]; reviewer?: Record<string, unknown> }> };
+    return Object.assign(stored, { read: readRunCriteria(runsDir, runId) });
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(state, { recursive: true, force: true });
@@ -112,5 +117,24 @@ describe("the issues a needs-changes keeps for a targeted fix (issue #100 review
   it("a fact failure of a check that ran and failed is one", async () => {
     const stored = await delegateOnce(review("accept"), { ok: false, summary: "verify.run command: FAILED (exit 1): 1 failed" });
     expect(stored.reviews[0]!.issues).toEqual([{ severity: "blocker", text: expect.stringContaining("FAILED (exit 1)") }]);
+  });
+});
+
+describe("a verdict the facts decided keeps its source (issue #100 review)", () => {
+  it("in the outcome record and the run file, and the run file's reader keeps the reviewer", async () => {
+    const records: Array<Record<string, unknown>> = [];
+    const stored = await delegateOnce(review("accept"), { ok: false, summary: "verify.run command: FAILED (exit 1): 1 failed" }, records);
+    expect(stored.reviews[0]!.reviewer).toMatchObject({ source: "facts" });
+    expect(stored.read.reviews[0]!.reviewer).toMatchObject({ source: "facts" });
+    const task = records.find((r) => r.type === "task") as { review?: Record<string, unknown> };
+    expect(task.review).toMatchObject({ decision: "needs-changes", reviewerSource: "facts" });
+  });
+
+  it("a reviewer's own verdict has no source, and the reader keeps who it was", async () => {
+    const records: Array<Record<string, unknown>> = [];
+    const stored = await delegateOnce(review("accept"), undefined, records);
+    expect(stored.read.reviews[0]!.reviewer).toEqual({ provider: "cli-b" });
+    const task = records.find((r) => r.type === "task") as { review?: Record<string, unknown> };
+    expect(task.review!.reviewerSource).toBeUndefined();
   });
 });

@@ -135,6 +135,24 @@ interface StoredRun {
   judging?: boolean;
 }
 
+/** A stored review's reviewer, `source: "facts"` kept (issue #100 review); a malformed one is dropped. */
+function readReviewer(raw: unknown): RunTaskReview["reviewer"] {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { provider, model, planRef, source } = raw as Record<string, unknown>;
+  if (typeof provider !== "string" || provider.length === 0) return undefined;
+  return {
+    provider: provider.slice(0, 200),
+    ...(typeof model === "string" ? { model: model.slice(0, 200) } : {}),
+    ...(typeof planRef === "string" ? { planRef: planRef.slice(0, 200) } : {}),
+    ...(source === "facts" ? { source: "facts" as const } : {}),
+  };
+}
+
+/** One run's stored tasks, reviews and meta as the milestone reads them; for seam tests. */
+export function readRunCriteria(runsDir: string, runId: string): StoredRun {
+  return readRunTasks(runsDir, runId);
+}
+
 function readRunTasks(runsDir: string, runId: string): StoredRun {
   const none: StoredRun = { tasks: [], reviews: [] };
   if (!FusionRunStore.isValidRunId(runId)) return none;
@@ -153,7 +171,8 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
   const reviews: RunTaskReview[] = [];
   for (const r of Array.isArray(rawReviews) ? rawReviews.slice(0, MAX_TASKS) : []) {
     if (typeof r !== "object" || r === null) continue;
-    const { taskId, verdict, reason, criteria, issues: rawIssues } = r as Record<string, unknown>;
+    const { taskId, verdict, reason, criteria, issues: rawIssues, reviewer: rawReviewer } = r as Record<string, unknown>;
+    const reviewer = readReviewer(rawReviewer);
     // Only stored blockers count: an older file's bare lines carry no severity.
     const issues = Array.isArray(rawIssues)
       ? rawIssues
@@ -169,6 +188,7 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
       ...(typeof reason === "string" ? { reason: reason.slice(0, 300) } : {}),
       ...(ids.length === 0 ? {} : { criteria: ids }),
       ...(issues.length === 0 ? {} : { issues }),
+      ...(reviewer === undefined ? {} : { reviewer }),
     });
   }
   const rawRan = (raw as { ran?: unknown }).ran;

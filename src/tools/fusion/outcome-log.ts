@@ -94,6 +94,11 @@ export interface ReviewOutcome {
   reviewerModel?: string;
   /** The plan row's reviewer ref, when it names a different member. */
   reviewerPlanRef?: string;
+  /**
+   * `facts`: red facts decided the verdict and no reviewer was asked
+   * (issue #100 review); such a verdict is no evidence about the reviewer.
+   */
+  reviewerSource?: "facts";
   blockers: number;
   majors: number;
   minors: number;
@@ -355,6 +360,7 @@ export function reviewOutcome(
     ...(who === undefined ? {} : { reviewerProvider: outcomeLabel(who.provider) }),
     ...(who?.model === undefined ? {} : { reviewerModel: outcomeLabel(who.model) }),
     ...(who?.planRef === undefined ? {} : { reviewerPlanRef: outcomeLabel(who.planRef) }),
+    ...(who?.source === "facts" ? { reviewerSource: "facts" as const } : {}),
     blockers: count("blocker"),
     majors: count("major"),
     minors: count("minor"),
@@ -374,6 +380,7 @@ export function readReviewOutcome(row: TaskOutcomeRecord): ReviewOutcome | undef
     decision: r.decision as ReviewDecision,
     passes: r.passes,
     reviewer: r.reviewer,
+    ...(r.reviewerSource === "facts" ? { reviewerSource: "facts" as const } : {}),
     blockers: r.blockers,
     majors: r.majors,
     minors: r.minors,
