@@ -136,6 +136,7 @@ import {
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
+import { renderExecutionEvidence } from "./execution-evidence.js";
 import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
@@ -1692,7 +1693,12 @@ export function buildFusionDelegateTool(
       const attemptLedger = new Map<string, AttemptRecord[]>();
       const noteAttempt = (result: WorkerTaskResult): void => {
         const list = attemptLedger.get(result.id) ?? [];
-        list.push({ attempt: list.length + 1, wrote: result.attempt?.wrote ?? [], alreadyApplied: result.attempt?.alreadyApplied ?? [] });
+        list.push({
+          attempt: list.length + 1,
+          wrote: result.attempt?.wrote ?? [],
+          alreadyApplied: result.attempt?.alreadyApplied ?? [],
+          ...(result.attempt?.executed === undefined ? {} : { executed: result.attempt.executed }),
+        });
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
@@ -1717,7 +1723,16 @@ export function buildFusionDelegateTool(
         if (latest !== undefined && own.length > 0) {
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
         }
-        return renderAttemptEvidence(attempts, current, task.files ?? []);
+        // What the worker's own test runs showed, recorded from the tool results (issue #102).
+        // Without the secret metadata the section is left out, never shown unmasked.
+        let known: readonly KnownSecret[] | undefined;
+        try { known = collectKnownSecrets() ?? []; } catch { known = undefined; }
+        const executed = known === undefined ? "" : renderExecutionEvidence(
+          attempts.flatMap((a) => (a.executed ?? []).map((run) => ({ ...run, attempt: a.attempt }))),
+          current,
+          known,
+        );
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), executed].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
@@ -3187,6 +3202,19 @@ export function buildFusionDelegateTool(
                 orchestratorCap > 0 &&
                 (!tracksTurn ||
                   turnBudget.orchestratorTasks(ctx.sessionId) < orchestratorCap),
+              // A plan task is steered to its row's worker, never another model (issue #102).
+              // Compared against the row's own member: a row the orchestrator works stays on it.
+              (id) => {
+                if (!planApproved || projectVerdict.kind !== "admit" || !projectVerdict.planned.includes(id)) return undefined;
+                const planRow = ctx.project?.plan?.rows.find((r) => r.taskId === id);
+                if (planRow === undefined) return undefined;
+                const orchestratorMember = orchestratorLegRef === undefined ? undefined
+                  : "member" in orchestratorLegRef ? orchestratorLegRef.member : `${orchestratorLegRef.providerId}:${orchestratorLegRef.model}`;
+                return {
+                  worker: planRow.worker,
+                  orchestrator: orchestratorMember !== undefined && sameMember(planRow.worker, orchestratorMember, deps.resolveDefaultModel),
+                };
+              },
               )
             : undefined;
         const replan =

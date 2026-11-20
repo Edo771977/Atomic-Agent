@@ -40,6 +40,7 @@ import {
 import {
   WorkerRunCollector,
   WORKER_QUEUED_NOTE,
+  TIMED_OUT_AFTER_RUN_NOTE,
   formatWaitMs,
   queuedWorkerHint,
   unservedWorkerHint,
@@ -97,7 +98,8 @@ import {
   GREEN_CHECK_REPEAT_LIMIT,
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
-import { AttemptFilesTracker } from "./attempt-evidence.js";
+import { AttemptFilesTracker, fileSha256 } from "./attempt-evidence.js";
+import { ExecutionEvidenceTracker, runPassed } from "./execution-evidence.js";
 import { guardVerifiedVersion, verifiedSnapshot, WorkerWriteHashes } from "./verified-version.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
 import { estimatedOutputTokens } from "./worker-fit.js";
@@ -1562,13 +1564,25 @@ async function runOneTask(
   const repeatedWrites = new RepeatedWritesTracker(READ_ONLY_TOOLS, workingDir);
   // This attempt's file evidence for the reviewer (issue #95).
   const attemptFiles = new AttemptFilesTracker(workingDir);
+  // Its test runs as the tool results showed them (issue #102): kept on
+  // the attempt even when the worker times out before its summary.
+  const executionEvidence = new ExecutionEvidenceTracker(
+    workingDir,
+    task.files ?? [],
+    (args) => ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === checkSpecKey(args)),
+    () => {
+      // Unavailable metadata still leaves the pattern masking.
+      try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
+    },
+  );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on
   // unchanged files (issue #98): passed and current, the worker stops as done.
   let passedAndCurrent: { spec: string; runs: number } | undefined;
   /** Feeds the write trackers; true when the call rewrote a file with the bytes it held. */
-  const noteWriteOutcome = (result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): boolean => {
+  const noteWriteOutcome = (result: { tool: string; status: string; summary: string; details?: Record<string, unknown>; fullOutput?: string }, batchIndex: number): boolean => {
     attemptFiles.observeExecuted(result, batchIndex);
+    executionEvidence.observeExecuted(result, batchIndex);
     const { identical, repeat } = repeatedWrites.observeExecuted(result, batchIndex);
     if (repeat === undefined || stalledWrite !== undefined || stopByWatch.signal.aborted) return identical;
     const last = checkRuns.lastRunOutcome();
@@ -2016,6 +2030,7 @@ async function runOneTask(
           filesWritten.observeParsed(event.event.call, event.event.batchIndex);
           repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
           attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
+          executionEvidence.observeParsed(event.event.call, event.event.batchIndex);
           workerWrites.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
@@ -2358,6 +2373,7 @@ async function runOneTask(
               );
               repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
               attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
+              executionEvidence.observeParsed(event.event.call, event.event.batchIndex);
               try {
                 options.onWorkerTool?.(task.id, event.event.call.tool);
               } catch {
@@ -2483,7 +2499,10 @@ async function runOneTask(
   }
   {
     const files = attemptFiles.finish();
-    if (files !== undefined) result = { ...result, attempt: files };
+    const executed = executionEvidence.recorded();
+    if (files !== undefined || executed.length > 0) {
+      result = { ...result, attempt: { ...(files ?? { wrote: [], alreadyApplied: [] }), ...(executed.length === 0 ? {} : { executed }) } };
+    }
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on
@@ -2527,7 +2546,33 @@ async function runOneTask(
   // worker's OWN timer is what ended the turn, and the orchestrator's
   // remedy for that is a longer deadline, not a bigger step budget.
   if (timedOutOutcome) {
-    result = { ...result, status: "timeout" };
+    // Out of time after its own checks passed on its own work (issue
+    // #102): the row goes on to its checks and review like a reply would,
+    // with no new worker; the gate re-runs the task's own checks on the
+    // files as they are now. Only when all of these hold: the attempt
+    // wrote a declared file, the worker's last check run is one of the
+    // task's own contract checks, passed after its last change, and the
+    // declared files still hash as that run recorded them.
+    const declared = task.files ?? [];
+    const own = ownChecks(options.contract, task.id);
+    const lastVerify = executionEvidence.recorded().filter((r) => r.tool === "verify.run").at(-1);
+    const recovered =
+      declared.length > 0 && own.length > 0 &&
+      attemptFiles.wroteOneOf(declared) &&
+      checkRuns.lastRunPassedOneOf(own) &&
+      lastVerify !== undefined && runPassed(lastVerify) &&
+      lastVerify.files.length > 0 &&
+      lastVerify.files.every((f) => f.sha256 !== undefined && fileSha256(workingDir, f.path) === f.sha256) &&
+      !stopByPerson.signal.aborted && !options.signal.aborted;
+    result = recovered
+      ? {
+          ...result,
+          status: "ok",
+          timedOutAfterRun: true,
+          // One note in place of the time-limit "split it" advice: the work is done, only the reply is missing.
+          notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its time limit")), TIMED_OUT_AFTER_RUN_NOTE],
+        }
+      : { ...result, status: "timeout" };
   }
 
   if (escalationNotes.length > 0) {

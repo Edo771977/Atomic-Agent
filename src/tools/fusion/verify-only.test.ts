@@ -69,15 +69,42 @@ const REGRESSED = "module.exports = (text) => text.split('\\n');\n";
 
 type After = "none" | "symlink" | "person-edit" | "cancel";
 
+/**
+ * Whether this machine lets the test create a link of `kind` (issue #102,
+ * as issue #98's `canLink`): Windows needs a privilege (or Developer
+ * Mode) for a file symlink; a directory junction needs none. Detected,
+ * not assumed per platform.
+ */
+function canLink(kind: "file" | "junction"): boolean {
+  const dir = mkdtempSync(join(tmpdir(), "aa-can-link-"));
+  try {
+    const target = join(dir, "target");
+    if (kind === "file") writeFileSync(target, "");
+    else mkdirSync(target);
+    symlinkSync(target, join(dir, "link"), kind);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+/** The link swapped in over the worker's file: a file symlink, else a junction to a folder, else none (the case is skipped). */
+const LINK_KIND: "file" | "junction" | undefined = canLink("file") ? "file" : canLink("junction") ? "junction" : undefined;
+
 /** A verify-only run of the program task; `rewrite` is what its worker writes, `after` what happens next. */
 async function verify(rewrite: string | null, after: After = "none", over: Partial<FusionDelegateDeps> = {}, isolation = false) {
   const root = mkdtempSync(join(tmpdir(), "verify-only-"));
   const dir = join(root, "work");
   const outside = join(root, "outside.txt");
+  // A junction links a folder: it points at the folder that holds the person's file.
+  const outsideDir = join(root, "outside");
   try {
     mkdirSync(dir);
     writeFileSync(join(dir, "sales.cjs"), VERIFIED);
     writeFileSync(outside, "the person's notes\n");
+    mkdirSync(outsideDir);
+    writeFileSync(join(outsideDir, "notes.txt"), "the person's notes\n");
     const controller = new AbortController();
     let turns = 0;
     const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
@@ -89,14 +116,20 @@ async function verify(rewrite: string | null, after: After = "none", over: Parti
         options.eventHook?.({ type: "llm_event", event: { type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "sales.cjs", content: rewrite } }, batchIndex: 0, batchSize: 1 } } as never);
         options.eventHook?.({ type: "llm_event", event: { type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false }, batchIndex: 0, batchSize: 1 } } as never);
       }
-      if (after === "symlink") { unlinkSync(target); symlinkSync(outside, target); }
+      if (after === "symlink") {
+        unlinkSync(target);
+        if (LINK_KIND === "junction") symlinkSync(outsideDir, target, "junction");
+        else symlinkSync(outside, target, "file");
+      }
       if (after === "person-edit") writeFileSync(target, "// the person's own edit\n");
       if (after === "cancel") controller.abort();
       return { session: createEmptySessionState({ id: session.id, workingDir: session.workingDir }), reason: after === "cancel" ? "cancelled" : "reply", stepCount: 1 } as RunTurnResult;
     };
     // The program's own check, which ran and exited 1 when blank lines are not skipped.
     const runChecks: FusionDelegateDeps["runChecks"] = async (specs, run) => {
-      const ok = readFileSync(join(run.workingDir, "sales.cjs"), "utf8").includes("filter(");
+      // A program that cannot be read (a folder linked in its place) fails its suite too.
+      let ok: boolean;
+      try { ok = readFileSync(join(run.workingDir, "sales.cjs"), "utf8").includes("filter("); } catch { ok = false; }
       return { ok, results: specs.map(() => ({ ok, summary: ok ? "10 passed" : "verify.run command: FAILED (exit 1): blank lines: 1 failed" })) };
     };
     let minted = 0;
@@ -117,7 +150,16 @@ async function verify(rewrite: string | null, after: After = "none", over: Parti
     }, { ...ctx(dir), signal: controller.signal });
     const row = (result.details.tasks as Array<{ status: string; failure?: string; notes?: string[]; error?: string }>)[0]!;
     const link = lstatSync(join(dir, "sales.cjs")).isSymbolicLink();
-    return { row, link, file: readFileSync(join(dir, "sales.cjs"), "utf8"), outside: readFileSync(outside, "utf8"), leftovers: readdirSync(dir) };
+    const viaLink = after === "symlink" && LINK_KIND === "junction";
+    return {
+      row,
+      link,
+      file: viaLink ? "" : readFileSync(join(dir, "sales.cjs"), "utf8"),
+      outside: readFileSync(outside, "utf8"),
+      outsideFolder: readdirSync(outsideDir).sort(),
+      outsideNotes: readFileSync(join(outsideDir, "notes.txt"), "utf8"),
+      leftovers: readdirSync(dir),
+    };
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 const said = (row: { notes?: string[]; error?: string }) => [...(row.notes ?? []), row.error ?? ""].join(" ");
@@ -132,10 +174,13 @@ describe("a verify-only task keeps the validated version of its files (issue #10
     expect(leftovers.sort()).toEqual(["sales.cjs"]);
   });
 
-  it("a symlink swapped in after the write is refused: nothing outside is written", async () => {
-    const { row, link, outside } = await verify(REGRESSED, "symlink");
+  // Skipped only where this machine can create no link at all (issue #102).
+  it.skipIf(LINK_KIND === undefined)("a symlink swapped in after the write is refused: nothing outside is written", async () => {
+    const { row, link, outside, outsideFolder, outsideNotes } = await verify(REGRESSED, "symlink");
     expect(link).toBe(true);
     expect(outside).toBe("the person's notes\n");
+    expect(outsideFolder).toEqual(["notes.txt"]);
+    expect(outsideNotes).toBe("the person's notes\n");
     expect(row).toMatchObject({ failure: "regressed-verified" });
     expect(said(row)).toMatch(/not restored: sales\.cjs is not a regular file/);
   });

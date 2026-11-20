@@ -310,6 +310,12 @@ export interface WorkerTaskResult {
    */
   attempt?: AttemptFiles;
   /**
+   * The worker ran out of time after its own test run passed (issue
+   * #102): the row is `ok` and goes on to its checks and review from the
+   * recorded run (`attempt.executed`), with no new worker.
+   */
+  timedOutAfterRun?: true;
+  /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
    * or stuck tasks, which waits for the director's decision (issue #38).
@@ -728,6 +734,9 @@ export function finishedWithoutReplyNote(paths: readonly string[]): string {
   const more = paths.length > NO_REPLY_PATHS_SHOWN ? ` and ${paths.length - NO_REPLY_PATHS_SHOWN} more` : "";
   return `finished without a reply; files changed: ${shown}${more}; unverified — read/check them before accepting`;
 }
+
+/** The one note on a worker recovered after its own checks passed and its clock ran out (issue #102). */
+export const TIMED_OUT_AFTER_RUN_NOTE = "timed out after its own checks passed on the current files; reply missing";
 
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {
   if (cause === "credit_exhausted") {
