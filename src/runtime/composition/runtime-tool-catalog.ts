@@ -1152,9 +1152,10 @@ export function registerRuntimeFusionAndReadScope(input: {
           ...(reportedModel === undefined ? {} : { model: reportedModel }),
         };
       },
+      // In the order the completion seam asks for a model: the provider's own first.
       resolveDefaultModel: (providerId: string) => {
         const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
-        const id = entry?.defaultChatModel ?? entry?.model;
+        const id = providerRegistry.getProvider(providerId)?.chatModelId ?? entry?.defaultChatModel ?? entry?.model;
         return typeof id === "string" && id.length > 0 && id !== "default" ? id : undefined;
       },
       ...(liveWorkers === undefined ? {} : { liveWorkers }),

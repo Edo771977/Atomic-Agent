@@ -1,5 +1,3 @@
-import { parseTeamMember } from "../../llm/run-mode/fusion-team.js";
-
 /**
  * Who a team member is, compared by identity rather than spelling
  * (issue #98): the provider plus its model, the `default` alias (or no
@@ -15,9 +13,11 @@ export type DefaultModelOf = (providerId: string) => string | undefined;
 const DEFAULT_ALIAS = "default";
 
 function identityOf(ref: string, defaultModelOf?: DefaultModelOf): { provider: string; model: string } {
-  const member = parseTeamMember(ref);
-  const provider = member?.providerId ?? ref.trim();
-  const raw = member?.model.trim() ?? "";
+  // `provider`, `provider:` and `provider:default` all name the provider's default.
+  const trimmed = ref.trim();
+  const colon = trimmed.indexOf(":");
+  const provider = colon < 0 ? trimmed : trimmed.slice(0, colon);
+  const raw = colon < 0 ? "" : trimmed.slice(colon + 1).trim();
   const model = raw.length === 0 || raw === DEFAULT_ALIAS ? (defaultModelOf?.(provider) ?? DEFAULT_ALIAS) : raw;
   return { provider, model };
 }

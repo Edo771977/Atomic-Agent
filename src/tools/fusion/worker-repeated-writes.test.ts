@@ -170,6 +170,8 @@ describe("a stalled worker's last check is reported as it stands (issue #95 revi
       }
     });
     expect(other.result.stalled?.lastCheck).toMatchObject({ ok: true, sinceLastChange: true, coversFile: false });
+    // A passing check that does not name the file never marks the task done (issue #98 review).
+    expect(other.result).toMatchObject({ status: "failed", failure: "stuck" });
     expect(other.result.error).toContain("last check passed");
     expect(other.result.error).toContain("its spec does not name sales.test.cjs");
   });
