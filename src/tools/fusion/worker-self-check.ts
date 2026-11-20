@@ -135,7 +135,7 @@ function canonical(value: unknown): string {
 }
 
 /** A word a shell reads as itself: no quotes, spaces or metacharacters. */
-const PLAIN_WORD = /^[\w@%+=:,./-]+$/;
+const PLAIN_WORD = /^[\w@+=:,./-]+$/;
 
 /**
  * The identity of a check's `verify.run` spec: the contract's entry
@@ -150,8 +150,13 @@ export function checkSpecKey(spec: Record<string, unknown>): string {
   const { task: _task, ...rest } = spec;
   const kind = rest.kind ?? "command";
   if (kind === "command" && typeof rest.cmd === "string" && (rest.args === undefined || Array.isArray(rest.args))) {
-    const words = [...rest.cmd.trim().split(/\s+/), ...((rest.args as unknown[] | undefined) ?? [])];
-    if (words.length > 0 && words.every((w) => typeof w === "string" && PLAIN_WORD.test(w))) {
+    const cmdWords = rest.cmd.trim().split(/\s+/);
+    const args = (rest.args as unknown[] | undefined) ?? [];
+    // Only the two spellings: one word with its args, or one line with none.
+    // `cmd: "node --test", args: ["a.cjs"]` is neither, and stays as it is.
+    const spelling = cmdWords.length === 1 || args.length === 0;
+    const words = [...cmdWords, ...args];
+    if (spelling && words.length > 0 && words.every((w) => typeof w === "string" && PLAIN_WORD.test(w))) {
       const { args: _args, ...noArgs } = rest;
       return canonical({ ...noArgs, kind: "command", cmd: words.join(" ") });
     }
