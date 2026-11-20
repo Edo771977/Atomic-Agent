@@ -163,6 +163,7 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       const listed = result.details.noReviewVerdict as Array<{ taskId: string; reason: string }>;
       expect(listed).toEqual([{ taskId: "tests", reason: expect.stringMatching(/^the task ended failed before review: /) }]);
       expect(result.summary).toMatch(/no review verdict: tests \(the task ended failed before review/);
+      expect(result.summary).toMatch(/re-delegate each with its own task id/);
       // The milestone report reads it from the run.
       const runId = result.details.runId as string;
       const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: [] });

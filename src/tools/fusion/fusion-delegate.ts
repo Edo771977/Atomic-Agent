@@ -3445,7 +3445,7 @@ export function buildFusionDelegateTool(
             }${
               noReviewVerdict.length === 0
                 ? ""
-                : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`
+                : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}. To get one, re-delegate each with its own task id (the plan row's): a fix under another id does not count.`
             }${treeNote}${replan === undefined ? "" : renderReplanBlock(replan)}${renderMergeBlock(merges)}${resumeNote}${checkpointNote}${budgetNote}${breakerNote}${
               sizeWarnings.length === 0
                 ? ""

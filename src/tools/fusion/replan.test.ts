@@ -418,6 +418,15 @@ describe("tasks whose review passes ran out (issue #38)", () => {
   });
 });
 
+describe("re-delegations keep the plan row's task id (issue #98 review)", () => {
+  it("the review-exhausted and stuck guidance say to re-delegate under the same task id", () => {
+    const exhausted = { id: "impl", status: "failed", failure: "review-exhausted", error: "review-exhausted: needs-changes after 2 review passes" } as never;
+    const stuck = { id: "tests", status: "failed", failure: "stuck", error: "stuck: the watch judged it stuck" } as never;
+    const block = renderReplanBlock(describeReplan([exhausted, stuck], () => 1, 2));
+    expect(block.match(/Keep its task id \(the plan row's\)\./g)).toHaveLength(2);
+  });
+});
+
 describe("tasks the watch stopped as stuck (issue #43)", () => {
   const stuck = { id: "hud", status: "failed", failure: "stuck", error: "stuck: the watch (model-r) judged the worker stuck after 3 checks and stopped it" } as never;
 
