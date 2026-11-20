@@ -1,3 +1,4 @@
+import { checkDidNotRun } from "./check-ran.js";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -48,7 +49,7 @@ function ownSpecs(task: DelegateTask, contract: DelegateContract | undefined): R
 function ranAndFailed(result: { ok: boolean; summary?: string; error?: string }): boolean {
   if (result.ok || result.error !== undefined) return false;
   const text = result.summary ?? "";
-  return text.length > 0 && !/held|not run|timed out|time limit|refused|denied|not allowed/i.test(text);
+  return text.length > 0 && !checkDidNotRun(text);
 }
 
 /** The hash of each file as the worker's own write tools left it, by path relative to the working dir. */

@@ -50,10 +50,20 @@ export interface RunTaskReview {
    * under another task id).
    */
   criteria?: string[];
-  /** A needs-changes' blocking issues, one line each (issue #100): what a targeted fix must address. */
-  issues?: string[];
+  /**
+   * A needs-changes' concrete blockers (issue #100): blocker issues that
+   * name a file or an item, each with its severity and one line of text —
+   * what a targeted fix must address. A fact whose check never ran is none.
+   */
+  issues?: RunReviewIssue[];
   /** Who gave the verdict (issue #98): provider, effective model when reported, the plan's ref when it differs. */
   reviewer?: { provider: string; model?: string; planRef?: string; source?: "facts" };
+}
+
+/** One concrete blocker of a needs-changes, as the run file keeps it. */
+export interface RunReviewIssue {
+  severity: "blocker";
+  text: string;
 }
 
 /** A stored fact: the criterion text its checks tested, when the run knew it. */
@@ -95,7 +105,7 @@ export function writeRunCriteriaFacts(
     ...(r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) }),
     ...(r.criteria === undefined || r.criteria.length === 0 ? {} : { criteria: r.criteria.slice(0, 32) }),
     ...(r.reviewer === undefined ? {} : { reviewer: r.reviewer }),
-    ...(r.issues === undefined || r.issues.length === 0 ? {} : { issues: r.issues.slice(0, 5).map((i) => i.slice(0, 200)) }),
+    ...(r.issues === undefined || r.issues.length === 0 ? {} : { issues: r.issues.slice(0, 5).map((i) => ({ severity: i.severity, text: i.text.slice(0, 200) })) }),
   }));
   const ran = meta === undefined ? undefined : [...new Set(meta.ran)].slice(0, MAX_TASKS);
   if (kept.length === 0 && keptReviews.length === 0 && (ran === undefined || ran.length === 0)) return;
@@ -144,7 +154,13 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
   for (const r of Array.isArray(rawReviews) ? rawReviews.slice(0, MAX_TASKS) : []) {
     if (typeof r !== "object" || r === null) continue;
     const { taskId, verdict, reason, criteria, issues: rawIssues } = r as Record<string, unknown>;
-    const issues = Array.isArray(rawIssues) ? rawIssues.filter((i): i is string => typeof i === "string").slice(0, 5).map((i) => i.slice(0, 200)) : [];
+    // Only stored blockers count: an older file's bare lines carry no severity.
+    const issues = Array.isArray(rawIssues)
+      ? rawIssues
+          .filter((i): i is RunReviewIssue => typeof i === "object" && i !== null && (i as RunReviewIssue).severity === "blocker" && typeof (i as RunReviewIssue).text === "string")
+          .slice(0, 5)
+          .map((i) => ({ severity: "blocker" as const, text: i.text.slice(0, 200) }))
+      : [];
     if (typeof taskId !== "string" || (verdict !== "accept" && verdict !== "needs-changes" && verdict !== "none")) continue;
     const ids = Array.isArray(criteria) ? criteria.flatMap((id) => { const clean = normalizeCriterionId(id); return clean === null ? [] : [clean]; }) : [];
     reviews.push({
@@ -361,7 +377,7 @@ export function readMilestoneEvidence(input: {
   });
   const blocked = (input.requiredTasks ?? []).flatMap((taskId) => {
     const review = latestRun.get(taskId)?.review;
-    return review?.verdict === "needs-changes" && (review.issues ?? []).length > 0 ? [{ taskId, issues: review.issues! }] : [];
+    return review?.verdict === "needs-changes" && (review.issues ?? []).length > 0 ? [{ taskId, issues: review.issues!.map((i) => i.text) }] : [];
   });
   return {
     facts,

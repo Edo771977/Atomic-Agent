@@ -1,3 +1,4 @@
+import { checkDidNotRun } from "./check-ran.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import {
   reviewEnabled,
@@ -3118,11 +3119,14 @@ export function buildFusionDelegateTool(
               const decision = r.judge?.review?.decision;
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
                 const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
-                // A needs-changes keeps its blocking issues for a targeted fix (issue #100).
+                // A needs-changes keeps its concrete blockers for a targeted
+                // fix (issue #100): a blocker naming a file or an item, not a
+                // fact whose check never ran (a missing binary is no finding).
                 const issues = decision === "needs-changes"
                   ? (r.review?.issues ?? r.judge?.review?.issues ?? [])
-                      .filter((i) => i.severity !== "minor")
-                      .map((i) => `${i.file === null ? "" : `${i.file}: `}${i.why}`)
+                      .filter((i) => i.severity === "blocker" && (i.file !== null || i.item !== null))
+                      .filter((i) => i.by !== "fact" || !checkDidNotRun(i.why))
+                      .map((i) => ({ severity: "blocker" as const, text: `${i.file === null ? "" : `${i.file}: `}${i.why}` }))
                   : [];
                 return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }) }];
               }

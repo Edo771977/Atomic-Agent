@@ -39,8 +39,8 @@ const approve = (p: ProjectState): ProjectState => {
   return r.project;
 };
 // The two defects of the live run.
-const BLANK_LINES: RunTaskReview = { taskId: "program", verdict: "needs-changes", issues: ["sales.cjs: blank lines are no longer skipped"] };
-const NEW_FUNCTION: RunTaskReview = { taskId: "tests", verdict: "needs-changes", issues: ["sales.test.cjs: parses the output with new Function, not JSON.parse"] };
+const BLANK_LINES: RunTaskReview = { taskId: "program", verdict: "needs-changes", issues: [{ severity: "blocker", text: "sales.cjs: blank lines are no longer skipped" }] };
+const NEW_FUNCTION: RunTaskReview = { taskId: "tests", verdict: "needs-changes", issues: [{ severity: "blocker", text: "sales.test.cjs: parses the output with new Function, not JSON.parse" }] };
 
 function harness(budgetLeft = true) {
   const state = mkdtempSync(join(tmpdir(), "correction-"));
@@ -158,7 +158,7 @@ describe("bounded correction after needs-changes (issue #100)", () => {
     try {
       h.run([BLANK_LINES]);
       // tests ran with no reviewer able to answer.
-      h.run([{ taskId: "program", verdict: "needs-changes", issues: ["sales.cjs: blank lines"] }, { taskId: "tests", verdict: "none", reason: "not verified: the judge could not run: codex-cli exited 1" }]);
+      h.run([{ taskId: "program", verdict: "needs-changes", issues: [{ severity: "blocker", text: "sales.cjs: blank lines" }] }, { taskId: "tests", verdict: "none", reason: "not verified: the judge could not run: codex-cli exited 1" }]);
       const failed = await h.report("failed");
       expect((failed.details[PROJECT_UPDATE_DETAIL] as { holdForCorrection?: true }).holdForCorrection).toBeUndefined();
       h.fold(failed.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
