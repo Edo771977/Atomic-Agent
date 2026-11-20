@@ -19,6 +19,7 @@ import {
 } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import { buildProjectTools, PROJECT_UPDATE_DETAIL, type ProjectToolDeps } from "./project-tools.js";
+import { projectGateView } from "./project-gate-view.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { readMilestoneEvidence, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
 
@@ -61,21 +62,26 @@ describe("a milestone stays open while a required task lacks a current accept (i
       p = fold(p, { kind: "milestone_run", id: "m1", runId: "fr-2" });
       run("fr-2", [{ taskId: "tests", verdict: "none", reason: "the task ended no_changes before review" }]);
 
+      // The done report is refused while a block stands: the milestone stays in progress for the director.
       const first = await report(p);
-      expect(first.status).toBe("ok");
-      expect(first.summary).toMatch(/review open: tests/i);
-      p = fold(p, first.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      expect(first.status).toBe("error");
+      expect(first.summary).toMatch(/tests \(no verdict: the task ended no_changes/);
+      expect(first.summary).toMatch(/re-delegate it with its plan task id tests/);
+      expect(p.milestones[0]!.state).toBe("in_progress");
+      // A failed report keeps the blocks for the person's gate, which refuses to approve them over (older stores too).
+      const failed = await milestoneTool!.run({ id: "m1", state: "failed", summary: "tests not accepted" }, { workingDir: "/tmp", sessionId: "s", stepIndex: 0, project: p } as unknown as ToolContext);
+      p = fold(p, failed.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
       expect(p.milestones[0]!.reviewBlocks).toEqual([{ taskId: "tests", reason: expect.stringMatching(/no verdict/) }]);
-      // Auto-approval is the same decision: refused with the reason.
-      const refused = decide(p, "approve");
+      const view = projectGateView({ sessionId: "s", project: p, estimate: null, selectable: { workers: [], reviewers: [] } });
+      expect(view.hints).toEqual([expect.stringMatching(/^review open: tests \(no verdict/)]);
+      const stored: ProjectState = { ...p, milestones: p.milestones.map((m) => ({ ...m, state: "done" as const })) };
+      const refused = decide(stored, "approve");
       expect(refused).toMatchObject({ ok: false, error: { code: "review-open" } });
       if (!refused.ok) expect(refused.error.message).toMatch(/tests/);
-      expect(p.milestones[0]!.state).toBe("done");
 
       // The director re-delegates the test task; a re-review of the same file with new evidence accepts it.
-      const corrected = decide(p, "edit", { note: "re-review the tests with their counts" });
-      if (!corrected.ok) throw new Error(corrected.error.message);
-      p = fold(corrected.project, { kind: "milestone_run", id: "m1", runId: "fr-3" });
+      // Approving the failed result sends it back for another run.
+      p = fold(approve(p), { kind: "milestone_run", id: "m1", runId: "fr-3" });
       run("fr-3", [{ taskId: "tests", verdict: "accept" }]);
       p = fold(p, (await report(p)).details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
       expect(p.milestones[0]!.reviewBlocks).toBeUndefined();

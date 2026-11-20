@@ -1718,7 +1718,7 @@ function milestoneUpdate(
   const facts = Array.isArray(update.criteriaFacts) ? cleanCriteriaFacts(update.criteriaFacts) : [];
   if (facts.length > 0) reported.criteriaFacts = facts;
   const blocks = Array.isArray(update.reviewBlocks) ? cleanReviewBlocks(update.reviewBlocks) : [];
-  if (blocks.length > 0 && update.state === "done") reported.reviewBlocks = blocks;
+  if (blocks.length > 0) reported.reviewBlocks = blocks;
   milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,

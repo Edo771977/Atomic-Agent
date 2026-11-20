@@ -18,6 +18,7 @@ describe("/api/project", () => {
     decide = vi.fn((sessionId: string, d: ProjectDecision) => {
       if (sessionId === "busy") return { ok: false, error: { code: "turn-running", message: "wait" } };
       if (sessionId === "capped") return { ok: false, error: { code: "over-cap", message: "over the turn budget", violations: ["turn budget"] } };
+      if (sessionId === "review") return { ok: false, error: { code: "review-open", message: "tests needs an accept", blocks: [{ taskId: "tests", reason: "needs-changes" }] } };
       const view = views.get(sessionId);
       if (view === undefined) return { ok: false, error: { code: "no-project", message: "no project" } };
       if (d.version !== view.version) return { ok: false, error: { code: "stale-version", message: "the plan changed" } };
@@ -111,6 +112,13 @@ describe("/api/project", () => {
     expect(busy.status).toBe(409);
     expect((busy.json.error as { code: string }).code).toBe("turn-running");
     expect((await post({ session: "capped", gate: { kind: "plan" }, version: 3, verdict: "approve" })).status).toBe(422);
+  });
+
+  it("POST over an open review is 409 review-open, with the blocks (issue #98)", async () => {
+    views.set("review", fixtureProjectGateView({ kind: "plan" }));
+    const r = await post({ session: "review", gate: { kind: "plan" }, version: 3, verdict: "approve" });
+    expect(r.status).toBe(409);
+    expect((r.json.error as { code: string }).code).toBe("review-open");
   });
 
   it("POST with a bad verdict or body is 400 and never reaches the runtime", async () => {
