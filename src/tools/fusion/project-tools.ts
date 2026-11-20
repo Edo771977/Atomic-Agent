@@ -89,6 +89,12 @@ export interface ProjectToolDeps {
    * its screenshots, newest first. A done report carries the facts, and
    * the screenshots when it names no attachments. Absent: neither.
    */
+  /**
+   * Whether the session's turn still has budget for a correction round
+   * (issue #100); absent: assumed so. Out of budget, the director may
+   * report the milestone failed at once (it stays open at the gate).
+   */
+  correctionBudgetLeft?: (sessionId: string) => boolean;
   milestoneEvidence?: (
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
@@ -387,6 +393,14 @@ const secs = (ms: number | null): string => (ms === null ? "time unknown" : `~${
 
 const AWAIT_PERSON = "Now reply to the person: they approve, edit or cancel it between turns. Do not delegate until it is approved.";
 
+/**
+ * Correction rounds a milestone gets after a needs-changes with concrete
+ * blockers (issue #100): the director may not report it failed while one
+ * is left and the turn has budget. Rounds used are the milestone's runs in
+ * which a required task got needs-changes, the first not counted.
+ */
+export const MILESTONE_CORRECTION_ROUNDS = 2;
+
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
   const brief: ToolDefinition = {
     name: PROJECT_BRIEF_TOOL,
@@ -468,11 +482,26 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "failed" && milestone !== undefined && deps.milestoneEvidence !== undefined && requiredTasks.length > 0) {
         // A failed result keeps its open reviews for the person's gate (issue #98).
         const approvals = ctx.project?.briefApprovals;
-        const blocks = deps.milestoneEvidence(milestone, (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id), {
+        const failedEvidence = deps.milestoneEvidence(milestone, (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id), {
           criteria: ctx.project?.brief?.successCriteria ?? [],
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
           requiredTasks,
-        }).reviewBlocks ?? [];
+        });
+        // Bounded correction (issue #100): with concrete blockers, rounds
+        // left and budget, the director fixes first instead of giving up.
+        const correction = failedEvidence.correction;
+        if (
+          correction !== undefined &&
+          correction.roundsUsed < MILESTONE_CORRECTION_ROUNDS &&
+          (deps.correctionBudgetLeft?.(ctx.sessionId) ?? true)
+        ) {
+          return refuse(PROJECT_MILESTONE_TOOL, [
+            `milestone ${report.id} cannot be reported failed yet: its reviews name concrete blockers and correction round ${correction.roundsUsed + 1} of ${MILESTONE_CORRECTION_ROUNDS} is left. ${correction.blocked
+              .map((b) => `${b.taskId}: ${b.issues.join("; ")}`)
+              .join(" | ")}. Delegate a targeted fix for each blocked row under its plan task id with fusion.delegate (the issues in its brief; change only what they name), let both reviews run again, then report the result. Report "failed" only when the rounds or the budget are used up`,
+          ]);
+        }
+        const blocks = failedEvidence.reviewBlocks ?? [];
         if (blocks.length > 0) {
           report = { ...report, reviewBlocks: blocks };
           lines.push(`Review open: ${blocks.map((b) => `${b.taskId} (${b.reason})`).join("; ")}.`);

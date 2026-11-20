@@ -3116,7 +3116,13 @@ export function buildFusionDelegateTool(
               const decision = r.judge?.review?.decision;
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
                 const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
-                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }) }];
+                // A needs-changes keeps its blocking issues for a targeted fix (issue #100).
+                const issues = decision === "needs-changes"
+                  ? (r.review?.issues ?? r.judge?.review?.issues ?? [])
+                      .filter((i) => i.severity !== "minor")
+                      .map((i) => `${i.file === null ? "" : `${i.file}: `}${i.why}`)
+                  : [];
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }) }];
               }
               const reason =
                 r.judge === undefined
