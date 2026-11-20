@@ -133,7 +133,8 @@ describe("the runner's parsing", () => {
     const r = spawnSync(process.execPath, [join(import.meta.dirname, "e2e-csv-sales.mjs"), "--cwd", cwd, "--state-dir", stateDir,
       "--log", join(SAMPLE, "stdout.txt"), "--log", join(SAMPLE, "stderr.txt"), "--run-exit", "3", "--output", out], { encoding: "utf8", timeout: 120_000 });
     expect(r.stderr).toContain("report:");
-    expect(r.status).toBe(0);
+    // Both suites pass, but the issue #95 run is not a pass (issue #98): t1 asked for changes, t2 has no review.
+    expect(r.status).toBe(1);
     const report = JSON.parse(readFileSync(out, "utf8"));
     expect(report.run).toMatchObject({ exitCode: 3, printedSession: "sess_95e2e7f1" });
     expect(report.run.receiptLines).toHaveLength(3);
@@ -141,6 +142,12 @@ describe("the runner's parsing", () => {
     expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 10, fail: 0 });
     expect(report.tests.agent).toMatchObject({ exitCode: 0, pass: 1, fail: 0 });
     expect(report.tests.passed).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.blocking).toEqual([
+      "task t1 (sales.cjs: the summarizer): not accepted: needs-changes",
+      "task t2 (sales.test.cjs: its tests): not accepted: no review, latest timeout",
+      "the project waits at its milestone gate",
+    ]);
     expect(report.project.gate).toEqual({ kind: "milestone", id: "m1" });
     expect(report.project.milestones).toEqual([expect.objectContaining({ id: "m1", state: "failed", runIds: ["run-a1"] })]);
     expect(report.project.plan.rows.map((row: { taskId: string; reviewer: string }) => [row.taskId, row.reviewer])).toEqual([["t1", "codex-cli:default"], ["t2", "codex-cli:default"]]);
@@ -206,5 +213,85 @@ describe("verdicts joined to plan rows (taskKey / milestoneKey)", () => {
     expect(report.tasks.map((t: { taskId: string; verdicts: Array<{ join: string }> }) => [t.taskId, t.verdicts.map((v) => v.join)]))
       .toEqual([["t1", ["key"]], ["t2", ["order (unjoined)"]]]);
     expect(report.unmatchedVerdicts).toEqual([expect.objectContaining({ taskKey: runner.outcomeKey("gone") })]);
+  });
+});
+
+/* ---------- issue #98: the runner's verdict ---------- */
+
+/** A run folder with green suites and a state folder holding `sample`'s session and outcome log; the runner's exit and report. */
+function runSample(sample: string): { status: number | null; report: any } {
+  const dir = join(FIXTURES, sample);
+  const cwd = temp("csv-sales-98-");
+  copyFileSync(join(FIXTURES, "reference-sales.cjs"), join(cwd, "sales.cjs"));
+  copyFileSync(join(SAMPLE, "agent-sales.test.cjs"), join(cwd, "sales.test.cjs"));
+  const stateDir = temp("csv-sales-98-state-");
+  mkdirSync(join(stateDir, "fusion"));
+  copyFileSync(join(dir, "outcomes.ndjson"), join(stateDir, "fusion", "outcomes.ndjson"));
+  const stored = JSON.parse(readFileSync(join(dir, "session.json"), "utf8"));
+  const db = new DatabaseSync(join(stateDir, "sessions.sqlite"));
+  db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, turn_owner TEXT)");
+  db.prepare("INSERT INTO sessions VALUES (?, ?, 'active', ?, 1, 2, NULL)").run(stored.id, cwd, JSON.stringify(stored));
+  db.close();
+  const out = join(stateDir, "report.json");
+  const r = spawnSync(process.execPath, [join(import.meta.dirname, "e2e-csv-sales.mjs"), "--cwd", cwd, "--state-dir", stateDir,
+    "--log", join(dir, "stdout.txt"), "--output", out], { encoding: "utf8", timeout: 120_000 });
+  return { status: r.status, report: JSON.parse(readFileSync(out, "utf8")) };
+}
+
+describe("the runner passes a run only when every required task is accepted", () => {
+  it("green suites with an open review block (needs-changes, then no_changes) exit 1 and name the block", () => {
+    const { status, report } = runSample("sample-run-blocked");
+    expect(report.tests.passed).toBe(true);
+    expect(status).toBe(1);
+    expect(report.passed).toBe(false);
+    expect(report.blocking).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^task t2 .*needs-changes.*no_changes/),
+      expect.stringMatching(/^milestone m1 is reviewed while 1 required task is not accepted/),
+    ]));
+    expect(report.blocking.some((b: string) => /^task t1/.test(b))).toBe(false);
+    expect(report.tasks.map((t: { taskId: string; latest: { status: string; decision: string | null } }) => [t.taskId, t.latest.decision ?? t.latest.status]))
+      .toEqual([["t1", "accept"], ["t2", "no_changes"]]);
+  });
+
+  it("every task's latest verdict accepted, the milestone reviewed: exit 0, nothing blocking", () => {
+    const { status, report } = runSample("sample-run-accepted");
+    expect(report.blocking).toEqual([]);
+    expect(report.passed).toBe(true);
+    expect(status).toBe(0);
+  });
+
+  it("an earlier accept does not count once a later verdict asks for changes, and a missing verdict blocks", () => {
+    const project = { plan: { rows: [{ taskId: "a", milestoneId: "m", reviewer: "r:x" }, { taskId: "b", milestoneId: "m", reviewer: "r:x" }] },
+      milestones: [{ id: "m", state: "done" }], gate: { kind: "none" } };
+    const v = (taskId: string, decision: string | null, status = "ok") => ({ taskKey: runner.outcomeKey(taskId), milestoneKey: runner.outcomeKey("m"), status,
+      review: decision ? { decision, reviewer: "r:x" } : null });
+    const tasks = runner.joinVerdicts(project, [v("a", "accept"), v("a", "needs-changes")]);
+    const blocking = runner.blockingReasons({ tests: { passed: true }, project, tasks });
+    expect(blocking).toEqual([
+      expect.stringMatching(/^task a .*needs-changes/),
+      expect.stringMatching(/^task b .*no verdict/),
+      expect.stringMatching(/^milestone m is done while 2 required tasks are not accepted/),
+    ]);
+    expect(runner.blockingReasons({ tests: { passed: false }, project: null, tasks: [] })).toEqual(["the test suites did not both pass", "no project was stored for the session"]);
+  });
+});
+
+describe("the reviewer's identity", () => {
+  it("records provider and effective model, and flags a reviewer that is not the plan's", () => {
+    const blocked = runSample("sample-run-blocked").report;
+    expect(blocked.tasks[1].latestReview).toMatchObject({ planned: "codex-cli:default", recorded: "default", mismatch: true });
+    const accepted = runSample("sample-run-accepted").report;
+    expect(accepted.tasks[0].latestReview).toEqual({ planned: "codex-cli:default", recorded: "codex-cli:default", provider: "codex-cli",
+      model: "gpt-5.5-codex", planRef: "codex-cli:default", mismatch: false });
+  });
+});
+
+describe("autonomous run or guided resume", () => {
+  it("one prompt with the auto-approval continuations is autonomous; a person's line after it is a guided resume", () => {
+    expect(runSample("sample-run-accepted").report.mode).toMatchObject({ kind: "autonomous", humanInputs: 0, runStarts: 1 });
+    const guided = runSample("sample-run-blocked").report.mode;
+    expect(guided).toMatchObject({ kind: "guided", humanInputs: 1 });
+    expect(guided.reasons).toEqual([expect.stringMatching(/^1 line from a person after the first prompt/)]);
+    expect(runner.runMode([{ kind: "user", text: "go" }], "session: a\nsession: b\n").kind).toBe("guided");
   });
 });

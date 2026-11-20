@@ -1,0 +1,97 @@
+{
+ "id": "sess_98accepted",
+ "status": "active",
+ "turns": [
+  {
+   "kind": "user",
+   "text": "Build an offline Node.js CSV sales summarizer as a fusion project, with the program and its tests as two separate worker tasks. The program is sales.cjs in this folder: CommonJS, Node built-ins only, no network and no dependencies, run as `node sales.cjs <input.csv>`. The first line of the input must be exactly sku,qty,price_cents (a trailing carriage return is allowed); otherwise print an error containing \"Invalid header\" to stderr, print nothing on stdout and exit 1. Every later non-blank line has exactly three comma-separated fields: a non-empty sku, then qty and price_cents as non-negative whole numbers written in decimal digits only. For any other row (a negative, fractional, non-numeric or missing number, or the wrong number of fields) print an error containing \"Invalid row\" and its line number to stderr, print nothing on stdout and exit 1. On success print one JSON object on stdout that maps each sku to its total revenue in cents (the sum of qty times price_cents over its rows, an integer; any sku text must work, including toString and __proto__) and exit 0; a total beyond Number.MAX_SAFE_INTEGER is an invalid row. The tests are sales.test.cjs, run with `node --test sales.test.cjs`, and cover repeated skus, zero values, a sku named toString, a wrong first line with no valid header before it, and invalid numbers. Run `node --test sales.test.cjs` and get the configured reviewer's verdict on each task before you report the milestone.",
+   "at": 1795640000000
+  },
+  {
+   "kind": "assistant_reply",
+   "text": "ok",
+   "at": 1795640001000
+  },
+  {
+   "kind": "user",
+   "text": "I approved the project brief. Draft the plan.",
+   "at": 1795640002000
+  },
+  {
+   "kind": "assistant_reply",
+   "text": "ok",
+   "at": 1795640003000
+  },
+  {
+   "kind": "user",
+   "text": "I approved. Continue with milestone \"CSV summarizer and its tests\".",
+   "at": 1795640004000
+  },
+  {
+   "kind": "assistant_reply",
+   "text": "ok",
+   "at": 1795640005000
+  }
+ ],
+ "project": {
+  "brief": {
+   "status": "approved",
+   "version": 2
+  },
+  "plan": {
+   "status": "approved",
+   "version": 5,
+   "rows": [
+    {
+     "taskId": "t1",
+     "title": "sales.cjs: the summarizer",
+     "milestoneId": "m1",
+     "worker": "local-llama:qwen-3.6-35b-a3b",
+     "reviewer": "codex-cli:default",
+     "reason": "preset",
+     "basis": "preset",
+     "samples": 0,
+     "estCostUsd": 0,
+     "estMs": null,
+     "local": true
+    },
+    {
+     "taskId": "t2",
+     "title": "sales.test.cjs: its tests",
+     "milestoneId": "m1",
+     "worker": "local-llama:qwen-3.6-35b-a3b",
+     "reviewer": "codex-cli:default",
+     "reason": "preset",
+     "basis": "preset",
+     "samples": 0,
+     "estCostUsd": 0,
+     "estMs": null,
+     "local": true
+    }
+   ],
+   "totals": {
+    "costUsd": 0,
+    "ms": null,
+    "unknownCostRows": 0
+   },
+   "detail": "full",
+   "draftedAfterUntrusted": false
+  },
+  "milestones": [
+   {
+    "id": "m1",
+    "title": "CSV summarizer and its tests",
+    "kind": "logic",
+    "state": "reviewed",
+    "runIds": [
+     "run-b1",
+     "run-b2"
+    ],
+    "updatedAt": 1795640006000
+   }
+  ],
+  "gate": {
+   "kind": "none"
+  }
+ }
+}
