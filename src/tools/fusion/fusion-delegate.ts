@@ -194,7 +194,8 @@ import { currentPolicyAllows, currentProviderPolicy, runWithProviderRole } from 
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
-import { writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1705,6 +1706,26 @@ export function buildFusionDelegateTool(
       const attemptLedger = new Map<string, AttemptRecord[]>();
       /** A task's declared files, for the hashes its check runs record (issue #104 review). */
       const declaredFilesOf = (taskId: string): readonly string[] => parsed.tasks.find((t) => t.id === taskId)?.files ?? [];
+      /** The newest review an earlier run of the task's milestone recorded for it (issue #104 review). */
+      const priorReviewOf = (taskId: string): RunTaskReview | undefined => {
+        const runsDir = deps.runCheckpoints?.runsDir;
+        const row = ctx.project?.plan?.rows.find((r) => r.taskId === taskId);
+        const milestone = row === undefined ? undefined : ctx.project?.milestones.find((m) => m.id === row.milestoneId);
+        if (runsDir === undefined || milestone === undefined) return undefined;
+        for (const runId of [...milestone.runIds].reverse()) {
+          const review = readRunCriteria(runsDir, runId).reviews.find((v) => v.taskId === taskId && (v.verdict === "accept" || v.verdict === "needs-changes"));
+          if (review !== undefined) return review;
+        }
+        return undefined;
+      };
+      /** A task's declared files hashed now, inside the working dir (issue #104 review). */
+      const declaredHashesNow = (taskId: string): Array<{ path: string; sha256?: string }> =>
+        declaredFilesOf(taskId).flatMap((path) => {
+          const inside = evidencePath([ctx.workingDir], path);
+          if (inside === undefined) return [];
+          const sha256 = sha256Of(inside.full);
+          return [sha256 === undefined ? { path: inside.display } : { path: inside.display, sha256 }];
+        });
       const noteAttempt = (result: WorkerTaskResult): void => {
         const list = attemptLedger.get(result.id) ?? [];
         list.push({
@@ -3134,6 +3155,29 @@ export function buildFusionDelegateTool(
             };
           });
         }
+        // A verify-only task that changed nothing closes only on work
+        // already reviewed (issue #104 review): a review recorded by an
+        // earlier run on exactly its current files, and its own contract
+        // check run by the gate and passed on those same files. Otherwise
+        // it stays no_changes: verifyOnly is no way round doing the work.
+        results = results.map((r) => {
+          if (r.verifyOnlyUnchanged !== true || r.status !== "no_changes") return r;
+          const now = declaredHashesNow(r.id);
+          const sameFiles = (files: ReadonlyArray<{ path: string; sha256?: string }> | undefined): boolean =>
+            files !== undefined && now.length > 0 && files.length === now.length &&
+            now.every((f) => f.sha256 !== undefined && files.some((g) => g.path === f.path && g.sha256 === f.sha256));
+          const reviewed = priorReviewOf(r.id);
+          const ownIndexes = (parsed.contract?.checks ?? []).flatMap((c, i) => (c.task === r.id ? [i] : []));
+          const ownOutcomes = ownIndexes.map((i) => latestCheckOutcomes.get(i) ?? gateState.checkOutcomes.get(i));
+          const checked = ownIndexes.length > 0 && ownOutcomes.every((o) => o !== undefined && o.ok && sameFiles(o.run?.files));
+          if (reviewed !== undefined && sameFiles(reviewed.files) && checked) {
+            return { ...r, status: "ok", notes: [...(r.notes ?? []).filter((n) => n !== VERIFY_ONLY_UNCHANGED_NOTE), "verify-only: no file changed; an earlier review is recorded on exactly these files and its own check passed on them"] };
+          }
+          const why = reviewed === undefined || !sameFiles(reviewed.files)
+            ? "no review is recorded on exactly these files"
+            : ownIndexes.length === 0 ? "it has no own contract check" : "its own check did not pass on these files";
+          return { ...r, notes: [...(r.notes ?? []), `verify-only: stays no_changes: ${why}; an implementation task is re-delegated without verifyOnly to make its change`] };
+        });
         // Every task whose checks name criteria has its facts, judged or
         // not: one not ruled green stays open for the director (issue #40).
         {
@@ -3165,7 +3209,8 @@ export function buildFusionDelegateTool(
                       .filter((i) => i.by !== "fact" || !checkDidNotRun(i.why))
                       .map((i) => ({ severity: "blocker" as const, text: `${i.file === null ? "" : `${i.file}: `}${i.why}` }))
                   : [];
-                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }) }];
+                const files = declaredHashesNow(r.id);
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }), ...(files.length === 0 ? {} : { files }) }];
               }
               const reason =
                 r.judge === undefined

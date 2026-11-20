@@ -277,18 +277,25 @@ export function session(dir: string, review: (prompt: string) => string) {
     runCheckpoints: new FusionRunStore({ dir: runsDir }),
   };
   const tool = buildFusionDelegateTool(d);
+  let folded: ProjectState | undefined;
   return {
     asked,
     log,
     runsDir,
-    async call(project: ProjectState, task: Record<string, unknown>, play: Act[]) {
+    /** One delegate call; the project keeps each run on its milestone, as the director's fold does. */
+    async call(project: ProjectState, task: Record<string, unknown>, play: Act[], opts: { contract?: boolean } = {}) {
       acts = play;
       turns = 0;
+      const p = folded ?? project;
       const result = await tool.run(
-        { tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"], ...task }], contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK }] } },
-        { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project },
+        {
+          tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"], ...task }],
+          ...(opts.contract === false ? {} : { contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK }] } }),
+        },
+        { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: p },
       );
       const runId = result.details.runId as string;
+      folded = up(p, { kind: "milestone_run", id: "m1", runId });
       const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews?: Array<{ taskId: string; verdict: string }> };
       return { result, runId, stored, row: (result.details.tasks as Array<{ id: string; status: string; notes?: string[]; tools: { writes: number }; review?: { decision: string } }>)[0]! };
     },
@@ -360,7 +367,11 @@ describe("an evidence-only review (issue #104)", () => {
       writeFileSync(join(dir, "sales.test.cjs"), SUITE);
       const past = new Date(Date.now() - 10 * 60_000);
       for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
-      const s = session(dir, evidenceReviewer);
+      // An earlier review on these exact files asked for the evidence.
+      let evidenceShown = false;
+      const s = session(dir, (prompt) => (evidenceShown ? evidenceReviewer(prompt) : prompt.includes("strict acceptance judge") ? NEEDS_EVIDENCE : ACCEPT));
+      await s.call(projectOf(["sales-tests"]), { verifyOnly: true }, ["run-suite"]);
+      evidenceShown = true;
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
       const pending = s.call(projectOf(["sales-tests"]), { verifyOnly: true }, ["run-suite", "hang"]);
       await vi.advanceTimersByTimeAsync(60 * 60_000);
@@ -505,6 +516,41 @@ describe("two accepts close the milestone (issue #104)", () => {
       expect(open.summary).toContain("sales-tests");
       expect(m.project.milestones[0]!.state).toBe("in_progress");
       expect(m.asked).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  // Issue #104 review: verifyOnly is no way round the work.
+  it("the reviewer's probe: an implementation row sent verify-only on its first call stays no_changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-probe-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      // A stub left from an earlier attempt, never reviewed.
+      writeFileSync(join(dir, "sales.test.cjs"), "// TODO\n");
+      const past = new Date(Date.now() - 10 * 60_000);
+      for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      const s = session(dir, () => ACCEPT);
+      const { row } = await s.call(projectOf(["sales-tests"]), { verifyOnly: true }, []);
+      expect(row.tools.writes).toBe(0);
+      expect(row.status).toBe("no_changes");
+      expect((row.notes ?? []).join("\n")).toContain("verify-only: stays no_changes: no review is recorded on exactly these files");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a verify-only task with no own checks stays no_changes, even after a review on these files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-nochecks-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      const s = session(dir, () => ACCEPT);
+      await s.call(projectOf(["sales-tests"]), {}, ["write-suite"], { contract: false });
+      const past = new Date(Date.now() - 10 * 60_000);
+      for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      const { row } = await s.call(projectOf(["sales-tests"]), { verifyOnly: true }, [], { contract: false });
+      expect(row.status).toBe("no_changes");
+      expect((row.notes ?? []).join("\n")).toContain("it has no own contract check");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
