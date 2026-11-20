@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { FILE_WRITING_TOOLS } from "./worker-result.js";
 
@@ -36,10 +36,34 @@ export interface AttemptRecord extends AttemptFiles {
 
 const MAX_HASHED_BYTES = 8 * 1024 * 1024;
 
-/** SHA-256 of a file under `dir`, or undefined when it cannot be read (or is huge). */
+/**
+ * A path the evidence may read and name: resolved under the first root
+ * (the working dir), kept only when inside one of `roots` (the working
+ * dir, the session's read roots). `display` is relative to the working
+ * dir when inside it, else the full path; undefined outside every root.
+ */
+export function evidencePath(roots: readonly string[], path: string): { display: string; full: string } | undefined {
+  const trimmed = path.trim();
+  if (trimmed.length === 0 || roots.length === 0) return undefined;
+  const full = resolve(roots[0]!, trimmed);
+  for (const [i, root] of roots.entries()) {
+    const rel = relative(resolve(root), full);
+    if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) continue;
+    return { display: i === 0 ? rel.split(sep).join("/") : full, full };
+  }
+  return undefined;
+}
+
+/** SHA-256 of a file inside `dir`, or undefined when it is outside it, cannot be read, or is huge. */
 export function fileSha256(dir: string, path: string): string | undefined {
+  const inside = evidencePath([dir], path);
+  if (inside === undefined) return undefined;
+  return sha256Of(inside.full);
+}
+
+/** SHA-256 of a file at a full path already checked against the roots; undefined when unreadable or huge. */
+export function sha256Of(full: string): string | undefined {
   try {
-    const full = isAbsolute(path) ? path : join(dir, path);
     if (statSync(full).size > MAX_HASHED_BYTES) return undefined;
     return createHash("sha256").update(readFileSync(full)).digest("hex");
   } catch {
@@ -50,10 +74,6 @@ export function fileSha256(dir: string, path: string): string | undefined {
 /** The edit tool's own word that the edit was already in place (a no-op). */
 export function isAlreadyApplied(result: { tool: string; status: string; details?: Record<string, unknown> }): boolean {
   return result.tool === "os.fs.edit" && result.status === "ok" && result.details?.matchedBy === "already-applied";
-}
-
-function normalise(path: string): string {
-  return path.trim().replace(/^\.\//, "");
 }
 
 type Pending = { path: string | null };
@@ -71,7 +91,8 @@ export class AttemptFilesTracker {
       this.pending.delete(batchIndex);
       return;
     }
-    const path = typeof call.args.path === "string" && call.args.path.trim().length > 0 ? normalise(call.args.path) : null;
+    // Only a path inside the worker's working dir is read and named.
+    const path = typeof call.args.path === "string" ? (evidencePath([this.workingDir], call.args.path)?.display ?? null) : null;
     this.pending.set(batchIndex, { path });
   }
 

@@ -134,7 +134,7 @@ import {
   type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
-import { fileSha256, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
+import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   ORCHESTRATOR_TASK_MODEL,
@@ -1686,10 +1686,16 @@ export function buildFusionDelegateTool(
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
       const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string): string => {
         const attempts = attemptLedger.get(task.id) ?? [];
-        const paths = [...new Set([...(task.files ?? []), ...attempts.flatMap((a) => [...a.wrote.map((w) => w.path), ...a.alreadyApplied])])];
-        const current = paths.map((path) => {
-          const sha256 = fileSha256(workingDir, path);
-          return sha256 === undefined ? { path } : { path, sha256 };
+        // Only paths inside the working dir or the session's read roots are read and named.
+        const roots = [workingDir, ...(ctx.readRoots ?? [])];
+        const paths = [...new Set([...(task.files ?? []), ...attempts.flatMap((a) => [...a.wrote.map((w) => w.path), ...a.alreadyApplied])])]
+          .flatMap((path) => {
+            const inside = evidencePath(roots, path);
+            return inside === undefined ? [] : [inside];
+          });
+        const current = [...new Map(paths.map((p) => [p.display, p])).values()].map(({ display, full }) => {
+          const sha256 = sha256Of(full);
+          return sha256 === undefined ? { path: display } : { path: display, sha256 };
         });
         const own = (parsed.contract?.checks ?? []).flatMap((check, index) => {
           const outcome = check.task === task.id ? facts.checkOutcomes[index] : undefined;

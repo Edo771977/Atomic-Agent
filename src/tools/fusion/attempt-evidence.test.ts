@@ -4,7 +4,7 @@
  * review verdict is listed, in the fan-out result and the milestone report.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
-import { ATTEMPT_EVIDENCE_CHARS, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
+import { ATTEMPT_EVIDENCE_CHARS, AttemptFilesTracker, evidencePath, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
 import { buildProjectTools } from "./project-tools.js";
 import { FusionRunStore } from "./run-checkpoint.js";
 import { readMilestoneEvidence, writeRunCriteriaFacts } from "./run-criteria.js";
@@ -222,6 +222,30 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       writeRunCriteriaFacts(runsDir, { runId: "fr-3", sessionId: "s" }, [], undefined, [{ taskId: "docs", verdict: "accept" }]);
       expect(read(["fr-1", "fr-2", "fr-3"])).toBeUndefined();
     } finally { rmSync(state, { recursive: true, force: true }); }
+  });
+
+  it("reads and names only paths inside the working dir or a read root", () => {
+    const root = mkdtempSync(join(tmpdir(), "attempt-roots-"));
+    try {
+      const dir = join(root, "work");
+      const extra = join(root, "shared");
+      for (const d of [dir, extra]) mkdirSync(d);
+      writeFileSync(join(dir, "a.js"), "inside");
+      writeFileSync(join(root, "outside.txt"), "secret");
+      writeFileSync(join(extra, "lib.js"), "shared");
+      expect(evidencePath([dir], "a.js")).toEqual({ display: "a.js", full: join(dir, "a.js") });
+      expect(evidencePath([dir], join(dir, "a.js"))).toEqual({ display: "a.js", full: join(dir, "a.js") });
+      expect(evidencePath([dir], "../outside.txt")).toBeUndefined();
+      expect(evidencePath([dir], join(root, "outside.txt"))).toBeUndefined();
+      expect(evidencePath([dir, extra], join(extra, "lib.js"))?.full).toBe(join(extra, "lib.js"));
+      const tracker = new AttemptFilesTracker(dir);
+      const ok = { tool: "os.fs.write", status: "ok" };
+      for (const [i, path] of ["a.js", "../outside.txt", join(root, "outside.txt"), "./a.js"].entries()) {
+        tracker.observeParsed({ tool: "os.fs.write", args: { path, content: "x" } }, i);
+        tracker.observeExecuted(ok, i);
+      }
+      expect(tracker.finish()?.wrote.map((w) => w.path)).toEqual(["a.js"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 
