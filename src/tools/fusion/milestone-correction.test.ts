@@ -79,7 +79,10 @@ describe("bounded correction after needs-changes (issue #100)", () => {
       expect(MILESTONE_CORRECTION_ROUNDS).toBe(2);
       h.run([BLANK_LINES, NEW_FUNCTION]);
       const giveUp = await h.report("failed");
-      expect(giveUp.status).toBe("error");
+      // Not recorded as failed: the hold is folded (it counts the refusal), the milestone stays in progress.
+      expect((giveUp.details[PROJECT_UPDATE_DETAIL] as { holdForCorrection?: true }).holdForCorrection).toBe(true);
+      h.fold(giveUp.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      expect(giveUp.summary).toMatch(/not reported failed/i);
       expect(giveUp.summary).toMatch(/correction round 1 of 2/);
       expect(giveUp.summary).toContain("program: sales.cjs: blank lines are no longer skipped");
       expect(giveUp.summary).toContain("tests: sales.test.cjs: parses the output with new Function, not JSON.parse");
@@ -117,4 +120,50 @@ describe("bounded correction after needs-changes (issue #100)", () => {
       expect((await h.report("failed")).status).toBe("ok");
     } finally { h.cleanup(); }
   });
+
+  it("fixes delegated under other task ids still use up the rounds", async () => {
+    const h = harness();
+    try {
+      h.run([BLANK_LINES, NEW_FUNCTION]);
+      // The director fixes under new ids: the plan rows' reviews stay needs-changes.
+      h.run([{ taskId: "program-fix", verdict: "accept" }, { taskId: "tests-fix", verdict: "accept" }]);
+      const second = await h.report("failed");
+      expect(second.summary).toMatch(/correction round 2 of 2/);
+      h.fold(second.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      h.run([{ taskId: "program-fix-2", verdict: "accept" }]);
+      const third = await h.report("failed");
+      h.fold(third.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      expect(h.project.milestones[0]!.state).toBe("failed");
+    } finally { h.cleanup(); }
+  });
+
+  it("the refusals themselves are capped at 2: with no budget cap the loop still ends", async () => {
+    const h = harness();
+    try {
+      h.run([BLANK_LINES, NEW_FUNCTION]);
+      for (let i = 0; i < 2; i += 1) {
+        const held = await h.report("failed");
+        expect((held.details[PROJECT_UPDATE_DETAIL] as { holdForCorrection?: true }).holdForCorrection).toBe(true);
+        h.fold(held.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      }
+      expect(h.project.milestones[0]!.failedRefusals).toBe(2);
+      const third = await h.report("failed");
+      h.fold(third.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      expect(h.project.milestones[0]).toMatchObject({ state: "failed", reviewBlocks: [{ taskId: "program" }, { taskId: "tests" }] });
+    } finally { h.cleanup(); }
+  });
+
+  it("when a reviewer could not run, reporting failed is not refused", async () => {
+    const h = harness();
+    try {
+      h.run([BLANK_LINES]);
+      // tests ran with no reviewer able to answer.
+      h.run([{ taskId: "program", verdict: "needs-changes", issues: ["sales.cjs: blank lines"] }, { taskId: "tests", verdict: "none", reason: "not verified: the judge could not run: codex-cli exited 1" }]);
+      const failed = await h.report("failed");
+      expect((failed.details[PROJECT_UPDATE_DETAIL] as { holdForCorrection?: true }).holdForCorrection).toBeUndefined();
+      h.fold(failed.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate);
+      expect(h.project.milestones[0]!.state).toBe("failed");
+    } finally { h.cleanup(); }
+  });
 });
+

@@ -400,6 +400,10 @@ const AWAIT_PERSON = "Now reply to the person: they approve, edit or cancel it b
  * which a required task got needs-changes, the first not counted.
  */
 export const MILESTONE_CORRECTION_ROUNDS = 2;
+/** Failed reports held back for correction per milestone, at most (issue #100); the next is accepted. */
+export const MILESTONE_FAILED_REFUSALS = 2;
+/** A review block whose reviewer could not run or answer: a failed report then is never held back. */
+const REVIEWER_DOWN = /no reviewer ran|could not run|could not be read|not judged/i;
 
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
   const brief: ToolDefinition = {
@@ -490,16 +494,24 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         // Bounded correction (issue #100): with concrete blockers, rounds
         // left and budget, the director fixes first instead of giving up.
         const correction = failedEvidence.correction;
+        // A reviewer that could not run is reason enough to report failed: never held back.
+        const reviewerDown = (failedEvidence.reviewBlocks ?? []).some((b) => REVIEWER_DOWN.test(b.reason));
         if (
           correction !== undefined &&
+          !reviewerDown &&
           correction.roundsUsed < MILESTONE_CORRECTION_ROUNDS &&
+          (milestone.failedRefusals ?? 0) < MILESTONE_FAILED_REFUSALS &&
           (deps.correctionBudgetLeft?.(ctx.sessionId) ?? true)
         ) {
-          return refuse(PROJECT_MILESTONE_TOOL, [
-            `milestone ${report.id} cannot be reported failed yet: its reviews name concrete blockers and correction round ${correction.roundsUsed + 1} of ${MILESTONE_CORRECTION_ROUNDS} is left. ${correction.blocked
+          // Held, not refused: the fold counts it on the milestone, so the
+          // holds end even with no budget cap.
+          return accepted(
+            PROJECT_MILESTONE_TOOL,
+            `Not reported failed: milestone ${report.id}'s reviews name concrete blockers and correction round ${correction.roundsUsed + 1} of ${MILESTONE_CORRECTION_ROUNDS} is left. ${correction.blocked
               .map((b) => `${b.taskId}: ${b.issues.join("; ")}`)
-              .join(" | ")}. Delegate a targeted fix for each blocked row under its plan task id with fusion.delegate (the issues in its brief; change only what they name), let both reviews run again, then report the result. Report "failed" only when the rounds or the budget are used up`,
-          ]);
+              .join(" | ")}. Delegate a targeted fix for each blocked row under its plan task id with fusion.delegate (the issues in its brief; change only what they name), let both reviews run again, then report the result. Report "failed" only when the rounds or the budget are used up, or a reviewer cannot run.`,
+            { ...report, holdForCorrection: true },
+          );
         }
         const blocks = failedEvidence.reviewBlocks ?? [];
         if (blocks.length > 0) {

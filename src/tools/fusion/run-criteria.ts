@@ -209,8 +209,8 @@ export interface MilestoneEvidence {
   /**
    * Issue #100: the required tasks whose newest review is a needs-changes
    * with concrete (blocking) issues, and the correction rounds already
-   * used: runs of these in which a required task got needs-changes, the
-   * first not counted. Absent when no such task.
+   * used: every run after the first one in which a required task got
+   * needs-changes, whatever its task ids. Absent when no such task.
    */
   correction?: { roundsUsed: number; blocked: Array<{ taskId: string; issues: string[] }> };
 }
@@ -264,10 +264,12 @@ export function readMilestoneEvidence(input: {
   // Per task, its newest run: that run's review of it (if any) and whether review was on.
   const latestRun = new Map<string, { review: RunTaskReview | undefined; judging: boolean }>();
   const required = new Set(input.requiredTasks ?? []);
-  let needsChangesRuns = 0;
+  // The first run in which a required task got needs-changes: every run
+  // after it is a correction round, whatever its task ids (issue #100).
+  let firstNeedsChanges: number | undefined;
   for (const [at, runId] of input.runIds.entries()) {
     const run = readRunTasks(input.runsDir, runId);
-    if (run.reviews.some((r) => r.verdict === "needs-changes" && required.has(r.taskId))) needsChangesRuns += 1;
+    if (firstNeedsChanges === undefined && run.reviews.some((r) => r.verdict === "needs-changes" && required.has(r.taskId))) firstNeedsChanges = at;
     for (const review of run.reviews) reviewOf.set(review.taskId, { review, at });
     const ranHere = run.ran ?? [...run.reviews.map((r) => r.taskId), ...run.tasks.map((t) => t.taskId)];
     for (const taskId of new Set(ranHere)) {
@@ -367,6 +369,8 @@ export function readMilestoneEvidence(input: {
     uncovered,
     ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
     ...(reviewBlocks.length === 0 ? {} : { reviewBlocks }),
-    ...(blocked.length === 0 ? {} : { correction: { roundsUsed: Math.max(0, needsChangesRuns - 1), blocked } }),
+    ...(blocked.length === 0 || firstNeedsChanges === undefined
+      ? {}
+      : { correction: { roundsUsed: input.runIds.length - 1 - firstNeedsChanges, blocked } }),
   };
 }
