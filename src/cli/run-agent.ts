@@ -825,7 +825,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
               // the user's own words (see `ApprovalDecision.reason`). An
               // unavailable approval is the system's, and says so.
               ...(answer.approved ? { reason: "cli-approved" } : {}),
-              ...(answer.unavailable ? { automatic: true, reason: APPROVAL_UNAVAILABLE_REASON } : {}),
+              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: APPROVAL_UNAVAILABLE_REASON } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
               ...(answer.answer ? { answer: answer.answer } : {}),
             });

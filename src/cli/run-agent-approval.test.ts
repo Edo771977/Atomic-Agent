@@ -122,6 +122,17 @@ describe("run: approvals with piped stdin (issue #95)", () => {
     expect(shellResult()).not.toMatch(/user declined/i);
   });
 
+  it("the same call retried in the turn after an unavailable approval is refused without asking again", async () => {
+    script.calls = [
+      { tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"] } },
+      { tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"] } },
+    ];
+    feed(["run the marker\n"]);
+    await runAgentCommand(["--cwd", workingDir]);
+    expect(stderr.match(/approval required for tool/g) ?? []).toHaveLength(1);
+    expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+  });
+
   it("an explicit n on piped stdin is still the user's refusal", async () => {
     runMarker();
     feed(["run the marker\n", "n\n"]);
