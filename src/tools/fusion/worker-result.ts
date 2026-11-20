@@ -310,6 +310,12 @@ export interface WorkerTaskResult {
    */
   attempt?: AttemptFiles;
   /**
+   * The worker ran out of time after its own test run passed (issue
+   * #102): the row is `ok` and goes on to its checks and review from the
+   * recorded run (`attempt.executed`), with no new worker.
+   */
+  timedOutAfterRun?: true;
+  /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
    * or stuck tasks, which waits for the director's decision (issue #38).

@@ -150,3 +150,67 @@ describe("execution evidence (issue #102)", () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe("re-review from the recorded run after a timeout (issue #102)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** A check that passes only on the program the worker ran its suite on. */
+  const checksOn = (dir: string, seen: string[]): FusionDelegateDeps["runChecks"] => async (specs) => {
+    const now = readFileSync(join(dir, "sales.cjs"), "utf8");
+    seen.push(now);
+    const ok = now === PROGRAM;
+    return { ok, results: specs.map(() => (ok ? { ok: true, summary: "passed" } : { ok: false, summary: "verify.run command: FAILED (exit 1): 1 failed" })) };
+  };
+
+  it("the suite passed, then the worker timed out: the reviewer rules on the recorded run, no new worker, no rewrite", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-from-record-"));
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+      const prompts: string[] = [];
+      const complete: EscalationComplete = async (call) => { prompts.push(call.prompt); return { content: review("accept") }; };
+      let turns = 0;
+      const inner = worker(dir, true);
+      const runTurn: FusionDelegateDeps["runTurn"] = async (...args) => { turns += 1; return inner(...args); };
+      const seen: string[] = [];
+      const pending = buildFusionDelegateTool(deps(dir, complete, runTurn, { runChecks: checksOn(dir, seen) })).run({ tasks: program, contract }, ctx(dir));
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      const result = await pending;
+      const row = (result.details.tasks as Array<{ id: string; status: string; review?: { decision: string } }>)[0]!;
+      expect(row.status).toBe("ok");
+      expect(row.review?.decision).toBe("accept");
+      expect(turns).toBe(1);
+      expect(readFileSync(join(dir, "sales.cjs"), "utf8")).toBe(PROGRAM);
+      const prompt = prompts.find((p) => p.includes("strict acceptance judge"))!;
+      expect(prompt).toContain("## Execution evidence");
+      expect(prompt).toContain("- ok: ignores __proto__");
+      // The task's own check ran on the version under review.
+      expect(seen).toContain(PROGRAM);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("files changed after the recorded run: the checks run on the new version and it is not accepted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-from-record-changed-"));
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+      const inner = worker(dir, false);
+      let turns = 0;
+      const runTurn: FusionDelegateDeps["runTurn"] = async (session, message, options) => {
+        turns += 1;
+        if (turns > 1) return inner(session, message, options);
+        // The run passes, then a later write breaks the file, then the clock ends it.
+        const done = inner(session, message, options);
+        await done;
+        writeFileSync(join(dir, "sales.cjs"), "module.exports = () => { throw new Error('broken'); };\n");
+        await new Promise<void>((resolve) => options.signal?.addEventListener("abort", () => resolve(), { once: true }));
+        return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "cancelled", stepCount: 3 } as RunTurnResult;
+      };
+      const seen: string[] = [];
+      const pending = buildFusionDelegateTool(deps(dir, async () => ({ content: review("accept") }), runTurn, { runChecks: checksOn(dir, seen) })).run({ tasks: program, contract }, ctx(dir));
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      const row = ((await pending).details.tasks as Array<{ id: string; status: string; review?: { decision: string } }>)[0]!;
+      expect(seen.some((v) => v.includes("broken"))).toBe(true);
+      expect(row.review?.decision).not.toBe("accept");
+      expect(row.status).not.toBe("ok");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
