@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { ApprovalGate, type ApprovalRequest } from "../../approval/approval-gate.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -225,7 +225,7 @@ type Act = "write-suite" | "run-suite" | "hang";
 export function session(dir: string, review: (prompt: string) => string, opts: { realGate?: boolean } = {}) {
   const asked: ApprovalRequest[] = [];
   const log: string[] = [];
-  const runsDir = join(dir, "..", `${dir.split("/").pop()}-runs`);
+  const runsDir = join(dir, "..", `${basename(dir)}-runs`);
   let acts: Act[] = [];
   let minted = 0;
   let turns = 0;
