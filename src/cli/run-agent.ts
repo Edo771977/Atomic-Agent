@@ -729,9 +729,19 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
     }
     while (true) {
       if (opts.controller.signal.aborted) break;
-      if (session.status === "completed") break;
+      // Issue #100: the run ends here (the chat finished, or stdin ended).
+      // A gate still waiting on the person (a continued chat left at one,
+      // say) is said with how to resume and ends the run with its exit
+      // code, not a silent 0; auto-approve still takes what it may.
+      if (session.status === "completed") {
+        await settleGates(gate.auto ? "approve" : "stop");
+        break;
+      }
       const line = await opts.lines.next("you> ");
-      if (line === null) break;
+      if (line === null) {
+        await settleGates(gate.auto ? "approve" : "stop");
+        break;
+      }
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
       if (trimmed === "/quit" || trimmed === "/exit") break;
