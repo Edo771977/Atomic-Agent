@@ -420,6 +420,44 @@ describe("runVerify — page, real browser", () => {
     expect(score.length).toBeLessThanOrEqual(40);
     expect(out.summary).toContain("uncaught errors (1)");
   }, 60_000);
+
+  // A slow machine (the Windows CI runner, a loaded laptop) can take more than
+  // 5 s to make a control clickable; the click step waited only 5 s, so a good
+  // page failed its check with "page.click: Timeout 5000ms exceeded".
+  it.runIf(process.env.ATAG_VERIFY_PAGE_TEST !== "0")("a click waits for a control that becomes clickable after 6 s", async (test) => {
+    if (!launchable) {
+      test.skip();
+      return;
+    }
+    await writeFile(
+      join(work, "late.html"),
+      `<html><body>
+<script>
+  window.clicked = false;
+  setTimeout(() => {
+    const b = document.createElement("button");
+    b.id = "late";
+    b.textContent = "go";
+    b.addEventListener("click", () => { window.clicked = true; });
+    document.body.appendChild(b);
+  }, 6000);
+</script>
+</body></html>`,
+    );
+    const out = await runVerify(
+      {
+        kind: "page",
+        path: "late.html",
+        script: [{ action: "click", selector: "#late" }],
+        seconds: 1,
+        probes: [{ name: "clicked", expr: "window.clicked" }],
+        checks: ["no errors", "probe clicked stays true"],
+      },
+      ctx(),
+    );
+    expect(out.errors).toEqual([]);
+    expect(out.ok).toBe(true);
+  }, 60_000);
 });
 
 describe("runChecks", () => {
