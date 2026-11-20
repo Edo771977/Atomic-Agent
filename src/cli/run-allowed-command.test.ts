@@ -1,6 +1,6 @@
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
@@ -22,7 +22,10 @@ describe("parseAllowedCommand", () => {
 });
 
 describe("allowedCommandMatches", () => {
-  const root = join("/work", "proj");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-root-")));
+  mkdirSync(join(root, "pkg"));
+  const sibling = `${root}-other`;
+  mkdirSync(sibling, { recursive: true });
   const allowed = [parseAllowedCommand("node --test sales.test.cjs") as { argv: string[] }];
   const shell = (over: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
     approvalId: "a1", sessionId: "s1", tool: "os.shell.run", category: "shell", reason: "r",
@@ -64,9 +67,19 @@ describe("allowedCommandMatches", () => {
   });
 
   it("does not match outside the run's folder", () => {
-    expect(allowedCommandMatches(shell({ affectedResources: ["/work"] }), allowed, root)).toBe(false);
-    expect(allowedCommandMatches(shell({ affectedResources: [join("/work", "proj-other")] }), allowed, root)).toBe(false);
+    expect(allowedCommandMatches(shell({ affectedResources: [dirname(root)] }), allowed, root)).toBe(false);
+    expect(allowedCommandMatches(shell({ affectedResources: [sibling] }), allowed, root)).toBe(false);
     expect(allowedCommandMatches(shell({ affectedResources: [] }), allowed, root)).toBe(false);
+  });
+
+  it("compares real paths: a link out of the folder does not match, and a folder that cannot be resolved fails closed", () => {
+    const real = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-real-")));
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-out-")));
+    symlinkSync(outside, join(real, "link"), "dir");
+    expect(allowedCommandMatches(shell({ affectedResources: [real] }), allowed, real)).toBe(true);
+    expect(allowedCommandMatches(shell({ affectedResources: [join(real, "link")] }), allowed, real)).toBe(false);
+    expect(allowedCommandMatches(shell({ affectedResources: [join(real, "missing")] }), allowed, real)).toBe(false);
+    expect(allowedCommandMatches(shell({ affectedResources: [real] }), allowed, join(real, "missing"))).toBe(false);
   });
 
   it("does not match a dangerous command, another category or another tool", () => {

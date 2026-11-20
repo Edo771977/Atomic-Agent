@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 
@@ -59,7 +60,7 @@ export function allowedCommandMatches(
   const argv = request.commandArgv;
   if (argv === undefined || argv.length === 0) return false;
   const dirs = request.affectedResources ?? [];
-  if (dirs.length === 0 || !dirs.every((dir) => isAbsolute(dir) && inside(runDir, dir))) return false;
+  if (dirs.length === 0 || !dirs.every((dir) => isAbsolute(dir) && inside(runDir, dir, platform))) return false;
   return allowed.some((command) => sameWords(command.argv, argv, platform));
 }
 
@@ -78,8 +79,20 @@ function sameWords(allowed: readonly string[], words: readonly string[], platfor
   return sameFirst && allowed.every((token, i) => i === 0 || token === words[i]);
 }
 
-function inside(root: string, dir: string): boolean {
-  const fold = (path: string): string => (process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
-  const rel = relative(fold(root), fold(dir));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+/**
+ * `dir` is `root` or below once both are real paths (a link out of the
+ * folder is outside it); a path that cannot be resolved fails closed.
+ */
+function inside(root: string, dir: string, platform: NodeJS.Platform): boolean {
+  let realRoot: string;
+  let realDir: string;
+  try {
+    realRoot = realpathSync.native(root);
+    realDir = realpathSync.native(dir);
+  } catch {
+    return false;
+  }
+  const fold = (path: string): string => (platform === "win32" ? path.toLowerCase() : path);
+  const rel = relative(fold(realRoot), fold(realDir));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${platform === "win32" ? "\\" : "/"}`) && !isAbsolute(rel));
 }

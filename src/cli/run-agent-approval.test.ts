@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -203,6 +203,18 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
       expect(readFileSync(join(workingDir, "..", "outside.txt"), "utf8")).toBe("keep me");
       rmSync(join(workingDir, "..", "outside.txt"), { force: true });
+    });
+
+    it("holds the listed command in a folder that links outside --cwd", async () => {
+      const outside = mkdtempSync(join(tmpdir(), "atomic-cli-approval-outside-"));
+      writeFileSync(join(outside, "mark.cjs"), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'ran.txt'), 'ran');\n");
+      symlinkSync(outside, join(workingDir, "link"), "dir");
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"], cwd: "link" } }];
+      feed(["run it there\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(existsSync(join(outside, "ran.txt"))).toBe(false);
+      rmSync(outside, { recursive: true, force: true });
     });
 
     it("holds the listed command under another argv[0] spelling (NODE)", async () => {
