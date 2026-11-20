@@ -135,6 +135,7 @@ import {
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
+import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
   ORCHESTRATOR_TASK_MODEL,
@@ -1159,13 +1160,15 @@ export function buildFusionDelegateTool(
           const usable =
             picked === undefined || picked === null
               ? undefined
-              : (team?.reviewers ?? []).find((m) => m.ref === picked && m.ref !== taskMember(taskId).ref);
+              : (team?.reviewers ?? []).find(
+                  (m) => sameMember(m.ref, picked, deps.resolveDefaultModel) && !sameMember(m.ref, taskMember(taskId).ref, deps.resolveDefaultModel),
+                );
           if (picked === null || usable !== undefined) found = { member: usable ?? null, fromPlan: true };
           else {
             if (picked !== undefined) {
               unusablePlanReviewers.set(
                 taskId,
-                picked === taskMember(taskId).ref
+                sameMember(picked, taskMember(taskId).ref, deps.resolveDefaultModel)
                   ? "it is now the task's worker"
                   : "it is not a team reviewer this folder's policy allows and that can answer now",
               );
@@ -1188,7 +1191,7 @@ export function buildFusionDelegateTool(
         const row = approvedRows.get(taskId);
         if (row === undefined) return undefined;
         const runs = reviewerRefOf(taskId);
-        if (row.reviewer === runs) return undefined;
+        if (sameMember(row.reviewer, runs, deps.resolveDefaultModel)) return undefined;
         const instead = runs === null ? "no team reviewer reviews it" : `${runs} reviews it instead`;
         if (row.reviewer === null) return `the plan has no review for it, but ${runs} would review it`;
         const why = unusablePlanReviewers.get(taskId) ?? "no review can run here";
@@ -1224,6 +1227,7 @@ export function buildFusionDelegateTool(
           reviewerRefOf,
           writeScope,
           [ctx.workingDir],
+          deps.resolveDefaultModel,
         );
       const turnGrantCovers =
         deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
