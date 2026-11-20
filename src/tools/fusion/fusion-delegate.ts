@@ -32,7 +32,7 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
-import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
+import { checkProjectDispatch, planCoverageGap } from "./project-dispatch.js";
 import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
@@ -1212,26 +1212,30 @@ export function buildFusionDelegateTool(
       // was given before the text that may now be steering the fan-out.
       // An approved project plan (issue #39) is the person's yes to these
       // exact tasks on these workers in this folder; anything else asks.
-      const planApproved =
-        projectVerdict.kind === "admit" &&
-        projectVerdict.unplanned.length === 0 &&
-        // A brief naming a path the scope cannot grant (unresolvable
-        // here, or a root/home directory) writes outside the folder the
-        // plan was approved for, even though the scope leaves it out.
-        !analysedScope.namesUngrantedPath &&
-        ctx.project !== undefined &&
-        planCoversFanout(
-          ctx.project,
-          parsed.tasks.map((t) => t.id),
-          (id) => {
-            const leg = taskLegs.get(id);
-            return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
-          },
-          reviewerRefOf,
-          writeScope,
-          [ctx.workingDir],
-          deps.resolveDefaultModel,
-        );
+      // Why the approved plan does not stand for this fan-out, when it does not (issue #104).
+      const planGap: string | undefined =
+        projectVerdict.kind !== "admit" || ctx.project === undefined
+          ? "no approved project plan covers it"
+          : projectVerdict.unplanned.length > 0
+            ? `task${projectVerdict.unplanned.length === 1 ? "" : "s"} ${projectVerdict.unplanned.join(", ")} ${projectVerdict.unplanned.length === 1 ? "is not a row" : "are not rows"} of the plan (keep the plan row's task id)`
+            // A brief naming a path the scope cannot grant (unresolvable
+            // here, or a root/home directory) writes outside the folder the
+            // plan was approved for, even though the scope leaves it out.
+            : analysedScope.namesUngrantedPath
+              ? "a brief names a path outside the folder the plan was approved for"
+              : planCoverageGap(
+                  ctx.project,
+                  parsed.tasks.map((t) => t.id),
+                  (id) => {
+                    const leg = taskLegs.get(id);
+                    return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
+                  },
+                  reviewerRefOf,
+                  writeScope,
+                  [ctx.workingDir],
+                  deps.resolveDefaultModel,
+                );
+      const planApproved = planGap === undefined;
       const turnGrantCovers =
         deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
       const alreadyApproved =
@@ -1286,20 +1290,26 @@ export function buildFusionDelegateTool(
         if (projectVerdict.kind === "admit") admitted.milestoneId = projectVerdict.milestoneId;
 
       } catch (err) {
+        // In a project, say why the plan did not stand for it and how to send it so it does (issue #104).
+        const offPlan = projectVerdict.kind === "admit" && planGap !== undefined && ctx.project?.plan?.status === "approved"
+          ? `The approved plan does not cover this fan-out: ${planGap}. Send each plan task under its plan task id on the worker and reviewer its row names (an evidence-only review: \`verifyOnly: true\`) and it runs without asking. `
+          : "";
         // The user's own no already says what happened and what to do,
         // and so does a repeat of one they declined earlier in the turn.
         if (
           err instanceof ApprovalDeniedError &&
           (err.byUser || err.declinedEarlier)
         ) {
-          return error(err.message, {
+          // First: the summary is clipped, and this is what the director can act on.
+          return error(`${offPlan}${err.message}`, {
             reason: "fan-out-denied",
             deniedByUser: true,
+            ...(offPlan === "" ? {} : { planGap }),
           });
         }
         return error(
-          `the fan-out was not approved: ${err instanceof Error ? err.message : String(err)}`,
-          { reason: "fan-out-denied" },
+          `${offPlan}the fan-out was not approved: ${err instanceof Error ? err.message : String(err)}`,
+          { reason: "fan-out-denied", ...(offPlan === "" ? {} : { planGap }) },
         );
       }
 

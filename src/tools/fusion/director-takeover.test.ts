@@ -122,6 +122,9 @@ describe("a director takeover of a plan task (issue #102)", () => {
     expect((await run(p, {}, false)).prompts).toHaveLength(0);
     const takeover = await run(p, { model: "orchestrator" }, false);
     expect(takeover.prompts.map((r) => r.category)).toEqual(["fusion_fanout"]);
+    // Issue #104: the refusal says which condition left the plan, and how to send it so it is covered.
+    expect(takeover.result.summary).toMatch(/The approved plan does not cover this fan-out: task t would run on api-a:model-a, but its plan row names local:small\./);
+    expect(takeover.result.summary).toContain("Send each plan task under its plan task id on the worker and reviewer its row names");
   });
 
   it("a plan task that did not close is steered to its row's worker and id, not to another model", async () => {

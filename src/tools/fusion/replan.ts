@@ -169,6 +169,13 @@ export const STALL_RECOVERY_ATTEMPTS = 2;
 const SAME_TASK_ID = " Keep its task id (the plan row's).";
 
 /**
+ * Why a plan task stays on its row (issue #104): in the live run the
+ * director, offered a move to another team worker, took it, and the
+ * fan-out then needed an approval nobody could give with stdin closed.
+ */
+export const OFF_ROW =
+  "Keep it on its plan row: a fan-out on a worker the row does not name leaves the approved plan and needs the person's approval, which a run nobody attends cannot get.";
+/**
  * The fix for a task of the approved plan (issue #102): its plan row's
  * worker and id, never another model. A takeover on `model:
  * "orchestrator"` (or any worker the row does not name) is outside what
@@ -177,7 +184,7 @@ const SAME_TASK_ID = " Keep its task id (the plan row's).";
  */
 export function plannedTaskFix(row: PlannedRow): string {
   const worker = row.orchestrator ? 'the orchestrator, `model: "orchestrator"`' : `\`${row.worker}\``;
-  return `keep its plan task id (a plan task is never split); re-delegate it on the plan row's worker (${worker}) with a narrower brief or a longer \`timeoutMs\`, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person`;
+  return `keep its plan task id (a plan task is never split); re-delegate it on the plan row's worker (${worker}) with a narrower brief or a longer \`timeoutMs\`. ${OFF_ROW}`;
 }
 
 /** A task's plan row as the replan reads it: the member the row names, and whether that is the orchestrator's. */
@@ -190,11 +197,11 @@ export interface PlannedRow {
 const REVIEW_OPTIONS =
   "re-delegate it with `fusion.delegate` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged." + SAME_TASK_ID;
 const PLANNED_REVIEW_OPTIONS =
-  "delegate a targeted fix under its plan task id, the remaining issues in the brief (a correction round), on the plan row's worker, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person; never split it; or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged.";
+  "delegate a targeted fix under its plan task id, the remaining issues in the brief (a correction round), on the plan row's worker; or, when the issues are about the evidence and not the files, an evidence-only review under its plan task id (`verifyOnly: true`, on the same worker: it writes nothing and the reviewer rules again from the check runs); never split it; or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged. " + OFF_ROW;
 const STUCK_OPTIONS =
   "re-delegate it with `fusion.delegate` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged." + SAME_TASK_ID;
 const PLANNED_STUCK_OPTIONS =
-  "re-delegate it under its plan task id with a narrower brief, on the plan row's worker, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person; never split it; or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged.";
+  "re-delegate it under its plan task id with a narrower brief, on the plan row's worker; never split it; or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged. " + OFF_ROW;
 const PLANNED_STALLED_OPTIONS =
   "re-run it once on the same worker under its plan task id, the stall details in the brief (the file, its sha256, the last check); if it stalls again, report it with `project.milestone` so the milestone stays open; never split it.";
 const PLANNED_SETTLE = " A plan task: report it with `project.milestone` if you cannot settle it, so the milestone stays open.";
