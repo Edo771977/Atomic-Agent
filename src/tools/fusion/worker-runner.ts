@@ -1561,7 +1561,7 @@ async function runOneTask(
   const attemptFiles = new AttemptFilesTracker(workingDir);
   let stalledWrite: StalledWrite | undefined;
   /** Feeds the write trackers; true when the call rewrote a file with the bytes it held. */
-  const noteWriteOutcome = (result: { tool: string; status: string; summary?: string }, batchIndex: number): boolean => {
+  const noteWriteOutcome = (result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): boolean => {
     attemptFiles.observeExecuted(result, batchIndex);
     const { identical, repeat } = repeatedWrites.observeExecuted(result, batchIndex);
     if (repeat === undefined || stalledWrite !== undefined || stopByWatch.signal.aborted) return identical;

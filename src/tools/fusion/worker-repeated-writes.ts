@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import { isAlreadyApplied } from "./attempt-evidence.js";
 import { FILE_WRITING_TOOLS } from "./worker-result.js";
 
 /**
@@ -107,6 +108,8 @@ export class RepeatedWritesTracker {
     const pending = this.pending.get(batchIndex);
     this.pending.delete(batchIndex);
     if (result.status !== "ok") return { identical: false };
+    // An edit the tool found already applied changed nothing (issue #95).
+    if (isAlreadyApplied(result)) return { identical: true };
     if (pending === undefined || pending.kind === "other") {
       const tool = pending?.tool ?? result.tool;
       if (NEUTRAL_TOOLS.has(tool) || this.readOnlyTools.has(tool)) return { identical: false };

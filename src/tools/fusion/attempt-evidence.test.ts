@@ -43,11 +43,14 @@ const review = (decision: "accept" | "needs-changes", why?: string): string =>
 const OLD = "total[sku] += qty * price;";
 const NEW = "total[sku] = (total[sku] ?? 0) + qty * price;";
 const parsedEdit = { type: "llm_event", event: { type: "tool_call_parsed", call: { tool: "os.fs.edit", args: { path: "sales.cjs", oldString: OLD, newString: NEW } }, batchIndex: 0, batchSize: 1 } } as never;
-const executedEdit = (ok: boolean) => ({
+/** The edit tool's outcomes: applied, already applied (its own flag), or a plain miss. */
+const executedEdit = (outcome: "applied" | "already-applied" | "not-found") => ({
   type: "llm_event",
   event: {
     type: "tool_call_executed",
-    result: { tool: "os.fs.edit", status: ok ? "ok" : "error", summary: ok ? "edited" : "os.fs.edit: `oldString` was not found in the target file.", details: {}, truncated: false },
+    result: outcome === "not-found"
+      ? { tool: "os.fs.edit", status: "error", summary: "os.fs.edit: `oldString` was not found in the target file.", details: {}, truncated: false }
+      : { tool: "os.fs.edit", status: "ok", summary: outcome === "applied" ? "edited" : "note: oldString was not found, but newString is already in the file", details: outcome === "applied" ? {} : { matchedBy: "already-applied" }, truncated: false },
     batchIndex: 0, batchSize: 1,
   },
 }) as never;
@@ -89,8 +92,8 @@ describe("reviewer evidence across attempts (issue #95)", () => {
         turns += 1;
         options.eventHook?.(parsedEdit);
         if (turns === 1) writeFileSync(join(dir, "sales.cjs"), `${NEW}\n`);
-        // The retry finds the old text gone: the edit is already there.
-        options.eventHook?.(executedEdit(turns === 1));
+        // The retry finds the old text gone: the edit tool says it is already there.
+        options.eventHook?.(executedEdit(turns === 1 ? "applied" : "already-applied"));
         return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
       };
       const complete: EscalationComplete = async (call) => {
@@ -112,6 +115,31 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       expect(second).toContain("## Version under review");
       expect(second).toContain(`sales.cjs sha256 ${h12}: written by attempt 1; tested in attempt 1 (checks 1/1 passed), attempt 2 (checks 1/1 passed)`);
       expect((result.details.tasks as Array<{ status: string }>)[0]!.status).toBe("ok");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("only the edit tool's own flag counts as already applied: a miss stays a miss", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "attempt-miss-"));
+    try {
+      // The new text is in the file, but the tool reported a plain miss (a typo, several places…).
+      writeFileSync(join(dir, "sales.cjs"), `${NEW}\n`);
+      let turns = 0;
+      const prompts: string[] = [];
+      const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
+        turns += 1;
+        options.eventHook?.(parsedEdit);
+        options.eventHook?.(executedEdit("not-found"));
+        return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
+      };
+      const complete: EscalationComplete = async (call) => {
+        prompts.push(call.prompt);
+        return { content: prompts.length === 1 ? review("needs-changes", "edit missing") : review("accept") };
+      };
+      await buildFusionDelegateTool(deps(dir, complete, runTurn)).run({
+        tasks: [{ id: "impl", title: "Impl", instructions: "initialize the accumulator in sales.cjs", files: ["sales.cjs"] }],
+      }, ctx(dir));
+      expect(turns).toBe(2);
+      expect(prompts.join("\n")).not.toMatch(/already applied/);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

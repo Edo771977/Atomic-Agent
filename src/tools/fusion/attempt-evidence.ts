@@ -15,10 +15,9 @@ import { FILE_WRITING_TOOLS } from "./worker-result.js";
  * its checks tested. The reviewer's prompt lists them, so "already
  * present from attempt 1" counts as evidence.
  *
- * The edit tool (`os.fs.edit`) reports a missing `oldString` as an error
- * whether or not the edit is already in the file; this tracker tells
- * them apart after the fact: a not-found edit whose `newString` is in the
- * file and whose `oldString` is not is recorded as already applied.
+ * An edit is recorded as already applied only when the edit tool says so
+ * itself (`os.fs.edit`'s `details.matchedBy: "already-applied"`, a no-op);
+ * an error such as "not found" stays a miss whatever the file holds.
  */
 
 /** One worker run's file evidence, set on its row (`WorkerTaskResult.attempt`). */
@@ -48,11 +47,16 @@ export function fileSha256(dir: string, path: string): string | undefined {
   }
 }
 
+/** The edit tool's own word that the edit was already in place (a no-op). */
+export function isAlreadyApplied(result: { tool: string; status: string; details?: Record<string, unknown> }): boolean {
+  return result.tool === "os.fs.edit" && result.status === "ok" && result.details?.matchedBy === "already-applied";
+}
+
 function normalise(path: string): string {
   return path.trim().replace(/^\.\//, "");
 }
 
-type Pending = { path: string | null; edit?: { oldString: string; newString: string } };
+type Pending = { path: string | null };
 
 /** Fed from one worker run's `tool_call_parsed` / `tool_call_executed` events. */
 export class AttemptFilesTracker {
@@ -68,33 +72,19 @@ export class AttemptFilesTracker {
       return;
     }
     const path = typeof call.args.path === "string" && call.args.path.trim().length > 0 ? normalise(call.args.path) : null;
-    const { oldString, newString } = call.args;
-    this.pending.set(batchIndex, {
-      path,
-      ...(call.tool === "os.fs.edit" && typeof oldString === "string" && typeof newString === "string" ? { edit: { oldString, newString } } : {}),
-    });
+    this.pending.set(batchIndex, { path });
   }
 
-  observeExecuted(result: { tool: string; status: string; summary?: string }, batchIndex: number): void {
+  observeExecuted(result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): void {
     const pending = this.pending.get(batchIndex);
     this.pending.delete(batchIndex);
-    if (pending === undefined || pending.path === null) return;
-    if (result.status === "ok") {
-      this.wrote.add(pending.path);
-      this.alreadyApplied.delete(pending.path);
+    if (pending === undefined || pending.path === null || result.status !== "ok") return;
+    if (isAlreadyApplied(result)) {
+      if (!this.wrote.has(pending.path)) this.alreadyApplied.add(pending.path);
       return;
     }
-    if (pending.edit === undefined || !/was not found/.test(result.summary ?? "")) return;
-    let body: string;
-    try {
-      body = readFileSync(join(this.workingDir, pending.path), "utf8");
-    } catch {
-      return;
-    }
-    const { oldString, newString } = pending.edit;
-    if (newString.length > 0 && body.includes(newString) && (oldString.length === 0 || !body.includes(oldString))) {
-      this.alreadyApplied.add(pending.path);
-    }
+    this.wrote.add(pending.path);
+    this.alreadyApplied.delete(pending.path);
   }
 
   /** The run's evidence, hashed as the files stand now; undefined when it touched no file. */
