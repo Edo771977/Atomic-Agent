@@ -161,6 +161,13 @@ export interface MilestoneEvidence {
   uncovered: string[];
   /** Tasks whose newest run recorded no review verdict, with why (issue #95); absent when every reviewed task has one. */
   noReviewVerdict?: Array<{ taskId: string; reason: string }>;
+  /**
+   * Of `requiredTasks`, those without a current accept (issue #98): the
+   * task's newest review in these runs is not `accept`, or it has none.
+   * Absent when every required task has one, and when no run recorded
+   * any review (no reviewer was configured).
+   */
+  reviewBlocks?: Array<{ taskId: string; reason: string }>;
 }
 
 /**
@@ -189,6 +196,8 @@ export function readMilestoneEvidence(input: {
    * never read (a copy, restore or sync changes them).
    */
   briefApprovals?: number;
+  /** The milestone's required tasks: the approved plan's rows for it (issue #98). */
+  requiredTasks?: readonly string[];
 }): MilestoneEvidence {
   const currentText = input.criteria === undefined ? undefined : new Map(input.criteria.map((c) => [c.id, meaning(c.text)]));
   const stale = (fact: RunFact): boolean => {
@@ -276,5 +285,27 @@ export function readMilestoneEvidence(input: {
     if (ids.length > 0 && ids.every((id) => (coveredAt.get(id) ?? -1) > at)) return [];
     return [{ taskId: r.taskId, reason: r.reason ?? "no verdict recorded" }];
   });
-  return { facts, attachments, uncovered, ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }) };
+  // Each required task needs a current accept, once any run recorded a
+  // review at all (issue #98); a needs-changes, a `none` (a no_changes
+  // after needs-changes ends there) or no review at all blocks.
+  const reviewBlocks = reviewOf.size === 0
+    ? []
+    : (input.requiredTasks ?? []).flatMap((taskId) => {
+        const review = reviewOf.get(taskId)?.review;
+        if (review?.verdict === "accept") return [];
+        const reason =
+          review === undefined
+            ? "never reviewed in this milestone's runs"
+            : review.verdict === "needs-changes"
+              ? "needs-changes: its review still asks for changes"
+              : `no verdict: ${review.reason ?? "no verdict recorded"}`;
+        return [{ taskId, reason }];
+      });
+  return {
+    facts,
+    attachments,
+    uncovered,
+    ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
+    ...(reviewBlocks.length === 0 ? {} : { reviewBlocks }),
+  };
 }

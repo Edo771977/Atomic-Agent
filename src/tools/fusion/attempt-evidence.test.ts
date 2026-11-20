@@ -4,7 +4,7 @@
  * review verdict is listed, in the fan-out result and the milestone report.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -246,6 +246,31 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       }
       expect(tracker.finish()?.wrote.map((w) => w.path)).toEqual(["a.js"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a re-delegated task that changes nothing is re-reviewed on its unchanged files (issue #98)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "attempt-rereview-"));
+    try {
+      writeFileSync(join(dir, "sales.test.cjs"), "test('sums', () => {});\n");
+      // Written by an earlier attempt, well before this one.
+      utimesSync(join(dir, "sales.test.cjs"), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+      const prompts: string[] = [];
+      const runTurn: FusionDelegateDeps["runTurn"] = async (session) =>
+        ({ session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 }) as RunTurnResult;
+      const complete: EscalationComplete = async (call) => {
+        prompts.push(call.prompt);
+        return { content: review("accept") };
+      };
+      const result = await buildFusionDelegateTool(deps(dir, complete, runTurn)).run({
+        tasks: [{ id: "tests", title: "Tests", instructions: "report the suite's counts for sales.test.cjs", files: ["sales.test.cjs"] }],
+        contract: { checks: [{ task: "tests", type: "command", command: "node --test sales.test.cjs" }] },
+      }, ctx(dir));
+      const row = (result.details.tasks as Array<{ status: string; review?: { decision: string } }>)[0]!;
+      expect(row.status).toBe("no_changes");
+      expect(prompts).toHaveLength(1);
+      expect(row.review?.decision).toBe("accept");
+      expect(result.details.noReviewVerdict).toBeUndefined();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

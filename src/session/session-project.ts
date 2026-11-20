@@ -98,6 +98,13 @@ export interface ProjectMilestoneAttachment {
 
 export type CriterionFactState = "passed" | "failed" | "unverified";
 
+/** A required task the milestone cannot close on yet (issue #98). */
+export interface ProjectReviewBlock {
+  taskId: string;
+  /** One line: the open needs-changes, the missing verdict and why, or that it was never reviewed. */
+  reason: string;
+}
+
 /**
  * Where one success criterion stands after a milestone's runs: from its
  * contract checks and the vision judgement (issue #40). Written by the
@@ -129,6 +136,13 @@ export interface ProjectMilestone {
   attachments?: ProjectMilestoneAttachment[];
   /** Per success criterion, the facts of its runs (the runtime's; one per id, brief order). */
   criteriaFacts?: ProjectCriterionFact[];
+  /**
+   * Required tasks (the approved plan's rows for this milestone) without
+   * a current reviewer accept at its last done report (issue #98), the
+   * runtime's, with why. While any is listed, approving the result is
+   * refused (`review-open`): the milestone stays open.
+   */
+  reviewBlocks?: ProjectReviewBlock[];
   /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
@@ -401,6 +415,8 @@ export type ProjectUpdate =
        * them), cleaned when folded; a report without them clears them.
        */
       criteriaFacts?: ReadonlyArray<ProjectCriterionFact>;
+      /** The runtime's review blocks (issue #98): set by `project.milestone`, cleaned when folded; absent clears them. */
+      reviewBlocks?: ReadonlyArray<ProjectReviewBlock>;
     }
   | { kind: "milestone_run"; id: string; runId: string };
 
@@ -484,6 +500,7 @@ export type ProjectDecisionError =
   | { code: "stale-version"; message: string; current: number | null }
   | { code: "verdict-not-allowed"; message: string; allowed: ProjectVerdict[] }
   | { code: "over-cap"; message: string; violations: string[] }
+  | { code: "review-open"; message: string; blocks: ProjectReviewBlock[] }
   | { code: "needs-estimates"; message: string }
   | { code: "invalid"; message: string };
 
@@ -878,6 +895,20 @@ function readStoredAttachments(raw: readonly unknown[]): ProjectMilestoneAttachm
   return out;
 }
 
+/** Review blocks cleaned (issue #98): a task id and a one-line reason each, one per task, malformed dropped. */
+function cleanReviewBlocks(raw: readonly unknown[]): ProjectReviewBlock[] {
+  const out: ProjectReviewBlock[] = [];
+  for (const b of raw) {
+    if (out.length >= PROJECT_LIMITS.rows) break;
+    if (!isObject(b)) continue;
+    const taskId = cleanId(b.taskId);
+    if (taskId === null || out.some((x) => x.taskId === taskId) || typeof b.reason !== "string") continue;
+    const reason = clip(b.reason.replace(/\s+/g, " ").trim(), PROJECT_LIMITS.shortText);
+    if (reason.length > 0) out.push({ taskId, reason });
+  }
+  return out;
+}
+
 /** Facts cleaned: known states, valid ids, the first per id, `why` clipped; malformed entries dropped. */
 function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
   const out: ProjectCriterionFact[] = [];
@@ -915,6 +946,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
   // Pictures, facts and history are extras: a malformed entry is dropped, not the project.
   const attachments = Array.isArray(raw.attachments) ? readStoredAttachments(raw.attachments) : [];
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
+  const blocks = Array.isArray(raw.reviewBlocks) ? cleanReviewBlocks(raw.reviewBlocks) : [];
   const history = Array.isArray(raw.history)
     ? raw.history.map(readRevision).filter((r): r is ProjectMilestoneRevision => r !== null).slice(-PROJECT_LIMITS.history)
     : [];
@@ -928,6 +960,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
+    ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
     ...(history.length === 0 ? {} : { history }),
     updatedAt: raw.updatedAt,
   };
@@ -1681,8 +1714,11 @@ function milestoneUpdate(
   const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
   delete reported.attachments;
   delete reported.criteriaFacts;
+  delete reported.reviewBlocks;
   const facts = Array.isArray(update.criteriaFacts) ? cleanCriteriaFacts(update.criteriaFacts) : [];
   if (facts.length > 0) reported.criteriaFacts = facts;
+  const blocks = Array.isArray(update.reviewBlocks) ? cleanReviewBlocks(update.reviewBlocks) : [];
+  if (blocks.length > 0 && update.state === "done") reported.reviewBlocks = blocks;
   milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,
@@ -1865,6 +1901,17 @@ export function applyProjectDecision(
       const target = project.milestones.find((m) => m.id === gate.id)!;
       if (target.state !== "done" && target.state !== "failed") {
         return refuse({ code: "invalid", message: `Milestone ${gate.id} has no result to approve.` });
+      }
+      // A done result whose required tasks lack a current accept stays
+      // open (issue #98), auto-approval included: the director re-delegates
+      // (a re-review of unchanged files is allowed) or reports it failed.
+      if (target.state === "done" && (target.reviewBlocks ?? []).length > 0) {
+        const blocks = target.reviewBlocks!;
+        return refuse({
+          code: "review-open",
+          message: `Milestone ${gate.id} stays open: ${blocks.map((b) => `${b.taskId} (${b.reason})`).join("; ")}. Each required task needs a current accept from its reviewer; correct it (edit) so the director re-delegates it, or cancel.`,
+          blocks: blocks.map((b) => ({ ...b })),
+        });
       }
       // A hard cap (the next run over today's limit, a row's provider no
       // longer allowed) does not refuse the decision, which would stall

@@ -93,7 +93,7 @@ export interface ProjectToolDeps {
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
     /** The approved brief's criteria and approval time: run facts count only for the text they tested (issue #87). */
-    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number },
+    current: { criteria: readonly ProjectCriterion[]; briefApprovals?: number; requiredTasks?: readonly string[] },
   ) => MilestoneEvidence;
 }
 
@@ -462,9 +462,12 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
         const approvals = ctx.project?.briefApprovals;
+        // The required tasks: the approved plan's rows for this milestone (issue #98).
+        const requiredTasks = (ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).map((r) => r.taskId);
         const evidence = deps.milestoneEvidence(milestone, order, {
           criteria: ctx.project?.brief?.successCriteria ?? [],
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
+          ...(requiredTasks.length === 0 ? {} : { requiredTasks }),
         });
         // A milestone closes only when its tests AND criteria pass: the
         // person never sees "done" over a red or unverified criterion.
@@ -477,6 +480,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
           lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
+        }
+        if ((evidence.reviewBlocks ?? []).length > 0) {
+          // Issue #98: the result is recorded, but the gate refuses to close it until each has an accept.
+          const blocks = evidence.reviewBlocks!;
+          report = { ...report, reviewBlocks: blocks };
+          const warning = `Review open: ${blocks.map((b) => `${b.taskId} (${b.reason})`).join("; ")}. The milestone stays open until each required task has a current accept: re-delegate it (a re-review of unchanged files is allowed when only the evidence changed), or report it failed.`;
+          report = { ...report, summary: `${report.summary}\n${warning}` };
+          lines.push(warning);
         }
         if ((evidence.noReviewVerdict ?? []).length > 0) {
           // A task that ended with no review verdict (issue #95): the person sees it at the gate.

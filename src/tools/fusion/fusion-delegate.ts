@@ -1850,10 +1850,15 @@ export function buildFusionDelegateTool(
       // Every distinct judge that ruled (a team may ask several
       // reviewers), named on the spend line.
       const judgesUsed = new Set<string>();
+      // A task that changed nothing (`no_changes`) is judged too (issue #98):
+      // its files stand from an earlier attempt, and only the evidence
+      // (a check's counts, say) may be new; a re-review of the same files
+      // needs no new write.
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
         judgeTargetFor(r.id) !== null &&
         (r.status === "ok" ||
+          r.status === "no_changes" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
       // Tasks whose last review was cut short by the budget or a cancel:
       // a stop, never a review that ran out of passes (issue #38).
