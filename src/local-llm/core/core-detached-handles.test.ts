@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,7 +41,7 @@ describe("a Core started by a short-lived process (issue #102)", () => {
     writeFileSync(join(work, "daemon"), `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
     const starter = join(base, "starter.mts");
     writeFileSync(starter, [
-      `import { ensureCore } from ${JSON.stringify(join(process.cwd(), "src", "local-llm", "core", "core-client.ts"))};`,
+      `import { ensureCore } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "local-llm", "core", "core-client.ts")).href)};`,
       "const controller = new AbortController();",
       // Give the spawn a moment, then stop waiting for a Core that never answers.
       "setTimeout(() => controller.abort(), 1500);",
