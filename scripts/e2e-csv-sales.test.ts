@@ -34,7 +34,24 @@ describe("the independent acceptance test", () => {
     expect(r.failed).toEqual([]);
     expect(r.exitCode).toBe(0);
     expect(r.fail).toBe(0);
-    expect(r.pass).toBe(10);
+    expect(r.pass).toBe(13);
+  });
+
+  // Issue #100: the live program lost its blank-line handling and still passed the 10 cases.
+  it("fails a program that refuses blank lines on the blank-line cases, and only there", () => {
+    const r = acceptance("rejects-blank-lines-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual([
+      "a blank line between two sales is skipped",
+      "several trailing blank lines are skipped",
+      "an invalid row after a blank line names its physical line number",
+    ]);
+  });
+
+  it("fails a program that numbers lines without the blank ones on the physical line number", () => {
+    const r = acceptance("counts-without-blanks-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual(["an invalid row after a blank line names its physical line number"]);
   });
 
   it("fails the plain-object accumulator on the prototype-key skus, and only there", () => {
@@ -69,7 +86,7 @@ describe("the task prompt", () => {
   it("is one line, since `atomic-agent run` takes each piped line as a turn, and names the interface", () => {
     const text = readFileSync(PROMPT, "utf8");
     expect(text.trimEnd().split(/\r?\n/)).toHaveLength(1);
-    for (const words of ["sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
+    for (const words of ["Blank lines", "physical line number", "Invalid row N", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
       expect(text).toContain(words);
     }
   });
@@ -139,7 +156,7 @@ describe("the runner's parsing", () => {
     expect(report.run).toMatchObject({ exitCode: 3, printedSession: "sess_95e2e7f1" });
     expect(report.run.receiptLines).toHaveLength(3);
     expect(report.session).toMatchObject({ id: "sess_95e2e7f1", status: "active", workingDir: cwd });
-    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 10, fail: 0 });
+    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 13, fail: 0 });
     expect(report.tests.agent).toMatchObject({ exitCode: 0, pass: 1, fail: 0 });
     expect(report.tests.passed).toBe(true);
     expect(report.passed).toBe(false);
