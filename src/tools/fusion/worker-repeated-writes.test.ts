@@ -191,8 +191,9 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
         hook(executed("os.fs.write", "ok"));
         writes += 1;
         hook(finished(step++));
+        // A failing check: a passing one would make the file usable, kept as done (issue #98).
         hook(parsed("verify.run", { type: "command", command: "node --test sales.test.cjs" }));
-        hook(executed("verify.run", "ok"));
+        hook(executed("verify.run", "error"));
         hook(finished(step++));
         for (let i = 0; i < 20; i += 1) {
           if (options.signal?.aborted) {
@@ -224,14 +225,14 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
     expect(result).toMatchObject({
       status: "failed",
       failure: "stuck",
-      stalled: { reason: "repeated identical writes", path: "sales.test.cjs", sha256, writes: 1 + REPEATED_WRITE_LIMIT, lastCheck: { ok: true } },
+      stalled: { reason: "repeated identical writes", path: "sales.test.cjs", sha256, writes: 1 + REPEATED_WRITE_LIMIT, lastCheck: { ok: false } },
     });
     expect(result!.stalled!.lastCheck!.spec).toContain("node --test sales.test.cjs");
     expect(result!.error).toMatch(/^stalled: repeated identical writes/);
     expect(result!.error).toContain("sales.test.cjs");
     expect(result!.error).toContain(sha256.slice(0, 12));
-    expect(result!.error).toContain("last check passed");
-    expect(result!.stalled!.lastCheck).toMatchObject({ sinceLastChange: true, coversFile: true });
+    expect(result!.error).toContain("last check failed");
+    expect(result!.stalled!.lastCheck).toMatchObject({ ok: false, sinceLastChange: true, coversFile: true });
     // The director's replan names it, so it can verify the file or reassign the task.
     const block = renderReplanBlock(describeReplan([result!], () => 1, 2));
     expect(block).toContain("stalled: repeated identical writes");

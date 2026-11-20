@@ -144,6 +144,15 @@ export function replanFix(
  * `orchestratorAvailable` is false when the target is off or this
  * turn's `maxOrchestratorTasksPerTurn` is used: then no fix names it.
  */
+/**
+ * Runs of one task in a turn after which a task stopped as stalled
+ * (`stalled`, repeated identical writes, issue #95) is not offered for
+ * re-delegation again (issue #98): the director's recovery of a stalled
+ * worker is bounded; past it, the director fixes it, accepts it with
+ * reasons, or asks the person.
+ */
+export const STALL_RECOVERY_ATTEMPTS = 2;
+
 export function describeReplan(
   results: readonly WorkerTaskResult[],
   attempts: (taskId: string) => number,
@@ -196,7 +205,8 @@ export function describeReplan(
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
     else if (reviewed) {
       const bucket = result.failure === "stuck" ? stuck : reviewExhausted;
-      bucket.push(left > 0 ? task : { ...task, redelegate: false });
+      const recoveryUsed = result.stalled !== undefined && runs >= STALL_RECOVERY_ATTEMPTS;
+      bucket.push(left > 0 && !recoveryUsed ? task : { ...task, replansLeft: 0, redelegate: false });
     }
     else if (left > 0) pending.push(task);
     else exhausted.push(task);

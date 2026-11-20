@@ -7,7 +7,7 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
-import { describeReplan, renderReplanBlock } from "./replan.js";
+import { describeReplan, renderReplanBlock, STALL_RECOVERY_ATTEMPTS } from "./replan.js";
 import { WorkerRunCollector } from "./worker-result.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -443,6 +443,17 @@ describe("tasks the watch stopped as stuck (issue #43)", () => {
     expect(block).toContain("STOPPED BY THE WATCH");
     expect(block).not.toMatch(/re-delegate/);
     expect(block).not.toContain("NO REPLANS LEFT (");
+  });
+
+  it("a task stalled again after a re-delegation is not offered another (issue #98: the recovery limit)", () => {
+    const stalled = { ...(stuck as object), error: "stalled: repeated identical writes: sales.cjs", stalled: { reason: "repeated identical writes", path: "sales.cjs", sha256: "a".repeat(64), writes: 4 } } as never;
+    // First stall: replans remain, re-delegation is offered.
+    expect(describeReplan([stalled], () => 1, 3).stuck).toEqual([expect.objectContaining({ id: "hud", replansLeft: 2 })]);
+    // Stalled on its STALL_RECOVERY_ATTEMPTS-th run: settled, whatever replans are left.
+    expect(STALL_RECOVERY_ATTEMPTS).toBe(2);
+    const again = describeReplan([stalled], () => 2, 3);
+    expect(again.stuck).toEqual([expect.objectContaining({ id: "hud", redelegate: false })]);
+    expect(renderReplanBlock(again)).not.toMatch(/re-delegate it with/);
   });
 
   it("does not force a replan for a dependent held only on a stuck task", () => {

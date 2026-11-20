@@ -93,6 +93,7 @@ import {
   ownChecks,
   renderSelfCheckNotice,
   runSelfCheck,
+  GREEN_CHECK_REPEAT_LIMIT,
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
 import { AttemptFilesTracker } from "./attempt-evidence.js";
@@ -1560,6 +1561,9 @@ async function runOneTask(
   // This attempt's file evidence for the reviewer (issue #95).
   const attemptFiles = new AttemptFilesTracker(workingDir);
   let stalledWrite: StalledWrite | undefined;
+  // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on
+  // unchanged files (issue #98): passed and current, the worker stops as done.
+  let passedAndCurrent: { spec: string; runs: number } | undefined;
   /** Feeds the write trackers; true when the call rewrote a file with the bytes it held. */
   const noteWriteOutcome = (result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): boolean => {
     attemptFiles.observeExecuted(result, batchIndex);
@@ -2073,6 +2077,13 @@ async function runOneTask(
             stepsFinished,
             identical,
           );
+          if (result.tool === "verify.run" && result.status === "ok" && passedAndCurrent === undefined && !stopByWatch.signal.aborted) {
+            const green = checkRuns.greenRunsInARow();
+            if (green !== undefined && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
+              passedAndCurrent = green;
+              stopByWatch.abort(new Error("passed and current: the same check passed on unchanged files"));
+            }
+          }
           if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
             announceUsage(0, true);
           }
@@ -2424,8 +2435,30 @@ async function runOneTask(
   if (stopByWatch.signal.aborted) {
     const record = watchRecord;
     const checks = record?.checks ?? 0;
-    const { finishedWithoutReply: _unvouched, ...rest } = result;
-    result = stalledWrite !== undefined
+    const { finishedWithoutReply: _unvouched, error: _stopError, failure: _failure, ...rest } = result;
+    const last = stalledWrite?.lastCheck;
+    // A stalled worker whose file passed a check naming it after its last
+    // change, or one that kept re-running a green check on unchanged
+    // files, is done (issue #98): its artifact is kept for the director,
+    // the milestone does not fail and its dependents run.
+    const usable = last !== undefined && last.sinceLastChange && last.ok && last.coversFile;
+    result = passedAndCurrent !== undefined
+      ? {
+          ...rest,
+          status: "ok",
+          notes: [
+            ...(rest.notes ?? []),
+            `stopped: the check ${passedAndCurrent.spec.slice(0, 120)} passed ${passedAndCurrent.runs} times in a row on unchanged files: passed and current; the work is kept as done`,
+          ],
+        }
+      : stalledWrite !== undefined && usable
+      ? {
+          ...rest,
+          status: "ok",
+          stalled: stalledWrite,
+          notes: [...(rest.notes ?? []), `${describeStalledWrite(stalledWrite)}; kept as done: its last check passed after its last change`],
+        }
+      : stalledWrite !== undefined
       ? { ...rest, status: "failed", failure: "stuck", stalled: stalledWrite, error: describeStalledWrite(stalledWrite) }
       : {
           ...rest,
