@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
-import { allowedCommandMatches, parseAllowedCommand } from "./run-allowed-command.js";
+import { allowedCommandMatches, parseAllowedCommand, pinAllowedCommand } from "./run-allowed-command.js";
 
 /** Issue #95: `run --allow-command "<exact command>"`. */
 describe("parseAllowedCommand", () => {
@@ -129,5 +129,21 @@ describe("verify.run checks built from real specs (issue #95 review)", () => {
     ["a background job", "node --test &"],
   ])("holds a command line with %s", async (_label, line) => {
     expect(allowedCommandMatches(await ask({ kind: "command", cmd: line }, dir), allowedTest, dir)).toBe(false);
+  });
+});
+
+describe("pinAllowedCommand (issue #95, third review)", () => {
+  it("pins a program whose folder has ( ) or { } in its name for os.shell.run, which spawns it directly", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "aa-pin-root-")));
+    const programs = join(realpathSync(mkdtempSync(join(tmpdir(), "aa-pin-progs-"))), "Program Files (x86) {x}");
+    mkdirSync(programs, { recursive: true });
+    writeFileSync(join(programs, "tool"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(programs, "tool"), 0o755);
+    const request: ApprovalRequest = {
+      approvalId: "a", sessionId: "s", tool: "os.shell.run", category: "shell", reason: "r",
+      literalExec: true, commandArgv: ["tool", "--check"], commandSegments: [["tool", "--check"]], affectedResources: [root],
+    };
+    const allowed = [parseAllowedCommand("tool --check") as { argv: string[] }];
+    expect(pinAllowedCommand(request, allowed, root, { PATH: programs }, "linux")).toMatchObject({ file: join(programs, "tool"), argv: ["tool", "--check"], cwd: root });
   });
 });

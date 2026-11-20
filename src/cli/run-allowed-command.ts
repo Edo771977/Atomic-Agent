@@ -97,7 +97,11 @@ export function pinAllowedCommand(
   const argv = request.commandArgv!;
   const program = resolveAllowedExecutable(argv[0]!, { runDir, env, platform });
   if (program === null) return null;
-  if (needsShellInterpretation(program.file, argv.slice(1))) return null;
+  // os.shell.run spawns the pinned file directly, so its name needs no
+  // check beyond the resolver's (.cmd/.bat refused): `C:\Program Files
+  // (x86)\…` is fine. verify.run's runner still picks a shell from the
+  // name, so a check whose pinned path it would hand to a shell asks.
+  if (request.tool === "verify.run" && needsShellInterpretation(program.file, argv.slice(1))) return null;
   let cwd: string;
   try {
     cwd = realpathSync.native(request.affectedResources![0]!);
