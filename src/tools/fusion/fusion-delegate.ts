@@ -1868,6 +1868,8 @@ export function buildFusionDelegateTool(
       const judgeable = (r: WorkerTaskResult): boolean =>
         (acceptance.get(r.id)?.length ?? 0) > 0 &&
         judgeTargetFor(r.id) !== null &&
+        // A verify-only regression is the director's to see, not a review pass's to redo (issue #100).
+        r.failure !== "regressed-verified" &&
         (r.status === "ok" ||
           r.status === "no_changes" ||
           (r.status === "failed" && (r.error ?? "").startsWith("checks:")));
