@@ -1,4 +1,4 @@
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 
@@ -12,7 +12,7 @@ import type { ApprovalRequest } from "../approval/approval-gate.js";
  * glob was expanded (`literalExec` from `os.shell.run`, or a plain
  * `verify.run` command check, `verifyPlainCommand`), name no file it
  * would write (`targetPaths`), and that argv must equal the operator's
- * words element by element. A line run through a shell is never
+ * words element by element, argv[0] included (`sameWords`). A line run through a shell is never
  * matched, whatever its first words: a redirect, `&`, a `#` comment or a
  * substitution there runs more than the words say (`commandSegments` is
  * a best reading, safe only for rules that tighten).
@@ -43,6 +43,7 @@ export function allowedCommandMatches(
   request: ApprovalRequest,
   allowed: readonly AllowedCommand[],
   runDir: string,
+  platform: NodeJS.Platform = process.platform,
 ): boolean {
   if (allowed.length === 0) return false;
   if (request.category !== "shell") return false;
@@ -59,17 +60,22 @@ export function allowedCommandMatches(
   if (argv === undefined || argv.length === 0) return false;
   const dirs = request.affectedResources ?? [];
   if (dirs.length === 0 || !dirs.every((dir) => isAbsolute(dir) && inside(runDir, dir))) return false;
-  return allowed.some((command) => sameWords(command.argv, argv));
+  return allowed.some((command) => sameWords(command.argv, argv, platform));
 }
 
-function sameWords(allowed: readonly string[], words: readonly string[]): boolean {
+/**
+ * Element by element. argv[0] is the operator's first word exactly, not
+ * a basename (`./node` or `/tmp/x/node` is another program); only on
+ * Windows, where program names ignore case, is it compared folded, and
+ * a path is still a path there.
+ */
+function sameWords(allowed: readonly string[], words: readonly string[], platform: NodeJS.Platform): boolean {
   if (allowed.length !== words.length || allowed.length === 0) return false;
-  return allowed.every((token, i) => (i === 0 ? commandName(token) === commandName(words[0]!) : token === words[i]));
-}
-
-/** argv[0] as a saved rule compares it (`approval-rules.ts`): basename, lowercased. */
-function commandName(token: string): string {
-  return basename(token).toLowerCase();
+  const first = words[0]!;
+  const wanted = allowed[0]!;
+  if (!/[\\/]/.test(wanted) && /[\\/]/.test(first)) return false;
+  const sameFirst = platform === "win32" ? wanted.toLowerCase() === first.toLowerCase() : wanted === first;
+  return sameFirst && allowed.every((token, i) => i === 0 || token === words[i]);
 }
 
 function inside(root: string, dir: string): boolean {

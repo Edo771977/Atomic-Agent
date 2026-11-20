@@ -205,6 +205,13 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       rmSync(join(workingDir, "..", "outside.txt"), { force: true });
     });
 
+    it("holds the listed command under another argv[0] spelling (NODE)", async () => {
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "NODE", args: ["mark.cjs"] } }];
+      feed(["run it\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).not.toContain("approved by --allow-command");
+    });
+
     it("holds a direct exec whose glob the tool expanded to the listed words", async () => {
       script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark*.cjs"] } }];
       feed(["run it\n"]);

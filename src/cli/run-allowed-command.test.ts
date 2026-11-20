@@ -31,10 +31,26 @@ describe("allowedCommandMatches", () => {
     ...over,
   });
 
-  it("matches the exact command in the run's folder or below, argv[0] compared as a rule compares it", () => {
+  it("matches the exact command in the run's folder or below", () => {
     expect(allowedCommandMatches(shell(), allowed, root)).toBe(true);
     expect(allowedCommandMatches(shell({ affectedResources: [join(root, "pkg")] }), allowed, root)).toBe(true);
-    expect(allowedCommandMatches(shell({ commandArgv: ["/usr/bin/NODE", "--test", "sales.test.cjs"] }), allowed, root)).toBe(true);
+  });
+
+  it("takes argv[0] exactly as written: no path when the value has none, case kept on POSIX", () => {
+    for (const first of ["/usr/bin/NODE", "./node", "/tmp/x/node", "NODE", "node.exe", "bin/node"]) {
+      expect(allowedCommandMatches(shell({ commandArgv: [first, "--test", "sales.test.cjs"] }), allowed, root, "linux")).toBe(false);
+    }
+    const withPath = [parseAllowedCommand("./node_modules/.bin/vitest run") as { argv: string[] }];
+    expect(allowedCommandMatches(shell({ commandArgv: ["./node_modules/.bin/vitest", "run"] }), withPath, root, "linux")).toBe(true);
+    expect(allowedCommandMatches(shell({ commandArgv: ["node_modules/.bin/vitest", "run"] }), withPath, root, "linux")).toBe(false);
+  });
+
+  it("on Windows folds case but still allows no path", () => {
+    expect(allowedCommandMatches(shell({ commandArgv: ["NODE", "--test", "sales.test.cjs"] }), allowed, root, "win32")).toBe(true);
+    for (const first of [".\\node", "C:\\tools\\node", "./node"]) {
+      expect(allowedCommandMatches(shell({ commandArgv: [first, "--test", "sales.test.cjs"] }), allowed, root, "win32")).toBe(false);
+    }
+    expect(allowedCommandMatches(shell({ commandArgv: ["node", "--TEST", "sales.test.cjs"] }), allowed, root, "win32")).toBe(false);
   });
 
   it("does not match another command, more or fewer words, a shell line, or a call that writes a file", () => {
