@@ -76,6 +76,15 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
   };
 });
 
+/** Issue #104: the deadline run arms once its summary is out; recorded, never fired here. */
+const deadline = vi.hoisted(() => ({ armed: [] as Array<() => number> }));
+vi.mock("./hard-exit-deadline.js", () => ({
+  armHardExitDeadline: (code: () => number) => {
+    deadline.armed.push(code);
+    return () => {};
+  },
+}));
+
 const { runAgentCommand } = await import("./run-agent.js");
 
 const planGate = fixtureProjectGateView({ kind: "plan" });
@@ -213,6 +222,8 @@ describe("run at a fusion project gate", () => {
     feed(["build the game\n"]);
     const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
     expect(code).toBe(3);
+    // The hard deadline was armed with the run's own exit code (issue #104).
+    expect(deadline.armed.at(-1)?.()).toBe(3);
     expect(project.decisions.map((d) => d.gate.kind)).toEqual(["plan"]);
     expect(project.messages).toHaveLength(2);
     expect(stderr).toMatch(/failed and waits for your review/);

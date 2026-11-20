@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { isAbsolute as isAbsolutePath, relative as relativePath, resolve as resolvePath, sep as pathSep } from "node:path";
 
 import { resolveUserPath } from "../os/expand-home.js";
 import {
@@ -9,6 +12,7 @@ import {
   type DelegateContract,
 } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
+import { parseTestOutput, type ExecutedTest } from "./test-output.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
 import type { VerifyGameSummary } from "../verify/page-game-harness.js";
@@ -55,6 +59,9 @@ export interface ContractCheckResult {
    */
   stderrTail?: string;
   stdoutTail?: string;
+  /** A command check's exit code and the command line it ran (issue #104), as `verify.run` reports them. */
+  exitCode?: number | null;
+  commandLine?: string;
   /** A page check's games (`verify.run` `game`), per game (issue #40). */
   games?: VerifyGameSummary;
   /** A page check's screenshots (`verify.run` `screenshot`), at most four. */
@@ -132,6 +139,80 @@ export interface ContractCheckOutcome {
   screenshotErrors?: readonly string[];
   /** The check's spec asked for a vision judgement of its screenshots. */
   judge?: "vision";
+  /**
+   * A command check's run as the runtime saw it (issue #104), pass or
+   * fail: the command line, the exit code, its output (stdout, then
+   * stderr; at most `CHECK_RUN_OUTPUT_CHARS`, the tail kept) and the
+   * cases the output named. The reviewer reads it; secrets masked.
+   */
+  run?: CheckRunRecord;
+}
+
+/** How much of a command check's output the reviewer gets (issue #104): `verify.run`'s own tail, whole. */
+export const CHECK_RUN_OUTPUT_CHARS = 8_000;
+
+/** A command check's run, kept for the reviewer (`ContractCheckOutcome.run`). */
+export interface CheckRunRecord {
+  command: string;
+  exitCode: number | null;
+  output: string;
+  /** A stream was longer than its share of {@link CHECK_RUN_OUTPUT_CHARS}: its head was cut. */
+  clipped?: true;
+  tests: ExecutedTest[];
+  counts?: { pass: number; fail: number; total: number };
+  /** The task's declared files as the check ran on them (issue #104 review), hashed just before the run. */
+  files?: Array<{ path: string; sha256?: string }>;
+}
+
+const MAX_HASHED_BYTES = 8 * 1024 * 1024;
+
+/** The SHA-256 of each of `paths` inside `dir` as it is now; a path outside it is left out, an unreadable one has no hash. */
+function hashFiles(dir: string, paths: readonly string[]): Array<{ path: string; sha256?: string }> {
+  return paths.flatMap((path) => {
+    const full = resolvePath(dir, path);
+    const rel = relativePath(resolvePath(dir), full);
+    if (rel.length === 0 || rel.startsWith("..") || isAbsolutePath(rel)) return [];
+    const display = rel.split(pathSep).join("/");
+    try {
+      if (statSync(full).size > MAX_HASHED_BYTES) return [{ path: display }];
+      return [{ path: display, sha256: createHash("sha256").update(readFileSync(full)).digest("hex") }];
+    } catch {
+      return [{ path: display }];
+    }
+  });
+}
+
+function commandLineOf(check: ContractCheck): string {
+  const cmd = typeof check.cmd === "string" ? check.cmd : typeof check.command === "string" ? check.command : "";
+  const args = Array.isArray(check.args) ? check.args.filter((a): a is string => typeof a === "string") : [];
+  return [cmd, ...args].join(" ").trim();
+}
+
+/** The run record of a command check's result; undefined for a result that carries no command output. */
+/** Of {@link CHECK_RUN_OUTPUT_CHARS}, what stderr gets at most (issue #104 review): stdout, where TAP is, keeps the larger share. */
+export const CHECK_RUN_STDERR_CHARS = 2_000;
+
+export function checkRunOf(check: ContractCheck, result: ContractCheckResult, files?: Array<{ path: string; sha256?: string }>): CheckRunRecord | undefined {
+  if ((check.kind ?? "command") !== "command") return undefined;
+  if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
+  // Separate budgets, so a long stderr never pushes the TAP out; a share one stream leaves goes to the other.
+  const stdout = result.stdoutTail ?? "";
+  const stderr = result.stderrTail ?? "";
+  const errBudget = Math.min(stderr.length, Math.max(CHECK_RUN_STDERR_CHARS, CHECK_RUN_OUTPUT_CHARS - stdout.length));
+  const outBudget = CHECK_RUN_OUTPUT_CHARS - errBudget;
+  const out = stdout.length > outBudget ? stdout.slice(-outBudget) : stdout;
+  const err = stderr.length > errBudget ? stderr.slice(-errBudget) : stderr;
+  const clipped = out.length < stdout.length || err.length < stderr.length;
+  const output = [out, ...(err.length === 0 ? [] : [`--- stderr ---\n${err}`])].filter((t) => t.length > 0).join("\n");
+  const text = [stdout, stderr].filter((t) => t.length > 0).join("\n");
+  return {
+    command: (result.commandLine ?? commandLineOf(check)).slice(0, 300),
+    exitCode: typeof result.exitCode === "number" ? result.exitCode : null,
+    output,
+    ...(clipped ? { clipped: true as const } : {}),
+    ...parseTestOutput(text),
+    ...(files === undefined || files.length === 0 ? {} : { files }),
+  };
 }
 
 /**
@@ -423,6 +504,8 @@ function maskResult(
     ...(error === undefined ? {} : { error }),
     ...(stderrTail === undefined ? {} : { stderrTail }),
     ...(stdoutTail === undefined ? {} : { stdoutTail }),
+    ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+    ...(result.commandLine === undefined ? {} : { commandLine: maskSecrets(result.commandLine, known) }),
     ...(games === undefined ? {} : { games }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
     ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
@@ -464,6 +547,8 @@ export async function runContractChecks(
     signal: AbortSignal;
     knownSecrets?: readonly KnownSecret[];
     inputIntegrity?: VerificationInputIntegrity;
+    /** A task's declared files, hashed as each of its checks runs on them (issue #104 review). */
+    filesOf?: (taskId: string) => readonly string[];
   },
 ): Promise<{ outcomes: ContractCheckOutcome[]; checksSkipped?: string }> {
   if (checks.length === 0) return { outcomes: [] };
@@ -479,6 +564,12 @@ export async function runContractChecks(
   }
   const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, ...spec }) => spec);
   const known = ctx.knownSecrets ?? knownSecretsFromEnv();
+  // The files each check runs on, hashed right before the runner copies them.
+  const runFiles = new Map<string, Array<{ path: string; sha256?: string }>>();
+  for (const id of new Set(checks.flatMap((c) => (c.task === undefined ? [] : [c.task])))) {
+    const paths = ctx.filesOf?.(id) ?? [];
+    if (paths.length > 0) runFiles.set(id, hashFiles(ctx.workingDir, paths));
+  }
   let results: readonly ContractCheckResult[];
   try {
     results = (
@@ -521,8 +612,10 @@ export async function runContractChecks(
     const detail = head(headText, CHECK_DETAIL_CHARS);
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
+    const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     return {
       ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
+      ...(run === undefined ? {} : { run }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

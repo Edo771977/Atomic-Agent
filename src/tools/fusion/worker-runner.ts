@@ -2558,7 +2558,8 @@ async function runOneTask(
     const lastVerify = executionEvidence.recorded().filter((r) => r.tool === "verify.run").at(-1);
     const recovered =
       declared.length > 0 && own.length > 0 &&
-      attemptFiles.wroteOneOf(declared) &&
+      // A verify-only task is done by writing nothing (issue #104); its files must still hash as its run saw them.
+      (task.verifyOnly === true || attemptFiles.wroteOneOf(declared)) &&
       checkRuns.lastRunPassedOneOf(own) &&
       lastVerify !== undefined && runPassed(lastVerify) &&
       lastVerify.files.length > 0 &&
@@ -2789,6 +2790,7 @@ async function runOneTask(
     result = applyNoChangesRule(
       applyDeclaredFileReport(result, report),
       report,
+      { verifyOnly: task.verifyOnly === true },
     );
   }
 

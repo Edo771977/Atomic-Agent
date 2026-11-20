@@ -56,6 +56,8 @@ export interface RunTaskReview {
    * what a targeted fix must address. A fact whose check never ran is none.
    */
   issues?: RunReviewIssue[];
+  /** The task's declared files as the review saw them (issue #104 review): what a later verify-only call is checked against. */
+  files?: Array<{ path: string; sha256?: string }>;
   /** Who gave the verdict (issue #98): provider, effective model when reported, the plan's ref when it differs. */
   reviewer?: { provider: string; model?: string; planRef?: string; source?: "facts" };
 }
@@ -105,6 +107,7 @@ export function writeRunCriteriaFacts(
     ...(r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) }),
     ...(r.criteria === undefined || r.criteria.length === 0 ? {} : { criteria: r.criteria.slice(0, 32) }),
     ...(r.reviewer === undefined ? {} : { reviewer: r.reviewer }),
+    ...(r.files === undefined || r.files.length === 0 ? {} : { files: r.files.slice(0, 32).map((f) => ({ path: f.path.slice(0, 300), ...(f.sha256 === undefined ? {} : { sha256: f.sha256 }) })) }),
     ...(r.issues === undefined || r.issues.length === 0 ? {} : { issues: r.issues.slice(0, 5).map((i) => ({ severity: i.severity, text: i.text.slice(0, 200) })) }),
   }));
   const ran = meta === undefined ? undefined : [...new Set(meta.ran)].slice(0, MAX_TASKS);
@@ -171,7 +174,14 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
   const reviews: RunTaskReview[] = [];
   for (const r of Array.isArray(rawReviews) ? rawReviews.slice(0, MAX_TASKS) : []) {
     if (typeof r !== "object" || r === null) continue;
-    const { taskId, verdict, reason, criteria, issues: rawIssues, reviewer: rawReviewer } = r as Record<string, unknown>;
+    const { taskId, verdict, reason, criteria, issues: rawIssues, reviewer: rawReviewer, files: rawFiles } = r as Record<string, unknown>;
+    const files = Array.isArray(rawFiles)
+      ? rawFiles.slice(0, 32).flatMap((f) => {
+          const { path, sha256 } = (f ?? {}) as Record<string, unknown>;
+          if (typeof path !== "string") return [];
+          return [{ path: path.slice(0, 300), ...(typeof sha256 === "string" && /^[0-9a-f]{64}$/.test(sha256) ? { sha256 } : {}) }];
+        })
+      : [];
     const reviewer = readReviewer(rawReviewer);
     // Only stored blockers count: an older file's bare lines carry no severity.
     const issues = Array.isArray(rawIssues)
@@ -189,6 +199,7 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
       ...(ids.length === 0 ? {} : { criteria: ids }),
       ...(issues.length === 0 ? {} : { issues }),
       ...(reviewer === undefined ? {} : { reviewer }),
+      ...(files.length === 0 ? {} : { files }),
     });
   }
   const rawRan = (raw as { ran?: unknown }).ran;

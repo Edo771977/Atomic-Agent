@@ -316,6 +316,12 @@ export interface WorkerTaskResult {
    */
   timedOutAfterRun?: true;
   /**
+   * A verify-only task that changed nothing (issue #104 review): `no_changes`
+   * until the delegate finds a review already recorded on exactly its
+   * current files and its own check passed on them; then `ok`.
+   */
+  verifyOnlyUnchanged?: true;
+  /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
    * or stuck tasks, which waits for the director's decision (issue #38).

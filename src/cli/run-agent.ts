@@ -55,6 +55,7 @@ import {
   createStdinLineQueue,
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
+import { armHardExitDeadline } from "./hard-exit-deadline.js";
 import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { withProject } from "../session/session-project.js";
@@ -964,6 +965,9 @@ export async function runAgentCommand(args: string[]): Promise<number> {
     process.stderr.write(`fatal: ${msg}\n`);
     exitCode = 1;
   } finally {
+    // Issue #104: from here the process ends within the hard deadline
+    // with this run's exit code, whatever still holds the event loop.
+    armHardExitDeadline(() => exitCode);
     stdinLines?.close();
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
