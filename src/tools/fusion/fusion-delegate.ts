@@ -1310,6 +1310,7 @@ export function buildFusionDelegateTool(
       // Tasks the call meant to review that ended with no verdict, and why (issue #95).
       let noReviewVerdict: Array<{ taskId: string; reason: string }> = [];
       let runReviews: RunTaskReview[] = [];
+      let runMeta: () => { ran: readonly string[]; judging: boolean } | undefined = () => undefined;
       let secretCollectionFailed = false;
       const collectKnownSecrets = (): readonly KnownSecret[] | undefined => {
         if (secretCollectionFailed) throw new Error("Secret metadata unavailable");
@@ -3127,9 +3128,13 @@ export function buildFusionDelegateTool(
               return [{ taskId: r.id, verdict: "none", reason, ...(criteria.length === 0 ? {} : { criteria }) }];
             })
           : [];
+        // Which tasks this call ran (not those carried from a checkpoint or never started), and whether review was on (issue #98).
+        const carriedIds = new Set(resume?.carried.map((r) => r.id) ?? []);
+        const ranIds = results.filter((r) => !carriedIds.has(r.id) && !(r.error ?? "").startsWith("not started:")).map((r) => r.id);
+        runMeta = () => ({ ran: ranIds, judging });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews);
+          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3344,6 +3349,7 @@ export function buildFusionDelegateTool(
                 })),
             factCriteria,
             runReviews,
+            runMeta(),
           );
         }
         terminalTaskCount = results.length;

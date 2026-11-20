@@ -90,13 +90,27 @@ describe("a milestone stays open while a required task lacks a current accept (i
     } finally { rmSync(state, { recursive: true, force: true }); }
   });
 
-  it("without any reviewer verdicts in the runs (review off), nothing blocks", () => {
-    const state = mkdtempSync(join(tmpdir(), "review-off-"));
+  it("an accept counts only from the task's newest run; a run that reviewed nothing blocks (issue #98 review)", () => {
+    const state = mkdtempSync(join(tmpdir(), "review-latest-"));
     try {
       const runs = join(state, FUSION_RUNS_DIR_NAME);
-      writeRunCriteriaFacts(runs, { runId: "fr-1", sessionId: "s" }, [{ taskId: "program", facts: [{ id: "c1", state: "passed" }] }]);
-      const out = readMilestoneEvidence({ runsDir: runs, stateDir: state, runIds: ["fr-1"], criteriaOrder: ["c1"], requiredTasks: ["program", "tests"] });
-      expect(out.reviewBlocks).toBeUndefined();
+      const read = (runIds: string[]) =>
+        readMilestoneEvidence({ runsDir: runs, stateDir: state, runIds, criteriaOrder: [], requiredTasks: ["program", "tests"] }).reviewBlocks;
+      writeRunCriteriaFacts(runs, { runId: "fr-1", sessionId: "s" }, [], undefined,
+        [{ taskId: "program", verdict: "accept" }, { taskId: "tests", verdict: "accept" }], { ran: ["program", "tests"], judging: true });
+      expect(read(["fr-1"])).toBeUndefined();
+      // tests ran again and changed its files, but no review was recorded for it.
+      writeRunCriteriaFacts(runs, { runId: "fr-2", sessionId: "s" }, [], undefined, [], { ran: ["tests"], judging: true });
+      expect(read(["fr-1", "fr-2"])).toEqual([{ taskId: "tests", reason: "not reviewed in its latest run" }]);
+      // A milestone whose only run recorded no review at all is not "nothing blocks".
+      writeRunCriteriaFacts(runs, { runId: "fr-9", sessionId: "s" }, [], undefined, [], { ran: ["program", "tests"], judging: false });
+      expect(read(["fr-9"])).toEqual([
+        { taskId: "program", reason: "no reviewer ran in its latest run" },
+        { taskId: "tests", reason: "no reviewer ran in its latest run" },
+      ]);
+      // A fresh accept in the newest run clears it.
+      writeRunCriteriaFacts(runs, { runId: "fr-3", sessionId: "s" }, [], undefined, [{ taskId: "tests", verdict: "accept" }], { ran: ["tests"], judging: true });
+      expect(read(["fr-1", "fr-2", "fr-3"])).toBeUndefined();
     } finally { rmSync(state, { recursive: true, force: true }); }
   });
 
