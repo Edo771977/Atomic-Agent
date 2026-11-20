@@ -252,5 +252,5 @@ function pinnedExecFor(prompt: ApprovalPrompt, pinned: PinnedExec | undefined): 
   const argv = prompt.commandArgv;
   if (argv === undefined || argv.length !== pinned.argv.length || !argv.every((word, i) => word === pinned.argv[i])) return undefined;
   if (!isAbsolute(pinned.file) || !isAbsolute(pinned.cwd)) return undefined;
-  return { file: pinned.file, argv: [...pinned.argv], cwd: pinned.cwd };
+  return { file: pinned.file, argv: [...pinned.argv], cwd: pinned.cwd, path: pinned.path };
 }

@@ -245,6 +245,8 @@ export async function authorizeVerifyBatch(
         delete spec.command;
         spec.cmd = outcome.pinnedExec.file;
         spec.args = args;
+        // Only the pin's filtered PATH: see `PinnedExec.path`.
+        spec.env = { PATH: outcome.pinnedExec.path };
       }
     } finally {
       withdraw?.();

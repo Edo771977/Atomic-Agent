@@ -104,7 +104,7 @@ export function pinAllowedCommand(
   } catch {
     return null;
   }
-  return { file: program.file, argv: [...argv], cwd };
+  return { file: program.file, argv: [...argv], cwd, path: program.path };
 }
 
 /** Lowercase A-Z only (no Unicode folding: U+212A KELVIN SIGN is not `k`). */

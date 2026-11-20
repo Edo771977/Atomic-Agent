@@ -28,7 +28,7 @@ describe("resolveAllowedExecutable on POSIX", () => {
 
   it("skips a PATH entry inside --cwd, a relative one and an empty one, and takes the first real file outside", () => {
     const PATH = [planted, "bin", "", ".", system].join(delimiter);
-    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH }, platform: "linux" })).toEqual({ file: real });
+    expect(resolveAllowedExecutable("tool", { runDir, env: { PATH }, platform: "linux" })).toMatchObject({ file: real, path: system });
   });
 
   it("refuses when only --cwd holds it, or when the file it resolves to is a link into --cwd", () => {
@@ -42,7 +42,26 @@ describe("resolveAllowedExecutable on POSIX", () => {
   it("refuses a word with a path inside --cwd, takes an absolute one outside", () => {
     expect(resolveAllowedExecutable(join(planted, "tool"), { runDir, env: { PATH: "" }, platform: "linux" })).toBeNull();
     expect(resolveAllowedExecutable("./bin/tool", { runDir, env: { PATH: "" }, platform: "linux" })).toBeNull();
-    expect(resolveAllowedExecutable(real, { runDir, env: { PATH: "" }, platform: "linux" })).toEqual({ file: real });
+    expect(resolveAllowedExecutable(real, { runDir, env: { PATH: "" }, platform: "linux" })).toMatchObject({ file: real });
+  });
+
+  it("refuses a script whose #! names an interpreter inside --cwd or by a relative path; gives the filtered PATH", () => {
+    const scripts = join(base, "scripts");
+    mkdirSync(scripts, { recursive: true });
+    const write = (name: string, shebang: string) => {
+      writeFileSync(join(scripts, name), `${shebang}\necho x\n`);
+      chmodSync(join(scripts, name), 0o755);
+    };
+    write("inside", `#!${join(runDir, "bin", "tool")}`);
+    write("relative", "#!bin/tool");
+    write("viaenv", "#!/usr/bin/env node");
+    const env = { PATH: ["", ".", planted, scripts, system].join(delimiter) };
+    expect(resolveAllowedExecutable("inside", { runDir, env, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("relative", { runDir, env, platform: "linux" })).toBeNull();
+    expect(resolveAllowedExecutable("viaenv", { runDir, env, platform: "linux" })).toEqual({
+      file: join(scripts, "viaenv"),
+      path: [scripts, system].join(delimiter),
+    });
   });
 
   it("refuses a file that is not executable, and a name nothing resolves", () => {
@@ -66,9 +85,9 @@ describe("resolveAllowedExecutable with Windows semantics (injected fs)", () => 
   it("tries .exe and .com only, in PATHEXT order", () => {
     files.clear();
     files.add("c:\\node\\node.exe");
-    expect(resolveAllowedExecutable("node", opts("C:\\node"))).toEqual({ file: "C:\\node\\node.exe" });
+    expect(resolveAllowedExecutable("node", opts("C:\\node"))).toMatchObject({ file: "C:\\node\\node.exe" });
     files.add("c:\\node\\node.com");
-    expect(resolveAllowedExecutable("node", opts("C:\\node"))).toEqual({ file: "C:\\node\\node.com" });
+    expect(resolveAllowedExecutable("node", opts("C:\\node"))).toMatchObject({ file: "C:\\node\\node.com" });
   });
 
   it("refuses when the first match is a .cmd or .bat, or the word names one", () => {
@@ -84,7 +103,7 @@ describe("resolveAllowedExecutable with Windows semantics (injected fs)", () => 
     files.clear();
     files.add("c:\\work\\proj\\node.exe");
     files.add("c:\\node\\node.exe");
-    expect(resolveAllowedExecutable("node", opts(["C:\\work\\proj", "bin", "", "C:\\node"].join(win32.delimiter)))).toEqual({ file: "C:\\node\\node.exe" });
+    expect(resolveAllowedExecutable("node", opts(["C:\\work\\proj", "bin", "", "C:\\node"].join(win32.delimiter)))).toMatchObject({ file: "C:\\node\\node.exe" });
     expect(resolveAllowedExecutable("node", opts("C:\\work\\proj"))).toBeNull();
   });
 });

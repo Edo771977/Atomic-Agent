@@ -194,6 +194,12 @@ export interface PinnedExec {
   file: string;
   argv: string[];
   cwd: string;
+  /**
+   * The only PATH the child gets: the absolute, real entries outside the
+   * run's folder the file was resolved through, so a `#!/usr/bin/env`
+   * script finds its interpreter there and nowhere the model can plant one.
+   */
+  path: string;
 }
 
 export interface ApprovalDecision {

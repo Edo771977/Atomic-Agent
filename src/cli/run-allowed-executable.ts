@@ -1,4 +1,4 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { accessSync, closeSync, constants, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
 /**
@@ -22,6 +22,14 @@ export interface ExecutableFs {
   isExecutableFile(path: string): boolean;
   /** The real path, or null when it cannot be resolved. */
   realpath(path: string): string | null;
+  /** The file's first bytes as text (its `#!` line), or null. */
+  readHead?(path: string): string | null;
+}
+
+/** The program file to pin, and the PATH its child is given (`safeEntries`). */
+export interface PinnedProgram {
+  file: string;
+  path: string;
 }
 
 export interface ResolveExecutableOptions {
@@ -48,9 +56,22 @@ const nodeFs: ExecutableFs = {
       return null;
     }
   },
+  readHead(path) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(path, "r");
+      const buffer = Buffer.alloc(256);
+      const read = readSync(fd, buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, read).toString("latin1");
+    } catch {
+      return null;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  },
 };
 
-export function resolveAllowedExecutable(word: string, options: ResolveExecutableOptions): { file: string } | null {
+export function resolveAllowedExecutable(word: string, options: ResolveExecutableOptions): PinnedProgram | null {
   const platform = options.platform ?? process.platform;
   const fs = options.fs ?? nodeFs;
   const path = platform === "win32" ? win32 : posix;
@@ -61,23 +82,31 @@ export function resolveAllowedExecutable(word: string, options: ResolveExecutabl
     const rel = path.relative(fold(realRunDir), fold(real));
     return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
   };
-  const accept = (candidate: string): { file: string } | null => {
+  // The only PATH the pinned child gets too (issue #95, third review):
+  // a `#!/usr/bin/env node` script must find its interpreter here, never
+  // through `.`, an empty entry or a folder inside --cwd.
+  const safeEntries: string[] = [];
+  for (const entry of (options.env.PATH ?? options.env.Path ?? "").split(path.delimiter)) {
+    if (entry.length === 0 || !path.isAbsolute(entry)) continue;
+    const realEntry = fs.realpath(entry);
+    if (realEntry === null || !outsideRunDir(realEntry) || safeEntries.includes(realEntry)) continue;
+    safeEntries.push(realEntry);
+  }
+  const safePath = safeEntries.join(path.delimiter);
+  const accept = (candidate: string): PinnedProgram | null => {
     if (!fs.isExecutableFile(candidate)) return null;
     const real = fs.realpath(candidate);
     if (real === null || !fs.isExecutableFile(real) || !outsideRunDir(real)) return null;
-    return { file: real };
+    if (platform !== "win32" && !interpreterOutside(fs.readHead?.(real) ?? null, fs, path, outsideRunDir)) return null;
+    return { file: real, path: safePath };
   };
   const scriptExt = /\.(cmd|bat)$/i;
   if (platform === "win32" && scriptExt.test(word)) return null;
   if (/[\\/]/.test(word)) {
     return accept(path.isAbsolute(word) ? word : path.resolve(options.runDir, word));
   }
-  const entries = (options.env.PATH ?? options.env.Path ?? "").split(path.delimiter);
   const exts = platform === "win32" ? windowsExtensions(options.env.PATHEXT, word) : [""];
-  for (const entry of entries) {
-    if (entry.length === 0 || !path.isAbsolute(entry)) continue;
-    const realEntry = fs.realpath(entry);
-    if (realEntry === null || !outsideRunDir(realEntry)) continue;
+  for (const entry of safeEntries) {
     for (const ext of exts) {
       const candidate = path.join(entry, word + ext);
       if (!fs.isExecutableFile(candidate)) continue;
@@ -88,6 +117,34 @@ export function resolveAllowedExecutable(word: string, options: ResolveExecutabl
     }
   }
   return null;
+}
+
+/**
+ * A `#!` line's interpreter must be an absolute file outside --cwd; for
+ * `#!/usr/bin/env name` the name is looked up on the pinned PATH, so a
+ * bare name is fine, but a path in it follows the same rule. Not a
+ * script (no `#!`): nothing to check.
+ */
+function interpreterOutside(
+  head: string | null,
+  fs: ExecutableFs,
+  path: typeof posix,
+  outside: (real: string) => boolean,
+): boolean {
+  if (head === null || !head.startsWith("#!")) return true;
+  const words = head.slice(2).split(/\r?\n/)[0]!.trim().split(/\s+/).filter((w) => w.length > 0);
+  const interpreter = words[0];
+  if (interpreter === undefined) return false;
+  const fileOutside = (file: string): boolean => {
+    if (!path.isAbsolute(file)) return false;
+    const real = fs.realpath(file);
+    return real !== null && outside(real);
+  };
+  if (!fileOutside(interpreter)) return false;
+  if (path.basename(interpreter) !== "env") return true;
+  const program = words.slice(1).find((w) => !w.startsWith("-") && !w.includes("="));
+  if (program === undefined) return false;
+  return /\//.test(program) ? fileOutside(program) : true;
 }
 
 /** PATHEXT's `.exe` and `.com` (and its `.cmd`/`.bat`, to refuse them), in order; "" when the word has its own `.exe`/`.com`. */

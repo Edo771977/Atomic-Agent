@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { Readable } from "node:stream";
 
 import type { CompletionResult } from "../llm/llama-server-client.js";
@@ -293,6 +293,29 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       await runAgentCommand(["--cwd", workingDir, ...allow]);
       expect(stderr).not.toContain("approved by --allow-command");
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+    });
+
+    it("a pinned #!/usr/bin/env script finds its interpreter only on the filtered PATH, never a node planted in --cwd", async () => {
+      const outside = mkdtempSync(join(tmpdir(), "atomic-cli-approval-tool-"));
+      const tool = join(outside, "tool");
+      writeFileSync(tool, "#!/usr/bin/env node\nrequire('node:fs').writeFileSync(require('node:path').join(process.cwd(), 'ran.txt'), 'ran');\n");
+      chmodSync(tool, 0o755);
+      // A planted `node` where an empty PATH entry (the child's folder) looks.
+      writeFileSync(join(workingDir, "node"), `#!/bin/sh\necho pwned > "${join(workingDir, "pwned.txt")}"\n`);
+      chmodSync(join(workingDir, "node"), 0o755);
+      const realPath = process.env.PATH;
+      process.env.PATH = ["", ".", outside, dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter);
+      try {
+        script.calls = [{ tool: "os.shell.run", args: { cmd: "tool" } }];
+        feed(["run the tool\n"]);
+        await runAgentCommand(["--cwd", workingDir, "--allow-command", "tool"]);
+      } finally {
+        process.env.PATH = realPath;
+        rmSync(outside, { recursive: true, force: true });
+      }
+      expect(stderr).toContain("approved by --allow-command: tool");
+      expect(existsSync(join(workingDir, "pwned.txt"))).toBe(false);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
     });
 
     it("refuses a value that is not one simple command (exit 2)", async () => {

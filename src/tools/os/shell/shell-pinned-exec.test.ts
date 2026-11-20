@@ -29,18 +29,18 @@ describe("os.shell.run with a pinned exec", () => {
   const shell = (args: Record<string, unknown>) => buildOsShellTool({ approvals: gate, approvalRequired: true }).run(args, ctx());
 
   it("spawns the pinned file with the pinned argv, directly, not what the name would resolve to", async () => {
-    decide = (request) => ({ approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv!, cwd: dir } });
+    decide = (request) => ({ approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv!, cwd: dir, path: "/usr/bin" } });
     // No such program on PATH: only the pin can run it.
     await shell({ cmd: "aa-no-such-program", args: ["mark.cjs", "a"] });
     expect(existsSync(join(dir, "ran.txt"))).toBe(true);
   });
 
   it("ignores a pin whose argv is not the call's, and one sent as a tool argument", async () => {
-    decide = () => ({ approved: true, pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir } });
+    decide = () => ({ approved: true, pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir, path: "/usr/bin" } });
     await shell({ cmd: "node", args: ["mark.cjs", "b"] });
     expect(existsSync(join(dir, "pwned.txt"))).toBe(false);
     decide = () => ({ approved: true });
-    await shell({ cmd: "node", args: ["mark.cjs", "c"], pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir } });
+    await shell({ cmd: "node", args: ["mark.cjs", "c"], pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir, path: "/usr/bin" } });
     expect(existsSync(join(dir, "pwned.txt"))).toBe(false);
   });
 });

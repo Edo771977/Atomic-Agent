@@ -83,6 +83,14 @@ export {
  * True for a verdict of the guard's dangerous layer (`dangerous.*` in
  * `rules-dangerous.ts`): the command asks as `shell_dangerous`.
  */
+/** `env` with every PATH spelling (`Path` on Windows) replaced by `path`. */
+function withOnlyPath(env: NodeJS.ProcessEnv, path: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() !== "PATH") out[key] = value;
+  out.PATH = path;
+  return out;
+}
+
 /**
  * Issue #95: a one-string `cmd` of plain words separated by single
  * spaces, nothing else (no quotes, `$`, `%`, `^`, `!`, globs or
@@ -399,11 +407,13 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // mid-session is filtered the same way. The toolchain additions
     // (non-interactive switches, PATH folders) are fixed values applied
     // after the filter, never read from the call.
+    const baseEnv = withToolchainEnv(
+      buildCommandEnv(process.env, options.envPassthrough ?? []),
+    );
     const job = startCommandJob(spawnSpec.command, spawnSpec.args, {
       cwd: pinned?.cwd ?? cwd,
-      env: withToolchainEnv(
-        buildCommandEnv(process.env, options.envPassthrough ?? []),
-      ),
+      // A pinned run gets only the pin's filtered PATH (issue #95).
+      env: pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
