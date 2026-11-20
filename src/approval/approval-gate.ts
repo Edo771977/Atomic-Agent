@@ -142,6 +142,14 @@ export interface ApprovalRequest {
    */
   verifyPlainCommand?: true;
   /**
+   * Set by `os.shell.run` when the call is a direct exec whose argv is
+   * exactly what it wrote: no shell runs the line (so no redirect, `&`,
+   * comment or substitution) and no glob was expanded. With
+   * `commandArgv`, the only shell call `run --allow-command` may
+   * pre-approve (issue #95).
+   */
+  literalExec?: true;
+  /**
    * Set by the gate, never by a caller: what the smart-approval risk
    * review (`risk-review.ts`) said about a request it did not let
    * through, e.g. `risk check: medium (installs a package)`. A surface

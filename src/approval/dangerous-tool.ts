@@ -26,6 +26,8 @@ export interface ApprovalPrompt {
   grantKey?: string;
   /** A plain one-command verification; see `ApprovalRequest.verifyPlainCommand`. */
   verifyPlainCommand?: true;
+  /** A direct exec of exactly the written argv; see `ApprovalRequest.literalExec`. */
+  literalExec?: true;
   /** Parsed argv of a simple shell command; see `ApprovalRequest.commandArgv`. */
   commandArgv?: readonly string[];
   /** Every simple command the call would run; see `ApprovalRequest.commandSegments`. */
@@ -203,6 +205,7 @@ export async function requireApproval(
         : {}),
       ...(prompt.commandUnreadable === true ? { commandUnreadable: true } : {}),
       ...(prompt.verifyPlainCommand === true ? { verifyPlainCommand: true } : {}),
+      ...(prompt.literalExec === true ? { literalExec: true } : {}),
       ...(prompt.workdir !== undefined ? { workdir: prompt.workdir } : {}),
       ...(prompt.redirectablePath !== undefined
         ? { redirectablePath: prompt.redirectablePath }

@@ -344,6 +344,10 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           ...(commandArgv !== undefined ? { commandArgv } : {}),
           commandSegments,
           ...(commandUnreadable ? { commandUnreadable } : {}),
+          // Issue #95: no shell and no glob expanded, so argv is all that runs.
+          ...(!useShell && execArgs.length === rawArgList.length && execArgs.every((arg, i) => arg === rawArgList[i])
+            ? { literalExec: true as const }
+            : {}),
           workdir: ctx.workingDir,
           targetPaths,
         },

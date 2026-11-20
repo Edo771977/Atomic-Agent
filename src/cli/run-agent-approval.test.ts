@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -180,6 +180,37 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       await runAgentCommand(["--cwd", workingDir, ...allow]);
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
       expect(shellResult()).toMatch(/The user declined this os\.shell\.run call/);
+    });
+
+    // Real command lines the model may send as one `cmd` (run through a
+    // shell): none is the listed direct exec, whatever its first words.
+    it.each([
+      ["a redirect out of the folder", "node mark.cjs > ../outside.txt"],
+      ["an appending redirect", "node mark.cjs >> ../outside.txt"],
+      ["an input redirect", "node mark.cjs < ../outside.txt"],
+      ["a background job", "node mark.cjs &"],
+      ["a comment hiding a second command", "node mark.cjs # & touch ../outside.txt"],
+      ["a sequence", "node mark.cjs ; touch ../outside.txt"],
+      ["a glob", "node mark*.cjs"],
+      ["a quoted word", `node "mark.cjs"`],
+    ])("holds a line with %s", async (_label, line) => {
+      writeFileSync(join(workingDir, "..", "outside.txt"), "keep me");
+      script.calls = [{ tool: "os.shell.run", args: { cmd: line } }];
+      feed(["run it\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(shellResult()).toContain("approval unavailable (non-interactive run)");
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+      expect(readFileSync(join(workingDir, "..", "outside.txt"), "utf8")).toBe("keep me");
+      rmSync(join(workingDir, "..", "outside.txt"), { force: true });
+    });
+
+    it("holds a direct exec whose glob the tool expanded to the listed words", async () => {
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark*.cjs"] } }];
+      feed(["run it\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
     });
 
     it("refuses a value that is not one simple command (exit 2)", async () => {

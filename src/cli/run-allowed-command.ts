@@ -1,34 +1,42 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
 
 import type { ApprovalRequest } from "../approval/approval-gate.js";
-import { shellRuleSegments, shellRunsUnreadableScript } from "../tools/os/shell/shell-command-argv.js";
 
 /**
  * `run --allow-command "<exact command>"` (issue #95): a command the
  * operator agreed on beforehand (the project's test command) that a
  * non-interactive run may execute without asking, and nothing else.
  *
- * The value is parsed into words the way a saved approval rule reads a
- * shell command (`shellRuleSegments`), and it must be one simple
- * command: a compound line, a pipeline, a wrapper (`env X=1 …`) or a
- * script fed to a shell is refused, since its words would not say what
- * runs. A request matches only when it is that one command, word for
- * word (argv[0] by basename, lowercased, as a rule compares it), as
- * `os.shell.run` or a plain `verify.run` command check, classed `shell`
- * (never `shell_dangerous`), run in the run's `--cwd` or below.
+ * Only a direct exec is ever pre-approved: the request must carry the
+ * argv that will run (`commandArgv`) and say no shell reads it and no
+ * glob was expanded (`literalExec` from `os.shell.run`, or a plain
+ * `verify.run` command check, `verifyPlainCommand`), name no file it
+ * would write (`targetPaths`), and that argv must equal the operator's
+ * words element by element. A line run through a shell is never
+ * matched, whatever its first words: a redirect, `&`, a `#` comment or a
+ * substitution there runs more than the words say (`commandSegments` is
+ * a best reading, safe only for rules that tighten).
+ *
+ * The value is split on whitespace only, so it cannot hold quotes or
+ * shell syntax: a character a shell or cmd.exe would read specially is
+ * refused rather than guessed at.
  */
 export interface AllowedCommand {
   argv: string[];
 }
 
+/** Characters a shell (or cmd.exe for a `.cmd` shim) reads specially. */
+const SHELL_SYNTAX_RE = /[|&;<>()$`"'*?[\]{}~#!^%\r\n]/;
+
 export function parseAllowedCommand(value: string): AllowedCommand | { error: string } {
-  const line = value.trim();
-  if (line.length === 0) return { error: "--allow-command needs a command" };
-  const segments = shellRuleSegments(line, [], true);
-  if (segments.length !== 1 || segments[0]!.length === 0 || shellRunsUnreadableScript(line, [], true)) {
-    return { error: `--allow-command takes one simple command (no ;, &&, |, redirects or wrappers): ${value}` };
+  const argv = value.trim().split(/\s+/).filter((word) => word.length > 0);
+  if (argv.length === 0) return { error: "--allow-command needs a command" };
+  if (argv.some((word) => SHELL_SYNTAX_RE.test(word))) {
+    return {
+      error: `--allow-command takes one plain command, words separated by spaces (no quotes, globs, ;, &, |, redirects or other shell syntax): ${value}`,
+    };
   }
-  return { argv: segments[0]! };
+  return { argv };
 }
 
 export function allowedCommandMatches(
@@ -40,16 +48,18 @@ export function allowedCommandMatches(
   if (request.category !== "shell") return false;
   if (request.tool === "verify.run") {
     if (request.verifyPlainCommand !== true) return false;
-  } else if (request.tool !== "os.shell.run") {
+  } else if (request.tool === "os.shell.run") {
+    if (request.literalExec !== true) return false;
+  } else {
     return false;
   }
   if (request.commandUnreadable === true) return false;
-  const segments = request.commandSegments;
-  if (segments === undefined || segments.length !== 1) return false;
-  const words = segments[0]!;
+  if ((request.targetPaths ?? []).length > 0) return false;
+  const argv = request.commandArgv;
+  if (argv === undefined || argv.length === 0) return false;
   const dirs = request.affectedResources ?? [];
   if (dirs.length === 0 || !dirs.every((dir) => isAbsolute(dir) && inside(runDir, dir))) return false;
-  return allowed.some((command) => sameWords(command.argv, words));
+  return allowed.some((command) => sameWords(command.argv, argv));
 }
 
 function sameWords(allowed: readonly string[], words: readonly string[]): boolean {
