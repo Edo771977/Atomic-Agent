@@ -9,7 +9,7 @@ import {
   type DelegateContract,
 } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
-import { parseTestOutput, type ExecutedTest } from "./execution-evidence.js";
+import { parseTestOutput, type ExecutedTest } from "./test-output.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
 import type { VerifyGameSummary } from "../verify/page-game-harness.js";

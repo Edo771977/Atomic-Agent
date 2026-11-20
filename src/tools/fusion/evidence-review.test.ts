@@ -263,7 +263,7 @@ export function session(dir: string, review: (prompt: string) => string) {
     resolveFusionTeam: () => team(),
     runChecks: async (specs, run) => {
       log.push(`gate on ${readFileSync(join(run.workingDir, "sales.test.cjs"), "utf8").trim()}`);
-      return gateChecks(specs, run);
+      return gateChecks!(specs, run);
     },
     runCheckpoints: new FusionRunStore({ dir: runsDir }),
   };
