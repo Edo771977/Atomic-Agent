@@ -58,13 +58,13 @@ const approve = (p: ProjectState): ProjectState => {
   if (!r.ok) throw new Error(r.error.message);
   return r.project;
 };
-const row = (reviewer: string | null): AssignmentRow => ({
-  taskId: "t", title: "T", milestoneId: "m1", worker: "local:small", reviewer, reason: "preset", basis: "preset", samples: 0, estCostUsd: null, estMs: null,
+const row = (reviewer: string | null, worker = "local:small"): AssignmentRow => ({
+  taskId: "t", title: "T", milestoneId: "m1", worker, reviewer, reason: "preset", basis: "preset", samples: 0, estCostUsd: null, estMs: null,
 });
 /** An approved project whose one row has `reviewer`; `byPerson`: the person picked it at the gate. */
-const project = (reviewer: string | null, byPerson: boolean): ProjectState => {
+const project = (reviewer: string | null, byPerson: boolean, worker?: string): ProjectState => {
   const brief: ProjectUpdate = { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs"] }, draftedAfterUntrusted: false };
-  const plan: ProjectUpdate = { kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row(reviewer)], detail: "compact" };
+  const plan: ProjectUpdate = { kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row(reviewer, worker)], detail: "compact" };
   const p = approve(up(approve(up(undefined, brief)), plan));
   return byPerson ? { ...p, plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, reviewerByPerson: true as const })) } } : p;
 };
@@ -131,5 +131,12 @@ describe("a director takeover of a plan task (issue #102)", () => {
     expect(result.summary).toContain("REPLAN REQUIRED");
     expect(result.summary).toContain("keep its plan task id (a plan task is never split)");
     expect(result.summary).not.toMatch(/continuation ids `t\.a`/);
+  });
+
+  it("a plan row the orchestrator works is steered back to the orchestrator, by its row's member (issue #102 review)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const { result, prompts } = await run(project("cli-b:model-r", false, "api-a:model-a"), { model: "orchestrator" }, true);
+    expect(prompts).toHaveLength(0);
+    expect(result.summary).toContain("re-delegate it on the plan row's worker (the orchestrator, `model: \"orchestrator\"`)");
   });
 });

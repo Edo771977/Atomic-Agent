@@ -7,7 +7,7 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
-import { describeReplan, PLANNED_TASK_FIX, renderReplanBlock, STALL_RECOVERY_ATTEMPTS } from "./replan.js";
+import { describeReplan, plannedTaskFix, renderReplanBlock, STALL_RECOVERY_ATTEMPTS } from "./replan.js";
 import { WorkerRunCollector } from "./worker-result.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -237,9 +237,9 @@ describe("the fix each status calls for", () => {
   const row = (id: string, status: string) => ({ id, status }) as never;
 
   it("a plan task failed twice stays on its row's worker, never `model: \"orchestrator\"` (issue #102)", () => {
-    const report = describeReplan([row("planned", "failed"), row("free", "failed")], () => 2, 3, () => false, true, (id) => id === "planned");
+    const report = describeReplan([row("planned", "failed"), row("free", "failed")], () => 2, 3, () => false, true, (id) => (id === "planned" ? { worker: "local:small", orchestrator: false } : undefined));
     const fix = Object.fromEntries(report.pending.map((t) => [t.id, t.fix]));
-    expect(fix.planned).toBe(PLANNED_TASK_FIX);
+    expect(fix.planned).toBe(plannedTaskFix({ worker: "local:small", orchestrator: false }));
     expect(fix.planned).not.toMatch(/send it with/);
     expect(fix.free).toBe('it failed twice on a worker: send it with `model: "orchestrator"`');
   });
@@ -499,7 +499,7 @@ describe("plan tasks are worded per row (issue #102 review)", () => {
       3,
       () => false,
       true,
-      (id) => id.startsWith("plan-"),
+      (id) => (id.startsWith("plan-") ? { worker: "local:small", orchestrator: false } : undefined),
     );
     const block = renderReplanBlock(report);
     const line = (id: string) => block.split("\n").find((l) => l.startsWith(`- ${id} `))!;

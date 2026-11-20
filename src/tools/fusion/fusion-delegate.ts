@@ -3203,7 +3203,18 @@ export function buildFusionDelegateTool(
                 (!tracksTurn ||
                   turnBudget.orchestratorTasks(ctx.sessionId) < orchestratorCap),
               // A plan task is steered to its row's worker, never another model (issue #102).
-              (id) => planApproved && projectVerdict.kind === "admit" && projectVerdict.planned.includes(id),
+              // Compared against the row's own member: a row the orchestrator works stays on it.
+              (id) => {
+                if (!planApproved || projectVerdict.kind !== "admit" || !projectVerdict.planned.includes(id)) return undefined;
+                const planRow = ctx.project?.plan?.rows.find((r) => r.taskId === id);
+                if (planRow === undefined) return undefined;
+                const orchestratorMember = orchestratorLegRef === undefined ? undefined
+                  : "member" in orchestratorLegRef ? orchestratorLegRef.member : `${orchestratorLegRef.providerId}:${orchestratorLegRef.model}`;
+                return {
+                  worker: planRow.worker,
+                  orchestrator: orchestratorMember !== undefined && sameMember(planRow.worker, orchestratorMember, deps.resolveDefaultModel),
+                };
+              },
               )
             : undefined;
         const replan =

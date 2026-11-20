@@ -175,8 +175,16 @@ const SAME_TASK_ID = " Keep its task id (the plan row's).";
  * the person approved, so the fan-out asks them; in a run with nobody
  * to answer, the takeover never starts.
  */
-export const PLANNED_TASK_FIX =
-  "keep its plan task id (a plan task is never split); re-delegate it on the plan row's worker with a narrower brief or a longer `timeoutMs`, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person";
+export function plannedTaskFix(row: PlannedRow): string {
+  const worker = row.orchestrator ? 'the orchestrator, `model: "orchestrator"`' : `\`${row.worker}\``;
+  return `keep its plan task id (a plan task is never split); re-delegate it on the plan row's worker (${worker}) with a narrower brief or a longer \`timeoutMs\`, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person`;
+}
+
+/** A task's plan row as the replan reads it: the member the row names, and whether that is the orchestrator's. */
+export interface PlannedRow {
+  worker: string;
+  orchestrator: boolean;
+}
 
 /** A row's own options, worded per row (issue #102 review): a plan task keeps its id and is never split. */
 const REVIEW_OPTIONS =
@@ -197,8 +205,8 @@ export function describeReplan(
   max: number,
   ranOnOrchestrator: (taskId: string) => boolean = () => false,
   orchestratorAvailable = true,
-  /** Tasks of the approved project plan the fan-out ran under (issue #102). */
-  planned: (taskId: string) => boolean = () => false,
+  /** The plan row of a task of the approved project plan the fan-out ran under (issue #102). */
+  planned: (taskId: string) => PlannedRow | undefined = () => undefined,
 ): ReplanReport {
   const pending: ReplanTask[] = [];
   const exhausted: ReplanTask[] = [];
@@ -228,13 +236,14 @@ export function describeReplan(
             result.status,
             runs,
             onOrchestrator,
-            orchestratorAvailable && !inPlan,
+            // A plan row on another worker: the orchestrator is not its row's member, so it would leave the plan.
+            orchestratorAvailable && (inPlan === undefined || inPlan.orchestrator),
           )
         : undefined;
     // A plan task stays on its row's worker and id: a split or another model leaves the plan.
     const fix =
-      inPlan && left > 0 && !stop && !reviewed && result.status !== "needs_input" && result.status !== "no_changes"
-        ? PLANNED_TASK_FIX
+      inPlan !== undefined && left > 0 && !stop && !reviewed && result.status !== "needs_input" && result.status !== "no_changes"
+        ? plannedTaskFix(inPlan)
         : statusFix;
     const awaits =
       (result.heldOn?.length ?? 0) > 0 && result.heldOn!.every((id) => reviewIds.has(id))
@@ -246,7 +255,7 @@ export function describeReplan(
       why: whyOf(result),
       replansLeft: Math.max(0, left - 1),
       ...(fix === undefined ? {} : { fix }),
-      ...(inPlan ? { planned: true as const } : {}),
+      ...(inPlan !== undefined ? { planned: true as const } : {}),
       ...(result.stalled === undefined ? {} : { stalled: true as const }),
       ...(awaits === undefined ? {} : { awaitsReview: awaits }),
     };
