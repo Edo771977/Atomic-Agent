@@ -40,6 +40,7 @@ import {
 import {
   WorkerRunCollector,
   WORKER_QUEUED_NOTE,
+  TIMED_OUT_AFTER_RUN_NOTE,
   formatWaitMs,
   queuedWorkerHint,
   unservedWorkerHint,
@@ -2568,7 +2569,8 @@ async function runOneTask(
           ...result,
           status: "ok",
           timedOutAfterRun: true,
-          notes: [...(result.notes ?? []), `timed out before its reply, after its own test run passed (${lastVerify!.command}); kept for its checks and review from the recorded run`],
+          // One note in place of the time-limit "split it" advice: the work is done, only the reply is missing.
+          notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its time limit")), TIMED_OUT_AFTER_RUN_NOTE],
         }
       : { ...result, status: "timeout" };
   }

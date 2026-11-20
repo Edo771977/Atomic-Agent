@@ -144,4 +144,12 @@ describe("a timed-out worker is recovered for review only on its own passing che
     expect(row.status).toBe("ok");
     expect(row.timedOutAfterRun).toBe(true);
   });
+
+  it("the recovered row carries one note for it, not the time-limit split advice nor the empty-reply warning", async () => {
+    const { row } = await timedOut([{ write: PROGRAM }, { verify: OWN }]);
+    const notes = row.notes ?? [];
+    expect(notes).toContain("timed out after its own checks passed on the current files; reply missing");
+    expect(notes.join("\n")).not.toMatch(/split it into smaller tasks/);
+    expect(notes.join("\n")).not.toMatch(/reply is empty or a placeholder/);
+  });
 });

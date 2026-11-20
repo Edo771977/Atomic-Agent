@@ -735,6 +735,9 @@ export function finishedWithoutReplyNote(paths: readonly string[]): string {
   return `finished without a reply; files changed: ${shown}${more}; unverified — read/check them before accepting`;
 }
 
+/** The one note on a worker recovered after its own checks passed and its clock ran out (issue #102). */
+export const TIMED_OUT_AFTER_RUN_NOTE = "timed out after its own checks passed on the current files; reply missing";
+
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {
   if (cause === "credit_exhausted") {
     return "stopped because the provider is out of credit";
