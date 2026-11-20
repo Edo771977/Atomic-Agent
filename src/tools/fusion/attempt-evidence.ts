@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import type { ExecutionRun } from "./execution-evidence.js";
 import { FILE_WRITING_TOOLS } from "./worker-result.js";
 
 /**
@@ -26,6 +27,8 @@ export interface AttemptFiles {
   wrote: Array<{ path: string; sha256?: string }>;
   /** Files whose `os.fs.edit` found its new text already present: a no-op, not a failure. */
   alreadyApplied: string[];
+  /** Its test runs, recorded from the tool results (issue #102, `execution-evidence.ts`). */
+  executed?: ExecutionRun[];
 }
 
 /** One attempt in the delegate's ledger: its files, and what its checks tested. */

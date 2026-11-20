@@ -136,6 +136,7 @@ import {
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
+import { renderExecutionEvidence } from "./execution-evidence.js";
 import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
@@ -1692,7 +1693,12 @@ export function buildFusionDelegateTool(
       const attemptLedger = new Map<string, AttemptRecord[]>();
       const noteAttempt = (result: WorkerTaskResult): void => {
         const list = attemptLedger.get(result.id) ?? [];
-        list.push({ attempt: list.length + 1, wrote: result.attempt?.wrote ?? [], alreadyApplied: result.attempt?.alreadyApplied ?? [] });
+        list.push({
+          attempt: list.length + 1,
+          wrote: result.attempt?.wrote ?? [],
+          alreadyApplied: result.attempt?.alreadyApplied ?? [],
+          ...(result.attempt?.executed === undefined ? {} : { executed: result.attempt.executed }),
+        });
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
@@ -1717,7 +1723,9 @@ export function buildFusionDelegateTool(
         if (latest !== undefined && own.length > 0) {
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
         }
-        return renderAttemptEvidence(attempts, current, task.files ?? []);
+        // What the worker's own test runs showed, recorded from the tool results (issue #102).
+        const executed = renderExecutionEvidence(attempts.flatMap((a) => (a.executed ?? []).map((run) => ({ ...run, attempt: a.attempt }))), current);
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), executed].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
