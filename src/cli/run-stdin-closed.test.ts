@@ -48,7 +48,8 @@ function failedMilestoneProject(): ProjectState {
   return up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "failed", summary: "two reviews asked for changes" } as ProjectUpdate);
 }
 
-interface Ran { code: number | null; stdout: string; stderr: string; ms: number }
+/** `ms`: until the pipes closed, which needs every holder of them gone (issue #102), not only `exit`. */
+interface Ran { code: number | null; stdout: string; stderr: string; ms: number; exitMs: number }
 
 function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
   const started = Date.now();
@@ -64,9 +65,13 @@ function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
     child.stdin.end();
     const killer = setTimeout(() => child.kill("SIGKILL"), EXIT_WITHIN_MS);
     child.on("error", reject);
-    child.on("exit", (code) => {
+    let exitMs = -1;
+    child.on("exit", () => { exitMs = Date.now() - started; });
+    // `close` fires once stdout and stderr are closed: a child the CLI left
+    // behind holding them (an inherited handle) keeps them open.
+    child.on("close", (code) => {
       clearTimeout(killer);
-      resolve({ code, stdout, stderr, ms: Date.now() - started });
+      resolve({ code, stdout, stderr, ms: Date.now() - started, exitMs });
     });
   });
 }
@@ -112,6 +117,7 @@ describe("run with stdin closed (issue #100)", () => {
     const id = seedFailedMilestone();
     const ran = await runCli(["--cwd", workingDir, "--session", id, "--auto-approve-project"], env);
     expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
+    expect(ran.exitMs).toBeGreaterThanOrEqual(0);
     expect(ran.code).toBe(3);
     expect(ran.stderr).toContain(`session: ${id}`);
     expect(ran.stderr).toContain(`atomic-agent run --session ${id} --approve`);
@@ -127,6 +133,7 @@ describe("run with stdin closed (issue #100)", () => {
   it("a plain chat with nothing waiting still exits 0", async () => {
     const ran = await runCli(["--cwd", workingDir], env);
     expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
+    expect(ran.exitMs).toBeGreaterThanOrEqual(0);
     expect(ran.code).toBe(0);
   }, 60_000);
 });
