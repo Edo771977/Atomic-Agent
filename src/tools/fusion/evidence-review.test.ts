@@ -184,4 +184,19 @@ describe("the evidence the reviewer receives (issue #104)", () => {
     expect(row.timedOutAfterRun).toBe(true);
     expect(prompt).toContain("verify.run (the task's own check): node --test sales.test.cjs — exit 0");
   });
+
+  it("command, exit, the full TAP, all nine cases, the file versions and a test-to-criterion mapping", async () => {
+    const { prompt, testsSha } = await reviewAfterTimeout();
+    expect(prompt).toContain("node --test sales.test.cjs");
+    expect(prompt).toMatch(/exit 0/);
+    // The full TAP, every line of it.
+    for (const line of TAP.split("\n")) expect(prompt, line).toContain(line);
+    for (const name of NAMES) expect(prompt, name).toContain(`- ok: ${name}`);
+    expect(prompt).toContain(`sales.test.cjs sha256 ${testsSha}`);
+    // Tests against the brief's criteria, as far as names match; the unmatched said plainly.
+    expect(prompt).toContain('"sums revenue per region" <- sums revenue per region');
+    expect(prompt).toContain('"skips blank lines" <- skips blank lines');
+    expect(prompt).toContain('"ignores __proto__ keys safely" <- ignores __proto__ keys');
+    expect(prompt).toContain('"reports a malformed row on stderr" <- no test name matches it');
+  });
 });

@@ -9,6 +9,7 @@ import {
   type DelegateContract,
 } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
+import { parseTestOutput, type ExecutedTest } from "./execution-evidence.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
 import type { VerifyGameSummary } from "../verify/page-game-harness.js";
@@ -55,6 +56,9 @@ export interface ContractCheckResult {
    */
   stderrTail?: string;
   stdoutTail?: string;
+  /** A command check's exit code and the command line it ran (issue #104), as `verify.run` reports them. */
+  exitCode?: number | null;
+  commandLine?: string;
   /** A page check's games (`verify.run` `game`), per game (issue #40). */
   games?: VerifyGameSummary;
   /** A page check's screenshots (`verify.run` `screenshot`), at most four. */
@@ -132,6 +136,49 @@ export interface ContractCheckOutcome {
   screenshotErrors?: readonly string[];
   /** The check's spec asked for a vision judgement of its screenshots. */
   judge?: "vision";
+  /**
+   * A command check's run as the runtime saw it (issue #104), pass or
+   * fail: the command line, the exit code, its output (stdout, then
+   * stderr; at most `CHECK_RUN_OUTPUT_CHARS`, the tail kept) and the
+   * cases the output named. The reviewer reads it; secrets masked.
+   */
+  run?: CheckRunRecord;
+}
+
+/** How much of a command check's output the reviewer gets (issue #104): `verify.run`'s own tail, whole. */
+export const CHECK_RUN_OUTPUT_CHARS = 8_000;
+
+/** A command check's run, kept for the reviewer (`ContractCheckOutcome.run`). */
+export interface CheckRunRecord {
+  command: string;
+  exitCode: number | null;
+  output: string;
+  /** The output was longer than {@link CHECK_RUN_OUTPUT_CHARS}: its head was cut. */
+  clipped?: true;
+  tests: ExecutedTest[];
+  counts?: { pass: number; fail: number; total: number };
+}
+
+function commandLineOf(check: ContractCheck): string {
+  const cmd = typeof check.cmd === "string" ? check.cmd : typeof check.command === "string" ? check.command : "";
+  const args = Array.isArray(check.args) ? check.args.filter((a): a is string => typeof a === "string") : [];
+  return [cmd, ...args].join(" ").trim();
+}
+
+/** The run record of a command check's result; undefined for a result that carries no command output. */
+function checkRunOf(check: ContractCheck, result: ContractCheckResult): CheckRunRecord | undefined {
+  if ((check.kind ?? "command") !== "command") return undefined;
+  if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
+  const text = [result.stdoutTail, result.stderrTail].filter((t): t is string => typeof t === "string" && t.length > 0).join("\n");
+  const clipped = text.length > CHECK_RUN_OUTPUT_CHARS;
+  const output = clipped ? text.slice(-CHECK_RUN_OUTPUT_CHARS) : text;
+  return {
+    command: (result.commandLine ?? commandLineOf(check)).slice(0, 300),
+    exitCode: typeof result.exitCode === "number" ? result.exitCode : null,
+    output,
+    ...(clipped ? { clipped: true as const } : {}),
+    ...parseTestOutput(text),
+  };
 }
 
 /**
@@ -423,6 +470,8 @@ function maskResult(
     ...(error === undefined ? {} : { error }),
     ...(stderrTail === undefined ? {} : { stderrTail }),
     ...(stdoutTail === undefined ? {} : { stdoutTail }),
+    ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+    ...(result.commandLine === undefined ? {} : { commandLine: maskSecrets(result.commandLine, known) }),
     ...(games === undefined ? {} : { games }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
     ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
@@ -521,8 +570,10 @@ export async function runContractChecks(
     const detail = head(headText, CHECK_DETAIL_CHARS);
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
+    const run = checkRunOf(check, result);
     return {
       ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
+      ...(run === undefined ? {} : { run }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

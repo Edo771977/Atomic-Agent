@@ -131,12 +131,13 @@ import {
   renderAcceptanceBlock,
   renderRetryFindings,
   renderReviewIssues,
+  type AcceptanceItem,
   type JudgeFacts,
   type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
-import { renderExecutionEvidence } from "./execution-evidence.js";
+import { renderCheckRunEvidence, renderExecutionEvidence } from "./execution-evidence.js";
 import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
@@ -1702,7 +1703,7 @@ export function buildFusionDelegateTool(
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
-      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string): string => {
+      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = []): string => {
         const attempts = attemptLedger.get(task.id) ?? [];
         // Only paths inside the working dir or the session's read roots are read and named.
         const roots = [workingDir, ...(ctx.readRoots ?? [])];
@@ -1732,7 +1733,15 @@ export function buildFusionDelegateTool(
           current,
           known,
         );
-        return [renderAttemptEvidence(attempts, current, task.files ?? []), executed].filter((part) => part.length > 0).join("\n\n");
+        // The task's own checks as the runtime ran them on these files (issue #104):
+        // command, exit, cases, the output and a test-to-criterion mapping.
+        const criteriaTexts = [...new Set([
+          ...(projectBrief?.successCriteria ?? []),
+          ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
+        ])];
+        const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
+        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known);
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
@@ -1978,7 +1987,7 @@ export function buildFusionDelegateTool(
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
-        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir);
+        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items);
         const judged = await judgeTask({
           ...input,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
