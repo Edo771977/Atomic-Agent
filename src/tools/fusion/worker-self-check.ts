@@ -194,6 +194,11 @@ export class WorkerCheckRuns {
     return checks.some((check) => checkSpecKey(check) === last.key);
   }
 
+  /** The worker's most recent `verify.run` (its spec, canonical) and whether it passed; undefined before any. */
+  lastRunOutcome(): { spec: string; ok: boolean } | undefined {
+    return this.lastRun === undefined ? undefined : { spec: this.lastRun.key, ok: this.lastRun.ok };
+  }
+
   /** Whether `check` passed after the worker's last change. */
   passedSinceLastChange(check: ContractCheck): boolean {
     const at = this.passedAt.get(checkSpecKey(check));

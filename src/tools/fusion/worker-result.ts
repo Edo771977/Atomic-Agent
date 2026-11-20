@@ -125,6 +125,9 @@ export interface WorkerToolStats {
 }
 
 /** The calls that change a file. Shell commands can too, but the disk check catches those. */
+export type { StalledWrite } from "./worker-repeated-writes.js";
+import type { StalledWrite } from "./worker-repeated-writes.js";
+
 export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set([
   "os.fs.write",
   "os.fs.edit",
@@ -290,6 +293,12 @@ export interface WorkerTaskResult {
    * stuck and stopped it; handed to the director the same way.
    */
   failure?: "review-exhausted" | "stuck";
+  /**
+   * Set with `failure: "stuck"` when the runner stopped a worker that kept
+   * writing the same bytes to a file (issue #95, `worker-repeated-writes.ts`):
+   * the file, its SHA-256, how many identical writes, and the last check.
+   */
+  stalled?: StalledWrite;
   /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
