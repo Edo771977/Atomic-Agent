@@ -83,6 +83,13 @@ export {
  * True for a verdict of the guard's dangerous layer (`dangerous.*` in
  * `rules-dangerous.ts`): the command asks as `shell_dangerous`.
  */
+/**
+ * Issue #95: a one-string `cmd` of plain words separated by single
+ * spaces, nothing else (no quotes, `$`, `%`, `^`, `!`, globs or
+ * operators): what a shell runs for it is its split on spaces.
+ */
+const PLAIN_LINE_RE = /^[A-Za-z0-9_./:=@+,-]+( [A-Za-z0-9_./:=@+,-]+)*$/;
+
 export function isDangerousGuardRule(rule: string): boolean {
   return rule.startsWith("dangerous.");
 }
@@ -348,8 +355,13 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           ...(commandArgv !== undefined ? { commandArgv } : {}),
           commandSegments,
           ...(commandUnreadable ? { commandUnreadable } : {}),
-          // Issue #95: no shell and no glob expanded, so argv is all that runs.
-          ...(!useShell && execArgs.length === rawArgList.length && execArgs.every((arg, i) => arg === rawArgList[i])
+          // Issue #95: argv is all that runs: a direct exec with no glob
+          // expanded, or a one-string line of plain words (`PLAIN_LINE_RE`)
+          // whose split on spaces is that argv. A host may pin it then.
+          ...(commandArgv !== undefined &&
+          (useShell
+            ? rawArgList.length === 0 && PLAIN_LINE_RE.test(cmd) && commandArgv.join(" ") === cmd
+            : execArgs.length === rawArgList.length && execArgs.every((arg, i) => arg === rawArgList[i]))
             ? { literalExec: true as const }
             : {}),
           workdir: ctx.workingDir,

@@ -261,6 +261,24 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
     });
 
+    it("approves the common one-string form {cmd: \"node mark.cjs\"} and runs it directly", async () => {
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node mark.cjs" } }];
+      feed(["run the marker\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).toContain("approved by --allow-command: node mark.cjs");
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
+    });
+
+    it("still holds a one-string form with a doubled space or a character outside the plain set", async () => {
+      for (const cmd of ["node  mark.cjs", "node mark.cjs\t", "node 'mark.cjs'"]) {
+        script.calls = [{ tool: "os.shell.run", args: { cmd } }];
+        feed(["run it\n"]);
+        await runAgentCommand(["--cwd", workingDir, ...allow]);
+      }
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+    });
+
     it("refuses a value that is not one simple command (exit 2)", async () => {
       feed([]);
       expect(await runAgentCommand(["--cwd", workingDir, "--allow-command", "node a.cjs && rm -rf x"])).toBe(2);
