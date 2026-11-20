@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runChecks, runVerify } from "./run-verify.js";
 import { runCommandKind } from "./run-command-kind.js";
@@ -71,21 +73,23 @@ describe("verifyPlainCommand on the approval request (issue #95)", () => {
 describe("a host's pinned exec on a verify.run check (issue #95)", () => {
   it("replaces the approved spec's program with the pinned file, and only for a plain check whose argv it equals", async () => {
     const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const real = realpathSync(mkdtempSync(join(tmpdir(), "aa-verify-pin-")));
     const run = async (spec: Record<string, unknown>, argv: string[]) => {
-      const approvals = { request: async () => ({ approvalId: "x", approved: true, pinnedExec: { file: process.execPath, argv, cwd: workingDir, path: "/usr/bin" } }) };
-      return (await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal } as never))[0]!;
+      const approvals = { request: async () => ({ approvalId: "x", approved: true, pinnedExec: { file: process.execPath, argv, cwd: real, path: "/usr/bin" } }) };
+      return (await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir: real, stepIndex: 0, signal: new AbortController().signal } as never))[0]!;
     };
     expect(await run({ kind: "command", cmd: "node", args: ["--test"] }, ["node", "--test"])).toMatchObject({ cmd: process.execPath, args: ["--test"], env: { PATH: "/usr/bin" } });
-    expect(await run({ kind: "command", cmd: "node", args: ["--test"] }, ["node", "--other"])).toMatchObject({ cmd: "node", args: ["--test"] });
-    expect(await run({ kind: "command", cmd: "node", args: ["--test"], env: { A: "1" } }, ["node", "--test"])).toMatchObject({ cmd: "node" });
+    // A pin for other words, or for a check that is not plain, refuses rather than running unpinned.
+    await expect(run({ kind: "command", cmd: "node", args: ["--test"] }, ["node", "--other"])).rejects.toThrow(/does not cover this call/);
+    await expect(run({ kind: "command", cmd: "node", args: ["--test"], env: { A: "1" } }, ["node", "--test"])).rejects.toThrow(/does not cover this call/);
   });
 });
 
 describe("a pinned verify.run check run in a private copy (issue #95)", () => {
   it("keeps the spec's own copy-relative args and swaps only the program", async () => {
     const { authorizeVerifyBatch } = await import("./verify-authorization.js");
-    const project = resolve("verification-project-fixture");
-    const copy = resolve("verification-private-copy-fixture");
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "aa-verify-project-")));
+    const copy = realpathSync(mkdtempSync(join(tmpdir(), "aa-verify-copy-")));
     const seen: Record<string, unknown>[] = [];
     const approvals = {
       request: async (req: Record<string, unknown>) => {

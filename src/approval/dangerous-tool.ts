@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
 import type { ApprovalGate, PinnedExec, RuleCheck } from "./approval-gate.js";
@@ -242,15 +243,27 @@ export async function requireApproval(
 
 /**
  * A host's pin is honoured only for a call that can be run as a bare
- * argv (`literalExec`, `verifyPlainCommand`) and only when its argv is
- * the call's own, word for word; anything else is dropped and the tool
- * runs as it would have.
+ * argv (`literalExec`, `verifyPlainCommand`), when its argv is the
+ * call's own word for word and its folder is the call's own real folder
+ * (issue #95). A pin that fits none of that means the host approved
+ * something else: the call is refused, not run unpinned or elsewhere.
  */
 function pinnedExecFor(prompt: ApprovalPrompt, pinned: PinnedExec | undefined): PinnedExec | undefined {
   if (pinned === undefined) return undefined;
-  if (prompt.literalExec !== true && prompt.verifyPlainCommand !== true) return undefined;
+  const refuse = (why: string): never => {
+    throw new ApprovalDeniedError(prompt.tool, `the approval pinned ${why}, so it does not cover this call`, { byUser: false });
+  };
+  if (prompt.literalExec !== true && prompt.verifyPlainCommand !== true) refuse("a program for a call that cannot run as a bare argv");
   const argv = prompt.commandArgv;
-  if (argv === undefined || argv.length !== pinned.argv.length || !argv.every((word, i) => word === pinned.argv[i])) return undefined;
-  if (!isAbsolute(pinned.file) || !isAbsolute(pinned.cwd)) return undefined;
+  if (argv === undefined || argv.length !== pinned.argv.length || !argv.every((word, i) => word === pinned.argv[i])) refuse("other words");
+  if (!isAbsolute(pinned.file) || !isAbsolute(pinned.cwd)) refuse("a relative path");
+  const folder = prompt.affectedResources?.[0];
+  let realFolder: string | null = null;
+  try {
+    realFolder = folder === undefined ? null : realpathSync.native(folder);
+  } catch {
+    realFolder = null;
+  }
+  if (realFolder !== pinned.cwd) refuse("another folder");
   return { file: pinned.file, argv: [...pinned.argv], cwd: pinned.cwd, path: pinned.path };
 }

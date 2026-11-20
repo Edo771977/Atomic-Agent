@@ -35,9 +35,18 @@ describe("os.shell.run with a pinned exec", () => {
     expect(existsSync(join(dir, "ran.txt"))).toBe(true);
   });
 
+  it("refuses a pin for another folder instead of running it there or unpinned", async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "aa-pinned-other-")));
+    decide = (request) => ({ approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv!, cwd: other, path: "/usr/bin" } });
+    await expect(shell({ cmd: "node", args: ["mark.cjs", "d"] })).rejects.toThrow(/not run/);
+    expect(existsSync(join(dir, "ran.txt"))).toBe(false);
+    expect(existsSync(join(other, "ran.txt"))).toBe(false);
+    rmSync(other, { recursive: true, force: true });
+  });
+
   it("ignores a pin whose argv is not the call's, and one sent as a tool argument", async () => {
     decide = () => ({ approved: true, pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir, path: "/usr/bin" } });
-    await shell({ cmd: "node", args: ["mark.cjs", "b"] });
+    await expect(shell({ cmd: "node", args: ["mark.cjs", "b"] })).rejects.toThrow(/not run/);
     expect(existsSync(join(dir, "pwned.txt"))).toBe(false);
     decide = () => ({ approved: true });
     await shell({ cmd: "node", args: ["mark.cjs", "c"], pinnedExec: { file: "/bin/sh", argv: ["sh", "-c", `touch ${join(dir, "pwned.txt")}`], cwd: dir, path: "/usr/bin" } });
