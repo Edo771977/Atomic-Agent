@@ -114,6 +114,35 @@ describe("only consecutive identical writes with no other progress count (issue 
   });
 });
 
+describe("repeats are not evaded by alternating bytes or spelling the path differently (issue #95 review)", () => {
+  it("alternating between two versions with no other progress is a stall", async () => {
+    let writes = 0;
+    const run = await runScript((hook, aborted) => {
+      for (let i = 0; i < 12; i += 1) {
+        if (aborted()) return "stopped";
+        step(hook, "os.fs.write", { path: "a.test.js", content: i % 2 === 0 ? "A" : "B" });
+        writes += 1;
+      }
+    });
+    expect(run.stopped).toBe(true);
+    // Two new versions, then REPEATED_WRITE_LIMIT writes of versions already seen.
+    expect(writes).toBe(2 + REPEATED_WRITE_LIMIT);
+    expect(run.result.stalled).toMatchObject({ path: "a.test.js" });
+  });
+
+  it("the same file under different spellings is one path", async () => {
+    const spellings = ["a.test.js", "./a.test.js", `${REPO}/a.test.js`, "sub/../a.test.js"];
+    const run = await runScript((hook, aborted) => {
+      for (let i = 0; i < 8; i += 1) {
+        if (aborted()) return "stopped";
+        step(hook, "os.fs.write", { path: spellings[i % spellings.length], content: "X" });
+      }
+    });
+    expect(run.stopped).toBe(true);
+    expect(run.result.stalled).toMatchObject({ path: "a.test.js", writes: 1 + REPEATED_WRITE_LIMIT });
+  });
+});
+
 describe("a stalled worker's last check is reported as it stands (issue #95 review)", () => {
   it("a check that passed before the file changed is not run since the last change; one after it names whether it covered the file", async () => {
     const before = await runScript((hook, aborted) => {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { FILE_WRITING_TOOLS } from "./worker-result.js";
 
@@ -10,15 +11,22 @@ import { FILE_WRITING_TOOLS } from "./worker-result.js";
  * task ran on to its ten-minute limit.
  *
  * An identical rewrite is itself the no-progress signal: the file did
- * not change. After {@link REPEATED_WRITE_LIMIT} consecutive identical
- * rewrites of one path (the same path, the same SHA-256 of the content,
- * each call `ok`, with no other progress in between: see
- * {@link RepeatedWritesTracker}) the runner stops the worker the way the watch does (`failure:
+ * not change. After {@link REPEATED_WRITE_LIMIT} consecutive rewrites of
+ * one path that each produce a version already written in the same run
+ * (the same SHA-256 of the content as one of the last
+ * {@link REPEATED_WRITE_RECENT_HASHES}, each call `ok`, with no other
+ * progress in between: see {@link RepeatedWritesTracker}; the path is
+ * resolved under the working dir, so `./a`, `/repo/a` and `a` are one)
+ * the runner stops the worker the way the watch does (`failure:
  * "stuck"`) and hands the director the file, its hash and the worker's
  * last check (`WorkerTaskResult.stalled`), so it can verify the file or
- * reassign the task.
+ * reassign the task. Out of scope: writes through the shell, and
+ * content that differs only by a timestamp, are not seen as repeats.
  */
 export const REPEATED_WRITE_LIMIT = 3;
+
+/** Versions of a path remembered within a run of writes: alternating between them is no progress. */
+export const REPEATED_WRITE_RECENT_HASHES = 4;
 
 /** Why and on what a worker was stopped for repeating itself. */
 export interface StalledWrite {
@@ -53,13 +61,29 @@ export class RepeatedWritesTracker {
   private readonly pending = new Map<number, Pending>();
   /** The last bytes written to each path, for `identical`. */
   private readonly lastHash = new Map<string, string>();
-  /** The current run of writes since the last progress. */
-  private streak: { path: string; sha256: string; writes: number } | undefined;
+  /**
+   * The current run of writes to one path since the last progress: the
+   * versions it wrote (newest last, at most {@link REPEATED_WRITE_RECENT_HASHES}),
+   * how many writes, and how many in a row produced a version already seen.
+   */
+  private streak: { path: string; recent: string[]; writes: number; repeats: number } | undefined;
 
-  constructor(private readonly readOnlyTools: ReadonlySet<string> = new Set()) {}
+  constructor(
+    private readonly readOnlyTools: ReadonlySet<string> = new Set(),
+    private readonly workingDir?: string,
+  ) {}
+
+  /** A path as one key whatever its spelling: resolved under the working dir, relative to it when inside. */
+  private key(path: string): string {
+    const trimmed = path.trim();
+    if (this.workingDir === undefined) return normalise(trimmed);
+    const full = resolve(this.workingDir, trimmed);
+    const rel = relative(this.workingDir, full);
+    return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel) ? rel.split(sep).join("/") : full;
+  }
 
   observeParsed(call: { tool: string; args: Record<string, unknown> }, batchIndex: number): void {
-    const path = typeof call.args.path === "string" && call.args.path.trim().length > 0 ? normalise(call.args.path) : null;
+    const path = typeof call.args.path === "string" && call.args.path.trim().length > 0 ? this.key(call.args.path) : null;
     if (call.tool === "os.fs.write" && path !== null && typeof call.args.content === "string") {
       this.pending.set(batchIndex, { kind: "write", path, sha256: createHash("sha256").update(call.args.content).digest("hex") });
       return;
@@ -96,13 +120,15 @@ export class RepeatedWritesTracker {
     }
     const identical = this.lastHash.get(pending.path) === pending.sha256;
     this.lastHash.set(pending.path, pending.sha256);
-    const streak = this.streak;
-    this.streak =
-      streak !== undefined && streak.path === pending.path && streak.sha256 === pending.sha256
-        ? { ...streak, writes: streak.writes + 1 }
-        : { path: pending.path, sha256: pending.sha256, writes: 1 };
-    const writes = this.streak.writes;
-    return writes - 1 >= REPEATED_WRITE_LIMIT ? { identical, repeat: { path: pending.path, sha256: pending.sha256, writes } } : { identical };
+    const streak = this.streak !== undefined && this.streak.path === pending.path ? this.streak : undefined;
+    // A version this run of writes already produced is no progress; a new one restarts the count.
+    const seen = streak?.recent.includes(pending.sha256) === true;
+    const recent = [...(streak?.recent ?? []).filter((h) => h !== pending.sha256), pending.sha256].slice(-REPEATED_WRITE_RECENT_HASHES);
+    const next = { path: pending.path, recent, writes: (streak?.writes ?? 0) + 1, repeats: seen ? streak!.repeats + 1 : 0 };
+    this.streak = next;
+    return next.repeats >= REPEATED_WRITE_LIMIT
+      ? { identical, repeat: { path: pending.path, sha256: pending.sha256, writes: next.writes } }
+      : { identical };
   }
 }
 

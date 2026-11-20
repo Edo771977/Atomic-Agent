@@ -1556,7 +1556,7 @@ async function runOneTask(
   const stopByWatch = new AbortController();
   // Identical rewrites of one file (issue #95): the same stop, with the
   // file, its hash and the last check for the director.
-  const repeatedWrites = new RepeatedWritesTracker(READ_ONLY_TOOLS);
+  const repeatedWrites = new RepeatedWritesTracker(READ_ONLY_TOOLS, workingDir);
   // This attempt's file evidence for the reviewer (issue #95).
   const attemptFiles = new AttemptFilesTracker(workingDir);
   let stalledWrite: StalledWrite | undefined;
