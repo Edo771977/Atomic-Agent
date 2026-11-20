@@ -6,6 +6,8 @@ import type { FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import type { TurnOrigin } from "../../runtime/turn-controller.js";
 import type { DelegateTask } from "./delegate-args.js";
 import type { TaskPermit } from "./task-permits.js";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import type { DelegateContract } from "./contract.js";
 import {
   readWorkerQuestion,
@@ -492,6 +494,94 @@ export function detectStall(
     }
   }
   return reasons.length === 0 ? undefined : reasons.join(" / ");
+}
+
+/** At most this many bytes of a declared file are kept as a verify-only task's verified version. */
+const VERIFIED_FILE_MAX_BYTES = 2 * 1024 * 1024;
+
+type OwnCheckRunner = WorkerRunnerDeps["runChecks"];
+
+/** The task's own contract checks as `verify.run` specs (without `task`). */
+function ownCheckSpecs(task: DelegateTask, contract: DelegateContract | undefined): Record<string, unknown>[] {
+  return ownChecks(contract, task.id).map((check) => {
+    const { task: _task, ...spec } = check as unknown as Record<string, unknown>;
+    return spec;
+  });
+}
+
+async function ownChecksPass(
+  task: DelegateTask,
+  contract: DelegateContract | undefined,
+  workingDir: string,
+  runChecks: NonNullable<OwnCheckRunner>,
+  signal: AbortSignal,
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const out = await runChecks(ownCheckSpecs(task, contract), { workingDir, signal });
+    const failed = out.results.find((r) => !r.ok);
+    return { ok: out.ok && failed === undefined, detail: (failed?.summary ?? failed?.error ?? "").toString().slice(0, 160) };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160) };
+  }
+}
+
+/**
+ * A verify-only task's verified version (issue #100): its declared files'
+ * bytes, taken only when the task's own checks pass on them as the worker
+ * starts. Undefined for any other task, or with nothing to check against.
+ */
+async function verifiedSnapshot(
+  task: DelegateTask,
+  contract: DelegateContract | undefined,
+  workingDir: string,
+  runChecks: OwnCheckRunner,
+  signal: AbortSignal,
+): Promise<Map<string, Buffer> | undefined> {
+  if (task.verifyOnly !== true || runChecks === undefined || (task.files ?? []).length === 0) return undefined;
+  if (ownChecks(contract, task.id).length === 0) return undefined;
+  const files = new Map<string, Buffer>();
+  for (const path of task.files ?? []) {
+    try {
+      const full = resolvePath(workingDir, path);
+      if (statSync(full).size > VERIFIED_FILE_MAX_BYTES) continue;
+      files.set(path, readFileSync(full));
+    } catch {
+      // Not there yet: nothing verified to keep.
+    }
+  }
+  if (files.size === 0) return undefined;
+  const baseline = await ownChecksPass(task, contract, workingDir, runChecks, signal);
+  return baseline.ok ? files : undefined;
+}
+
+/** Puts the verified version back when the changed files fail the task's own checks; the row's note, or undefined. */
+async function restoreFailedChanges(
+  verified: ReadonlyMap<string, Buffer>,
+  task: DelegateTask,
+  contract: DelegateContract | undefined,
+  workingDir: string,
+  runChecks: OwnCheckRunner,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  if (runChecks === undefined) return undefined;
+  const changed = [...verified].filter(([path, bytes]) => {
+    try {
+      return !readFileSync(resolvePath(workingDir, path)).equals(bytes);
+    } catch {
+      return true;
+    }
+  });
+  if (changed.length === 0) return undefined;
+  const now = await ownChecksPass(task, contract, workingDir, runChecks, AbortSignal.any([signal]));
+  if (now.ok) return undefined;
+  for (const [path, bytes] of changed) {
+    try {
+      writeFileSync(resolvePath(workingDir, path), bytes);
+    } catch {
+      // Left as the worker wrote it; the checks still say it fails.
+    }
+  }
+  return `verify-only: restored the verified ${changed.map(([path]) => path).join(", ")}: the changed version failed the task's own checks${now.detail.length === 0 ? "" : ` (${now.detail})`}`;
 }
 
 /** The forced summary a handed-back task replies with. */
@@ -1932,6 +2022,9 @@ async function runOneTask(
       ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
     });
   };
+  // A verify-only task (issue #100): its declared files, when the task's
+  // own checks pass on them now, are the verified version to keep.
+  const verified = await verifiedSnapshot(task, options.contract, workingDir, deps.runChecks, options.signal);
   let result: WorkerTaskResult;
   try {
     const workerTurnOptions = (
@@ -2665,6 +2758,13 @@ async function runOneTask(
       hint: result.hint ?? cut.hint,
       notes: [cut.note, ...(result.notes ?? [])],
     };
+  }
+
+  // A verify-only task's changed files are checked again against its own
+  // checks; the verified version is put back when the new one fails.
+  if (verified !== undefined) {
+    const restored = await restoreFailedChanges(verified, task, options.contract, workingDir, deps.runChecks, options.signal);
+    if (restored !== undefined) result = { ...result, notes: [...(result.notes ?? []), restored] };
   }
 
   // Ground truth before the orchestrator reads the reply: a worker that

@@ -949,6 +949,9 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
               // #43); 0 is off. The parser clamps to 1..60, so no upper
               // bound here, like the budgets above.
               watchMinutes: { type: "integer", minimum: 0 },
+              // Issue #100: a task delegated only to check its files; a
+              // changed file that fails the task's own checks is restored.
+              verifyOnly: { type: "boolean" },
               // The planner's output-size estimate (ATO-1363), checked
               // against the worker's time limit (`worker-fit.ts`).
               outputTokens: { type: "integer", minimum: 1, maximum: 1_000_000 },

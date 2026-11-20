@@ -141,6 +141,13 @@ export interface DelegateTask {
    */
   watchMinutes?: number;
   /**
+   * The task is delegated to verify its files, not to change them (issue
+   * #100): files whose own checks pass when the worker starts are the
+   * verified version; one the worker changed is checked again, and
+   * restored when the new version fails the task's own checks.
+   */
+  verifyOnly?: true;
+  /**
    * The kind of work this is (ATO-943). With `llm.runMode.fusion.roles`
    * set, the task runs on that role's model; without one for the role,
    * on the worker leg.
@@ -801,6 +808,7 @@ export function parseDelegateArgs(
       ...(maxSteps === null ? {} : { maxSteps }),
       ...(taskTimeoutMs === null ? {} : { timeoutMs: taskTimeoutMs }),
       ...(watchMinutes === null ? {} : { watchMinutes }),
+      ...(entry.verifyOnly === true ? { verifyOnly: true as const } : {}),
       ...(role === null ? {} : { role }),
       ...(model === null ? {} : { model }),
       ...(profile === null ? {} : { profile }),
