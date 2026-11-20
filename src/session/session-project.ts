@@ -150,6 +150,12 @@ export interface ProjectMilestone {
    */
   reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[] };
   /**
+   * How many times `project.milestone failed` was held back for a
+   * correction round (issue #100); at most two, after which a failed
+   * report is accepted.
+   */
+  failedRefusals?: number;
+  /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
    * the milestone's work ({@link milestoneWorkChanged}) moves its state's
@@ -423,6 +429,13 @@ export type ProjectUpdate =
       criteriaFacts?: ReadonlyArray<ProjectCriterionFact>;
       /** The runtime's review blocks (issue #98): set by `project.milestone`, cleaned when folded; absent clears them. */
       reviewBlocks?: ReadonlyArray<ProjectReviewBlock>;
+      /**
+       * Set by `project.milestone` (never the model's arguments) when it
+       * holds a failed report back for a correction round (issue #100):
+       * nothing is reported, the milestone stays in progress, and only its
+       * `failedRefusals` count goes up.
+       */
+      holdForCorrection?: true;
     }
   | { kind: "milestone_run"; id: string; runId: string };
 
@@ -983,6 +996,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
     ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
+    ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
     updatedAt: raw.updatedAt,
   };
@@ -1675,6 +1689,11 @@ function milestoneUpdate(
     return { ok: false, error: { code: "unknown-milestone", message: `The plan has no milestone ${update.id}.` } };
   }
   const current = project.milestones[index]!;
+  if (update.kind === "milestone" && update.holdForCorrection === true) {
+    const held = [...project.milestones];
+    held[index] = { ...current, failedRefusals: (current.failedRefusals ?? 0) + 1, updatedAt: now };
+    return { ok: true, project: { ...project, milestones: held } };
+  }
   const milestones = [...project.milestones];
   if (update.kind === "milestone_run") {
     if (current.state !== "approved" && current.state !== "in_progress") {

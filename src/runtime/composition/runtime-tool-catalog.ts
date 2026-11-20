@@ -1249,6 +1249,16 @@ export function registerRuntimeFusionAndReadScope(input: {
   // `project.plan` assigns and estimates from the same live team, policy
   // and outcome history the fan-out routes by.
   for (const tool of buildProjectTools({
+    // Issue #100: a correction round needs budget left on the turn's caps.
+    correctionBudgetLeft: (sessionId) => {
+      if (turnBudget === undefined) return true;
+      const mode = resolveCurrentRunMode();
+      const limits = {
+        ...(mode.turnBudgetUsd === undefined ? {} : { usd: mode.turnBudgetUsd }),
+        ...(mode.turnTimeBudgetMs === undefined ? {} : { timeMs: mode.turnTimeBudgetMs }),
+      };
+      return turnBudget.check(sessionId, limits) === undefined;
+    },
     planContext: () => {
       const mode = resolveCurrentRunMode();
       return liveProjectInputsFrom({

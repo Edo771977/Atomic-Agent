@@ -72,6 +72,21 @@ export async function settleProjectGate(
   }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
   const outcome = runtime.projectDecision(sessionId, decision);
+  if (!outcome.ok && outcome.error.code === "review-open") {
+    // Issue #100: a review still blocks the result. Approving over it is a
+    // person's call, so a run stops here and says how to resume (exit 3),
+    // not as a failure.
+    return {
+      kind: "stop",
+      text: [
+        `A review still blocks this milestone: this needs a person, so it is not approved automatically. ${outcome.error.message}`,
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        `Continue with: atomic-agent run --session ${sessionId}`,
+        "and ask the director to fix what the review asked for, or decide over the review yourself.",
+      ].join("\n"),
+    };
+  }
   if (!outcome.ok) {
     const why = outcome.error.code === "turn-running"
       ? `another turn is running on session ${sessionId}; approve again when it finishes`

@@ -55,7 +55,13 @@ const LIST_CAP = 50;
 const ERROR_FEED_CAP = 10_000;
 /** One page or console error a game keeps, at most this long. */
 const ERROR_FEED_ENTRY_CHARS = GAME_ERROR_CHARS;
-const STEP_TIMEOUT_MS = 5_000;
+/**
+ * How long a click or type step waits for its control to become actionable.
+ * 5 s was too short on a slow machine (the Windows CI runner failed a good
+ * page with "page.click: Timeout 5000ms exceeded"); the run's own timeoutMs
+ * still bounds the whole check.
+ */
+const STEP_TIMEOUT_MS = 15_000;
 const LOAD_TIMEOUT_MS = 30_000;
 
 /** The host's browser first, then a Playwright-managed one; else a clear error. */
