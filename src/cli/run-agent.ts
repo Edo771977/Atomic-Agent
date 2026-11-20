@@ -227,6 +227,12 @@ export function parseRunArgs(
 
 interface CliApprovalAnswer {
   approved: boolean;
+  /**
+   * Issue #95: nobody could be asked (stdin ended, or a non-interactive
+   * stdin's next line was a message, not an answer). Resolved as an
+   * `automatic` denial, so the model is never told the user declined.
+   */
+  unavailable?: true;
   grant?: ApprovalGrantScope;
   /** The answer to an `ask_user` question (`cli-user-question.ts`). */
   answer?: UserQuestionAnswer;
@@ -304,13 +310,17 @@ export function isApprovalAnswer(line: string): boolean {
  * reads (ATO-802), so a piped "y" written together with the next
  * message answers this prompt and the message stays queued for the
  * next turn. Only a line shaped like an answer (`isApprovalAnswer`) is
- * taken: any other line is a refusal and stays queued as the next
- * message, so a driver that pipes "task\ncontinue" without answering
- * loses nothing to the prompt. EOF before an answer is a refusal.
+ * taken: any other line stays queued as the next message, so a driver
+ * that pipes "task\ncontinue" without answering loses nothing to the
+ * prompt. EOF before an answer, or (when stdin is not a terminal) a
+ * line that is not an answer, means nobody could be asked: the call is
+ * refused as `unavailable`, never as the user's decision (issue #95). A
+ * non-answer typed at a terminal stays a refusal, as before.
  */
 async function promptApproval(
   request: ApprovalRequest,
   lines: StdinLineQueue,
+  interactive: boolean,
 ): Promise<CliApprovalAnswer> {
   const grantCategory = canGrantCategory(request);
   const grantShape = canGrantShape(request);
@@ -319,8 +329,17 @@ async function promptApproval(
     return promptCliQuestion(request.question, lines, (text) => process.stderr.write(text));
   }
   const head = await lines.peek();
-  if (head === null) return { approved: false };
+  if (head === null) {
+    process.stderr.write(`\n  ${APPROVAL_UNAVAILABLE}: stdin ended before an answer; not run\n`);
+    return { approved: false, unavailable: true };
+  }
   if (!isApprovalAnswer(head)) {
+    if (!interactive) {
+      process.stderr.write(
+        `\n  ${APPROVAL_UNAVAILABLE}: the next input line is not an answer, kept as the next message; not run\n`,
+      );
+      return { approved: false, unavailable: true };
+    }
     process.stderr.write(
       "\n  denied: the next input line is not an answer, kept as the next message\n",
     );
@@ -348,6 +367,14 @@ async function promptApproval(
   }
   return { approved: /^(y|yes)$/.test(answer) };
 }
+
+/** Issue #95: what an approval nobody could be asked is called, on stderr and to the model. */
+export const APPROVAL_UNAVAILABLE = "approval unavailable (non-interactive run)";
+
+/** The denial reason the model reads for an unavailable approval: nobody declined. */
+const APPROVAL_UNAVAILABLE_REASON =
+  `${APPROVAL_UNAVAILABLE}: no answer could be read from stdin, so nobody was asked and nobody declined it. ` +
+  "Report it as not run for that reason, not as refused by the user";
 
 /** Transport failures that mean "nothing answered at the configured URL". */
 const TRANSPORT_NO_ANSWER =
@@ -758,21 +785,23 @@ export async function runAgentCommand(args: string[]): Promise<number> {
             try {
               answer =
                 stdinLines === null
-                  ? { approved: false }
-                  : await promptApproval(request, stdinLines);
+                  ? { approved: false, unavailable: true }
+                  : await promptApproval(request, stdinLines, process.stdin.isTTY === true);
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               process.stderr.write(
                 `\n  approval prompt failed (${msg}); denied\n`,
               );
-              answer = { approved: false };
+              answer = { approved: false, unavailable: true };
             }
             runtime.approvals.resolve({
               approvalId: request.approvalId,
               approved: answer.approved,
-              // No reason on a deny: it would reach the model as the
-              // user's own words (see `ApprovalDecision.reason`).
+              // No reason on a person's deny: it would reach the model as
+              // the user's own words (see `ApprovalDecision.reason`). An
+              // unavailable approval is the system's, and says so.
               ...(answer.approved ? { reason: "cli-approved" } : {}),
+              ...(answer.unavailable ? { automatic: true, reason: APPROVAL_UNAVAILABLE_REASON } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
               ...(answer.answer ? { answer: answer.answer } : {}),
             });
