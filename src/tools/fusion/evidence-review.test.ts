@@ -98,7 +98,15 @@ export const TAP = [
 ].join("\n");
 export const CRITERIA = ["sums revenue per region", "skips blank lines", "ignores __proto__ keys safely", "reports a malformed row on stderr"];
 export const PROGRAM = "module.exports = (text) => text.split('\\n').filter((l) => l.trim() !== '');\n";
-export const SUITE = "require('node:test')('sums revenue per region', () => {});\n";
+/** The worker's suite: real tests over sales.cjs (the gate is stubbed here; the names match the TAP). */
+export const SUITE = [
+  "const test = require('node:test');",
+  "const assert = require('node:assert');",
+  "const parse = require('./sales.cjs');",
+  "test('skips blank lines', () => assert.deepStrictEqual(parse('a\\n\\nb'), ['a', 'b']));",
+  "test('skips whitespace-only lines', () => assert.deepStrictEqual(parse('a\\n  \\nb'), ['a', 'b']));",
+  "",
+].join("\n");
 /** The task's own check, as the contract states it; the worker spells the same command as one string. */
 export const CONTRACT_CHECK = { kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] };
 export const WORKER_SPEC = { kind: "command", cmd: "node --test sales.test.cjs" };
@@ -198,10 +206,11 @@ describe("the evidence the reviewer receives (issue #104)", () => {
     for (const name of NAMES) expect(prompt, name).toContain(`- ok: ${name}`);
     expect(prompt).toContain(`sales.test.cjs sha256 ${testsSha}`);
     // Tests against the brief's criteria, as far as names match; the unmatched said plainly.
-    expect(prompt).toContain('"sums revenue per region" <- sums revenue per region');
-    expect(prompt).toContain('"skips blank lines" <- skips blank lines');
-    expect(prompt).toContain('"ignores __proto__ keys safely" <- ignores __proto__ keys');
-    expect(prompt).toContain('"reports a malformed row on stderr" <- no test name matches it');
+    expect(prompt).toContain("Tests against the criteria (a name-similarity hint, not evidence):");
+    expect(prompt).toContain('"sums revenue per region" <- ok: sums revenue per region');
+    expect(prompt).toContain('"skips blank lines" <- ok: skips blank lines');
+    expect(prompt).toContain('"ignores __proto__ keys safely" <- ok: ignores __proto__ keys');
+    expect(prompt).toContain('"reports a malformed row on stderr" <- no passing test name matches it');
   });
 });
 
