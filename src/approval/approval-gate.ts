@@ -136,9 +136,11 @@ export interface ApprovalRequest {
   targetPaths?: string[];
   /**
    * Set by `verify.run` (and the contract checks that use it) on a
-   * `command` check that runs exactly one command, with no `env` and no
-   * `stdin`: the only verification `run --allow-command` may pre-approve
-   * (issue #95), since anything else runs more than the command's words.
+   * `command` check that runs exactly one command directly (no shell),
+   * writes no file it names, and has no `env` and no `stdin` (undefined
+   * or empty; a data stdin counts too): the only verification
+   * `run --allow-command` may pre-approve (issue #95), since anything
+   * else runs more than the command's words.
    */
   verifyPlainCommand?: true;
   /**

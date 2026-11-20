@@ -57,10 +57,14 @@ describe("verifyPlainCommand on the approval request (issue #95)", () => {
     await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal } as never);
     return seen[0]!;
   };
-  it("marks one command with no env and no stdin, and nothing else", async () => {
+  it("marks one direct command with no env and no (or an empty) stdin, and nothing else", async () => {
     expect((await ask({ kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] })).verifyPlainCommand).toBe(true);
     expect((await ask({ kind: "command", cmd: "node", args: ["--test"], env: { NODE_OPTIONS: "--require ./x.cjs" } })).verifyPlainCommand).toBeUndefined();
     expect((await ask({ kind: "command", cmd: "node", args: ["-"], stdin: "console.log(1)" })).verifyPlainCommand).toBeUndefined();
+    // Any stdin at all, not only a script: what it feeds the command is not in its words.
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], stdin: "plain data, not a script" })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "sort", args: ["-r"], stdin: "b\\na" })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], stdin: "" })).verifyPlainCommand).toBe(true);
   });
 });
 

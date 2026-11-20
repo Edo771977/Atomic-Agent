@@ -174,10 +174,12 @@ export async function authorizeVerifyBatch(
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
-      // Issue #95: one direct exec (no shell reads it) with nothing beside
-      // it and no file it would write, so its argv is all that runs.
+      // Issue #95: one direct exec (no shell reads it) with no env, no
+      // stdin at all (script or data: either is input its words do not
+      // show) and no file it would write, so its argv is all that runs.
       ...(logical.kind === "command" && first !== undefined && !needsShellInterpretation(first.cmd, first.args) &&
-        targetPaths.length === 0 && Object.keys(logical.env ?? {}).length === 0
+        targetPaths.length === 0 && Object.keys(logical.env ?? {}).length === 0 &&
+        (logical.stdin === undefined || logical.stdin === "")
         ? { verifyPlainCommand: true as const } : {}),
     };
     return [{ prompt, logical, cwd, spec }];
