@@ -287,6 +287,14 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
     });
 
+    it("holds the listed command started in the background", async () => {
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"], background: true } }];
+      feed(["start it\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(stderr).not.toContain("approved by --allow-command");
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+    });
+
     it("refuses a value that is not one simple command (exit 2)", async () => {
       feed([]);
       expect(await runAgentCommand(["--cwd", workingDir, "--allow-command", "node a.cjs && rm -rf x"])).toBe(2);

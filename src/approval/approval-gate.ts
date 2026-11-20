@@ -144,9 +144,11 @@ export interface ApprovalRequest {
    */
   verifyPlainCommand?: true;
   /**
-   * Set by `os.shell.run` when the call is a direct exec whose argv is
-   * exactly what it wrote: no shell runs the line (so no redirect, `&`,
-   * comment or substitution) and no glob was expanded. With
+   * Set by `os.shell.run` when `commandArgv` is all the call runs: a
+   * direct exec of exactly what it wrote (no glob expanded), or a
+   * one-string line of plain words separated by single spaces (so no
+   * redirect, `&`, comment or substitution), and not a `background` job
+   * (which outlives the turn). With
    * `commandArgv`, the only shell call `run --allow-command` may
    * pre-approve (issue #95).
    */

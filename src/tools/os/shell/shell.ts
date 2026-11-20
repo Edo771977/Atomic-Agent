@@ -358,7 +358,8 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           // Issue #95: argv is all that runs: a direct exec with no glob
           // expanded, or a one-string line of plain words (`PLAIN_LINE_RE`)
           // whose split on spaces is that argv. A host may pin it then.
-          ...(commandArgv !== undefined &&
+          // Never a background call: it outlives the turn it was approved in.
+          ...(commandArgv !== undefined && rawArgs.background !== true &&
           (useShell
             ? rawArgList.length === 0 && PLAIN_LINE_RE.test(cmd) && commandArgv.join(" ") === cmd
             : execArgs.length === rawArgList.length && execArgs.every((arg, i) => arg === rawArgList[i]))
