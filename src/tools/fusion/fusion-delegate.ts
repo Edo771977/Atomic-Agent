@@ -1699,7 +1699,7 @@ export function buildFusionDelegateTool(
         if (latest !== undefined && own.length > 0) {
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
         }
-        return renderAttemptEvidence(attempts, current);
+        return renderAttemptEvidence(attempts, current, task.files ?? []);
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (

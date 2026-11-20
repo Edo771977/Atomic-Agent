@@ -18,6 +18,7 @@ import { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
+import { ATTEMPT_EVIDENCE_CHARS, renderAttemptEvidence, type AttemptRecord } from "./attempt-evidence.js";
 import { buildProjectTools } from "./project-tools.js";
 import { FusionRunStore } from "./run-checkpoint.js";
 import { readMilestoneEvidence } from "./run-criteria.js";
@@ -113,7 +114,7 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       expect(second).toContain("attempt 2: wrote nothing");
       expect(second).toMatch(/attempt 2: .*os\.fs\.edit on sales\.cjs found its new text already present: already applied \(a no-op, not a failure\)/);
       expect(second).toContain("## Version under review");
-      expect(second).toContain(`sales.cjs sha256 ${h12}: written by attempt 1; tested in attempt 1 (checks 1/1 passed), attempt 2 (checks 1/1 passed)`);
+      expect(second).toContain(`sales.cjs sha256 ${h12}: written by attempt 1; tested in attempt 1 (checks 1/1 passed), 2 (checks 1/1 passed)`);
       expect((result.details.tasks as Array<{ status: string }>)[0]!.status).toBe("ok");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -179,4 +180,22 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       rmSync(state, { recursive: true, force: true });
     }
   });
+
+  it("keeps the attempts section within its own budget, the task's files first, the rest counted", () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ path: `gen/file-${i}.js`, sha256: "a".repeat(64) }));
+    const attempts: AttemptRecord[] = Array.from({ length: 6 }, (_, i) => ({
+      attempt: i + 1,
+      wrote: [...many, { path: "sales.cjs", sha256: "b".repeat(64) }],
+      alreadyApplied: [],
+      tested: { passed: 1, total: 1, versions: [...many, { path: "sales.cjs", sha256: "b".repeat(64) }] },
+    }));
+    const text = renderAttemptEvidence(attempts, [...many, { path: "sales.cjs", sha256: "b".repeat(64) }], ["sales.cjs"]);
+    expect(ATTEMPT_EVIDENCE_CHARS).toBeLessThanOrEqual(4_000);
+    expect(text.length).toBeLessThanOrEqual(ATTEMPT_EVIDENCE_CHARS);
+    // The task's own file leads every list, and what does not fit is counted.
+    expect(text).toContain("attempt 1: wrote sales.cjs (sha256 bbbbbbbbbbbb)");
+    expect(text).toMatch(/\+\d+ files/);
+    expect(text).toContain("## Version under review\n- sales.cjs sha256 bbbbbbbbbbbb");
+  });
 });
+
