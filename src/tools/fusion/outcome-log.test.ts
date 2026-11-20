@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   existsSync,
@@ -63,15 +64,16 @@ const CONTEXT = {
 
 describe("fusion outcome records", () => {
   it("names the task and its plan milestone, so a report can join outcomes to plan rows (issue #95)", () => {
-    const record = taskOutcomeRecord(row(), { ...CONTEXT, milestoneId: "m1" }, "s", new Date());
-    expect(record).toMatchObject({ taskId: "t1", milestoneId: "m1" });
-    // Identifiers only: anything else is left out, never written.
-    const odd = taskOutcomeRecord(row({ id: "has space/../x" }), { ...CONTEXT, milestoneId: "m 1" }, "s", new Date());
-    expect(odd.taskId).toBeUndefined();
-    expect(odd.milestoneId).toBeUndefined();
-    expect(taskOutcomeRecord(row(), CONTEXT, "s", new Date()).milestoneId).toBeUndefined();
+    const key = (id: string) => createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16);
+    const record = taskOutcomeRecord(row({ id: "sales-tests" }), { ...CONTEXT, milestoneId: "csv-milestone" }, "s", new Date());
+    expect(record).toMatchObject({ taskKey: key("sales-tests"), milestoneKey: key("csv-milestone") });
+    // Keys, never the ids: they are labels the director chose.
+    const text = JSON.stringify(record);
+    expect(text).not.toContain("sales-tests");
+    expect(text).not.toContain("csv-milestone");
+    expect(taskOutcomeRecord(row(), CONTEXT, "s", new Date()).milestoneKey).toBeUndefined();
     // A record from before the fields still reads.
-    const { taskId: _t, milestoneId: _m, ...old } = record;
+    const { taskKey: _t, milestoneKey: _m, ...old } = record;
     expect(parseOutcomeLines(JSON.stringify(old))).toEqual([old]);
   });
 
@@ -103,7 +105,7 @@ describe("fusion outcome records", () => {
       type: "task",
       ts: "2026-11-01T00:00:00.000Z",
       session: sessionTag("s-parent"),
-      taskId: "t1",
+      taskKey: createHash("sha256").update("t1", "utf8").digest("hex").slice(0, 16),
       provider: "local-llama",
       model: "small",
       leg: "local",

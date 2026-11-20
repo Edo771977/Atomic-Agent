@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -127,9 +128,9 @@ describe("fusion.delegate → outcome log", () => {
       selfCheckPassed: false,
     });
     const text = JSON.stringify(written);
-    // The task id is written (issue #95: a report joins outcomes to plan rows); nothing it was told or said.
-    expect(tasks.map((t) => t.taskId)).toEqual(["t1", "t2"]);
-    for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent"]) {
+    // A key to join on (issue #95), never the id itself.
+    expect(tasks.map((t) => t.taskKey)).toEqual(["t1", "t2"].map((id) => createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16)));
+    for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent", "t1", "t2"]) {
       expect(text).not.toContain(leak);
     }
     // The turn's tally saw the same fan-out.

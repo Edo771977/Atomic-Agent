@@ -131,13 +131,14 @@ export interface TaskOutcomeRecord {
   /** `sessionTag` of the orchestrator's session. */
   session: string;
   /**
-   * The task's id in the fan-out (issue #95), the key a report joins to
-   * the plan's rows; written only when it is a short identifier
-   * (`OUTCOME_ID_PATTERN`). Absent on older records.
+   * A key of the task's id (issue #95), for a report to join outcomes to
+   * the plan's rows: `outcomeKey(taskId)`, never the id itself (ids are
+   * labels the director chose and can describe the project). Absent on
+   * older records.
    */
-  taskId?: string;
-  /** The project plan milestone the task's plan row belongs to, when the plan has one (issue #95). */
-  milestoneId?: string;
+  taskKey?: string;
+  /** `outcomeKey(milestoneId)` of the project plan milestone the task's plan row belongs to, when the plan has one (issue #95). */
+  milestoneKey?: string;
   provider: string;
   model: string;
   leg: OutcomeLeg;
@@ -481,12 +482,17 @@ export function rowCostUsd(
   return taskSpendUsd(row, pricing);
 }
 
-/** An id the log may carry: a short identifier, nothing that reads as text or a path. */
-export const OUTCOME_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/;
-const safeId = (id: string | undefined): string | undefined =>
-  id !== undefined && OUTCOME_ID_PATTERN.test(id) && !id.split("/").includes("..") ? id : undefined;
+/**
+ * The join key the log writes for a task or milestone id (issue #95): the
+ * first 16 hex characters of SHA-256 over the bare id string, UTF-8
+ * encoded (no prefix, no session, no trimming). A report that knows the
+ * plan's ids computes the same keys; the log itself never holds an id.
+ */
+export function outcomeKey(id: string): string {
+  return createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16);
+}
 
-/** One task's line. Reads only counts, fixed categories and the task's identifiers off the row. */
+/** One task's line. Reads only counts, fixed categories and keys of the task's identifiers off the row. */
 export function taskOutcomeRecord(
   row: WorkerTaskResult,
   context: TaskOutcomeContext,
@@ -501,8 +507,8 @@ export function taskOutcomeRecord(
     type: "task",
     ts: now.toISOString(),
     session: sessionTag(sessionId),
-    ...(safeId(row.id) === undefined ? {} : { taskId: row.id }),
-    ...(safeId(context.milestoneId) === undefined ? {} : { milestoneId: context.milestoneId! }),
+    ...(row.id.length === 0 ? {} : { taskKey: outcomeKey(row.id) }),
+    ...(context.milestoneId === undefined || context.milestoneId.length === 0 ? {} : { milestoneKey: outcomeKey(context.milestoneId) }),
     provider: outcomeLabel(context.provider),
     model: outcomeLabel(context.model),
     leg: context.leg,
