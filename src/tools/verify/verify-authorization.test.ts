@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runChecks, runVerify } from "./run-verify.js";
 import { runCommandKind } from "./run-command-kind.js";
@@ -46,5 +48,63 @@ describe("verification environment and lifecycle", () => {
   it("applies injected live operator policy to the actual rebased command", async () => {
     const result = await runVerify({ kind: "command", cmd: "git", args: ["push"] }, { ...ctx(), shellPolicy: { isGitRemoteSyncEnabled: () => false } });
     expect(result.ok).toBe(false); expect(result.error).toContain("policy.git_remote_sync_off"); expect(runCommandKind).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyPlainCommand on the approval request (issue #95)", () => {
+  const ask = async (spec: Record<string, unknown>) => {
+    const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const seen: Record<string, unknown>[] = [];
+    const approvals = { request: async (req: Record<string, unknown>) => { seen.push(req); return { approvalId: "x", approved: true }; } };
+    await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal } as never);
+    return seen[0]!;
+  };
+  it("marks one direct command with no env and no (or an empty) stdin, and nothing else", async () => {
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] })).verifyPlainCommand).toBe(true);
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], env: { NODE_OPTIONS: "--require ./x.cjs" } })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "node", args: ["-"], stdin: "console.log(1)" })).verifyPlainCommand).toBeUndefined();
+    // Any stdin at all, not only a script: what it feeds the command is not in its words.
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], stdin: "plain data, not a script" })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "sort", args: ["-r"], stdin: "b\\na" })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], stdin: "" })).verifyPlainCommand).toBe(true);
+  });
+});
+
+describe("a host's pinned exec on a verify.run check (issue #95)", () => {
+  it("replaces the approved spec's program with the pinned file, and only for a plain check whose argv it equals", async () => {
+    const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const real = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-verify-pin-")));
+    const run = async (spec: Record<string, unknown>, argv: string[]) => {
+      const approvals = { request: async () => ({ approvalId: "x", approved: true, pinnedExec: { file: process.execPath, argv, cwd: real, path: "/usr/bin" } }) };
+      return (await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir: real, stepIndex: 0, signal: new AbortController().signal } as never))[0]!;
+    };
+    expect(await run({ kind: "command", cmd: "node", args: ["--test"] }, ["node", "--test"])).toMatchObject({ cmd: process.execPath, args: ["--test"], env: { PATH: "/usr/bin" } });
+    // A pin for other words, or for a check that is not plain, refuses rather than running unpinned.
+    await expect(run({ kind: "command", cmd: "node", args: ["--test"] }, ["node", "--other"])).rejects.toThrow(/does not cover this call/);
+    await expect(run({ kind: "command", cmd: "node", args: ["--test"], env: { A: "1" } }, ["node", "--test"])).rejects.toThrow(/does not cover this call/);
+  });
+});
+
+describe("a pinned verify.run check run in a private copy (issue #95)", () => {
+  it("keeps the spec's own copy-relative args and swaps only the program", async () => {
+    const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const project = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-verify-project-")));
+    const copy = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-verify-copy-")));
+    const seen: Record<string, unknown>[] = [];
+    const approvals = {
+      request: async (req: Record<string, unknown>) => {
+        seen.push(req);
+        return { approvalId: "x", approved: true, pinnedExec: { file: process.execPath, argv: req.commandArgv as string[], cwd: project, path: "/usr/bin" } };
+      },
+    };
+    const [approved] = await authorizeVerifyBatch(
+      [{ kind: "command", cmd: "node", args: ["--test", `${copy}/a.test.js`] }],
+      { approvals: approvals as never, approvalRequired: true },
+      { sessionId: "s", workingDir: copy, ruleWorkdir: project, stepIndex: 0, signal: new AbortController().signal } as never,
+    );
+    // The person (and --allow-command) saw the project's path …
+    expect(seen[0]!.commandArgv).toEqual(["node", "--test", `${project}/a.test.js`]);
+    // … but the check still runs against the copy.
+    expect(approved).toMatchObject({ cmd: process.execPath, args: ["--test", `${copy}/a.test.js`] });
   });
 });
