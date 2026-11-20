@@ -19,7 +19,9 @@ import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionRunStore } from "./run-checkpoint.js";
-import { readRunCriteria } from "./run-criteria.js";
+import { readMilestoneEvidence, readRunCriteria } from "./run-criteria.js";
+import { buildProjectTools, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
+import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -65,10 +67,12 @@ function deps(dir: string, complete: EscalationComplete, runTurn: FusionDelegate
 }
 const ctx = (dir: string): ToolContext => ({ workingDir: dir, sessionId: "s-p", stepIndex: 0, signal: new AbortController().signal });
 
-
-
-
-async function delegateOnce(answer: string, checks: { ok: boolean; summary: string } | undefined, records: Array<Record<string, unknown>> = []) {
+async function delegateOnce(
+  answer: string,
+  checks: { ok: boolean; summary: string } | undefined,
+  records: Array<Record<string, unknown>> = [],
+  after?: (run: { state: string; runsDir: string; runId: string }) => Promise<void>,
+) {
   const dir = mkdtempSync(join(tmpdir(), "review-issues-"));
   const state = mkdtempSync(join(tmpdir(), "review-issues-state-"));
   try {
@@ -88,6 +92,7 @@ async function delegateOnce(answer: string, checks: { ok: boolean; summary: stri
       ...(checks === undefined ? {} : { contract: { checks: [{ task: "program", type: "command", command: "node --test sales.test.cjs" }] } }),
     }, ctx(dir));
     const runId = result.details.runId as string;
+    await after?.({ state, runsDir, runId });
     const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews: Array<{ verdict: string; issues?: unknown[]; reviewer?: Record<string, unknown> }> };
     return Object.assign(stored, { read: readRunCriteria(runsDir, runId) });
   } finally {
@@ -136,5 +141,59 @@ describe("a verdict the facts decided keeps its source (issue #100 review)", () 
     expect(stored.read.reviews[0]!.reviewer).toEqual({ provider: "cli-b" });
     const task = records.find((r) => r.type === "task") as { review?: Record<string, unknown> };
     expect(task.review!.reviewerSource).toBeUndefined();
+  });
+});
+
+/** The real delegate's run file, read by the real project.milestone: is a failed report held for correction? */
+async function failedAfter(answer: string, checks?: { ok: boolean; summary: string }) {
+  let report: Awaited<ReturnType<NonNullable<ReturnType<typeof buildProjectTools>[2]>["run"]>> | undefined;
+  await delegateOnce(answer, checks, [], async ({ state, runsDir, runId }) => {
+    const fold = (p: ProjectState | undefined, u: ProjectUpdate): ProjectState => {
+      const r = applyProjectUpdate(p, u, Date.now());
+      if (!r.ok) throw new Error(r.error.message);
+      return r.project;
+    };
+    const approve = (p: ProjectState): ProjectState => {
+      const r = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now: Date.now() });
+      if (!r.ok) throw new Error(r.error.message);
+      return r.project;
+    };
+    let p = fold(undefined, { kind: "brief", brief: { what: "CSV sales", users: "ops", how: "node", successCriteria: ["sums revenue"] }, draftedAfterUntrusted: false });
+    p = approve(fold(approve(p), { kind: "plan", milestones: [{ id: "m1", title: "CLI", kind: "base" }], detail: "compact",
+      rows: [{ taskId: "program", title: "Program", milestoneId: "m1", worker: "local:small", reviewer: "cli-b:model-r", reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000 }] }));
+    p = fold(p, { kind: "milestone_run", id: "m1", runId });
+    const [, , tool] = buildProjectTools({
+      planContext: () => { throw new Error("unused"); },
+      outsideContent: () => false,
+      milestoneEvidence: (milestone, order, current) => readMilestoneEvidence({ runsDir, stateDir: state, runIds: milestone.runIds, criteriaOrder: order, ...current }),
+      correctionBudgetLeft: () => true,
+    });
+    report = await tool!.run({ id: "m1", state: "failed", summary: "a defect remains" }, { workingDir: "/tmp", sessionId: "s", stepIndex: 0, project: p } as unknown as ToolContext);
+  });
+  return report!;
+}
+const held = (r: Awaited<ReturnType<typeof failedAfter>>) => (r.details[PROJECT_UPDATE_DETAIL] as { holdForCorrection?: true } | undefined)?.holdForCorrection === true;
+
+describe("delegate to project.milestone: which needs-changes hold a failed report (issue #100 review)", () => {
+  it("a reviewer's blocker naming its file holds it, quoting the blocker", async () => {
+    const r = await failedAfter(review("needs-changes", "blank lines are no longer skipped"));
+    expect(held(r)).toBe(true);
+    expect(r.summary).toContain("program: sales.cjs: blank lines are no longer skipped");
+  });
+
+  it("a major alone does not", async () => {
+    const r = await failedAfter(needsChanges([{ item: "a2", severity: "major", file: "sales.cjs", why: "could be faster" }]));
+    expect(r.status).toBe("ok");
+    expect(held(r)).toBe(false);
+  });
+
+  it("a check that never ran (a missing binary) does not", async () => {
+    const r = await failedAfter(review("accept"), { ok: false, summary: "verify.run command: not run: node: command not found (ENOENT)" });
+    expect(held(r)).toBe(false);
+  });
+
+  it("a check that ran and failed does", async () => {
+    const r = await failedAfter(review("accept"), { ok: false, summary: "verify.run command: FAILED (exit 1): 1 failed" });
+    expect(held(r)).toBe(true);
   });
 });

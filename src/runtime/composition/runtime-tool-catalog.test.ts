@@ -11,6 +11,7 @@ import type { BrowserBackend } from "../../tools/browser/browser-backend.js";
 import * as browserTools from "../../tools/browser/index.js";
 import * as osTools from "../../tools/os/index.js";
 import * as fusionTools from "../../tools/fusion/index.js";
+import * as projectTools from "../../tools/fusion/project-tools.js";
 import * as verifyTools from "../../tools/verify/index.js";
 import * as readScope from "../../tools/read-scope/index.js";
 import * as skillTools from "../../tools/skill/index.js";
@@ -410,6 +411,31 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(wired!.contractCheckEgress!({ kind: "page", path: "index.html" }, { sessionId: "s-parent", workingDir: directory })?.message).toContain('add "browser"');
     expect(wired!.contractCheckEgress!({ kind: "command", cmd: "node" }, { sessionId: "s-parent", workingDir: directory })).toBeNull();
     expect(seen).toEqual([{ tool: "verify.run", sessionId: "s-parent" }, { tool: "verify.run", sessionId: "s-parent" }]);
+  });
+
+  it("wires project.milestone's correctionBudgetLeft to the turn's caps (issue #100 review)", () => {
+    const config = getConfig();
+    const approvals = new ApprovalGate({ emit: () => {}, level: 5 });
+    const builder = vi.spyOn(projectTools, "buildProjectTools");
+    const turnBudget = new fusionTools.FusionTurnBudget();
+    turnBudget.begin("s-parent");
+    turnBudget.addWorkerSpend("s-parent", 2);
+    let cap: number | undefined = 1;
+    const register = (budget: fusionTools.FusionTurnBudget | undefined) => registerRuntimeFusionAndReadScope({ config, toolRegistry: new ToolRegistry(), approvals, dangerous: { approvals, approvalRequired: false }, declaredInputs: new osTools.DeclaredInputsRegistry(),
+      resolveOriginalRequest: () => undefined, runTurn: async () => externalOperation(), createEphemeralSession: () => createEmptySessionState({ id: "worker", workingDir: directory }),
+      prepareLocalLink: async () => {}, emitAgentLoopEventFor: () => {},
+      resolveCurrentRunMode: () => ({ ...resolveRunMode(resolveLlmConfig(config)), ...(cap === undefined ? {} : { turnBudgetUsd: cap }) }),
+      providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger,
+      ...(budget === undefined ? {} : { turnBudget: budget }) });
+    register(turnBudget);
+    const left = builder.mock.calls.at(-1)![0].correctionBudgetLeft!;
+    // $2 spent on a $1 cap: no round left; a $5 cap, or none, leaves one.
+    expect(left("s-parent")).toBe(false);
+    cap = 5; expect(left("s-parent")).toBe(true);
+    cap = undefined; expect(left("s-parent")).toBe(true);
+    cap = 1;
+    register(undefined);
+    expect(builder.mock.calls.at(-1)![0].correctionBudgetLeft!("s-parent")).toBe(true);
   });
 
   it("registers fusion after existing tools, then decorates reads with live security callbacks", async () => {
