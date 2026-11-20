@@ -83,4 +83,41 @@ describe("os.fs.edit tolerant matching", () => {
     ).rejects.toThrow(/matches 2 places, so nothing was changed/);
     expect(await readFile(join(dir, "two.py"), "utf8")).toBe(before);
   });
+
+  describe("an edit whose new text is already in place (issue #95)", () => {
+    const OLD = "total[sku] += qty * price;";
+    const NEW = "total[sku] = (total[sku] ?? 0) + qty * price;";
+
+    it("a genuine re-apply is reported as already applied, with nothing changed", async () => {
+      const body = `function add(sku, qty, price) {\n  ${NEW}\n}\n`;
+      await writeFile(join(dir, "sales.cjs"), body, "utf8");
+      const result = await tool().run({ path: "sales.cjs", oldString: OLD, newString: NEW }, ctx());
+      expect(result.status).toBe("ok");
+      expect(result.details.matchedBy).toBe("already-applied");
+      expect(result.summary.split("\n")[0]).toBe(tolerantMatchNote("already-applied"));
+      expect(result.summary).toMatch(/already applied/);
+      expect(await readFile(join(dir, "sales.cjs"), "utf8")).toBe(body);
+    });
+
+    it("an oldString with a typo whose newString happens to be elsewhere is still not found", async () => {
+      // The real target (`count + 1`) is still there; the typo kept it from matching.
+      const body = "let n = count + 1;\nlet m = 0;\nlet n = count + 2;\n";
+      await writeFile(join(dir, "a.js"), body, "utf8");
+      await expect(tool().run({ path: "a.js", oldString: "let n = cuont + 1;", newString: "let n = count + 2;" }, ctx())).rejects.toThrow(/was not found/);
+      expect(await readFile(join(dir, "a.js"), "utf8")).toBe(body);
+    });
+
+    it("a newString found in more than one place is not taken as applied", async () => {
+      const body = `a()\n${NEW}\nb()\n${NEW}\n`;
+      await writeFile(join(dir, "twice.cjs"), body, "utf8");
+      await expect(tool().run({ path: "twice.cjs", oldString: OLD, newString: NEW }, ctx())).rejects.toThrow(/was not found/);
+    });
+
+    it("a newString that shares too little with oldString is not taken as applied", async () => {
+      const body = "x = 1\nreturn total;\n";
+      await writeFile(join(dir, "c.js"), body, "utf8");
+      await expect(tool().run({ path: "c.js", oldString: "const totl = sum(rows);", newString: "return total;" }, ctx())).rejects.toThrow(/was not found/);
+    });
+  });
 });
+

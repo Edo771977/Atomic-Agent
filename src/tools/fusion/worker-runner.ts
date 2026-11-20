@@ -94,6 +94,8 @@ import {
   renderSelfCheckNotice,
   runSelfCheck,
 } from "./worker-self-check.js";
+import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
+import { AttemptFilesTracker } from "./attempt-evidence.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
 import { estimatedOutputTokens } from "./worker-fit.js";
 
@@ -1552,6 +1554,23 @@ async function runOneTask(
   // The watch judged the worker stuck (issue #43): the task stops and
   // goes to the director as `failure: "stuck"`.
   const stopByWatch = new AbortController();
+  // Identical rewrites of one file (issue #95): the same stop, with the
+  // file, its hash and the last check for the director.
+  const repeatedWrites = new RepeatedWritesTracker(READ_ONLY_TOOLS, workingDir);
+  // This attempt's file evidence for the reviewer (issue #95).
+  const attemptFiles = new AttemptFilesTracker(workingDir);
+  let stalledWrite: StalledWrite | undefined;
+  /** Feeds the write trackers; true when the call rewrote a file with the bytes it held. */
+  const noteWriteOutcome = (result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): boolean => {
+    attemptFiles.observeExecuted(result, batchIndex);
+    const { identical, repeat } = repeatedWrites.observeExecuted(result, batchIndex);
+    if (repeat === undefined || stalledWrite !== undefined || stopByWatch.signal.aborted) return identical;
+    const last = checkRuns.lastRunOutcome();
+    const lastCheck = last === undefined ? undefined : { ...last, coversFile: specNames(last.spec, repeat.path) };
+    stalledWrite = { reason: "repeated identical writes", ...repeat, ...(lastCheck === undefined ? {} : { lastCheck }) };
+    stopByWatch.abort(new Error("stalled: repeated identical writes"));
+    return identical;
+  };
   let escalations = 0;
   let escalating = false;
   let replaceRequested = false;
@@ -1823,6 +1842,8 @@ async function runOneTask(
     const left =
       servedAt === null ? timeoutMs + queueBudgetMs : timeoutMs - (Date.now() - servedAt);
     inSelfCheckGrace = true;
+    // The grace turn is a new chance on what the self-check found: repeats start over.
+    repeatedWrites.reset();
     let grace: RunTurnResult;
     try {
       grace = await deps.runTurn(
@@ -1982,6 +2003,8 @@ async function runOneTask(
             event.event.batchIndex,
           );
           filesWritten.observeParsed(event.event.call, event.event.batchIndex);
+          repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
+          attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
           } catch {
@@ -2041,11 +2064,14 @@ async function runOneTask(
           if (result.status === "ok" && WRITE_TOOLS.has(result.tool)) {
             wroteSomething = true;
           }
+          // The write trackers first: an identical rewrite does not make an earlier check stale.
+          const identical = noteWriteOutcome(result, event.event.batchIndex);
           checkRuns.executed(
             result.tool,
             result.status,
             event.event.batchIndex,
             stepsFinished,
+            identical,
           );
           if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
             announceUsage(0, true);
@@ -2291,6 +2317,9 @@ async function runOneTask(
             ) {
               announceUsage(0, true);
             }
+            if (event.type === "llm_event" && event.event.type === "tool_call_executed") {
+              noteWriteOutcome(event.event.result, event.event.batchIndex);
+            }
             // The re-run's side effects reach the checkpoint as they
             // start, like the local worker's do (ATO-1316): a crash in
             // the middle of the re-run must not offer the task as safe
@@ -2303,6 +2332,8 @@ async function runOneTask(
                 event.event.call,
                 event.event.batchIndex,
               );
+              repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
+              attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
               try {
                 options.onWorkerTool?.(task.id, event.event.call.tool);
               } catch {
@@ -2394,12 +2425,18 @@ async function runOneTask(
     const record = watchRecord;
     const checks = record?.checks ?? 0;
     const { finishedWithoutReply: _unvouched, ...rest } = result;
-    result = {
-      ...rest,
-      status: "failed",
-      failure: "stuck",
-      error: `stuck: the watch (${watchPlan?.judgeLabel ?? "its judge"}) judged the worker stuck after ${checks} check${checks === 1 ? "" : "s"} and stopped it`,
-    };
+    result = stalledWrite !== undefined
+      ? { ...rest, status: "failed", failure: "stuck", stalled: stalledWrite, error: describeStalledWrite(stalledWrite) }
+      : {
+          ...rest,
+          status: "failed",
+          failure: "stuck",
+          error: `stuck: the watch (${watchPlan?.judgeLabel ?? "its judge"}) judged the worker stuck after ${checks} check${checks === 1 ? "" : "s"} and stopped it`,
+        };
+  }
+  {
+    const files = attemptFiles.finish();
+    if (files !== undefined) result = { ...result, attempt: files };
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on

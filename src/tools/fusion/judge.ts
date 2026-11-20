@@ -471,6 +471,8 @@ export function renderJudgePrompt(input: {
   evidence: string;
   /** The fusion project's success criteria (issue #39): context for the ruling, not items. */
   successCriteria?: readonly string[];
+  /** The task's attempts and the version under review (issue #95, `renderAttemptEvidence`). */
+  attemptEvidence?: string;
 }): string {
   const judged = input.items.filter(
     (item) => item.kind !== "criterion" && !input.facts.some((fact) => fact.id === item.id),
@@ -492,6 +494,7 @@ export function renderJudgePrompt(input: {
       ? ["(none)"]
       : input.facts.map((f) => `- ${f.id}: ${f.pass ? "met" : "NOT met"} — ${f.why}`)),
     "",
+    ...(input.attemptEvidence === undefined || input.attemptEvidence.length === 0 ? [] : [input.attemptEvidence, ""]),
     "## Evidence",
     input.evidence,
     "",
@@ -631,6 +634,8 @@ export async function judgeTask(input: {
   signal: AbortSignal;
   /** The fusion project's success criteria (issue #39), for the judge brief. */
   successCriteria?: readonly string[];
+  /** The task's attempts and the version under review (issue #95). */
+  attemptEvidence?: string;
 }): Promise<JudgeVerdict> {
   const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
   const factVerdicts: ItemVerdict[] = [];
@@ -707,6 +712,7 @@ export async function judgeTask(input: {
         facts: factVerdicts,
         evidence,
         ...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
+        ...(input.attemptEvidence === undefined ? {} : { attemptEvidence: input.attemptEvidence }),
       }),
       maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
       signal: input.signal,

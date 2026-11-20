@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -127,6 +128,8 @@ describe("fusion.delegate → outcome log", () => {
       selfCheckPassed: false,
     });
     const text = JSON.stringify(written);
+    // A key to join on (issue #95), never the id itself.
+    expect(tasks.map((t) => t.taskKey)).toEqual(["t1", "t2"].map((id) => createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16)));
     for (const leak of ["PROMPT-TEXT", "PRIVATE-TITLE", "sk-live", "/home/u", "s-parent", "t1", "t2"]) {
       expect(text).not.toContain(leak);
     }
