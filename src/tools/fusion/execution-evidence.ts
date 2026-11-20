@@ -285,14 +285,15 @@ export function renderCheckRunEvidence(
     const exit = run.exitCode === null ? (run.ok ? "passed" : "failed") : `exit ${run.exitCode}`;
     const counts = run.counts === undefined ? "" : `; output reports ${run.counts.pass} passed, ${run.counts.fail} failed of ${run.counts.total}`;
     const names = run.tests.map((t) => maskSecrets(t.name, knownSecrets));
+    // The mapping repeats the test names, so it sits in the same frame as the cases (issue #104 review).
+    const mapping = criteria.length === 0 ? [] : ["", "Tests against the criteria (by name):", ...mapTestsToCriteria(names, criteria)];
     const cases = run.tests.length === 0
       ? ["(the output named no test case)"]
-      : [frameUntrustedText(run.tests.map((t, i) => `- ${t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok"}: ${names[i]}`).join("\n"), EXECUTION_OUTPUT_SOURCE)];
-    const mapping = criteria.length === 0 ? [] : ["Tests against the criteria (by name):", ...mapTestsToCriteria(names, criteria)];
+      : [frameUntrustedText([...run.tests.map((t, i) => `- ${t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok"}: ${names[i]}`), ...mapping].join("\n"), EXECUTION_OUTPUT_SOURCE)];
     const output = withOutput
       ? [`Output${run.clipped === true ? ` (its last ${run.output.length} characters)` : ""}:`, frameUntrustedText(maskSecrets(run.output, knownSecrets), EXECUTION_OUTPUT_SOURCE)]
       : ["(its output does not fit here)"];
-    return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, "Cases:", ...cases, ...mapping, ...output].join("\n");
+    return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, "Cases:", ...cases, ...output].join("\n");
   };
   let budget = CHECK_RUN_EVIDENCE_CHARS - head.length - 20;
   const blocks: string[] = [];
