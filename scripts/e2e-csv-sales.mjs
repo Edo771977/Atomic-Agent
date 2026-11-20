@@ -156,6 +156,13 @@ function reviewIdentity(task) {
   };
 }
 
+/** The provider of a review's reviewer: the row's own, else the part before ":" of the recorded ref; null when neither names one. */
+function reviewerProvider(identity) {
+  if (identity.provider) return identity.provider;
+  const at = typeof identity.recorded === 'string' ? identity.recorded.indexOf(':') : -1;
+  return at > 0 ? identity.recorded.slice(0, at) : null;
+}
+
 /** Whether a plan task is done as the fixture requires: its latest verdict is a review's `accept` (or `ok` with no review planned). */
 function taskAccepted(task) {
   const last = task.verdicts[task.verdicts.length - 1];
@@ -180,14 +187,25 @@ function taskBlock(task) {
  * Issue #98: what keeps the run from passing. Both suites must pass, every
  * plan task's latest verdict must be an accept, each milestone's state must
  * agree (done or reviewed exactly when all its tasks are accepted) and no
- * gate may be waiting.
+ * gate may be waiting. Issue #100: every task must belong to a milestone
+ * the project has, and every required review must name its reviewer's
+ * provider.
  */
 export function blockingReasons({ tests, project, tasks }) {
   const out = [];
   if (!tests || !tests.passed) out.push('the test suites did not both pass');
   if (!project) { out.push('no project was stored for the session'); return out; }
   if (!tasks.length) out.push('the plan has no tasks');
-  for (const t of tasks) if (!taskAccepted(t)) out.push(taskBlock(t));
+  // Issue #100: a task must belong to a milestone the project has, and a required review must say who reviewed.
+  const milestoneIds = new Set((project.milestones || []).map((m) => m.id));
+  for (const t of tasks) {
+    const name = `task ${t.taskId} (${t.title || 'untitled'})`;
+    if (!milestoneIds.has(t.milestoneId)) out.push(`${name} belongs to milestone ${t.milestoneId}, which the project does not have`);
+    if (!taskAccepted(t)) out.push(taskBlock(t));
+    if (t.reviewer !== null && t.reviewer !== undefined && t.latestReview && reviewerProvider(t.latestReview) === null) {
+      out.push(`${name}: its review names no reviewer provider (the plan names ${t.reviewer})`);
+    }
+  }
   for (const m of project.milestones || []) {
     const mine = tasks.filter((t) => t.milestoneId === m.id);
     const open = mine.filter((t) => !taskAccepted(t)).length;

@@ -265,7 +265,7 @@ describe("the runner passes a run only when every required task is accepted", ()
       expect.stringMatching(/^task t2 .*needs-changes.*no_changes/),
       expect.stringMatching(/^milestone m1 is reviewed while 1 required task is not accepted/),
     ]));
-    expect(report.blocking.some((b: string) => /^task t1/.test(b))).toBe(false);
+    expect(report.blocking.some((b: string) => /^task t1 .*not accepted/.test(b))).toBe(false);   // t1 is accepted (its review only lacks a provider, issue #100)
     expect(report.tasks.map((t: { taskId: string; latest: { status: string; decision: string | null } }) => [t.taskId, t.latest.decision ?? t.latest.status]))
       .toEqual([["t1", "accept"], ["t2", "no_changes"]]);
   });
@@ -310,5 +310,34 @@ describe("autonomous run or guided resume", () => {
     expect(guided).toMatchObject({ kind: "guided", humanInputs: 1 });
     expect(guided.reasons).toEqual([expect.stringMatching(/^1 line from a person after the first prompt/)]);
     expect(runner.runMode([{ kind: "user", text: "go" }], "session: a\nsession: b\n").kind).toBe("guided");
+  });
+});
+
+/* ---------- issue #100: the report's integrity ---------- */
+
+describe("a run passes only on a plan whose tasks and reviews can be accounted for", () => {
+  it("an accepted task tied to a milestone the project does not have exits 1 and names it", () => {
+    const { status, report } = runSample("sample-run-missing-milestone");
+    expect(report.tests.passed).toBe(true);
+    expect(report.blocking).toEqual(["task t2 (sales.test.cjs: its tests) belongs to milestone m9, which the project does not have"]);
+    expect(report.passed).toBe(false);
+    expect(status).toBe(1);
+  });
+
+  it("a required review accepted with no reviewer identity exits 1 and names it", () => {
+    const { status, report } = runSample("sample-run-anonymous-review");
+    expect(report.blocking).toEqual(["task t2 (sales.test.cjs: its tests): its review names no reviewer provider (the plan names codex-cli:default)"]);
+    expect(status).toBe(1);
+  });
+
+  it("a review naming only a model, as the issue #98 rows wrote `default`, is not identifiable either", () => {
+    const blocked = runSample("sample-run-blocked").report.blocking;
+    expect(blocked).toEqual(expect.arrayContaining([
+      "task t1 (sales.cjs: the summarizer): its review names no reviewer provider (the plan names codex-cli:default)",
+    ]));
+  });
+
+  it("the accepted sample still passes", () => {
+    expect(runSample("sample-run-accepted").status).toBe(0);
   });
 });
