@@ -1,4 +1,6 @@
-import type { ApprovalGate, RuleCheck } from "./approval-gate.js";
+import { isAbsolute } from "node:path";
+
+import type { ApprovalGate, PinnedExec, RuleCheck } from "./approval-gate.js";
 import type { ApprovalCategory } from "./approval-level.js";
 
 export interface DangerousToolOptions {
@@ -61,6 +63,8 @@ export interface ApprovalOutcome {
    * against and what re-categorising it means.
    */
   pathOverride?: string;
+  /** The host's pinned exec for this call (`ApprovalDecision.pinnedExec`), checked against the prompt. */
+  pinnedExec?: PinnedExec;
 }
 
 /**
@@ -226,11 +230,27 @@ export async function requireApproval(
   // that returns `pathOverride` for a call with no `redirectablePath` is
   // answering a question nobody asked, so it is dropped here rather than
   // handed to a tool that would not know what to do with it.
+  const pinned = pinnedExecFor(prompt, decision.pinnedExec);
   if (
     prompt.redirectablePath === undefined ||
     decision.pathOverride === undefined
   ) {
-    return {};
+    return pinned === undefined ? {} : { pinnedExec: pinned };
   }
-  return { pathOverride: decision.pathOverride };
+  return { pathOverride: decision.pathOverride, ...(pinned === undefined ? {} : { pinnedExec: pinned }) };
+}
+
+/**
+ * A host's pin is honoured only for a call that can be run as a bare
+ * argv (`literalExec`, `verifyPlainCommand`) and only when its argv is
+ * the call's own, word for word; anything else is dropped and the tool
+ * runs as it would have.
+ */
+function pinnedExecFor(prompt: ApprovalPrompt, pinned: PinnedExec | undefined): PinnedExec | undefined {
+  if (pinned === undefined) return undefined;
+  if (prompt.literalExec !== true && prompt.verifyPlainCommand !== true) return undefined;
+  const argv = prompt.commandArgv;
+  if (argv === undefined || argv.length !== pinned.argv.length || !argv.every((word, i) => word === pinned.argv[i])) return undefined;
+  if (!isAbsolute(pinned.file) || !isAbsolute(pinned.cwd)) return undefined;
+  return { file: pinned.file, argv: [...pinned.argv], cwd: pinned.cwd };
 }

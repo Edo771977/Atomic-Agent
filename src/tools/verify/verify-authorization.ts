@@ -180,7 +180,7 @@ export async function authorizeVerifyBatch(
         targetPaths.length === 0 && Object.keys(logical.env ?? {}).length === 0
         ? { verifyPlainCommand: true as const } : {}),
     };
-    return [{ prompt, logical, cwd }];
+    return [{ prompt, logical, cwd, spec }];
   });
   // A deny for a later command wins before asking about an earlier command.
   for (const { prompt } of plans) {
@@ -211,7 +211,7 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd, logical } of plans) {
+  for (const { prompt, cwd, logical, spec } of plans) {
     ctx.signal.throwIfAborted();
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
@@ -233,7 +233,17 @@ export async function authorizeVerifyBatch(
       ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
       : undefined;
     try {
-      await requireApproval(options, prompt, ctx.signal);
+      const outcome = await requireApproval(options, prompt, ctx.signal);
+      // Issue #95: a host's pin (`run --allow-command`) is what runs: the
+      // real program file with the approved argv, never a name the copy's
+      // PATH could resolve to something else. The private copy stays the cwd.
+      if (outcome.pinnedExec !== undefined) {
+        const args = outcome.pinnedExec.argv.slice(1);
+        if (needsShellInterpretation(outcome.pinnedExec.file, args)) throw new Error("verify.run: the pinned program cannot be started without a shell");
+        delete spec.command;
+        spec.cmd = outcome.pinnedExec.file;
+        spec.args = args;
+      }
     } finally {
       withdraw?.();
     }

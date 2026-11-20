@@ -185,6 +185,13 @@ export interface ApprovalRequest {
  */
 export type ApprovalGrantScope = "category" | "shape" | "always";
 
+/** See `ApprovalDecision.pinnedExec`. */
+export interface PinnedExec {
+  file: string;
+  argv: string[];
+  cwd: string;
+}
+
 export interface ApprovalDecision {
   approvalId: string;
   approved: boolean;
@@ -220,6 +227,16 @@ export interface ApprovalDecision {
    * (`unavailableInTurn`).
    */
   unavailable?: boolean;
+  /**
+   * Set by a host that pre-approved the call on its own terms (issue #95:
+   * `run --allow-command`): exactly what is to run, the real program
+   * file, the argv (argv[0] as the call wrote it) and the real folder.
+   * Only the host's decision carries it, never the call's arguments;
+   * `requireApproval` hands it to the tool only for a request marked
+   * `literalExec` or `verifyPlainCommand` whose `commandArgv` it equals,
+   * and the tool then spawns `file` with `argv.slice(1)`, no shell.
+   */
+  pinnedExec?: PinnedExec;
   /** Session grant to record alongside an approval. Ignored when denied. */
   grant?: ApprovalGrantScope;
   /**

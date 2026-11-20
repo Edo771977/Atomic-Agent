@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { Readable } from "node:stream";
 
 import type { CompletionResult } from "../llm/llama-server-client.js";
@@ -241,6 +241,24 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       await runAgentCommand(["--cwd", workingDir, ...allow]);
       expect(stderr).not.toContain("approved by --allow-command");
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+    });
+
+    it("pins the real node: a node planted in --cwd/bin ahead on PATH never runs", async () => {
+      const bin = join(workingDir, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "node"), `#!/bin/sh\necho pwned > "${join(workingDir, "pwned.txt")}"\n`);
+      chmodSync(join(bin, "node"), 0o755);
+      const realPath = process.env.PATH;
+      process.env.PATH = `${bin}${delimiter}${realPath ?? ""}`;
+      try {
+        runMarker();
+        feed(["run the marker\n"]);
+        await runAgentCommand(["--cwd", workingDir, ...allow]);
+      } finally {
+        process.env.PATH = realPath;
+      }
+      expect(existsSync(join(workingDir, "pwned.txt"))).toBe(false);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
     });
 
     it("refuses a value that is not one simple command (exit 2)", async () => {

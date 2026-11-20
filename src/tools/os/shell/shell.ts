@@ -16,6 +16,7 @@ import {
   savedRuleOverridesScope,
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
+import type { PinnedExec } from "../../../approval/approval-gate.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
 import { nodeCheckMultiFileNotice } from "./node-check-notice.js";
@@ -300,6 +301,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       guardVerdict.action === "allow" &&
       options.approvalRequired &&
       savedRuleDenies(options.approvals, ruleCheck);
+    // Issue #95: what a host's pre-approval pinned (`run --allow-command`):
+    // when set, exactly that file, argv and folder run, no shell.
+    let pinned: PinnedExec | undefined;
     if (
       (guardVerdict.action === "approval_required" && !scopedByFanout) ||
       deniedBySavedRule
@@ -320,7 +324,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         : shellGrantShape(guardInput.cmd, commandLine, useShell);
       // Saved approval rules match on argv and on the session's folder.
       const commandArgv = shellCommandArgv(cmd, execArgs, useShell, commandShape);
-      await requireApproval(
+      const approval = await requireApproval(
         options,
         {
           sessionId: ctx.sessionId,
@@ -353,9 +357,13 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         },
         ctx.signal,
       );
+      pinned = approval.pinnedExec;
     }
 
-    const spawnSpec = resolveShellSpawn(cmd, execArgs, useShell);
+    const spawnSpec =
+      pinned === undefined
+        ? resolveShellSpawn(cmd, execArgs, useShell)
+        : { command: pinned.file, args: pinned.argv.slice(1), windowsVerbatimArguments: false };
     const facts: ShellCommandFacts = {
       cmd,
       args: execArgs,
@@ -379,7 +387,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // (non-interactive switches, PATH folders) are fixed values applied
     // after the filter, never read from the call.
     const job = startCommandJob(spawnSpec.command, spawnSpec.args, {
-      cwd,
+      cwd: pinned?.cwd ?? cwd,
       env: withToolchainEnv(
         buildCommandEnv(process.env, options.envPassthrough ?? []),
       ),

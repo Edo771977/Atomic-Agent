@@ -1,7 +1,9 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 
-import type { ApprovalRequest } from "../approval/approval-gate.js";
+import type { ApprovalRequest, PinnedExec } from "../approval/approval-gate.js";
+import { needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
+import { resolveAllowedExecutable } from "./run-allowed-executable.js";
 
 /**
  * `run --allow-command "<exact command>"` (issue #95): a command the
@@ -70,6 +72,34 @@ export function allowedCommandMatches(
  * Windows, where program names ignore case, is it compared folded, and
  * a path is still a path there.
  */
+/**
+ * What the CLI approves for a matching request (issue #95, second
+ * review): the real program the first word resolves to
+ * (`resolveAllowedExecutable`), the call's argv and its real folder, or
+ * null when it does not match, nothing safe resolves, or the program
+ * could only be started through a shell. The tool spawns exactly this.
+ */
+export function pinAllowedCommand(
+  request: ApprovalRequest,
+  allowed: readonly AllowedCommand[],
+  runDir: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): PinnedExec | null {
+  if (!allowedCommandMatches(request, allowed, runDir, platform)) return null;
+  const argv = request.commandArgv!;
+  const program = resolveAllowedExecutable(argv[0]!, { runDir, env, platform });
+  if (program === null) return null;
+  if (needsShellInterpretation(program.file, argv.slice(1))) return null;
+  let cwd: string;
+  try {
+    cwd = realpathSync.native(request.affectedResources![0]!);
+  } catch {
+    return null;
+  }
+  return { file: program.file, argv: [...argv], cwd };
+}
+
 function sameWords(allowed: readonly string[], words: readonly string[], platform: NodeJS.Platform): boolean {
   if (allowed.length !== words.length || allowed.length === 0) return false;
   const first = words[0]!;

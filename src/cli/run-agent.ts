@@ -55,7 +55,7 @@ import {
   createStdinLineQueue,
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
-import { allowedCommandMatches, parseAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
+import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { withProject } from "../session/session-project.js";
 
@@ -805,9 +805,12 @@ export async function runAgentCommand(args: string[]): Promise<number> {
             let answer: CliApprovalAnswer;
             // Issue #95: the exact command the operator listed, in --cwd
             // or below, runs unasked; everything else asks as before.
-            if (!request.question && allowedCommandMatches(request, parsed.allowCommands, parsed.workingDir)) {
-              process.stderr.write(`  approved by --allow-command: ${request.commandArgv?.join(" ") ?? request.tool}\n`);
-              runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command" });
+            // The approval pins the real program, argv and folder; the
+            // tool spawns exactly that (`pinnedExec`).
+            const pinnedExec = request.question ? null : pinAllowedCommand(request, parsed.allowCommands, parsed.workingDir);
+            if (pinnedExec !== null) {
+              process.stderr.write(`  approved by --allow-command: ${pinnedExec.argv.join(" ")} (runs ${pinnedExec.file})\n`);
+              runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command", pinnedExec });
               return;
             }
             try {
