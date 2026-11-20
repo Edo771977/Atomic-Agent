@@ -48,3 +48,18 @@ describe("verification environment and lifecycle", () => {
     expect(result.ok).toBe(false); expect(result.error).toContain("policy.git_remote_sync_off"); expect(runCommandKind).not.toHaveBeenCalled();
   });
 });
+
+describe("verifyPlainCommand on the approval request (issue #95)", () => {
+  const ask = async (spec: Record<string, unknown>) => {
+    const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+    const seen: Record<string, unknown>[] = [];
+    const approvals = { request: async (req: Record<string, unknown>) => { seen.push(req); return { approvalId: "x", approved: true }; } };
+    await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal } as never);
+    return seen[0]!;
+  };
+  it("marks one command with no env and no stdin, and nothing else", async () => {
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test", "sales.test.cjs"] })).verifyPlainCommand).toBe(true);
+    expect((await ask({ kind: "command", cmd: "node", args: ["--test"], env: { NODE_OPTIONS: "--require ./x.cjs" } })).verifyPlainCommand).toBeUndefined();
+    expect((await ask({ kind: "command", cmd: "node", args: ["-"], stdin: "console.log(1)" })).verifyPlainCommand).toBeUndefined();
+  });
+});

@@ -130,4 +130,62 @@ describe("run: approvals with piped stdin (issue #95)", () => {
     expect(shellResult()).toMatch(/The user declined this os\.shell\.run call/);
     expect(shellResult()).not.toContain("approval unavailable");
   });
+
+  describe("--allow-command (issue #95)", () => {
+    const allow = ["--allow-command", "node mark.cjs"];
+
+    it("runs the listed command unasked in a piped run, and its result reaches the turn", async () => {
+      runMarker();
+      feed(["run the marker\n"]);
+      expect(await runAgentCommand(["--cwd", workingDir, ...allow])).toBe(0);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(true);
+      expect(shellResult()).not.toContain("approval unavailable");
+      expect(shellResult()).not.toMatch(/declined|not run/i);
+      expect(stderr).toContain("approved by --allow-command: node mark.cjs");
+      expect(stderr).not.toContain("approval required for tool");
+    });
+
+    it("still holds a different command", async () => {
+      writeFileSync(join(workingDir, "other.cjs"), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'ran.txt'), 'other');\n");
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["other.cjs"] } }];
+      feed(["run the other one\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+      expect(shellResult()).toContain("approval unavailable (non-interactive run)");
+    });
+
+    it("still holds the same command run in a parent folder", async () => {
+      const parentMarker = join(workingDir, "..", "ran.txt");
+      rmSync(parentMarker, { force: true });
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"], cwd: ".." } }];
+      feed(["run the marker up there\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(shellResult()).toContain("approval unavailable (non-interactive run)");
+      expect(existsSync(parentMarker)).toBe(false);
+    });
+
+    it("is not implied by --auto-approve-project", async () => {
+      runMarker();
+      feed(["run the marker\n"]);
+      await runAgentCommand(["--cwd", workingDir, "--auto-approve-project"]);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+      expect(shellResult()).toContain("approval unavailable (non-interactive run)");
+    });
+
+    it("in an interactive run, n to a command it does not list still blocks it", async () => {
+      writeFileSync(join(workingDir, "other.cjs"), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'ran.txt'), 'other');\n");
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["other.cjs"] } }];
+      const tty = Object.assign(Readable.from(["run the other one\n", "n\n"]), { isTTY: true });
+      Object.defineProperty(process, "stdin", { value: tty, configurable: true });
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
+      expect(shellResult()).toMatch(/The user declined this os\.shell\.run call/);
+    });
+
+    it("refuses a value that is not one simple command (exit 2)", async () => {
+      feed([]);
+      expect(await runAgentCommand(["--cwd", workingDir, "--allow-command", "node a.cjs && rm -rf x"])).toBe(2);
+      expect(await runAgentCommand(["--cwd", workingDir, "--allow-command"])).toBe(2);
+    });
+  });
 });

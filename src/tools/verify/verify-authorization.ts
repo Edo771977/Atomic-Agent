@@ -174,6 +174,9 @@ export async function authorizeVerifyBatch(
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
+      // Issue #95: one command with nothing beside it, so its words say all that runs.
+      ...(logical.kind === "command" && commands.length === 1 && stdinScript === null && Object.keys(logical.env ?? {}).length === 0
+        ? { verifyPlainCommand: true as const } : {}),
     };
     return [{ prompt, logical, cwd }];
   });

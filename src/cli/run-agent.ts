@@ -55,6 +55,7 @@ import {
   createStdinLineQueue,
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
+import { allowedCommandMatches, parseAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { withProject } from "../session/session-project.js";
 
@@ -78,6 +79,8 @@ interface RunArgs {
   approveVersion: number | null;
   /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
   autoApproveProject: boolean;
+  /** Issue #95: `--allow-command "<exact command>"` (repeatable), pre-approved in `--cwd` or below. */
+  allowCommands: AllowedCommand[];
 }
 
 const HELP =
@@ -106,6 +109,10 @@ const HELP =
     "                       Approve every fusion project gate at its current version as it opens,",
     "                       printing each with its version (scripts only); a failed milestone",
     "                       stops the run (exit 3) for a person",
+    '  --allow-command "<command>"',
+    "                       Run exactly this one shell command (e.g. the project's test command)",
+    "                       without asking, in --cwd or below; repeatable. Any other command still",
+    "                       asks; never implied by --auto-approve-project",
     "",
     "In-session:  /quit exits · /abort cancels the current turn",
     "Exit codes:  0 replied · 1 failed · 2 usage error · 3 waiting at a project gate (session id printed)",
@@ -125,6 +132,7 @@ export function parseRunArgs(
   let approve = false;
   let approveVersion: number | null = null;
   let autoApproveProject = false;
+  const allowCommands: AllowedCommand[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
     switch (flag) {
@@ -184,6 +192,14 @@ export function parseRunArgs(
       case "--auto-approve-project":
         autoApproveProject = true;
         break;
+      case "--allow-command": {
+        const value = args[++i];
+        if (value === undefined) return { error: "--allow-command requires a command" };
+        const command = parseAllowedCommand(value);
+        if ("error" in command) return { error: command.error };
+        allowCommands.push(command);
+        break;
+      }
       case "--reviewer": {
         const value = args[++i];
         if (!value) return { error: `${flag} requires a value` };
@@ -222,6 +238,7 @@ export function parseRunArgs(
     approve,
     approveVersion,
     autoApproveProject,
+    allowCommands,
   };
 }
 
@@ -782,6 +799,13 @@ export async function runAgentCommand(args: string[]): Promise<number> {
         approvalChain = approvalChain
           .then(async () => {
             let answer: CliApprovalAnswer;
+            // Issue #95: the exact command the operator listed, in --cwd
+            // or below, runs unasked; everything else asks as before.
+            if (!request.question && allowedCommandMatches(request, parsed.allowCommands, parsed.workingDir)) {
+              process.stderr.write(`  approved by --allow-command: ${request.commandSegments?.[0]?.join(" ") ?? request.tool}\n`);
+              runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command" });
+              return;
+            }
             try {
               answer =
                 stdinLines === null

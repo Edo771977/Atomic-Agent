@@ -24,6 +24,8 @@ export interface ApprovalPrompt {
   commandShape?: string;
   /** What a session grant on this request covers; see `ApprovalRequest.grantKey`. */
   grantKey?: string;
+  /** A plain one-command verification; see `ApprovalRequest.verifyPlainCommand`. */
+  verifyPlainCommand?: true;
   /** Parsed argv of a simple shell command; see `ApprovalRequest.commandArgv`. */
   commandArgv?: readonly string[];
   /** Every simple command the call would run; see `ApprovalRequest.commandSegments`. */
@@ -200,6 +202,7 @@ export async function requireApproval(
         ? { commandSegments: prompt.commandSegments.map((words) => [...words]) }
         : {}),
       ...(prompt.commandUnreadable === true ? { commandUnreadable: true } : {}),
+      ...(prompt.verifyPlainCommand === true ? { verifyPlainCommand: true } : {}),
       ...(prompt.workdir !== undefined ? { workdir: prompt.workdir } : {}),
       ...(prompt.redirectablePath !== undefined
         ? { redirectablePath: prompt.redirectablePath }

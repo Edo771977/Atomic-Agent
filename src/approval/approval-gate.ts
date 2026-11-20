@@ -135,6 +135,13 @@ export interface ApprovalRequest {
    */
   targetPaths?: string[];
   /**
+   * Set by `verify.run` (and the contract checks that use it) on a
+   * `command` check that runs exactly one command, with no `env` and no
+   * `stdin`: the only verification `run --allow-command` may pre-approve
+   * (issue #95), since anything else runs more than the command's words.
+   */
+  verifyPlainCommand?: true;
+  /**
    * Set by the gate, never by a caller: what the smart-approval risk
    * review (`risk-review.ts`) said about a request it did not let
    * through, e.g. `risk check: medium (installs a package)`. A surface
