@@ -21,7 +21,20 @@ describe("describeFusionIntro", () => {
   it("opens with the mark, then the sentence", () => {
     const text = describeFusionIntro(rm);
     expect(text.startsWith(FUSION_MARK)).toBe(true);
-    expect(text).toContain("Fusion splits the work between two models");
+    expect(text).toContain("Fusion splits the work in a small team: one model decides, others do, and a reviewer can check.");
+    expect(text).not.toContain("between two models");
+  });
+
+  it("names the reviewer seat, how the TUI picks one, the project gates and local-only folders", () => {
+    const text = describeFusionIntro(rm);
+    expect(text).toContain("A third seat, the reviewer, checks each worker's result before the orchestrator takes it.");
+    expect(text).toContain("llm.runMode.fusion.team.reviewers");
+    expect(text).toContain("press e (edit rows)");
+    expect(text).toContain("A Claude Code or Codex (ChatGPT) subscription can review, read-only, on your plan.");
+    expect(text).toContain("Ask for something bigger and it becomes a project that stops for you three times: the brief, the plan (each task's worker, reviewer and estimated cost), and each finished milestone with its checks.");
+    expect(text).toContain("In a folder restricted to local models, Fusion runs on the local worker alone and cloud reviewers are not offered.");
+    // After the workers' paragraph.
+    expect(text.indexOf("A third seat")).toBeGreaterThan(text.indexOf("executes: each worker takes one part"));
   });
 
   it("keeps the mark small and rectangular so a short pane still fits it", () => {
