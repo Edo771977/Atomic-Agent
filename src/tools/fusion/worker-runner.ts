@@ -91,6 +91,7 @@ import {
   describeSelfCheck,
   hasFindings,
   ownChecks,
+  checkSpecKey,
   renderSelfCheckNotice,
   runSelfCheck,
   GREEN_CHECK_REPEAT_LIMIT,
@@ -2079,7 +2080,11 @@ async function runOneTask(
           );
           if (result.tool === "verify.run" && result.status === "ok" && passedAndCurrent === undefined && !stopByWatch.signal.aborted) {
             const green = checkRuns.greenRunsInARow();
-            if (green !== undefined && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
+            // Only the task's own contract check counts, and only after the
+            // attempt wrote something: a `node -e 0`, or a check run before
+            // any edit, says nothing about this task's work (issue #98 review).
+            const ownSpec = green !== undefined && ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === green.spec);
+            if (green !== undefined && ownSpec && wroteSomething && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
               passedAndCurrent = green;
               stopByWatch.abort(new Error("passed and current: the same check passed on unchanged files"));
             }
@@ -2442,7 +2447,8 @@ async function runOneTask(
     // files, is done (issue #98): its artifact is kept for the director,
     // the milestone does not fail and its dependents run.
     const usable = last !== undefined && last.sinceLastChange && last.ok && last.coversFile;
-    result = passedAndCurrent !== undefined
+    // A stalled write decides first: green checks never override it unless its check covers the file.
+    result = passedAndCurrent !== undefined && (stalledWrite === undefined || usable)
       ? {
           ...rest,
           status: "ok",

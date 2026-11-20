@@ -116,6 +116,8 @@ describe("a stalled program whose file is good is kept as done; its dependents r
             { id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] },
             { id: "tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"], dependsOn: ["program"] },
           ],
+          // The program's own check: the green-check rule counts only these (issue #98 review).
+          contract: { checks: [{ task: "program", type: "command", command: "node --test sales.test.cjs sales.cjs" }] },
         }, ctx(dir));
         const rows = result.details.tasks as Array<{ id: string; status: string; failure?: string; notes?: string[]; stalled?: unknown }>;
         const prog = rows.find((r) => r.id === "program")!;
@@ -131,4 +133,52 @@ describe("a stalled program whose file is good is kept as done; its dependents r
       } finally { rmSync(dir, { recursive: true, force: true }); }
     });
   }
+
+  describe("the green-check rule counts only the task's own checks, after a write (issue #98 review)", () => {
+    const runProgram = async (script: (hook: (e: never) => void, aborted: () => boolean) => void, contract?: unknown) => {
+      const dir = mkdtempSync(join(tmpdir(), "green-rule-"));
+      try {
+        let aborted = false;
+        const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
+          options.eventHook!({ type: "turn_started", turnIndex: 0 } as never);
+          script(options.eventHook! as never, () => options.signal?.aborted === true);
+          aborted = options.signal?.aborted === true;
+          return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 3 } as RunTurnResult;
+        };
+        const result = await buildFusionDelegateTool(deps(dir, async () => ({ content: review("accept") }), runTurn)).run({
+          tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }],
+          ...(contract === undefined ? {} : { contract }),
+        }, ctx(dir));
+        return { aborted, row: (result.details.tasks as Array<{ status: string; failure?: string; notes?: string[] }>)[0]! };
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    };
+    const own = { checks: [{ task: "program", type: "command", command: "node --test sales.test.cjs" }] };
+
+    it("a check that is not the task's own (`node -e 0`) never stops it as done", async () => {
+      const { aborted, row } = await runProgram((hook) => {
+        for (const e of write("sales.cjs", "x", 0)) hook(e);
+        for (let i = 1; i < 6; i += 1) for (const e of verify("node -e 0", i)) hook(e);
+      }, own);
+      expect(aborted).toBe(false);
+      expect(row.notes?.join(" ") ?? "").not.toMatch(/passed and current/);
+    });
+
+    it("its own check passing before any write never stops it as done", async () => {
+      // (A worker that only reads may be handed back for that; it is never "passed and current".)
+      const { row } = await runProgram((hook) => {
+        for (let i = 0; i < 5; i += 1) for (const e of verify("node --test sales.test.cjs", i)) hook(e);
+      }, own);
+      expect(row.notes?.join(" ") ?? "").not.toMatch(/passed and current/);
+    });
+
+    it("a stalled write whose check does not name the file stays stuck, whatever the checks did", async () => {
+      const { row } = await runProgram((hook, aborted) => {
+        for (const e of write("sales.cjs", "x", 0)) hook(e);
+        for (const e of verify("node --test sales.test.cjs", 1)) hook(e);
+        for (let i = 2; i < 12 && !aborted(); i += 1) for (const e of write("sales.cjs", "x", i)) hook(e);
+      }, own);
+      expect(row).toMatchObject({ status: "failed", failure: "stuck" });
+    });
+  });
 });
+
