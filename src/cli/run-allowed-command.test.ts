@@ -22,7 +22,7 @@ describe("parseAllowedCommand", () => {
 });
 
 describe("allowedCommandMatches", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-root-")));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-root-")));
   mkdirSync(join(root, "pkg"));
   const sibling = `${root}-other`;
   mkdirSync(sibling, { recursive: true });
@@ -82,8 +82,8 @@ describe("allowedCommandMatches", () => {
   });
 
   it("compares real paths: a link out of the folder does not match, and a folder that cannot be resolved fails closed", () => {
-    const real = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-real-")));
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-out-")));
+    const real = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-real-")));
+    const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-out-")));
     symlinkSync(outside, join(real, "link"), "dir");
     expect(allowedCommandMatches(shell({ affectedResources: [real] }), allowed, real)).toBe(true);
     expect(allowedCommandMatches(shell({ affectedResources: [join(real, "link")] }), allowed, real)).toBe(false);
@@ -115,7 +115,7 @@ describe("verify.run checks built from real specs (issue #95 review)", () => {
     await authorizeVerifyBatch([spec], { approvals: approvals as never, approvalRequired: true }, { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal } as never);
     return seen[0]!;
   };
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "aa-allow-verify-")));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-allow-verify-")));
   const allowedTest = [parseAllowedCommand("node --test") as { argv: string[] }];
 
   it("matches the plain direct command", async () => {
@@ -134,8 +134,8 @@ describe("verify.run checks built from real specs (issue #95 review)", () => {
 
 describe("pinAllowedCommand (issue #95, third review)", () => {
   it("pins a program whose folder has ( ) or { } in its name for os.shell.run, which spawns it directly", () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "aa-pin-root-")));
-    const programs = join(realpathSync(mkdtempSync(join(tmpdir(), "aa-pin-progs-"))), "Program Files (x86) {x}");
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pin-root-")));
+    const programs = join(realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pin-progs-"))), "Program Files (x86) {x}");
     mkdirSync(programs, { recursive: true });
     writeFileSync(join(programs, "tool"), "#!/bin/sh\nexit 0\n");
     chmodSync(join(programs, "tool"), 0o755);

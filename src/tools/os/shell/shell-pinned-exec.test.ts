@@ -17,7 +17,7 @@ describe("os.shell.run with a pinned exec", () => {
   let decide: (request: ApprovalRequest) => Omit<ApprovalDecision, "approvalId">;
   let gate: ApprovalGate;
   beforeEach(() => {
-    dir = realpathSync(mkdtempSync(join(tmpdir(), "aa-pinned-")));
+    dir = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pinned-")));
     writeFileSync(join(dir, "mark.cjs"), "require('node:fs').writeFileSync(require('node:path').join(process.cwd(), 'ran.txt'), process.argv.slice(2).join(' '));\n");
     gate = new ApprovalGate({
       level: 1,
@@ -36,7 +36,7 @@ describe("os.shell.run with a pinned exec", () => {
   });
 
   it("refuses a pin for another folder instead of running it there or unpinned", async () => {
-    const other = realpathSync(mkdtempSync(join(tmpdir(), "aa-pinned-other-")));
+    const other = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pinned-other-")));
     decide = (request) => ({ approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv!, cwd: other, path: "/usr/bin" } });
     await expect(shell({ cmd: "node", args: ["mark.cjs", "d"] })).rejects.toThrow(/not run/);
     expect(existsSync(join(dir, "ran.txt"))).toBe(false);

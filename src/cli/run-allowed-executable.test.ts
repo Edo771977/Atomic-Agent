@@ -17,7 +17,7 @@ describe("resolveAllowedExecutable on POSIX", () => {
     chmodSync(file, 0o755);
     return file;
   };
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "aa-resolve-")));
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-resolve-")));
   const runDir = join(base, "proj");
   const planted = join(runDir, "bin");
   const system = join(base, "system-bin");
