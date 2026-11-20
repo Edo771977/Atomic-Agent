@@ -6,7 +6,8 @@ import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-loop.js";
 import { FUSION_WORKER_ID_PREFIX, type FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { describeReplan, renderReplanBlock } from "./replan.js";
-import { REPEATED_WRITE_LIMIT } from "./worker-repeated-writes.js";
+import { REPEATED_WRITE_LIMIT, specNames } from "./worker-repeated-writes.js";
+import { checkSpecKey } from "./worker-self-check.js";
 import { runWorkerTasks, type WorkerRunnerDeps } from "./worker-runner.js";
 
 const REPO = resolve("/repo");
@@ -240,3 +241,25 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
     expect(block).toMatch(/verify the named file/);
   });
 });
+
+describe("a check covers a file only when its command names it as an argument (issue #98 review)", () => {
+  const spec = (command: string) => checkSpecKey({ type: "command", command });
+  it("matches the path, or the base name, as a whole argument", () => {
+    expect(specNames(spec("node --test sales.test.cjs"), "sales.test.cjs")).toBe(true);
+    expect(specNames(spec("node --test ./src/a.test.js"), "src/a.test.js")).toBe(true);
+    expect(specNames(spec("node --test src/a.test.js"), "a.test.js")).toBe(true);
+    expect(specNames(spec("node --test=sales.cjs"), "sales.cjs")).toBe(true);
+    expect(specNames(spec('node --test "sales.cjs"'), "sales.cjs")).toBe(true);
+  });
+  it("a substring is not a match", () => {
+    expect(specNames(spec("node data.json"), "src/a.js")).toBe(false);
+    expect(specNames(spec("node --test sales.cjs.bak"), "sales.cjs")).toBe(false);
+    expect(specNames(spec("node mysales.cjs"), "sales.cjs")).toBe(false);
+  });
+  it("an existence-only check never covers the file", () => {
+    for (const command of ["test -f out.js", "[ -f out.js ]", "ls out.js", "stat out.js", "cat out.js"]) {
+      expect(specNames(spec(command), "out.js")).toBe(false);
+    }
+  });
+});
+
