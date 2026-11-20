@@ -1565,7 +1565,11 @@ async function runOneTask(
   const attemptFiles = new AttemptFilesTracker(workingDir);
   // Its test runs as the tool results showed them (issue #102): kept on
   // the attempt even when the worker times out before its summary.
-  const executionEvidence = new ExecutionEvidenceTracker(workingDir, task.files ?? []);
+  const executionEvidence = new ExecutionEvidenceTracker(
+    workingDir,
+    task.files ?? [],
+    (args) => ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === checkSpecKey(args)),
+  );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on
   // unchanged files (issue #98): passed and current, the worker stops as done.
