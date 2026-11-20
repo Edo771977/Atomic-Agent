@@ -20,6 +20,8 @@ import {
 import type { ToolContext } from "../tool-registry.js";
 import { buildProjectTools, PROJECT_UPDATE_DETAIL, type ProjectToolDeps } from "./project-tools.js";
 import { projectGateView } from "./project-gate-view.js";
+import { settleProjectGate } from "../../cli/run-project-gate.js";
+import { allowedProjectVerdicts, type ProjectDecision } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { readMilestoneEvidence, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
 
@@ -131,6 +133,33 @@ describe("a milestone stays open while a required task lacks a current accept (i
       p = approve(fold(p, done.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate));
       expect(p.milestones[0]!.state).toBe("reviewed");
     } finally { rmSync(state, { recursive: true, force: true }); }
+  });
+
+  it("the person may approve over open reviews with a note; no automatic path does (issue #98 review)", async () => {
+    let p = fold(undefined, { kind: "brief", brief: { what: "CSV sales", users: "ops", how: "node", successCriteria: ["sums revenue"] }, draftedAfterUntrusted: false });
+    p = approve(fold(approve(p), { kind: "plan", milestones: [{ id: "m1", title: "CLI", kind: "base" }], rows: [row("program")], detail: "compact" }));
+    p = fold(p, { kind: "milestone_run", id: "m1", runId: "fr-1" });
+    p = fold(p, { kind: "milestone", id: "m1", state: "failed", summary: "reviewer unreachable", reviewBlocks: [{ taskId: "program", reason: "no reviewer ran in its latest run" }] });
+    expect(allowedProjectVerdicts(p.gate, p)).toContain("approveOverReview");
+    // Without a note it is refused; with one the milestone is reviewed, the note kept and shown.
+    const bare = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approveOverReview" }, { now: NOW });
+    expect(bare).toMatchObject({ ok: false, error: { code: "invalid" } });
+    const over = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approveOverReview", edits: { note: "reviewer gone; suites pass" } }, { now: NOW });
+    if (!over.ok) throw new Error(over.error.message);
+    expect(over.project.milestones[0]).toMatchObject({ state: "reviewed", reviewOverride: { note: "reviewer gone; suites pass", blocks: [{ taskId: "program" }] } });
+    expect(over.project.milestones[0]!.summary).toContain("approved over open review by the person: reviewer gone; suites pass");
+    // Not offered without blocks.
+    const clean = { ...p, milestones: p.milestones.map((m) => ({ ...m, reviewBlocks: undefined })) } as ProjectState;
+    expect(allowedProjectVerdicts(clean.gate, clean)).not.toContain("approveOverReview");
+    // --auto-approve-project never takes it: it stops at the gate.
+    const decisions: ProjectDecision[] = [];
+    const runtime = {
+      projectState: () => projectGateView({ sessionId: "s", project: p, estimate: null, selectable: { workers: [], reviewers: [] } }),
+      projectDecision: (_s: string, d: ProjectDecision) => { decisions.push(d); return { ok: false as const, error: { code: "invalid" as const, message: "x" } }; },
+    };
+    const step = await settleProjectGate(runtime as never, "s", "approve");
+    expect(step.kind).not.toBe("approved");
+    expect(decisions.some((d) => d.verdict === "approveOverReview")).toBe(false);
   });
 });
 

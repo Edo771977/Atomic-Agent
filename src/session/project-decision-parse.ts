@@ -8,7 +8,7 @@
 
 import type { ProjectDecision, ProjectEdits, ProjectGate, ProjectVerdict } from "./session-project.js";
 
-export const PROJECT_VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel"];
+export const PROJECT_VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"];
 export const MAX_PROJECT_NOTE_CHARS = 2000;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);

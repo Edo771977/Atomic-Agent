@@ -144,6 +144,12 @@ export interface ProjectMilestone {
    */
   reviewBlocks?: ProjectReviewBlock[];
   /**
+   * The person approved this milestone over open review blocks
+   * (`approveOverReview`, issue #98): their note, when, and the blocks it
+   * stood over.
+   */
+  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[] };
+  /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
    * the milestone's work ({@link milestoneWorkChanged}) moves its state's
@@ -453,7 +459,13 @@ export type ProjectUpdateResult =
 
 // -------------------------------------------------------------- decisions
 
-export type ProjectVerdict = "approve" | "edit" | "cheaper" | "quality" | "cancel";
+/**
+ * `approveOverReview` (issue #98): the person approves a milestone result
+ * over open review blocks (an unreachable reviewer, one switched off) with
+ * a note. Offered only while the gate's milestone has blocks, and never
+ * taken by an automatic path (`--auto-approve-project`, `run --approve`).
+ */
+export type ProjectVerdict = "approve" | "edit" | "cheaper" | "quality" | "cancel" | "approveOverReview";
 
 /** The person's changes with an `edit` verdict. */
 export interface ProjectEdits {
@@ -546,14 +558,16 @@ export function gateVersion(project: ProjectState | undefined): number | null {
 }
 
 /** The verdicts a gate accepts (the cards draw these buttons). */
-export function allowedProjectVerdicts(gate: ProjectGate): ProjectVerdict[] {
+export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState): ProjectVerdict[] {
   switch (gate.kind) {
     case "brief":
       return ["approve", "edit", "cancel"];
     case "plan":
       return ["approve", "edit", "cheaper", "quality", "cancel"];
-    case "milestone":
-      return ["approve", "edit", "cancel"];
+    case "milestone": {
+      const blocked = (project?.milestones.find((m) => m.id === gate.id)?.reviewBlocks ?? []).length > 0;
+      return blocked ? ["approve", "edit", "approveOverReview", "cancel"] : ["approve", "edit", "cancel"];
+    }
     case "none":
       return ["cancel"];
   }
@@ -947,6 +961,13 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
   const attachments = Array.isArray(raw.attachments) ? readStoredAttachments(raw.attachments) : [];
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
   const blocks = Array.isArray(raw.reviewBlocks) ? cleanReviewBlocks(raw.reviewBlocks) : [];
+  const override = isObject(raw.reviewOverride) && typeof raw.reviewOverride.note === "string" && isTime(raw.reviewOverride.at)
+    ? {
+        note: clipText(raw.reviewOverride.note, PROJECT_LIMITS.correctionNote),
+        at: raw.reviewOverride.at as number,
+        blocks: Array.isArray(raw.reviewOverride.blocks) ? cleanReviewBlocks(raw.reviewOverride.blocks) : [],
+      }
+    : undefined;
   const history = Array.isArray(raw.history)
     ? raw.history.map(readRevision).filter((r): r is ProjectMilestoneRevision => r !== null).slice(-PROJECT_LIMITS.history)
     : [];
@@ -961,6 +982,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
+    ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
     ...(history.length === 0 ? {} : { history }),
     updatedAt: raw.updatedAt,
   };
@@ -1846,7 +1868,7 @@ export function applyProjectDecision(
   if (current === null || decision.version !== current) {
     return refuse({ code: "stale-version", message: "The project changed since it was shown; reload it.", current });
   }
-  const allowed = allowedProjectVerdicts(project.gate);
+  const allowed = allowedProjectVerdicts(project.gate, project);
   if (!allowed.includes(decision.verdict)) {
     return refuse({ code: "verdict-not-allowed", message: `This gate accepts ${allowed.join(", ")}.`, allowed });
   }
@@ -1864,6 +1886,31 @@ export function applyProjectDecision(
         versionFloor: Math.max(project.versionFloor ?? 0, project.brief?.version ?? 0, project.plan?.version ?? 0),
       },
     };
+  }
+
+  if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
+    // The person's call over open reviews (issue #98): with a note, the
+    // result is approved as done, the blocks and the note kept on it.
+    const raw = decision.edits?.note;
+    const note = typeof raw === "string" ? clipText(raw, PROJECT_LIMITS.correctionNote) : "";
+    if (note.length === 0) {
+      return refuse({ code: "invalid", message: "Approving over an open review needs a note saying why." });
+    }
+    const overridden: ProjectState = {
+      ...project,
+      milestones: project.milestones.map((m) => {
+        if (m.id !== gate.id) return m;
+        const { reviewBlocks: blocks = [], ...rest } = m;
+        const line = `approved over open review by the person: ${note}`;
+        return {
+          ...rest,
+          state: "done" as const,
+          summary: clipText(rest.summary === undefined ? line : `${rest.summary}\n${line}`, PROJECT_LIMITS.text),
+          reviewOverride: { note, at: now, blocks },
+        };
+      }),
+    };
+    return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
   }
 
   if (decision.verdict === "approve") {

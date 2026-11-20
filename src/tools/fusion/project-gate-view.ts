@@ -103,7 +103,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     sessionId: input.sessionId,
     gate: project.gate,
     version: gateVersion(project),
-    allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate),
+    allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate, project),
     expectation: projectExpectation(project),
     cancelled: project.cancelledAt !== undefined,
     brief:
