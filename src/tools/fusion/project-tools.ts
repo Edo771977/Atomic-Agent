@@ -478,6 +478,12 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           report = { ...report, criteriaFacts: evidence.facts };
           lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
         }
+        if ((evidence.noReviewVerdict ?? []).length > 0) {
+          // A task that ended with no review verdict (issue #95): the person sees it at the gate.
+          const warning = `Warning: no review verdict: ${(evidence.noReviewVerdict ?? []).map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`;
+          report = { ...report, summary: `${report.summary}\n${warning}` };
+          lines.push(warning);
+        }
         if (evidence.uncovered.length > 0) {
           // On the report itself, so the person sees it at the gate.
           const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;

@@ -135,6 +135,25 @@ export interface ApprovalRequest {
    */
   targetPaths?: string[];
   /**
+   * Set by `verify.run` (and the contract checks that use it) on a
+   * `command` check that runs exactly one command directly (no shell),
+   * writes no file it names, and has no `env` and no `stdin` (undefined
+   * or empty; a data stdin counts too): the only verification
+   * `run --allow-command` may pre-approve (issue #95), since anything
+   * else runs more than the command's words.
+   */
+  verifyPlainCommand?: true;
+  /**
+   * Set by `os.shell.run` when `commandArgv` is all the call runs: a
+   * direct exec of exactly what it wrote (no glob expanded), or a
+   * one-string line of plain words separated by single spaces (so no
+   * redirect, `&`, comment or substitution), and not a `background` job
+   * (which outlives the turn). With
+   * `commandArgv`, the only shell call `run --allow-command` may
+   * pre-approve (issue #95).
+   */
+  literalExec?: true;
+  /**
    * Set by the gate, never by a caller: what the smart-approval risk
    * review (`risk-review.ts`) said about a request it did not let
    * through, e.g. `risk check: medium (installs a package)`. A surface
@@ -170,6 +189,19 @@ export interface ApprovalRequest {
  */
 export type ApprovalGrantScope = "category" | "shape" | "always";
 
+/** See `ApprovalDecision.pinnedExec`. */
+export interface PinnedExec {
+  file: string;
+  argv: string[];
+  cwd: string;
+  /**
+   * The only PATH the child gets: the absolute, real entries outside the
+   * run's folder the file was resolved through, so a `#!/usr/bin/env`
+   * script finds its interpreter there and nowhere the model can plant one.
+   */
+  path: string;
+}
+
 export interface ApprovalDecision {
   approvalId: string;
   approved: boolean;
@@ -196,6 +228,25 @@ export interface ApprovalDecision {
    * decision, not a system refusal (`describeApprovalDenial`).
    */
   declinedEarlier?: boolean;
+  /**
+   * Set with `automatic` by a host that had nobody to ask (issue #95: a
+   * piped `run` whose stdin gave no answer). Nobody decided, so the model
+   * is never told the user declined; but the gate remembers the call and
+   * the files it would change for the rest of the turn, like a Deny, so
+   * an identical retry is refused unasked instead of looping
+   * (`unavailableInTurn`).
+   */
+  unavailable?: boolean;
+  /**
+   * Set by a host that pre-approved the call on its own terms (issue #95:
+   * `run --allow-command`): exactly what is to run, the real program
+   * file, the argv (argv[0] as the call wrote it) and the real folder.
+   * Only the host's decision carries it, never the call's arguments;
+   * `requireApproval` hands it to the tool only for a request marked
+   * `literalExec` or `verifyPlainCommand` whose `commandArgv` it equals,
+   * and the tool then spawns `file` with `argv.slice(1)`, no shell.
+   */
+  pinnedExec?: PinnedExec;
   /** Session grant to record alongside an approval. Ignored when denied. */
   grant?: ApprovalGrantScope;
   /**
@@ -384,6 +435,8 @@ export class ApprovalGate {
    * here, without a prompt.
    */
   private readonly declinedBySession = new Map<string, DeclinedInTurn>();
+  /** Calls and files refused as `unavailable` this turn; cleared with `declinedBySession`. */
+  private readonly unavailableBySession = new Map<string, DeclinedInTurn>();
   /**
    * Fusion worker session → the orchestrator session it works for (see
    * `followDeclined`): a worker's calls are refused over what the user
@@ -677,6 +730,7 @@ export class ApprovalGate {
     if (sessionId === undefined) {
       this.grantsBySession.clear();
       this.declinedBySession.clear();
+      this.unavailableBySession.clear();
       this.declinedParentBySession.clear();
       this.taintParentBySession.clear();
       this.verifyPageFoldersBySession.clear();
@@ -685,6 +739,7 @@ export class ApprovalGate {
     }
     this.grantsBySession.delete(sessionId);
     this.declinedBySession.delete(sessionId);
+    this.unavailableBySession.delete(sessionId);
     this.declinedParentBySession.delete(sessionId);
     this.taintParentBySession.delete(sessionId);
     this.verifyPageFoldersBySession.delete(sessionId);
@@ -747,6 +802,18 @@ export class ApprovalGate {
         reason: declined,
         automatic: true,
         declinedEarlier: true,
+      });
+    }
+    const unavailable = this.unavailableInTurn(request);
+    if (unavailable !== null) {
+      return Promise.resolve({
+        approvalId,
+        approved: false,
+        reason:
+          `approval unavailable (non-interactive run): ${unavailable} was refused earlier in this turn because nobody could be asked, ` +
+          "so it was not asked again; nobody declined it",
+        automatic: true,
+        unavailable: true,
       });
     }
     // Saved rules: a deny wins over everything below; an ask skips the
@@ -1122,14 +1189,22 @@ export class ApprovalGate {
     return this.declinedTarget(request);
   }
 
+  /** `declinedInTurn` over the calls refused as `unavailable` (issue #95). */
+  private unavailableInTurn(request: ApprovalRequest): string | null {
+    const key = callKey(request);
+    const records = this.declinedRecords(request.sessionId, this.unavailableBySession);
+    if (records.some((record) => record.calls.has(key))) return "this same call";
+    return this.declinedTarget(request, this.unavailableBySession);
+  }
+
   /**
    * The target rule of `declinedInTurn` on its own: what the user
    * declined that `query` would change by another route, or `null`.
    */
-  private declinedTarget(query: TargetQuery): string | null {
+  private declinedTarget(query: TargetQuery, store = this.declinedBySession): string | null {
     const targets = normaliseTargets([...(query.targetPaths ?? []), ...(query.targetPaths ?? []).map(path => this.originalCandidatePath(query.sessionId, path))]);
     if (targets.length === 0) return null;
-    for (const declined of this.declinedRecords(query.sessionId)) {
+    for (const declined of this.declinedRecords(query.sessionId, store)) {
       for (const target of targets) {
         const tool = declined.targets.get(target);
         if (
@@ -1150,13 +1225,13 @@ export class ApprovalGate {
   }
 
   /** The session's own record, then the one of the session it works for. */
-  private declinedRecords(sessionId: string): DeclinedInTurn[] {
+  private declinedRecords(sessionId: string, store = this.declinedBySession): DeclinedInTurn[] {
     const records: DeclinedInTurn[] = [];
-    const own = this.declinedBySession.get(sessionId);
+    const own = store.get(sessionId);
     if (own !== undefined) records.push(own);
     const parent = this.declinedParentBySession.get(sessionId);
     const inherited =
-      parent === undefined ? undefined : this.declinedBySession.get(parent);
+      parent === undefined ? undefined : store.get(parent);
     if (inherited !== undefined) records.push(inherited);
     return records;
   }
@@ -1167,12 +1242,12 @@ export class ApprovalGate {
    * the next step, and "yes, go ahead" or "put it in ~/Documents" can
    * make the very next call the thing the user asked for.
    */
-  private recordDeclined(request: ApprovalRequest, reason?: string): void {
-    if ((reason?.trim() ?? "") !== "") return;
-    let declined = this.declinedBySession.get(request.sessionId);
+  private recordDeclined(request: ApprovalRequest, reason?: string, store = this.declinedBySession): void {
+    if (store === this.declinedBySession && (reason?.trim() ?? "") !== "") return;
+    let declined = store.get(request.sessionId);
     if (declined === undefined) {
       declined = { calls: new Set(), targets: new Map() };
-      this.declinedBySession.set(request.sessionId, declined);
+      store.set(request.sessionId, declined);
     }
     declined.calls.add(callKey(request));
     if (isShellCommandCategory(request.category)) return;
@@ -1189,7 +1264,7 @@ export class ApprovalGate {
    * reaches the gate, which refuses it.
    */
   hasDeclinedTarget(query: TargetQuery): boolean {
-    return this.declinedTarget(query) !== null;
+    return this.declinedTarget(query) !== null || this.declinedTarget(query, this.unavailableBySession) !== null;
   }
 
   /**
@@ -1212,11 +1287,13 @@ export class ApprovalGate {
    * knowing what they had declined, and that is the newer answer.
    */
   forgetDeclinedUnder(sessionId: string, dirs: readonly string[]): void {
-    const declined = this.declinedBySession.get(sessionId);
-    if (declined === undefined) return;
-    for (const target of [...declined.targets.keys()]) {
-      if (dirs.some((dir) => isInside(resolvePath(dir), target))) {
-        declined.targets.delete(target);
+    for (const store of [this.declinedBySession, this.unavailableBySession]) {
+      const declined = store.get(sessionId);
+      if (declined === undefined) continue;
+      for (const target of [...declined.targets.keys()]) {
+        if (dirs.some((dir) => isInside(resolvePath(dir), target))) {
+          declined.targets.delete(target);
+        }
       }
     }
   }
@@ -1274,6 +1351,7 @@ export class ApprovalGate {
    */
   forgetDeclined(sessionId: string): void {
     this.declinedBySession.delete(sessionId);
+    this.unavailableBySession.delete(sessionId);
   }
 
   resolve(decision: ApprovalDecision): boolean {
@@ -1297,6 +1375,11 @@ export class ApprovalGate {
     // decision, and must not stop the model asking again.
     if (!decision.approved && decision.automatic !== true) {
       this.recordDeclined(entry.request, decision.reason);
+    }
+    // Nobody could be asked (issue #95): not a person's no, but asking
+    // again this turn would get the same silence, so a repeat is refused.
+    if (!decision.approved && decision.unavailable === true) {
+      this.recordDeclined(entry.request, decision.reason, this.unavailableBySession);
     }
     entry.resolve(decision);
     return true;

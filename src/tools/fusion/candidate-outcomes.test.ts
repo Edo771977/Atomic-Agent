@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +34,8 @@ describe("candidate outcome telemetry", () => {
     expect(text).toContain("Candidate task runs (telemetry only)");
     expect(text).toContain("telemetry only");
     const serialized = JSON.stringify(candidate);
+    // Only a key of the task id (issue #95), never the id.
+    expect(JSON.parse(serialized).taskKey).toBe(createHash("sha256").update("private-task", "utf8").digest("hex").slice(0, 16));
     for (const secret of ["private-task", "private-title", "secret-reply", "command", "stdout"]) expect(serialized).not.toContain(secret);
   });
   it("does not turn call-level green into a task check and counts rejection reasons", () => {

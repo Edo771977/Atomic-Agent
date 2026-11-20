@@ -117,6 +117,17 @@ export function resolveInvocation(
   return { ...invocation, commandLine };
 }
 
+/**
+ * `base` with `overrides` on top; an override replaces every spelling of
+ * its name (`Path` and `PATH` on Windows), so a pinned PATH is the only one.
+ */
+function withEnvOverrides(base: NodeJS.ProcessEnv, overrides: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  const names = new Set(Object.keys(overrides).map((name) => name.toUpperCase()));
+  const out: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) if (!names.has(key.toUpperCase())) out[key] = value;
+  return { ...out, ...overrides };
+}
+
 export function spawnVerifyProcess(
   cmd: string,
   args: readonly string[],
@@ -126,11 +137,10 @@ export function spawnVerifyProcess(
   const detached = process.platform !== "win32";
   const child = spawn(invocation.command, invocation.args, {
     cwd: options.cwd,
-    env: {
+    env: withEnvOverrides({
       ...buildCommandEnv(process.env),
       ...(options.network ? {} : networkBlockEnv()),
-      ...(options.env ?? {}),
-    },
+    }, options.env ?? {}),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,
