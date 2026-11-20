@@ -156,6 +156,14 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(stderr).not.toContain("approval required for tool");
     });
 
+    it("names the allowed command in an unavailable refusal, so the model can retry it in that form", async () => {
+      script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["other.cjs"] } }];
+      feed(["run the other one\n"]);
+      await runAgentCommand(["--cwd", workingDir, ...allow]);
+      expect(shellResult()).toContain("approval unavailable (non-interactive run)");
+      expect(shellResult()).toContain("`node mark.cjs`");
+    });
+
     it("still holds a different command", async () => {
       writeFileSync(join(workingDir, "other.cjs"), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'ran.txt'), 'other');\n");
       script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["other.cjs"] } }];

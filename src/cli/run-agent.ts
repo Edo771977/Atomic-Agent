@@ -397,6 +397,16 @@ const APPROVAL_UNAVAILABLE_REASON =
   `${APPROVAL_UNAVAILABLE}: no answer could be read from stdin, so nobody was asked and nobody declined it. ` +
   "Report it as not run for that reason, not as refused by the user";
 
+/**
+ * The unavailable reason, plus (issue #95) the commands `--allow-command`
+ * pre-approves, so the model can retry in exactly that form.
+ */
+function unavailableReason(allowed: readonly AllowedCommand[]): string {
+  if (allowed.length === 0) return APPROVAL_UNAVAILABLE_REASON;
+  const listed = allowed.map((command) => `\`${command.argv.join(" ")}\``).join(", ");
+  return `${APPROVAL_UNAVAILABLE_REASON}. This run pre-approves only ${listed}, run as exactly those words in its folder`;
+}
+
 /** Transport failures that mean "nothing answered at the configured URL". */
 const TRANSPORT_NO_ANSWER =
   /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|timeout/i;
@@ -832,7 +842,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
               // the user's own words (see `ApprovalDecision.reason`). An
               // unavailable approval is the system's, and says so.
               ...(answer.approved ? { reason: "cli-approved" } : {}),
-              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: APPROVAL_UNAVAILABLE_REASON } : {}),
+              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: unavailableReason(parsed.allowCommands) } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
               ...(answer.answer ? { answer: answer.answer } : {}),
             });
