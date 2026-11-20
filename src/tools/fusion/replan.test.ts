@@ -7,7 +7,7 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionTurnBudget } from "./turn-budget.js";
-import { describeReplan, renderReplanBlock, STALL_RECOVERY_ATTEMPTS } from "./replan.js";
+import { describeReplan, PLANNED_TASK_FIX, renderReplanBlock, STALL_RECOVERY_ATTEMPTS } from "./replan.js";
 import { WorkerRunCollector } from "./worker-result.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -235,6 +235,14 @@ describe("a replan may split a failed task into continuation ids", () => {
 
 describe("the fix each status calls for", () => {
   const row = (id: string, status: string) => ({ id, status }) as never;
+
+  it("a plan task failed twice stays on its row's worker, never `model: \"orchestrator\"` (issue #102)", () => {
+    const report = describeReplan([row("planned", "failed"), row("free", "failed")], () => 2, 3, () => false, true, (id) => id === "planned");
+    const fix = Object.fromEntries(report.pending.map((t) => [t.id, t.fix]));
+    expect(fix.planned).toBe(PLANNED_TASK_FIX);
+    expect(fix.planned).not.toMatch(/send it with/);
+    expect(fix.free).toBe('it failed twice on a worker: send it with `model: "orchestrator"`');
+  });
 
   it("split for steps and time, the exact edit for no change, the orchestrator after two runs", () => {
     const runs = new Map([["twice", 2]]);

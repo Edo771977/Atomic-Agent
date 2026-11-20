@@ -3195,6 +3195,8 @@ export function buildFusionDelegateTool(
                 orchestratorCap > 0 &&
                 (!tracksTurn ||
                   turnBudget.orchestratorTasks(ctx.sessionId) < orchestratorCap),
+              // A plan task is steered to its row's worker, never another model (issue #102).
+              (id) => planApproved && projectVerdict.kind === "admit" && projectVerdict.planned.includes(id),
               )
             : undefined;
         const replan =
