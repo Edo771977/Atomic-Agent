@@ -40,6 +40,11 @@ export const criticalFiles = [
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
   // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
   'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
+  // Issue #100: bounded correction rounds, verify-only tasks, timeout recovery, review issues.
+  'src/tools/fusion/milestone-correction.test.ts',
+  'src/tools/fusion/review-issues.test.ts',
+  'src/tools/fusion/timeout-recovery.test.ts',
+  'src/tools/fusion/verify-only.test.ts',
   // Issue #98: milestone review gate, stall recovery, member identity.
   'src/tools/fusion/milestone-review-gate.test.ts',
   'src/tools/fusion/stall-recovery.test.ts',
