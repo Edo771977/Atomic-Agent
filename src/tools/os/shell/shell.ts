@@ -16,6 +16,7 @@ import {
   savedRuleOverridesScope,
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
+import type { PinnedExec } from "../../../approval/approval-gate.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
 import { nodeCheckMultiFileNotice } from "./node-check-notice.js";
@@ -82,6 +83,21 @@ export {
  * True for a verdict of the guard's dangerous layer (`dangerous.*` in
  * `rules-dangerous.ts`): the command asks as `shell_dangerous`.
  */
+/** `env` with every PATH spelling (`Path` on Windows) replaced by `path`. */
+function withOnlyPath(env: NodeJS.ProcessEnv, path: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() !== "PATH") out[key] = value;
+  out.PATH = path;
+  return out;
+}
+
+/**
+ * Issue #95: a one-string `cmd` of plain words separated by single
+ * spaces, nothing else (no quotes, `$`, `%`, `^`, `!`, globs or
+ * operators): what a shell runs for it is its split on spaces.
+ */
+const PLAIN_LINE_RE = /^[A-Za-z0-9_./:=@+,-]+( [A-Za-z0-9_./:=@+,-]+)*$/;
+
 export function isDangerousGuardRule(rule: string): boolean {
   return rule.startsWith("dangerous.");
 }
@@ -300,6 +316,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       guardVerdict.action === "allow" &&
       options.approvalRequired &&
       savedRuleDenies(options.approvals, ruleCheck);
+    // Issue #95: what a host's pre-approval pinned (`run --allow-command`):
+    // when set, exactly that file, argv and folder run, no shell.
+    let pinned: PinnedExec | undefined;
     if (
       (guardVerdict.action === "approval_required" && !scopedByFanout) ||
       deniedBySavedRule
@@ -320,7 +339,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         : shellGrantShape(guardInput.cmd, commandLine, useShell);
       // Saved approval rules match on argv and on the session's folder.
       const commandArgv = shellCommandArgv(cmd, execArgs, useShell, commandShape);
-      await requireApproval(
+      const approval = await requireApproval(
         options,
         {
           sessionId: ctx.sessionId,
@@ -344,14 +363,28 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           ...(commandArgv !== undefined ? { commandArgv } : {}),
           commandSegments,
           ...(commandUnreadable ? { commandUnreadable } : {}),
+          // Issue #95: argv is all that runs: a direct exec with no glob
+          // expanded, or a one-string line of plain words (`PLAIN_LINE_RE`)
+          // whose split on spaces is that argv. A host may pin it then.
+          // Never a background call: it outlives the turn it was approved in.
+          ...(commandArgv !== undefined && rawArgs.background !== true &&
+          (useShell
+            ? rawArgList.length === 0 && PLAIN_LINE_RE.test(cmd) && commandArgv.join(" ") === cmd
+            : execArgs.length === rawArgList.length && execArgs.every((arg, i) => arg === rawArgList[i]))
+            ? { literalExec: true as const }
+            : {}),
           workdir: ctx.workingDir,
           targetPaths,
         },
         ctx.signal,
       );
+      pinned = approval.pinnedExec;
     }
 
-    const spawnSpec = resolveShellSpawn(cmd, execArgs, useShell);
+    const spawnSpec =
+      pinned === undefined
+        ? resolveShellSpawn(cmd, execArgs, useShell)
+        : { command: pinned.file, args: pinned.argv.slice(1), windowsVerbatimArguments: false };
     const facts: ShellCommandFacts = {
       cmd,
       args: execArgs,
@@ -374,11 +407,13 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // mid-session is filtered the same way. The toolchain additions
     // (non-interactive switches, PATH folders) are fixed values applied
     // after the filter, never read from the call.
+    const baseEnv = withToolchainEnv(
+      buildCommandEnv(process.env, options.envPassthrough ?? []),
+    );
     const job = startCommandJob(spawnSpec.command, spawnSpec.args, {
-      cwd,
-      env: withToolchainEnv(
-        buildCommandEnv(process.env, options.envPassthrough ?? []),
-      ),
+      cwd: pinned?.cwd ?? cwd,
+      // A pinned run gets only the pin's filtered PATH (issue #95).
+      env: pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }

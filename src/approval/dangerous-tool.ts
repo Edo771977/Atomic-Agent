@@ -1,4 +1,7 @@
-import type { ApprovalGate, RuleCheck } from "./approval-gate.js";
+import { realpathSync } from "node:fs";
+import { isAbsolute } from "node:path";
+
+import type { ApprovalGate, PinnedExec, RuleCheck } from "./approval-gate.js";
 import type { ApprovalCategory } from "./approval-level.js";
 
 export interface DangerousToolOptions {
@@ -24,6 +27,10 @@ export interface ApprovalPrompt {
   commandShape?: string;
   /** What a session grant on this request covers; see `ApprovalRequest.grantKey`. */
   grantKey?: string;
+  /** A plain one-command verification; see `ApprovalRequest.verifyPlainCommand`. */
+  verifyPlainCommand?: true;
+  /** A direct exec of exactly the written argv; see `ApprovalRequest.literalExec`. */
+  literalExec?: true;
   /** Parsed argv of a simple shell command; see `ApprovalRequest.commandArgv`. */
   commandArgv?: readonly string[];
   /** Every simple command the call would run; see `ApprovalRequest.commandSegments`. */
@@ -57,6 +64,8 @@ export interface ApprovalOutcome {
    * against and what re-categorising it means.
    */
   pathOverride?: string;
+  /** The host's pinned exec for this call (`ApprovalDecision.pinnedExec`), checked against the prompt. */
+  pinnedExec?: PinnedExec;
 }
 
 /**
@@ -200,6 +209,8 @@ export async function requireApproval(
         ? { commandSegments: prompt.commandSegments.map((words) => [...words]) }
         : {}),
       ...(prompt.commandUnreadable === true ? { commandUnreadable: true } : {}),
+      ...(prompt.verifyPlainCommand === true ? { verifyPlainCommand: true } : {}),
+      ...(prompt.literalExec === true ? { literalExec: true } : {}),
       ...(prompt.workdir !== undefined ? { workdir: prompt.workdir } : {}),
       ...(prompt.redirectablePath !== undefined
         ? { redirectablePath: prompt.redirectablePath }
@@ -220,11 +231,39 @@ export async function requireApproval(
   // that returns `pathOverride` for a call with no `redirectablePath` is
   // answering a question nobody asked, so it is dropped here rather than
   // handed to a tool that would not know what to do with it.
+  const pinned = pinnedExecFor(prompt, decision.pinnedExec);
   if (
     prompt.redirectablePath === undefined ||
     decision.pathOverride === undefined
   ) {
-    return {};
+    return pinned === undefined ? {} : { pinnedExec: pinned };
   }
-  return { pathOverride: decision.pathOverride };
+  return { pathOverride: decision.pathOverride, ...(pinned === undefined ? {} : { pinnedExec: pinned }) };
+}
+
+/**
+ * A host's pin is honoured only for a call that can be run as a bare
+ * argv (`literalExec`, `verifyPlainCommand`), when its argv is the
+ * call's own word for word and its folder is the call's own real folder
+ * (issue #95). A pin that fits none of that means the host approved
+ * something else: the call is refused, not run unpinned or elsewhere.
+ */
+function pinnedExecFor(prompt: ApprovalPrompt, pinned: PinnedExec | undefined): PinnedExec | undefined {
+  if (pinned === undefined) return undefined;
+  const refuse = (why: string): never => {
+    throw new ApprovalDeniedError(prompt.tool, `the approval pinned ${why}, so it does not cover this call`, { byUser: false });
+  };
+  if (prompt.literalExec !== true && prompt.verifyPlainCommand !== true) refuse("a program for a call that cannot run as a bare argv");
+  const argv = prompt.commandArgv;
+  if (argv === undefined || argv.length !== pinned.argv.length || !argv.every((word, i) => word === pinned.argv[i])) refuse("other words");
+  if (!isAbsolute(pinned.file) || !isAbsolute(pinned.cwd)) refuse("a relative path");
+  const folder = prompt.affectedResources?.[0];
+  let realFolder: string | null = null;
+  try {
+    realFolder = folder === undefined ? null : realpathSync.native(folder);
+  } catch {
+    realFolder = null;
+  }
+  if (realFolder !== pinned.cwd) refuse("another folder");
+  return { file: pinned.file, argv: [...pinned.argv], cwd: pinned.cwd, path: pinned.path };
 }

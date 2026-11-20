@@ -40,6 +40,9 @@ export const criticalFiles = [
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
   // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
   'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
+  // Issue #95: stalled workers stopped on repeated identical writes, reviewer evidence per attempt.
+  'src/tools/fusion/worker-repeated-writes.test.ts',
+  'src/tools/fusion/attempt-evidence.test.ts',
   // Issue #87: run facts tied to their criterion text, and resume spend counted once.
   'src/tools/fusion/project-evidence-revision.test.ts',
   'src/tools/fusion/fusion-resume-accounting.test.ts',

@@ -44,7 +44,8 @@ export type EditMatchLevel =
   | "inner-whitespace"
   | "escapes"
   | "typography"
-  | "block-anchor";
+  | "block-anchor"
+  | "already-applied";
 
 /** A tolerant match the edit can apply. */
 export interface TolerantEdit {
@@ -155,13 +156,99 @@ export function findTolerantEditMatch(
       reindented: shifted !== null,
     };
   }
-  return { kind: "none" };
+  const applied = findAlreadyApplied(source, oldString, newString);
+  return applied ?? { kind: "none" };
 }
+
+/** Shared text an already-applied edit must keep on both sides of its change, at least. */
+const ALREADY_APPLIED_MIN_ANCHOR = 8;
+/** A span of the file this close to `oldString` (bigram Dice) means the target may still be there. */
+const NEAR_TARGET_SIMILARITY = 0.7;
+const ALREADY_APPLIED_MAX_SOURCE = 512 * 1024;
+
+/**
+ * The edit is already in the file (issue #95): `oldString` is not there,
+ * `newString` is there exactly once, the two share at least
+ * {@link ALREADY_APPLIED_MIN_ANCHOR} characters of text around the change
+ * (so the occurrence sits where `oldString` would have been), and no
+ * other span of the file is close to `oldString` (a typo in `oldString`
+ * would leave its real target in place). Narrow by design: in doubt, it
+ * is "not found". The match replaces the occurrence with itself, so the
+ * file is unchanged, and the result says `matchedBy: "already-applied"`.
+ */
+function findAlreadyApplied(source: string, oldString: string, newString: string): TolerantEdit | undefined {
+  if (oldString.length === 0 || newString.length === 0 || oldString === newString) return undefined;
+  if (source.length > ALREADY_APPLIED_MAX_SOURCE || oldString.length > 4_000) return undefined;
+  if (source.includes(oldString)) return undefined;
+  const at = source.indexOf(newString);
+  if (at < 0 || source.indexOf(newString, at + 1) >= 0) return undefined;
+  let prefix = 0;
+  while (prefix < oldString.length && prefix < newString.length && oldString[prefix] === newString[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < oldString.length - prefix &&
+    suffix < newString.length - prefix &&
+    oldString[oldString.length - 1 - suffix] === newString[newString.length - 1 - suffix]
+  ) suffix++;
+  const anchor = oldString.slice(0, prefix).trim().length + oldString.slice(oldString.length - suffix).trim().length;
+  if (anchor < ALREADY_APPLIED_MIN_ANCHOR) return undefined;
+  if (nearTargetElsewhere(source, oldString, at, at + newString.length)) return undefined;
+  return {
+    kind: "unique",
+    level: "already-applied",
+    match: { start: at, end: at + newString.length },
+    replacement: newString,
+    reindented: false,
+  };
+}
+
+/** Whether a run of whole lines outside [start, end) reads close to `oldString`. */
+function nearTargetElsewhere(source: string, oldString: string, start: number, end: number): boolean {
+  const width = oldString.split("\n").length;
+  const lines = source.split("\n");
+  const offsets: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    offsets.push(offset);
+    offset += line.length + 1;
+  }
+  const target = bigrams(oldString.trim());
+  for (let i = 0; i + width <= lines.length; i++) {
+    const from = offsets[i]!;
+    const to = offsets[i + width - 1]! + lines[i + width - 1]!.length;
+    if (from < end && to > start) continue;
+    if (dice(target, bigrams(lines.slice(i, i + width).join("\n").trim())) >= NEAR_TARGET_SIMILARITY) return true;
+  }
+  return false;
+}
+
+function bigrams(text: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (let i = 0; i + 1 < text.length; i++) {
+    const pair = text.slice(i, i + 2);
+    out.set(pair, (out.get(pair) ?? 0) + 1);
+  }
+  return out;
+}
+
+function dice(a: Map<string, number>, b: Map<string, number>): number {
+  let total = 0;
+  let shared = 0;
+  for (const n of a.values()) total += n;
+  for (const n of b.values()) total += n;
+  for (const [pair, n] of a) shared += Math.min(n, b.get(pair) ?? 0);
+  return total === 0 ? 0 : (2 * shared) / total;
+}
+
+/** First line of a result whose edit found its new text already in place (issue #95). */
+const ALREADY_APPLIED_NOTE =
+  "note: oldString was not found, but newString is already in the file exactly once, where oldString would have been: the edit is already applied, and nothing was changed.";
 
 const REINDENTED = " newString's lines were shifted by the same indentation, in the file's whitespace.";
 
 /** First line of a result whose edit landed on a tolerant match. */
 export function tolerantMatchNote(level: EditMatchLevel, reindented = false): string {
+  if (level === "already-applied") return ALREADY_APPLIED_NOTE;
   const caution = reindented ? REINDENTED : (CAUTION[level] ?? "");
   return `note: oldString was not found exactly; it matched one place once ${relaxationOf(level)}, and the edit was applied there.${caution} Check the diff.`;
 }
@@ -199,7 +286,7 @@ export function tolerantAmbiguityMessage(level: EditMatchLevel, count: number): 
 }
 
 function relaxationOf(level: EditMatchLevel): string {
-  return LEVELS.find((candidate) => candidate.id === level)!.relaxation;
+  return LEVELS.find((candidate) => candidate.id === level)?.relaxation ?? "its new text was already in place";
 }
 
 /**

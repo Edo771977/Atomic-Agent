@@ -174,8 +174,15 @@ export async function authorizeVerifyBatch(
       preview, affectedResources: [cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
+      // Issue #95: one direct exec (no shell reads it) with no env, no
+      // stdin at all (script or data: either is input its words do not
+      // show) and no file it would write, so its argv is all that runs.
+      ...(logical.kind === "command" && first !== undefined && !needsShellInterpretation(first.cmd, first.args) &&
+        targetPaths.length === 0 && Object.keys(logical.env ?? {}).length === 0 &&
+        (logical.stdin === undefined || logical.stdin === "")
+        ? { verifyPlainCommand: true as const } : {}),
     };
-    return [{ prompt, logical, cwd }];
+    return [{ prompt, logical, cwd, spec }];
   });
   // A deny for a later command wins before asking about an earlier command.
   for (const { prompt } of plans) {
@@ -206,7 +213,7 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd, logical } of plans) {
+  for (const { prompt, cwd, logical, spec } of plans) {
     ctx.signal.throwIfAborted();
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
@@ -228,7 +235,21 @@ export async function authorizeVerifyBatch(
       ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
       : undefined;
     try {
-      await requireApproval(options, prompt, ctx.signal);
+      const outcome = await requireApproval(options, prompt, ctx.signal);
+      // Issue #95: a host's pin (`run --allow-command`) is what runs: the
+      // real program file with the approved argv, never a name the copy's
+      // PATH could resolve to something else. The private copy stays the cwd.
+      if (outcome.pinnedExec !== undefined) {
+        // requireApproval checked the pin's argv against this check's
+        // logical (project) argv; the spec keeps its own args, which name
+        // the private copy, and only the program is swapped.
+        const args = Array.isArray(spec.args) ? spec.args.map(String) : [];
+        if (needsShellInterpretation(outcome.pinnedExec.file, args)) throw new Error("verify.run: the pinned program cannot be started without a shell");
+        delete spec.command;
+        spec.cmd = outcome.pinnedExec.file;
+        // Only the pin's filtered PATH: see `PinnedExec.path`.
+        spec.env = { PATH: outcome.pinnedExec.path };
+      }
     } finally {
       withdraw?.();
     }

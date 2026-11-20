@@ -55,6 +55,7 @@ import {
   createStdinLineQueue,
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
+import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { withProject } from "../session/session-project.js";
 
@@ -78,6 +79,8 @@ interface RunArgs {
   approveVersion: number | null;
   /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
   autoApproveProject: boolean;
+  /** Issue #95: `--allow-command "<exact command>"` (repeatable), pre-approved in `--cwd` or below. */
+  allowCommands: AllowedCommand[];
 }
 
 const HELP =
@@ -106,6 +109,14 @@ const HELP =
     "                       Approve every fusion project gate at its current version as it opens,",
     "                       printing each with its version (scripts only); a failed milestone",
     "                       stops the run (exit 3) for a person",
+    '  --allow-command "<command>"',
+    "                       Run exactly this one command (e.g. the project's test command) without",
+    "                       asking, as a direct exec with these exact words in --cwd or below;",
+    "                       repeatable. Any other command, or the same line through a shell, still",
+    "                       asks; never implied by --auto-approve-project. It also answers a saved",
+    "                       \"ask\" rule for that command. A test runner (node --test, npm test)",
+    "                       runs whatever test files it finds, so allowing one allows any code the",
+    "                       model can write into --cwd",
     "",
     "In-session:  /quit exits · /abort cancels the current turn",
     "Exit codes:  0 replied · 1 failed · 2 usage error · 3 waiting at a project gate (session id printed)",
@@ -125,6 +136,7 @@ export function parseRunArgs(
   let approve = false;
   let approveVersion: number | null = null;
   let autoApproveProject = false;
+  const allowCommands: AllowedCommand[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
     switch (flag) {
@@ -184,6 +196,14 @@ export function parseRunArgs(
       case "--auto-approve-project":
         autoApproveProject = true;
         break;
+      case "--allow-command": {
+        const value = args[++i];
+        if (value === undefined) return { error: "--allow-command requires a command" };
+        const command = parseAllowedCommand(value);
+        if ("error" in command) return { error: command.error };
+        allowCommands.push(command);
+        break;
+      }
       case "--reviewer": {
         const value = args[++i];
         if (!value) return { error: `${flag} requires a value` };
@@ -222,11 +242,18 @@ export function parseRunArgs(
     approve,
     approveVersion,
     autoApproveProject,
+    allowCommands,
   };
 }
 
 interface CliApprovalAnswer {
   approved: boolean;
+  /**
+   * Issue #95: nobody could be asked (stdin ended, or a non-interactive
+   * stdin's next line was a message, not an answer). Resolved as an
+   * `automatic` denial, so the model is never told the user declined.
+   */
+  unavailable?: true;
   grant?: ApprovalGrantScope;
   /** The answer to an `ask_user` question (`cli-user-question.ts`). */
   answer?: UserQuestionAnswer;
@@ -304,13 +331,17 @@ export function isApprovalAnswer(line: string): boolean {
  * reads (ATO-802), so a piped "y" written together with the next
  * message answers this prompt and the message stays queued for the
  * next turn. Only a line shaped like an answer (`isApprovalAnswer`) is
- * taken: any other line is a refusal and stays queued as the next
- * message, so a driver that pipes "task\ncontinue" without answering
- * loses nothing to the prompt. EOF before an answer is a refusal.
+ * taken: any other line stays queued as the next message, so a driver
+ * that pipes "task\ncontinue" without answering loses nothing to the
+ * prompt. EOF before an answer, or (when stdin is not a terminal) a
+ * line that is not an answer, means nobody could be asked: the call is
+ * refused as `unavailable`, never as the user's decision (issue #95). A
+ * non-answer typed at a terminal stays a refusal, as before.
  */
 async function promptApproval(
   request: ApprovalRequest,
   lines: StdinLineQueue,
+  interactive: boolean,
 ): Promise<CliApprovalAnswer> {
   const grantCategory = canGrantCategory(request);
   const grantShape = canGrantShape(request);
@@ -319,8 +350,17 @@ async function promptApproval(
     return promptCliQuestion(request.question, lines, (text) => process.stderr.write(text));
   }
   const head = await lines.peek();
-  if (head === null) return { approved: false };
+  if (head === null) {
+    process.stderr.write(`\n  ${APPROVAL_UNAVAILABLE}: stdin ended before an answer; not run\n`);
+    return { approved: false, unavailable: true };
+  }
   if (!isApprovalAnswer(head)) {
+    if (!interactive) {
+      process.stderr.write(
+        `\n  ${APPROVAL_UNAVAILABLE}: the next input line is not an answer, kept as the next message; not run\n`,
+      );
+      return { approved: false, unavailable: true };
+    }
     process.stderr.write(
       "\n  denied: the next input line is not an answer, kept as the next message\n",
     );
@@ -347,6 +387,27 @@ async function promptApproval(
     return { approved: true, grant: "always" };
   }
   return { approved: /^(y|yes)$/.test(answer) };
+}
+
+/** Issue #95: what an approval nobody could be asked is called, on stderr and to the model. */
+export const APPROVAL_UNAVAILABLE = "approval unavailable (non-interactive run)";
+
+/** The denial reason the model reads for an unavailable approval: nobody declined. */
+const APPROVAL_UNAVAILABLE_REASON =
+  `${APPROVAL_UNAVAILABLE}: no answer could be read from stdin, so nobody was asked and nobody declined it. ` +
+  "Report it as not run for that reason, not as refused by the user";
+
+/**
+ * The unavailable reason, plus (issue #95) the commands `--allow-command`
+ * pre-approves, so the model can retry in exactly that form.
+ */
+function unavailableReason(allowed: readonly AllowedCommand[], argv: readonly string[] | undefined, notPinned: string | null): string {
+  if (allowed.length === 0) return APPROVAL_UNAVAILABLE_REASON;
+  if (notPinned !== null) {
+    return `${APPROVAL_UNAVAILABLE_REASON}. It is the allowed command \`${(argv ?? []).join(" ")}\`, but ${notPinned}, so it cannot run unattended`;
+  }
+  const listed = allowed.map((command) => `\`${command.argv.join(" ")}\``).join(", ");
+  return `${APPROVAL_UNAVAILABLE_REASON}. This run pre-approves only ${listed}, run as exactly those words in its folder`;
 }
 
 /** Transport failures that mean "nothing answered at the configured URL". */
@@ -755,24 +816,40 @@ export async function runAgentCommand(args: string[]): Promise<number> {
         approvalChain = approvalChain
           .then(async () => {
             let answer: CliApprovalAnswer;
+            // Issue #95: the exact command the operator listed, in --cwd
+            // or below, runs unasked; everything else asks as before.
+            // The approval pins the real program, argv and folder; the
+            // tool spawns exactly that (`pinnedExec`).
+            const pin = request.question ? null : pinAllowedCommand(request, parsed.allowCommands, parsed.workingDir);
+            // The allowed words, but nothing safe to pin: say why, so the
+            // model does not retry the same words in vain.
+            const notPinned = pin !== null && "refused" in pin ? pin.refused : null;
+            const pinnedExec = pin !== null && !("refused" in pin) ? pin : null;
+            if (pinnedExec !== null) {
+              process.stderr.write(`  approved by --allow-command: ${pinnedExec.argv.join(" ")} (runs ${pinnedExec.file})\n`);
+              runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command", pinnedExec });
+              return;
+            }
             try {
               answer =
                 stdinLines === null
-                  ? { approved: false }
-                  : await promptApproval(request, stdinLines);
+                  ? { approved: false, unavailable: true }
+                  : await promptApproval(request, stdinLines, process.stdin.isTTY === true);
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               process.stderr.write(
                 `\n  approval prompt failed (${msg}); denied\n`,
               );
-              answer = { approved: false };
+              answer = { approved: false, unavailable: true };
             }
             runtime.approvals.resolve({
               approvalId: request.approvalId,
               approved: answer.approved,
-              // No reason on a deny: it would reach the model as the
-              // user's own words (see `ApprovalDecision.reason`).
+              // No reason on a person's deny: it would reach the model as
+              // the user's own words (see `ApprovalDecision.reason`). An
+              // unavailable approval is the system's, and says so.
               ...(answer.approved ? { reason: "cli-approved" } : {}),
+              ...(answer.unavailable ? { automatic: true, unavailable: true, reason: unavailableReason(parsed.allowCommands, request.commandArgv, notPinned) } : {}),
               ...(answer.grant ? { grant: answer.grant } : {}),
               ...(answer.answer ? { answer: answer.answer } : {}),
             });

@@ -130,6 +130,15 @@ export interface TaskOutcomeRecord {
   ts: string;
   /** `sessionTag` of the orchestrator's session. */
   session: string;
+  /**
+   * A key of the task's id (issue #95), for a report to join outcomes to
+   * the plan's rows: `outcomeKey(taskId)`, never the id itself (ids are
+   * labels the director chose and can describe the project). Absent on
+   * older records.
+   */
+  taskKey?: string;
+  /** `outcomeKey(milestoneId)` of the project plan milestone the task's plan row belongs to, when the plan has one (issue #95). */
+  milestoneKey?: string;
   provider: string;
   model: string;
   leg: OutcomeLeg;
@@ -303,6 +312,8 @@ export interface TaskOutcomeContext {
   role: string | null;
   taskRole?: string | null;
   routingIdentity?: string;
+  /** The task's plan milestone (the approved project plan's row), when known (issue #95). */
+  milestoneId?: string;
   attempt: number;
   pricing: WorkerPricing | undefined;
   merge: MergeOutcome | null;
@@ -471,7 +482,17 @@ export function rowCostUsd(
   return taskSpendUsd(row, pricing);
 }
 
-/** One task's line. Reads only counts and fixed categories off the row. */
+/**
+ * The join key the log writes for a task or milestone id (issue #95): the
+ * first 16 hex characters of SHA-256 over the bare id string, UTF-8
+ * encoded (no prefix, no session, no trimming). A report that knows the
+ * plan's ids computes the same keys; the log itself never holds an id.
+ */
+export function outcomeKey(id: string): string {
+  return createHash("sha256").update(id, "utf8").digest("hex").slice(0, 16);
+}
+
+/** One task's line. Reads only counts, fixed categories and keys of the task's identifiers off the row. */
 export function taskOutcomeRecord(
   row: WorkerTaskResult,
   context: TaskOutcomeContext,
@@ -486,6 +507,8 @@ export function taskOutcomeRecord(
     type: "task",
     ts: now.toISOString(),
     session: sessionTag(sessionId),
+    ...(row.id.length === 0 ? {} : { taskKey: outcomeKey(row.id) }),
+    ...(context.milestoneId === undefined || context.milestoneId.length === 0 ? {} : { milestoneKey: outcomeKey(context.milestoneId) }),
     provider: outcomeLabel(context.provider),
     model: outcomeLabel(context.model),
     leg: context.leg,
