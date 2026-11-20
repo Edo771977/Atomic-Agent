@@ -272,5 +272,38 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       expect(result.details.noReviewVerdict).toBeUndefined();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it("records the reviewer's provider and effective model on the row, the outcome record and the run's reviews (issue #98)", async () => {
+    for (const reported of ["model-r-2026-11", undefined]) {
+      const dir = mkdtempSync(join(tmpdir(), "attempt-reviewer-"));
+      const state = mkdtempSync(join(tmpdir(), "attempt-reviewer-state-"));
+      try {
+        const runsDir = join(state, "fusion-runs");
+        const records: Array<Record<string, unknown>> = [];
+        const runTurn: FusionDelegateDeps["runTurn"] = async (session) => {
+          writeFileSync(join(dir, "sales.cjs"), `${NEW}\n`);
+          return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
+        };
+        // A subscription CLI that reports no model answers without one.
+        const complete: EscalationComplete = async () => ({ content: review("accept"), ...(reported === undefined ? {} : { model: reported }) });
+        const result = await buildFusionDelegateTool(deps(dir, complete, runTurn, {
+          runCheckpoints: new FusionRunStore({ dir: runsDir }),
+          outcomeLog: { append: (rows) => { records.push(...(rows as unknown as Array<Record<string, unknown>>)); } },
+        })).run({ tasks: [{ id: "impl", title: "Impl", instructions: "write sales.cjs", files: ["sales.cjs"] }] }, ctx(dir));
+        const identity = reported === undefined ? { provider: "cli-b" } : { provider: "cli-b", model: reported };
+        const row = (result.details.tasks as Array<{ review?: { reviewerIdentity?: unknown } }>)[0]!;
+        expect(row.review?.reviewerIdentity).toEqual(identity);
+        const task = records.find((r) => r.type === "task") as { review?: Record<string, unknown> };
+        expect(task.review).toMatchObject({ reviewerProvider: "cli-b", ...(reported === undefined ? {} : { reviewerModel: reported }) });
+        if (reported === undefined) expect(task.review!.reviewerModel).toBeUndefined();
+        const runId = result.details.runId as string;
+        const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews: Array<{ reviewer?: unknown }> };
+        expect(stored.reviews[0]!.reviewer).toEqual(identity);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(state, { recursive: true, force: true });
+      }
+    }
+  });
 });
 

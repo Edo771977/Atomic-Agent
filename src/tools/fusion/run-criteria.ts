@@ -50,6 +50,8 @@ export interface RunTaskReview {
    * under another task id).
    */
   criteria?: string[];
+  /** Who gave the verdict (issue #98): provider, effective model when reported, the plan's ref when it differs. */
+  reviewer?: { provider: string; model?: string; planRef?: string };
 }
 
 /** A stored fact: the criterion text its checks tested, when the run knew it. */
@@ -82,6 +84,7 @@ export function writeRunCriteriaFacts(
     verdict: r.verdict,
     ...(r.reason === undefined ? {} : { reason: r.reason.slice(0, 300) }),
     ...(r.criteria === undefined || r.criteria.length === 0 ? {} : { criteria: r.criteria.slice(0, 32) }),
+    ...(r.reviewer === undefined ? {} : { reviewer: r.reviewer }),
   }));
   if (kept.length === 0 && keptReviews.length === 0) return;
   const target = fusionRunShotTarget(runsDir, run, undefined);

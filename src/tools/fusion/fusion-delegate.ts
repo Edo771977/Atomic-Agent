@@ -275,6 +275,12 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
   /** Opaque SHA256 of known configured request identity; undefined means insufficient provenance. */
   resolveRoutingIdentity?: (providerId: string) => string | undefined;
   /**
+   * A provider's resolved default model (issue #98): a member ref's
+   * `default` alias, or no model, stands for it when members are compared
+   * (`member-identity.ts`). Absent, `default` equals only itself.
+   */
+  resolveDefaultModel?: (providerId: string) => string | undefined;
+  /**
    * Pricing for the worker model on the worker leg, when any is known
    * (`resolveModelPricingFor`). Present, the status table header states
    * the fan-out's spend; a local leg resolves to nothing.
@@ -1952,6 +1958,8 @@ export function buildFusionDelegateTool(
         const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir);
         const judged = await judgeTask({
           ...input,
+          planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
+          ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
@@ -3042,6 +3050,7 @@ export function buildFusionDelegateTool(
                     decision: verdict.review.decision,
                     passes: passes.get(row.id) ?? 0,
                     reviewer: verdict.review.reviewer,
+                    ...(verdict.review.reviewerIdentity === undefined ? {} : { reviewerIdentity: verdict.review.reviewerIdentity }),
                     issues: verdict.review.issues,
                   },
                 };
@@ -3101,7 +3110,8 @@ export function buildFusionDelegateTool(
               if (!parsed.tasks.some((t) => t.id === r.id) || (acceptance.get(r.id)?.length ?? 0) === 0) return [];
               const decision = r.judge?.review?.decision;
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
-                return [{ taskId: r.id, verdict: decision }];
+                const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }) }];
               }
               const reason =
                 r.judge === undefined
