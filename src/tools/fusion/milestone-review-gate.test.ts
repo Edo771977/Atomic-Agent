@@ -93,4 +93,24 @@ describe("a milestone stays open while a required task lacks a current accept (i
       expect(out.reviewBlocks).toBeUndefined();
     } finally { rmSync(state, { recursive: true, force: true }); }
   });
+
+  it("a plan row with no review is not required: the milestone closes on its reviewed rows' accepts", async () => {
+    const state = mkdtempSync(join(tmpdir(), "review-none-row-"));
+    try {
+      const runs = join(state, FUSION_RUNS_DIR_NAME);
+      const evidence: NonNullable<ProjectToolDeps["milestoneEvidence"]> = (milestone, order, current) =>
+        readMilestoneEvidence({ runsDir: runs, stateDir: state, runIds: milestone.runIds, criteriaOrder: order, ...current });
+      const [, , milestoneTool] = buildProjectTools({ planContext: () => { throw new Error("unused"); }, outsideContent: () => false, milestoneEvidence: evidence });
+      let p = fold(undefined, { kind: "brief", brief: { what: "CSV sales", users: "ops", how: "node", successCriteria: ["sums revenue"] }, draftedAfterUntrusted: false });
+      p = approve(fold(approve(p), { kind: "plan", milestones: [{ id: "m1", title: "CLI", kind: "base" }], rows: [row("program"), { ...row("docs"), reviewer: null }], detail: "compact" }));
+      p = fold(p, { kind: "milestone_run", id: "m1", runId: "fr-1" });
+      writeRunCriteriaFacts(runs, { runId: "fr-1", sessionId: "s" }, [], undefined, [{ taskId: "program", verdict: "accept" }]);
+      const ctx = { workingDir: "/tmp", sessionId: "s", stepIndex: 0, project: p } as unknown as ToolContext;
+      const done = await milestoneTool!.run({ id: "m1", state: "done", summary: "ok" }, ctx);
+      expect(done.summary).not.toMatch(/review open/i);
+      p = approve(fold(p, done.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate));
+      expect(p.milestones[0]!.state).toBe("reviewed");
+    } finally { rmSync(state, { recursive: true, force: true }); }
+  });
 });
+

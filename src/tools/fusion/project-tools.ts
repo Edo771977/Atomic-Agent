@@ -462,8 +462,12 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
         const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
         const approvals = ctx.project?.briefApprovals;
-        // The required tasks: the approved plan's rows for this milestone (issue #98).
-        const requiredTasks = (ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).map((r) => r.taskId);
+        // The required tasks: the approved plan's rows for this milestone
+        // that name a reviewer (issue #98); a "no review" row records no
+        // verdict and never blocks.
+        const requiredTasks = (ctx.project?.plan?.rows ?? [])
+          .filter((r) => r.milestoneId === report.id && r.reviewer !== null)
+          .map((r) => r.taskId);
         const evidence = deps.milestoneEvidence(milestone, order, {
           criteria: ctx.project?.brief?.successCriteria ?? [],
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
