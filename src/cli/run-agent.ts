@@ -110,9 +110,13 @@ const HELP =
     "                       printing each with its version (scripts only); a failed milestone",
     "                       stops the run (exit 3) for a person",
     '  --allow-command "<command>"',
-    "                       Run exactly this one shell command (e.g. the project's test command)",
-    "                       without asking, in --cwd or below; repeatable. Any other command still",
-    "                       asks; never implied by --auto-approve-project",
+    "                       Run exactly this one command (e.g. the project's test command) without",
+    "                       asking, as a direct exec with these exact words in --cwd or below;",
+    "                       repeatable. Any other command, or the same line through a shell, still",
+    "                       asks; never implied by --auto-approve-project. It also answers a saved",
+    "                       \"ask\" rule for that command. A test runner (node --test, npm test)",
+    "                       runs whatever test files it finds, so allowing one allows any code the",
+    "                       model can write into --cwd",
     "",
     "In-session:  /quit exits · /abort cancels the current turn",
     "Exit codes:  0 replied · 1 failed · 2 usage error · 3 waiting at a project gate (session id printed)",
@@ -802,7 +806,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
             // Issue #95: the exact command the operator listed, in --cwd
             // or below, runs unasked; everything else asks as before.
             if (!request.question && allowedCommandMatches(request, parsed.allowCommands, parsed.workingDir)) {
-              process.stderr.write(`  approved by --allow-command: ${request.commandSegments?.[0]?.join(" ") ?? request.tool}\n`);
+              process.stderr.write(`  approved by --allow-command: ${request.commandArgv?.join(" ") ?? request.tool}\n`);
               runtime.approvals.resolve({ approvalId: request.approvalId, approved: true, reason: "cli-allow-command" });
               return;
             }
