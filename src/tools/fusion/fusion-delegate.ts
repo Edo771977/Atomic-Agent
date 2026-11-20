@@ -1217,7 +1217,7 @@ export function buildFusionDelegateTool(
         projectVerdict.kind !== "admit" || ctx.project === undefined
           ? "no approved project plan covers it"
           : projectVerdict.unplanned.length > 0
-            ? `task${projectVerdict.unplanned.length === 1 ? "" : "s"} ${projectVerdict.unplanned.join(", ")} ${projectVerdict.unplanned.length === 1 ? "is not a row" : "are not rows"} of the plan (keep the plan row's task id)`
+            ? `task${projectVerdict.unplanned.length === 1 ? "" : "s"} ${projectVerdict.unplanned.join(", ")} ${projectVerdict.unplanned.length === 1 ? "is not a row" : "are not rows"} of the plan`
             // A brief naming a path the scope cannot grant (unresolvable
             // here, or a root/home directory) writes outside the folder the
             // plan was approved for, even though the scope leaves it out.
@@ -1292,7 +1292,8 @@ export function buildFusionDelegateTool(
       } catch (err) {
         // In a project, say why the plan did not stand for it and how to send it so it does (issue #104).
         const offPlan = projectVerdict.kind === "admit" && planGap !== undefined && ctx.project?.plan?.status === "approved"
-          ? `The approved plan does not cover this fan-out: ${planGap}. Send each plan task under its plan task id on the worker and reviewer its row names (an evidence-only review: \`verifyOnly: true\`) and it runs without asking. `
+          // Only what broke coverage: no task id to borrow, no route around the approval (issue #104 review).
+          ? `This fan-out needs the person's approval: the approved plan does not cover it (${planGap}). `
           : "";
         // The user's own no already says what happened and what to do,
         // and so does a repeat of one they declined earlier in the turn.

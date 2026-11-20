@@ -121,7 +121,7 @@ export function planCoverageGap(
   const byTask = new Map(plan.rows.map((r) => [r.taskId, r]));
   for (const id of taskIds) {
     const row = byTask.get(id);
-    if (row === undefined) return `task ${id} is not a row of the plan (keep the plan row's task id)`;
+    if (row === undefined) return `task ${id} is not a row of the plan`;
     if (!open.has(row.milestoneId)) return `task ${id}'s milestone ${row.milestoneId} is not open`;
     const worker = workerOf(id);
     if (!sameMember(row.worker, worker, defaultModelOf)) return `task ${id} would run on ${worker}, but its plan row names ${row.worker}`;
