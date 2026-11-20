@@ -970,7 +970,32 @@ export async function runAgentCommand(args: string[]): Promise<number> {
     // The incognito chat goes before the store closes; one the delete
     // misses is swept at the next start.
     if (incognitoSessionId !== null) runtime.discardIncognitoSession?.(incognitoSessionId);
-    await runtime.shutdown();
+    await shutdownWithin(runtime, RUN_SHUTDOWN_GRACE_MS);
   }
   return exitCode;
+}
+
+/**
+ * How long `run` waits for the runtime's teardown before returning its
+ * exit code anyway (issue #100). The session was saved before it; what a
+ * teardown that hangs (a telemetry flush with no network, a server that
+ * never closes) would still do is not worth a process that never ends.
+ */
+export const RUN_SHUTDOWN_GRACE_MS = 5_000;
+
+async function shutdownWithin(runtime: { shutdown(): Promise<void> }, graceMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<"expired">((resolve) => {
+    // Kept referenced: a teardown stuck on a promise with nothing else
+    // holding the event loop must still reach the exit code, not end at 0.
+    timer = setTimeout(() => resolve("expired"), graceMs);
+  });
+  const outcome = await Promise.race([
+    runtime.shutdown().then(() => "done" as const, () => "done" as const),
+    expired,
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (outcome === "expired") {
+    process.stderr.write(`atomic-agent did not finish shutting down within ${graceMs / 1000} s; exiting anyway (the session is saved)\n`);
+  }
 }

@@ -27,6 +27,9 @@ const project = vi.hoisted(() => ({
   turnProjects: [] as unknown[],
   /** What a refused decision answers (default: over today's limit). */
   refusal: undefined as undefined | { code: string; message: string; blocks?: unknown[] },
+  /** Issue #100: a teardown that never ends (a flush that hangs); the real one runs after the test. */
+  hangShutdown: false,
+  realShutdowns: [] as Array<() => Promise<void>>,
 }));
 
 /** What the stubbed runtime stored with an approval. */
@@ -49,7 +52,10 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
         overrides: { skipLlamaHealthCheck: true, disableStreaming: true, llamaComplete: complete },
       });
       const runTurn = runtime.runTurn;
+      const realShutdown = runtime.shutdown.bind(runtime);
+      project.realShutdowns.push(realShutdown);
       return Object.assign(runtime, {
+        shutdown: () => (project.hangShutdown ? new Promise<void>(() => {}) : realShutdown()),
         runTurn: async (...args: Parameters<typeof runTurn>) => {
           project.messages.push(args[1]);
           project.turnProjects.push(args[0].project);
@@ -88,7 +94,7 @@ describe("run at a fusion project gate", () => {
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
     resetConfigCache();
-    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [], refusal: undefined });
+    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [], refusal: undefined, hangShutdown: false, realShutdowns: [] });
     stderr = "";
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
@@ -226,6 +232,21 @@ describe("run at a fusion project gate", () => {
     expect(stderr).toContain("needs a person");
     expect(stderr).toContain(`atomic-agent run --session ${id}`);
   }, 60_000);
+
+  it("a teardown that never ends does not keep the run open: it returns its exit code in bounded time (issue #100)", async () => {
+    const base = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const failed = { ...base, milestones: base.milestones.map((m) => (m.id === "m1" ? { ...m, state: "failed" as const, summary: "Tests fail" } : m)) };
+    project.openAfterTurn = [failed];
+    project.hangShutdown = true;
+    feed(["build the game\n"]);
+    const started = Date.now();
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(stderr).toContain("did not finish shutting down");
+    project.hangShutdown = false;
+    await Promise.all(project.realShutdowns.map((stop) => stop()));
+  }, 30_000);
 
   it("an approval the runtime refuses (a hard cap) exits 1 with the reason", async () => {
     project.openAfterTurn = [planGate];
