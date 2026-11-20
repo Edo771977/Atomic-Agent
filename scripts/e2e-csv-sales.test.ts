@@ -34,7 +34,24 @@ describe("the independent acceptance test", () => {
     expect(r.failed).toEqual([]);
     expect(r.exitCode).toBe(0);
     expect(r.fail).toBe(0);
-    expect(r.pass).toBe(10);
+    expect(r.pass).toBe(13);
+  });
+
+  // Issue #100: the live program lost its blank-line handling and still passed the 10 cases.
+  it("fails a program that refuses blank lines on the blank-line cases, and only there", () => {
+    const r = acceptance("rejects-blank-lines-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual([
+      "a blank line between two sales is skipped",
+      "several trailing blank lines are skipped",
+      "an invalid row after a blank line names its physical line number",
+    ]);
+  });
+
+  it("fails a program that numbers lines without the blank ones on the physical line number", () => {
+    const r = acceptance("counts-without-blanks-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual(["an invalid row after a blank line names its physical line number"]);
   });
 
   it("fails the plain-object accumulator on the prototype-key skus, and only there", () => {
@@ -69,7 +86,7 @@ describe("the task prompt", () => {
   it("is one line, since `atomic-agent run` takes each piped line as a turn, and names the interface", () => {
     const text = readFileSync(PROMPT, "utf8");
     expect(text.trimEnd().split(/\r?\n/)).toHaveLength(1);
-    for (const words of ["sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
+    for (const words of ["Blank lines", "physical line number", "Invalid row N", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
       expect(text).toContain(words);
     }
   });
@@ -139,7 +156,7 @@ describe("the runner's parsing", () => {
     expect(report.run).toMatchObject({ exitCode: 3, printedSession: "sess_95e2e7f1" });
     expect(report.run.receiptLines).toHaveLength(3);
     expect(report.session).toMatchObject({ id: "sess_95e2e7f1", status: "active", workingDir: cwd });
-    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 10, fail: 0 });
+    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 13, fail: 0 });
     expect(report.tests.agent).toMatchObject({ exitCode: 0, pass: 1, fail: 0 });
     expect(report.tests.passed).toBe(true);
     expect(report.passed).toBe(false);
@@ -248,7 +265,7 @@ describe("the runner passes a run only when every required task is accepted", ()
       expect.stringMatching(/^task t2 .*needs-changes.*no_changes/),
       expect.stringMatching(/^milestone m1 is reviewed while 1 required task is not accepted/),
     ]));
-    expect(report.blocking.some((b: string) => /^task t1/.test(b))).toBe(false);
+    expect(report.blocking.some((b: string) => /^task t1 .*not accepted/.test(b))).toBe(false);   // t1 is accepted (its review only lacks a provider, issue #100)
     expect(report.tasks.map((t: { taskId: string; latest: { status: string; decision: string | null } }) => [t.taskId, t.latest.decision ?? t.latest.status]))
       .toEqual([["t1", "accept"], ["t2", "no_changes"]]);
   });
@@ -281,7 +298,7 @@ describe("the reviewer's identity", () => {
     const blocked = runSample("sample-run-blocked").report;
     expect(blocked.tasks[1].latestReview).toMatchObject({ planned: "codex-cli:default", recorded: "default", mismatch: true });
     const accepted = runSample("sample-run-accepted").report;
-    expect(accepted.tasks[0].latestReview).toEqual({ planned: "codex-cli:default", recorded: "codex-cli:default", provider: "codex-cli",
+    expect(accepted.tasks[0].latestReview).toEqual({ planned: "codex-cli:default", reviewedBy: "reviewer", recorded: "codex-cli:default", provider: "codex-cli",
       model: "gpt-5.5-codex", planRef: "codex-cli:default", mismatch: false });
   });
 });
@@ -293,5 +310,68 @@ describe("autonomous run or guided resume", () => {
     expect(guided).toMatchObject({ kind: "guided", humanInputs: 1 });
     expect(guided.reasons).toEqual([expect.stringMatching(/^1 line from a person after the first prompt/)]);
     expect(runner.runMode([{ kind: "user", text: "go" }], "session: a\nsession: b\n").kind).toBe("guided");
+  });
+});
+
+/* ---------- issue #100: the report's integrity ---------- */
+
+describe("a run passes only on a plan whose tasks and reviews can be accounted for", () => {
+  it("an accepted task tied to a milestone the project does not have exits 1 and names it", () => {
+    const { status, report } = runSample("sample-run-missing-milestone");
+    expect(report.tests.passed).toBe(true);
+    expect(report.blocking).toEqual(["task t2 (sales.test.cjs: its tests) belongs to milestone m9, which the project does not have"]);
+    expect(report.passed).toBe(false);
+    expect(status).toBe(1);
+  });
+
+  it("a required review accepted with no reviewer identity exits 1 and names it", () => {
+    const { status, report } = runSample("sample-run-anonymous-review");
+    expect(report.blocking).toEqual(["task t2 (sales.test.cjs: its tests): its review names no reviewer provider (the plan names codex-cli:default)"]);
+    expect(status).toBe(1);
+  });
+
+  it("a review naming only a model, as the issue #98 rows wrote `default`, is not identifiable either", () => {
+    const blocked = runSample("sample-run-blocked").report.blocking;
+    expect(blocked).toEqual(expect.arrayContaining([
+      "task t1 (sales.cjs: the summarizer): its review names no reviewer provider (the plan names codex-cli:default)",
+    ]));
+  });
+
+  it("the accepted sample still passes", () => {
+    expect(runSample("sample-run-accepted").status).toBe(0);
+  });
+});
+
+/* ---------- issue #100: an accept decided by the task's own checks, no reviewer ---------- */
+
+describe("an accept by the task's checks alone", () => {
+  it("passes on green checks, but is listed apart and never shown as the reviewer's accept", () => {
+    const { status, report } = runSample("sample-run-facts-accept");
+    expect(report.blocking).toEqual([]);
+    expect(status).toBe(0);
+    expect(report.acceptedByChecksOnly).toEqual([{ taskId: "t2", title: "sales.test.cjs: its tests", configuredReviewer: "codex-cli", acceptance: "checks-passed" }]);
+    const t2 = report.tasks[1].latestReview;
+    expect(t2).toMatchObject({ reviewedBy: "facts", configured: "codex-cli", planned: "codex-cli:default" });
+    expect(t2.recorded).toBeUndefined();
+    expect(t2.provider).toBeUndefined();
+    expect(report.tasks[0].latestReview).toMatchObject({ reviewedBy: "reviewer", provider: "codex-cli" });
+    expect(runSample("sample-run-accepted").report.acceptedByChecksOnly).toEqual([]);
+  });
+
+  it("reads the source on the row or in its review, and an accept by checks that did not pass blocks", () => {
+    const project = { plan: { rows: [{ taskId: "a", title: "A", milestoneId: "m", reviewer: "codex-cli:default" }] }, milestones: [{ id: "m", state: "done" }], gate: { kind: "none" } };
+    const line = (extra: object, review: object) => JSON.stringify({ type: "task", ts: "1", session: runner.sessionTag("s"), status: "ok",
+      taskKey: runner.outcomeKey("a"), milestoneKey: runner.outcomeKey("m"), ...extra, review: { decision: "accept", provider: "codex-cli", ...review } });
+    const cases: Array<[object, object]> = [[{ reviewerSource: "facts", acceptance: "checks-passed" }, {}], [{ acceptance: "checks-passed" }, { source: "facts" }]];
+    for (const [extra, review] of cases) {
+      const tasks = runner.joinVerdicts(project, runner.outcomeSummary([line(extra, review)], "s").tasks);
+      expect(tasks[0].latestReview.reviewedBy).toBe("facts");
+      expect(runner.blockingReasons({ tests: { passed: true }, project, tasks })).toEqual([]);
+    }
+    const red = runner.joinVerdicts(project, runner.outcomeSummary([line({ reviewerSource: "facts", acceptance: "checks-failed" }, {})], "s").tasks);
+    expect(runner.blockingReasons({ tests: { passed: true }, project, tasks: red })).toEqual([
+      "task a (A): not accepted: accept by its checks, which did not pass",
+      "milestone m is done while 1 required task is not accepted",
+    ]);
   });
 });
