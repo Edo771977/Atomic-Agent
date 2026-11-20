@@ -25,6 +25,8 @@ const project = vi.hoisted(() => ({
   messages: [] as string[],
   /** The project each turn ran with (`session.project` passed to runTurn). */
   turnProjects: [] as unknown[],
+  /** What a refused decision answers (default: over today's limit). */
+  refusal: undefined as undefined | { code: string; message: string; blocks?: unknown[] },
 }));
 
 /** What the stubbed runtime stored with an approval. */
@@ -60,7 +62,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
           project.decisions.push(decision);
           project.view = project.after;
           return project.after === undefined
-            ? { ok: false as const, error: { code: "over-cap" as const, message: "over today's limit", violations: [] } }
+            ? { ok: false as const, error: project.refusal ?? { code: "over-cap" as const, message: "over today's limit", violations: [] } }
             : { ok: true as const, project: DECIDED, view: project.after };
         },
       });
@@ -86,7 +88,7 @@ describe("run at a fusion project gate", () => {
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
     resetConfigCache();
-    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [] });
+    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [], refusal: undefined });
     stderr = "";
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
@@ -209,6 +211,20 @@ describe("run at a fusion project gate", () => {
     expect(project.messages).toHaveLength(2);
     expect(stderr).toMatch(/failed and waits for your review/);
     expect(stderr).toContain("needs a person");
+  }, 60_000);
+
+  it("a milestone auto-approve may not take (review-open) stops with exit 3 and how to resume (issue #100)", async () => {
+    const milestoneGate = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    project.openAfterTurn = [milestoneGate];
+    project.refusal = { code: "review-open", message: "Task sales still has an open review block (needs-changes).", blocks: [] };
+    feed(["build the game\n"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    const id = sessionIdIn(stderr);
+    expect(id).not.toBe("");
+    expect(stderr).toContain("open review block");
+    expect(stderr).toContain("needs a person");
+    expect(stderr).toContain(`atomic-agent run --session ${id}`);
   }, 60_000);
 
   it("an approval the runtime refuses (a hard cap) exits 1 with the reason", async () => {
