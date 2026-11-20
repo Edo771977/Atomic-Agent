@@ -40,4 +40,12 @@ describe("the check-run section (issue #104 review)", () => {
       "- passing tests whose name matches no criterion: does not skip blank lines",
     ]);
   });
+
+  it("shows the files as the check ran on them, and a mismatch with the files under review", () => {
+    const run = { ok: true, command: "node --test a.cjs", exitCode: 0, output: "", tests: [] };
+    const same = renderCheckRunEvidence([{ ...run, files: [{ path: "a.cjs", sha256: "a".repeat(64) }] }], [{ path: "a.cjs", sha256: "a".repeat(64) }], []);
+    expect(same).toContain("Ran on: a.cjs sha256 aaaaaaaaaaaa (the version under review)");
+    const changed = renderCheckRunEvidence([{ ...run, files: [{ path: "a.cjs", sha256: "a".repeat(64) }] }], [{ path: "a.cjs", sha256: "b".repeat(64) }], []);
+    expect(changed).toContain("Ran on: a.cjs sha256 aaaaaaaaaaaa (NOT the version under review: under review sha256 bbbbbbbbbbbb)");
+  });
 });

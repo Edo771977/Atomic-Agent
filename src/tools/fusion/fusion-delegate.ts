@@ -1702,6 +1702,8 @@ export function buildFusionDelegateTool(
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.
       const attemptLedger = new Map<string, AttemptRecord[]>();
+      /** A task's declared files, for the hashes its check runs record (issue #104 review). */
+      const declaredFilesOf = (taskId: string): readonly string[] => parsed.tasks.find((t) => t.id === taskId)?.files ?? [];
       const noteAttempt = (result: WorkerTaskResult): void => {
         const list = attemptLedger.get(result.id) ?? [];
         list.push({
@@ -2454,7 +2456,7 @@ export function buildFusionDelegateTool(
                   heldRunChecks,
                   {
                     workingDir: ctx.workingDir,
-                    signal: runSignal,
+                    signal: runSignal, filesOf: declaredFilesOf,
                     ...(deps.knownSecrets === undefined
                       ? {}
                       : { knownSecrets: collectKnownSecrets() }),
@@ -2632,7 +2634,7 @@ export function buildFusionDelegateTool(
                   ? [{ check, index }] : [],
               );
               const checks = await runContractChecks(own.map((c) => c.check), heldRunChecks, {
-                workingDir: ctx.workingDir, signal: runSignal,
+                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
                 ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
               });
               const previous = own.flatMap((c) => {
@@ -2845,7 +2847,7 @@ export function buildFusionDelegateTool(
             heldRunChecks,
             {
               workingDir: ctx.workingDir,
-              signal: runSignal,
+              signal: runSignal, filesOf: declaredFilesOf,
               ...(deps.knownSecrets === undefined
                 ? {}
                 : { knownSecrets: collectKnownSecrets() }),

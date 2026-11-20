@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { isAbsolute as isAbsolutePath, relative as relativePath, resolve as resolvePath, sep as pathSep } from "node:path";
 
 import { resolveUserPath } from "../os/expand-home.js";
 import {
@@ -157,6 +160,26 @@ export interface CheckRunRecord {
   clipped?: true;
   tests: ExecutedTest[];
   counts?: { pass: number; fail: number; total: number };
+  /** The task's declared files as the check ran on them (issue #104 review), hashed just before the run. */
+  files?: Array<{ path: string; sha256?: string }>;
+}
+
+const MAX_HASHED_BYTES = 8 * 1024 * 1024;
+
+/** The SHA-256 of each of `paths` inside `dir` as it is now; a path outside it is left out, an unreadable one has no hash. */
+function hashFiles(dir: string, paths: readonly string[]): Array<{ path: string; sha256?: string }> {
+  return paths.flatMap((path) => {
+    const full = resolvePath(dir, path);
+    const rel = relativePath(resolvePath(dir), full);
+    if (rel.length === 0 || rel.startsWith("..") || isAbsolutePath(rel)) return [];
+    const display = rel.split(pathSep).join("/");
+    try {
+      if (statSync(full).size > MAX_HASHED_BYTES) return [{ path: display }];
+      return [{ path: display, sha256: createHash("sha256").update(readFileSync(full)).digest("hex") }];
+    } catch {
+      return [{ path: display }];
+    }
+  });
 }
 
 function commandLineOf(check: ContractCheck): string {
@@ -169,7 +192,7 @@ function commandLineOf(check: ContractCheck): string {
 /** Of {@link CHECK_RUN_OUTPUT_CHARS}, what stderr gets at most (issue #104 review): stdout, where TAP is, keeps the larger share. */
 export const CHECK_RUN_STDERR_CHARS = 2_000;
 
-export function checkRunOf(check: ContractCheck, result: ContractCheckResult): CheckRunRecord | undefined {
+export function checkRunOf(check: ContractCheck, result: ContractCheckResult, files?: Array<{ path: string; sha256?: string }>): CheckRunRecord | undefined {
   if ((check.kind ?? "command") !== "command") return undefined;
   if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
   // Separate budgets, so a long stderr never pushes the TAP out; a share one stream leaves goes to the other.
@@ -188,6 +211,7 @@ export function checkRunOf(check: ContractCheck, result: ContractCheckResult): C
     output,
     ...(clipped ? { clipped: true as const } : {}),
     ...parseTestOutput(text),
+    ...(files === undefined || files.length === 0 ? {} : { files }),
   };
 }
 
@@ -523,6 +547,8 @@ export async function runContractChecks(
     signal: AbortSignal;
     knownSecrets?: readonly KnownSecret[];
     inputIntegrity?: VerificationInputIntegrity;
+    /** A task's declared files, hashed as each of its checks runs on them (issue #104 review). */
+    filesOf?: (taskId: string) => readonly string[];
   },
 ): Promise<{ outcomes: ContractCheckOutcome[]; checksSkipped?: string }> {
   if (checks.length === 0) return { outcomes: [] };
@@ -538,6 +564,12 @@ export async function runContractChecks(
   }
   const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, ...spec }) => spec);
   const known = ctx.knownSecrets ?? knownSecretsFromEnv();
+  // The files each check runs on, hashed right before the runner copies them.
+  const runFiles = new Map<string, Array<{ path: string; sha256?: string }>>();
+  for (const id of new Set(checks.flatMap((c) => (c.task === undefined ? [] : [c.task])))) {
+    const paths = ctx.filesOf?.(id) ?? [];
+    if (paths.length > 0) runFiles.set(id, hashFiles(ctx.workingDir, paths));
+  }
   let results: readonly ContractCheckResult[];
   try {
     results = (
@@ -580,7 +612,7 @@ export async function runContractChecks(
     const detail = head(headText, CHECK_DETAIL_CHARS);
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
-    const run = checkRunOf(check, result);
+    const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     return {
       ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
       ...(run === undefined ? {} : { run }),

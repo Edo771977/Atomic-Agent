@@ -195,6 +195,7 @@ export function buildMergeGate(input: MergeGateInput): MergeGate {
           workingDir: workspace.dir,
           signal: input.signal,
           ...(input.knownSecrets === undefined ? {} : { knownSecrets: input.knownSecrets }),
+          filesOf: (taskId) => input.tasks.find((t) => t.id === taskId)?.files ?? [],
         },
       );
       // Not run (no runner, a cancelled turn): the pass after the merge
