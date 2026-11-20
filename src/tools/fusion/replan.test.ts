@@ -511,7 +511,12 @@ describe("plan tasks are worded per row (issue #102 review)", () => {
     expect(block).toContain("a plan task is never split");
     expect(line("free-slow")).toContain("`free-slow.a`");
     expect(line("plan-slow")).toContain("keep its plan task id (a plan task is never split)");
-    expect(line("plan-slow")).toMatch(/another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person/);
+    // Issue #104: a plan task is kept on its row, never offered a move off it.
+    for (const id of ["plan-slow", "plan-review"]) {
+      expect(line(id)).not.toMatch(/another team worker/);
+      expect(line(id)).toContain("Keep it on its plan row: a fan-out on a worker the row does not name leaves the approved plan");
+    }
+    expect(line("plan-review")).toContain("an evidence-only review under its plan task id (`verifyOnly: true`, on the same worker");
     expect(line("free-review")).toContain("to another worker or model");
     expect(line("plan-review")).toContain("a targeted fix under its plan task id");
     expect(line("plan-review")).toContain("(a correction round)");

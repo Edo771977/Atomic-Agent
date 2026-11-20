@@ -134,12 +134,33 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/** A word a shell reads as itself: no quotes, spaces or metacharacters. */
+const PLAIN_WORD = /^[\w@+=:,./-]+$/;
+
 /**
  * The identity of a check's `verify.run` spec: the contract's entry
- * without its `task`, or a worker's `verify.run` arguments.
+ * without its `task`, or a worker's `verify.run` arguments. A command
+ * spelled as one line (`cmd: "node --test a.cjs"`) and as words (`cmd:
+ * "node", args: ["--test", "a.cjs"]`) runs the same thing (verify.run
+ * runs a one-line command through the subshell), so both read as the
+ * line, when every word is plain (issue #104: the live worker spelled
+ * the contract's check as one line, and it was not seen as the task's own).
  */
 export function checkSpecKey(spec: Record<string, unknown>): string {
   const { task: _task, ...rest } = spec;
+  const kind = rest.kind ?? "command";
+  if (kind === "command" && typeof rest.cmd === "string" && (rest.args === undefined || Array.isArray(rest.args))) {
+    const cmdWords = rest.cmd.trim().split(/\s+/);
+    const args = (rest.args as unknown[] | undefined) ?? [];
+    // Only the two spellings: one word with its args, or one line with none.
+    // `cmd: "node --test", args: ["a.cjs"]` is neither, and stays as it is.
+    const spelling = cmdWords.length === 1 || args.length === 0;
+    const words = [...cmdWords, ...args];
+    if (spelling && words.length > 0 && words.every((w) => typeof w === "string" && PLAIN_WORD.test(w))) {
+      const { args: _args, ...noArgs } = rest;
+      return canonical({ ...noArgs, kind: "command", cmd: words.join(" ") });
+    }
+  }
   return canonical(rest);
 }
 

@@ -32,7 +32,7 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
-import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
+import { checkProjectDispatch, planCoverageGap } from "./project-dispatch.js";
 import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
@@ -131,12 +131,13 @@ import {
   renderAcceptanceBlock,
   renderRetryFindings,
   renderReviewIssues,
+  type AcceptanceItem,
   type JudgeFacts,
   type JudgeTarget,
   type JudgeVerdict,
 } from "./judge.js";
 import { evidencePath, renderAttemptEvidence, sha256Of, type AttemptRecord } from "./attempt-evidence.js";
-import { renderExecutionEvidence } from "./execution-evidence.js";
+import { renderCheckRunEvidence, renderExecutionEvidence } from "./execution-evidence.js";
 import { sameMember } from "./member-identity.js";
 import type { DelegateTask } from "./delegate-args.js";
 import {
@@ -193,7 +194,8 @@ import { currentPolicyAllows, currentProviderPolicy, runWithProviderRole } from 
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
-import { writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1211,26 +1213,30 @@ export function buildFusionDelegateTool(
       // was given before the text that may now be steering the fan-out.
       // An approved project plan (issue #39) is the person's yes to these
       // exact tasks on these workers in this folder; anything else asks.
-      const planApproved =
-        projectVerdict.kind === "admit" &&
-        projectVerdict.unplanned.length === 0 &&
-        // A brief naming a path the scope cannot grant (unresolvable
-        // here, or a root/home directory) writes outside the folder the
-        // plan was approved for, even though the scope leaves it out.
-        !analysedScope.namesUngrantedPath &&
-        ctx.project !== undefined &&
-        planCoversFanout(
-          ctx.project,
-          parsed.tasks.map((t) => t.id),
-          (id) => {
-            const leg = taskLegs.get(id);
-            return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
-          },
-          reviewerRefOf,
-          writeScope,
-          [ctx.workingDir],
-          deps.resolveDefaultModel,
-        );
+      // Why the approved plan does not stand for this fan-out, when it does not (issue #104).
+      const planGap: string | undefined =
+        projectVerdict.kind !== "admit" || ctx.project === undefined
+          ? "no approved project plan covers it"
+          : projectVerdict.unplanned.length > 0
+            ? `task${projectVerdict.unplanned.length === 1 ? "" : "s"} ${projectVerdict.unplanned.join(", ")} ${projectVerdict.unplanned.length === 1 ? "is not a row" : "are not rows"} of the plan`
+            // A brief naming a path the scope cannot grant (unresolvable
+            // here, or a root/home directory) writes outside the folder the
+            // plan was approved for, even though the scope leaves it out.
+            : analysedScope.namesUngrantedPath
+              ? "a brief names a path outside the folder the plan was approved for"
+              : planCoverageGap(
+                  ctx.project,
+                  parsed.tasks.map((t) => t.id),
+                  (id) => {
+                    const leg = taskLegs.get(id);
+                    return leg === undefined ? `${workerProviderId}:${workerModel}` : (leg.member ?? `${leg.providerId}:${leg.model}`);
+                  },
+                  reviewerRefOf,
+                  writeScope,
+                  [ctx.workingDir],
+                  deps.resolveDefaultModel,
+                );
+      const planApproved = planGap === undefined;
       const turnGrantCovers =
         deps.approvals.fanoutScopes?.turnGrantCovers(ctx.sessionId, writeScope) ?? false;
       const alreadyApproved =
@@ -1285,20 +1291,27 @@ export function buildFusionDelegateTool(
         if (projectVerdict.kind === "admit") admitted.milestoneId = projectVerdict.milestoneId;
 
       } catch (err) {
+        // In a project, say why the plan did not stand for it and how to send it so it does (issue #104).
+        const offPlan = projectVerdict.kind === "admit" && planGap !== undefined && ctx.project?.plan?.status === "approved"
+          // Only what broke coverage: no task id to borrow, no route around the approval (issue #104 review).
+          ? `This fan-out needs the person's approval: the approved plan does not cover it (${planGap}). `
+          : "";
         // The user's own no already says what happened and what to do,
         // and so does a repeat of one they declined earlier in the turn.
         if (
           err instanceof ApprovalDeniedError &&
           (err.byUser || err.declinedEarlier)
         ) {
-          return error(err.message, {
+          // First: the summary is clipped, and this is what the director can act on.
+          return error(`${offPlan}${err.message}`, {
             reason: "fan-out-denied",
             deniedByUser: true,
+            ...(offPlan === "" ? {} : { planGap }),
           });
         }
         return error(
-          `the fan-out was not approved: ${err instanceof Error ? err.message : String(err)}`,
-          { reason: "fan-out-denied" },
+          `${offPlan}the fan-out was not approved: ${err instanceof Error ? err.message : String(err)}`,
+          { reason: "fan-out-denied", ...(offPlan === "" ? {} : { planGap }) },
         );
       }
 
@@ -1691,6 +1704,28 @@ export function buildFusionDelegateTool(
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.
       const attemptLedger = new Map<string, AttemptRecord[]>();
+      /** A task's declared files, for the hashes its check runs record (issue #104 review). */
+      const declaredFilesOf = (taskId: string): readonly string[] => parsed.tasks.find((t) => t.id === taskId)?.files ?? [];
+      /** The newest review an earlier run of the task's milestone recorded for it (issue #104 review). */
+      const priorReviewOf = (taskId: string): RunTaskReview | undefined => {
+        const runsDir = deps.runCheckpoints?.runsDir;
+        const row = ctx.project?.plan?.rows.find((r) => r.taskId === taskId);
+        const milestone = row === undefined ? undefined : ctx.project?.milestones.find((m) => m.id === row.milestoneId);
+        if (runsDir === undefined || milestone === undefined) return undefined;
+        for (const runId of [...milestone.runIds].reverse()) {
+          const review = readRunCriteria(runsDir, runId).reviews.find((v) => v.taskId === taskId && (v.verdict === "accept" || v.verdict === "needs-changes"));
+          if (review !== undefined) return review;
+        }
+        return undefined;
+      };
+      /** A task's declared files hashed now, inside the working dir (issue #104 review). */
+      const declaredHashesNow = (taskId: string): Array<{ path: string; sha256?: string }> =>
+        declaredFilesOf(taskId).flatMap((path) => {
+          const inside = evidencePath([ctx.workingDir], path);
+          if (inside === undefined) return [];
+          const sha256 = sha256Of(inside.full);
+          return [sha256 === undefined ? { path: inside.display } : { path: inside.display, sha256 }];
+        });
       const noteAttempt = (result: WorkerTaskResult): void => {
         const list = attemptLedger.get(result.id) ?? [];
         list.push({
@@ -1702,7 +1737,7 @@ export function buildFusionDelegateTool(
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
-      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string): string => {
+      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = []): string => {
         const attempts = attemptLedger.get(task.id) ?? [];
         // Only paths inside the working dir or the session's read roots are read and named.
         const roots = [workingDir, ...(ctx.readRoots ?? [])];
@@ -1732,7 +1767,15 @@ export function buildFusionDelegateTool(
           current,
           known,
         );
-        return [renderAttemptEvidence(attempts, current, task.files ?? []), executed].filter((part) => part.length > 0).join("\n\n");
+        // The task's own checks as the runtime ran them on these files (issue #104):
+        // command, exit, cases, the output and a test-to-criterion mapping.
+        const criteriaTexts = [...new Set([
+          ...(projectBrief?.successCriteria ?? []),
+          ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
+        ])];
+        const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
+        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known);
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
@@ -1978,7 +2021,7 @@ export function buildFusionDelegateTool(
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
-        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir);
+        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items);
         const judged = await judgeTask({
           ...input,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
@@ -2435,7 +2478,7 @@ export function buildFusionDelegateTool(
                   heldRunChecks,
                   {
                     workingDir: ctx.workingDir,
-                    signal: runSignal,
+                    signal: runSignal, filesOf: declaredFilesOf,
                     ...(deps.knownSecrets === undefined
                       ? {}
                       : { knownSecrets: collectKnownSecrets() }),
@@ -2613,7 +2656,7 @@ export function buildFusionDelegateTool(
                   ? [{ check, index }] : [],
               );
               const checks = await runContractChecks(own.map((c) => c.check), heldRunChecks, {
-                workingDir: ctx.workingDir, signal: runSignal,
+                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
                 ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
               });
               const previous = own.flatMap((c) => {
@@ -2826,7 +2869,7 @@ export function buildFusionDelegateTool(
             heldRunChecks,
             {
               workingDir: ctx.workingDir,
-              signal: runSignal,
+              signal: runSignal, filesOf: declaredFilesOf,
               ...(deps.knownSecrets === undefined
                 ? {}
                 : { knownSecrets: collectKnownSecrets() }),
@@ -3112,6 +3155,29 @@ export function buildFusionDelegateTool(
             };
           });
         }
+        // A verify-only task that changed nothing closes only on work
+        // already reviewed (issue #104 review): a review recorded by an
+        // earlier run on exactly its current files, and its own contract
+        // check run by the gate and passed on those same files. Otherwise
+        // it stays no_changes: verifyOnly is no way round doing the work.
+        results = results.map((r) => {
+          if (r.verifyOnlyUnchanged !== true || r.status !== "no_changes") return r;
+          const now = declaredHashesNow(r.id);
+          const sameFiles = (files: ReadonlyArray<{ path: string; sha256?: string }> | undefined): boolean =>
+            files !== undefined && now.length > 0 && files.length === now.length &&
+            now.every((f) => f.sha256 !== undefined && files.some((g) => g.path === f.path && g.sha256 === f.sha256));
+          const reviewed = priorReviewOf(r.id);
+          const ownIndexes = (parsed.contract?.checks ?? []).flatMap((c, i) => (c.task === r.id ? [i] : []));
+          const ownOutcomes = ownIndexes.map((i) => latestCheckOutcomes.get(i) ?? gateState.checkOutcomes.get(i));
+          const checked = ownIndexes.length > 0 && ownOutcomes.every((o) => o !== undefined && o.ok && sameFiles(o.run?.files));
+          if (reviewed !== undefined && sameFiles(reviewed.files) && checked) {
+            return { ...r, status: "ok", notes: [...(r.notes ?? []).filter((n) => n !== VERIFY_ONLY_UNCHANGED_NOTE), "verify-only: no file changed; an earlier review is recorded on exactly these files and its own check passed on them"] };
+          }
+          const why = reviewed === undefined || !sameFiles(reviewed.files)
+            ? "no review is recorded on exactly these files"
+            : ownIndexes.length === 0 ? "it has no own contract check" : "its own check did not pass on these files";
+          return { ...r, notes: [...(r.notes ?? []), `verify-only: stays no_changes: ${why}; an implementation task is re-delegated without verifyOnly to make its change`] };
+        });
         // Every task whose checks name criteria has its facts, judged or
         // not: one not ruled green stays open for the director (issue #40).
         {
@@ -3143,7 +3209,8 @@ export function buildFusionDelegateTool(
                       .filter((i) => i.by !== "fact" || !checkDidNotRun(i.why))
                       .map((i) => ({ severity: "blocker" as const, text: `${i.file === null ? "" : `${i.file}: `}${i.why}` }))
                   : [];
-                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }) }];
+                const files = declaredHashesNow(r.id);
+                return [{ taskId: r.id, verdict: decision, ...(reviewer === undefined ? {} : { reviewer }), ...(issues.length === 0 ? {} : { issues }), ...(files.length === 0 ? {} : { files }) }];
               }
               const reason =
                 r.judge === undefined

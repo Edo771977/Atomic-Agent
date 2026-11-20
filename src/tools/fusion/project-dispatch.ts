@@ -95,16 +95,40 @@ export function planCoversFanout(
   approvedScope: readonly string[],
   defaultModelOf?: DefaultModelOf,
 ): boolean {
+  return planCoverageGap(project, taskIds, workerOf, reviewerOf, writeScope, approvedScope, defaultModelOf) === undefined;
+}
+
+/**
+ * Why the approved plan does not stand for this fan-out (issue #104),
+ * the first reason {@link planCoversFanout} finds; undefined when it does.
+ * The director reads it when the fan-out then could not be approved, so
+ * it can send the task as its row says instead.
+ */
+export function planCoverageGap(
+  project: ProjectState,
+  taskIds: readonly string[],
+  workerOf: (taskId: string) => string,
+  reviewerOf: (taskId: string) => string | null,
+  writeScope: readonly string[],
+  approvedScope: readonly string[],
+  defaultModelOf?: DefaultModelOf,
+): string | undefined {
   const plan = project.plan;
-  if (taskIds.length === 0 || plan === undefined || plan.status !== "approved") return false;
-  if (plan.draftedAfterUntrusted && plan.approvedWithUntrustedWarning !== true) return false;
+  if (taskIds.length === 0) return "the call has no task";
+  if (plan === undefined || plan.status !== "approved") return "the plan is not approved";
+  if (plan.draftedAfterUntrusted && plan.approvedWithUntrustedWarning !== true) return "the plan was drafted after outside content and approved without that warning";
   const open = new Set(project.milestones.filter((m) => m.state === "approved" || m.state === "in_progress").map((m) => m.id));
   const byTask = new Map(plan.rows.map((r) => [r.taskId, r]));
   for (const id of taskIds) {
     const row = byTask.get(id);
-    if (row === undefined || !open.has(row.milestoneId) || !sameMember(row.worker, workerOf(id), defaultModelOf)) return false;
-    if (!sameMember(row.reviewer, reviewerOf(id), defaultModelOf)) return false;
+    if (row === undefined) return `task ${id} is not a row of the plan`;
+    if (!open.has(row.milestoneId)) return `task ${id}'s milestone ${row.milestoneId} is not open`;
+    const worker = workerOf(id);
+    if (!sameMember(row.worker, worker, defaultModelOf)) return `task ${id} would run on ${worker}, but its plan row names ${row.worker}`;
+    const reviewer = reviewerOf(id);
+    if (!sameMember(row.reviewer, reviewer, defaultModelOf)) return `task ${id} would be reviewed by ${reviewer ?? "nobody"}, but its plan row names ${row.reviewer ?? "no review"}`;
   }
   const roots = approvedScope.map((dir) => resolvePath(dir));
-  return writeScope.every((dir) => roots.some((root) => isInside(root, resolvePath(dir))));
+  const outside = writeScope.find((dir) => !roots.some((root) => isInside(root, resolvePath(dir))));
+  return outside === undefined ? undefined : `the call writes in ${outside}, outside the folder the plan was approved for`;
 }
