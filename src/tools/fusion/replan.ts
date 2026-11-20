@@ -56,6 +56,8 @@ export interface ReplanTask {
    * person, which a run with nobody to answer cannot get.
    */
   planned?: true;
+  /** Stopped by the runtime as stalled (repeated identical writes, issue #95). */
+  stalled?: true;
   /**
    * A review-exhausted task with no replans left (issue #38): the
    * director may fix it itself or accept it, not send it again.
@@ -174,8 +176,20 @@ const SAME_TASK_ID = " Keep its task id (the plan row's).";
  * to answer, the takeover never starts.
  */
 export const PLANNED_TASK_FIX =
-  "keep it on the plan row's worker under its plan task id, with a narrower brief or a longer `timeoutMs`; another worker or model, `model: \"orchestrator\"` included, leaves the approved plan and asks the person";
-const PLANNED_NOTE = " (a plan task: re-delegate it only on the plan row's worker; another worker or model asks the person)";
+  "keep its plan task id (a plan task is never split); re-delegate it on the plan row's worker with a narrower brief or a longer `timeoutMs`, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person";
+
+/** A row's own options, worded per row (issue #102 review): a plan task keeps its id and is never split. */
+const REVIEW_OPTIONS =
+  "re-delegate it with `fusion.delegate` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged." + SAME_TASK_ID;
+const PLANNED_REVIEW_OPTIONS =
+  "delegate a targeted fix under its plan task id, the remaining issues in the brief (a correction round), on the plan row's worker, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person; never split it; or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged.";
+const STUCK_OPTIONS =
+  "re-delegate it with `fusion.delegate` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged." + SAME_TASK_ID;
+const PLANNED_STUCK_OPTIONS =
+  "re-delegate it under its plan task id with a narrower brief, on the plan row's worker, or on another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person; never split it; or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged.";
+const PLANNED_STALLED_OPTIONS =
+  "re-run it once on the same worker under its plan task id, the stall details in the brief (the file, its sha256, the last check); if it stalls again, report it with `project.milestone` so the milestone stays open; never split it.";
+const PLANNED_SETTLE = " A plan task: report it with `project.milestone` if you cannot settle it, so the milestone stays open.";
 
 export function describeReplan(
   results: readonly WorkerTaskResult[],
@@ -233,6 +247,7 @@ export function describeReplan(
       replansLeft: Math.max(0, left - 1),
       ...(fix === undefined ? {} : { fix }),
       ...(inPlan ? { planned: true as const } : {}),
+      ...(result.stalled === undefined ? {} : { stalled: true as const }),
       ...(awaits === undefined ? {} : { awaitsReview: awaits }),
     };
     if (stop) failedOnOrchestrator.push({ ...task, replansLeft: 0 });
@@ -277,7 +292,7 @@ export function renderReplanBlock(report: ReplanReport): string {
   } else if (pending.length > 0) {
     parts.push(
       [
-        `REPLAN REQUIRED — these tasks did not close. Your next step must be \`fusion.delegate\` again: rewrite each brief from the facts above (the error, the failed checks, the judge's findings), keep each task's id or split it into continuation ids (\`<id>.a\`, \`<id>.b\`, sharing its replans), and include anything held for them.`,
+        `REPLAN REQUIRED — these tasks did not close. Your next step must be \`fusion.delegate\` again: rewrite each brief from the facts above (the error, the failed checks, the judge's findings), keep each task's id, and include anything held for them. A task outside the project plan may instead be split into continuation ids (\`<id>.a\`, \`<id>.b\`, sharing its replans); a plan task is never split. Each row's fix says which:`,
         ...pending.map(
           (t) =>
             `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after this one${t.fix === undefined ? "" : `; fix: ${t.fix}`}`,
@@ -292,10 +307,10 @@ export function renderReplanBlock(report: ReplanReport): string {
   if (redelegable.length > 0) {
     parts.push(
       [
-        `${reviewHead} re-delegate it with \`fusion.delegate\` to another worker or model, the remaining issues in the brief (a normal replan); or fix it yourself where your tools allow; or accept it as it stands and state your reasons in your reply. Do not send it again unchanged.${SAME_TASK_ID} Ask the person only if you cannot proceed:`,
+        `${reviewHead} each row says what you may do with it. Ask the person only if you cannot proceed:`,
         ...redelegable.map(
           (t) =>
-            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation${t.planned === true ? PLANNED_NOTE : ""}`,
+            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation; ${t.planned === true ? PLANNED_REVIEW_OPTIONS : REVIEW_OPTIONS}`,
         ),
       ].join("\n"),
     );
@@ -304,7 +319,7 @@ export function renderReplanBlock(report: ReplanReport): string {
     parts.push(
       [
         `${reviewHead} no replans are left, so do not send it again this turn; fix it yourself where your tools allow, or accept it as it stands and state your reasons in your reply. Ask the person only if you cannot proceed:`,
-        ...settle.map((t) => `- ${t.id} (${t.status}): ${t.why}`),
+        ...settle.map((t) => `- ${t.id} (${t.status}): ${t.why}${t.planned === true ? PLANNED_SETTLE : ""}`),
       ].join("\n"),
     );
   }
@@ -315,10 +330,10 @@ export function renderReplanBlock(report: ReplanReport): string {
   if (stuckAgain.length > 0) {
     parts.push(
       [
-        `${stuckHead} re-delegate it with \`fusion.delegate\` to another worker or model, or with a narrower brief (a normal replan); or fix it yourself where your tools allow; or accept the partial work as it stands and state your reasons in your reply. Do not send it again unchanged.${SAME_TASK_ID} Ask the person only if you cannot proceed:`,
+        `${stuckHead} each row says what you may do with it. Ask the person only if you cannot proceed:`,
         ...stuckAgain.map(
           (t) =>
-            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation${t.planned === true ? PLANNED_NOTE : ""}`,
+            `- ${t.id} (${t.status}): ${t.why} — ${t.replansLeft} more replan${t.replansLeft === 1 ? "" : "s"} after a re-delegation; ${t.planned !== true ? STUCK_OPTIONS : t.stalled === true ? PLANNED_STALLED_OPTIONS : PLANNED_STUCK_OPTIONS}`,
         ),
       ].join("\n"),
     );
@@ -327,7 +342,7 @@ export function renderReplanBlock(report: ReplanReport): string {
     parts.push(
       [
         `${stuckHead} no replans are left, so do not send it again this turn; fix it yourself where your tools allow, or accept the partial work as it stands and state your reasons in your reply. Ask the person only if you cannot proceed:`,
-        ...stuckSettle.map((t) => `- ${t.id} (${t.status}): ${t.why}`),
+        ...stuckSettle.map((t) => `- ${t.id} (${t.status}): ${t.why}${t.planned === true ? PLANNED_SETTLE : ""}`),
       ].join("\n"),
     );
   }

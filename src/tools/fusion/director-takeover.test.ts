@@ -129,7 +129,7 @@ describe("a director takeover of a plan task (issue #102)", () => {
     const { result, prompts } = await run(project("cli-b:model-r", false), {}, true);
     expect(prompts).toHaveLength(0);
     expect(result.summary).toContain("REPLAN REQUIRED");
-    expect(result.summary).toContain("keep it on the plan row's worker under its plan task id");
+    expect(result.summary).toContain("keep its plan task id (a plan task is never split)");
     expect(result.summary).not.toMatch(/continuation ids `t\.a`/);
   });
 });

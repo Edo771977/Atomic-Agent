@@ -148,7 +148,7 @@ describe("a replan may split a failed task into continuation ids", () => {
     const tool = buildFusionDelegateTool(d);
     const first = await tool.run({ tasks: [ORDERED.tasks[0]!] }, ctx());
     expect((first.details.replan as Report).pending[0]).toMatchObject({ id: "core", replansLeft: 1 });
-    expect(first.summary).toContain("split it into continuation ids (`<id>.a`, `<id>.b`, sharing its replans)");
+    expect(first.summary).toContain("split into continuation ids (`<id>.a`, `<id>.b`, sharing its replans)");
     // The split is one more round at `core`, not one per child.
     const split = await tool.run(
       {
@@ -421,7 +421,7 @@ describe("tasks whose review passes ran out (issue #38)", () => {
     const report = describeReplan([exhausted, other], (id) => (id === "hud" ? 1 : 3), 2);
     expect(report.reviewExhausted.map((t) => [t.id, t.redelegate])).toEqual([["hud", undefined], ["map", false]]);
     const block = renderReplanBlock(report);
-    expect(block).toMatch(/re-delegate it[^\n]*:\n- hud /);
+    expect(block).toMatch(/each row says what you may do with it[^\n]*:\n- hud [^\n]*; re-delegate it /);
     expect(block).toMatch(/do not send it again this turn[^\n]*:\n- map /i);
   });
 });
@@ -480,5 +480,43 @@ describe("tasks the watch stopped as stuck (issue #43)", () => {
     const block = renderReplanBlock(report);
     expect(block).not.toContain("REPLAN REQUIRED");
     expect(block).toMatch(/after you decide on[^\n]*re-send[^\n]*:\n- ui \(cancelled\)/i);
+  });
+});
+
+describe("plan tasks are worded per row (issue #102 review)", () => {
+  const row = (id: string, status: string, extra: Record<string, unknown> = {}) => ({ id, status, ...extra }) as never;
+
+  it("no heading tells a plan task to split or to move; a stalled plan task gets one same-worker re-run, then a report", () => {
+    const report = describeReplan(
+      [
+        row("plan-slow", "timeout"),
+        row("free-slow", "timeout"),
+        row("plan-review", "failed", { failure: "review-exhausted", error: "review-exhausted: needs-changes after 2 review passes" }),
+        row("free-review", "failed", { failure: "review-exhausted", error: "review-exhausted: needs-changes after 2 review passes" }),
+        row("plan-stall", "failed", { failure: "stuck", stalled: { reason: "repeated identical writes" }, error: "stalled: repeated identical writes" }),
+      ],
+      () => 1,
+      3,
+      () => false,
+      true,
+      (id) => id.startsWith("plan-"),
+    );
+    const block = renderReplanBlock(report);
+    const line = (id: string) => block.split("\n").find((l) => l.startsWith(`- ${id} `))!;
+    // Headings: nothing a plan row's own line contradicts.
+    for (const heading of block.split("\n").filter((l) => !l.startsWith("- "))) {
+      expect(heading).not.toMatch(/to another worker or model/);
+      expect(heading).not.toMatch(/keep each task's id or split it/);
+    }
+    expect(block).toContain("a plan task is never split");
+    expect(line("free-slow")).toContain("`free-slow.a`");
+    expect(line("plan-slow")).toContain("keep its plan task id (a plan task is never split)");
+    expect(line("plan-slow")).toMatch(/another team worker the plan or team allows, which leaves the approved plan, so the fan-out asks the person/);
+    expect(line("free-review")).toContain("to another worker or model");
+    expect(line("plan-review")).toContain("a targeted fix under its plan task id");
+    expect(line("plan-review")).toContain("(a correction round)");
+    expect(line("plan-review")).toContain("never split it");
+    expect(line("plan-stall")).toContain("re-run it once on the same worker under its plan task id, the stall details in the brief");
+    expect(line("plan-stall")).toContain("report it with `project.milestone` so the milestone stays open");
   });
 });
