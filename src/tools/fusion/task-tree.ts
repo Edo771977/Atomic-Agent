@@ -723,7 +723,7 @@ async function closeParent(
   // The parent's own declared files, now that its children wrote them.
   if ((task.files?.length ?? 0) > 0) {
     const report = await inspectDeclaredFiles(task.files!, deps.workingDir, startedAt);
-    closed = applyNoChangesRule(applyDeclaredFileReport(closed, report), report);
+    closed = applyNoChangesRule(applyDeclaredFileReport(closed, report), report, { verifyOnly: task.verifyOnly === true });
   }
   return closed;
 }

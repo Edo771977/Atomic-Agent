@@ -271,6 +271,9 @@ export function applyDeclaredFileReport(
   };
 }
 
+/** The note on a verify-only task that changed nothing, as it was asked (issue #104). */
+export const VERIFY_ONLY_UNCHANGED_NOTE = "verify-only: no file changed, as the task asked; its checks and review run on the files as they are";
+
 /**
  * An `ok` task that declared `files`, made no successful write, edit
  * or patch call, and changed none of those files on disk is
@@ -288,9 +291,16 @@ export function applyDeclaredFileReport(
 export function applyNoChangesRule(
   result: WorkerTaskResult,
   report: DeclaredFileReport,
+  options: { verifyOnly?: boolean } = {},
 ): WorkerTaskResult {
   if (result.status !== "ok") return result;
   if (result.tools.writes > 0 || report.modified.length > 0) return result;
+  // A task delegated to verify its files, or to have its evidence
+  // reviewed again, is done by changing nothing (issue #104): it goes on
+  // to its checks and review on the files as they are.
+  if (options.verifyOnly === true) {
+    return { ...result, notes: [...(result.notes ?? []), VERIFY_ONLY_UNCHANGED_NOTE] };
+  }
   return {
     ...result,
     status: "no_changes",

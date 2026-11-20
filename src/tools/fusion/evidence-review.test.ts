@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,7 @@ import { createEmptySessionState } from "../../session/session-state.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
+import { FusionRunStore } from "./run-checkpoint.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 /**
@@ -198,5 +199,166 @@ describe("the evidence the reviewer receives (issue #104)", () => {
     expect(prompt).toContain('"skips blank lines" <- skips blank lines');
     expect(prompt).toContain('"ignores __proto__ keys safely" <- ignores __proto__ keys');
     expect(prompt).toContain('"reports a malformed row on stderr" <- no test name matches it');
+  });
+});
+
+type Act = "write-suite" | "run-suite" | "hang";
+/**
+ * A project session over several delegate calls: each call's worker plays
+ * `acts` on its first turn (later turns, review passes, reply at once);
+ * the reviewer answers `review(prompt)`; the gate's checks log what they ran on.
+ */
+export function session(dir: string, review: (prompt: string) => string) {
+  const asked: ApprovalRequest[] = [];
+  const log: string[] = [];
+  const runsDir = join(dir, "..", `${dir.split("/").pop()}-runs`);
+  let acts: Act[] = [];
+  let minted = 0;
+  let turns = 0;
+  const d: FusionDelegateDeps = {
+    runTurn: async (s, _m, options) => {
+      const first = turns++ === 0;
+      options.eventHook?.({ type: "turn_started", turnIndex: 0 } as never);
+      if (first) {
+        let step = 0;
+        for (const act of acts) {
+          if (act === "write-suite") {
+            options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "sales.test.cjs", content: SUITE } } }));
+            writeFileSync(join(dir, "sales.test.cjs"), SUITE);
+            log.push("worker write");
+            options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
+          } else if (act === "run-suite") {
+            options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: WORKER_SPEC } }));
+            options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "verify.run command: passed (exit 0)", details: { exitCode: 0, stdoutTail: TAP }, truncated: false } }));
+          } else {
+            await new Promise<void>((resolve) => options.signal?.addEventListener("abort", () => resolve(), { once: true }));
+            return { session: createEmptySessionState({ id: s.id, workingDir: dir }), reason: "cancelled", stepCount: step } as RunTurnResult;
+          }
+          options.eventHook?.({ type: "step_finished", stepIndex: step++, summary: "", durationMs: 1 } as never);
+        }
+      }
+      return { session: createEmptySessionState({ id: s.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
+    },
+    createEphemeralSession: (meta) => {
+      minted += 1;
+      return createEmptySessionState({ id: `${FUSION_WORKER_ID_PREFIX}${minted}`, workingDir: dir, metadata: { fusionWorker: { ...meta } } });
+    },
+    approvals: cliGate(asked),
+    approvalRequired: true,
+    emitEvent: () => {},
+    workingDir: dir,
+    slotManager: { poolSize: () => 4 },
+    resolveRunMode: mode,
+    workerSupportsSlotAffinity: () => false,
+    warmWorkerBackend: async () => {},
+    outputCharCap: 4000,
+    logger,
+    escalationComplete: async (call) => {
+      if (call.prompt.includes("strict acceptance judge")) log.push("review");
+      return { content: review(call.prompt) };
+    },
+    resolveFusionTeam: () => team(),
+    runChecks: async (specs, run) => {
+      log.push(`gate on ${readFileSync(join(run.workingDir, "sales.test.cjs"), "utf8").trim()}`);
+      return gateChecks(specs, run);
+    },
+    runCheckpoints: new FusionRunStore({ dir: runsDir }),
+  };
+  const tool = buildFusionDelegateTool(d);
+  return {
+    asked,
+    log,
+    runsDir,
+    async call(project: ProjectState, task: Record<string, unknown>, play: Act[]) {
+      acts = play;
+      turns = 0;
+      const result = await tool.run(
+        { tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"], ...task }], contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK }] } },
+        { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project },
+      );
+      const runId = result.details.runId as string;
+      const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews?: Array<{ taskId: string; verdict: string }> };
+      return { result, runId, stored, row: (result.details.tasks as Array<{ id: string; status: string; notes?: string[]; tools: { writes: number }; review?: { decision: string } }>)[0]! };
+    },
+  };
+}
+const NEEDS_EVIDENCE = JSON.stringify({ decision: "needs-changes", issues: [{ item: null, severity: "blocker", file: "sales.test.cjs", why: "the evidence omits the full TAP output and which test checks which requirement" }] });
+/** The reviewer of the live run: it accepts once the evidence shows the TAP and the mapping. */
+export const evidenceReviewer = (prompt: string): string =>
+  prompt.includes("strict acceptance judge") && !(prompt.includes("# pass 9") && prompt.includes("Tests against the criteria")) ? NEEDS_EVIDENCE : ACCEPT;
+
+describe("an evidence-only review (issue #104)", () => {
+  it("from needs-changes for missing evidence: files unchanged, the evidence supplied, a new verdict on the same task, no write", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      // The first review saw no evidence: it asks for it.
+      let evidenceShown = false;
+      const s = session(dir, (prompt) => (evidenceShown ? evidenceReviewer(prompt) : prompt.includes("strict acceptance judge") ? NEEDS_EVIDENCE : ACCEPT));
+      const project = projectOf(["sales-tests"]);
+      const first = await s.call(project, {}, ["write-suite"]);
+      expect(first.stored.reviews).toEqual([expect.objectContaining({ taskId: "sales-tests", verdict: "needs-changes" })]);
+      const before = readFileSync(join(dir, "sales.test.cjs"), "utf8");
+      // Written well before the next call, as in the live run.
+      const past = new Date(Date.now() - 10 * 60_000);
+      for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      // The evidence-only review: verify-only, the suite run, nothing written.
+      evidenceShown = true;
+      s.log.length = 0;
+      const second = await s.call(project, { verifyOnly: true, instructions: "re-review the evidence of sales.test.cjs; change nothing" }, ["run-suite"]);
+      expect(second.row.tools.writes).toBe(0);
+      expect(readFileSync(join(dir, "sales.test.cjs"), "utf8")).toBe(before);
+      expect(s.log).not.toContain("worker write");
+      expect(second.row.status).toBe("ok");
+      expect((second.row.notes ?? []).join("\n")).not.toMatch(/no write, edit or patch call succeeded/);
+      expect(second.row.review?.decision).toBe("accept");
+      expect(second.stored.reviews).toEqual([expect.objectContaining({ taskId: "sales-tests", verdict: "accept" })]);
+      expect(s.asked).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("the files changed before the evidence-only review: the checks run on the new version first", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-changed-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      const s = session(dir, evidenceReviewer);
+      const project = projectOf(["sales-tests"]);
+      await s.call(project, {}, ["write-suite"]);
+      // The person touches the suite between the calls.
+      writeFileSync(join(dir, "sales.test.cjs"), `${SUITE}// reviewed by the person\n`);
+      s.log.length = 0;
+      const second = await s.call(project, { verifyOnly: true }, ["run-suite"]);
+      const gate = s.log.findIndex((l) => l.includes("reviewed by the person"));
+      expect(gate).toBeGreaterThanOrEqual(0);
+      expect(gate).toBeLessThan(s.log.indexOf("review"));
+      expect(second.row.review?.decision).toBe("accept");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a verify-only worker that times out right after its run is reviewed from it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-timeout-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      writeFileSync(join(dir, "sales.test.cjs"), SUITE);
+      const past = new Date(Date.now() - 10 * 60_000);
+      for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      const s = session(dir, evidenceReviewer);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+      const pending = s.call(projectOf(["sales-tests"]), { verifyOnly: true }, ["run-suite", "hang"]);
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      const { row, stored } = await pending;
+      expect(row.status).toBe("ok");
+      expect(row.review?.decision).toBe("accept");
+      expect(stored.reviews).toEqual([expect.objectContaining({ taskId: "sales-tests", verdict: "accept" })]);
+    } finally {
+      vi.useRealTimers();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
