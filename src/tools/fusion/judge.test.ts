@@ -150,6 +150,53 @@ describe("the judge cannot pass what the facts fail", () => {
   });
 });
 
+describe("every review names its reviewer (issue #100)", () => {
+  it("a verdict the facts decided, with no reviewer asked, still records the configured reviewer's provider", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-id-"));
+    try {
+      let asked = 0;
+      const verdict = await judgeTask({
+        task: { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] },
+        items: [{ id: "a1", kind: "file", text: "a.txt exists", path: "a.txt" }, { id: "a2", kind: "instructions", text: "write a.txt", judged: true }] as AcceptanceItem[],
+        facts: { checkOutcomes: [], findings: [] },
+        reply: "",
+        contract: undefined,
+        workingDir: dir,
+        target: { providerId: "codex-cli", model: null, pinModel: "default" },
+        pricing: undefined,
+        complete: async () => { asked += 1; return { content: "{}" }; },
+        signal: new AbortController().signal,
+        planReviewerRef: "codex-cli:default",
+      });
+      // a.txt is missing: a red fact, so no reviewer was asked.
+      expect(asked).toBe(0);
+      expect(verdict.review.decision).toBe("needs-changes");
+      expect(verdict.review.reviewerIdentity).toEqual({ provider: "codex-cli", source: "facts" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("a reviewer asked on its `default` model is recorded with its provider, not as a bare `default`", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-id-"));
+    try {
+      writeFileSync(join(dir, "a.txt"), "x");
+      const verdict = await judgeTask({
+        task: { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] },
+        items: [{ id: "a1", kind: "file", text: "a.txt exists", path: "a.txt" }, { id: "a2", kind: "instructions", text: "write a.txt", judged: true }] as AcceptanceItem[],
+        facts: { checkOutcomes: [], findings: [] },
+        reply: "",
+        contract: undefined,
+        workingDir: dir,
+        target: { providerId: "codex-cli", model: null, pinModel: "default" },
+        pricing: undefined,
+        complete: answer(ACCEPT),
+        signal: new AbortController().signal,
+      });
+      expect(verdict.review.reviewer).toBe("codex-cli:default");
+      expect(verdict.review.reviewerIdentity).toEqual({ provider: "codex-cli" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
 describe("the structured review verdict (issue #38)", () => {
   const issue = (over: Partial<Issue> = {}): Issue => ({ item: "a1", severity: "blocker", file: null, why: "wrong", ...over });
 
@@ -261,6 +308,8 @@ describe("the structured review verdict (issue #38)", () => {
       decision: "needs-changes",
       issues: [{ item: "a1", severity: "blocker", file: "a.txt", why: "missing", by: "fact" }],
       reviewer: null,
+      // Issue #100: the configured reviewer is named, its verdict from the facts.
+      reviewerIdentity: { provider: "cloud", source: "facts" },
     });
     rmSync(empty, { recursive: true, force: true });
   });
@@ -279,7 +328,7 @@ describe("the structured review verdict (issue #38)", () => {
       signal: new AbortController().signal,
     });
     expect(verdict.green).toBe(true);
-    expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null });
+    expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null, reviewerIdentity: { provider: "cloud", source: "facts" } });
   });
 
   it("gives the reviewer the project's success criteria (issue #39)", () => {

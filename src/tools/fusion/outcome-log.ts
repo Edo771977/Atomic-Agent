@@ -340,7 +340,7 @@ export function reviewOutcome(
   verdict: {
     decision: ReviewDecision;
     reviewer: string | null;
-    reviewerIdentity?: { provider: string; model?: string; planRef?: string };
+    reviewerIdentity?: { provider: string; model?: string; planRef?: string; source?: "facts" };
     issues: ReadonlyArray<{ severity: "blocker" | "major" | "minor" }>;
   },
   passes: number,

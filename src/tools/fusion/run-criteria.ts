@@ -53,7 +53,7 @@ export interface RunTaskReview {
   /** A needs-changes' blocking issues, one line each (issue #100): what a targeted fix must address. */
   issues?: string[];
   /** Who gave the verdict (issue #98): provider, effective model when reported, the plan's ref when it differs. */
-  reviewer?: { provider: string; model?: string; planRef?: string };
+  reviewer?: { provider: string; model?: string; planRef?: string; source?: "facts" };
 }
 
 /** A stored fact: the criterion text its checks tested, when the run knew it. */
