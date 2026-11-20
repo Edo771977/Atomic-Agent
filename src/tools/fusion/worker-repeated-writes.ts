@@ -29,8 +29,12 @@ export interface StalledWrite {
   sha256: string;
   /** Successful writes of these bytes in a row, the first included. */
   writes: number;
-  /** The worker's last `verify.run`: its spec and whether it passed. */
-  lastCheck?: { spec: string; ok: boolean };
+  /**
+   * The worker's last `verify.run`: its spec, whether it passed, whether
+   * it ran after the worker's last change (an identical rewrite is not a
+   * change), and whether its spec names the file.
+   */
+  lastCheck?: { spec: string; ok: boolean; sinceLastChange: boolean; coversFile: boolean };
 }
 
 type Pending = { kind: "write"; path: string; sha256: string } | { kind: "other"; paths: readonly string[] | null };
@@ -52,22 +56,35 @@ export class RepeatedWritesTracker {
     this.pending.set(batchIndex, { kind: "other", paths: path === null ? null : [path] });
   }
 
-  /** The write's outcome; the repeat when this one reaches the limit. */
-  observeExecuted(result: { tool: string; status: string }, batchIndex: number): Omit<StalledWrite, "reason" | "lastCheck"> | undefined {
+  /**
+   * The write's outcome: `identical` when it rewrote the bytes the file
+   * already held; `repeat` when this one reaches the limit.
+   */
+  observeExecuted(
+    result: { tool: string; status: string },
+    batchIndex: number,
+  ): { identical: boolean; repeat?: Omit<StalledWrite, "reason" | "lastCheck"> } {
     const pending = this.pending.get(batchIndex);
     this.pending.delete(batchIndex);
-    if (pending === undefined || result.status !== "ok") return undefined;
+    if (pending === undefined || result.status !== "ok") return { identical: false };
     if (pending.kind === "other") {
       // Another change to the file (or to files it cannot name): the bytes may differ now.
       if (pending.paths === null) this.last.clear();
       else for (const path of pending.paths) this.last.delete(path);
-      return undefined;
+      return { identical: false };
     }
     const prev = this.last.get(pending.path);
-    const writes = prev?.sha256 === pending.sha256 ? prev.writes + 1 : 1;
+    const identical = prev?.sha256 === pending.sha256;
+    const writes = identical ? prev!.writes + 1 : 1;
     this.last.set(pending.path, { sha256: pending.sha256, writes });
-    return writes - 1 >= REPEATED_WRITE_LIMIT ? { path: pending.path, sha256: pending.sha256, writes } : undefined;
+    return writes - 1 >= REPEATED_WRITE_LIMIT ? { identical, repeat: { path: pending.path, sha256: pending.sha256, writes } } : { identical };
   }
+}
+
+/** Whether a check's canonical spec names the file (its path or its base name). */
+export function specNames(spec: string, path: string): boolean {
+  const base = path.split("/").pop() ?? path;
+  return spec.includes(path) || (base.length > 0 && spec.includes(base));
 }
 
 function normalise(path: string): string {
@@ -76,9 +93,14 @@ function normalise(path: string): string {
 
 /** The row's error for a stalled worker: short enough for the replan line (300 characters). */
 export function describeStalledWrite(stalled: StalledWrite): string {
+  const last = stalled.lastCheck;
   const check =
-    stalled.lastCheck === undefined
+    last === undefined
       ? "no check run"
-      : `last check ${stalled.lastCheck.ok ? "passed" : "failed"}: ${stalled.lastCheck.spec.slice(0, 80)}`;
-  return `stalled: ${stalled.reason}: ${stalled.path} (sha256 ${stalled.sha256.slice(0, 12)}) written ${stalled.writes} times with the same bytes; ${check}. The file is kept: verify it or reassign the task`;
+      : !last.sinceLastChange
+        ? `last check not run since the last change (${last.spec.slice(0, 60)})`
+        : `last check ${last.ok ? "passed" : "failed"}${last.coversFile ? "" : `, but its spec does not name ${stalled.path}`}: ${last.spec.slice(0, 60)}`;
+  // Only a fresh pass of a check naming the file says the file may be usable.
+  const usable = last !== undefined && last.sinceLastChange && last.ok && last.coversFile ? " It may already be usable." : "";
+  return `stalled: ${stalled.reason}: ${stalled.path} (sha256 ${stalled.sha256.slice(0, 12)}) written ${stalled.writes} times with the same bytes; ${check}.${usable} The file is kept: verify it or reassign the task`;
 }

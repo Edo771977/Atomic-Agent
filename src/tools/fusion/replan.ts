@@ -268,7 +268,7 @@ export function renderReplanBlock(report: ReplanReport): string {
   const stuckAgain = report.stuck.filter((t) => t.redelegate !== false);
   const stuckSettle = report.stuck.filter((t) => t.redelegate === false);
   const stuckHead =
-    "STOPPED BY THE WATCH — its judge found the worker stuck on these tasks and stopped it; what it changed is kept as a failed task's. A reason that starts `stalled: repeated identical writes` was the runtime's stop instead (issue #95): the worker kept writing the same bytes to one file, so verify the named file (path, sha256) and its last check first, since it may already be usable. You decide; finishing the task is preferred over asking the person:";
+    "STOPPED BY THE WATCH — its judge found the worker stuck on these tasks and stopped it; what it changed is kept as a failed task's. A reason that starts `stalled: repeated identical writes` was the runtime's stop instead (issue #95): the worker kept writing the same bytes to one file, so verify the named file (path, sha256) and read the row's check status before you decide: only a check that passed after the last change and names the file says it may be usable. You decide; finishing the task is preferred over asking the person:";
   if (stuckAgain.length > 0) {
     parts.push(
       [

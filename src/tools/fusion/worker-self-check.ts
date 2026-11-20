@@ -167,7 +167,11 @@ export class WorkerCheckRuns {
     else this.parsed.delete(batchIndex);
   }
 
-  executed(tool: string, status: string, batchIndex: number, step: number): void {
+  /**
+   * `unchanged`: the call rewrote a file with the bytes it already held
+   * (issue #95), so it does not make an earlier check stale.
+   */
+  executed(tool: string, status: string, batchIndex: number, step: number, unchanged = false): void {
     if (tool === "verify.run") {
       const args = this.parsed.get(batchIndex);
       this.parsed.delete(batchIndex);
@@ -178,7 +182,7 @@ export class WorkerCheckRuns {
       else this.passedAt.delete(key);
       return;
     }
-    if (!NON_MUTATING_TOOLS.has(tool) && !this.readOnlyTools.has(tool)) {
+    if (!NON_MUTATING_TOOLS.has(tool) && !this.readOnlyTools.has(tool) && !unchanged) {
       this.lastChangeStep = step;
     }
   }
@@ -194,9 +198,14 @@ export class WorkerCheckRuns {
     return checks.some((check) => checkSpecKey(check) === last.key);
   }
 
-  /** The worker's most recent `verify.run` (its spec, canonical) and whether it passed; undefined before any. */
-  lastRunOutcome(): { spec: string; ok: boolean } | undefined {
-    return this.lastRun === undefined ? undefined : { spec: this.lastRun.key, ok: this.lastRun.ok };
+  /**
+   * The worker's most recent `verify.run` (its spec, canonical), whether
+   * it passed, and whether it ran after the worker's last change (a pass
+   * before a change says nothing about the files now); undefined before any.
+   */
+  lastRunOutcome(): { spec: string; ok: boolean; sinceLastChange: boolean } | undefined {
+    const last = this.lastRun;
+    return last === undefined ? undefined : { spec: last.key, ok: last.ok, sinceLastChange: last.step > this.lastChangeStep };
   }
 
   /** Whether `check` passed after the worker's last change. */
