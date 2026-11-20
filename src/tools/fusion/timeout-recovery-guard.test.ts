@@ -18,6 +18,8 @@ import { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
+import { getConfig } from "../../config/index.js";
+import { runChecks as runVerifyChecks } from "../verify/index.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -152,4 +154,81 @@ describe("a timed-out worker is recovered for review only on its own passing che
     expect(notes.join("\n")).not.toMatch(/split it into smaller tasks/);
     expect(notes.join("\n")).not.toMatch(/reply is empty or a placeholder/);
   });
+
+  const stays = (row: { status: string; timedOutAfterRun?: true }) => {
+    expect(row.status).not.toBe("ok");
+    expect(row.timedOutAfterRun).toBeUndefined();
+  };
+
+  it("its own check passed before the write: stays timeout", async () => {
+    const { row } = await timedOut([{ verify: OWN }, { write: PROGRAM }]);
+    expect(row.status).toBe("timeout");
+    stays(row);
+  });
+
+  it("a test-runner shell command passed after the write, not one of its own checks: stays timeout", async () => {
+    const { row } = await timedOut([{ write: PROGRAM }, { shell: "npm test", output: "# pass 2\n# fail 0" }]);
+    expect(row.status).toBe("timeout");
+    stays(row);
+  });
+
+  it("its own check passed but the attempt wrote nothing: stays timeout", async () => {
+    const { row } = await timedOut([{ verify: OWN }]);
+    expect(row.status).toBe("timeout");
+    stays(row);
+  });
+
+  it("no own checks (no contract): stays timeout", async () => {
+    const { row } = await timedOut([{ write: PROGRAM }, { verify: OWN }], { contract: false });
+    expect(row.status).toBe("timeout");
+    stays(row);
+  });
+
+  it("no declared files: stays timeout", async () => {
+    const { row } = await timedOut([{ write: PROGRAM }, { verify: OWN }], { files: null });
+    expect(row.status).toBe("timeout");
+    stays(row);
+  });
+
+  it("an operator abort after the passing check: never recovered", async () => {
+    const { row } = await timedOut([{ write: PROGRAM }, { verify: OWN }], { abort: true });
+    stays(row);
+  });
+});
+
+describe("recovery with the real gate checks (issue #102 review)", () => {
+  it("the gate runs the task's own node --test suite on the current files and the reviewer accepts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "recovery-real-gate-"));
+    try {
+      writeFileSync(join(dir, "sales.test.cjs"), [
+        "const test = require('node:test');",
+        "const assert = require('node:assert');",
+        "const parse = require('./sales.cjs');",
+        "test('skips blank lines', () => assert.deepStrictEqual(parse('a\\n\\nb'), ['a', 'b']));",
+      ].join("\n"));
+      const own = { kind: "command", cmd: process.execPath, args: ["--test", "sales.test.cjs"] };
+      const runTurn = scripted(dir, [{ write: PROGRAM }, { verify: own }]);
+      const gateRuns: boolean[] = [];
+      const runChecks: FusionDelegateDeps["runChecks"] = async (specs, run) => {
+        const out = await runVerifyChecks(specs, { workingDir: run.workingDir, signal: run.signal, config: getConfig() });
+        gateRuns.push(out.ok);
+        return out;
+      };
+      const prompts: string[] = [];
+      const complete: EscalationComplete = async (call) => { prompts.push(call.prompt); return { content: review("accept") }; };
+      // A short clock in real time: the real suite runs under real timers.
+      const d = deps(dir, complete, runTurn, { runChecks, resolveRunMode: () => ({ ...mode(), workerTimeoutMs: 400 }) });
+      const result = await buildFusionDelegateTool(d).run({
+        tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }],
+        contract: { checks: [{ task: "program", ...own }] },
+      }, ctx(dir));
+      const row = (result.details.tasks as Array<{ status: string; timedOutAfterRun?: true; review?: { decision: string } }>)[0]!;
+      expect(row.status).toBe("ok");
+      expect(row.timedOutAfterRun).toBe(true);
+      expect(gateRuns.length).toBeGreaterThan(0);
+      expect(gateRuns.every((ok) => ok)).toBe(true);
+      expect(row.review?.decision).toBe("accept");
+      expect(prompts.some((p) => p.includes("## Execution evidence"))).toBe(true);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }, 30_000);
 });
