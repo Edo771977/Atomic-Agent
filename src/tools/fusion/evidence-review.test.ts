@@ -20,6 +20,8 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import { getConfig } from "../../config/index.js";
+import { runChecks as runVerifyChecks } from "../verify/index.js";
 import { buildProjectTools, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
 import { readMilestoneEvidence } from "./run-criteria.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -220,7 +222,7 @@ type Act = "write-suite" | "run-suite" | "hang";
  * `acts` on its first turn (later turns, review passes, reply at once);
  * the reviewer answers `review(prompt)`; the gate's checks log what they ran on.
  */
-export function session(dir: string, review: (prompt: string) => string) {
+export function session(dir: string, review: (prompt: string) => string, opts: { realGate?: boolean } = {}) {
   const asked: ApprovalRequest[] = [];
   const log: string[] = [];
   const runsDir = join(dir, "..", `${dir.split("/").pop()}-runs`);
@@ -272,7 +274,11 @@ export function session(dir: string, review: (prompt: string) => string) {
     resolveFusionTeam: () => team(),
     runChecks: async (specs, run) => {
       log.push(`gate on ${readFileSync(join(run.workingDir, "sales.test.cjs"), "utf8").trim()}`);
-      return gateChecks!(specs, run);
+      if (opts.realGate !== true) return gateChecks!(specs, run);
+      // The real verify runner: `node --test` reads the files and runs the suite.
+      const out = await runVerifyChecks(specs.map((spec) => ({ ...spec, cmd: process.execPath })), { workingDir: run.workingDir, signal: run.signal, config: getConfig() });
+      log.push(`real gate ${out.ok ? "passed" : "failed"}`);
+      return out;
     },
     runCheckpoints: new FusionRunStore({ dir: runsDir }),
   };
@@ -393,13 +399,15 @@ function milestoneRun(dir: string, review: (prompt: string) => string) {
   let writes = 0;
   let minted = 0;
   let firstTurn = new Set<string>();
+  /** What each task's worker does this round, by its file: set by `round`, never read from the brief. */
+  let script = new Map<string, Act[]>();
   const d: FusionDelegateDeps = {
     runTurn: async (s, message, options) => {
       const file = message.includes("sales.test.cjs") ? "sales.test.cjs" : "sales.cjs";
       const first = !firstTurn.has(file);
       firstTurn.add(file);
       options.eventHook?.({ type: "turn_started", turnIndex: 0 } as never);
-      if (first && !message.includes("change nothing")) {
+      if (first && (script.get(file) ?? []).includes("write-suite")) {
         const content = file === "sales.cjs" ? PROGRAM : SUITE;
         options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: file, content } } }));
         writeFileSync(join(dir, file), content);
@@ -407,7 +415,7 @@ function milestoneRun(dir: string, review: (prompt: string) => string) {
         options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
         options.eventHook?.({ type: "step_finished", stepIndex: 0, summary: "", durationMs: 1 } as never);
       }
-      if (first) {
+      if (first && (script.get(file) ?? []).includes("run-suite")) {
         options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: WORKER_SPEC } }));
         options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "verify.run command: passed (exit 0)", details: { exitCode: 0, stdoutTail: TAP }, truncated: false } }));
         options.eventHook?.({ type: "step_finished", stepIndex: 1, summary: "", durationMs: 1 } as never);
@@ -453,6 +461,9 @@ function milestoneRun(dir: string, review: (prompt: string) => string) {
     get project() { return p; },
     async round(verifyOnly: boolean) {
       firstTurn = new Set();
+      // A write round writes then runs; a verify-only round only runs the suite.
+      const acts: Act[] = verifyOnly ? ["run-suite"] : ["write-suite", "run-suite"];
+      script = new Map([["sales.cjs", acts], ["sales.test.cjs", acts]]);
       if (verifyOnly) {
         const past = new Date(Date.now() - 10 * 60_000);
         for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
@@ -553,4 +564,24 @@ describe("two accepts close the milestone (issue #104)", () => {
       expect((row.notes ?? []).join("\n")).toContain("it has no own contract check");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it("a gate that really runs the suite fails a verify-only row whose program broke since its review", async () => {
+    const root = mkdtempSync(join(tmpdir(), "evidence-only-realgate-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      const s = session(dir, (prompt) => (prompt.includes("strict acceptance judge") ? NEEDS_EVIDENCE : ACCEPT), { realGate: true });
+      await s.call(projectOf(["sales-tests"]), {}, ["write-suite"]);
+      expect(s.log).toContain("real gate passed");
+      // The suite is unchanged, so its review is on these exact files; the program it tests broke.
+      writeFileSync(join(dir, "sales.cjs"), "module.exports = (text) => text.split('\\n');\n");
+      const past = new Date(Date.now() - 10 * 60_000);
+      for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      s.log.length = 0;
+      const { row } = await s.call(projectOf(["sales-tests"]), { verifyOnly: true }, []);
+      expect(s.log).toContain("real gate failed");
+      expect(row.status).not.toBe("ok");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 30_000);
 });
