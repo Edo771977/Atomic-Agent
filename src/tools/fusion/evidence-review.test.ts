@@ -20,6 +20,9 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import { buildProjectTools, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
+import { readMilestoneEvidence } from "./run-criteria.js";
+import type { ToolContext } from "../tool-registry.js";
 import type { FusionTeamContext } from "./team-routing.js";
 
 /**
@@ -360,5 +363,139 @@ describe("an evidence-only review (issue #104)", () => {
       vi.useRealTimers();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+/** Both plan tasks through rounds of delegate calls, then project.milestone, with nobody to answer a prompt. */
+function milestoneRun(dir: string, review: (prompt: string) => string) {
+  const asked: ApprovalRequest[] = [];
+  const runsDir = join(dir, "..", "runs");
+  let writes = 0;
+  let minted = 0;
+  let firstTurn = new Set<string>();
+  const d: FusionDelegateDeps = {
+    runTurn: async (s, message, options) => {
+      const file = message.includes("sales.test.cjs") ? "sales.test.cjs" : "sales.cjs";
+      const first = !firstTurn.has(file);
+      firstTurn.add(file);
+      options.eventHook?.({ type: "turn_started", turnIndex: 0 } as never);
+      if (first && !message.includes("change nothing")) {
+        const content = file === "sales.cjs" ? PROGRAM : SUITE;
+        options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: file, content } } }));
+        writeFileSync(join(dir, file), content);
+        writes += 1;
+        options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
+        options.eventHook?.({ type: "step_finished", stepIndex: 0, summary: "", durationMs: 1 } as never);
+      }
+      if (first) {
+        options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: WORKER_SPEC } }));
+        options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "verify.run command: passed (exit 0)", details: { exitCode: 0, stdoutTail: TAP }, truncated: false } }));
+        options.eventHook?.({ type: "step_finished", stepIndex: 1, summary: "", durationMs: 1 } as never);
+      }
+      return { session: createEmptySessionState({ id: s.id, workingDir: dir }), reason: "reply", stepCount: 2 } as RunTurnResult;
+    },
+    createEphemeralSession: (meta) => {
+      minted += 1;
+      return createEmptySessionState({ id: `${FUSION_WORKER_ID_PREFIX}${minted}`, workingDir: dir, metadata: { fusionWorker: { ...meta } } });
+    },
+    approvals: cliGate(asked),
+    approvalRequired: true,
+    emitEvent: () => {},
+    workingDir: dir,
+    slotManager: { poolSize: () => 4 },
+    resolveRunMode: mode,
+    workerSupportsSlotAffinity: () => false,
+    warmWorkerBackend: async () => {},
+    outputCharCap: 4000,
+    logger,
+    escalationComplete: async (call) => ({ content: review(call.prompt) }),
+    resolveFusionTeam: () => team(),
+    runChecks: gateChecks,
+    runCheckpoints: new FusionRunStore({ dir: runsDir }),
+  };
+  const tool = buildFusionDelegateTool(d);
+  let p = projectOf(["sales-program", "sales-tests"]);
+  const [, , milestone] = buildProjectTools({
+    planContext: () => { throw new Error("unused"); },
+    outsideContent: () => false,
+    milestoneEvidence: (m, order, current) => readMilestoneEvidence({ runsDir, stateDir: join(dir, ".."), runIds: m.runIds, criteriaOrder: order, ...current }),
+    correctionBudgetLeft: () => true,
+  });
+  const task = (id: "sales-program" | "sales-tests", verifyOnly: boolean) => ({
+    id, title: id,
+    instructions: `${id === "sales-tests" ? "write the tests in sales.test.cjs" : "write sales.cjs"}${verifyOnly ? "; re-review the evidence, change nothing" : ""}`,
+    files: [id === "sales-tests" ? "sales.test.cjs" : "sales.cjs"],
+    ...(verifyOnly ? { verifyOnly: true as const } : {}),
+  });
+  return {
+    asked,
+    get writes() { return writes; },
+    get project() { return p; },
+    async round(verifyOnly: boolean) {
+      firstTurn = new Set();
+      if (verifyOnly) {
+        const past = new Date(Date.now() - 10 * 60_000);
+        for (const f of ["sales.cjs", "sales.test.cjs"]) utimesSync(join(dir, f), past, past);
+      }
+      const result = await tool.run({
+        tasks: [task("sales-program", verifyOnly), task("sales-tests", verifyOnly)],
+        contract: { checks: [{ task: "sales-program", ...CONTRACT_CHECK }, { task: "sales-tests", ...CONTRACT_CHECK }] },
+      }, { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: p });
+      p = up(p, { kind: "milestone_run", id: "m1", runId: result.details.runId as string });
+      return result;
+    },
+    async done() {
+      const r = await milestone!.run({ id: "m1", state: "done", summary: "both suites green" }, { workingDir: dir, sessionId: "s-plan", stepIndex: 0, project: p } as unknown as ToolContext);
+      if (r.status === "ok") p = approve(up(p, r.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate));
+      return r;
+    },
+  };
+}
+
+describe("two accepts close the milestone (issue #104)", () => {
+  /** The live run's first reviews: needs-changes, the evidence judged insufficient. */
+  const firstRound = (prompt: string) => (prompt.includes("strict acceptance judge") ? NEEDS_EVIDENCE : ACCEPT);
+
+  it("needs-changes for evidence, then an evidence-only review of both: two accepts, no write, no prompt, the milestone closes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "two-accepts-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      let reviewer = firstRound;
+      const m = milestoneRun(dir, (prompt) => reviewer(prompt));
+      await m.round(false);
+      expect((await m.done()).status).not.toBe("ok");
+      const written = m.writes;
+      reviewer = evidenceReviewer;
+      const second = await m.round(true);
+      const rows = second.details.tasks as Array<{ id: string; status: string; review?: { decision: string } }>;
+      expect(rows.map((r) => [r.id, r.status, r.review?.decision])).toEqual([["sales-program", "ok", "accept"], ["sales-tests", "ok", "accept"]]);
+      expect(m.writes).toBe(written);
+      const done = await m.done();
+      expect(done.status).toBe("ok");
+      expect(m.project.milestones[0]!.state).toBe("reviewed");
+      expect(m.asked).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a still-valid blocker keeps the milestone open with both suites green", async () => {
+    const root = mkdtempSync(join(tmpdir(), "two-accepts-blocked-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      let reviewer = firstRound;
+      const m = milestoneRun(dir, (prompt) => reviewer(prompt));
+      await m.round(false);
+      // The tests task still misses a case the brief asks for, whatever the evidence.
+      reviewer = (prompt) => prompt.includes("write the tests in sales.test.cjs") && prompt.includes("strict acceptance judge")
+        ? JSON.stringify({ decision: "needs-changes", issues: [{ item: null, severity: "blocker", file: "sales.test.cjs", why: "no case covers a row with a malformed amount" }] })
+        : evidenceReviewer(prompt);
+      await m.round(true);
+      const open = await m.done();
+      expect(open.status).not.toBe("ok");
+      expect(open.summary).toContain("sales-tests");
+      expect(m.project.milestones[0]!.state).toBe("in_progress");
+      expect(m.asked).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
