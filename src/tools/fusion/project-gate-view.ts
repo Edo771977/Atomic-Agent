@@ -1,6 +1,7 @@
 import {
   allowedProjectVerdicts,
   decisionStatusOf,
+  finishedCitationsOf,
   gateVersion,
   planDecisionsOf,
   projectExpectation,
@@ -99,7 +100,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     }
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
-    hints.push(...evaluatePlanChecks(plan.rows, project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []), input.planChecks, planDecisionsOf(project)).map(planCheckHint));
+    hints.push(...evaluatePlanChecks(plan.rows, project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []), input.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones)).map(planCheckHint));
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;

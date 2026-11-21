@@ -533,6 +533,15 @@ export function planDecisionsOf(project: Pick<ProjectState, "approvedDecisions" 
   return approvedDecisionsOf(project).map((d) => ({ id: d.id, text: d.text, status: decisionStatusOf(project, d.id) }));
 }
 
+/**
+ * Each done or reviewed milestone with the decision ids its tasks cited
+ * when it ran (issue #112, {@link ProjectMilestone.decisionsCited}): what
+ * the plan's decision coverage counts for it, whatever its rows say now.
+ */
+export function finishedCitationsOf(milestones: readonly ProjectMilestone[]): Map<string, string[]> {
+  return new Map(milestones.filter((m) => m.state === "done" || m.state === "reviewed").map((m) => [m.id, (m.decisionsCited ?? []).map((d) => d.id)]));
+}
+
 /** The approved decisions still `active` (issue #112): what workers and reviewers are told. */
 export function activeDecisionsOf(project: Pick<ProjectState, "approvedDecisions" | "brief" | "decisionStatus">): ProjectBriefDecision[] {
   return approvedDecisionsOf(project).filter((d) => decisionStatusOf(project, d.id) === "active");
@@ -1412,7 +1421,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
   if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
     const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
-    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], {}, decisions);
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], {}, decisions, finishedCitationsOf(milestones));
   }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
@@ -1714,7 +1723,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
         })();
   const approvedDecisions = (brief.decisions ?? []).map((d) => ({ ...d }));
   if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, decisionStatus: project.decisionStatus })) };
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, decisionStatus: project.decisionStatus }), finishedCitationsOf(milestones)) };
   }
   const { approvedDecisions: _before, ...rest } = project;
   return {
@@ -1969,7 +1978,7 @@ function planUpdate(
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, {}, planDecisionsOf(project)),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, {}, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2271,7 +2280,7 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
-      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks, planDecisionsOf(project));
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       return {
@@ -2425,7 +2434,7 @@ export function applyProjectDecision(
           ...withoutApproval(plan),
           rows: checked,
           totals: planTotals(checked),
-          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next)) }),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
           status: "draft",
           version: plan.version + 1,
         },

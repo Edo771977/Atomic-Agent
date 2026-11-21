@@ -316,6 +316,26 @@ describe("changing a decision (issue #112)", () => {
     expect(yes(redraft(approvedPlan, [{ id: "d1", text: "Use Postgres" }, DECISIONS[1]!]), 30).milestones[0]!.state).toBe("planned");
   });
 
+  it("a citation added to a finished milestone's task does not cover a decision (review)", () => {
+    const replan = (p: ProjectState, rows: AssignmentRow[]) => up(p, { kind: "plan", milestones: [{ id: "m1", title: "Milestone m1", kind: "base" }, { id: "m2", title: "Milestone m2", kind: "base" }], rows, detail: "full" }, 40);
+    // d3 added to the brief, then cited only on m1's task, which is already reviewed.
+    const added = yes(redraft(reviewed(), [...DECISIONS, { id: "d3", text: "Formal tone" }]), 30);
+    const late = replan(added, [row("t1", "m1", ["d1", "d3"]), row("t2", "m2", ["d2"])]);
+    expect(late.milestones[0]!.state).toBe("reviewed");
+    const refused = approve(late);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.error.message).toContain("d3");
+    expect(refused.error.message).toContain("t1 is in a finished milestone (m1); cite d3 on a task that will run");
+    expect(refused.error.message).not.toMatch(/active decisions: d1/);
+    // Cited on a task that will run, it is covered; d1 stays covered by what m1 ran under.
+    expect(approve(replan(added, [row("t1", "m1", ["d1"]), row("t2", "m2", ["d2", "d3"])])).ok).toBe(true);
+    // A renamed id re-cited on the finished task does not count either.
+    const renamed = yes(redraft(reviewed(), [{ id: "d1b", text: "Use SQLite, not Postgres" }, DECISIONS[1]!]), 30);
+    const recited = replan(renamed, [row("t1", "m1", ["d1b"]), row("t2", "m2", ["d2"])]);
+    expect(approve(recited)).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+
   it("an editorial change (case, spaces), another decision's change or an added decision keeps the verdict", () => {
     const before = reviewed();
     for (const decisions of [
