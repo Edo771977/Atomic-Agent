@@ -1,6 +1,6 @@
 {
  "version": 1,
- "next": 6,
+ "next": 8,
  "totalBytes": 0,
  "droppedThrough": 0,
  "entries": [
@@ -50,6 +50,26 @@
    "at": 1795640000500,
    "tool": "os.fs.write",
    "existed": false
+  },
+  {
+   "n": 6,
+   "path": "{cwd}/../elsewhere/sales.cjs",
+   "at": 1795640400000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "6.bin",
+   "bytes": 1074,
+   "sha256": "8a68ea325d0bc03f18775d6268fcd413892718a41fd551b17ebefa9c29d33503"
+  },
+  {
+   "n": 7,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795660000000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "7.bin",
+   "bytes": 1251,
+   "sha256": "488dedfe60da3788cf28c72743dd8c4f89bef4611d41a05175eafe0b1f420e14"
   }
  ]
 }

@@ -4,6 +4,7 @@
 // and loose number parsing; the runner must read a recorded run (its printed
 // session, receipts, the session store and the outcome log) into the report.
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -274,6 +275,14 @@ function runSample(sample: string, options: { program?: string } = {}): { status
     const index = readFileSync(join(into, "index.json"), "utf8").replaceAll("{cwd}/", JSON.stringify(cwd + sep).slice(1, -1));
     writeFileSync(join(into, "index.json"), index);
   }
+  // Another session's checkpoints in the same state dir (another chat, another project).
+  const other = join(dir, "file-checkpoints-other-session");
+  if (existsSync(other)) {
+    const into = join(stateDir, "file-checkpoints", "s-otherproject");
+    mkdirSync(into, { recursive: true });
+    for (const name of readdirSync(other)) copyFileSync(join(other, name), join(into, name));
+    writeFileSync(join(into, "index.json"), readFileSync(join(into, "index.json"), "utf8").replaceAll("{cwd}/", JSON.stringify(cwd + sep).slice(1, -1)));
+  }
   const out = join(stateDir, "report.json");
   const r = spawnSync(process.execPath, [join(import.meta.dirname, "e2e-csv-sales.mjs"), "--cwd", cwd, "--state-dir", stateDir,
     "--log", join(dir, "stdout.txt"), "--output", out], { encoding: "utf8", timeout: 120_000 });
@@ -407,7 +416,10 @@ describe("earlier versions of sales.cjs", () => {
   it("runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed", () => {
     const { status, report } = runSample("sample-run-regressed", { program: "per-number-limit-sales.cjs" });
     expect(status).toBe(1);
-    expect(report.earlierVersions).toHaveLength(1);   // the same bytes twice, another file, a copy from before the run: one version
+    // Only this session's copies of the run folder's sales.cjs from its own time count: the same bytes twice, another file,
+    // a copy from before the session, a sales.cjs in another folder, one after its last update and another session's are not.
+    expect(report.earlierVersions).toHaveLength(1);
+    expect(report.earlierVersions[0].sha256).toBe(createHash("sha256").update(readFileSync(join(FIXTURES, "reference-sales.cjs"))).digest("hex"));
     expect(report.earlierVersions[0]).toMatchObject({ tool: "os.fs.edit", at: 1795640100000, acceptance: { exitCode: 0, pass: 17, fail: 0 } });
     expect(report.earlierVersions[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(report.regressed).toEqual([
@@ -422,7 +434,43 @@ describe("earlier versions of sales.cjs", () => {
   it("says when no earlier version is available, and invents none", () => {
     const { report } = runSample("sample-run-accepted");
     expect(report.earlierVersions).toBe("unavailable");
-    expect(report.earlierVersionsWhy).toMatch(/no file checkpoint/);
+    expect(report.earlierVersionsWhy).toMatch(/no file checkpoints for session sess_98accepted/);
     expect(report.regressed).toEqual([]);
+  });
+});
+
+describe("earlier versions are only this session's, of this run folder's sales.cjs, within the session's time", () => {
+  const sid = "s-run1";
+  const write = (stateDir: string, folder: string, entries: Array<{ path: string; at: number; body: string }>) => {
+    const dir = join(stateDir, "file-checkpoints", folder);
+    mkdirSync(dir, { recursive: true });
+    const index = { version: 1, next: entries.length + 1, totalBytes: 0, droppedThrough: 0,
+      entries: entries.map((e, i) => { writeFileSync(join(dir, `${i + 1}.bin`), e.body); return { n: i + 1, path: e.path, at: e.at, tool: "os.fs.write", existed: true, file: `${i + 1}.bin` }; }) };
+    writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+  };
+  const window = { from: 100, to: 200 };
+
+  it("ignores another session's sales.cjs", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, "s-other", [{ path: join(cwd, "sales.cjs"), at: 150, body: "other" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null)).toBeNull();
+    write(stateDir, sid, [{ path: join(cwd, "sales.cjs"), at: 150, body: "mine" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null).map((v: { at: number }) => v.at)).toEqual([150]);
+  });
+
+  it("ignores a sales.cjs from another folder in the same session", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, sid, [{ path: join(cwd, "sub", "sales.cjs"), at: 150, body: "a" }, { path: join(temp("csv-sales-c1-else-"), "sales.cjs"), at: 160, body: "b" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null)).toEqual([]);
+  });
+
+  it("ignores copies taken before the session started or after its last update", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, sid, [{ path: join(cwd, "sales.cjs"), at: 99, body: "before" }, { path: join(cwd, "sales.cjs"), at: 201, body: "after" },
+      { path: join(cwd, "sales.cjs"), at: 200, body: "last" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null).map((v: { at: number }) => v.at)).toEqual([200]);
   });
 });

@@ -24,7 +24,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -393,37 +393,41 @@ export function readOutcomeLines(stateDir) {
 /**
  * Issue #106: earlier versions of `sales.cjs` the run left behind. The only
  * place a run keeps them is the file checkpoints of "roll back here"
- * (`<stateDir>/file-checkpoints/<session>/index.json` and `<n>.bin`, src/tools/os/fs/fs-checkpoint-store.ts):
- * before an agent file tool changes a file, its content is saved there. A
- * copy is taken when it is `<cwd>/sales.cjs`, or a `sales.cjs` elsewhere (a
- * worker's own workspace) copied while the session ran, and it differs from
- * the final file. Distinct contents, oldest first; `null` when there is no
- * checkpoint folder at all.
+ * (`<stateDir>/file-checkpoints/<session>/index.json` and `<n>.bin`,
+ * src/tools/os/fs/fs-checkpoint-store.ts): before an agent file tool changes
+ * a file, its content is saved there, under the folder of the session that
+ * ran the tool. Only this session's folder is read: fusion worker sessions
+ * are never saved and nothing on disk ties their checkpoint folders to the
+ * session that spawned them, and every other folder is another chat,
+ * perhaps of another project. A copy counts when its path is this run
+ * folder's `sales.cjs`, it was taken between the session's start and its
+ * last update (`window`, either bound null when unknown) and it differs from
+ * the final file. Distinct contents, oldest first; null when this session
+ * has no checkpoint folder.
  */
-export function earlierProgramVersions(stateDir, cwd, window, finalSha) {
-  const root = join(stateDir, 'file-checkpoints');
-  if (!existsSync(root)) return null;
+export function earlierProgramVersions(stateDir, cwd, sessionId, window, finalSha) {
+  if (!sessionId) return null;
+  const dir = join(stateDir, 'file-checkpoints', String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_') || '_');
+  if (!existsSync(dir)) return null;
+  let index;
+  try { index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')); } catch { return []; }
   const target = resolve(cwd, PROGRAM_FILE);
   const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
-  const inWindow = (at) => (window.from === null || at >= window.from) && (window.to === null || at <= window.to);
+  const inWindow = (at) => (window.from === null || window.from === undefined || at >= window.from)
+    && (window.to === null || window.to === undefined || at <= window.to);
   const seen = new Set(finalSha ? [finalSha] : []);
   const out = [];
-  for (const dir of readdirSync(root, { withFileTypes: true })) {
-    if (!dir.isDirectory()) continue;
-    let index;
-    try { index = JSON.parse(readFileSync(join(root, dir.name, 'index.json'), 'utf8')); } catch { continue; }
-    for (const e of Array.isArray(index.entries) ? index.entries : []) {
-      if (!e || !e.existed || typeof e.file !== 'string' || typeof e.path !== 'string' || typeof e.at !== 'number') continue;
-      if (basename(e.path) !== PROGRAM_FILE || !inWindow(e.at)) continue;
-      const file = join(root, dir.name, basename(e.file));
-      if (!existsSync(file)) continue;
-      const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
-      if (seen.has(sha256)) continue;
-      seen.add(sha256);
-      out.push({ sha256, at: e.at, tool: e.tool ?? null, path: e.path, inRunFolder: same(resolve(e.path), target), checkpoint: join(dir.name, basename(e.file)), file });
-    }
+  for (const e of Array.isArray(index.entries) ? index.entries : []) {
+    if (!e || !e.existed || typeof e.file !== 'string' || typeof e.path !== 'string' || typeof e.at !== 'number') continue;
+    if (!same(resolve(e.path), target) || !inWindow(e.at)) continue;
+    const file = join(dir, basename(e.file));
+    if (!existsSync(file)) continue;
+    const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+    if (seen.has(sha256)) continue;
+    seen.add(sha256);
+    out.push({ sha256, at: e.at, tool: e.tool ?? null, path: e.path, checkpoint: join(basename(dir), basename(e.file)), file });
   }
-  return out.sort((a, b) => a.at - b.at);
+  return out.sort((x, y) => x.at - y.at);
 }
 
 /** Runs the acceptance test on each earlier version (copied as sales.cjs into a temporary folder). */
@@ -473,8 +477,10 @@ export async function buildReport(args, deps = {}) {
   // Issue #106: the suite on the earlier versions too, from the run's own file checkpoints, else "unavailable".
   const programPath = join(cwd, PROGRAM_FILE);
   const finalSha = existsSync(programPath) ? createHash('sha256').update(readFileSync(programPath)).digest('hex') : null;
-  const createdAt = stored.payload && typeof stored.payload.createdAt === 'number' ? stored.payload.createdAt : null;
-  const found = earlierProgramVersions(stateDir, cwd, { from: createdAt, to: null }, finalSha);
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const createdAt = stored.payload ? num(stored.payload.createdAt) : null;
+  const lastUpdate = (stored.payload ? num(stored.payload.updatedAt) : null) ?? num(stored.updatedAt);
+  const found = earlierProgramVersions(stateDir, cwd, stored.id ?? null, { from: createdAt, to: lastUpdate }, finalSha);
   const earlier = found && found.length ? testEarlierVersions(found, run) : null;
   const regressed = earlier ? regressedCases(acceptance, earlier) : [];
   if (regressed.length) {
@@ -494,8 +500,8 @@ export async function buildReport(args, deps = {}) {
     acceptedByChecksOnly: acceptedByChecksOnly(joined.tasks),
     earlierVersions: earlier ?? 'unavailable',
     ...(earlier ? {} : { earlierVersionsWhy: found === null
-      ? 'no file checkpoint folder in the state dir'
-      : `no file checkpoint of an earlier ${PROGRAM_FILE} from this session that differs from the final file` }),
+      ? `no file checkpoints for session ${stored.id ?? '(none found)'} (worker sessions keep no link to it on disk, so theirs are not read)`
+      : `no checkpoint of an earlier ${join(cwd, PROGRAM_FILE)} taken by session ${stored.id} while it ran that differs from the final file` }),
     regressed,
     mode: runMode(stored.payload ? stored.payload.turns : [], logText),
     tests,
