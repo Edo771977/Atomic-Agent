@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { estimatePlan } from "./project-estimate.js";
+import { evaluatePlanChecks, planCheckHint } from "./plan-checks.js";
 import { CHANGED_OUTSIDE_HINT, projectGateChanged, projectGateView } from "./project-gate-view.js";
 
 const NOW = 1_700_000_000_000;
@@ -116,9 +117,11 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
     return up(approvedBrief.project, plan);
   };
 
+  const checkHints = () => evaluatePlanChecks(plan.rows, [{ id: "c1", text: "Runs" }]).map(planCheckHint);
+
   it("hints at configuring reviewers when none are, and leaves review behaviour alone", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a", "cloud:b"], reviewers: [] }, reviewersConfigured: false });
-    expect(view.hints).toEqual(["no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"]);
+    expect(view.hints).toEqual([...checkHints(), "no reviewers configured: add llm.runMode.fusion.team.reviewers to have each task reviewed"]);
     expect(view.plan!.editable).toBe(true);
     expect(view.plan!.rows.map((r) => r.reviewer)).toEqual(["cloud:r", "cloud:r"]);
   });
@@ -132,14 +135,14 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
   it("says no other member is reachable, not to configure a team, when the team has members that cannot answer", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: [] }, reviewersConfigured: true, otherMembersConfigured: true });
     expect(view.plan!.editable).toBe(false);
-    expect(view.hints).toEqual(["no other team member is reachable now: the rows keep their worker"]);
+    expect(view.hints).toEqual([...checkHints(), "no other team member is reachable now: the rows keep their worker"]);
   });
 
   it("names each milestone whose verdict the draft plan resets (issue #77)", () => {
     const project = planGate();
     const reset: ProjectState = { ...project, plan: { ...project.plan!, verdictResets: ["m2"] } };
     const view = projectGateView({ sessionId: "s", project: reset, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
-    expect(view.hints).toEqual(["verdict reset: UI"]);
+    expect(view.hints).toEqual([...checkHints(), "verdict reset: UI"]);
     const elsewhere = projectGateView({ sessionId: "s", project: { ...reset, gate: { kind: "none" } }, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
     expect(elsewhere.hints).toEqual([]);
   });
@@ -148,13 +151,13 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
     const project = planGate();
     const retired: ProjectState = { ...project, plan: { ...project.plan!, verdictResets: ["m2"], evidenceRetired: ["m1"] } };
     const view = projectGateView({ sessionId: "s", project: retired, estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
-    expect(view.hints).toEqual(["verdict reset: UI", "evidence retired: Base"]);
+    expect(view.hints).toEqual([...checkHints(), "verdict reset: UI", "evidence retired: Base"]);
   });
 
-  it("is editable without hints when there is a choice and reviewers are configured", () => {
+  it("is editable with check hints when there is a choice and reviewers are configured", () => {
     const view = projectGateView({ sessionId: "s", project: planGate(), estimate: null, selectable: { workers: ["local:a"], reviewers: ["cloud:r"] }, reviewersConfigured: true });
     expect(view.plan!.editable).toBe(true);
-    expect(view.hints).toEqual([]);
+    expect(view.hints).toEqual(checkHints());
   });
 
   it("gives no plan hints at the brief gate", () => {

@@ -8,7 +8,7 @@ import {
   type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
-import { checkProjectDispatch, planCoversFanout } from "./project-dispatch.js";
+import { checkProjectDispatch, planCoversFanout, plannedCheckMismatch } from "./project-dispatch.js";
 
 const NOW = 1_700_000_000_000;
 const up = (p: ProjectState | undefined, u: ProjectUpdate): ProjectState => {
@@ -32,6 +32,22 @@ const plan: ProjectUpdate = {
   detail: "compact",
 };
 const running = () => approve(up(approve(up(undefined, brief)), plan));
+
+describe("planned check identity", () => {
+  it("compares a multiset using checkSpecKey spellings plus negative and proof metadata", () => {
+    const a = { cmd: "node", args: ["a.cjs"], checks: ["exit 0"], negative: { stdin: "bad", env: { A: "1", B: "2" } } };
+    const b = { cmd: "node b.cjs", checks: ["exit 0"] };
+    const p = running();
+    p.plan!.rows[0]!.checks = [a, b];
+    const actual = { cmd: "node a.cjs", kind: "command", checks: ["exit 0"], negative: { env: { B: "2", A: "1" }, stdin: "bad" }, task: "a" };
+    expect(plannedCheckMismatch(p, ["a"], { checks: [{ ...b, task: "a" }, actual] })).toBeNull();
+    for (const c of [{ ...actual, negative: undefined }, { ...actual, negative: { stdin: "worse" } }, { ...actual, criteria: ["c1"] }, { ...actual, checks: ["stdout contains ok"] }]) {
+      expect(plannedCheckMismatch(p, ["a"], { checks: [c, { ...b, task: "a" }] })).toMatch(/Update the plan/);
+    }
+    expect(plannedCheckMismatch(p, ["b"], undefined)).toBeNull();
+    expect(plannedCheckMismatch(undefined, ["a"], undefined)).toBeNull();
+  });
+});
 
 describe("checkProjectDispatch (issue #39)", () => {
   it("no project: the fan-out runs as before", () => {
