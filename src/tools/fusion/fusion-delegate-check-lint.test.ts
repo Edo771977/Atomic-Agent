@@ -141,6 +141,19 @@ describe("fusion.delegate lints its contract checks (issue #110)", () => {
     t.done();
   });
 
+  it("a check whose negative control also passes is unreliable: its criterion is not passed and the task stays open", async () => {
+    const t = setup();
+    const result = await t.run([{ task: "t", criteria: ["c1"], kind: "command", cmd: "node", args: ["sales.cjs", "good.csv"], checks: ["exit 0"], negative: { args: ["sales.cjs", "bad.csv"] } }], true);
+    const row = (result.details.tasks as Array<{ status: string; criteria?: Array<{ id: string; state: string; why?: string }> }>)[0]!;
+    // The negative ran first, through the same runner, without the field.
+    const first = t.runChecks.mock.calls[0]![0];
+    expect(first).toEqual([{ kind: "command", cmd: "node", args: ["sales.cjs", "bad.csv"], checks: ["exit 0"] }]);
+    expect(t.runChecks.mock.calls.flatMap((c) => c[0]).every((spec) => !("negative" in spec))).toBe(true);
+    expect(row.criteria).toEqual([expect.objectContaining({ id: "c1", state: "unverified", why: expect.stringContaining("unreliable") })]);
+    expect(row.status).toBe("needs_orchestrator");
+    t.done();
+  });
+
   it("raises nothing for the CSV e2e's own checks", async () => {
     const t = setup();
     const result = await t.run([

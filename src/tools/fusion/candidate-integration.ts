@@ -603,7 +603,8 @@ export async function createCandidateIntegration(
         const checked = await runContractChecks(rebaseChecked(checks), runner, { workingDir: checkedDir, signal: input.signal, ...(inputIntegrity === undefined ? {} : { inputIntegrity }) });
         receiptEvidence = { findings: [], checks: checked.outcomes, ...(checked.checksSkipped === undefined ? {} : { checksSkipped: checked.checksSkipped }) };
         input.signal.throwIfAborted();
-        if (inputIntegrity !== undefined && actualInputExecutions !== checks.length) {
+        // Each negative control (issue #110) is one more guarded execution.
+        if (inputIntegrity !== undefined && actualInputExecutions !== checks.length + checks.filter(check => check.negative !== undefined).length) {
           verifiedInputs = 0;
           return await rejectFinal("candidate not promoted: declared check inputs changed or could not be verified in each actual check execution", { contract: receiptEvidence });
         }

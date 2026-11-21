@@ -45,9 +45,10 @@ export const criticalFiles = [
   'src/tools/fusion/check-run-record.test.ts',
   'src/tools/fusion/check-spec-key.test.ts',
   'src/tools/fusion/evidence-review.test.ts',
-  // Issue #110: contract checks that cannot fail are refused before anything runs; weak ones are named.
+  // Issue #110: contract checks that cannot fail are refused before anything runs; weak ones are named; negative controls.
   'src/tools/fusion/contract-check-lint.test.ts',
   'src/tools/fusion/fusion-delegate-check-lint.test.ts',
+  'src/tools/fusion/contract-check-negative.test.ts',
   // Issue #106: a fix round re-runs contract checks that passed on the reviewed version.
   'src/tools/fusion/regression-gate.test.ts',
   // Issue #102: execution evidence, recovery after a timed-out passing run, both verdicts, plan-task steering.

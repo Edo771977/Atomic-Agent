@@ -71,6 +71,7 @@ import { readContractInputs } from "./contract-inputs.js";
 import { readCheckInputs } from "./candidate-check-inputs.js";
 import { parseProvideExample } from "./contract-example.js";
 import { describeLintWarning, describeSevereFinding, lintContract } from "./contract-check-lint.js";
+import { parseCheckNegative } from "./contract-check-negative.js";
 import { readOutputEstimate } from "./worker-fit.js";
 import {
   FUSION_ROLES,
@@ -662,7 +663,7 @@ function readContract(
           problems.push(`${label} must be an object`);
           continue;
         }
-        const { task, criteria: rawCriteria, judge, ...spec } = entry;
+        const { task, criteria: rawCriteria, judge, negative: rawNegative, ...spec } = entry;
         if (Object.keys(spec).length === 0) {
           problems.push(`${label} carries no verify.run arguments`);
           continue;
@@ -670,7 +671,11 @@ function readContract(
         const criteria = readCheckCriteria(rawCriteria, `${label}.criteria`, problems);
         if (criteria === null) continue;
         if (!readCheckJudge(judge, spec, criteria, `${label}.judge`, problems)) continue;
-        const judged = judge === undefined || judge === null ? spec : { judge: "vision" as const, ...spec };
+        // Issue #110: the same command on an input that must fail.
+        const negative = parseCheckNegative(rawNegative, spec, label, problems);
+        if (negative === null) continue;
+        const controlled = negative === undefined ? spec : { ...spec, negative };
+        const judged = judge === undefined || judge === null ? controlled : { judge: "vision" as const, ...controlled };
         const withCriteria = criteria.length === 0 ? judged : { criteria, ...judged };
         if (task === undefined || task === null) {
           // Criteria close with a task (`criteria-facts.ts`): a call-level

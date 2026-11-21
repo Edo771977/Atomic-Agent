@@ -149,7 +149,8 @@ const PLAIN_WORD = /^[\w@+=:,./-]+$/;
 export function checkSpecKey(spec: Record<string, unknown>): string {
   // Not verify.run arguments: the runner strips them too (issue #106: a
   // check naming criteria was no longer the worker's own run of it).
-  const { task: _task, criteria: _criteria, judge: _judge, ...rest } = spec;
+  // Nor is a negative control (issue #110): the runtime runs it, not the worker.
+  const { task: _task, criteria: _criteria, judge: _judge, negative: _negative, ...rest } = spec;
   const kind = rest.kind ?? "command";
   if (kind === "command" && typeof rest.cmd === "string" && (rest.args === undefined || Array.isArray(rest.args))) {
     const cmdWords = rest.cmd.trim().split(/\s+/);

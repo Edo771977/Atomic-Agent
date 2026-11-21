@@ -13,7 +13,8 @@ import type { WorkerTaskResult } from "./worker-result.js";
  *    judgement of a visual check (`judge: "vision"`) found it not met;
  *  - `unverified`: no check failed, but a visual check has no readable
  *    vision judgement (no vision-capable model, a refusal, an unreadable
- *    answer, a missing screenshot): never green without one;
+ *    answer, a missing screenshot), or a check is unreliable because its
+ *    negative control passed too (issue #110): never green without one;
  *  - `passed`: every check green and every visual check judged met.
  *
  * `failed` outranks `unverified`, which outranks `passed`: vision can
@@ -87,6 +88,11 @@ export function criteriaFactsFor(
       }
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`);
+        continue;
+      }
+      // Issue #110: green on the input it must fail on too, so its green proves nothing.
+      if (outcome.unreliable !== undefined) {
+        note("unverified", `${label} is unreliable: ${outcome.unreliable}`);
         continue;
       }
       if (contract?.checks?.[index]?.judge !== "vision") continue;

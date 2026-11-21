@@ -137,7 +137,21 @@ export type ContractCheck = {
    * `verify.run` argument; stripped before the runner.
    */
   judge?: "vision";
+  /**
+   * A negative control (issue #110): the same command on an input that
+   * must fail (`contract-check-negative.ts`). Run first, through the same
+   * runner; one that passes marks the check unreliable. Not a
+   * `verify.run` argument; stripped before the runner.
+   */
+  negative?: ContractCheckNegative;
 } & Record<string, unknown>;
+
+/** What a check's negative control changes: the command's input, nothing else. */
+export interface ContractCheckNegative {
+  args?: string[];
+  stdin?: string;
+  env?: Record<string, string>;
+}
 
 /**
  * A criterion id as a check names it: `c1`, `plays-well`. The brief's
@@ -281,7 +295,9 @@ export function contractWarnings(
 }
 
 function renderCheck(check: ContractCheck): string {
-  const { task, ...spec } = check;
+  // The negative control is the runtime's to run, not a worker's
+  // `verify.run` argument (issue #110).
+  const { task, negative: _negative, ...spec } = check;
   const json = JSON.stringify(spec);
   const clipped =
     json.length > CHECK_RENDER_CHARS

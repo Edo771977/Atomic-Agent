@@ -12,6 +12,7 @@ import {
   type DelegateContract,
 } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
+import { describeNegative, negativeCheckOf } from "./contract-check-negative.js";
 import { parseTestOutput, type ExecutedTest } from "./test-output.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
@@ -139,6 +140,15 @@ export interface ContractCheckOutcome {
   screenshotErrors?: readonly string[];
   /** The check's spec asked for a vision judgement of its screenshots. */
   judge?: "vision";
+  /**
+   * The check's negative control also passed (issue #110): one line
+   * saying so. The check is unreliable; a criterion it names is not
+   * `passed` (`criteria-facts.ts`). Absent when it has no negative or
+   * the negative failed as it should.
+   */
+  unreliable?: string;
+  /** Why the check's negative control said nothing (`not run: …`), when it could not run. */
+  negative?: string;
   /**
    * A command check's run as the runtime saw it (issue #104), pass or
    * fail: the command line, the exit code, its output (stdout, then
@@ -563,7 +573,11 @@ export async function runContractChecks(
   if (ctx.signal.aborted) {
     return { outcomes: [], checksSkipped: `${plural} not run — the turn was cancelled` };
   }
-  const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, ...spec }) => spec);
+  const specs = checks.map(({ task: _task, criteria: _criteria, judge: _judge, negative: _negative, ...spec }) => spec);
+  // Issue #110: each negative control first, one spec per batch through
+  // the same runner (approval, scope, egress, integrity, cancellation),
+  // so one result never stands for another's.
+  const negatives = checks.map(negativeCheckOf);
   const known = ctx.knownSecrets ?? knownSecretsFromEnv();
   // The files each check runs on, hashed right before the runner copies them.
   const runFiles = new Map<string, Array<{ path: string; sha256?: string }>>();
@@ -572,7 +586,15 @@ export async function runContractChecks(
     if (paths.length > 0) runFiles.set(id, hashFiles(ctx.workingDir, paths));
   }
   let results: readonly ContractCheckResult[];
+  const negativeResults = new Map<number, ContractCheckResult | undefined>();
   try {
+    for (const [i, negative] of negatives.entries()) {
+      if (negative === undefined) continue;
+      ctx.signal.throwIfAborted();
+      const { task: negativeTask, ...negativeSpec } = negative;
+      const ran = await runner([negativeSpec], { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), checkTasks: [negativeTask] });
+      negativeResults.set(i, ran.results[0]);
+    }
     results = (
       await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), checkTasks: checks.map((check) => check.task) })
     ).results;
@@ -614,8 +636,10 @@ export async function runContractChecks(
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
+    const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
     return {
-      ...task, ok: result.ok, detail, ...(output === undefined ? {} : { output }), ...criteria,
+      ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
+      ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
@@ -624,6 +648,25 @@ export async function runContractChecks(
     };
   });
   return { outcomes };
+}
+
+/**
+ * What a check's negative control said (issue #110): `unreliable` when
+ * it passed too, `negative: "not run: …"` when it could not run (no
+ * result, an error, refused or held), nothing when it failed as it should
+ * or the check has none.
+ */
+function negativeVerdict(
+  check: ContractCheck,
+  ran: boolean,
+  result: ContractCheckResult | undefined,
+  known: readonly KnownSecret[],
+): { unreliable?: string; negative?: string } {
+  if (!ran || check.negative === undefined) return {};
+  if (result === undefined) return { negative: "not run: the runner returned no result" };
+  if (result.error !== undefined) return { negative: maskSecrets(head(`not run: ${result.error}`, CHECK_DETAIL_CHARS), known) };
+  if (!result.ok) return {};
+  return { unreliable: `its negative control (${describeNegative(check.negative)}) passed too, so this check passes on an input it should fail on` };
 }
 
 /**
@@ -651,9 +694,14 @@ export function applyCheckOutcomes(
   results: readonly WorkerTaskResult[],
   outcomes: readonly ContractCheckOutcome[],
 ): WorkerTaskResult[] {
-  return results.map((result) => {
-    const own = outcomes.filter((o) => o.task === result.id);
-    if (own.length === 0) return result;
+  return results.map((row) => {
+    const own = outcomes.filter((o) => o.task === row.id);
+    if (own.length === 0) return row;
+    // A check that passes on its negative input too (issue #110) is said on the row.
+    const unreliable = own.filter((o) => o.ok && o.unreliable !== undefined);
+    const result = unreliable.length === 0
+      ? row
+      : { ...row, notes: [...(row.notes ?? []), ...unreliable.map((o) => `checks: unreliable — ${o.detail}`)] };
     const failed = own.filter((o) => !o.ok);
     const detail =
       failed.length > 0 ? failed.map((o) => o.detail).join("; ") : undefined;
@@ -725,6 +773,8 @@ export function renderContractLine(report: ContractReport): string | undefined {
         : `checks: ${failed} of ${report.checks.length} failed (see the task rows)`,
     );
   }
+  const unreliable = report.checks.filter((o) => o.ok && o.unreliable !== undefined).length;
+  if (unreliable > 0) parts.push(`${unreliable} check${unreliable === 1 ? "" : "s"} unreliable: the negative control passed too`);
   if (report.checksSkipped !== undefined) parts.push(report.checksSkipped);
   parts.push(...(report.warnings ?? []));
   if (parts.length === 0) return undefined;
