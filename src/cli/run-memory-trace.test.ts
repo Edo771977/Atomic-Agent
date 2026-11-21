@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { RUN_MEMORY_TRACE_ENV, startRunMemoryTrace } from "./run-memory-trace.js";
@@ -78,7 +79,7 @@ describe("the run memory trace (issue #106)", () => {
     const path = join(dir, "trace.ndjson");
     const fixture = join(dir, "fixture.mts");
     writeFileSync(fixture, [
-      `import { startRunMemoryTrace } from ${JSON.stringify(join(process.cwd(), "src", "cli", "run-memory-trace.ts"))};`,
+      `import { startRunMemoryTrace } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "cli", "run-memory-trace.ts")).href)};`,
       `const trace = startRunMemoryTrace({ ${RUN_MEMORY_TRACE_ENV}: ${JSON.stringify(path)} }, { intervalMs: 250 });`,
       // Let the worker come up and sample a calm process first.
       "await new Promise((r) => setTimeout(r, 700));",
@@ -88,15 +89,17 @@ describe("the run memory trace (issue #106)", () => {
       "while (Date.now() < until) { await Promise.resolve(); if (++i % 2_000 === 0 && kept.length < 300) kept.push(Buffer.alloc(1024 * 1024, 1)); }",
       "process.exit(0);",
     ].join("\n"));
+    let err = "";
     const code = await new Promise<number | null>((resolve) => {
-      const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), fixture], { stdio: "ignore" });
+      const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), fixture], { stdio: ["ignore", "ignore", "pipe"] });
+      child.stderr.on("data", (b: Buffer) => { err += b.toString(); });
       const killer = setTimeout(() => child.kill("SIGKILL"), 30_000);
       child.on("close", (exitCode) => {
         clearTimeout(killer);
         resolve(exitCode);
       });
     });
-    expect(code).toBe(0);
+    expect(code, err).toBe(0);
     const records = readTrace(path);
     const entered = records.find((r) => r.kind === "phase" && r.phase === "spin-phase")!;
     expect(entered).toBeDefined();
