@@ -378,7 +378,10 @@ export function commitProject(
       const failed = writeFile({ ...current.stored, id: ownId, revision: current.stored.revision + 1, updatedAt: Math.max(now(), current.stored.updatedAt), project: content }, options);
       if (failed !== null) return { ok: false, problem: failed };
     }
-    const recorded = store.write(folder, ownId, ownId === id ? base.decisionSeq : 0, project, decided);
+    // An outside edit the chat's base had taken (and not yet recorded) stays flagged on whatever is written on top of it.
+    const outside = resolveProject(current.stored.project, record.record, now()).changedOutside ?? [];
+    const flagged = outside.length === 0 ? project : { ...project, changedOutside: [...new Set([...outside, ...(project.changedOutside ?? [])])] };
+    const recorded = store.write(folder, ownId, ownId === id ? base.decisionSeq : 0, flagged, decided);
     if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
     const opened = openProject(folder, options);
     if (opened.ok) writeViews(opened.opened.stored, opened.opened.project);

@@ -159,10 +159,19 @@ export function gateLabelOf(gate: ProjectGate): string {
   return gate.kind === "milestone" ? `milestone:${gate.id}` : gate.kind;
 }
 
+/**
+ * `project` with `labels` as its `changedOutside`. A draft whose gate is
+ * listed reads as drafted after untrusted content, whoever wrote it last:
+ * the content came from outside and no person has decided it yet, so the
+ * card warns and an approval stands in for nothing more.
+ */
 function withChanged(project: ProjectState, labels: readonly string[]): ProjectState {
   const unique = [...new Set(labels)];
   const { changedOutside: _c, ...rest } = project;
-  return unique.length === 0 ? rest : { ...rest, changedOutside: unique };
+  if (unique.length === 0) return rest;
+  const brief = rest.brief !== undefined && unique.includes("brief") && rest.brief.status === "draft" ? { ...rest.brief, draftedAfterUntrusted: true } : rest.brief;
+  const plan = rest.plan !== undefined && unique.includes("plan") && rest.plan.status === "draft" ? { ...rest.plan, draftedAfterUntrusted: true } : rest.plan;
+  return { ...rest, ...(brief === undefined ? {} : { brief }), ...(plan === undefined ? {} : { plan }), changedOutside: unique };
 }
 
 /**
@@ -325,7 +334,10 @@ function readDecision(raw: unknown): ProjectDecisionRecord | null {
 
 function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
   const seq = (current?.seq ?? 0) + 1;
-  const kept = (next.changedOutside ?? []).filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
+  // The labels are the record's: only the person's decision at a gate
+  // clears it; every other write (a director's redraft) carries them.
+  const kept = [...(current?.state.changedOutside ?? []), ...(next.changedOutside ?? [])]
+    .filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
   const decisions = current?.decisions ?? [];
   return {
     version: 1,

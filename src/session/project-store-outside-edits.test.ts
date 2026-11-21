@@ -138,3 +138,39 @@ describe("project.json edits cannot drive dispatch, gates or evidence (issue #10
     expect(opened.gate).toEqual({ kind: "milestone", id: "m2" });
   });
 });
+
+describe("a director re-draft keeps an outside edit flagged until the person decides (issue #109 review b2)", () => {
+  it("the flag and the untrusted mark survive the director's redraft of an outside-edited plan", async () => {
+    const { createSessionProjectStore } = await import("./session-project-store.js");
+    const { createEmptySessionState } = await import("./session-state.js");
+    const { foldProjectUpdate } = await import("../agent/step/project-fold.js");
+    const { projectGateView } = await import("../tools/fusion/project-gate-view.js");
+    const { compressToolResult } = await import("../compressor/result-compressor.js");
+    const store = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
+    const p = normalizeProject(fixture.session.project)!;
+    const base: ProjectState = { ...p, gate: { kind: "none" }, milestones: p.milestones.map((m) => (m.id === "m2" ? { ...m, state: "reviewed" as const } : m.id === "m3" ? { ...m, state: "approved" as const } : m)) };
+    let s = store.load({ ...createEmptySessionState({ id: "a", workingDir: folder }), project: base });
+    edit((j) => {
+      const row = j.project.plan.rows.find((r: any) => r.taskId === "t3");
+      row.worker = "cloud:attacker";
+      row.reviewer = null;
+    });
+    s = store.prepareTurn(s, true);
+    expect(s.project?.changedOutside).toEqual(["plan"]);
+    const plan = s.project!.plan!;
+    const redraft = {
+      kind: "plan",
+      milestones: s.project!.milestones.map((m) => ({ id: m.id, title: m.title, kind: m.kind })),
+      rows: plan.rows,
+      detail: plan.detail === "full" ? "compact" : "full",
+      draftedAfterUntrusted: false,
+    };
+    const folded = foldProjectUpdate(s, compressToolResult({ tool: "project.plan", status: "ok", output: "drafted", details: { projectUpdate: redraft } }), 20, {}, store);
+    expect(folded.result.status).toBe("ok");
+    const after = store.load(folded.session).project!;
+    expect(after.plan?.rows.find((r) => r.taskId === "t3")?.worker).toBe("cloud:attacker");
+    expect(after.changedOutside).toEqual(["plan"]);
+    expect(after.plan?.draftedAfterUntrusted).toBe(true);
+    expect(projectGateView({ sessionId: "a", project: after, estimate: null, selectable: { workers: [], reviewers: [] } }).changedOutside).toBe(true);
+  });
+});
