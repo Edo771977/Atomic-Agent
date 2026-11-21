@@ -265,3 +265,46 @@ describe("an incognito chat leaves nothing behind (issue #109 review, ATO-586)",
     expect(projects.prepareTurn(fresh, true).project).toBeUndefined();
   });
 });
+
+describe("an unusable record is reported and never overwritten (issue #109 review a5)", () => {
+  const recordFile = (): string => {
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    const dir = join(stateDir, "project-decisions");
+    return join(dir, readdirSync(dir).find((f) => f.endsWith(".json"))!);
+  };
+  const setUp = (): SessionState => {
+    savePreStoreSession();
+    const s = store.load("s-109-fixture")!;
+    store.save(s);
+    return s;
+  };
+
+  it.each([
+    ["a newer version", (j: any) => ({ ...j, version: 2 }), /record/],
+    ["a decision without a gate", (j: any) => ({ ...j, decisions: [{}] }), /record/],
+    ["an empty state", (j: any) => ({ ...j, state: {} }), /record/],
+    ["not an object", () => [], /record/],
+  ])("%s: the chat opens without the project, nothing is approved or written", (_what, change, message) => {
+    const s = setUp();
+    const file = recordFile();
+    const body = JSON.stringify(change(JSON.parse(readFileSync(file, "utf8"))));
+    writeFileSync(file, body);
+    const opened = store.load("s-109-fixture")!;
+    expect(opened.project).toBeUndefined();
+    expect(opened.projectProblem).toMatch(message);
+    const written = projects.commit(opened, s.project!);
+    expect(written.ok).toBe(false);
+    expect(readFileSync(file, "utf8")).toBe(body);
+  });
+
+  it("a record that cannot be read right now is not replaced", () => {
+    const s = setUp();
+    const file = recordFile();
+    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
+    rmSync(file);
+    mkdirSync(file);
+    const opened = projects.load(s);
+    expect(opened.project).toBeUndefined();
+    expect(projects.commit(opened, s.project!).ok).toBe(false);
+  });
+});

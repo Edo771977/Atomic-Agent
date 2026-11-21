@@ -119,6 +119,14 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
   const load = (state: SessionState): SessionState => {
     // An incognito chat leaves nothing behind (ATO-586): its project stays in the session.
     if (isIncognitoSession(state)) return state;
+    try {
+      return loadUnguarded(state);
+    } catch (err) {
+      // A chat always opens: whatever went wrong with its project is said, never thrown out of a load.
+      return unavailable(state, `The project could not be opened: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const loadUnguarded = (state: SessionState): SessionState => {
     const ref = readProjectRef(state);
     if (ref !== null) return open(state, ref);
     if (state.project !== undefined) return migrate(state, state.project);

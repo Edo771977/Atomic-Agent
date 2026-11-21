@@ -288,6 +288,26 @@ function readState(raw: unknown): ProjectState | null {
   return withChanged(project, labels);
 }
 
+const VERDICTS: ReadonlySet<string> = new Set(["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"]);
+
+/** A stored decision checked for shape; null when anything is off (the record is then damaged). */
+function readDecision(raw: unknown): ProjectDecisionRecord | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const d = raw as Record<string, unknown>;
+  const gate = d.gate as Record<string, unknown> | undefined;
+  const gateOk = typeof gate === "object" && gate !== null &&
+    (gate.kind === "brief" || gate.kind === "plan" || gate.kind === "none" || (gate.kind === "milestone" && typeof gate.id === "string"));
+  if (!gateOk || !Number.isInteger(d.version) || !Number.isInteger(d.seq) || typeof d.at !== "number" || typeof d.hash !== "string" || typeof d.verdict !== "string" || !VERDICTS.has(d.verdict)) return null;
+  return {
+    seq: d.seq as number,
+    at: d.at,
+    gate: gate.kind === "milestone" ? { kind: "milestone", id: gate.id as string } : { kind: gate.kind as "brief" | "plan" | "none" },
+    version: d.version as number,
+    verdict: d.verdict as ProjectVerdict,
+    hash: d.hash,
+  };
+}
+
 function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
   const seq = (current?.seq ?? 0) + 1;
   const kept = (next.changedOutside ?? []).filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
@@ -325,20 +345,29 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       text = readFileSync(file, "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, record: null };
-      return { ok: false, problem: { code: "io", message: `${file} could not be read: ${(err as Error).message}` } };
+      // A transient error (EBUSY, EPERM, EISDIR) is not an empty record: nothing is approved and nothing is written.
+      return { ok: false, problem: { code: "io", message: `the record ${file} could not be read: ${(err as Error).message}` } };
     }
-    let raw: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      raw = JSON.parse(text) as Record<string, unknown>;
+      parsed = JSON.parse(text);
     } catch (err) {
-      return { ok: false, problem: { code: "damaged", message: `${file} is not valid JSON (${(err as Error).message}).` } };
+      return { ok: false, problem: { code: "damaged", message: `the record ${file} is not valid JSON (${(err as Error).message})` } };
     }
-    const state = readState(raw?.state);
-    if (raw?.version !== 1 || !Number.isInteger(raw.seq) || !Array.isArray(raw.decisions) || state === null) {
-      return { ok: false, problem: { code: "damaged", message: `${file} is damaged.` } };
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { ok: false, problem: { code: "damaged", message: `the record ${file} is not a JSON object` } };
+    }
+    const raw = parsed as Record<string, unknown>;
+    if (raw.version !== 1) {
+      return { ok: false, problem: { code: "unsupported", message: `the record ${file} has version ${JSON.stringify(raw.version)}; this Atomic Agent reads version 1` } };
+    }
+    const state = readState(raw.state);
+    const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
+    if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || state === null || decisions === null || decisions.some((d) => d === null)) {
+      return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };
     }
     if (raw.folder !== folder || raw.id !== id) return { ok: true, record: null, foreign: true };
-    return { ok: true, record: { version: 1, folder, id, seq: raw.seq as number, state, decisions: raw.decisions as ProjectDecisionRecord[] } };
+    return { ok: true, record: { version: 1, folder, id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[] } };
   };
   return {
     read(folder, id) {
