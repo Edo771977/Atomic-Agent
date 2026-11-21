@@ -44,7 +44,8 @@ function contractWith(example: unknown, extra: Record<string, unknown> = {}) {
         { task: "phys", kind: "symbol", name: "PHYS.corners", ...extra, example },
       ],
       requires: [{ task: "draw", name: "PHYS.corners" }],
-      checks: [{ task: "draw", kind: "page", path: "index.html", checks: ["no errors"] }],
+      // A positive assertion beside `no errors`: an absence alone is a lint warning (issue #110).
+      checks: [{ task: "draw", kind: "page", path: "index.html", probes: [{ name: "drawn", expr: "document.querySelectorAll('canvas').length" }], checks: ["no errors", "probe drawn equals 1"] }],
     },
   });
 }

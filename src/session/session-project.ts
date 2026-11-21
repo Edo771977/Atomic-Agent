@@ -117,6 +117,13 @@ export interface ProjectCriterionFact {
   state: CriterionFactState;
   /** One line, e.g. the failing check or why it could not be judged. */
   why?: string;
+  /**
+   * Issue #110: `passed`, but only checks with a lint warning support it
+   * (they may also pass on the wrong thing): "verified with
+   * reservations". One line, what those checks prove too little about.
+   * Never on another state; no verdict reads it.
+   */
+  reservation?: string;
 }
 
 export const CRITERION_FACT_STATES: readonly CriterionFactState[] = ["passed", "failed", "unverified"];
@@ -946,7 +953,8 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
     if (id === null || out.some((x) => x.id === id)) continue;
     if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
     const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
-    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }) });
+    const reservation = f.state === "passed" && typeof f.reservation === "string" ? clip(f.reservation, PROJECT_LIMITS.shortText) : "";
+    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }), ...(reservation.length === 0 ? {} : { reservation }) });
   }
   return out;
 }

@@ -537,7 +537,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         }
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
-          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}`).join(", ")}.`);
+          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}${f.state === "passed" && f.reservation !== undefined ? " with reservations" : ""}`).join(", ")}.`);
         }
         if ((evidence.reviewBlocks ?? []).length > 0) {
           // Issue #98: refused like a red criterion, so the milestone stays

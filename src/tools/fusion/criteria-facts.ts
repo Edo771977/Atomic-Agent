@@ -1,6 +1,7 @@
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
+import { checkReservations } from "./contract-check-lint.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 
 /**
@@ -13,11 +14,17 @@ import type { WorkerTaskResult } from "./worker-result.js";
  *    judgement of a visual check (`judge: "vision"`) found it not met;
  *  - `unverified`: no check failed, but a visual check has no readable
  *    vision judgement (no vision-capable model, a refusal, an unreadable
- *    answer, a missing screenshot): never green without one;
+ *    answer, a missing screenshot), or a check is unreliable because its
+ *    negative control passed too (issue #110): never green without one;
  *  - `passed`: every check green and every visual check judged met.
  *
  * `failed` outranks `unverified`, which outranks `passed`: vision can
  * only add red or unverified, never turn a red check green.
+ *
+ * A `passed` criterion that only checks with a lint warning support
+ * (`contract-check-lint.ts`: they may also pass on the wrong thing)
+ * carries a `reservation` — "verified with reservations". No verdict
+ * reads it: it stays `passed`, and one clean passing check clears it.
  */
 
 /** One criterion a task's checks name, with the check indices (into `contract.checks`) naming it. */
@@ -69,9 +76,27 @@ export function criteriaFactsFor(
   outcomes: readonly (ContractCheckOutcome | undefined)[],
   vision: VisionJudgements | undefined,
 ): ProjectCriterionFact[] {
+  const reservations = checkReservations(contract);
+  /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
+  const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
+    if (outcome.negative !== undefined) return `its negative control did not run (${outcome.negative})`;
+    // Its negative control ran and failed as it should (an unreliable one
+    // never gets here): the check has shown it can fail, whatever the lint read.
+    if (contract?.checks?.[index]?.negative !== undefined) return undefined;
+    return reservations.get(index);
+  };
   return criteria.map((criterion) => {
     let state: CriterionFactState = "passed";
     let why = "every check naming it passed";
+    // Issue #110: whether a passing check with nothing held against it
+    // supports it, and what is held against the others.
+    let clean = false;
+    const held = new Map<number, string>();
+    const settle = (index: number, outcome: ContractCheckOutcome): void => {
+      const reason = reservationOf(index, outcome);
+      if (reason === undefined) clean = true;
+      else held.set(index, reason);
+    };
     const note = (next: CriterionFactState, line: string): void => {
       if (RANK[next] > RANK[state]) {
         state = next;
@@ -89,7 +114,15 @@ export function criteriaFactsFor(
         note("failed", `${label} failed: ${outcome.detail}`);
         continue;
       }
-      if (contract?.checks?.[index]?.judge !== "vision") continue;
+      // Issue #110: green on the input it must fail on too, so its green proves nothing.
+      if (outcome.unreliable !== undefined) {
+        note("unverified", `${label} is unreliable: ${outcome.unreliable}`);
+        continue;
+      }
+      if (contract?.checks?.[index]?.judge !== "vision") {
+        settle(index, outcome);
+        continue;
+      }
       if (outcome.screenshotErrors !== undefined && outcome.screenshotErrors.length > 0) {
         note("unverified", `${label} took no screenshot: ${outcome.screenshotErrors[0]}`);
         continue;
@@ -104,8 +137,11 @@ export function criteriaFactsFor(
         continue;
       }
       if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
+      else settle(index, outcome);
     }
-    return { id: criterion.id, state, why };
+    if (state !== "passed" || clean) return { id: criterion.id, state, why };
+    const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
+    return reservation.length === 0 ? { id: criterion.id, state, why } : { id: criterion.id, state, why, reservation };
   });
 }
 
