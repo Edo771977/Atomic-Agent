@@ -20,6 +20,9 @@
 
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { PROJECT_LIMITS } from "./project-limits.js";
+export { PROJECT_LIMITS } from "./project-limits.js";
+import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -46,7 +49,7 @@ export interface ProjectCriterion {
 export type ProjectCriterionInput = string | ProjectCriterion;
 
 /** A criterion id's shape ({@link ProjectCriterion}). */
-export const CRITERION_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+export { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 
 /**
  * What the project delivers (schema v2, issue #113). Absent means
@@ -415,45 +418,6 @@ export interface ProjectState {
 }
 
 /**
- * Bounds on a stored or updated project. Text is clipped with an
- * ellipsis; a model update over an array cap is refused (the tool turns
- * it into an error the model can act on); a stored one is cut.
- *  - `text` 2000: what/users/how, a summary — a paragraph, not a spec.
- *  - `shortText` 300: a success criterion, a game field, a reason.
- *  - `title` 160: a task or milestone title, as `PLAN_STEP_MAX_CHARS`.
- *  - `id` 64, `criterionId` 32 and `memberRef` 256: identifiers.
- *  - `successCriteria` 20, `milestones` 16, `rows` 64 (the task tree's
- *    node ceiling), `runIds` 32 per milestone (the newest are kept).
- *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
- *    are kept): the person's notes at a milestone gate.
- *  - `attachments` 8 per milestone, `attachmentPath` 1024: the result's
- *    pictures (a caption is `shortText`). Criteria facts: one per criterion.
- *  - `history` 4 per milestone (the newest are kept): earlier work's evidence.
- *  - `decisions` 20 (schema v2): the brief's decisions, each `shortText`,
- *    and a plan row's decision ids.
- *  - `backlog` 32 (schema v2): items, `title` long, note and condition `shortText`.
- */
-export const PROJECT_LIMITS = {
-  text: 2000,
-  shortText: 300,
-  title: 160,
-  id: 64,
-  memberRef: 256,
-  successCriteria: 20,
-  criterionId: 32,
-  milestones: 16,
-  rows: 64,
-  runIds: 32,
-  correctionNote: 2000,
-  corrections: 8,
-  attachments: 8,
-  attachmentPath: 1024,
-  history: 4,
-  decisions: 20,
-  backlog: 32,
-} as const;
-
-/**
  * `metadata.projectGates`: whether this session runs the project flow
  * (issue #39), stamped by the runtime from the session's first surface
  * and never changed after, so the stable prefix stays put.
@@ -753,22 +717,6 @@ function readGame(raw: unknown): ProjectGameBrief | undefined | null {
 }
 
 /**
- * A criterion id trimmed and lower-cased; null when it breaks
- * {@link CRITERION_ID_PATTERN}. The one rule for criterion ids: the
- * brief, milestone reports and contract checks all normalize through it,
- * so an id a check names always matches the brief's.
- */
-export function normalizeCriterionId(raw: unknown): string | null {
-  return cleanCriterionId(raw);
-}
-
-function cleanCriterionId(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const id = raw.trim().toLowerCase();
-  return CRITERION_ID_PATTERN.test(id) ? id : null;
-}
-
-/**
  * Criteria cleaned, ids given or assigned ({@link ProjectCriterion}).
  * `strict` (a draft): over the cap, a malformed entry, a bad or repeated
  * id is the error message. `lenient` (a stored brief): the list is cut,
@@ -794,7 +742,7 @@ function cleanCriteria(
     if (typeof item === "string") text = item;
     else if (isObject(item) && typeof item.text === "string") {
       text = item.text;
-      id = cleanCriterionId(item.id);
+      id = normalizeCriterionId(item.id);
       if (id === null || taken.has(id)) {
         if (mode === "strict") {
           return id === null
@@ -842,7 +790,7 @@ function cleanDecisions(raw: unknown, mode: "strict" | "lenient"): ProjectBriefD
   const out: ProjectBriefDecision[] = [];
   for (const [i, d] of raw.entries()) {
     if (out.length >= PROJECT_LIMITS.decisions) break;
-    const id = isObject(d) ? cleanCriterionId(d.id) : null;
+    const id = isObject(d) ? normalizeCriterionId(d.id) : null;
     const text = isObject(d) && typeof d.text === "string" ? clip(d.text, PROJECT_LIMITS.shortText) : "";
     if (id === null || text.length === 0 || out.some((x) => x.id === id)) {
       if (mode === "lenient") continue;
@@ -863,7 +811,7 @@ function cleanRowDecisions(raw: unknown): string[] | null {
   if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.decisions) return null;
   const out: string[] = [];
   for (const item of raw) {
-    const id = cleanCriterionId(item);
+    const id = normalizeCriterionId(item);
     if (id === null || out.includes(id)) return null;
     out.push(id);
   }
@@ -877,7 +825,7 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   for (const b of raw) {
     if (out.length >= PROJECT_LIMITS.backlog) break;
     if (!isObject(b)) continue;
-    const id = cleanCriterionId(b.id);
+    const id = normalizeCriterionId(b.id);
     const title = typeof b.title === "string" ? clip(b.title, PROJECT_LIMITS.title) : "";
     if (id === null || title.length === 0 || out.some((x) => x.id === id)) continue;
     if (typeof b.source !== "string" || !(PROJECT_BACKLOG_SOURCES as readonly string[]).includes(b.source) || !isTime(b.createdAt)) continue;
@@ -903,7 +851,7 @@ function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): R
   if (!isObject(raw)) return undefined;
   const out: Record<string, T> = {};
   for (const [key, value] of Object.entries(raw)) {
-    const id = cleanCriterionId(key);
+    const id = normalizeCriterionId(key);
     if (id === null || id !== key || typeof value !== "string" || !(allowed as readonly string[]).includes(value)) continue;
     out[id] = value as T;
   }
@@ -920,7 +868,7 @@ function personCalls(project: ProjectState | undefined, decisionsToo: boolean): 
 }
 
 /** A brief's fields as stored: criteria carry their ids. */
-type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria"> & { successCriteria: ProjectCriterion[] };
+type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria" | "decisions"> & { successCriteria: ProjectCriterion[]; decisions?: ProjectBriefDecision[] };
 
 /** A draft's fields cleaned, or an error message; `previous` is the brief being revised. */
 function cleanBriefDraft(draft: ProjectBriefDraft, previous: readonly ProjectCriterion[] = []): CleanBriefDraft | string {
@@ -1017,7 +965,7 @@ function cleanIdList(raw: unknown): string[] | null {
   if (!Array.isArray(raw)) return null;
   const out: string[] = [];
   for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
-    const id = cleanCriterionId(item);
+    const id = normalizeCriterionId(item);
     if (id === null) return null;
     if (!out.includes(id)) out.push(id);
   }
@@ -1135,7 +1083,7 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
   for (const f of raw) {
     if (out.length >= PROJECT_LIMITS.successCriteria) break;
     if (!isObject(f)) continue;
-    const id = cleanCriterionId(f.id);
+    const id = normalizeCriterionId(f.id);
     if (id === null || out.some((x) => x.id === id)) continue;
     if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
     const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
@@ -1221,12 +1169,12 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
   const unknownCriteria: string[] = [];
   for (const u of Array.isArray(raw.unknownCriteria) ? raw.unknownCriteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
-    const id = cleanCriterionId(u);
+    const id = normalizeCriterionId(u);
     if (id !== null && !unknownCriteria.includes(id)) unknownCriteria.push(id);
   }
   const criteria: ProjectCriterion[] = [];
   for (const c of Array.isArray(raw.criteria) ? raw.criteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
-    const id = isObject(c) ? cleanCriterionId(c.id) : null;
+    const id = isObject(c) ? normalizeCriterionId(c.id) : null;
     if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
     criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
   }

@@ -68,7 +68,7 @@ describe("project.json schema version 2", () => {
     const c = createProject(folder, project(), { ...options, id: "proj-1" });
     if (!c.ok) throw new Error(c.problem.message);
     // The same file as a version 1 build wrote it, with a later top-level field.
-    const v1 = { ...readJson(), schemaVersion: 1, laterFeature: { a: 1 } };
+    const v1: Record<string, any> = { ...readJson(), schemaVersion: 1, laterFeature: { a: 1 } };
     writeFileSync(projectFilePath(folder), `${JSON.stringify(v1, null, 2)}\n`);
     const opened = openProject(folder, options);
     if (!opened.ok) throw new Error(opened.problem.message);

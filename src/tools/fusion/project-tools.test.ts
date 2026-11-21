@@ -77,6 +77,28 @@ const briefArgs = {
   successCriteria: ["Runs offline", "Arrow keys steer"],
 };
 
+describe("schema v2 project tool fields", () => {
+  it("accepts author decisions and deliverable, refuses decision status", () => {
+    const extra = { deliverable: "document", decisions: [{ id: "d1", text: "Italian" }] };
+    expect(parseProjectBriefArgs({ ...briefArgs, ...extra })).toMatchObject({ ok: true, brief: extra });
+    expect(parseProjectBriefArgs({ ...briefArgs, decisions: [{ id: "d1", text: "Italian", status: "retired" }] })).toMatchObject({ ok: false });
+    expect(parseProjectBriefArgs({ ...briefArgs, deliverable: "banana" })).toMatchObject({ ok: false });
+    for (const decisions of [["a decision"], [{ id: "d1", text: "" }], [{ id: "d1", text: "x" }, { id: "d1", text: "y" }]]) expect(parseProjectBriefArgs({ ...briefArgs, decisions })).toMatchObject({ ok: false });
+  });
+  it("preserves enriched decision references", async () => {
+    const p = applyProjectUpdate(undefined, { kind: "brief", brief: briefArgs, draftedAfterUntrusted: false }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const approved = applyProjectDecision(p.project, { gate: p.project.gate, version: gateVersion(p.project)!, verdict: "approve" }, { now: NOW });
+    if (!approved.ok) throw new Error(approved.error.message);
+    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", decisions: ["d1"] }] }, { ...ctx, project: approved.project });
+    expect(result.status).toBe("ok");
+    const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
+    expect(update).toMatchObject({ rows: [{ decisions: ["d1"] }] });
+    const folded = applyProjectUpdate(approved.project, update, NOW);
+    expect(folded.ok && folded.project.plan?.rows[0]).toMatchObject({ decisions: ["d1"] });
+  });
+});
+
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();

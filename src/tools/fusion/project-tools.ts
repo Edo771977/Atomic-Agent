@@ -5,11 +5,15 @@ import {
   CRITERION_ID_PATTERN,
   MILESTONE_KINDS,
   PROJECT_LIMITS,
+  PROJECT_DELIVERABLES,
+  normalizeCriterionId,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectDeliverable,
+  type ProjectBriefDecision,
   type ProjectCriterion,
   type ProjectCriterionInput,
   type ProjectMilestone,
@@ -138,7 +142,15 @@ function criteriaProblems(criteria: readonly unknown[]): string[] {
 }
 
 export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ brief: ProjectBriefDraft }> {
-  const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria"], "project.brief");
+  const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria", "deliverable", "decisions"], "project.brief");
+  if (raw.deliverable !== undefined && !PROJECT_DELIVERABLES.includes(raw.deliverable as ProjectDeliverable)) problems.push("`deliverable` must be code, document, spreadsheet, research, files or game");
+  if (raw.decisions !== undefined) {
+    if (!Array.isArray(raw.decisions) || raw.decisions.length > PROJECT_LIMITS.decisions) problems.push(`decisions must list at most ${PROJECT_LIMITS.decisions} { id, text } entries`);
+    else {
+      if (raw.decisions.some((d) => !isObject(d))) problems.push("decisions must contain { id, text } objects");
+      problems.push(...criteriaProblems(raw.decisions).map((p) => p.replaceAll("successCriteria", "decisions")));
+    }
+  }
   if (!nonEmpty(raw.what)) problems.push("`what` must say what is being built");
   for (const f of ["users", "how"] as const) {
     if (typeof raw[f] !== "string") problems.push(`\`${f}\` must be text`);
@@ -169,6 +181,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
       users: raw.users as string,
       how: raw.how as string,
       ...(game === undefined ? {} : { game }),
+      ...(raw.deliverable === undefined ? {} : { deliverable: raw.deliverable as ProjectDeliverable }),
+      ...(raw.decisions === undefined ? {} : { decisions: raw.decisions as ProjectBriefDecision[] }),
       successCriteria: criteria as ProjectCriterionInput[],
     },
   };
@@ -177,6 +191,7 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 // ------------------------------------------------------------------- plan
 
 export interface ProjectPlanTaskArgs {
+  decisions?: string[];
   id: string;
   title: string;
   milestone: string;
@@ -227,7 +242,9 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "decisions"], `task ${id}`));
+      const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
+      if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
       const milestone = typeof t.milestone === "string" ? t.milestone.trim() : "";
       if (!ids.has(milestone)) problems.push(`task ${id} names milestone ${JSON.stringify(t.milestone)}, which \`milestones\` does not list`);
@@ -238,6 +255,7 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         id,
         title: String(t.title ?? ""),
         milestone,
+        ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
       });
@@ -301,6 +319,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       local: context.isLocal?.(reviewer) ?? false,
     });
     rows.push(withReviewEstimate({
+      ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,

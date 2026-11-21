@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { gateContentHash, stateDirProjectRecords } from "./project-decisions.js";
+import { gateContentHash, memoryProjectRecords, stateDirProjectRecords } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
 import {
   PROJECT_LIMITS,
@@ -181,6 +181,23 @@ describe("schema v2 fields: ownership and hashing", () => {
     expect(p.gate).toEqual({ kind: "none" });
     expect(p.changedOutside).toBeUndefined();
   });
+
+  it("nested status fields in author entries cannot decide anything, with or without a record", () => {
+    createProject(folder, withFields(), options);
+    edit((j) => {
+      j.project.brief.decisions[0].status = "retired";
+      j.project.backlog[0].state = "promoted";
+      j.project.backlog[0].promoted = true;
+      j.project.decisionStatus = { d1: "retired" };
+      j.project.backlogStates = { b1: "promoted" };
+    });
+    expect(open().decisionStatus).toEqual({ d2: "deferred" });
+    expect(open().backlogStates).toEqual({ b2: "promoted" });
+    const fresh = openProject(folder, { ...options, records: memoryProjectRecords() });
+    expect(fresh.ok && fresh.opened.project.decisionStatus).toBeUndefined();
+    expect(fresh.ok && fresh.opened.project.backlogStates).toBeUndefined();
+  });
+
 
   it("a backlog edit in project.json is taken and reopens no gate", () => {
     const c = createProject(folder, withFields(), options);
