@@ -41,6 +41,25 @@ node scripts/e2e-csv-sales.mjs --cwd "$RUN" --log run-stdout.txt --log run-stder
 
 The runner reads the session store and the outcome log from `--state-dir`, which defaults to `ATOMIC_AGENT_STATE_DIR`, else `~/.atomic-agent`. It finds the session from `--session`, else from the `session: <id>` line printed at a project gate, else as the newest session in `--cwd`. It exits 0 only when the run passes (below) and 1 otherwise.
 
+## Measuring memory (issue #106)
+
+A live run was found at 126 GiB private memory after `pending`, with nothing to say when it grew or which code asked for it. To measure the next run, start it through the [sampler](../../scripts/sample-run-memory.mjs) with the run's own [memory trace](../../src/cli/README.md) on. PowerShell, with `$director` and `$reviewer` set to the values used above:
+
+```powershell
+$env:ATOMIC_AGENT_RUN_MEMORY_TRACE = "C:\e2e\run-memory-trace.ndjson"
+$env:NODE_OPTIONS = "--heapsnapshot-near-heap-limit=1 --diagnostic-dir=C:\e2e"
+Get-Content docs\testing\fixtures\csv-sales\prompt.txt | node scripts\sample-run-memory.mjs --output C:\e2e\run-memory-samples.ndjson --stop-private-mb 8192 -- `
+  atomic-agent run --cwd $run --max-steps 12 --director $director --reviewer $reviewer --auto-approve-project `
+  --allow-command "node --test sales.test.cjs" `
+  1> C:\e2e\run-stdout.txt 2> C:\e2e\run-stderr.txt
+$code = $LASTEXITCODE
+Remove-Item Env:ATOMIC_AGENT_RUN_MEMORY_TRACE, Env:NODE_OPTIONS
+```
+
+The sampler writes private bytes and working set of the agent and its children every second and stops them all once private memory passes 8 GiB (exit 4), long before the machine runs out. `--heapsnapshot-near-heap-limit=1` writes a `.heapsnapshot` into `C:\e2e` only if the JS heap is what grows (a build that ignores `NODE_OPTIONS` writes none; the two files are still written).
+
+Reading the two files: in the trace, the last `phase` records say what the run was doing. `main` lines with `heapUsed` growing mean the JS heap grows: open the heap snapshot, or repeat with an allocation profile (`--heap-prof`). `rss` (and the sampler's `privateBytes`) growing while `heapUsed` stays flat means buffers or native memory: `external` and `arrayBuffers` growing point at Buffers, such as writes queued on a stream nobody drains; neither growing points at native allocations. `main` lines that stop while `worker` lines go on with a growing `heartbeatAgeMs` mean the main loop stopped turning, inside the `phase` they name. The sampler's `processes` say which process grew.
+
 ## When the run passes
 
 Green suites are not enough (issue #98): a run passed both while a review block was still open. The runner exits 0 only when every condition holds, and lists each one that does not in `blocking`:

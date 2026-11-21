@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
- * Issue #106: after `run` printed `pending`, the live process spun for
- * minutes, its private memory grew past 126 GiB and the 15 s deadline
- * (a timer on the main event loop) never fired. The watchdog runs on its
- * own thread: it ends the process even when the main loop never yields,
- * and early when memory grows past its cap.
+ * Issue #106: after `run` printed `pending`, the live process was still
+ * alive minutes later at 126 GiB private memory, and the 15 s deadline (a
+ * timer on the main event loop) never ended it. Why is not known (a main
+ * loop that never yields is one hypothesis). The watchdog runs on its own
+ * thread: it ends the process even when the main loop never yields, and
+ * early when memory grows past its cap.
  */
 const MODULE = JSON.stringify(join(process.cwd(), "src", "cli", "hard-exit-deadline.ts"));
 

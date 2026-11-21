@@ -96,11 +96,14 @@ export function armHardExitDeadline(code: () => number, options: HardExitOptions
 }
 
 /**
- * Issue #106: the timer above lives on the main event loop, and a loop
- * that never yields (an async loop whose awaits resolve only through
- * microtasks) starves it: on the live run the process spun for minutes
- * after `pending` while its memory grew past 126 GiB. The watchdog runs on
- * a worker thread with its own loop. It samples the process's resident
+ * Issue #106: on the live run the process was still alive 178 s after it
+ * printed `pending`, at 126 GiB private memory, and the timer above never
+ * ended it. What held it is not known: one hypothesis is a main loop that
+ * never yields (an async loop whose awaits resolve only through
+ * microtasks), which would starve a timer on that loop; the opt-in memory
+ * trace (`run-memory-trace.ts`, `ATOMIC_AGENT_RUN_MEMORY_TRACE`) is there
+ * to confirm or rule it out. Whatever the cause, the watchdog contains the
+ * damage: it runs on a worker thread with its own loop. It samples the process's resident
  * memory and ends the process when that passes the cap, or when the
  * deadline plus `WATCHDOG_GRACE_MS` passes and the main thread has not
  * ended it, after one diagnostic line on fd 2 (time elapsed, rss, the
