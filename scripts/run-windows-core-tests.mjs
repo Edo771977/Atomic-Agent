@@ -45,6 +45,8 @@ export const criticalFiles = [
   'src/tools/fusion/check-run-record.test.ts',
   'src/tools/fusion/check-spec-key.test.ts',
   'src/tools/fusion/evidence-review.test.ts',
+  // Issue #106: a fix round re-runs contract checks that passed on the reviewed version.
+  'src/tools/fusion/regression-gate.test.ts',
   // Issue #102: execution evidence, recovery after a timed-out passing run, both verdicts, plan-task steering.
   'src/tools/fusion/execution-evidence.test.ts',
   'src/tools/fusion/timeout-recovery-guard.test.ts',
