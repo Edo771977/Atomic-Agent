@@ -21,4 +21,9 @@ describe("checkSpecKey (issue #104 review)", () => {
     expect(checkSpecKey({ cmd: "NODE_OPTIONS=--require=./x.cjs node --test a.cjs" })).not.toBe(words);
     expect(checkSpecKey({ cmd: "node --test 'a.cjs'" })).not.toBe(words);
   });
+
+  it("a contract check's task, criteria and judge are not verify.run arguments: the worker's run is still that check (issue #106)", () => {
+    expect(checkSpecKey({ task: "t", criteria: ["c1", "c2"], kind: "command", cmd: "node", args: ["--test", "a.cjs"] })).toBe(words);
+    expect(checkSpecKey({ task: "t", criteria: ["c1"], kind: "command", cmd: "node --test a.cjs" })).toBe(words);
+  });
 });
