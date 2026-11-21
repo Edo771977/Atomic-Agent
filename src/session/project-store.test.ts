@@ -60,7 +60,7 @@ describe("project store (issue #109)", () => {
   it("writes content only, with a schema version, and readable views", () => {
     created();
     const raw = JSON.parse(readFileSync(projectFilePath(folder), "utf8")) as Record<string, any>;
-    expect(raw.schemaVersion).toBe(1);
+    expect(raw.schemaVersion).toBe(2);
     expect(raw.id).toBe("proj-1");
     expect(raw.revision).toBe(1);
     const text = JSON.stringify(raw);
@@ -91,13 +91,13 @@ describe("project store (issue #109)", () => {
   it("rejects an unknown schema version with a clear message and never overwrites it", () => {
     const c = created();
     const raw = JSON.parse(readFileSync(projectFilePath(folder), "utf8")) as Record<string, unknown>;
-    const newer = `${JSON.stringify({ ...raw, schemaVersion: 2 })}\n`;
+    const newer = `${JSON.stringify({ ...raw, schemaVersion: 3 })}\n`;
     writeFileSync(projectFilePath(folder), newer);
     const opened = openProject(folder, options);
     expect(opened.ok).toBe(false);
     if (!opened.ok) {
       expect(opened.problem.code).toBe("unsupported-schema");
-      expect(opened.problem.message).toMatch(/schema version 2; this Atomic Agent reads version 1\. Update Atomic Agent/);
+      expect(opened.problem.message).toMatch(/schema version 3; this Atomic Agent reads versions 1 and 2\. Update Atomic Agent/);
     }
     const write = commitProject(folder, "proj-1", { revision: 1, decisionSeq: c.decisionSeq }, c.project, options);
     expect(!write.ok && write.problem.code).toBe("unsupported-schema");

@@ -36,8 +36,17 @@ import {
 
 export const PROJECT_STORE_DIR_PARTS = [".atomic", "project"] as const;
 export const PROJECT_FILE_NAME = "project.json";
-/** The one schema this build reads and writes; any other is refused, never overwritten. */
-export const PROJECT_SCHEMA_VERSION = 1;
+/**
+ * The schema this build writes. It reads every version in
+ * {@link PROJECT_READ_SCHEMA_VERSIONS} through {@link migrateProjectFile}
+ * and refuses any other (a newer build's file is never overwritten).
+ * Version 2 adds optional project fields (the brief's `deliverable` and
+ * `decisions`, the plan rows' `checks`, `criteria` and `decisions`, the
+ * `backlog`); a version 1 file holds none of them and reads unchanged.
+ */
+export const PROJECT_SCHEMA_VERSION = 2;
+/** The versions this build opens, oldest first. */
+export const PROJECT_READ_SCHEMA_VERSIONS: readonly number[] = [1, 2];
 /** A lock older than this is a crashed writer's and is taken over. */
 const STALE_LOCK_MS = 30_000;
 const LOCK_WAIT_MS = 2_000;
@@ -53,6 +62,7 @@ export function projectFilePath(folder: string): string {
 
 /** One project as the file holds it. */
 export interface StoredProject {
+  /** Always the current version once read: an older file is migrated in memory and written as this one. */
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   /** Stable id, minted once. */
   id: string;
@@ -162,17 +172,37 @@ export function readProjectFile(folder: string, options: Pick<ProjectStoreOption
   return parseProjectFile(raw, folder, options.stateDir);
 }
 
+/**
+ * The one migration path of `project.json`: a parsed file of a version
+ * this build reads, brought to {@link PROJECT_SCHEMA_VERSION}; null for
+ * any other version (refused, never overwritten). Version 1 → 2 changes
+ * the version only: every field version 2 adds is optional, and version
+ * 1 has none of them. Pure; nothing is written until the next write.
+ */
+export function migrateProjectFile(raw: Record<string, unknown>): Record<string, unknown> | null {
+  const version = raw.schemaVersion;
+  if (typeof version !== "number" || !PROJECT_READ_SCHEMA_VERSIONS.includes(version)) return null;
+  // v1 → v2: nothing to change but the version.
+  return { ...raw, schemaVersion: PROJECT_SCHEMA_VERSION };
+}
+
+const readVersionsText = (): string => {
+  const v = PROJECT_READ_SCHEMA_VERSIONS;
+  return v.length === 1 ? `version ${v[0]}` : `versions ${v.slice(0, -1).join(", ")} and ${v[v.length - 1]}`;
+};
+
 /** A parsed `project.json` checked; exported for tests and readers that already hold the JSON. */
-export function parseProjectFile(raw: unknown, folder: string, stateDir: string): ProjectStoreResult {
+export function parseProjectFile(input: unknown, folder: string, stateDir: string): ProjectStoreResult {
   const file = projectFilePath(folder);
   const damaged = (what: string) => problem("damaged", `${file} is damaged: ${what}. Fix or restore it; the project was not opened.`);
-  if (!isObject(raw)) return damaged("it is not a JSON object");
-  const version = raw.schemaVersion;
+  if (!isObject(input)) return damaged("it is not a JSON object");
+  const version = input.schemaVersion;
   if (typeof version !== "number" || !Number.isInteger(version)) return damaged("schemaVersion is missing or not a whole number");
-  if (version !== PROJECT_SCHEMA_VERSION) {
+  const raw = migrateProjectFile(input);
+  if (raw === null) {
     return problem(
       "unsupported-schema",
-      `${file} uses schema version ${version}; this Atomic Agent reads version ${PROJECT_SCHEMA_VERSION}. ` +
+      `${file} uses schema version ${version}; this Atomic Agent reads ${readVersionsText()}. ` +
         (version > PROJECT_SCHEMA_VERSION ? "Update Atomic Agent to open it. " : "") +
         "The file was not opened and will not be overwritten.",
     );
