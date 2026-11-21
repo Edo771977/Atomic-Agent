@@ -274,20 +274,25 @@ export function projectRecordsDir(stateDir: string): string {
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * A folder's identity for its record: its real path (symlinks resolved),
- * `/` separators, case folded on Windows and macOS. A copied or moved
+ * A folder's identity for its record: its real path (symlinks resolved,
+ * the disk's own spelling), `/` separators; case is folded on Windows and
+ * macOS only for a path that does not resolve. A bind mount or a
+ * case-folding mount can give one folder two identities: it then starts
+ * over (no approvals or runs are borrowed). A copied or moved
  * folder is another folder, so it has no record: its approvals and
  * execution state do not travel with it.
  */
 export function canonicalProjectFolder(folder: string, platform: NodeJS.Platform = process.platform): string {
-  let real: string;
+  const slashes = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
   try {
-    real = realpathSync.native(folder);
+    // The disk's own spelling: on a case-insensitive volume one folder has
+    // one real path, and on a case-sensitive one two folders stay two.
+    return slashes(realpathSync.native(folder));
   } catch {
-    real = resolve(folder);
+    // Not on disk: fold case where the platform usually does.
+    const resolved = slashes(resolve(folder));
+    return platform === "win32" || platform === "darwin" ? resolved.toLowerCase() : resolved;
   }
-  const slashed = real.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
-  return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
 }
 
 /**

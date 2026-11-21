@@ -358,3 +358,26 @@ describe("one record per folder: the file's id cannot pick another record (issue
     expect(read.ok && read.ignored?.length).toBe(1);
   });
 });
+
+describe("folder identity on case-sensitive volumes (issue #109 review b4)", () => {
+  it("two real folders differing by case are two folders, even where case is usually folded", async () => {
+    const { mkdirSync, copyFileSync } = await import("node:fs");
+    const { canonicalProjectFolder } = await import("./project-decisions.js");
+    const upper = join(folder, "Proj");
+    const lower = join(folder, "proj");
+    mkdirSync(upper);
+    mkdirSync(lower);
+    expect(canonicalProjectFolder(upper, "darwin")).not.toBe(canonicalProjectFolder(lower, "darwin"));
+    expect(sameProjectFolder(upper, lower, "darwin")).toBe(false);
+    // Paths that do not resolve fall back to folding case where the platform does.
+    expect(sameProjectFolder(join(folder, "Missing"), join(folder, "missing"), "darwin")).toBe(true);
+    const darwin = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir, Date.now, "darwin"), platform: "darwin" });
+    const p = normalizeProject(fixture.session.project)!;
+    darwin.load({ ...createEmptySessionState({ id: "u", workingDir: upper }), project: p });
+    mkdirSync(join(lower, ".atomic", "project"), { recursive: true });
+    copyFileSync(projectFilePath(upper), projectFilePath(lower));
+    const there = darwin.prepareTurn(createEmptySessionState({ id: "l", workingDir: lower }), true).project!;
+    expect(there.brief?.status).toBe("draft");
+    expect(there.milestones.every((m) => m.state === "planned")).toBe(true);
+  });
+});
