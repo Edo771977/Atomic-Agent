@@ -205,5 +205,16 @@ describe("plan references (issue #120)", () => {
     expect(report.references.find((r) => r.value === "gen.ts")).toMatchObject({ outcome: "missing", why: "no file of that name outside ignored or hidden files" });
     expect(report.record.verdict).toBe("warn");
   });
+
+  it("resolves a check's cwd exactly, as a folder of the project (review #3)", async () => {
+    const root = project({ "web/index.html": "", "other/sub/x.txt": "" });
+    const run = vi.fn<PlanReferenceDeps["runCommand"]>(async () => result("other/sub/x.txt\n"));
+    const report = await checkPlanReferences([row("t1", "Run", [{ cmd: "echo", cwd: "sub" }, { cmd: "echo", cwd: "web" }])], {
+      root, deps: { ...noRg, resolveRgPath: () => "/rg", runCommand: run },
+    });
+    expect(report.references.find((r) => r.value === "sub")).toMatchObject({ kind: "file", dir: "", outcome: "missing", why: "not in the project folder" });
+    expect(outcome(report.references, "web")).toBe("verified");
+    expect(run).not.toHaveBeenCalled();
+  });
 });
 

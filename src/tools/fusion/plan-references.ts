@@ -294,7 +294,8 @@ function scanCheck(check: ContractCheck, taskId: string, root: string, platform:
       return;
     }
     base = ref.rel;
-    if (base !== "") out.add("file", base, taskId);
+    // A folder relative to the project root: resolved exactly, never searched for by name.
+    if (base !== "") out.add("file", base, taskId, base.includes("/") ? {} : { dir: "" });
   }
   const start = typeof check.start === "object" && check.start !== null && !Array.isArray(check.start) ? check.start as Record<string, unknown> : undefined;
   const lines: Array<{ cmd: unknown; args: unknown }> = [
