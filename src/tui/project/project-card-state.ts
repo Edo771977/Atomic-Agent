@@ -11,6 +11,7 @@
  * gate: the person's correction in their own words).
  */
 
+import { uncitedDecisions } from "../../session/project-gate-text.js";
 import type { ProjectGateRow, ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectVerdict } from "../../session/session-project.js";
 
@@ -51,6 +52,8 @@ export interface ProjectCardActionInfo {
   label: string;
   /** The plain letter that runs it in `actions` mode. */
   key: string;
+  /** Issue #112: an `edit` that sets these decisions' status instead of editing rows. */
+  decisionStatus?: Record<string, "active" | "deferred">;
 }
 
 /**
@@ -63,7 +66,7 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
   const verdicts = view.gate.kind === "plan" && view.plan?.editable === false
     ? view.allowedVerdicts.filter((verdict) => verdict !== "edit")
     : view.allowedVerdicts;
-  return verdicts.map((verdict) => {
+  const actions = verdicts.map((verdict): ProjectCardActionInfo => {
     switch (verdict) {
       case "approve":
         return { verdict, label: "approve", key: "a" };
@@ -84,6 +87,19 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
         return { verdict, label: "approve over review", key: "o" };
     }
   });
+  // Issue #112: at the plan gate `d` defers the active decisions no task cites; with none
+  // left, it sets the deferred and informational ones back to active.
+  const plan = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit");
+  const uncited = plan ? uncitedDecisions(view) : [];
+  const setAside = plan && uncited.length === 0 ? (view.decisions ?? []).filter((d) => d.status === "deferred" || d.status === "informational").map((d) => d.id) : [];
+  const ids = uncited.length > 0 ? uncited : setAside;
+  if (ids.length > 0) {
+    const to = uncited.length > 0 ? "deferred" as const : "active" as const;
+    const at = actions.findIndex((a) => a.verdict === "cancel");
+    const toggle: ProjectCardActionInfo = { verdict: "edit", label: `${to === "deferred" ? "defer" : "reactivate"} ${ids.join(", ")}`, key: "d", decisionStatus: Object.fromEntries(ids.map((id) => [id, to])) };
+    actions.splice(at === -1 ? actions.length : at, 0, toggle);
+  }
+  return actions;
 }
 
 /** The plan's rows; none before a plan exists. */

@@ -22,6 +22,7 @@ import type {
   PlanDetail,
   ProjectBrief,
   ProjectCriterion,
+  ProjectDecisionStatus,
   ProjectExpectation,
   ProjectGate,
   ProjectMilestone,
@@ -55,6 +56,13 @@ export interface ProjectGateView {
    */
   hints: string[];
   /**
+   * Issue #112: the brief's decisions with the person's status for each
+   * and the plan tasks that cite them. Absent when the brief has none.
+   * At the plan gate an `active` decision no task cites blocks approval;
+   * the person may send `edit` with `edits.decisionStatus` to defer it.
+   */
+  decisions?: ProjectGateDecision[];
+  /**
    * Issue #109: the open gate's content changed outside Atomic Agent since
    * the person last decided it (`project.json` edited by hand or by a
    * command), or no decision is recorded on this machine. Absent
@@ -71,6 +79,15 @@ export interface ProjectGateView {
 export interface ProjectGateBrief extends Omit<ProjectBrief, "successCriteria"> {
   successCriteria: string[];
   criteria: ProjectCriterion[];
+}
+
+/** A brief decision as the card shows it (issue #112). */
+export interface ProjectGateDecision {
+  id: string;
+  text: string;
+  status: ProjectDecisionStatus;
+  /** Plan task ids whose `decisions` cite it; empty without a plan. */
+  citedBy: string[];
 }
 
 export interface ProjectGatePlan {

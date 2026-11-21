@@ -77,6 +77,31 @@ const briefArgs = {
   successCriteria: ["Runs offline", "Arrow keys steer"],
 };
 
+describe("schema v2 project tool fields", () => {
+  it("accepts author decisions and deliverable, refuses decision status", () => {
+    const extra = { deliverable: "document", decisions: [{ id: "d1", text: "Italian" }] };
+    expect(parseProjectBriefArgs({ ...briefArgs, ...extra })).toMatchObject({ ok: true, brief: extra });
+    expect(parseProjectBriefArgs({ ...briefArgs, decisions: [{ id: "d1", text: "Italian", status: "retired" }] })).toMatchObject({ ok: false });
+    expect(parseProjectBriefArgs({ ...briefArgs, deliverable: "banana" })).toMatchObject({ ok: false });
+    for (const decisions of [["a decision"], [{ id: "d1", text: "" }], [{ id: "d1", text: "x" }, { id: "d1", text: "y" }]]) expect(parseProjectBriefArgs({ ...briefArgs, decisions })).toMatchObject({ ok: false });
+  });
+  it("returns and saves plan results with enriched checks and decision references", async () => {
+    const p = applyProjectUpdate(undefined, { kind: "brief", brief: briefArgs, draftedAfterUntrusted: false }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const approved = applyProjectDecision(p.project, { gate: p.project.gate, version: gateVersion(p.project)!, verdict: "approve" }, { now: NOW });
+    if (!approved.ok) throw new Error(approved.error.message);
+    const checks = [{ cmd: "echo ok" }];
+    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", checks, decisions: ["d1"] }] }, { ...ctx, project: approved.project });
+    expect(result.status).toBe("ok");
+    expect(result.summary).toMatch(/check-lint.*fail/);
+    expect(result.details.planChecks).toContainEqual(expect.objectContaining({ dimension: "check-lint", verdict: "fail" }));
+    const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
+    expect(update).toMatchObject({ rows: [{ checks, decisions: ["d1"] }] });
+    const folded = applyProjectUpdate(approved.project, update, NOW);
+    expect(folded.ok && folded.project.plan?.checkResults).toEqual(result.details.planChecks);
+  });
+});
+
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();
@@ -312,6 +337,30 @@ describe("project.milestone", () => {
     const evidence = () => ({ facts: [{ id: "c2", state: "failed" as const }], attachments: [], uncovered: [] });
     const failed = await tools({ evidence }).milestone.run({ id: "base", state: "failed", summary: "c2 does not render" }, { ...ctx, project });
     expect(failed.status).toBe("ok");
+  });
+
+  it("lists the active decisions the milestone's tasks cite, as not verified (issue #112)", async () => {
+    const decisions = [{ id: "d1", text: "Use SQLite" }, { id: "d2", text: "No new dependencies" }, { id: "d3", text: "Formal tone" }];
+    const drafted = applyProjectUpdate(undefined, { kind: "brief", brief: { ...briefArgs, decisions }, draftedAfterUntrusted: false }, NOW);
+    if (!drafted.ok) throw new Error(drafted.error.message);
+    const briefOk = applyProjectDecision(drafted.project, { gate: { kind: "brief" }, version: gateVersion(drafted.project)!, verdict: "approve" }, { now: NOW });
+    if (!briefOk.ok) throw new Error(briefOk.error.message);
+    const row = (taskId: string, milestoneId: string, cited: string[]) => ({ taskId, title: taskId, milestoneId, worker: "local:model-a", reviewer: null, reason: "preset", basis: "preset" as const, samples: 0, estCostUsd: null, estMs: null, decisions: cited });
+    const planned = applyProjectUpdate({ ...briefOk.project, decisionStatus: { d3: "deferred" } }, {
+      kind: "plan",
+      milestones: [{ id: "base", title: "Base", kind: "base" }, { id: "ui", title: "UI", kind: "ui" }],
+      rows: [row("t1", "base", ["d1", "d3"]), row("t2", "ui", ["d2"])],
+      detail: "compact",
+    }, NOW);
+    if (!planned.ok) throw new Error(planned.error.message);
+    const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project: planned.project });
+    const report = result.details[PROJECT_UPDATE_DETAIL] as { summary: string };
+    expect(report.summary).toBe("Board drawn\nDecisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): d1 (Use SQLite).");
+    expect(result.summary).toContain("d1 (Use SQLite)");
+    expect(result.summary).not.toContain("No new dependencies");
+    // A milestone citing no decision adds nothing.
+    const plain = await tools().milestone.run({ id: "base", state: "done", summary: "x" }, ctx);
+    expect((plain.details[PROJECT_UPDATE_DETAIL] as { summary: string }).summary).toBe("x");
   });
 
   it("the model cannot approve or review", async () => {

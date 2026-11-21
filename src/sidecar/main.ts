@@ -692,6 +692,14 @@ if (invokedDirectly) {
   void bootstrapSidecar();
 }
 
+/** A project folder from a host: an absolute path, one line. */
+function requireProjectFolder(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || /[\r\n\0]/.test(value) || !isAbsolute(value)) {
+    throw new Error("folder must be an absolute path");
+  }
+  return resolve(value);
+}
+
 /**
  * The `sessionId` of a request, refused when it could name a path
  * (issue #74, `session/session-id.ts`): checked before anything else so a

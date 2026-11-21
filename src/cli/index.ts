@@ -180,7 +180,7 @@ const COMMANDS: CommandDescriptor[] = [
   },
   {
     name: "project",
-    summary: "Open a chat on a folder's fusion project and show the gate waiting for you (resume <folder> [--no-open])",
+    summary: "Open a project chat (resume <folder> [--no-open]) or verify its evidence receipts (verify [folder])",
     run: (args) => projectCommand(args, {
       ...(process.stdin.isTTY === true && process.stdout.isTTY === true ? { openChat: (id: string) => runTui(["--session", id]) } : {}),
     }),

@@ -184,4 +184,27 @@ describe("project card keys", () => {
     h.press("", { pageDown: true });
     expect(h.state.projectCard?.scroll).toBeGreaterThan(0);
   });
+
+  it("defers the active decisions no task cites with `d` at the plan gate (issue #112)", () => {
+    const decisions = [
+      { id: "d1", text: "Use SQLite", status: "active" as const, citedBy: ["t1"] },
+      { id: "d2", text: "No new dependencies", status: "active" as const, citedBy: [] },
+      { id: "d3", text: "Formal tone", status: "informational" as const, citedBy: [] },
+    ];
+    const h = harness(withCard(fixtureProjectGateView(plan, { decisions })));
+    expect(h.press("d")).toBe(true);
+    expect(h.callbacks.onProjectDecision).toHaveBeenCalledWith("s1", {
+      gate: plan, version: 3, verdict: "edit", edits: { decisionStatus: { d2: "deferred" } },
+    });
+    // Nothing to defer or set back: no `d`.
+    const covered = harness(withCard(fixtureProjectGateView(plan, { decisions: decisions.slice(0, 1) })));
+    covered.press("d");
+    expect(covered.callbacks.onProjectDecision).not.toHaveBeenCalled();
+    // Every uncited one already set aside: `d` sets them back to active (review).
+    const setAside = harness(withCard(fixtureProjectGateView(plan, { decisions: [decisions[0]!, { ...decisions[1]!, status: "deferred" as const }, decisions[2]!] })));
+    expect(setAside.press("d")).toBe(true);
+    expect(setAside.callbacks.onProjectDecision).toHaveBeenCalledWith("s1", {
+      gate: plan, version: 3, verdict: "edit", edits: { decisionStatus: { d2: "active", d3: "active" } },
+    });
+  });
 });

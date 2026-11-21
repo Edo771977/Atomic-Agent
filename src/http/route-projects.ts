@@ -1,9 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 
 import { listedProjectFolder, listProjectRows, resumeProjectChat } from "../cli/projects-command.js";
-import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { forgetProjectFolder } from "../session/project-registry.js";
-import { openProject } from "../session/project-store.js";
 import { projectStoreForStateDir } from "../session/session-project-store.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
@@ -32,6 +30,10 @@ const withheld = (ctx: HandlerContext, folder: string): boolean => serveWithheld
 
 const stateDirOf = (ctx: HandlerContext): string => ctx.runtime.config.paths.stateDir;
 
+function sendWithheld(res: Parameters<HttpHandler>[1]): void {
+  sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+}
+
 async function folderBody(req: Parameters<HttpHandler>[0], res: Parameters<HttpHandler>[1], ctx: HandlerContext): Promise<string | null> {
   let body: unknown;
   try {
@@ -46,7 +48,7 @@ async function folderBody(req: Parameters<HttpHandler>[0], res: Parameters<HttpH
     return null;
   }
   if (withheld(ctx, folder)) {
-    sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+    sendWithheld(res);
     return null;
   }
   return folder;
@@ -54,10 +56,10 @@ async function folderBody(req: Parameters<HttpHandler>[0], res: Parameters<HttpH
 
 export function createListProjectsHandler(): HttpHandler {
   return (_req, res, ctx) => {
-    const listed = listProjectRows(stateDirOf(ctx));
+    const listed = listProjectRows(stateDirOf(ctx), undefined, (folder) => !withheld(ctx, folder));
     sendJson(res, 200, {
       schema: 1,
-      projects: listed.rows.filter((row) => !withheld(ctx, row.folder)),
+      projects: listed.rows,
       registry_problem: listed.registryProblem ?? null,
     });
   };
@@ -80,10 +82,16 @@ export function createResumeProjectHandler(): HttpHandler {
     const refuse = (status: number, code: string, message: string) =>
       sendJson(res, status, { schema: 1, folder: folder ?? asked, error: { message, type: "invalid_request_error", code } });
     if (folder === null) return refuse(404, "not-listed", `${asked} is not in the projects list.`);
-    const precheck = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
-    if (!precheck.ok) return refuse(422, "project-unavailable", precheck.problem.message);
+    if (withheld(ctx, folder)) {
+      sendWithheld(res);
+      return;
+    }
     const resumed = resumeProjectChat(folder, { stateDir, sessionStore: ctx.runtime.sessionStore, projectStore: projectStoreForStateDir(stateDir) });
     if (!resumed.ok) return refuse(422, "project-unavailable", resumed.problem);
+    if (serveWithheld(ctx, resumed.session)()) {
+      sendWithheld(res);
+      return;
+    }
     sendJson(res, 200, {
       schema: 1, folder, name: resumed.name, session_id: resumed.session.id, created: resumed.created,
       view: ctx.runtime.projectState?.(resumed.session.id) ?? null,
