@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { reviewerIdentity, type DefaultModelOf, type ReviewerIdentity } from "./member-identity.js";
 import { isAbsolute, resolve } from "node:path";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
 import type { DelegateTask } from "./delegate-args.js";
@@ -92,6 +93,8 @@ export interface ReviewVerdict {
   issues: ReviewIssue[];
   /** `outcomeLabel` of the reviewer model that was asked; null when no model was. */
   reviewer: string | null;
+  /** The reviewer's provider, effective model and differing plan ref (issue #98); absent when no reviewer answered. */
+  reviewerIdentity?: ReviewerIdentity;
 }
 
 /** Schema bounds of a reviewer's answer. */
@@ -479,6 +482,7 @@ export function renderJudgePrompt(input: {
   );
   return [
     "You are a strict acceptance judge. A worker says it finished the task below. Do not trust it: find where the work does NOT meet each item. Rule only from the evidence shown. If the evidence does not show an item is met, it is not met.",
+    "A worker summary is not evidence and is not required: rule from the files, the facts established by scripts and the runtime's record of what ran (issue #106).",
     "",
     "## Task",
     input.task.instructions.slice(0, 4_000),
@@ -636,8 +640,14 @@ export async function judgeTask(input: {
   successCriteria?: readonly string[];
   /** The task's attempts and the version under review (issue #95). */
   attemptEvidence?: string;
+  /** The approved plan row's reviewer ref, recorded when it names a different member (issue #98). */
+  planReviewerRef?: string | null;
+  defaultModelOf?: DefaultModelOf;
 }): Promise<JudgeVerdict> {
-  const reviewer = outcomeLabel(input.target.pinModel ?? input.target.model ?? input.target.providerId);
+  // A model named only by the `default` alias says nothing alone: the
+  // label names the provider with it (issue #100).
+  const asked = input.target.pinModel ?? input.target.model ?? input.target.providerId;
+  const reviewer = outcomeLabel(asked === "default" || asked.length === 0 ? `${input.target.providerId}:default` : asked);
   const factVerdicts: ItemVerdict[] = [];
   for (const item of input.items) {
     if (item.kind === "criterion") continue;
@@ -689,6 +699,8 @@ export async function judgeTask(input: {
         decision: green ? "accept" : "needs-changes",
         issues: factIssues(input.items, factVerdicts),
         reviewer: null,
+        // Decided by the facts, no reviewer asked: the configured reviewer is still named (issue #100).
+        reviewerIdentity: { ...reviewerIdentity(input.target.providerId, undefined, input.planReviewerRef, input.defaultModelOf), source: "facts" },
       },
     });
   }
@@ -702,6 +714,7 @@ export async function judgeTask(input: {
   );
   let content: string;
   let costUsd: number | null = null;
+  let identity: ReviewerIdentity | undefined;
   try {
     const answer = await input.complete({
       providerId: input.target.providerId,
@@ -718,6 +731,7 @@ export async function judgeTask(input: {
       signal: input.signal,
     });
     content = answer.content;
+    identity = reviewerIdentity(input.target.providerId, answer.model, input.planReviewerRef, input.defaultModelOf);
     if (answer.usage !== undefined) {
       costUsd = completionCostUsd(answer.usage, input.pricing) ?? null;
     }
@@ -737,7 +751,7 @@ export async function judgeTask(input: {
       items: factVerdicts,
       unverified: `the judge's answer could not be read (${ruled.error})`,
       costUsd,
-      review: { decision: "unverified", issues: [], reviewer },
+      review: { decision: "unverified", issues: [], reviewer, ...(identity === undefined ? {} : { reviewerIdentity: identity }) },
     });
   }
   const issues: ReviewIssue[] = ruled.issues.map((issue) => ({ ...issue, by: "reviewer" }));
@@ -773,7 +787,7 @@ export async function judgeTask(input: {
     green,
     items: all,
     costUsd,
-    review: { decision: green ? "accept" : "needs-changes", issues, reviewer },
+    review: { decision: green ? "accept" : "needs-changes", issues, reviewer, ...(identity === undefined ? {} : { reviewerIdentity: identity }) },
   });
 }
 

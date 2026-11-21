@@ -302,7 +302,8 @@ function reviewerStats(rows: readonly TaskOutcomeRecord[]): ReviewerStats[] {
   const byReviewer = new Map<string, NonNullable<ReturnType<typeof readReviewOutcome>>[]>();
   for (const row of rows) {
     const review = readReviewOutcome(row);
-    if (review === undefined) continue;
+    // A verdict the facts decided asked no reviewer: no evidence about one (issue #100 review).
+    if (review === undefined || review.reviewerSource === "facts") continue;
     const key = review.reviewer ?? REVIEW_WITHOUT_MODEL;
     const list = byReviewer.get(key);
     if (list === undefined) byReviewer.set(key, [review]);

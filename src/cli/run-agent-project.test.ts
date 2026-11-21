@@ -25,6 +25,11 @@ const project = vi.hoisted(() => ({
   messages: [] as string[],
   /** The project each turn ran with (`session.project` passed to runTurn). */
   turnProjects: [] as unknown[],
+  /** What a refused decision answers (default: over today's limit). */
+  refusal: undefined as undefined | { code: string; message: string; blocks?: unknown[] },
+  /** Issue #100: a teardown that never ends (a flush that hangs); the real one runs after the test. */
+  hangShutdown: false,
+  realShutdowns: [] as Array<() => Promise<void>>,
 }));
 
 /** What the stubbed runtime stored with an approval. */
@@ -47,7 +52,10 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
         overrides: { skipLlamaHealthCheck: true, disableStreaming: true, llamaComplete: complete },
       });
       const runTurn = runtime.runTurn;
+      const realShutdown = runtime.shutdown.bind(runtime);
+      project.realShutdowns.push(realShutdown);
       return Object.assign(runtime, {
+        shutdown: () => (project.hangShutdown ? new Promise<void>(() => {}) : realShutdown()),
         runTurn: async (...args: Parameters<typeof runTurn>) => {
           project.messages.push(args[1]);
           project.turnProjects.push(args[0].project);
@@ -60,13 +68,22 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
           project.decisions.push(decision);
           project.view = project.after;
           return project.after === undefined
-            ? { ok: false as const, error: { code: "over-cap" as const, message: "over today's limit", violations: [] } }
+            ? { ok: false as const, error: project.refusal ?? { code: "over-cap" as const, message: "over today's limit", violations: [] } }
             : { ok: true as const, project: DECIDED, view: project.after };
         },
       });
     },
   };
 });
+
+/** Issue #104: the deadline run arms once its summary is out; recorded, never fired here. */
+const deadline = vi.hoisted(() => ({ armed: [] as Array<() => number> }));
+vi.mock("./hard-exit-deadline.js", () => ({
+  armHardExitDeadline: (code: () => number) => {
+    deadline.armed.push(code);
+    return () => {};
+  },
+}));
 
 const { runAgentCommand } = await import("./run-agent.js");
 
@@ -86,7 +103,7 @@ describe("run at a fusion project gate", () => {
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     process.env.ATOMIC_AGENT_GRAMMARS_DIR = join(process.cwd(), "grammars");
     resetConfigCache();
-    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [] });
+    Object.assign(project, { view: undefined, openAfterTurn: [], after: undefined, decisions: [], messages: [], turnProjects: [], refusal: undefined, hangShutdown: false, realShutdowns: [] });
     stderr = "";
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
@@ -205,10 +222,53 @@ describe("run at a fusion project gate", () => {
     feed(["build the game\n"]);
     const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
     expect(code).toBe(3);
+    // The hard deadline was armed with the run's own exit code (issue #104).
+    expect(deadline.armed.at(-1)?.()).toBe(3);
     expect(project.decisions.map((d) => d.gate.kind)).toEqual(["plan"]);
     expect(project.messages).toHaveLength(2);
     expect(stderr).toMatch(/failed and waits for your review/);
     expect(stderr).toContain("needs a person");
+  }, 60_000);
+
+  it("a milestone auto-approve may not take (review-open) stops with exit 3 and how to resume (issue #100)", async () => {
+    const milestoneGate = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    project.openAfterTurn = [milestoneGate];
+    project.refusal = { code: "review-open", message: "Task sales still has an open review block (needs-changes).", blocks: [] };
+    feed(["build the game\n"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    const id = sessionIdIn(stderr);
+    expect(id).not.toBe("");
+    expect(stderr).toContain("open review block");
+    expect(stderr).toContain("needs a person");
+    expect(stderr).toContain(`atomic-agent run --session ${id}`);
+  }, 60_000);
+
+  it("a teardown that never ends does not keep the run open: it returns its exit code in bounded time (issue #100)", async () => {
+    const base = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const failed = { ...base, milestones: base.milestones.map((m) => (m.id === "m1" ? { ...m, state: "failed" as const, summary: "Tests fail" } : m)) };
+    project.openAfterTurn = [failed];
+    project.hangShutdown = true;
+    feed(["build the game\n"]);
+    const started = Date.now();
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(stderr).toContain("did not finish shutting down");
+    project.hangShutdown = false;
+    await Promise.all(project.realShutdowns.map((stop) => stop()));
+  }, 30_000);
+
+  it("an auto-approved gate that comes back unchanged stops with exit 3 instead of approving forever (issue #106)", async () => {
+    // Every approval "succeeds", yet the same plan gate at the same version is open again after each turn.
+    project.openAfterTurn = Array.from({ length: 40 }, () => planGate);
+    project.after = planGate;
+    feed(["build the game\n"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    expect(project.decisions.length).toBeLessThanOrEqual(2);
+    expect(stderr).toContain("made no progress");
+    expect(stderr).toContain(`atomic-agent run --session ${sessionIdIn(stderr)}`);
   }, 60_000);
 
   it("an approval the runtime refuses (a hard cap) exits 1 with the reason", async () => {

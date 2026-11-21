@@ -58,6 +58,27 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
 
 const { runAgentCommand } = await import("./run-agent.js");
 
+/**
+ * Whether this machine lets the test create a link of `kind` (issue #98):
+ * Windows needs a privilege (or Developer Mode) for a file symlink; a
+ * directory junction needs none. Detected, not assumed per platform.
+ */
+function canLink(kind: "file" | "junction"): boolean {
+  const dir = mkdtempSync(join(tmpdir(), "aa-can-link-"));
+  try {
+    const target = join(dir, "target");
+    if (kind === "file") writeFileSync(target, "");
+    else mkdirSync(target);
+    symlinkSync(target, join(dir, "link"), kind);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+
 describe("run: approvals with piped stdin (issue #95)", () => {
   let stateDir: string;
   let workingDir: string;
@@ -224,10 +245,11 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       rmSync(join(workingDir, "..", "outside.txt"), { force: true });
     });
 
-    it("holds the listed command in a folder that links outside --cwd", async () => {
+    it.skipIf(!canLink("junction"))("holds the listed command in a folder that links outside --cwd", async () => {
       const outside = mkdtempSync(join(tmpdir(), "atomic-cli-approval-outside-"));
       writeFileSync(join(outside, "mark.cjs"), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'ran.txt'), 'ran');\n");
-      symlinkSync(outside, join(workingDir, "link"), "dir");
+      // A junction on Windows (no privilege needed); a plain symlink elsewhere.
+      symlinkSync(outside, join(workingDir, "link"), "junction");
       script.calls = [{ tool: "os.shell.run", args: { cmd: "node", args: ["mark.cjs"], cwd: "link" } }];
       feed(["run it there\n"]);
       await runAgentCommand(["--cwd", workingDir, ...allow]);
@@ -236,11 +258,12 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       rmSync(outside, { recursive: true, force: true });
     });
 
-    it("holds the listed command under another argv[0] spelling (NODE)", async () => {
+    it("holds the listed command under another argv[0] spelling (NODE) on POSIX; Windows program names ignore case", async () => {
       script.calls = [{ tool: "os.shell.run", args: { cmd: "NODE", args: ["mark.cjs"] } }];
       feed(["run it\n"]);
       await runAgentCommand(["--cwd", workingDir, ...allow]);
-      expect(stderr).not.toContain("approved by --allow-command");
+      if (process.platform === "win32") expect(stderr).toContain("approved by --allow-command: NODE mark.cjs");
+      else expect(stderr).not.toContain("approved by --allow-command");
     });
 
     it("holds a direct exec whose glob the tool expanded to the listed words", async () => {
@@ -295,7 +318,8 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       expect(existsSync(join(workingDir, "ran.txt"))).toBe(false);
     });
 
-    it("a pinned #!/usr/bin/env script finds its interpreter only on the filtered PATH, never a node planted in --cwd", async () => {
+    // `#!` scripts and an executable bit are POSIX; Windows starts programs by PATHEXT.
+    it.skipIf(process.platform === "win32")("a pinned #!/usr/bin/env script finds its interpreter only on the filtered PATH, never a node planted in --cwd", async () => {
       const outside = mkdtempSync(join(tmpdir(), "atomic-cli-approval-tool-"));
       const tool = join(outside, "tool");
       writeFileSync(tool, "#!/usr/bin/env node\nrequire('node:fs').writeFileSync(require('node:path').join(process.cwd(), 'ran.txt'), 'ran');\n");
@@ -324,7 +348,7 @@ describe("run: approvals with piped stdin (issue #95)", () => {
       writeFileSync(join(bin, "tool"), "#!/bin/sh\nexit 0\n");
       chmodSync(join(bin, "tool"), 0o755);
       const realPath = process.env.PATH;
-      process.env.PATH = [bin, dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter);
+      process.env.PATH = [bin, dirname(process.execPath), ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"])].join(delimiter);
       try {
         script.calls = [{ tool: "os.shell.run", args: { cmd: "tool" } }];
         feed(["run the tool\n"]);

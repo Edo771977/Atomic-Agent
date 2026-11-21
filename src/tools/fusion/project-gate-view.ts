@@ -74,6 +74,13 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const editable = rows.some((row) =>
     row.selectableReviewers.length > 0 || row.selectableWorkers.some((w) => w !== row.worker));
   const hints: string[] = [];
+  // Issue #98: a milestone's open reviews, one line each, wherever its gate is open.
+  if (project.gate.kind === "milestone") {
+    const id = project.gate.id;
+    for (const block of project.milestones.find((m) => m.id === id)?.reviewBlocks ?? []) {
+      hints.push(`review open: ${block.taskId} (${block.reason})`);
+    }
+  }
   if (project.gate.kind === "plan" && plan !== undefined) {
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
@@ -96,7 +103,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     sessionId: input.sessionId,
     gate: project.gate,
     version: gateVersion(project),
-    allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate),
+    allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate, project),
     expectation: projectExpectation(project),
     cancelled: project.cancelledAt !== undefined,
     brief:

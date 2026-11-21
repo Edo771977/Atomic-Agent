@@ -50,7 +50,12 @@ export type EscalationComplete = (input: {
    * (ATO-1388). Set by `fusion.delegate`, never by the callers below it.
    */
   sessionId?: string;
-}) => Promise<{ content: string; usage?: CompletionUsage }>;
+}) => Promise<{
+  content: string;
+  usage?: CompletionUsage;
+  /** The model that effectively answered, when the provider reported one (issue #98). */
+  model?: string;
+}>;
 
 export function renderAdvisorPrompt(input: {
   brief: string;

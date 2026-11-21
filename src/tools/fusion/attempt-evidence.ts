@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
+import type { ExecutionRun } from "./execution-evidence.js";
 import { FILE_WRITING_TOOLS } from "./worker-result.js";
 
 /**
@@ -26,6 +27,8 @@ export interface AttemptFiles {
   wrote: Array<{ path: string; sha256?: string }>;
   /** Files whose `os.fs.edit` found its new text already present: a no-op, not a failure. */
   alreadyApplied: string[];
+  /** Its test runs, recorded from the tool results (issue #102, `execution-evidence.ts`). */
+  executed?: ExecutionRun[];
 }
 
 /** One attempt in the delegate's ledger: its files, and what its checks tested. */
@@ -106,6 +109,14 @@ export class AttemptFilesTracker {
     }
     this.wrote.add(pending.path);
     this.alreadyApplied.delete(pending.path);
+  }
+
+  /** Whether the run wrote (an `ok` write, not a no-op) one of `paths`, as the task declares them. */
+  wroteOneOf(paths: readonly string[]): boolean {
+    return paths.some((path) => {
+      const inside = evidencePath([this.workingDir], path);
+      return inside !== undefined && this.wrote.has(inside.display);
+    });
   }
 
   /** The run's evidence, hashed as the files stand now; undefined when it touched no file. */

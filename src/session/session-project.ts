@@ -98,6 +98,13 @@ export interface ProjectMilestoneAttachment {
 
 export type CriterionFactState = "passed" | "failed" | "unverified";
 
+/** A required task the milestone cannot close on yet (issue #98). */
+export interface ProjectReviewBlock {
+  taskId: string;
+  /** One line: the open needs-changes, the missing verdict and why, or that it was never reviewed. */
+  reason: string;
+}
+
 /**
  * Where one success criterion stands after a milestone's runs: from its
  * contract checks and the vision judgement (issue #40). Written by the
@@ -129,6 +136,25 @@ export interface ProjectMilestone {
   attachments?: ProjectMilestoneAttachment[];
   /** Per success criterion, the facts of its runs (the runtime's; one per id, brief order). */
   criteriaFacts?: ProjectCriterionFact[];
+  /**
+   * Required tasks (the approved plan's rows for this milestone) without
+   * a current reviewer accept at its last done report (issue #98), the
+   * runtime's, with why. While any is listed, approving the result is
+   * refused (`review-open`): the milestone stays open.
+   */
+  reviewBlocks?: ProjectReviewBlock[];
+  /**
+   * The person approved this milestone over open review blocks
+   * (`approveOverReview`, issue #98): their note, when, and the blocks it
+   * stood over.
+   */
+  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[] };
+  /**
+   * How many times `project.milestone failed` was held back for a
+   * correction round (issue #100); at most two, after which a failed
+   * report is accepted.
+   */
+  failedRefusals?: number;
   /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
@@ -401,6 +427,15 @@ export type ProjectUpdate =
        * them), cleaned when folded; a report without them clears them.
        */
       criteriaFacts?: ReadonlyArray<ProjectCriterionFact>;
+      /** The runtime's review blocks (issue #98): set by `project.milestone`, cleaned when folded; absent clears them. */
+      reviewBlocks?: ReadonlyArray<ProjectReviewBlock>;
+      /**
+       * Set by `project.milestone` (never the model's arguments) when it
+       * holds a failed report back for a correction round (issue #100):
+       * nothing is reported, the milestone stays in progress, and only its
+       * `failedRefusals` count goes up.
+       */
+      holdForCorrection?: true;
     }
   | { kind: "milestone_run"; id: string; runId: string };
 
@@ -437,7 +472,13 @@ export type ProjectUpdateResult =
 
 // -------------------------------------------------------------- decisions
 
-export type ProjectVerdict = "approve" | "edit" | "cheaper" | "quality" | "cancel";
+/**
+ * `approveOverReview` (issue #98): the person approves a milestone result
+ * over open review blocks (an unreachable reviewer, one switched off) with
+ * a note. Offered only while the gate's milestone has blocks, and never
+ * taken by an automatic path (`--auto-approve-project`, `run --approve`).
+ */
+export type ProjectVerdict = "approve" | "edit" | "cheaper" | "quality" | "cancel" | "approveOverReview";
 
 /** The person's changes with an `edit` verdict. */
 export interface ProjectEdits {
@@ -484,6 +525,7 @@ export type ProjectDecisionError =
   | { code: "stale-version"; message: string; current: number | null }
   | { code: "verdict-not-allowed"; message: string; allowed: ProjectVerdict[] }
   | { code: "over-cap"; message: string; violations: string[] }
+  | { code: "review-open"; message: string; blocks: ProjectReviewBlock[] }
   | { code: "needs-estimates"; message: string }
   | { code: "invalid"; message: string };
 
@@ -529,14 +571,16 @@ export function gateVersion(project: ProjectState | undefined): number | null {
 }
 
 /** The verdicts a gate accepts (the cards draw these buttons). */
-export function allowedProjectVerdicts(gate: ProjectGate): ProjectVerdict[] {
+export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState): ProjectVerdict[] {
   switch (gate.kind) {
     case "brief":
       return ["approve", "edit", "cancel"];
     case "plan":
       return ["approve", "edit", "cheaper", "quality", "cancel"];
-    case "milestone":
-      return ["approve", "edit", "cancel"];
+    case "milestone": {
+      const blocked = (project?.milestones.find((m) => m.id === gate.id)?.reviewBlocks ?? []).length > 0;
+      return blocked ? ["approve", "edit", "approveOverReview", "cancel"] : ["approve", "edit", "cancel"];
+    }
     case "none":
       return ["cancel"];
   }
@@ -878,6 +922,20 @@ function readStoredAttachments(raw: readonly unknown[]): ProjectMilestoneAttachm
   return out;
 }
 
+/** Review blocks cleaned (issue #98): a task id and a one-line reason each, one per task, malformed dropped. */
+function cleanReviewBlocks(raw: readonly unknown[]): ProjectReviewBlock[] {
+  const out: ProjectReviewBlock[] = [];
+  for (const b of raw) {
+    if (out.length >= PROJECT_LIMITS.rows) break;
+    if (!isObject(b)) continue;
+    const taskId = cleanId(b.taskId);
+    if (taskId === null || out.some((x) => x.taskId === taskId) || typeof b.reason !== "string") continue;
+    const reason = clip(b.reason.replace(/\s+/g, " ").trim(), PROJECT_LIMITS.shortText);
+    if (reason.length > 0) out.push({ taskId, reason });
+  }
+  return out;
+}
+
 /** Facts cleaned: known states, valid ids, the first per id, `why` clipped; malformed entries dropped. */
 function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
   const out: ProjectCriterionFact[] = [];
@@ -915,6 +973,14 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
   // Pictures, facts and history are extras: a malformed entry is dropped, not the project.
   const attachments = Array.isArray(raw.attachments) ? readStoredAttachments(raw.attachments) : [];
   const facts = Array.isArray(raw.criteriaFacts) ? cleanCriteriaFacts(raw.criteriaFacts) : [];
+  const blocks = Array.isArray(raw.reviewBlocks) ? cleanReviewBlocks(raw.reviewBlocks) : [];
+  const override = isObject(raw.reviewOverride) && typeof raw.reviewOverride.note === "string" && isTime(raw.reviewOverride.at)
+    ? {
+        note: clipText(raw.reviewOverride.note, PROJECT_LIMITS.correctionNote),
+        at: raw.reviewOverride.at as number,
+        blocks: Array.isArray(raw.reviewOverride.blocks) ? cleanReviewBlocks(raw.reviewOverride.blocks) : [],
+      }
+    : undefined;
   const history = Array.isArray(raw.history)
     ? raw.history.map(readRevision).filter((r): r is ProjectMilestoneRevision => r !== null).slice(-PROJECT_LIMITS.history)
     : [];
@@ -928,6 +994,9 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
+    ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
+    ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
+    ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
     updatedAt: raw.updatedAt,
   };
@@ -1620,6 +1689,11 @@ function milestoneUpdate(
     return { ok: false, error: { code: "unknown-milestone", message: `The plan has no milestone ${update.id}.` } };
   }
   const current = project.milestones[index]!;
+  if (update.kind === "milestone" && update.holdForCorrection === true) {
+    const held = [...project.milestones];
+    held[index] = { ...current, failedRefusals: (current.failedRefusals ?? 0) + 1, updatedAt: now };
+    return { ok: true, project: { ...project, milestones: held } };
+  }
   const milestones = [...project.milestones];
   if (update.kind === "milestone_run") {
     if (current.state !== "approved" && current.state !== "in_progress") {
@@ -1681,8 +1755,11 @@ function milestoneUpdate(
   const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
   delete reported.attachments;
   delete reported.criteriaFacts;
+  delete reported.reviewBlocks;
   const facts = Array.isArray(update.criteriaFacts) ? cleanCriteriaFacts(update.criteriaFacts) : [];
   if (facts.length > 0) reported.criteriaFacts = facts;
+  const blocks = Array.isArray(update.reviewBlocks) ? cleanReviewBlocks(update.reviewBlocks) : [];
+  if (blocks.length > 0) reported.reviewBlocks = blocks;
   milestones[index] = attachments.length === 0 ? reported : { ...reported, attachments };
   return {
     ok: true,
@@ -1810,7 +1887,7 @@ export function applyProjectDecision(
   if (current === null || decision.version !== current) {
     return refuse({ code: "stale-version", message: "The project changed since it was shown; reload it.", current });
   }
-  const allowed = allowedProjectVerdicts(project.gate);
+  const allowed = allowedProjectVerdicts(project.gate, project);
   if (!allowed.includes(decision.verdict)) {
     return refuse({ code: "verdict-not-allowed", message: `This gate accepts ${allowed.join(", ")}.`, allowed });
   }
@@ -1828,6 +1905,31 @@ export function applyProjectDecision(
         versionFloor: Math.max(project.versionFloor ?? 0, project.brief?.version ?? 0, project.plan?.version ?? 0),
       },
     };
+  }
+
+  if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
+    // The person's call over open reviews (issue #98): with a note, the
+    // result is approved as done, the blocks and the note kept on it.
+    const raw = decision.edits?.note;
+    const note = typeof raw === "string" ? clipText(raw, PROJECT_LIMITS.correctionNote) : "";
+    if (note.length === 0) {
+      return refuse({ code: "invalid", message: "Approving over an open review needs a note saying why." });
+    }
+    const overridden: ProjectState = {
+      ...project,
+      milestones: project.milestones.map((m) => {
+        if (m.id !== gate.id) return m;
+        const { reviewBlocks: blocks = [], ...rest } = m;
+        const line = `approved over open review by the person: ${note}`;
+        return {
+          ...rest,
+          state: "done" as const,
+          summary: clipText(rest.summary === undefined ? line : `${rest.summary}\n${line}`, PROJECT_LIMITS.text),
+          reviewOverride: { note, at: now, blocks },
+        };
+      }),
+    };
+    return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
   }
 
   if (decision.verdict === "approve") {
@@ -1865,6 +1967,17 @@ export function applyProjectDecision(
       const target = project.milestones.find((m) => m.id === gate.id)!;
       if (target.state !== "done" && target.state !== "failed") {
         return refuse({ code: "invalid", message: `Milestone ${gate.id} has no result to approve.` });
+      }
+      // A done result whose required tasks lack a current accept stays
+      // open (issue #98), auto-approval included: the director re-delegates
+      // (a re-review of unchanged files is allowed) or reports it failed.
+      if (target.state === "done" && (target.reviewBlocks ?? []).length > 0) {
+        const blocks = target.reviewBlocks!;
+        return refuse({
+          code: "review-open",
+          message: `Milestone ${gate.id} stays open: ${blocks.map((b) => `${b.taskId} (${b.reason})`).join("; ")}. Each required task needs a current accept from its reviewer; correct it (edit) so the director re-delegates it, or cancel.`,
+          blocks: blocks.map((b) => ({ ...b })),
+        });
       }
       // A hard cap (the next run over today's limit, a row's provider no
       // longer allowed) does not refuse the decision, which would stall

@@ -6,7 +6,8 @@ import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-loop.js";
 import { FUSION_WORKER_ID_PREFIX, type FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { describeReplan, renderReplanBlock } from "./replan.js";
-import { REPEATED_WRITE_LIMIT } from "./worker-repeated-writes.js";
+import { REPEATED_WRITE_LIMIT, specNames } from "./worker-repeated-writes.js";
+import { checkSpecKey } from "./worker-self-check.js";
 import { runWorkerTasks, type WorkerRunnerDeps } from "./worker-runner.js";
 
 const REPO = resolve("/repo");
@@ -169,6 +170,8 @@ describe("a stalled worker's last check is reported as it stands (issue #95 revi
       }
     });
     expect(other.result.stalled?.lastCheck).toMatchObject({ ok: true, sinceLastChange: true, coversFile: false });
+    // A passing check that does not name the file never marks the task done (issue #98 review).
+    expect(other.result).toMatchObject({ status: "failed", failure: "stuck" });
     expect(other.result.error).toContain("last check passed");
     expect(other.result.error).toContain("its spec does not name sales.test.cjs");
   });
@@ -191,8 +194,9 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
         hook(executed("os.fs.write", "ok"));
         writes += 1;
         hook(finished(step++));
+        // A failing check: a passing one would make the file usable, kept as done (issue #98).
         hook(parsed("verify.run", { type: "command", command: "node --test sales.test.cjs" }));
-        hook(executed("verify.run", "ok"));
+        hook(executed("verify.run", "error"));
         hook(finished(step++));
         for (let i = 0; i < 20; i += 1) {
           if (options.signal?.aborted) {
@@ -224,14 +228,14 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
     expect(result).toMatchObject({
       status: "failed",
       failure: "stuck",
-      stalled: { reason: "repeated identical writes", path: "sales.test.cjs", sha256, writes: 1 + REPEATED_WRITE_LIMIT, lastCheck: { ok: true } },
+      stalled: { reason: "repeated identical writes", path: "sales.test.cjs", sha256, writes: 1 + REPEATED_WRITE_LIMIT, lastCheck: { ok: false } },
     });
     expect(result!.stalled!.lastCheck!.spec).toContain("node --test sales.test.cjs");
     expect(result!.error).toMatch(/^stalled: repeated identical writes/);
     expect(result!.error).toContain("sales.test.cjs");
     expect(result!.error).toContain(sha256.slice(0, 12));
-    expect(result!.error).toContain("last check passed");
-    expect(result!.stalled!.lastCheck).toMatchObject({ sinceLastChange: true, coversFile: true });
+    expect(result!.error).toContain("last check failed");
+    expect(result!.stalled!.lastCheck).toMatchObject({ ok: false, sinceLastChange: true, coversFile: true });
     // The director's replan names it, so it can verify the file or reassign the task.
     const block = renderReplanBlock(describeReplan([result!], () => 1, 2));
     expect(block).toContain("stalled: repeated identical writes");
@@ -239,3 +243,25 @@ describe("a worker that keeps writing the same bytes is stopped early (issue #95
     expect(block).toMatch(/verify the named file/);
   });
 });
+
+describe("a check covers a file only when its command names it as an argument (issue #98 review)", () => {
+  const spec = (command: string) => checkSpecKey({ type: "command", command });
+  it("matches the path, or the base name, as a whole argument", () => {
+    expect(specNames(spec("node --test sales.test.cjs"), "sales.test.cjs")).toBe(true);
+    expect(specNames(spec("node --test ./src/a.test.js"), "src/a.test.js")).toBe(true);
+    expect(specNames(spec("node --test src/a.test.js"), "a.test.js")).toBe(true);
+    expect(specNames(spec("node --test=sales.cjs"), "sales.cjs")).toBe(true);
+    expect(specNames(spec('node --test "sales.cjs"'), "sales.cjs")).toBe(true);
+  });
+  it("a substring is not a match", () => {
+    expect(specNames(spec("node data.json"), "src/a.js")).toBe(false);
+    expect(specNames(spec("node --test sales.cjs.bak"), "sales.cjs")).toBe(false);
+    expect(specNames(spec("node mysales.cjs"), "sales.cjs")).toBe(false);
+  });
+  it("an existence-only check never covers the file", () => {
+    for (const command of ["test -f out.js", "[ -f out.js ]", "ls out.js", "stat out.js", "cat out.js"]) {
+      expect(specNames(spec(command), "out.js")).toBe(false);
+    }
+  });
+});
+

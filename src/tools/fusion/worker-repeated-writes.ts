@@ -135,10 +135,47 @@ export class RepeatedWritesTracker {
   }
 }
 
-/** Whether a check's canonical spec names the file (its path or its base name). */
+/** Commands that only look at a file (that it exists, its bytes): they never test it (issue #98 review). */
+const EXISTENCE_ONLY = new Set(["test", "[", "ls", "stat", "cat", "file", "wc", "head", "tail"]);
+
+/** A command line's arguments, roughly as a shell splits them (quotes kept together, then dropped). */
+function argumentsOf(command: string): string[] {
+  const out: string[] = [];
+  for (const match of command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) out.push(match[1] ?? match[2] ?? match[3] ?? "");
+  return out;
+}
+
+/**
+ * Whether a check's canonical spec (`checkSpecKey`) names the file as one
+ * of its arguments: the full relative path, or the base name, as a whole
+ * argument (a `--flag=value`'s value counts; a substring does not). A
+ * command that only looks at the file (`test -f`, `ls`, `stat`, `cat`…)
+ * never covers it. Other spec fields that name a file (a page check's
+ * `path`) are arguments too.
+ */
 export function specNames(spec: string, path: string): boolean {
-  const base = path.split("/").pop() ?? path;
-  return spec.includes(path) || (base.length > 0 && spec.includes(base));
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(spec) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const target = normalise(path);
+  const base = target.split("/").pop() ?? target;
+  const values: string[] = [];
+  if (typeof parsed.command === "string") {
+    const args = argumentsOf(parsed.command);
+    const program = (args[0] ?? "").split("/").pop() ?? "";
+    if (EXISTENCE_ONLY.has(program)) return false;
+    values.push(...args.slice(1));
+  }
+  for (const key of ["path", "file", "entry", "script"]) {
+    if (typeof parsed[key] === "string") values.push(parsed[key] as string);
+  }
+  return values.some((raw) => {
+    const value = normalise(raw.includes("=") && raw.startsWith("-") ? raw.slice(raw.indexOf("=") + 1) : raw);
+    return value === target || value.endsWith(`/${target}`) || (base.length > 0 && (value === base || value.endsWith(`/${base}`)));
+  });
 }
 
 function normalise(path: string): string {

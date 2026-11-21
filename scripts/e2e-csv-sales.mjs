@@ -18,14 +18,15 @@
  * the newest session in `--cwd` is used. `--run-exit` records the run's own
  * exit code (3: stopped at a project gate). Node built-ins only, no shell:
  * the same command works on Windows and POSIX. The report goes to stdout,
- * or to `--output`. Exit 0 when both test suites passed, 1 when either
- * failed or could not run, 2 on a usage error.
+ * or to `--output`. Exit 0 only when nothing blocks (`blocking`: both
+ * suites pass, every plan task's latest verdict is an accept, the milestone
+ * state agrees and no gate waits), 1 otherwise, 2 on a usage error.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -66,8 +67,10 @@ export function parseArgs(argv) {
 /** TAP counts from `node --test --test-reporter=tap`, and the names of the failing tests. */
 export function parseTap(text) {
   const count = (name) => { const m = new RegExp(`^# ${name} (\\d+)$`, 'm').exec(text); return m ? Number(m[1]) : null; };
-  const failed = [...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1].replace(/\s+#.*$/, '').trim());
-  return { tests: count('tests'), pass: count('pass'), fail: count('fail'), failed };
+  const name = (m) => m[1].replace(/\s+#.*$/, '').trim();
+  const failed = [...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map(name);
+  const passed = [...text.matchAll(/^\s*ok \d+ - (.+)$/gm)].map(name);
+  return { tests: count('tests'), pass: count('pass'), fail: count('fail'), failed, passed };
 }
 
 /** Runs one test file with `node --test`, without a shell, in `cwd`. */
@@ -125,7 +128,137 @@ export function joinVerdictsAll(project, verdicts) {
     if (i < open.length) open[i].verdicts.push({ join: 'order (unjoined)', ...v });
     else unmatched.push(v);
   });
+  for (const t of tasks) {
+    const last = t.verdicts[t.verdicts.length - 1] || null;
+    t.latest = last ? { status: last.status, decision: last.review ? last.review.decision : null, attempt: last.attempt ?? null, join: last.join } : null;
+    t.latestReview = reviewIdentity(t);
+  }
   return { tasks, unmatched };
+}
+
+/**
+ * Issue #98: the reviewer of a task's latest reviewed verdict next to the
+ * plan's: `recorded` is the ref the row wrote, `provider` / `model` the
+ * effective ones and `planRef` the ref the plan named, when the row carries
+ * them. `mismatch`: the plan's ref is not the one the review ran under.
+ */
+function reviewIdentity(task) {
+  const reviewed = [...task.verdicts].reverse().find((v) => v.review);
+  if (!reviewed) return null;
+  const r = reviewed.review;
+  const planned = task.reviewer ?? null;
+  // Issue #100: decided by the task's checks: who was configured, never shown as that reviewer's own verdict.
+  if (r.source === 'facts') {
+    return { planned, reviewedBy: 'facts', configured: r.provider ?? r.reviewer ?? null, mismatch: false };
+  }
+  const recorded = r.reviewer ?? (r.provider && r.model ? `${r.provider}:${r.model}` : null);
+  return {
+    planned,
+    reviewedBy: 'reviewer',
+    recorded,
+    ...(r.provider ? { provider: r.provider } : {}),
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.planRef ? { planRef: r.planRef } : {}),
+    mismatch: planned !== null && (r.planRef ? r.planRef !== planned : recorded !== planned),
+  };
+}
+
+/** The provider of a review's reviewer: the row's own, else the part before ":" of the recorded ref; null when neither names one. */
+function reviewerProvider(identity) {
+  if (identity.provider) return identity.provider;
+  const at = typeof identity.recorded === 'string' ? identity.recorded.indexOf(':') : -1;
+  return at > 0 ? identity.recorded.slice(0, at) : null;
+}
+
+/** Whether a plan task is done as the fixture requires: its latest verdict is a review's `accept` (or `ok` with no review planned). */
+function taskAccepted(task) {
+  const last = task.verdicts[task.verdicts.length - 1];
+  if (!last) return false;
+  if (task.reviewer === null || task.reviewer === undefined) return last.status === 'ok' || (last.review && last.review.decision === 'accept');
+  if (!last.review || last.review.decision !== 'accept') return false;
+  // An accept by the task's checks stands only while those checks passed (issue #100).
+  return last.review.source !== 'facts' || last.acceptance === 'checks-passed';
+}
+
+/** Issue #100: the tasks whose latest verdict is an accept decided by their own checks, which no reviewer saw. */
+export function acceptedByChecksOnly(tasks) {
+  return tasks.filter((t) => {
+    const last = t.verdicts[t.verdicts.length - 1];
+    return last && last.review && last.review.source === 'facts' && last.review.decision === 'accept' && taskAccepted(t);
+  }).map((t) => {
+    const last = t.verdicts[t.verdicts.length - 1];
+    return { taskId: t.taskId, title: t.title, configuredReviewer: last.review.provider ?? last.review.reviewer ?? null, acceptance: last.acceptance ?? null };
+  });
+}
+
+/** Why a task is not accepted, in one line naming it. */
+function taskBlock(task) {
+  const name = `task ${task.taskId} (${task.title || 'untitled'})`;
+  if (task.verdicts.length === 0) return `${name}: no verdict`;
+  const last = task.verdicts[task.verdicts.length - 1];
+  const reviewed = [...task.verdicts].reverse().find((v) => v.review);
+  if (last.review && last.review.source === 'facts' && last.review.decision === 'accept') return `${name}: not accepted: accept by its checks, which did not pass`;
+  const said = reviewed
+    ? `${reviewed.review.decision}${reviewed.review.blockers ? ` (${reviewed.review.blockers} blocker${reviewed.review.blockers === 1 ? '' : 's'})` : ''}`
+    : 'no review';
+  return `${name}: not accepted: ${said}${reviewed && reviewed !== last ? `, then ${last.status} with no new verdict` : (!reviewed ? `, latest ${last.status}` : '')}`;
+}
+
+/**
+ * Issue #98: what keeps the run from passing. Both suites must pass, every
+ * plan task's latest verdict must be an accept, each milestone's state must
+ * agree (done or reviewed exactly when all its tasks are accepted) and no
+ * gate may be waiting. Issue #100: every task must belong to a milestone
+ * the project has, and every required review must name its reviewer's
+ * provider.
+ */
+export function blockingReasons({ tests, project, tasks }) {
+  const out = [];
+  if (!tests || !tests.passed) out.push('the test suites did not both pass');
+  if (!project) { out.push('no project was stored for the session'); return out; }
+  if (!tasks.length) out.push('the plan has no tasks');
+  // Issue #100: a task must belong to a milestone the project has, and a required review must say who reviewed.
+  const milestoneIds = new Set((project.milestones || []).map((m) => m.id));
+  for (const t of tasks) {
+    const name = `task ${t.taskId} (${t.title || 'untitled'})`;
+    if (!milestoneIds.has(t.milestoneId)) out.push(`${name} belongs to milestone ${t.milestoneId}, which the project does not have`);
+    if (!taskAccepted(t)) out.push(taskBlock(t));
+    if (t.reviewer !== null && t.reviewer !== undefined && t.latestReview && t.latestReview.reviewedBy !== 'facts' && reviewerProvider(t.latestReview) === null) {
+      out.push(`${name}: its review names no reviewer provider (the plan names ${t.reviewer})`);
+    }
+  }
+  for (const m of project.milestones || []) {
+    const mine = tasks.filter((t) => t.milestoneId === m.id);
+    const open = mine.filter((t) => !taskAccepted(t)).length;
+    const closed = m.state === 'done' || m.state === 'reviewed';
+    if (open > 0 && closed) out.push(`milestone ${m.id} is ${m.state} while ${open} required task${open === 1 ? ' is' : 's are'} not accepted`);
+    if (open === 0 && mine.length > 0 && !closed) out.push(`milestone ${m.id} is ${m.state} although every task is accepted`);
+  }
+  if (project.gate && project.gate.kind && project.gate.kind !== 'none') out.push(`the project waits at its ${project.gate.kind} gate`);
+  return out;
+}
+
+/** The texts `--auto-approve-project` sends after it approves a gate (src/session/project-continue.ts). */
+const AUTO_CONTINUE = [/^I approved the project brief\. Draft the plan\.$/, /^I approved\. Continue with milestone ".*"\.$/s];
+
+/**
+ * Issue #98: a single autonomous run, or a guided resume. A person's line
+ * after the first prompt (anything but an auto-approval continuation), or
+ * logs that stop at a project gate more than once (each stop ends a run),
+ * make it guided.
+ */
+export function runMode(turns, logText) {
+  const users = (Array.isArray(turns) ? turns : []).filter((t) => t && t.kind === 'user');
+  const human = users.slice(1).filter((u) => !AUTO_CONTINUE.some((re) => re.test(String(u.text || '').trim())));
+  const stops = [...String(logText).matchAll(/^session: \S+\s*$/gm)].length;
+  const runStarts = Math.max(1, stops);
+  const reasons = [];
+  if (human.length) {
+    const first = String(human[0].text || '').replace(/\s+/g, ' ').slice(0, 80);
+    reasons.push(`${human.length} line${human.length === 1 ? '' : 's'} from a person after the first prompt, first: "${first}"`);
+  }
+  if (runStarts > 1) reasons.push(`${runStarts} runs: the logs stop at a project gate ${stops} times`);
+  return { kind: reasons.length ? 'guided' : 'autonomous', userTurns: users.length, humanInputs: human.length, runStarts, reasons };
 }
 export function joinVerdicts(project, verdicts) {
   return joinVerdictsAll(project, verdicts).tasks;
@@ -161,7 +294,13 @@ export function outcomeSummary(lines, sessionId) {
         selfCheckPassed: rec.selfCheckPassed ?? null,
         review: rec.review
           ? { decision: rec.review.decision ?? null, reviewer: rec.review.reviewer ?? null, passes: rec.review.passes ?? null,
-            blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0 }
+            blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0,
+            // Issue #98: who reviewed, when the row says (provider, effective model, the ref the plan named).
+            ...(typeof rec.review.provider === 'string' ? { provider: rec.review.provider } : {}),
+            ...(typeof rec.review.model === 'string' ? { model: rec.review.model } : {}),
+            ...(typeof rec.review.planRef === 'string' ? { planRef: rec.review.planRef } : {}),
+            // Issue #100: "facts" when the task's own scripted checks decided it and no reviewer saw it.
+            source: rec.reviewerSource === 'facts' || rec.review.source === 'facts' || rec.review.reviewerSource === 'facts' ? 'facts' : 'reviewer' }
           : null,
         costUsd: rec.costUsd ?? null,
         // Issue #95: keys of the plan row's task and milestone ids (outcomeKey); absent on older builds.
@@ -251,6 +390,72 @@ export function readOutcomeLines(stateDir) {
   return files.filter((f) => existsSync(f)).flatMap((f) => readFileSync(f, 'utf8').split(/\r?\n/));
 }
 
+/**
+ * Issue #106: earlier versions of `sales.cjs` the run left behind. The only
+ * place a run keeps them is the file checkpoints of "roll back here"
+ * (`<stateDir>/file-checkpoints/<session>/index.json` and `<n>.bin`,
+ * src/tools/os/fs/fs-checkpoint-store.ts): before an agent file tool changes
+ * a file, its content is saved there, under the folder of the session that
+ * ran the tool. Only this session's folder is read: fusion worker sessions
+ * are never saved and nothing on disk ties their checkpoint folders to the
+ * session that spawned them, and every other folder is another chat,
+ * perhaps of another project. A copy counts when its path is this run
+ * folder's `sales.cjs`, it was taken between the session's start and its
+ * last update (`window`, either bound null when unknown) and it differs from
+ * the final file. Distinct contents, oldest first; null when this session
+ * has no checkpoint folder.
+ */
+export function earlierProgramVersions(stateDir, cwd, sessionId, window, finalSha) {
+  if (!sessionId) return null;
+  const dir = join(stateDir, 'file-checkpoints', String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_') || '_');
+  if (!existsSync(dir)) return null;
+  let index;
+  try { index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')); } catch { return []; }
+  const target = resolve(cwd, PROGRAM_FILE);
+  const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const inWindow = (at) => (window.from === null || window.from === undefined || at >= window.from)
+    && (window.to === null || window.to === undefined || at <= window.to);
+  const seen = new Set(finalSha ? [finalSha] : []);
+  const out = [];
+  for (const e of Array.isArray(index.entries) ? index.entries : []) {
+    if (!e || !e.existed || typeof e.file !== 'string' || typeof e.path !== 'string' || typeof e.at !== 'number') continue;
+    if (!same(resolve(e.path), target) || !inWindow(e.at)) continue;
+    const file = join(dir, basename(e.file));
+    if (!existsSync(file)) continue;
+    const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+    if (seen.has(sha256)) continue;
+    seen.add(sha256);
+    out.push({ sha256, at: e.at, tool: e.tool ?? null, path: e.path, checkpoint: join(basename(dir), basename(e.file)), file });
+  }
+  return out.sort((x, y) => x.at - y.at);
+}
+
+/** Runs the acceptance test on each earlier version (copied as sales.cjs into a temporary folder). */
+function testEarlierVersions(versions, run) {
+  return versions.map((v) => {
+    const dir = mkdtempSync(join(tmpdir(), 'csv-sales-earlier-'));
+    try {
+      copyFileSync(v.file, join(dir, PROGRAM_FILE));
+      const acceptance = run(ACCEPTANCE_TEST, dir, { CSV_SALES_PROGRAM: join(dir, PROGRAM_FILE) });
+      const { file, ...kept } = v;
+      return { ...kept, acceptance };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+/** The acceptance cases an earlier version passed and the final file fails, with the versions that passed them. */
+export function regressedCases(finalAcceptance, earlier) {
+  const failing = new Set(finalAcceptance.failed || []);
+  const out = [];
+  for (const test of failing) {
+    const passedIn = earlier.filter((v) => (v.acceptance.passed || []).includes(test)).map((v) => v.sha256);
+    if (passedIn.length) out.push({ test, passedIn });
+  }
+  return out;
+}
+
 /** Builds the report. `deps` replaces the test runs (unit tests). */
 export async function buildReport(args, deps = {}) {
   const cwd = resolve(args.cwd);
@@ -267,6 +472,20 @@ export async function buildReport(args, deps = {}) {
   const passed = acceptance.exitCode === 0 && agentTests.exitCode === 0;
   const project = stored.payload ? projectSummary(stored.payload.project) : null;
   const joined = joinVerdictsAll(project, outcomes ? outcomes.tasks : []);
+  const tests = { acceptance, agent: agentTests, passed };
+  const blocking = blockingReasons({ tests, project, tasks: joined.tasks });
+  // Issue #106: the suite on the earlier versions too, from the run's own file checkpoints, else "unavailable".
+  const programPath = join(cwd, PROGRAM_FILE);
+  const finalSha = existsSync(programPath) ? createHash('sha256').update(readFileSync(programPath)).digest('hex') : null;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const createdAt = stored.payload ? num(stored.payload.createdAt) : null;
+  const lastUpdate = (stored.payload ? num(stored.payload.updatedAt) : null) ?? num(stored.updatedAt);
+  const found = earlierProgramVersions(stateDir, cwd, stored.id ?? null, { from: createdAt, to: lastUpdate }, finalSha);
+  const earlier = found && found.length ? testEarlierVersions(found, run) : null;
+  const regressed = earlier ? regressedCases(acceptance, earlier) : [];
+  if (regressed.length) {
+    blocking.push(`the final ${PROGRAM_FILE} fails ${regressed.length} acceptance case${regressed.length === 1 ? '' : 's'} an earlier version passed: ${regressed.map((r) => r.test).join('; ')}`);
+  }
   return {
     fixture: 'csv-sales',
     recordedAt: new Date().toISOString(),
@@ -274,7 +493,18 @@ export async function buildReport(args, deps = {}) {
     stateDir,
     run: { exitCode: args.runExit, logs: args.logs.map((f) => resolve(f)), printedSession: printed, receiptLines: receiptLines(logText) },
     session: stored.error ? { id: sessionId, error: stored.error } : { id: stored.id, status: stored.status, workingDir: stored.workingDir },
-    tests: { acceptance, agent: agentTests, passed },
+    // Issue #98: the run passes only when nothing blocks (both suites, an accept per task, a consistent milestone).
+    passed: blocking.length === 0,
+    blocking,
+    // Issue #100: accepts no reviewer saw (the task's checks decided them); they pass, and are listed here.
+    acceptedByChecksOnly: acceptedByChecksOnly(joined.tasks),
+    earlierVersions: earlier ?? 'unavailable',
+    ...(earlier ? {} : { earlierVersionsWhy: found === null
+      ? `no file checkpoints for session ${stored.id ?? '(none found)'} (worker sessions keep no link to it on disk, so theirs are not read)`
+      : `no checkpoint of an earlier ${join(cwd, PROGRAM_FILE)} taken by session ${stored.id} while it ran that differs from the final file` }),
+    regressed,
+    mode: runMode(stored.payload ? stored.payload.turns : [], logText),
+    tests,
     project,
     // Each plan task with its verdicts (joined by key, else by order and labelled), then the ones no task took.
     tasks: joined.tasks,
@@ -294,7 +524,7 @@ async function main() {
   if (args.output) writeFileSync(args.output, text);
   else process.stdout.write(text);
   if (args.output) process.stderr.write(`report: ${resolve(args.output)}\n`);
-  return report.tests.passed ? 0 : 1;
+  return report.passed ? 0 : 1;
 }
 
 /** Run as a script, not imported (a Windows drive letter may differ in case). */

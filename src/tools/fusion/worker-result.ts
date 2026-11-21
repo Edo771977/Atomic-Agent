@@ -128,6 +128,7 @@ export interface WorkerToolStats {
 export type { StalledWrite } from "./worker-repeated-writes.js";
 import type { StalledWrite } from "./worker-repeated-writes.js";
 import type { AttemptFiles } from "./attempt-evidence.js";
+import type { ReviewerIdentity } from "./member-identity.js";
 
 export const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set([
   "os.fs.write",
@@ -193,6 +194,8 @@ export interface TaskReview {
   decision: ReviewDecision;
   passes: number;
   reviewer: string | null;
+  /** Provider, effective model and differing plan ref of the reviewer (issue #98). */
+  reviewerIdentity?: ReviewerIdentity;
   issues: ReviewIssue[];
 }
 
@@ -293,7 +296,7 @@ export interface WorkerTaskResult {
    * as pending. `stuck` (issue #43): the watch's judge found the worker
    * stuck and stopped it; handed to the director the same way.
    */
-  failure?: "review-exhausted" | "stuck";
+  failure?: "review-exhausted" | "stuck" | "regressed-verified" | "regressed-check";
   /**
    * Set with `failure: "stuck"` when the runner stopped a worker that kept
    * writing the same bytes to a file (issue #95, `worker-repeated-writes.ts`):
@@ -306,6 +309,20 @@ export interface WorkerTaskResult {
    * already present. The delegate binds it to the attempt for the reviewer.
    */
   attempt?: AttemptFiles;
+  /**
+   * The worker ran out of time after its own test run passed (issue
+   * #102): the row is `ok` and goes on to its checks and review from the
+   * recorded run (`attempt.executed`), with no new worker.
+   */
+  timedOutAfterRun?: true;
+  /** The same recovery for a worker that ran out of steps after its own passing check (issue #106). */
+  outOfStepsAfterRun?: true;
+  /**
+   * A verify-only task that changed nothing (issue #104 review): `no_changes`
+   * until the delegate finds a review already recorded on exactly its
+   * current files and its own check passed on them; then `ok`.
+   */
+  verifyOnlyUnchanged?: true;
   /**
    * The tasks a dependent was held on (not started because they did not
    * close), so `describeReplan` can tell one held only on review-exhausted
@@ -725,6 +742,11 @@ export function finishedWithoutReplyNote(paths: readonly string[]): string {
   const more = paths.length > NO_REPLY_PATHS_SHOWN ? ` and ${paths.length - NO_REPLY_PATHS_SHOWN} more` : "";
   return `finished without a reply; files changed: ${shown}${more}; unverified — read/check them before accepting`;
 }
+
+/** The one note on a worker recovered after its own checks passed and its clock ran out (issue #102). */
+export const TIMED_OUT_AFTER_RUN_NOTE = "timed out after its own checks passed on the current files; reply missing";
+/** The one note on a worker recovered after its own checks passed and its steps ran out (issue #106). */
+export const OUT_OF_STEPS_AFTER_RUN_NOTE = "ran out of steps after its own checks passed on the current files; reply missing";
 
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {
   if (cause === "credit_exhausted") {
