@@ -57,7 +57,9 @@ export function createGetProjectHandler(): HttpHandler {
     }
     const view = ctx.runtime.projectState?.(sessionId) ?? null;
     if (view === null) {
-      sendError(res, 404, openaiError(`no project on session ${sessionId}`));
+      // Issue #109: a chat whose project did not open says why (additive to the 404's error).
+      const problem = ctx.runtime.sessionStore.load(sessionId)?.projectProblem;
+      sendJson(res, 404, { ...openaiError(`no project on session ${sessionId}`), ...(problem === undefined ? {} : { project_problem: problem }) });
       return;
     }
     sendJson(res, 200, { session_id: sessionId, view });
