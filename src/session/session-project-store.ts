@@ -102,9 +102,9 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
     }
     const opened = openProject(ref.folder, storeOptions);
     if (!opened.ok) return unavailable(state, opened.problem.message);
-    if (opened.opened.stored.id !== ref.id) {
-      return unavailable(state, `${projectFilePath(ref.folder)} now holds another project (${opened.opened.stored.id}); this chat's project ${ref.id} was not opened.`);
-    }
+    // Another id in the folder (a copy re-identified on its first write, a
+    // file put there by hand): the chat follows the folder. Its record is
+    // the folder's, so a foreign file brings no approvals or runs with it.
     return bind(state, opened.opened);
   };
   const migrate = (state: SessionState, project: ProjectState): SessionState => {

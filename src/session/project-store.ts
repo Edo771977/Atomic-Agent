@@ -381,13 +381,17 @@ export function commitProject(
     if ((record.record?.seq ?? 0) !== base.decisionSeq) {
       return problem("conflict", "The project's record changed since it was read; reload it.");
     }
+    // No record for this folder: a copy, a moved folder or another
+    // machine. It becomes its own project, under a new id, so its writes
+    // can never reach the record of the folder it came from.
+    const ownId = record.record === null ? randomUUID() : id;
     // The file first: a crash between leaves our own content in the file, which reads as an outside draft, never as an approval.
     const content = projectContent(project);
-    if (canonicalJson(content) !== canonicalJson(projectContent(current.stored.project))) {
-      const failed = writeFile({ ...current.stored, revision: current.stored.revision + 1, updatedAt: Math.max(now(), current.stored.updatedAt), project: content }, options);
+    if (ownId !== id || canonicalJson(content) !== canonicalJson(projectContent(current.stored.project))) {
+      const failed = writeFile({ ...current.stored, id: ownId, revision: current.stored.revision + 1, updatedAt: Math.max(now(), current.stored.updatedAt), project: content }, options);
       if (failed !== null) return { ok: false, problem: failed };
     }
-    const recorded = store.write(folder, id, base.decisionSeq, project, decided);
+    const recorded = store.write(folder, ownId, ownId === id ? base.decisionSeq : 0, project, decided);
     if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
     const opened = openProject(folder, options);
     if (opened.ok) writeViews(opened.opened.stored, opened.opened.project);

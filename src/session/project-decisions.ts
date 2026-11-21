@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import {
   applyProjectUpdate,
@@ -51,6 +51,8 @@ export interface ProjectDecisionRecord extends ProjectDecisionInput {
 /** One project's record file. */
 export interface ProjectRecord {
   version: 1;
+  /** The project folder's identity ({@link canonicalProjectFolder}): a record is a folder's, not an id's. */
+  folder: string;
   id: string;
   /** +1 on every write; a write names the one it builds on. */
   seq: number;
@@ -255,6 +257,28 @@ export function projectRecordsDir(stateDir: string): string {
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+/**
+ * A folder's identity for its record: its real path (symlinks resolved),
+ * `/` separators, case folded on Windows and macOS. A copied or moved
+ * folder is another folder, so it has no record: its approvals and
+ * execution state do not travel with it.
+ */
+export function canonicalProjectFolder(folder: string, platform: NodeJS.Platform = process.platform): string {
+  let real: string;
+  try {
+    real = realpathSync.native(folder);
+  } catch {
+    real = resolve(folder);
+  }
+  const slashed = real.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
+}
+
+/** The record's file name: folder and id together, so ids differing by case, or one id in two folders, never share one. */
+function recordKey(folder: string, id: string): string {
+  return createHash("sha256").update(`${folder}\n${id}`).digest("hex").slice(0, 40);
+}
+
 /** The stored state: the normalized project with its `changedOutside` labels. */
 function readState(raw: unknown): ProjectState | null {
   const project = normalizeProject(raw);
@@ -264,12 +288,13 @@ function readState(raw: unknown): ProjectState | null {
   return withChanged(project, labels);
 }
 
-function nextRecord(current: ProjectRecord | null, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
+function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
   const seq = (current?.seq ?? 0) + 1;
   const kept = (next.changedOutside ?? []).filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
   const decisions = current?.decisions ?? [];
   return {
     version: 1,
+    folder,
     id,
     seq,
     state: withChanged(next, kept),
@@ -286,14 +311,15 @@ function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (P
 }
 
 /** The record store under the state dir; `now` for tests. */
-export function stateDirProjectRecords(stateDir: string, now: () => number = Date.now): ProjectRecordStore {
+export function stateDirProjectRecords(stateDir: string, now: () => number = Date.now, platform: NodeJS.Platform = process.platform): ProjectRecordStore {
   const dir = projectRecordsDir(stateDir);
-  const fileOf = (id: string) => {
+  const fileOf = (folder: string, id: string) => {
     if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
-    return join(dir, `${id}.json`);
+    return join(dir, `${recordKey(folder, id)}.json`);
   };
-  const read = (_folder: string, id: string): ProjectRecordRead => {
-    const file = fileOf(id);
+  /** `foreign`: the file at this folder's key belongs to another folder or id; it is never replaced. */
+  const readAt = (folder: string, id: string): ProjectRecordRead & { foreign?: true } => {
+    const file = fileOf(folder, id);
     let text: string;
     try {
       text = readFileSync(file, "utf8");
@@ -308,21 +334,29 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       return { ok: false, problem: { code: "damaged", message: `${file} is not valid JSON (${(err as Error).message}).` } };
     }
     const state = readState(raw?.state);
-    if (raw?.version !== 1 || raw.id !== id || !Number.isInteger(raw.seq) || !Array.isArray(raw.decisions) || state === null) {
+    if (raw?.version !== 1 || !Number.isInteger(raw.seq) || !Array.isArray(raw.decisions) || state === null) {
       return { ok: false, problem: { code: "damaged", message: `${file} is damaged.` } };
     }
-    return { ok: true, record: { version: 1, id, seq: raw.seq as number, state, decisions: raw.decisions as ProjectDecisionRecord[] } };
+    if (raw.folder !== folder || raw.id !== id) return { ok: true, record: null, foreign: true };
+    return { ok: true, record: { version: 1, folder, id, seq: raw.seq as number, state, decisions: raw.decisions as ProjectDecisionRecord[] } };
   };
   return {
-    read,
-    write(folder, id, baseSeq, next, decision) {
-      const current = read(folder, id);
+    read(folder, id) {
+      const r = readAt(canonicalProjectFolder(folder, platform), id);
+      return r.ok ? { ok: true, record: r.record } : r;
+    },
+    write(rawFolder, id, baseSeq, next, decision) {
+      const folder = canonicalProjectFolder(rawFolder, platform);
+      const current = readAt(folder, id);
       if (!current.ok) return current;
+      if (current.foreign === true) {
+        return { ok: false, problem: { code: "conflict", message: "This folder's record file holds another project's record; it was left as it is." } };
+      }
       const refused = checkWrite(current.record, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current.record, id, next, decision, now());
+      const out = nextRecord(current.record, folder, id, next, decision, now());
       mkdirSync(dir, { recursive: true });
-      const file = fileOf(id);
+      const file = fileOf(folder, id);
       const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
         writeFileSync(temp, `${JSON.stringify(out, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -339,15 +373,16 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
 /** In-memory records for tests. */
 export function memoryProjectRecords(now: () => number = Date.now): ProjectRecordStore & { records: Map<string, ProjectRecord> } {
   const records = new Map<string, ProjectRecord>();
+  const key = (folder: string, id: string) => recordKey(canonicalProjectFolder(folder), id);
   return {
     records,
-    read: (_folder, id) => ({ ok: true, record: records.get(id) ?? null }),
-    write(_folder, id, baseSeq, next, decision) {
-      const current = records.get(id) ?? null;
+    read: (folder, id) => ({ ok: true, record: records.get(key(folder, id)) ?? null }),
+    write(folder, id, baseSeq, next, decision) {
+      const current = records.get(key(folder, id)) ?? null;
       const refused = checkWrite(current, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current, id, next, decision, now());
-      records.set(id, out);
+      const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now());
+      records.set(key(folder, id), out);
       return { ok: true, seq: out.seq };
     },
   };

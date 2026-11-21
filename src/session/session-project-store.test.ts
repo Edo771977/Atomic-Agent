@@ -183,3 +183,61 @@ describe("session project reference (issue #109)", () => {
     expect(normalizeProject(rowPayload("s-109-fixture").project)).toEqual(embedded);
   });
 });
+
+describe("records are bound to the project folder (issue #109 review)", () => {
+  it("a copied folder borrows none of the original's approvals, and its writes never touch the original's record (review a3)", async () => {
+    const { cpSync, readdirSync } = await import("node:fs");
+    const embedded = savePreStoreSession();
+    const a = store.load("s-109-fixture")!;
+    store.save(a);
+    const copy = `${folder}-copy`;
+    cpSync(folder, copy, { recursive: true });
+    try {
+      const records = () => readdirSync(join(stateDir, "project-decisions")).filter((f) => f.endsWith(".json")).sort();
+      const before = records().map((f) => readFileSync(join(stateDir, "project-decisions", f), "utf8"));
+      const b = projects.prepareTurn(createEmptySessionState({ id: "b", workingDir: copy }), true);
+      expect(b.project?.gate).toEqual({ kind: "brief" });
+      expect(b.project?.plan?.status).toBe("draft");
+      expect(b.project?.changedOutside).toEqual(["brief", "plan"]);
+      const changed = { ...b.project!, brief: { ...b.project!.brief!, how: "Changed in the copy" } };
+      const w = projects.commit(b, changed);
+      expect(w.ok).toBe(true);
+      // The copy got its own id; the original's record is untouched.
+      if (w.ok) expect(w.session.projectRef?.id).not.toBe(a.projectRef?.id);
+      expect(records()).toHaveLength(2);
+      const original = projects.load(a);
+      expect(original.project).toEqual(embedded);
+      expect(before.every((text) => records().some((f) => readFileSync(join(stateDir, "project-decisions", f), "utf8") === text))).toBe(true);
+    } finally {
+      rmSync(copy, { recursive: true, force: true });
+    }
+  });
+
+  it("another project's project.json copied into a folder brings none of its approvals", () => {
+    savePreStoreSession();
+    store.save(store.load("s-109-fixture")!);
+    const other = mkdtempSync(join(tmpdir(), "aa-other-"));
+    try {
+      const { mkdirSync, copyFileSync } = require("node:fs") as typeof import("node:fs");
+      mkdirSync(join(other, ".atomic", "project"), { recursive: true });
+      copyFileSync(projectFilePath(folder), projectFilePath(other));
+      const p = projects.prepareTurn(createEmptySessionState({ id: "o", workingDir: other }), true).project!;
+      expect(p.brief?.status).toBe("draft");
+      expect(p.milestones.every((m) => m.state === "planned")).toBe(true);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("ids that differ only by case have separate records", async () => {
+    const { stateDirProjectRecords: records } = await import("./project-decisions.js");
+    const r = records(stateDir);
+    const p = normalizeProject(fixture.session.project)!;
+    expect(r.write(folder, "Proj", 0, p).ok).toBe(true);
+    expect(r.write(folder, "proj", 0, { ...p, gate: { kind: "none" } }).ok).toBe(true);
+    const a = r.read(folder, "Proj");
+    const b = r.read(folder, "proj");
+    expect(a.ok && a.record?.state.gate).toEqual({ kind: "milestone", id: "m2" });
+    expect(b.ok && b.record?.state.gate).toEqual({ kind: "none" });
+  });
+});
