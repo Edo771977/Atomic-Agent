@@ -4,9 +4,9 @@
 // and loose number parsing; the runner must read a recorded run (its printed
 // session, receipts, the session store and the outcome log) into the report.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -121,7 +121,7 @@ describe("the runner's parsing", () => {
 
   it("reads TAP counts and failing test names", () => {
     const tap = "TAP version 13\nok 1 - a\nnot ok 2 - b fails # with a note\n  ---\n1..2\n# tests 2\n# pass 1\n# fail 1\n";
-    expect(runner.parseTap(tap)).toEqual({ tests: 2, pass: 1, fail: 1, failed: ["b fails"] });
+    expect(runner.parseTap(tap)).toEqual({ tests: 2, pass: 1, fail: 1, failed: ["b fails"], passed: ["a"] });
   });
 
   it("finds the printed session and the receipt lines in a recorded run", () => {
@@ -252,10 +252,10 @@ describe("verdicts joined to plan rows (taskKey / milestoneKey)", () => {
 /* ---------- issue #98: the runner's verdict ---------- */
 
 /** A run folder with green suites and a state folder holding `sample`'s session and outcome log; the runner's exit and report. */
-function runSample(sample: string): { status: number | null; report: any } {
+function runSample(sample: string, options: { program?: string } = {}): { status: number | null; report: any } {
   const dir = join(FIXTURES, sample);
   const cwd = temp("csv-sales-98-");
-  copyFileSync(join(FIXTURES, "reference-sales.cjs"), join(cwd, "sales.cjs"));
+  copyFileSync(join(FIXTURES, options.program ?? "reference-sales.cjs"), join(cwd, "sales.cjs"));
   copyFileSync(join(SAMPLE, "agent-sales.test.cjs"), join(cwd, "sales.test.cjs"));
   const stateDir = temp("csv-sales-98-state-");
   mkdirSync(join(stateDir, "fusion"));
@@ -265,6 +265,15 @@ function runSample(sample: string): { status: number | null; report: any } {
   db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, turn_owner TEXT)");
   db.prepare("INSERT INTO sessions VALUES (?, ?, 'active', ?, 1, 2, NULL)").run(stored.id, cwd, JSON.stringify(stored));
   db.close();
+  // The run's file checkpoints (<stateDir>/file-checkpoints/<session>/), their paths in this run folder.
+  const checkpoints = join(dir, "file-checkpoints");
+  if (existsSync(checkpoints)) {
+    const into = join(stateDir, "file-checkpoints", stored.id);
+    mkdirSync(into, { recursive: true });
+    for (const name of readdirSync(checkpoints)) copyFileSync(join(checkpoints, name), join(into, name));
+    const index = readFileSync(join(into, "index.json"), "utf8").replaceAll("{cwd}/", JSON.stringify(cwd + sep).slice(1, -1));
+    writeFileSync(join(into, "index.json"), index);
+  }
   const out = join(stateDir, "report.json");
   const r = spawnSync(process.execPath, [join(import.meta.dirname, "e2e-csv-sales.mjs"), "--cwd", cwd, "--state-dir", stateDir,
     "--log", join(dir, "stdout.txt"), "--output", out], { encoding: "utf8", timeout: 120_000 });
@@ -389,5 +398,31 @@ describe("an accept by the task's checks alone", () => {
       "task a (A): not accepted: accept by its checks, which did not pass",
       "milestone m is done while 1 required task is not accepted",
     ]);
+  });
+});
+
+/* ---------- issue #106: the suite before and after the reviewer's changes ---------- */
+
+describe("earlier versions of sales.cjs", () => {
+  it("runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed", () => {
+    const { status, report } = runSample("sample-run-regressed", { program: "per-number-limit-sales.cjs" });
+    expect(status).toBe(1);
+    expect(report.earlierVersions).toHaveLength(1);   // the same bytes twice, another file, a copy from before the run: one version
+    expect(report.earlierVersions[0]).toMatchObject({ tool: "os.fs.edit", at: 1795640100000, acceptance: { exitCode: 0, pass: 17, fail: 0 } });
+    expect(report.earlierVersions[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(report.regressed).toEqual([
+      { test: "a zero price makes a huge quantity a zero total", passedIn: [report.earlierVersions[0].sha256] },
+      { test: "a zero quantity makes a huge price a zero total", passedIn: [report.earlierVersions[0].sha256] },
+    ]);
+    expect(report.blocking).toEqual(expect.arrayContaining([
+      "the final sales.cjs fails 2 acceptance cases an earlier version passed: a zero price makes a huge quantity a zero total; a zero quantity makes a huge price a zero total",
+    ]));
+  });
+
+  it("says when no earlier version is available, and invents none", () => {
+    const { report } = runSample("sample-run-accepted");
+    expect(report.earlierVersions).toBe("unavailable");
+    expect(report.earlierVersionsWhy).toMatch(/no file checkpoint/);
+    expect(report.regressed).toEqual([]);
   });
 });

@@ -24,9 +24,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -67,8 +67,10 @@ export function parseArgs(argv) {
 /** TAP counts from `node --test --test-reporter=tap`, and the names of the failing tests. */
 export function parseTap(text) {
   const count = (name) => { const m = new RegExp(`^# ${name} (\\d+)$`, 'm').exec(text); return m ? Number(m[1]) : null; };
-  const failed = [...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1].replace(/\s+#.*$/, '').trim());
-  return { tests: count('tests'), pass: count('pass'), fail: count('fail'), failed };
+  const name = (m) => m[1].replace(/\s+#.*$/, '').trim();
+  const failed = [...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map(name);
+  const passed = [...text.matchAll(/^\s*ok \d+ - (.+)$/gm)].map(name);
+  return { tests: count('tests'), pass: count('pass'), fail: count('fail'), failed, passed };
 }
 
 /** Runs one test file with `node --test`, without a shell, in `cwd`. */
@@ -388,6 +390,68 @@ export function readOutcomeLines(stateDir) {
   return files.filter((f) => existsSync(f)).flatMap((f) => readFileSync(f, 'utf8').split(/\r?\n/));
 }
 
+/**
+ * Issue #106: earlier versions of `sales.cjs` the run left behind. The only
+ * place a run keeps them is the file checkpoints of "roll back here"
+ * (`<stateDir>/file-checkpoints/<session>/index.json` and `<n>.bin`, src/tools/os/fs/fs-checkpoint-store.ts):
+ * before an agent file tool changes a file, its content is saved there. A
+ * copy is taken when it is `<cwd>/sales.cjs`, or a `sales.cjs` elsewhere (a
+ * worker's own workspace) copied while the session ran, and it differs from
+ * the final file. Distinct contents, oldest first; `null` when there is no
+ * checkpoint folder at all.
+ */
+export function earlierProgramVersions(stateDir, cwd, window, finalSha) {
+  const root = join(stateDir, 'file-checkpoints');
+  if (!existsSync(root)) return null;
+  const target = resolve(cwd, PROGRAM_FILE);
+  const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const inWindow = (at) => (window.from === null || at >= window.from) && (window.to === null || at <= window.to);
+  const seen = new Set(finalSha ? [finalSha] : []);
+  const out = [];
+  for (const dir of readdirSync(root, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+    let index;
+    try { index = JSON.parse(readFileSync(join(root, dir.name, 'index.json'), 'utf8')); } catch { continue; }
+    for (const e of Array.isArray(index.entries) ? index.entries : []) {
+      if (!e || !e.existed || typeof e.file !== 'string' || typeof e.path !== 'string' || typeof e.at !== 'number') continue;
+      if (basename(e.path) !== PROGRAM_FILE || !inWindow(e.at)) continue;
+      const file = join(root, dir.name, basename(e.file));
+      if (!existsSync(file)) continue;
+      const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+      if (seen.has(sha256)) continue;
+      seen.add(sha256);
+      out.push({ sha256, at: e.at, tool: e.tool ?? null, path: e.path, inRunFolder: same(resolve(e.path), target), checkpoint: join(dir.name, basename(e.file)), file });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/** Runs the acceptance test on each earlier version (copied as sales.cjs into a temporary folder). */
+function testEarlierVersions(versions, run) {
+  return versions.map((v) => {
+    const dir = mkdtempSync(join(tmpdir(), 'csv-sales-earlier-'));
+    try {
+      copyFileSync(v.file, join(dir, PROGRAM_FILE));
+      const acceptance = run(ACCEPTANCE_TEST, dir, { CSV_SALES_PROGRAM: join(dir, PROGRAM_FILE) });
+      const { file, ...kept } = v;
+      return { ...kept, acceptance };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+/** The acceptance cases an earlier version passed and the final file fails, with the versions that passed them. */
+export function regressedCases(finalAcceptance, earlier) {
+  const failing = new Set(finalAcceptance.failed || []);
+  const out = [];
+  for (const test of failing) {
+    const passedIn = earlier.filter((v) => (v.acceptance.passed || []).includes(test)).map((v) => v.sha256);
+    if (passedIn.length) out.push({ test, passedIn });
+  }
+  return out;
+}
+
 /** Builds the report. `deps` replaces the test runs (unit tests). */
 export async function buildReport(args, deps = {}) {
   const cwd = resolve(args.cwd);
@@ -406,6 +470,16 @@ export async function buildReport(args, deps = {}) {
   const joined = joinVerdictsAll(project, outcomes ? outcomes.tasks : []);
   const tests = { acceptance, agent: agentTests, passed };
   const blocking = blockingReasons({ tests, project, tasks: joined.tasks });
+  // Issue #106: the suite on the earlier versions too, from the run's own file checkpoints, else "unavailable".
+  const programPath = join(cwd, PROGRAM_FILE);
+  const finalSha = existsSync(programPath) ? createHash('sha256').update(readFileSync(programPath)).digest('hex') : null;
+  const createdAt = stored.payload && typeof stored.payload.createdAt === 'number' ? stored.payload.createdAt : null;
+  const found = earlierProgramVersions(stateDir, cwd, { from: createdAt, to: null }, finalSha);
+  const earlier = found && found.length ? testEarlierVersions(found, run) : null;
+  const regressed = earlier ? regressedCases(acceptance, earlier) : [];
+  if (regressed.length) {
+    blocking.push(`the final ${PROGRAM_FILE} fails ${regressed.length} acceptance case${regressed.length === 1 ? '' : 's'} an earlier version passed: ${regressed.map((r) => r.test).join('; ')}`);
+  }
   return {
     fixture: 'csv-sales',
     recordedAt: new Date().toISOString(),
@@ -418,6 +492,11 @@ export async function buildReport(args, deps = {}) {
     blocking,
     // Issue #100: accepts no reviewer saw (the task's checks decided them); they pass, and are listed here.
     acceptedByChecksOnly: acceptedByChecksOnly(joined.tasks),
+    earlierVersions: earlier ?? 'unavailable',
+    ...(earlier ? {} : { earlierVersionsWhy: found === null
+      ? 'no file checkpoint folder in the state dir'
+      : `no file checkpoint of an earlier ${PROGRAM_FILE} from this session that differs from the final file` }),
+    regressed,
     mode: runMode(stored.payload ? stored.payload.turns : [], logText),
     tests,
     project,
