@@ -1,10 +1,13 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { gateDecided, type ProjectDecisionInput, type ProjectDecisionStore } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type OpenedProject, type ProjectStoreProblem } from "./project-store.js";
 import { withProject, type ProjectGate, type ProjectState } from "./session-project.js";
 import type { SessionState } from "./session-state.js";
+import { projectFolderOf, sameProjectFolder } from "./project-folder.js";
+import { registerProjectFolder } from "./project-registry.js";
+
+export { projectFolderOf, sameProjectFolder } from "./project-folder.js";
 
 /**
  * A session's fusion project in its folder store (issue #109). The
@@ -57,20 +60,6 @@ export interface SessionProjectStore {
   decided(state: SessionState, gate: ProjectGate, version: number): boolean;
 }
 
-/** The folder a session's project lives in: the worktree's original folder, else the working dir. */
-export function projectFolderOf(state: Pick<SessionState, "workingDir" | "worktree">): string {
-  return resolve(state.worktree?.originalWorkingDir ?? state.workingDir);
-}
-
-/** Folder identity: case-insensitive on Windows and macOS. */
-export function sameProjectFolder(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
-  const fold = (p: string) => {
-    const r = resolve(p).replace(/[\\/]+$/, "");
-    return platform === "win32" || platform === "darwin" ? r.toLowerCase().replace(/\\/g, "/") : r;
-  };
-  return fold(a) === fold(b);
-}
-
 /** The reference a session holds, read leniently (a malformed one is none). */
 export function readProjectRef(state: { projectRef?: unknown }): SessionProjectRef | null {
   const r = state.projectRef as Partial<SessionProjectRef> | undefined;
@@ -99,6 +88,11 @@ function unavailable(state: SessionState, message: string): SessionState {
 }
 
 export function createSessionProjectStore(options: SessionProjectStoreOptions): SessionProjectStore {
+  // Every project a session opens is remembered for `projects list` (paths only).
+  const bind = (state: SessionState, opened: OpenedProject): SessionState => {
+    registerProjectFolder(options.stateDir, opened.stored.folder, options.platform);
+    return bound(state, opened);
+  };
   const storeOptions = { stateDir: options.stateDir, decisions: options.decisions, ...(options.now === undefined ? {} : { now: options.now }) };
   const open = (state: SessionState, ref: SessionProjectRef): SessionState => {
     // The project is the session's folder's: a reference to another folder
@@ -111,13 +105,13 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
     if (opened.opened.stored.id !== ref.id) {
       return unavailable(state, `${projectFilePath(ref.folder)} now holds another project (${opened.opened.stored.id}); this chat's project ${ref.id} was not opened.`);
     }
-    return bound(state, opened.opened);
+    return bind(state, opened.opened);
   };
   const migrate = (state: SessionState, project: ProjectState): SessionState => {
     const folder = projectFolderOf(state);
     if (existsSync(projectFilePath(folder))) return state;
     const created = createProject(folder, project, storeOptions);
-    return created.ok ? bound(state, created.opened) : state;
+    return created.ok ? bind(state, created.opened) : state;
   };
   const load = (state: SessionState): SessionState => {
     const ref = readProjectRef(state);
@@ -133,7 +127,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
       const folder = projectFolderOf(loaded);
       if (!existsSync(projectFilePath(folder))) return loaded;
       const opened = openProject(folder, storeOptions);
-      return opened.ok ? bound(loaded, opened.opened) : { ...loaded, projectProblem: opened.problem.message };
+      return opened.ok ? bind(loaded, opened.opened) : { ...loaded, projectProblem: opened.problem.message };
     },
     decided(state, gate, version) {
       const ref = readProjectRef(state);
@@ -144,7 +138,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
       const extra = decision === undefined ? {} : { decision: decision.input, decidedOn: decision.decidedOn };
       if (ref !== null) {
         const written = commitProject(ref.folder, ref.id, ref, next, { ...storeOptions, ...extra });
-        return written.ok ? { ok: true, session: bound(state, written.opened) } : { ok: false, problem: written.problem };
+        return written.ok ? { ok: true, session: bind(state, written.opened) } : { ok: false, problem: written.problem };
       }
       if (state.projectProblem !== undefined) return { ok: false, problem: { code: "refused", message: state.projectProblem } };
       if (state.project !== undefined) {
@@ -153,7 +147,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
         return { ok: true, session: withProject(state, next) };
       }
       const created = createProject(projectFolderOf(state), next, storeOptions);
-      if (created.ok) return { ok: true, session: bound(state, created.opened) };
+      if (created.ok) return { ok: true, session: bind(state, created.opened) };
       if (created.problem.code === "exists") {
         return { ok: false, problem: { code: "exists", message: `${created.problem.message} Reopen the chat to work on it.` } };
       }
