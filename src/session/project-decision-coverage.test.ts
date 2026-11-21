@@ -297,6 +297,25 @@ describe("changing a decision (issue #112)", () => {
     expect(normalizeProject(JSON.parse(JSON.stringify(after)))?.milestones[0]?.history).toEqual(m1.history);
   });
 
+  it("the reset reads what the milestone's tasks cited when it ran, never a later draft (review)", () => {
+    const before = reviewed();
+    expect(before.milestones[0]!.decisionsCited).toEqual([DECISIONS[0]]);
+    // The director moves the citation off m1's task in a draft (or a shell edit lands as one): m1's work is unchanged.
+    const moved = up(before, { kind: "plan", milestones: [{ id: "m1", title: "Milestone m1", kind: "base" }, { id: "m2", title: "Milestone m2", kind: "base" }], rows: [row("t1", "m1"), row("t2", "m2", ["d1", "d2"])], detail: "full" }, 15);
+    expect(moved.milestones[0]).toMatchObject({ state: "reviewed", decisionsCited: [DECISIONS[0]] });
+    const after = yes(redraft(moved, [{ id: "d1", text: "Use Postgres" }, DECISIONS[1]!]), 30);
+    expect(after.milestones[0]).toMatchObject({ state: "planned", runIds: [] });
+    expect(after.milestones[0]!.history?.at(-1)).toMatchObject({ cause: "brief", decisions: [DECISIONS[0]] });
+    // The snapshot is the runtime's: it reads back from the record.
+    expect(normalizeProject(JSON.parse(JSON.stringify(before)))?.milestones[0]?.decisionsCited).toEqual([DECISIONS[0]]);
+  });
+
+  it("a milestone recorded before the snapshot falls back to the approved plan's rows only", () => {
+    const strip = (p: ProjectState): ProjectState => ({ ...p, milestones: p.milestones.map(({ decisionsCited: _d, ...m }) => m) });
+    const approvedPlan = strip(reviewed());
+    expect(yes(redraft(approvedPlan, [{ id: "d1", text: "Use Postgres" }, DECISIONS[1]!]), 30).milestones[0]!.state).toBe("planned");
+  });
+
   it("an editorial change (case, spaces), another decision's change or an added decision keeps the verdict", () => {
     const before = reviewed();
     for (const decisions of [

@@ -233,6 +233,17 @@ export interface ProjectMilestone {
    * evidence here and starts it over as `planned`.
    */
   history?: ProjectMilestoneRevision[];
+  /**
+   * The approved brief's decisions this milestone's tasks cited, with
+   * their text, as the approved plan it runs under stood (issue #112):
+   * set when a plan is approved (for every milestone not done or
+   * reviewed), at a run when missing, and from the approved plan before
+   * a draft replaces it. The runtime's: a later draft or a file edit
+   * never changes it. A brief approval that changes one's text starts
+   * the milestone over; a done or reviewed milestone's citations count
+   * for the plan's decision coverage only through it.
+   */
+  decisionsCited?: ProjectBriefDecision[];
   updatedAt: number;
 }
 
@@ -476,6 +487,40 @@ export interface ProjectBriefDraft {
  */
 export function approvedDecisionsOf(project: Pick<ProjectState, "approvedDecisions" | "brief">): ProjectBriefDecision[] {
   return project.approvedDecisions ?? (project.brief?.status === "approved" ? project.brief.decisions ?? [] : []);
+}
+
+/** The decisions a milestone's tasks cite in `rows`, among `decisions`, in brief order (issue #112). */
+function citedIn(rows: readonly AssignmentRow[], milestoneId: string, decisions: readonly ProjectBriefDecision[]): ProjectBriefDecision[] {
+  const ids = new Set(rows.filter((r) => r.milestoneId === milestoneId).flatMap((r) => r.decisions ?? []));
+  return decisions.filter((d) => ids.has(d.id)).map((d) => ({ id: d.id, text: d.text }));
+}
+
+/** `m` with `cited` as its {@link ProjectMilestone.decisionsCited} (absent when empty). */
+function withCited(m: ProjectMilestone, cited: readonly ProjectBriefDecision[]): ProjectMilestone {
+  const { decisionsCited: _old, ...rest } = m;
+  return cited.length === 0 ? rest : { ...rest, decisionsCited: [...cited] };
+}
+
+/**
+ * Snapshots of what each milestone's tasks cite in the approved plan
+ * (issue #112). `all`: every milestone not done or reviewed takes the
+ * plan's citations (the plan was just approved); otherwise only those
+ * with none recorded (a record from before the snapshot, before a draft
+ * replaces the approved rows), and only while the plan is approved: a
+ * draft's rows never count.
+ */
+function snapshotCitations(project: ProjectState, all: boolean): ProjectMilestone[] {
+  const plan = project.plan;
+  if (plan === undefined || plan.status !== "approved") return project.milestones;
+  const decisions = approvedDecisionsOf(project);
+  if (decisions.length === 0 && !all) return project.milestones;
+  return project.milestones.map((m) => {
+    const finished = m.state === "done" || m.state === "reviewed";
+    // A done or reviewed milestone keeps what it ran under; the new plan's rows never speak for it.
+    if (all ? finished : m.decisionsCited !== undefined) return m;
+    const cited = citedIn(plan.rows, m.id, decisions);
+    return cited.length === 0 && m.decisionsCited === undefined ? m : withCited(m, cited);
+  });
 }
 
 /** A decision's status: the person's call in the record, `active` when none (issue #112). */
@@ -1201,6 +1246,10 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
     ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
+    ...(() => {
+      const cited = cleanDecisions(raw.decisionsCited, "lenient");
+      return Array.isArray(cited) ? { decisionsCited: cited } : {};
+    })(),
     updatedAt: raw.updatedAt,
   };
 }
@@ -1442,7 +1491,9 @@ function briefUpdate(
   // Criteria are judged when the person approves the brief (issue #80), not per draft.
   const approvedCriteria = base === undefined ? undefined : approvedCriteriaOf(base);
   const approvedDecisions = base === undefined ? [] : approvedDecisionsOf(base);
-  const milestones = (base?.milestones ?? []).map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
+  // Issue #112: what the approved plan cited, before the plan turns into a draft.
+  const snapshotted = base === undefined ? [] : snapshotCitations(base, false);
+  const milestones = snapshotted.map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
   // The plan was approved against the old brief: back to a draft, and
   // milestones not started yet wait for its approval again.
   const plan: ProjectPlan | undefined =
@@ -1641,7 +1692,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     before === undefined
       ? retireOrphans(project.milestones, rows, [], now)
       : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
-  const milestones = judgeDecisions(judged, project.milestones, rows, approvedDecisionsOf(project), brief.decisions ?? [], before ?? [], now);
+  const milestones = judgeDecisions(judged, project.milestones, project.plan?.status === "approved" ? rows : [], approvedDecisionsOf(project), brief.decisions ?? [], rows, before ?? [], now);
   const hasCriteriaEvidence = (m: ProjectMilestone): boolean => (m.criteriaFacts?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0;
   const retired = milestones
     .filter((m, i) => {
@@ -1712,19 +1763,19 @@ function retireOrphans(
 function judgeDecisions(
   milestones: readonly ProjectMilestone[],
   original: readonly ProjectMilestone[],
-  rows: readonly AssignmentRow[],
+  approvedRows: readonly AssignmentRow[],
   before: readonly ProjectBriefDecision[],
   after: readonly ProjectBriefDecision[],
+  rows: readonly AssignmentRow[],
   criteria: readonly ProjectCriterion[],
   now: number,
 ): ProjectMilestone[] {
   const textNow = new Map(after.map((d) => [d.id, workText(d.text)]));
-  const changed = before.filter((d) => textNow.has(d.id) && textNow.get(d.id) !== workText(d.text));
-  if (changed.length === 0) return [...milestones];
   return milestones.map((m, i) => {
     if (m !== original[i]) return m;
-    const ids = new Set(rows.filter((r) => r.milestoneId === m.id).flatMap((r) => r.decisions ?? []));
-    const cited = changed.filter((d) => ids.has(d.id));
+    // The snapshot of what its tasks cited; a record from before it reads the approved plan only (`approvedRows`, empty for a draft).
+    const cited = (m.decisionsCited ?? citedIn(approvedRows, m.id, before))
+      .filter((d) => textNow.has(d.id) && textNow.get(d.id) !== workText(d.text));
     if (cited.length === 0 || (!hasEvidence(m) && !VERDICT.has(m.state) && m.state !== "in_progress")) return m;
     return supersede(m, milestoneTasks(rows, m.id), now, "brief", criteria, cited);
   });
@@ -1860,6 +1911,7 @@ function replannedMilestone(
     ...(keep && old.attachments !== undefined ? { attachments: old.attachments } : {}),
     ...(keep && old.criteriaFacts !== undefined ? { criteriaFacts: old.criteriaFacts } : {}),
     ...(old.history === undefined ? {} : { history: old.history }),
+    ...(old.decisionsCited === undefined ? {} : { decisionsCited: old.decisionsCited }),
     updatedAt: now,
   };
 }
@@ -1882,7 +1934,8 @@ function planUpdate(
   if (!Array.isArray(update.rows) || update.rows.length === 0) return invalid("the plan needs at least one task");
   if (update.rows.length > PROJECT_LIMITS.rows) return invalid(`at most ${PROJECT_LIMITS.rows} tasks; merge small tasks`);
   if (update.detail !== "compact" && update.detail !== "full") return invalid("detail must be compact or full");
-  const previous = new Map(project.milestones.map((m) => [m.id, m]));
+  // Issue #112: what the approved plan cited, before this draft replaces its rows.
+  const previous = new Map(snapshotCitations(project, false).map((m) => [m.id, m]));
   const drafted: Array<{ id: string; title: string; kind: MilestoneKind }> = [];
   for (const [i, m] of update.milestones.entries()) {
     const id = cleanId(m?.id);
@@ -1971,7 +2024,9 @@ function milestoneUpdate(
     const runId = cleanId(update.runId);
     if (runId === null) return invalid("a run id is a short id without spaces");
     const runIds = current.runIds.includes(runId) ? current.runIds : [...current.runIds, runId].slice(-PROJECT_LIMITS.runIds);
-    milestones[index] = { ...current, state: "in_progress", runIds, updatedAt: now };
+    const run: ProjectMilestone = { ...current, state: "in_progress", runIds, updatedAt: now };
+    // Issue #112: a record from before the snapshot takes the approved plan's citations at its run.
+    milestones[index] = current.decisionsCited === undefined ? withCited(run, citedIn(project.plan.rows, current.id, approvedDecisionsOf(project))) : run;
     return { ok: true, project: { ...project, milestones } };
   }
   // One result at the person at a time (issue #74): another report would
@@ -2231,7 +2286,8 @@ export function applyProjectDecision(
             // Every surface draws the warning from the view it approves from.
             ...(project.plan!.draftedAfterUntrusted ? { approvedWithUntrustedWarning: true as const } : {}),
           },
-          milestones: approveNext(project.milestones, now),
+          // Issue #112: the milestones that will run take this plan's citations.
+          milestones: approveNext(snapshotCitations({ ...project, plan: { ...project.plan!, status: "approved" } }, true), now),
           // An unreviewed result (an older store) goes to the person first.
           gate: (() => {
             const waiting = project.milestones.find(unreviewed);
