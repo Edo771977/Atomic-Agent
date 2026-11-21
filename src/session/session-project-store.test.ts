@@ -241,3 +241,27 @@ describe("records are bound to the project folder (issue #109 review)", () => {
     expect(b.ok && b.record?.state.gate).toEqual({ kind: "none" });
   });
 });
+
+describe("an incognito chat leaves nothing behind (issue #109 review, ATO-586)", () => {
+  it("keeps its project in the session and never writes the folder store, the registry or a record", async () => {
+    const { existsSync } = await import("node:fs");
+    const { projectRegistryPath } = await import("./project-registry.js");
+    const incognito = { since: 1, owner: "pid:1" };
+    const p = normalizeProject(fixture.session.project)!;
+    const chat: SessionState = { ...createEmptySessionState({ id: "inc", workingDir: folder }), incognito, project: p };
+    expect(projects.load(chat)).toBe(chat);
+    const committed = projects.commit(chat, { ...p, gate: { kind: "none" } });
+    expect(committed.ok && committed.session.project?.gate).toEqual({ kind: "none" });
+    expect(committed.ok && committed.session.projectRef).toBeUndefined();
+    const fresh: SessionState = { ...createEmptySessionState({ id: "inc2", workingDir: folder }), incognito };
+    const brief = projects.commit(fresh, p);
+    expect(brief.ok && brief.session.projectRef).toBeUndefined();
+    expect(existsSync(projectFilePath(folder))).toBe(false);
+    expect(existsSync(projectRegistryPath(stateDir))).toBe(false);
+    expect(existsSync(join(stateDir, "project-decisions"))).toBe(false);
+    // A folder that holds a project does not bind an incognito chat either.
+    const other = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
+    other.commit(createEmptySessionState({ id: "plain", workingDir: folder }), p);
+    expect(projects.prepareTurn(fresh, true).project).toBeUndefined();
+  });
+});
