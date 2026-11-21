@@ -44,6 +44,14 @@ describe("renderProjectDigest (issue #39)", () => {
     expect(text).toMatch(/do not delegate/i);
   });
 
+  it("lists the brief's decisions with the person's status, to cite on plan tasks (issue #112)", () => {
+    const withDecisions: ProjectUpdate = { kind: "brief", brief: { what: "A snake game", users: "Kids", how: "HTML", successCriteria: ["Runs offline"], decisions: [{ id: "d1", text: "No new dependencies" }, { id: "d2", text: "Italian UI" }] }, draftedAfterUntrusted: false };
+    const p = { ...decide(up(undefined, withDecisions), "approve"), decisionStatus: { d2: "deferred" as const } };
+    const text = renderProjectDigest(p)!;
+    expect(text).toContain("decisions (cite each active one in a plan task's `decisions`):\n- d1: No new dependencies\n- d2: Italian UI (deferred by the person)");
+    expect(renderProjectDigest(up(undefined, brief))).not.toContain("decisions");
+  });
+
   it("an approved brief without a plan asks for the plan", () => {
     const text = renderProjectDigest(decide(up(undefined, brief), "approve"))!;
     expect(text).toMatch(/next: draft the plan with project\.plan/);

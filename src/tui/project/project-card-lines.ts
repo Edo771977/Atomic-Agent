@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -137,6 +137,11 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       }
     }
     if (brief.status === "draft" && view.gate.kind !== "brief") text("(brief still a draft)", "muted");
+  }
+  // Issue #112: the brief's decisions, with the person's status and the tasks citing each.
+  if ((view.decisions ?? []).length > 0) {
+    text("Decisions:", "muted");
+    for (const d of view.decisions!) text(`• ${decisionLine(d)}`, d.status === "active" && d.citedBy.length === 0 && view.gate.kind === "plan" ? "warn" : "plain", 3);
   }
 
   const rows = view.plan?.rows ?? [];

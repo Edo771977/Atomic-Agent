@@ -260,6 +260,8 @@ export const WORKER_REPLY_RULE = [
 export interface WorkerProjectBrief {
   what: string;
   successCriteria: readonly string[];
+  /** Issue #112: the active decisions, each `<id>: <text>`; absent or empty: no block. */
+  decisions?: readonly string[];
 }
 
 export function renderWorkerBrief(
@@ -298,6 +300,9 @@ export function renderWorkerBrief(
     lines.push(``, `PROJECT: ${options.project.what}`);
     if (options.project.successCriteria.length > 0) {
       lines.push(`SUCCESS CRITERIA (your task serves these):`, ...options.project.successCriteria.map((c) => `- ${c}`));
+    }
+    if ((options.project.decisions ?? []).length > 0) {
+      lines.push(`DECISIONS (how the project must be done; follow them):`, ...options.project.decisions!.map((d) => `- ${d}`));
     }
   }
   if (options.contract) {

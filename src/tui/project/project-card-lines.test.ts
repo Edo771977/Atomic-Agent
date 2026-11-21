@@ -143,4 +143,17 @@ describe("project resume line", () => {
     expect(projectResumeLine(fixtureProjectGateView({ kind: "plan" }))).toContain("next: your approval of the plan (/plan)");
     expect(projectResumeLine(fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "cancelled" } }))).toBeNull();
   });
+
+  it("lists the brief's decisions with status and citing tasks, and offers defer (issue #112)", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { decisions: [
+      { id: "d1", text: "Use SQLite", status: "active", citedBy: ["t1"] },
+      { id: "d2", text: "No new dependencies", status: "active", citedBy: [] },
+      { id: "d3", text: "Formal tone", status: "deferred", citedBy: [] },
+    ] });
+    const out = text(card(view));
+    expect(out).toContain("d1 Use SQLite (active; cited by t1)");
+    expect(out).toContain("d2 No new dependencies (active; cited by no task)");
+    expect(out).toContain("d3 Formal tone (deferred)");
+    expect(out).toContain(" d defer d2 ");
+  });
 });

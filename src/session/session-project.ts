@@ -25,7 +25,7 @@ export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
-import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult } from "../tools/fusion/plan-checks.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult, type PlanDecision } from "../tools/fusion/plan-checks.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -77,6 +77,9 @@ export interface ProjectBriefDecision {
 /** A decision's status (issue #112); absent from {@link ProjectState.decisionStatus} means `active`. */
 export type ProjectDecisionStatus = "active" | "informational" | "deferred" | "retired";
 export const PROJECT_DECISION_STATUSES: readonly ProjectDecisionStatus[] = ["active", "informational", "deferred", "retired"];
+/** What the person may set at the plan gate (`ProjectEdits.decisionStatus`); `retired` is not one. */
+export type PersonDecisionStatus = Exclude<ProjectDecisionStatus, "retired">;
+export const PERSON_DECISION_STATUSES: readonly PersonDecisionStatus[] = ["active", "informational", "deferred"];
 
 /** Who proposed a backlog item (issue #111). */
 export type ProjectBacklogSource = "person" | "director" | "worker" | "reviewer";
@@ -230,6 +233,17 @@ export interface ProjectMilestone {
    * evidence here and starts it over as `planned`.
    */
   history?: ProjectMilestoneRevision[];
+  /**
+   * The approved brief's decisions this milestone's tasks cited, with
+   * their text, as the approved plan it runs under stood (issue #112):
+   * set when a plan is approved (for every milestone not done or
+   * reviewed), at a run when missing, and from the approved plan before
+   * a draft replaces it. The runtime's: a later draft or a file edit
+   * never changes it. A brief approval that changes one's text starts
+   * the milestone over; a done or reviewed milestone's citations count
+   * for the plan's decision coverage only through it.
+   */
+  decisionsCited?: ProjectBriefDecision[];
   updatedAt: number;
 }
 
@@ -274,8 +288,14 @@ export interface ProjectMilestoneRevision {
    */
   unknownCriteria?: string[];
   /**
+   * The brief's decisions the milestone's tasks cited whose text a brief
+   * approval changed (issue #112), with their text at the time: the old
+   * work honoured the decision as it then read.
+   */
+  decisions?: ProjectBriefDecision[];
+  /**
    * `plan`: a re-plan changed the work; `brief`: the text of a criterion
-   * its evidence cites changed; `brief-removed` (issue #80): cited
+   * its evidence cites changed, or of a decision its tasks cite (issue #112); `brief-removed` (issue #80): cited
    * criteria were removed, and this entry holds only their facts and the
    * count of their pictures; the milestone kept its state and the rest.
    */
@@ -388,6 +408,14 @@ export interface ProjectState {
    */
   approvedCriteria?: ProjectCriterion[];
   /**
+   * The decisions of the last brief the person approved (issue #112),
+   * like {@link approvedCriteria}: what the plan must cite and what a
+   * brief approval compares a changed decision against. Record only;
+   * absent before the first approval with decisions (an older store
+   * with an approved brief reads its decisions).
+   */
+  approvedDecisions?: ProjectBriefDecision[];
+  /**
    * How many times the person approved this project's brief (issue #87):
    * 1 means the brief is the one first approved, with no later approval.
    * Absent in a store from before the count (unknown). A run fact with
@@ -451,6 +479,72 @@ export interface ProjectBriefDraft {
   decisions?: ReadonlyArray<ProjectBriefDecision>;
   /** Ids are given or assigned ({@link ProjectCriterion}). */
   successCriteria: ReadonlyArray<ProjectCriterionInput>;
+}
+
+/**
+ * The last approved brief's decisions (issue #112): recorded, or an
+ * older store's approved brief's own; empty without an approval.
+ */
+export function approvedDecisionsOf(project: Pick<ProjectState, "approvedDecisions" | "brief">): ProjectBriefDecision[] {
+  return project.approvedDecisions ?? (project.brief?.status === "approved" ? project.brief.decisions ?? [] : []);
+}
+
+/** The decisions a milestone's tasks cite in `rows`, among `decisions`, in brief order (issue #112). */
+function citedIn(rows: readonly AssignmentRow[], milestoneId: string, decisions: readonly ProjectBriefDecision[]): ProjectBriefDecision[] {
+  const ids = new Set(rows.filter((r) => r.milestoneId === milestoneId).flatMap((r) => r.decisions ?? []));
+  return decisions.filter((d) => ids.has(d.id)).map((d) => ({ id: d.id, text: d.text }));
+}
+
+/** `m` with `cited` as its {@link ProjectMilestone.decisionsCited} (absent when empty). */
+function withCited(m: ProjectMilestone, cited: readonly ProjectBriefDecision[]): ProjectMilestone {
+  const { decisionsCited: _old, ...rest } = m;
+  return cited.length === 0 ? rest : { ...rest, decisionsCited: [...cited] };
+}
+
+/**
+ * Snapshots of what each milestone's tasks cite in the approved plan
+ * (issue #112). `all`: every milestone not done or reviewed takes the
+ * plan's citations (the plan was just approved); otherwise only those
+ * with none recorded (a record from before the snapshot, before a draft
+ * replaces the approved rows), and only while the plan is approved: a
+ * draft's rows never count.
+ */
+function snapshotCitations(project: ProjectState, all: boolean): ProjectMilestone[] {
+  const plan = project.plan;
+  if (plan === undefined || plan.status !== "approved") return project.milestones;
+  const decisions = approvedDecisionsOf(project);
+  if (decisions.length === 0 && !all) return project.milestones;
+  return project.milestones.map((m) => {
+    const finished = m.state === "done" || m.state === "reviewed";
+    // A done or reviewed milestone keeps what it ran under; the new plan's rows never speak for it.
+    if (all ? finished : m.decisionsCited !== undefined) return m;
+    const cited = citedIn(plan.rows, m.id, decisions);
+    return cited.length === 0 && m.decisionsCited === undefined ? m : withCited(m, cited);
+  });
+}
+
+/** A decision's status: the person's call in the record, `active` when none (issue #112). */
+export function decisionStatusOf(project: Pick<ProjectState, "decisionStatus">, id: string): ProjectDecisionStatus {
+  return project.decisionStatus?.[id] ?? "active";
+}
+
+/** The approved decisions with their status, in brief order: what the plan check reads (issue #112). */
+export function planDecisionsOf(project: Pick<ProjectState, "approvedDecisions" | "brief" | "decisionStatus">): PlanDecision[] {
+  return approvedDecisionsOf(project).map((d) => ({ id: d.id, text: d.text, status: decisionStatusOf(project, d.id) }));
+}
+
+/**
+ * Each done or reviewed milestone with the decision ids its tasks cited
+ * when it ran (issue #112, {@link ProjectMilestone.decisionsCited}): what
+ * the plan's decision coverage counts for it, whatever its rows say now.
+ */
+export function finishedCitationsOf(milestones: readonly ProjectMilestone[]): Map<string, string[]> {
+  return new Map(milestones.filter((m) => m.state === "done" || m.state === "reviewed").map((m) => [m.id, (m.decisionsCited ?? []).map((d) => d.id)]));
+}
+
+/** The approved decisions still `active` (issue #112): what workers and reviewers are told. */
+export function activeDecisionsOf(project: Pick<ProjectState, "approvedDecisions" | "brief" | "decisionStatus">): ProjectBriefDecision[] {
+  return approvedDecisionsOf(project).filter((d) => decisionStatusOf(project, d.id) === "active");
 }
 
 /** A brief's criteria by id, in brief order; empty without a brief. */
@@ -550,6 +644,14 @@ export interface ProjectEdits {
   brief?: Partial<ProjectBriefDraft>;
   /** Plan gate: per task, a new worker and/or reviewer (null: no review). */
   rows?: ReadonlyArray<{ taskId: string; worker?: string; reviewer?: string | null }>;
+  /**
+   * Plan gate (issue #112): the person's status for decisions of the
+   * approved brief, by id. `deferred` or `informational` takes one out of
+   * the plan's decision coverage; `active` puts it back. Only the person
+   * sets these (no director update carries them); they are recorded in
+   * the project's record, never in `project.json`.
+   */
+  decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
   /**
    * Milestone gate: what is wrong with the result. The milestone goes
    * back to `approved` for another run, the note recorded on it
@@ -1153,6 +1255,10 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
     ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
+    ...(() => {
+      const cited = cleanDecisions(raw.decisionsCited, "lenient");
+      return Array.isArray(cited) ? { decisionsCited: cited } : {};
+    })(),
     updatedAt: raw.updatedAt,
   };
 }
@@ -1191,6 +1297,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
     criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
   }
+  const decisions = cleanDecisions(raw.decisions, "lenient");
   return {
     title: clip(raw.title, PROJECT_LIMITS.title),
     kind: raw.kind as MilestoneKind,
@@ -1203,6 +1310,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(unknownCriteria.length === 0 ? {} : { unknownCriteria }),
+    ...(Array.isArray(decisions) ? { decisions } : {}),
     cause: raw.cause === "brief" || raw.cause === "brief-removed" ? raw.cause : "plan",
     supersededAt: raw.supersededAt as number,
   };
@@ -1308,12 +1416,15 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   // Extras: a malformed list reads as absent (the approved brief's own criteria stand in).
   const stored = raw.approvedCriteria === undefined ? null : cleanCriteria(raw.approvedCriteria, "lenient");
   const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
+  const storedDecisions = cleanDecisions(raw.approvedDecisions, "lenient");
+  const approvedDecisions = Array.isArray(storedDecisions) ? storedDecisions : undefined;
+  const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
   if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
-    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? []);
+    const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], {}, decisions, finishedCitationsOf(milestones));
   }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
-  const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
   return {
     ...(brief === undefined ? {} : { brief }),
@@ -1321,6 +1432,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     milestones,
     gate,
     ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+    ...(approvedDecisions === undefined ? {} : { approvedDecisions }),
     ...(isCount(raw.briefApprovals) && (raw.briefApprovals as number) > 0 ? { briefApprovals: raw.briefApprovals as number } : {}),
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
@@ -1387,7 +1499,10 @@ function briefUpdate(
   };
   // Criteria are judged when the person approves the brief (issue #80), not per draft.
   const approvedCriteria = base === undefined ? undefined : approvedCriteriaOf(base);
-  const milestones = (base?.milestones ?? []).map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
+  const approvedDecisions = base === undefined ? [] : approvedDecisionsOf(base);
+  // Issue #112: what the approved plan cited, before the plan turns into a draft.
+  const snapshotted = base === undefined ? [] : snapshotCitations(base, false);
+  const milestones = snapshotted.map((m) => (m.state === "approved" ? { ...m, state: "planned" as const, updatedAt: now } : m));
   // The plan was approved against the old brief: back to a draft, and
   // milestones not started yet wait for its approval again.
   const plan: ProjectPlan | undefined =
@@ -1407,6 +1522,7 @@ function briefUpdate(
       milestones,
       gate: { kind: "brief" },
       ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
+      ...(approvedDecisions.length === 0 ? {} : { approvedDecisions }),
       ...(base?.briefApprovals === undefined ? {} : { briefApprovals: base.briefApprovals }),
       ...floorOf(project),
       // The backlog is the folder's: it outlives a cancel; decision statuses belong to the project's decisions.
@@ -1506,6 +1622,7 @@ function supersede(
   now: number,
   cause: "plan" | "brief",
   criteria: readonly ProjectCriterion[],
+  decisions: readonly ProjectBriefDecision[] = [],
 ): ProjectMilestone {
   const history = [...(old.history ?? [])];
   if (hasEvidence(old)) {
@@ -1522,6 +1639,7 @@ function supersede(
       ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
       ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
       ...(cited.length === 0 ? {} : { criteria: cited }),
+      ...(decisions.length === 0 ? {} : { decisions: decisions.map((d) => ({ id: d.id, text: d.text })) }),
       cause,
       supersededAt: now,
     });
@@ -1579,10 +1697,11 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
   const brief = project.brief!;
   const before = approvedCriteriaOf(project);
   const rows = project.plan?.rows ?? [];
-  const milestones =
+  const judged =
     before === undefined
       ? retireOrphans(project.milestones, rows, [], now)
       : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
+  const milestones = judgeDecisions(judged, project.milestones, project.plan?.status === "approved" ? rows : [], approvedDecisionsOf(project), brief.decisions ?? [], rows, before ?? [], now);
   const hasCriteriaEvidence = (m: ProjectMilestone): boolean => (m.criteriaFacts?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0;
   const retired = milestones
     .filter((m, i) => {
@@ -1602,15 +1721,27 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
           const ids = new Set(milestones.map((m) => m.id));
           return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids), ...mergeRetired(project.plan, retired, ids) };
         })();
+  const approvedDecisions = (brief.decisions ?? []).map((d) => ({ ...d }));
+  // The person's status belongs to the decision they set it on (#80's id-reuse rule):
+  // it goes when the id leaves the brief or its text changes beyond case and whitespace.
+  const textBefore = new Map(approvedDecisionsOf(project).map((d) => [d.id, workText(d.text)]));
+  const kept = Object.entries(project.decisionStatus ?? {}).filter(([id]) => {
+    const now = approvedDecisions.find((d) => d.id === id);
+    return now !== undefined && textBefore.get(id) === workText(now.text);
+  });
+  const decisionStatus = kept.length === 0 ? undefined : Object.fromEntries(kept) as Record<string, ProjectDecisionStatus>;
   if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria) };
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
   }
+  const { approvedDecisions: _before, decisionStatus: _status, ...rest } = project;
   return {
-    ...project,
+    ...rest,
     brief: { ...brief, status: "approved", approvedAt: now },
     ...(plan === undefined ? {} : { plan }),
     milestones,
     approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
+    ...(approvedDecisions.length === 0 ? {} : { approvedDecisions }),
+    ...(decisionStatus === undefined ? {} : { decisionStatus }),
     // A store from before the count that had an approved brief: at least two now.
     briefApprovals: project.briefApprovals !== undefined ? project.briefApprovals + 1 : before === undefined ? 1 : 2,
     gate: { kind: "none" },
@@ -1635,6 +1766,36 @@ function retireOrphans(
     const cited = [...(m.criteriaFacts ?? []).map((f) => f.id), ...(m.attachments ?? []).flatMap((a) => a.criteria ?? [])];
     const orphans = new Set(cited.filter((id) => !known.has(id)));
     return orphans.size === 0 ? m : retireCriteria(m, orphans, milestoneTasks(rows, m.id), [], now);
+  });
+}
+
+/**
+ * Issue #112, the criteria rule (#81, #87) for decisions: a decision whose
+ * text the approved brief changed (beyond case and whitespace) voids the
+ * work of every milestone whose plan tasks cite it. A milestone with a
+ * verdict, a run or evidence starts over as `planned`, what it held in
+ * `history` (cause `brief`, the decisions with their old text); one a
+ * criterion change already started over is left as it is. A removed
+ * decision resets nothing (like a removed criterion).
+ */
+function judgeDecisions(
+  milestones: readonly ProjectMilestone[],
+  original: readonly ProjectMilestone[],
+  approvedRows: readonly AssignmentRow[],
+  before: readonly ProjectBriefDecision[],
+  after: readonly ProjectBriefDecision[],
+  rows: readonly AssignmentRow[],
+  criteria: readonly ProjectCriterion[],
+  now: number,
+): ProjectMilestone[] {
+  const textNow = new Map(after.map((d) => [d.id, workText(d.text)]));
+  return milestones.map((m, i) => {
+    if (m !== original[i]) return m;
+    // The snapshot of what its tasks cited; a record from before it reads the approved plan only (`approvedRows`, empty for a draft).
+    const cited = (m.decisionsCited ?? citedIn(approvedRows, m.id, before))
+      .filter((d) => textNow.has(d.id) && textNow.get(d.id) !== workText(d.text));
+    if (cited.length === 0 || (!hasEvidence(m) && !VERDICT.has(m.state) && m.state !== "in_progress")) return m;
+    return supersede(m, milestoneTasks(rows, m.id), now, "brief", criteria, cited);
   });
 }
 
@@ -1768,6 +1929,7 @@ function replannedMilestone(
     ...(keep && old.attachments !== undefined ? { attachments: old.attachments } : {}),
     ...(keep && old.criteriaFacts !== undefined ? { criteriaFacts: old.criteriaFacts } : {}),
     ...(old.history === undefined ? {} : { history: old.history }),
+    ...(old.decisionsCited === undefined ? {} : { decisionsCited: old.decisionsCited }),
     updatedAt: now,
   };
 }
@@ -1790,7 +1952,8 @@ function planUpdate(
   if (!Array.isArray(update.rows) || update.rows.length === 0) return invalid("the plan needs at least one task");
   if (update.rows.length > PROJECT_LIMITS.rows) return invalid(`at most ${PROJECT_LIMITS.rows} tasks; merge small tasks`);
   if (update.detail !== "compact" && update.detail !== "full") return invalid("detail must be compact or full");
-  const previous = new Map(project.milestones.map((m) => [m.id, m]));
+  // Issue #112: what the approved plan cited, before this draft replaces its rows.
+  const previous = new Map(snapshotCitations(project, false).map((m) => [m.id, m]));
   const drafted: Array<{ id: string; title: string; kind: MilestoneKind }> = [];
   for (const [i, m] of update.milestones.entries()) {
     const id = cleanId(m?.id);
@@ -1824,7 +1987,7 @@ function planUpdate(
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, {}, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -1841,6 +2004,7 @@ function planUpdate(
       milestones,
       gate: { kind: "plan" },
       ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
+      ...(project.approvedDecisions === undefined ? {} : { approvedDecisions: project.approvedDecisions }),
       ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
       ...floorOf(project),
       ...personCalls(project, true),
@@ -1878,7 +2042,9 @@ function milestoneUpdate(
     const runId = cleanId(update.runId);
     if (runId === null) return invalid("a run id is a short id without spaces");
     const runIds = current.runIds.includes(runId) ? current.runIds : [...current.runIds, runId].slice(-PROJECT_LIMITS.runIds);
-    milestones[index] = { ...current, state: "in_progress", runIds, updatedAt: now };
+    const run: ProjectMilestone = { ...current, state: "in_progress", runIds, updatedAt: now };
+    // Issue #112: a record from before the snapshot takes the approved plan's citations at its run.
+    milestones[index] = current.decisionsCited === undefined ? withCited(run, citedIn(project.plan.rows, current.id, approvedDecisionsOf(project))) : run;
     return { ok: true, project: { ...project, milestones } };
   }
   // One result at the person at a time (issue #74): another report would
@@ -2083,6 +2249,10 @@ export function applyProjectDecision(
     };
   }
 
+  if (decision.verdict === "edit" && decision.edits?.decisionStatus !== undefined && gate.kind !== "plan") {
+    return refuse({ code: "invalid", message: "A decision's status is set at the plan gate." });
+  }
+
   if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
     // The person's call over open reviews (issue #98): with a note, the
     // result is approved as done, the blocks and the note kept on it.
@@ -2119,7 +2289,7 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
-      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks);
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       return {
@@ -2134,7 +2304,8 @@ export function applyProjectDecision(
             // Every surface draws the warning from the view it approves from.
             ...(project.plan!.draftedAfterUntrusted ? { approvedWithUntrustedWarning: true as const } : {}),
           },
-          milestones: approveNext(project.milestones, now),
+          // Issue #112: the milestones that will run take this plan's citations.
+          milestones: approveNext(snapshotCitations({ ...project, plan: { ...project.plan!, status: "approved" } }, true), now),
           // An unreviewed result (an older store) goes to the person first.
           gate: (() => {
             const waiting = project.milestones.find(unreviewed);
@@ -2228,7 +2399,25 @@ export function applyProjectDecision(
   if (gate.kind === "plan") {
     const plan = project.plan!;
     let rows: AssignmentRow[] | string;
-    if (decision.verdict === "edit") {
+    const statusEdit = decision.verdict === "edit" ? decision.edits?.decisionStatus : undefined;
+    let decisionStatus = project.decisionStatus;
+    if (statusEdit !== undefined) {
+      const known = new Set(approvedDecisionsOf(project).map((d) => d.id));
+      const next: Record<string, ProjectDecisionStatus> = { ...(project.decisionStatus ?? {}) };
+      for (const [id, status] of Object.entries(statusEdit)) {
+        if (!known.has(id)) return refuse({ code: "invalid", message: `the approved brief has no decision ${id}` });
+        if (!(PERSON_DECISION_STATUSES as readonly string[]).includes(status)) {
+          return refuse({ code: "invalid", message: `decision ${id}: status must be one of ${PERSON_DECISION_STATUSES.join(", ")}` });
+        }
+        if (status === "active") delete next[id];
+        else next[id] = status;
+      }
+      decisionStatus = Object.keys(next).length === 0 ? undefined : next;
+    }
+    if (statusEdit !== undefined && (decision.edits?.rows ?? []).length === 0) {
+      // Only the decisions' status changed: the rows stay as they are.
+      rows = plan.rows.map((r) => ({ ...r }));
+    } else if (decision.verdict === "edit") {
       rows = editRows(plan, decision.edits?.rows ?? [], options.replan);
     } else {
       if (options.replan === undefined) {
@@ -2244,11 +2433,20 @@ export function applyProjectDecision(
       if (read === null) return refuse({ code: "invalid", message: "the re-estimated plan has a malformed task" });
       checked.push(read);
     }
+    const { decisionStatus: _status, ...rest } = project;
+    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }) };
     return {
       ok: true,
       project: {
-        ...project,
-        plan: { ...withoutApproval(plan), rows: checked, totals: planTotals(checked), status: "draft", version: plan.version + 1 },
+        ...next,
+        plan: {
+          ...withoutApproval(plan),
+          rows: checked,
+          totals: planTotals(checked),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
+          status: "draft",
+          version: plan.version + 1,
+        },
       },
     };
   }

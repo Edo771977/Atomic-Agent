@@ -127,6 +127,16 @@ describe("renderWorkerBrief — the project (issue #39)", () => {
     expect(brief.indexOf("PROJECT:")).toBeLessThan(brief.indexOf("RULES:"));
   });
 
+  it("lists the project's active decisions after the criteria (issue #112)", () => {
+    const brief = renderWorkerBrief(TASK, {
+      workingDir: "/repo",
+      project: { what: "A notes app", successCriteria: ["Stores notes"], decisions: ["d1: Use SQLite, not Postgres", "d2: No new dependencies"] },
+    });
+    expect(brief).toContain("SUCCESS CRITERIA (your task serves these):\n- Stores notes\nDECISIONS (how the project must be done; follow them):\n- d1: Use SQLite, not Postgres\n- d2: No new dependencies");
+    expect(brief.indexOf("DECISIONS")).toBeLessThan(brief.indexOf("RULES:"));
+    expect(renderWorkerBrief(TASK, { workingDir: "/repo", project: { what: "x", successCriteria: [] } })).not.toContain("DECISIONS");
+  });
+
   it("without a project the brief is unchanged", () => {
     expect(renderWorkerBrief(TASK, { workingDir: "/repo" })).not.toContain("PROJECT:");
   });

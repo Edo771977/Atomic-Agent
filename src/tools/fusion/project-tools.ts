@@ -6,7 +6,11 @@ import {
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   PROJECT_DELIVERABLES,
+  activeDecisionsOf,
+  applyProjectUpdate,
+  finishedCitationsOf,
   normalizeCriterionId,
+  planDecisionsOf,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
@@ -466,7 +470,17 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
-      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []));
+      const update: ProjectUpdate = {
+        kind: "plan",
+        milestones: parsed.plan.milestones,
+        rows,
+        detail,
+        draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
+      };
+      // The milestones as this draft would leave them (issue #112): a finished one counts only for what it ran under.
+      const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
+      const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
+      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), {}, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [
@@ -479,13 +493,6 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         ...planChecks.map(planCheckHint),
         AWAIT_PERSON,
       ];
-      const update: ProjectUpdate = {
-        kind: "plan",
-        milestones: parsed.plan.milestones,
-        rows,
-        detail,
-        draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
-      };
       // Issue #77: say which results stop counting, so the reply can tell the person.
       const resets = projectVerdictResets(ctx.project, update);
       if (resets.length > 0) {
@@ -596,6 +603,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
+      }
+      // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
+      const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
+      const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));
+      if (decisions.length > 0) {
+        const line = `Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): ${decisions.map((d) => `${d.id} (${d.text})`).join(", ")}.`;
+        report = { ...report, summary: `${report.summary}\n${line}` };
+        lines.push(line);
       }
       return accepted(
         PROJECT_MILESTONE_TOOL,

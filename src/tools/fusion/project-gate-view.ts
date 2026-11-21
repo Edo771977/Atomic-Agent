@@ -1,6 +1,9 @@
 import {
   allowedProjectVerdicts,
+  decisionStatusOf,
+  finishedCitationsOf,
   gateVersion,
+  planDecisionsOf,
   projectExpectation,
   type ProjectState,
 } from "../../session/session-project.js";
@@ -97,7 +100,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     }
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
-    hints.push(...evaluatePlanChecks(plan.rows, project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []), input.planChecks).map(planCheckHint));
+    hints.push(...evaluatePlanChecks(plan.rows, project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []), input.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones)).map(planCheckHint));
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
@@ -118,8 +121,15 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
+  const decisions = (project.brief?.decisions ?? []).map((d) => ({
+    id: d.id,
+    text: d.text,
+    status: decisionStatusOf(project, d.id),
+    citedBy: (plan?.rows ?? []).filter((r) => (r.decisions ?? []).includes(d.id)).map((r) => r.taskId),
+  }));
   return {
     ...(changedOutside ? { changedOutside: true as const } : {}),
+    ...(decisions.length === 0 ? {} : { decisions }),
     schema: 1,
     sessionId: input.sessionId,
     gate: project.gate,
