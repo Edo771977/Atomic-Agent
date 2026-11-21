@@ -34,7 +34,7 @@ describe("the independent acceptance test", () => {
     expect(r.failed).toEqual([]);
     expect(r.exitCode).toBe(0);
     expect(r.fail).toBe(0);
-    expect(r.pass).toBe(13);
+    expect(r.pass).toBe(17);
   });
 
   // Issue #100: the live program lost its blank-line handling and still passed the 10 cases.
@@ -46,6 +46,22 @@ describe("the independent acceptance test", () => {
       "several trailing blank lines are skipped",
       "an invalid row after a blank line names its physical line number",
     ]);
+  });
+
+  // Issue #106: the final program refused `X,9007199254740993,0`, whose total is exactly zero.
+  it("fails a program that limits each number instead of the total on the zero-total cases, and only there", () => {
+    const r = acceptance("per-number-limit-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual([
+      "a zero price makes a huge quantity a zero total",
+      "a zero quantity makes a huge price a zero total",
+    ]);
+  });
+
+  it("fails an overflow check with >= on the total exactly at the limit, and only there", () => {
+    const r = acceptance("overflow-off-by-one-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual(["a total exactly at Number.MAX_SAFE_INTEGER is accepted"]);
   });
 
   it("fails a program that numbers lines without the blank ones on the physical line number", () => {
@@ -86,7 +102,7 @@ describe("the task prompt", () => {
   it("is one line, since `atomic-agent run` takes each piped line as a turn, and names the interface", () => {
     const text = readFileSync(PROMPT, "utf8");
     expect(text.trimEnd().split(/\r?\n/)).toHaveLength(1);
-    for (const words of ["Blank lines", "physical line number", "Invalid row N", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
+    for (const words of ["Blank lines", "physical line number", "Invalid row N", "accumulated total", "any number of digits", "exactly zero", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
       expect(text).toContain(words);
     }
   });
@@ -156,7 +172,7 @@ describe("the runner's parsing", () => {
     expect(report.run).toMatchObject({ exitCode: 3, printedSession: "sess_95e2e7f1" });
     expect(report.run.receiptLines).toHaveLength(3);
     expect(report.session).toMatchObject({ id: "sess_95e2e7f1", status: "active", workingDir: cwd });
-    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 13, fail: 0 });
+    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 17, fail: 0 });
     expect(report.tests.agent).toMatchObject({ exitCode: 0, pass: 1, fail: 0 });
     expect(report.tests.passed).toBe(true);
     expect(report.passed).toBe(false);
