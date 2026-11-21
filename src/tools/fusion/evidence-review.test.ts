@@ -20,6 +20,7 @@ import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js"
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
 import { FusionRunStore } from "./run-checkpoint.js";
+import { writeRunCriteriaFacts } from "./run-criteria.js";
 import { getConfig } from "../../config/index.js";
 import { runChecks as runVerifyChecks } from "../verify/index.js";
 import { buildProjectTools, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
@@ -116,9 +117,13 @@ export const WORKER_SPEC = { kind: "command", cmd: "node --test sales.test.cjs" 
 const planRow = (taskId: string): AssignmentRow => ({
   taskId, title: taskId, milestoneId: "m1", worker: "local:small", reviewer: "cli-b:model-r", reason: "preset", basis: "preset", samples: 0, estCostUsd: null, estMs: null,
 });
-export const projectOf = (taskIds: readonly string[]): ProjectState => {
+export const projectOf = (taskIds: readonly string[], milestones = 1): ProjectState => {
   const brief: ProjectUpdate = { kind: "brief", brief: { what: "CSV sales report", users: "ops", how: "node", successCriteria: CRITERIA }, draftedAfterUntrusted: false };
-  const plan: ProjectUpdate = { kind: "plan", milestones: [{ id: "m1", title: "CLI", kind: "base" }], rows: taskIds.map(planRow), detail: "compact" };
+  const plan: ProjectUpdate = {
+    kind: "plan",
+    milestones: [{ id: "m1", title: "CLI", kind: "base" }, ...(milestones > 1 ? [{ id: "m2", title: "Report", kind: "logic" as const }] : [])],
+    rows: taskIds.map(planRow), detail: "compact",
+  };
   return approve(up(approve(up(undefined, brief)), plan));
 };
 const ev = (event: Record<string, unknown>) => ({ type: "llm_event", event: { batchIndex: 0, batchSize: 1, ...event } }) as never;
@@ -130,7 +135,7 @@ export const gateChecks: FusionDelegateDeps["runChecks"] = async (specs) => ({
 });
 
 /** One delegate call of the tests task, its worker timing out right after its suite ran; the judge prompt captured. */
-async function reviewAfterTimeout(opts: { criteria?: string[] } = {}) {
+async function reviewAfterTimeout(opts: { criteria?: string[]; project?: ProjectState; runCheckpoints?: FusionRunStore } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "evidence-review-"));
   try {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
@@ -172,10 +177,11 @@ async function reviewAfterTimeout(opts: { criteria?: string[] } = {}) {
       escalationComplete: async (call) => { prompts.push(call.prompt); return { content: ACCEPT }; },
       resolveFusionTeam: () => team(),
       runChecks: gateChecks,
+      ...(opts.runCheckpoints === undefined ? {} : { runCheckpoints: opts.runCheckpoints }),
     };
     const pending = buildFusionDelegateTool(d).run(
       { tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"] }], contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK, ...(opts.criteria === undefined ? {} : { criteria: opts.criteria }) }] } },
-      { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: projectOf(["sales-tests"]) },
+      { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: opts.project ?? projectOf(["sales-tests"]) },
     );
     await vi.advanceTimersByTimeAsync(60 * 60_000);
     const result = await pending;
@@ -617,5 +623,23 @@ describe("the runtime record without a worker summary (issue #106)", () => {
     const { prompt } = await reviewAfterTimeout({ criteria: ["c1", "c2", "c3"] });
     expect(prompt).toContain('No check names this criterion (the runtime has no check and no fact for it; a real gap unless the files show otherwise):\n- "reports a malformed row on stderr"');
     expect(prompt).not.toContain('- "skips blank lines"\n');
+  });
+
+  it("another milestone's criteria are never called a gap here (issue #106 review)", async () => {
+    const { prompt } = await reviewAfterTimeout({ criteria: ["c1", "c2", "c3"], project: projectOf(["sales-tests"], 2) });
+    expect(prompt).toContain("Tests against the criteria");
+    expect(prompt).not.toContain("No check names this criterion");
+  });
+
+  it("a criterion an earlier run of the milestone checked is no gap under a narrower fix-round contract (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "uncovered-prior-"));
+    try {
+      const runsDir = join(root, "runs");
+      // The first round's check named c4 and passed; this round's contract names c1-c3 only.
+      writeRunCriteriaFacts(runsDir, { runId: "fr-prior", sessionId: "s-plan" }, [{ taskId: "sales-tests", facts: [{ id: "c4", state: "passed" }] }]);
+      const project = up(projectOf(["sales-tests"]), { kind: "milestone_run", id: "m1", runId: "fr-prior" });
+      const { prompt } = await reviewAfterTimeout({ criteria: ["c1", "c2", "c3"], project, runCheckpoints: new FusionRunStore({ dir: runsDir }) });
+      expect(prompt).not.toContain("No check names this criterion");
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

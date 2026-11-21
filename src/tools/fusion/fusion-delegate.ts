@@ -1731,6 +1731,28 @@ export function buildFusionDelegateTool(
         }
         return out;
       };
+      /**
+       * The brief's criteria the runtime knows are uncovered for this
+       * call's milestone (issue #106 review): no check of this call names
+       * one, and no earlier run of the milestone kept a fact for it. Only
+       * in a one-milestone project: the plan does not say which milestone
+       * owns a criterion, so in a larger one another milestone may cover it
+       * and nothing is called a gap here (a narrower fix-round contract
+       * keeps the facts of the runs before it).
+       */
+      const uncoveredCriteria = (): string[] => {
+        if (briefCriteria === undefined || ctx.project === undefined || ctx.project.milestones.length !== 1) return [];
+        const milestone = ctx.project.milestones[0]!;
+        const named = new Set((parsed.contract?.checks ?? []).flatMap((c) => c.criteria ?? []));
+        const runsDir = deps.runCheckpoints?.runsDir;
+        if (runsDir !== undefined) {
+          for (const runId of milestone.runIds) {
+            for (const t of readRunCriteria(runsDir, runId).tasks) t.facts.forEach((f) => named.add(f.id));
+          }
+        }
+        for (const f of milestone.criteriaFacts ?? []) named.add(f.id);
+        return [...briefCriteria.values()].filter((c) => !named.has(c.id)).map((c) => c.text);
+      };
       /** The newest review an earlier run of the task's milestone recorded for it (issue #104 review). */
       const priorReviewOf = (taskId: string): RunTaskReview | undefined => {
         const runsDir = deps.runCheckpoints?.runsDir;
@@ -1799,9 +1821,8 @@ export function buildFusionDelegateTool(
           ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
         ])];
         const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
-        // The brief's criteria no check of the call names (issue #106): known gaps, apart from name mismatches.
-        const namedIds = new Set((parsed.contract?.checks ?? []).flatMap((c) => c.criteria ?? []));
-        const uncovered = briefCriteria === undefined ? [] : [...briefCriteria.values()].filter((c) => !namedIds.has(c.id)).map((c) => c.text);
+        // The brief's criteria known to be uncovered (issue #106): apart from name mismatches.
+        const uncovered = uncoveredCriteria();
         const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known, uncovered);
         // No summary from the worker (issue #106): say so, and that the runtime record stands in for it.
         const noSummary = reply !== undefined && isPlaceholderReply(reply)
