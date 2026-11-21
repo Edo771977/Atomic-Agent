@@ -277,8 +277,14 @@ export interface ProjectMilestoneRevision {
    */
   unknownCriteria?: string[];
   /**
+   * The brief's decisions the milestone's tasks cited whose text a brief
+   * approval changed (issue #112), with their text at the time: the old
+   * work honoured the decision as it then read.
+   */
+  decisions?: ProjectBriefDecision[];
+  /**
    * `plan`: a re-plan changed the work; `brief`: the text of a criterion
-   * its evidence cites changed; `brief-removed` (issue #80): cited
+   * its evidence cites changed, or of a decision its tasks cite (issue #112); `brief-removed` (issue #80): cited
    * criteria were removed, and this entry holds only their facts and the
    * count of their pictures; the milestone kept its state and the rest.
    */
@@ -1233,6 +1239,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
     criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
   }
+  const decisions = cleanDecisions(raw.decisions, "lenient");
   return {
     title: clip(raw.title, PROJECT_LIMITS.title),
     kind: raw.kind as MilestoneKind,
@@ -1245,6 +1252,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(unknownCriteria.length === 0 ? {} : { unknownCriteria }),
+    ...(Array.isArray(decisions) ? { decisions } : {}),
     cause: raw.cause === "brief" || raw.cause === "brief-removed" ? raw.cause : "plan",
     supersededAt: raw.supersededAt as number,
   };
@@ -1554,6 +1562,7 @@ function supersede(
   now: number,
   cause: "plan" | "brief",
   criteria: readonly ProjectCriterion[],
+  decisions: readonly ProjectBriefDecision[] = [],
 ): ProjectMilestone {
   const history = [...(old.history ?? [])];
   if (hasEvidence(old)) {
@@ -1570,6 +1579,7 @@ function supersede(
       ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
       ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
       ...(cited.length === 0 ? {} : { criteria: cited }),
+      ...(decisions.length === 0 ? {} : { decisions: decisions.map((d) => ({ id: d.id, text: d.text })) }),
       cause,
       supersededAt: now,
     });
@@ -1627,10 +1637,11 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
   const brief = project.brief!;
   const before = approvedCriteriaOf(project);
   const rows = project.plan?.rows ?? [];
-  const milestones =
+  const judged =
     before === undefined
       ? retireOrphans(project.milestones, rows, [], now)
       : judgeCriteria(retireOrphans(project.milestones, rows, before, now), rows, before, brief.successCriteria, now);
+  const milestones = judgeDecisions(judged, project.milestones, rows, approvedDecisionsOf(project), brief.decisions ?? [], before ?? [], now);
   const hasCriteriaEvidence = (m: ProjectMilestone): boolean => (m.criteriaFacts?.length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0;
   const retired = milestones
     .filter((m, i) => {
@@ -1686,6 +1697,36 @@ function retireOrphans(
     const cited = [...(m.criteriaFacts ?? []).map((f) => f.id), ...(m.attachments ?? []).flatMap((a) => a.criteria ?? [])];
     const orphans = new Set(cited.filter((id) => !known.has(id)));
     return orphans.size === 0 ? m : retireCriteria(m, orphans, milestoneTasks(rows, m.id), [], now);
+  });
+}
+
+/**
+ * Issue #112, the criteria rule (#81, #87) for decisions: a decision whose
+ * text the approved brief changed (beyond case and whitespace) voids the
+ * work of every milestone whose plan tasks cite it. A milestone with a
+ * verdict, a run or evidence starts over as `planned`, what it held in
+ * `history` (cause `brief`, the decisions with their old text); one a
+ * criterion change already started over is left as it is. A removed
+ * decision resets nothing (like a removed criterion).
+ */
+function judgeDecisions(
+  milestones: readonly ProjectMilestone[],
+  original: readonly ProjectMilestone[],
+  rows: readonly AssignmentRow[],
+  before: readonly ProjectBriefDecision[],
+  after: readonly ProjectBriefDecision[],
+  criteria: readonly ProjectCriterion[],
+  now: number,
+): ProjectMilestone[] {
+  const textNow = new Map(after.map((d) => [d.id, workText(d.text)]));
+  const changed = before.filter((d) => textNow.has(d.id) && textNow.get(d.id) !== workText(d.text));
+  if (changed.length === 0) return [...milestones];
+  return milestones.map((m, i) => {
+    if (m !== original[i]) return m;
+    const ids = new Set(rows.filter((r) => r.milestoneId === m.id).flatMap((r) => r.decisions ?? []));
+    const cited = changed.filter((d) => ids.has(d.id));
+    if (cited.length === 0 || (!hasEvidence(m) && !VERDICT.has(m.state) && m.state !== "in_progress")) return m;
+    return supersede(m, milestoneTasks(rows, m.id), now, "brief", criteria, cited);
   });
 }
 

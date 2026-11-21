@@ -249,3 +249,64 @@ describe("decision status is record-owned (issue #112)", () => {
     expect(applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now: 9 })).toMatchObject({ ok: false, error: { code: "review-open" } });
   });
 });
+
+describe("changing a decision (issue #112)", () => {
+  const up = (p: ProjectState, u: Parameters<typeof applyProjectUpdate>[1], now = 10) => {
+    const r = applyProjectUpdate(p, u, now);
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const yes = (p: ProjectState, now = 11) => {
+    const r = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  /** m1 (citing d1) reviewed after a run; m2 (citing d2) approved, not run. */
+  function reviewed(): ProjectState {
+    let p = yes(planDraft([row("t1", "m1", ["d1"]), row("t2", "m2", ["d2"])]));
+    p = up(p, { kind: "milestone_run", id: "m1", runId: "run-1" });
+    p = up(p, { kind: "milestone", id: "m1", state: "done", summary: "Built on SQLite" });
+    return yes(p);
+  }
+  const redraft = (p: ProjectState, decisions: ProjectBriefDecision[]) =>
+    up(p, { kind: "brief", brief: { what: "Notes app", users: "Me", how: "Node", successCriteria: criteria, decisions }, draftedAfterUntrusted: false }, 20);
+
+  it("approving a changed decision's text puts the milestones citing it back to planned, their evidence in history", () => {
+    const before = reviewed();
+    expect(before.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
+    const draft = redraft(before, [{ id: "d1", text: "Use Postgres" }, DECISIONS[1]!]);
+    // A draft resets nothing: the person has not approved it.
+    expect(draft.milestones[0]).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+    const after = yes(draft, 30);
+    const m1 = after.milestones[0]!;
+    expect(m1).toMatchObject({ id: "m1", state: "planned", runIds: [] });
+    expect(m1.summary).toBeUndefined();
+    expect(m1.history).toEqual([expect.objectContaining({
+      state: "reviewed",
+      runIds: ["run-1"],
+      summary: "Built on SQLite",
+      cause: "brief",
+      decisions: [{ id: "d1", text: "Use SQLite, not Postgres" }],
+      supersededAt: 30,
+    })]);
+    expect(after.milestones[1]).toMatchObject({ id: "m2", state: "planned" });
+    expect(after.milestones[1]!.history).toBeUndefined();
+    expect(after.plan?.verdictResets).toEqual(["m1"]);
+    expect(after.approvedDecisions).toEqual([{ id: "d1", text: "Use Postgres" }, DECISIONS[1]]);
+    // The history entry reads back.
+    expect(normalizeProject(JSON.parse(JSON.stringify(after)))?.milestones[0]?.history).toEqual(m1.history);
+  });
+
+  it("an editorial change (case, spaces), another decision's change or an added decision keeps the verdict", () => {
+    const before = reviewed();
+    for (const decisions of [
+      [{ id: "d1", text: "use  sqlite, NOT postgres" }, DECISIONS[1]!],
+      [DECISIONS[0]!, { id: "d2", text: "One new dependency at most" }],
+      [...DECISIONS, { id: "d3", text: "Formal tone" }],
+    ]) {
+      const after = yes(redraft(before, decisions), 30);
+      expect(after.milestones[0], JSON.stringify(decisions)).toMatchObject({ state: "reviewed", runIds: ["run-1"] });
+      expect(after.milestones[0]!.history).toBeUndefined();
+    }
+  });
+});
