@@ -346,3 +346,19 @@ describe("fs approval scope", () => {
   });
 });
 
+
+describe("the fusion projects' records in the state dir (issue #109 review)", () => {
+  it("a write there is trust_config, like config.json (review a6)", async () => {
+    const { getTrustConfigPaths } = await import("../../../config/config-file.js");
+    const home = await mkdtemp(join(tmpdir(), "fs-scope-records-"));
+    try {
+      const stateDir = join(home, ".atomic-agent");
+      const trust = getTrustConfigPaths({ userConfigFile: join(stateDir, "config.json"), stateDir });
+      const o = { workingDir: join(home, "proj"), homeDir: home, trustConfigPaths: trust };
+      expect(await categorizeFsMutation("write", [join(stateDir, "project-decisions", "abc.json")], o)).toBe("trust_config");
+      expect(await categorizeFsMutation("write", [join(stateDir, "projects", "registry.json")], o)).toBe("trust_config");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});

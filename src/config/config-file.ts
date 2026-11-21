@@ -35,7 +35,8 @@ export function getDotenvPath(stateDir: string): string {
  * on every tool call, re-read on change), the plugin records
  * (`plugins/plugins.json` holds the runs-code consent,
  * `plugins/marketplaces.json` the pinned sources) and the installed
- * plugin files. The names are spelled here because config sits below
+ * plugin files, and the fusion projects' records and registry (issue
+ * #109). The names are spelled here because config sits below
  * approval, hooks and plugins, and `config-file.test.ts` pins them
  * against the owners' constants. A silent rewrite of any is a
  * self-escalation vector, so the
@@ -61,6 +62,12 @@ export function getTrustConfigPaths(paths: {
     join(paths.stateDir, "plugins", "plugins.json"),
     join(paths.stateDir, "plugins", "marketplaces.json"),
     join(paths.stateDir, "plugins", "installed") + sep,
+    // A fusion project's runtime state and the person's decisions on its
+    // gates, and the list of project folders (issue #109,
+    // `session/project-decisions.ts`, `session/project-registry.ts`): a
+    // write there could approve a gate or forge a run.
+    join(paths.stateDir, "project-decisions") + sep,
+    join(paths.stateDir, "projects") + sep,
   ];
 }
 
