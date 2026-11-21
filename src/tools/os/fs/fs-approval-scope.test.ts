@@ -333,8 +333,8 @@ describe("fs approval scope", () => {
       expect(await categorizeFsMutation("trash", [store], opts())).toBe("trust_config");
       expect(await categorizeFsMutation("trash", [join(workspace, ".atomic")], opts())).toBe("trust_config");
       expect(await categorizeFsMutation("extract", [workspace], opts())).toBe("trust_config");
-      // Anything else under .atomic is an ordinary workspace write.
-      expect(await categorizeFsMutation("write", [join(workspace, ".atomic", "notes.md")], opts())).toBe("fs_write_workspace");
+      // Anything under .atomic, and .atomic itself (a move of it), counts.
+      expect(await categorizeFsMutation("write", [join(workspace, ".atomic", "notes.md")], opts())).toBe("trust_config");
     });
 
     it("a symlink into the store is classified by its target", async () => {
@@ -362,3 +362,42 @@ describe("the fusion projects' records in the state dir (issue #109 review)", ()
     }
   });
 });
+
+describe("moves, links and extraction around a project's store (issue #109 review a2)", () => {
+  let ws: string;
+  beforeEach(async () => {
+    ws = await mkdtemp(join(tmpdir(), "fs-scope-atomic-"));
+    await mkdir(join(ws, ".atomic", "project"), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(ws, { recursive: true, force: true });
+  });
+  const o = () => ({ workingDir: ws, homeDir: join(ws, "nohome"), trustConfigPaths: [] as string[] });
+
+  it("moving .atomic out, or a folder onto it, is trust_config", async () => {
+    expect(await categorizeFsMutation("write", [join(ws, ".atomic"), join(ws, "moved")], o())).toBe("trust_config");
+    expect(await categorizeFsMutation("write", [join(ws, "staged"), join(ws, ".atomic")], o())).toBe("trust_config");
+    expect(await categorizeFsMutation("write", [join(ws, ".atomic", ".", "project", "..", "project", "project.json")], o())).toBe("trust_config");
+  });
+
+  it("a .atomic that is a symlink is caught by its name and by its target", async () => {
+    const real = join(ws, "real-store");
+    await mkdir(join(real, "project"), { recursive: true });
+    const linked = join(ws, "sub");
+    await mkdir(linked);
+    await symlink(real, join(linked, ".atomic"));
+    expect(await categorizeFsMutation("write", [join(linked, ".atomic", "project", "project.json")], o())).toBe("trust_config");
+    await symlink(join(ws, ".atomic", "project"), join(ws, "alias"));
+    expect(await categorizeFsMutation("write", [join(ws, "alias", "project.json")], o())).toBe("trust_config");
+  });
+
+  it("trashing or extracting over a folder that holds .atomic is trust_config", async () => {
+    expect(await categorizeFsMutation("trash", [ws], o())).toBe("trust_config");
+    expect(await categorizeFsMutation("extract", [ws], o())).toBe("trust_config");
+  });
+
+  it.runIf(process.platform === "win32" || process.platform === "darwin")("matches .ATOMIC case-insensitively where the disk does", async () => {
+    expect(await categorizeFsMutation("write", [join(ws, ".ATOMIC", "Project", "project.json")], o())).toBe("trust_config");
+  });
+});
+

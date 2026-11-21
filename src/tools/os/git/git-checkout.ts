@@ -68,6 +68,7 @@ export function buildOsGitCheckoutTool(
           preview: `git ${args.join(" ")}`,
           workingDir: ctx.workingDir,
           trustConfigPaths: options.trustConfigPaths,
+          rewritesWorkTree: true,
         },
         ctx.signal,
       );
