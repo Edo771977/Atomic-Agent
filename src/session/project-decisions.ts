@@ -1,45 +1,39 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  applyProjectUpdate,
   normalizeProject,
   type AssignmentRow,
-  type MilestoneCorrection,
-  type ProjectCriterion,
+  type PlanDetail,
   type ProjectGate,
   type ProjectMilestone,
-  type ProjectReviewBlock,
   type ProjectState,
   type ProjectVerdict,
 } from "./session-project.js";
 
 /**
- * Person decisions on a fusion project's gates (issue #109), kept apart
- * from the project's content. `project.json` in the project folder holds
- * only content (brief, plan, milestones, evidence); the person's
- * approvals live in the user's state dir, keyed by project id, each bound
- * to the hash of the content its gate covers. A gate counts as approved
- * only while that content is unchanged, so a file edited by hand or by a
- * model's shell command cannot approve anything: the changed gate (and
- * every gate that depends on it) waits for the person again.
+ * A fusion project's record in the user's state dir (issue #109): the
+ * project as Atomic Agent last wrote it — everything the runtime owns
+ * (milestone states, runs, outcomes, review blocks, criteria facts,
+ * pictures, corrections, plan flags, versions) and the person's
+ * decisions — with the list of those decisions. It is the source for
+ * dispatch, gates, evidence and review.
  *
- * Covered content ({@link coveredHashes}):
- *  - brief gate: the whole brief as content (version, what, users, how,
- *    game, criteria, untrusted flag).
- *  - plan gate: the plan's rows (worker, reviewer, estimates, tasks,
- *    milestone of each), its detail and untrusted flag, and the
- *    milestones' ids, titles and kinds. Not its version, which a
- *    milestone report bumps without changing the plan.
- *  - milestone gate: one milestone's id, title, kind, reported outcome
- *    (state as the director left it), runs, summary, pictures, criteria
- *    facts, review blocks and held corrections, with the plan rows of its
- *    tasks.
- * A plan approval stands only while the brief approval stands; a
- * milestone verdict only while the plan approval stands.
+ * `project.json` in the project folder holds the author content (brief,
+ * criteria, plan rows, milestones' ids, titles and kinds) and a readable
+ * mirror of the rest, never read back. Only an author edit of the file
+ * is taken, and only as an untrusted draft through the same rules as the
+ * director's (`applyProjectUpdate`): it reopens the gate it changed, and
+ * stays listed in `changedOutside` (stored here) until the person decides
+ * that gate. An edit the rules refuse at that moment (a milestone result
+ * waits for the person) is not taken. With no record (another machine, a
+ * moved or copied folder) the project opens with its author content only:
+ * execution state and gates start over.
  */
 
-/** What a person decided, as the decision store records it. */
+/** What a person decided, as the record keeps it. */
 export interface ProjectDecisionInput {
   gate: ProjectGate;
   /** `gateVersion` the decision was taken against. */
@@ -54,38 +48,14 @@ export interface ProjectDecisionRecord extends ProjectDecisionInput {
   hash: string;
 }
 
-/** The person-owned part of one milestone. */
-interface MilestoneDecisionState {
-  state: ProjectMilestone["state"];
-  reviewOverride?: ProjectMilestone["reviewOverride"];
-  corrections?: MilestoneCorrection[];
-}
-
-/** The person-owned part of a project, and the content hashes it was recorded over. */
-export interface ProjectDecisionOverlay {
-  briefStatus?: "draft" | "approved";
-  briefApprovedAt?: number;
-  planStatus?: "draft" | "approved" | "cancelled";
-  planApprovedAt?: number;
-  planApprovedWithUntrustedWarning?: true;
-  milestones: Record<string, MilestoneDecisionState>;
-  gate: ProjectGate;
-  approvedCriteria?: ProjectCriterion[];
-  briefApprovals?: number;
-  cancelledAt?: number;
-  versionFloor?: number;
-  /** Versions recorded, so a gate reopened by changed content gets a higher one. */
-  versions: { brief?: number; plan?: number };
-  hashes: { brief?: string; plan?: string; milestones: Record<string, string> };
-}
-
-/** One project's decision file. */
-export interface ProjectDecisionFile {
+/** One project's record file. */
+export interface ProjectRecord {
   version: 1;
   id: string;
   /** +1 on every write; a write names the one it builds on. */
   seq: number;
-  overlay: ProjectDecisionOverlay | null;
+  /** The project as Atomic Agent last wrote it, `changedOutside` included. */
+  state: ProjectState;
   decisions: ProjectDecisionRecord[];
 }
 
@@ -107,17 +77,18 @@ export function canonicalJson(value: unknown): string {
 
 const sha = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
 
-/** A milestone's outcome as content: the person's `approved` reads as `planned`, `reviewed` as `done`. */
-function contentState(state: ProjectMilestone["state"]): ProjectMilestone["state"] {
+/** A milestone's outcome as the mirror shows it: the person's `approved` reads as `planned`, `reviewed` as `done`. */
+function mirrorState(state: ProjectMilestone["state"]): ProjectMilestone["state"] {
   if (state === "approved") return "planned";
   if (state === "reviewed") return "done";
   return state;
 }
 
 /**
- * The project with every person decision taken out: what `project.json`
- * holds. Brief and plan read as drafts, approvals and corrections are
- * gone, the gate is `none` (the decision store and the rules put it back).
+ * The project as `project.json` holds it: the content and a readable
+ * mirror of the runtime's part, with every person decision taken out
+ * (brief and plan read as drafts, approvals and corrections gone, gate
+ * `none`). Only {@link authorContent} of it is ever read back.
  */
 export function projectContent(project: ProjectState): ProjectState {
   const brief = project.brief === undefined ? undefined : (() => {
@@ -133,195 +104,139 @@ export function projectContent(project: ProjectState): ProjectState {
     ...(plan === undefined ? {} : { plan }),
     milestones: project.milestones.map((m) => {
       const { reviewOverride: _o, corrections: _c, ...rest } = m;
-      return { ...rest, state: contentState(m.state) };
+      return { ...rest, state: mirrorState(m.state) };
     }),
     gate: { kind: "none" },
   };
 }
 
-function rowsOf(rows: readonly AssignmentRow[] | undefined, milestoneId?: string): AssignmentRow[] {
-  return (rows ?? []).filter((r) => milestoneId === undefined || r.milestoneId === milestoneId);
+/** What the person approves and may edit by hand: the brief's text, the plan's rows, the milestones' names. */
+export interface ProjectAuthorContent {
+  brief?: { what: string; users: string; how: string; game?: unknown; successCriteria: Array<{ id: string; text: string }> };
+  plan?: { rows: AssignmentRow[]; detail: PlanDetail };
+  milestones: Array<{ id: string; title: string; kind: ProjectMilestone["kind"] }>;
 }
 
-/** Hashes of what each gate covers, over `project`'s content. */
-export function coveredHashes(project: ProjectState): ProjectDecisionOverlay["hashes"] {
-  const content = projectContent(project);
-  const milestones: Record<string, string> = {};
-  for (const m of content.milestones) {
-    const { updatedAt: _u, history: _h, ...rest } = m;
-    milestones[m.id] = sha({ milestone: rest, rows: rowsOf(content.plan?.rows, m.id) });
-  }
+export function authorContent(project: ProjectState): ProjectAuthorContent {
   return {
-    ...(content.brief === undefined ? {} : { brief: sha(content.brief) }),
-    ...(content.plan === undefined
+    ...(project.brief === undefined
       ? {}
       : {
-          plan: sha({
-            rows: content.plan.rows,
-            detail: content.plan.detail,
-            draftedAfterUntrusted: content.plan.draftedAfterUntrusted,
-            milestones: content.milestones.map((m) => ({ id: m.id, title: m.title, kind: m.kind })),
-          }),
+          brief: {
+            what: project.brief.what,
+            users: project.brief.users,
+            how: project.brief.how,
+            ...(project.brief.game === undefined ? {} : { game: project.brief.game }),
+            successCriteria: project.brief.successCriteria.map((c) => ({ id: c.id, text: c.text })),
+          },
         }),
-    milestones,
+    ...(project.plan === undefined ? {} : { plan: { rows: project.plan.rows, detail: project.plan.detail } }),
+    milestones: project.milestones.map((m) => ({ id: m.id, title: m.title, kind: m.kind })),
   };
 }
+
+const briefPart = (a: ProjectAuthorContent) => canonicalJson(a.brief ?? null);
+const planPart = (a: ProjectAuthorContent) => canonicalJson({ plan: a.plan ?? null, milestones: a.milestones });
 
 /** The hash a decision at `gate` covers in `project`; null when the gate names nothing there. */
 export function gateContentHash(project: ProjectState, gate: ProjectGate): string | null {
-  const hashes = coveredHashes(project);
-  if (gate.kind === "brief") return hashes.brief ?? null;
-  if (gate.kind === "plan") return hashes.plan ?? null;
-  if (gate.kind === "milestone") return hashes.milestones[gate.id] ?? null;
-  return hashes.plan ?? hashes.brief ?? null;
+  const author = authorContent(project);
+  if (gate.kind === "brief") return author.brief === undefined ? null : sha(author.brief);
+  if (gate.kind === "plan") return author.plan === undefined ? null : sha({ plan: author.plan, milestones: author.milestones });
+  if (gate.kind === "milestone") {
+    const m = project.milestones.find((x) => x.id === gate.id);
+    if (m === undefined) return null;
+    const { updatedAt: _u, ...rest } = m;
+    return sha({ milestone: rest, rows: (project.plan?.rows ?? []).filter((r) => r.milestoneId === m.id) });
+  }
+  return sha(author);
 }
 
-/** The person-owned part of `project`, over the content it stands on. */
-export function decisionOverlay(project: ProjectState): ProjectDecisionOverlay {
-  const milestones: Record<string, MilestoneDecisionState> = {};
-  for (const m of project.milestones) {
-    milestones[m.id] = {
-      state: m.state,
-      ...(m.reviewOverride === undefined ? {} : { reviewOverride: m.reviewOverride }),
-      ...(m.corrections === undefined ? {} : { corrections: m.corrections }),
-    };
-  }
-  return {
-    ...(project.brief === undefined ? {} : { briefStatus: project.brief.status }),
-    ...(project.brief?.approvedAt === undefined ? {} : { briefApprovedAt: project.brief.approvedAt }),
-    ...(project.plan === undefined ? {} : { planStatus: project.plan.status }),
-    ...(project.plan?.approvedAt === undefined ? {} : { planApprovedAt: project.plan.approvedAt }),
-    ...(project.plan?.approvedWithUntrustedWarning === true ? { planApprovedWithUntrustedWarning: true as const } : {}),
-    milestones,
-    gate: project.gate,
-    ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
-    ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
-    ...(project.cancelledAt === undefined ? {} : { cancelledAt: project.cancelledAt }),
-    ...(project.versionFloor === undefined ? {} : { versionFloor: project.versionFloor }),
-    versions: {
-      ...(project.brief === undefined ? {} : { brief: project.brief.version }),
-      ...(project.plan === undefined ? {} : { plan: project.plan.version }),
-    },
-    hashes: coveredHashes(project),
-  };
+/** The label a gate has in `changedOutside`. */
+export function gateLabelOf(gate: ProjectGate): string {
+  return gate.kind === "milestone" ? `milestone:${gate.id}` : gate.kind;
+}
+
+function withChanged(project: ProjectState, labels: readonly string[]): ProjectState {
+  const unique = [...new Set(labels)];
+  const { changedOutside: _c, ...rest } = project;
+  return unique.length === 0 ? rest : { ...rest, changedOutside: unique };
 }
 
 /**
- * The project `content` (as `project.json` holds it) with the recorded
- * decisions applied where the content they covered is unchanged. With no
- * record (a new machine) every gate waits for the person. A gate whose
- * content changed since it was decided reopens at a higher version and is
- * listed in `changedOutside` (`brief`, `plan`, `milestone:<id>`), so an
- * automatic path can tell it apart from a gate the rules opened.
+ * With no record: the author content alone, as a draft. The brief waits
+ * for the person; the plan's rows stay a draft for the director to
+ * submit; every milestone starts over with no runs or evidence.
  */
-export function resolveProject(content: ProjectState, overlay: ProjectDecisionOverlay | null): ProjectState {
-  const base = projectContent(content);
-  const hashes = coveredHashes(base);
-  const o = overlay;
-  const changed: string[] = [];
-  const briefSame = base.brief !== undefined && o?.hashes.brief === hashes.brief;
-  if (base.brief !== undefined && !briefSame) changed.push("brief");
-  const briefApproved = briefSame && o?.briefStatus === "approved";
-  const planSame = base.plan !== undefined && o?.hashes.plan === hashes.plan;
-  // A plan approval stands on the brief approval it followed.
-  const planHolds = planSame && (briefApproved || o?.planStatus !== "approved");
-  if (base.plan !== undefined && !planHolds && o?.planStatus !== "cancelled") changed.push("plan");
-  const planApproved = planHolds && o?.planStatus === "approved";
-  const cancelled = o?.cancelledAt !== undefined;
+export function freshFromContent(file: ProjectState): ProjectState {
+  const a = authorContent(file);
+  const at = file.milestones.reduce((t, m) => Math.max(t, m.updatedAt), 0);
+  const fresh = normalizeProject({
+    ...(a.brief === undefined ? {} : { brief: { version: 1, ...a.brief, status: "draft", draftedAfterUntrusted: true } }),
+    ...(a.plan === undefined ? {} : { plan: { rows: a.plan.rows, detail: a.plan.detail, status: "draft", version: 1, draftedAfterUntrusted: true } }),
+    milestones: a.milestones.map((m) => ({ ...m, state: "planned", runIds: [], updatedAt: at })),
+    gate: a.brief === undefined ? { kind: "none" } : { kind: "brief" },
+  }) ?? { milestones: [], gate: { kind: "none" } };
+  return withChanged(fresh, [...(fresh.brief === undefined ? [] : ["brief"]), ...(fresh.plan === undefined ? [] : ["plan"])]);
+}
 
-  const milestones: ProjectMilestone[] = base.milestones.map((m) => {
-    const recorded = o?.milestones[m.id];
-    const same = recorded !== undefined && o?.hashes.milestones[m.id] === hashes.milestones[m.id];
-    const notes = recorded?.corrections === undefined ? {} : { corrections: recorded.corrections };
-    if (same) {
-      // A milestone the person let run runs only under a standing plan approval.
-      const state = !planApproved && !cancelled && recorded.state === "approved" ? "planned" : recorded.state;
-      return { ...m, state, ...notes, ...(recorded.reviewOverride === undefined ? {} : { reviewOverride: recorded.reviewOverride }) };
+/**
+ * The project a chat works on: the record's, with an author edit of the
+ * file (`file`, as read from `project.json`) taken as an untrusted
+ * draft. Nothing but the author content is read from `file`.
+ */
+export function resolveProject(file: ProjectState, record: ProjectRecord | null, now: number): ProjectState {
+  if (record === null) return freshFromContent(file);
+  let state = record.state;
+  const labels = [...(state.changedOutside ?? [])];
+  const fileAuthor = authorContent(file);
+  if (fileAuthor.brief !== undefined && briefPart(fileAuthor) !== briefPart(authorContent(state))) {
+    const r = applyProjectUpdate(state, { kind: "brief", brief: fileAuthor.brief as never, draftedAfterUntrusted: true }, now);
+    if (r.ok) {
+      state = r.project;
+      labels.push("brief");
     }
-    if (recorded !== undefined && !same) changed.push(`milestone:${m.id}`);
-    return { ...m, ...notes };
-  });
-
-  const nextVersion = (current: number, recorded: number | undefined) => Math.max(current, recorded ?? 0, o?.versionFloor ?? 0) + 1;
-  const brief = base.brief === undefined
-    ? undefined
-    : briefSame && o !== null
-      ? { ...base.brief, status: o.briefStatus ?? "draft", ...(o.briefStatus === "approved" && o.briefApprovedAt !== undefined ? { approvedAt: o.briefApprovedAt } : {}) }
-      : { ...base.brief, version: o === null ? base.brief.version : nextVersion(base.brief.version, o.versions.brief) };
-  const plan = base.plan === undefined
-    ? undefined
-    : cancelled && o?.planStatus === "cancelled"
-      ? { ...base.plan, status: "cancelled" as const }
-      : planHolds && o !== null
-        ? {
-            ...base.plan,
-            status: o.planStatus === "approved" ? ("approved" as const) : ("draft" as const),
-            ...(planApproved && o.planApprovedAt !== undefined ? { approvedAt: o.planApprovedAt } : {}),
-            ...(planApproved && o.planApprovedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
-          }
-        : { ...base.plan, version: o === null ? base.plan.version : nextVersion(base.plan.version, o.versions.plan) };
-  // A milestone gate decides against the plan's version: changed evidence
-  // must not be approvable from a card shown before the change.
-  if (plan !== undefined && planHolds && o !== null && changed.some((c) => c.startsWith("milestone:"))) {
-    plan.version = nextVersion(plan.version, o.versions.plan);
   }
-
-  const gate = ((): ProjectGate => {
-    if (cancelled) return { kind: "none" };
-    if (brief !== undefined && changed.includes("brief")) return { kind: "brief" };
-    if (o === null) return brief === undefined ? { kind: "none" } : { kind: "brief" };
-    if (plan !== undefined && brief?.status === "approved" && changed.includes("plan")) return { kind: "plan" };
-    const reopened = milestones.find((m) => changed.includes(`milestone:${m.id}`) && (m.state === "done" || m.state === "failed"));
-    if (reopened !== undefined && plan?.status === "approved") return { kind: "milestone", id: reopened.id };
-    if (changed.length === 0) return o.gate;
-    if (o.gate.kind === "brief" && brief !== undefined) return o.gate;
-    if (o.gate.kind === "plan" && plan !== undefined && plan.status === "draft") return o.gate;
-    if (o.gate.kind === "milestone" && plan?.status === "approved" && milestones.some((m) => m.id === (o.gate as { id: string }).id)) return o.gate;
-    return { kind: "none" };
-  })();
-
-  const resolved = normalizeProject({
-    ...(brief === undefined ? {} : { brief }),
-    ...(plan === undefined ? {} : { plan }),
-    milestones,
-    gate,
-    ...(o?.approvedCriteria === undefined ? {} : { approvedCriteria: o.approvedCriteria }),
-    ...(o?.briefApprovals === undefined ? {} : { briefApprovals: o.briefApprovals }),
-    ...(o?.cancelledAt === undefined ? {} : { cancelledAt: o.cancelledAt }),
-    ...(o?.versionFloor === undefined ? {} : { versionFloor: o.versionFloor }),
-  }) ?? normalizeProject({ ...base, gate: { kind: "none" } }) ?? base;
-  const outside = o !== null ? changed : [...(brief === undefined ? [] : ["brief"]), ...(plan === undefined ? [] : ["plan"])];
-  return outside.length === 0 ? resolved : { ...resolved, changedOutside: outside };
+  if (fileAuthor.plan !== undefined && planPart(fileAuthor) !== planPart(authorContent(state))) {
+    const r = applyProjectUpdate(state, {
+      kind: "plan",
+      milestones: fileAuthor.milestones,
+      rows: fileAuthor.plan.rows,
+      detail: fileAuthor.plan.detail,
+      draftedAfterUntrusted: true,
+    }, now);
+    if (r.ok) {
+      state = r.project;
+      labels.push("plan");
+    }
+  }
+  return withChanged(state, labels);
 }
 
 // ---------------------------------------------------------------- store
 
-export interface ProjectDecisionProblem {
-  code: "already-decided" | "conflict" | "locked" | "io" | "damaged";
+export interface ProjectRecordProblem {
+  code: "already-decided" | "conflict" | "locked" | "io" | "damaged" | "unsupported";
   message: string;
 }
 
-export interface ProjectDecisionRead {
-  /** The file's `seq`; 0 when nothing was recorded on this machine. */
-  seq: number;
-  overlay: ProjectDecisionOverlay | null;
-  decisions: readonly ProjectDecisionRecord[];
-}
+export type ProjectRecordRead = { ok: true; record: ProjectRecord | null } | { ok: false; problem: ProjectRecordProblem };
 
 /**
- * Where a project's person decisions are kept and how they are checked:
- * the one seam between the content store and the approval design.
+ * Where a project's record is kept: the one seam between the folder's
+ * content and the runtime's state and the person's decisions. A write is
+ * made while the project folder's lock is held (`project-store.ts`).
  */
-export interface ProjectDecisionStore {
-  read(id: string): ProjectDecisionRead;
+export interface ProjectRecordStore {
+  read(folder: string, id: string): ProjectRecordRead;
   /**
-   * Record `next`'s person-owned state on top of `baseSeq`, with
-   * `decision` when a person decided (bound to `decidedHash`, the
-   * content its gate covered). A decision already recorded for the same
-   * gate, version and content is `already-decided`; a file that moved on
-   * since `baseSeq` is `conflict`.
+   * Record `next` on top of `baseSeq`, with `decision` when a person
+   * decided (bound to `hash`, the content its gate covered). The same
+   * gate, version and content decided again is `already-decided`; a
+   * record that moved on since `baseSeq` is `conflict`. A person's
+   * decision at a gate clears that gate from `changedOutside`.
    */
-  record(id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }): { ok: true; seq: number } | { ok: false; problem: ProjectDecisionProblem };
+  write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
 }
 
 /** Whether `decisions` hold one for this gate at this version (any content). */
@@ -333,126 +248,107 @@ function sameGate(a: ProjectGate, b: ProjectGate): boolean {
   return a.kind === b.kind && (a.kind !== "milestone" || (b.kind === "milestone" && a.id === b.id));
 }
 
-/** `<stateDir>/project-decisions`: one `<id>.json` per project. */
-export function projectDecisionsDir(stateDir: string): string {
+/** `<stateDir>/project-decisions`: one record file per project. */
+export function projectRecordsDir(stateDir: string): string {
   return join(stateDir, "project-decisions");
 }
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** The stored state: the normalized project with its `changedOutside` labels. */
+function readState(raw: unknown): ProjectState | null {
+  const project = normalizeProject(raw);
+  if (project === undefined) return null;
+  const changed = (raw as { changedOutside?: unknown }).changedOutside;
+  const labels = Array.isArray(changed) ? changed.filter((l): l is string => typeof l === "string" && l.length <= 80) : [];
+  return withChanged(project, labels);
 }
 
-/** The decision store under the state dir; `now` for tests. */
-export function stateDirDecisionStore(stateDir: string, now: () => number = Date.now): ProjectDecisionStore {
-  const dir = projectDecisionsDir(stateDir);
+function nextRecord(current: ProjectRecord | null, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
+  const seq = (current?.seq ?? 0) + 1;
+  const kept = (next.changedOutside ?? []).filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
+  const decisions = current?.decisions ?? [];
+  return {
+    version: 1,
+    id,
+    seq,
+    state: withChanged(next, kept),
+    decisions: decision === undefined ? decisions : [...decisions, { seq, at, ...decision }].slice(-MAX_DECISIONS),
+  };
+}
+
+function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (ProjectDecisionInput & { hash: string }) | undefined): ProjectRecordProblem | null {
+  if (decision !== undefined && (current?.decisions ?? []).some((d) => sameGate(d.gate, decision.gate) && d.version === decision.version && d.hash === decision.hash)) {
+    return { code: "already-decided", message: "That gate was already decided (in another chat); reload the project." };
+  }
+  if ((current?.seq ?? 0) !== baseSeq) return { code: "conflict", message: "The project's record changed since it was read; reload it." };
+  return null;
+}
+
+/** The record store under the state dir; `now` for tests. */
+export function stateDirProjectRecords(stateDir: string, now: () => number = Date.now): ProjectRecordStore {
+  const dir = projectRecordsDir(stateDir);
   const fileOf = (id: string) => {
     if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
     return join(dir, `${id}.json`);
   };
-  const readFile = (id: string): ProjectDecisionFile | { damaged: string } => {
+  const read = (_folder: string, id: string): ProjectRecordRead => {
     const file = fileOf(id);
     let text: string;
     try {
       text = readFileSync(file, "utf8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, id, seq: 0, overlay: null, decisions: [] };
-      return { damaged: (err as Error).message };
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, record: null };
+      return { ok: false, problem: { code: "io", message: `${file} could not be read: ${(err as Error).message}` } };
     }
+    let raw: Record<string, unknown>;
     try {
-      const raw = JSON.parse(text) as ProjectDecisionFile;
-      if (raw?.version !== 1 || raw.id !== id || !Number.isInteger(raw.seq) || !Array.isArray(raw.decisions)) return { damaged: "unexpected shape" };
-      return raw;
+      raw = JSON.parse(text) as Record<string, unknown>;
     } catch (err) {
-      return { damaged: (err as Error).message };
+      return { ok: false, problem: { code: "damaged", message: `${file} is not valid JSON (${(err as Error).message}).` } };
     }
+    const state = readState(raw?.state);
+    if (raw?.version !== 1 || raw.id !== id || !Number.isInteger(raw.seq) || !Array.isArray(raw.decisions) || state === null) {
+      return { ok: false, problem: { code: "damaged", message: `${file} is damaged.` } };
+    }
+    return { ok: true, record: { version: 1, id, seq: raw.seq as number, state, decisions: raw.decisions as ProjectDecisionRecord[] } };
   };
   return {
-    read(id) {
-      const file = readFile(id);
-      // A damaged record approves nothing: every gate waits for the person.
-      if ("damaged" in file) return { seq: -1, overlay: null, decisions: [] };
-      return { seq: file.seq, overlay: file.overlay, decisions: file.decisions };
-    },
-    record(id, baseSeq, next, decision) {
+    read,
+    write(folder, id, baseSeq, next, decision) {
+      const current = read(folder, id);
+      if (!current.ok) return current;
+      const refused = checkWrite(current.record, baseSeq, decision);
+      if (refused !== null) return { ok: false, problem: refused };
+      const out = nextRecord(current.record, id, next, decision, now());
       mkdirSync(dir, { recursive: true });
-      const lock = `${fileOf(id)}.lock`;
-      const deadline = Date.now() + 2_000;
-      for (;;) {
-        try {
-          closeSync(openSync(lock, "wx"));
-          break;
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== "EEXIST") return { ok: false, problem: { code: "io", message: (err as Error).message } };
-          try {
-            if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { force: true });
-          } catch {
-            // Gone already.
-          }
-          if (Date.now() >= deadline) return { ok: false, problem: { code: "locked", message: "Another Atomic Agent is recording a decision on this project; try again." } };
-          sleepSync(25);
-        }
-      }
+      const file = fileOf(id);
+      const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
-        const read = readFile(id);
-        // A damaged record is replaced: it approved nothing anyway.
-        const current: ProjectDecisionFile = "damaged" in read ? { version: 1, id, seq: baseSeq < 0 ? -1 : 0, overlay: null, decisions: [] } : read;
-        if (decision !== undefined && current.decisions.some((d) => sameGate(d.gate, decision.gate) && d.version === decision.version && d.hash === decision.hash)) {
-          return { ok: false, problem: { code: "already-decided", message: "That gate was already decided (in another chat); reload the project." } };
-        }
-        if (current.seq !== baseSeq) {
-          return { ok: false, problem: { code: "conflict", message: "The project's decisions changed since it was read; reload it." } };
-        }
-        const seq = Math.max(current.seq, 0) + 1;
-        const { changedOutside: _c, ...clean } = next;
-        const decisions = decision === undefined
-          ? current.decisions
-          : [...current.decisions, { seq, at: now(), gate: decision.gate, version: decision.version, verdict: decision.verdict, hash: decision.hash }].slice(-MAX_DECISIONS);
-        const out: ProjectDecisionFile = { version: 1, id, seq, overlay: decisionOverlay(clean), decisions };
-        const temp = `${fileOf(id)}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-        try {
-          writeFileSync(temp, `${JSON.stringify(out, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-          renameSync(temp, fileOf(id));
-        } catch (err) {
-          rmSync(temp, { force: true });
-          return { ok: false, problem: { code: "io", message: (err as Error).message } };
-        }
-        return { ok: true, seq };
-      } finally {
-        rmSync(lock, { force: true });
+        writeFileSync(temp, `${JSON.stringify(out, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        renameSync(temp, file);
+      } catch (err) {
+        rmSync(temp, { force: true });
+        return { ok: false, problem: { code: "io", message: (err as Error).message } };
       }
+      return { ok: true, seq: out.seq };
     },
   };
 }
 
-/** In-memory store for tests and stores that keep no decisions. */
-export function memoryDecisionStore(now: () => number = Date.now): ProjectDecisionStore & { files: Map<string, ProjectDecisionFile> } {
-  const files = new Map<string, ProjectDecisionFile>();
+/** In-memory records for tests. */
+export function memoryProjectRecords(now: () => number = Date.now): ProjectRecordStore & { records: Map<string, ProjectRecord> } {
+  const records = new Map<string, ProjectRecord>();
   return {
-    files,
-    read(id) {
-      const f = files.get(id);
-      return f === undefined ? { seq: 0, overlay: null, decisions: [] } : { seq: f.seq, overlay: f.overlay, decisions: f.decisions };
-    },
-    record(id, baseSeq, next, decision) {
-      const current = files.get(id) ?? { version: 1 as const, id, seq: 0, overlay: null, decisions: [] };
-      if (decision !== undefined && current.decisions.some((d) => sameGate(d.gate, decision.gate) && d.version === decision.version && d.hash === decision.hash)) {
-        return { ok: false, problem: { code: "already-decided", message: "That gate was already decided (in another chat); reload the project." } };
-      }
-      if (current.seq !== baseSeq) return { ok: false, problem: { code: "conflict", message: "The project's decisions changed since it was read; reload it." } };
-      const seq = current.seq + 1;
-      const { changedOutside: _c, ...clean } = next;
-      files.set(id, {
-        version: 1,
-        id,
-        seq,
-        overlay: decisionOverlay(clean),
-        decisions: decision === undefined ? current.decisions : [...current.decisions, { seq, at: now(), ...decision }],
-      });
-      return { ok: true, seq };
+    records,
+    read: (_folder, id) => ({ ok: true, record: records.get(id) ?? null }),
+    write(_folder, id, baseSeq, next, decision) {
+      const current = records.get(id) ?? null;
+      const refused = checkWrite(current, baseSeq, decision);
+      if (refused !== null) return { ok: false, problem: refused };
+      const out = nextRecord(current, id, next, decision, now());
+      records.set(id, out);
+      return { ok: true, seq: out.seq };
     },
   };
 }
-
-export type { ProjectReviewBlock };

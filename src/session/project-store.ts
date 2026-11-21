@@ -11,9 +11,9 @@ import {
   projectContent,
   resolveProject,
   type ProjectDecisionInput,
-  type ProjectDecisionProblem,
   type ProjectDecisionRecord,
-  type ProjectDecisionStore,
+  type ProjectRecordProblem,
+  type ProjectRecordStore,
 } from "./project-decisions.js";
 
 /**
@@ -25,9 +25,11 @@ import {
  * file, compared on the stored `revision`, so a crash leaves the previous
  * valid JSON and two writers cannot both build on the same revision.
  *
- * The file holds content only: person decisions live in the state dir
- * behind {@link ProjectDecisionStore} (`project-decisions.ts`), which
- * this module reads to resolve the project and writes on every change.
+ * The file holds the author content (and a readable mirror of the rest,
+ * never read back): the runtime's state and the person's decisions live
+ * in the state dir behind {@link ProjectRecordStore}
+ * (`project-decisions.ts`), which this module reads to resolve the
+ * project and writes on every change.
  */
 
 export const PROJECT_STORE_DIR_PARTS = [".atomic", "project"] as const;
@@ -65,7 +67,7 @@ export interface StoredProject {
   extra: Record<string, unknown>;
 }
 
-export type ProjectStoreProblemCode = "missing" | "damaged" | "unsupported-schema" | "exists" | "conflict" | "already-decided" | "locked" | "refused" | "io";
+export type ProjectStoreProblemCode = "missing" | "damaged" | "unsupported-schema" | "exists" | "conflict" | "already-decided" | "locked" | "refused" | "record-unavailable" | "io";
 
 export interface ProjectStoreProblem {
   code: ProjectStoreProblemCode;
@@ -77,15 +79,15 @@ export type ProjectStoreResult = { ok: true; stored: StoredProject } | { ok: fal
 export interface ProjectStoreOptions {
   /** Attachment paths under it are written relative to it, and read back against it. */
   stateDir: string;
-  /** Where person decisions live ({@link ProjectDecisionStore}); absent: none are kept, every gate waits. */
-  decisions?: ProjectDecisionStore;
+  /** Where the runtime's state and the person's decisions live ({@link ProjectRecordStore}). */
+  records: ProjectRecordStore;
   now?: () => number;
 }
 
-/** A project opened for work: the file and the decisions applied to it. */
+/** A project opened for work: the file and the record it resolves against. */
 export interface OpenedProject {
   stored: StoredProject;
-  /** Content with the recorded decisions applied (`resolveProject`): what a chat works on. */
+  /** The record's project with an author edit of the file taken (`resolveProject`): what a chat works on. */
   project: ProjectState;
   /** The decision store's `seq` it was resolved at; a write names it. */
   decisionSeq: number;
@@ -94,10 +96,6 @@ export interface OpenedProject {
 
 export type ProjectOpenResult = { ok: true; opened: OpenedProject } | { ok: false; problem: ProjectStoreProblem };
 
-const NO_DECISIONS: ProjectDecisionStore = {
-  read: () => ({ seq: 0, overlay: null, decisions: [] }),
-  record: () => ({ ok: true, seq: 0 }),
-};
 
 const KNOWN_KEYS = new Set(["schemaVersion", "id", "name", "revision", "createdAt", "updatedAt", "project"]);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -210,14 +208,15 @@ export function projectFileJson(stored: StoredProject, stateDir: string): Record
 export function openProject(folder: string, options: ProjectStoreOptions): ProjectOpenResult {
   const read = readProjectFile(folder, options);
   if (!read.ok) return read;
-  const decisions = (options.decisions ?? NO_DECISIONS).read(read.stored.id);
+  const record = options.records.read(read.stored.folder, read.stored.id);
+  if (!record.ok) return { ok: false, problem: recordProblem(record.problem, read.stored.folder) };
   return {
     ok: true,
     opened: {
       stored: read.stored,
-      project: resolveProject(read.stored.project, decisions.overlay),
-      decisionSeq: decisions.seq,
-      decisions: decisions.decisions,
+      project: resolveProject(read.stored.project, record.record, (options.now ?? Date.now)()),
+      decisionSeq: record.record?.seq ?? 0,
+      decisions: record.record?.decisions ?? [],
     },
   };
 }
@@ -288,8 +287,10 @@ function writeFile(stored: StoredProject, options: ProjectStoreOptions): Project
   }
 }
 
-function decisionProblem(p: ProjectDecisionProblem): ProjectStoreProblem {
-  return { code: p.code === "already-decided" ? "already-decided" : p.code === "conflict" ? "conflict" : p.code === "locked" ? "locked" : "io", message: p.message };
+function recordProblem(p: ProjectRecordProblem, folder: string): ProjectStoreProblem {
+  if (p.code === "already-decided" || p.code === "conflict" || p.code === "locked") return { code: p.code, message: p.message };
+  // A record that cannot be read approves nothing and is never overwritten.
+  return { code: "record-unavailable", message: `The project in ${folder} was not opened: its record in the state dir is unusable (${p.message}). Nothing was changed.` };
 }
 
 /**
@@ -322,10 +323,11 @@ export function createProject(folder: string, project: ProjectState, options: Pr
       project: projectContent(project),
       extra: {},
     };
-    const store = options.decisions ?? NO_DECISIONS;
-    // Decisions first: a crash before the file leaves no project (and decisions nothing points at).
-    const recorded = store.record(stored.id, store.read(stored.id).seq, project);
-    if (!recorded.ok) return { ok: false, problem: decisionProblem(recorded.problem) };
+    const prior = options.records.read(folder, stored.id);
+    if (!prior.ok) return { ok: false, problem: recordProblem(prior.problem, folder) };
+    // The record first: a crash before the file leaves no project (and a record nothing points at).
+    const recorded = options.records.write(folder, stored.id, prior.record?.seq ?? 0, project);
+    if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
     const failed = writeFile(stored, options);
     if (failed !== null) return { ok: false, problem: failed };
     const opened = openProject(folder, options);
@@ -360,22 +362,33 @@ export function commitProject(
     const current = readProjectFile(folder, options);
     if (!current.ok) return current;
     if (current.stored.id !== id) return problem("refused", `${projectFilePath(folder)} holds another project (${current.stored.id}, not ${id}).`);
-    const store = options.decisions ?? NO_DECISIONS;
+    const store = options.records;
     const decision = options.decision;
+    const record = store.read(folder, id);
+    if (!record.ok) return { ok: false, problem: recordProblem(record.problem, folder) };
     if (current.stored.revision !== base.revision) {
-      if (decision !== undefined && gateDecided(store.read(id).decisions, decision.gate, decision.version)) {
+      if (decision !== undefined && gateDecided(record.record?.decisions ?? [], decision.gate, decision.version)) {
         return problem("already-decided", "That gate was already decided (in another chat); reload the project.");
       }
       return problem("conflict", `The project changed since it was read (revision ${current.stored.revision}, not ${base.revision}); reload it.`);
     }
     const hash = decision === undefined ? null : gateContentHash(options.decidedOn ?? project, decision.gate);
-    const recorded = store.record(id, base.decisionSeq, project, decision === undefined || hash === null ? undefined : { ...decision, hash });
-    if (!recorded.ok) return { ok: false, problem: decisionProblem(recorded.problem) };
+    const decided = decision === undefined || hash === null ? undefined : { ...decision, hash };
+    // Refuse before touching the file; the record is checked again as it is written.
+    if (decided !== undefined && (record.record?.decisions ?? []).some((d) => d.gate.kind === decided.gate.kind && canonicalJson(d.gate) === canonicalJson(decided.gate) && d.version === decided.version && d.hash === decided.hash)) {
+      return problem("already-decided", "That gate was already decided (in another chat); reload the project.");
+    }
+    if ((record.record?.seq ?? 0) !== base.decisionSeq) {
+      return problem("conflict", "The project's record changed since it was read; reload it.");
+    }
+    // The file first: a crash between leaves our own content in the file, which reads as an outside draft, never as an approval.
     const content = projectContent(project);
     if (canonicalJson(content) !== canonicalJson(projectContent(current.stored.project))) {
       const failed = writeFile({ ...current.stored, revision: current.stored.revision + 1, updatedAt: Math.max(now(), current.stored.updatedAt), project: content }, options);
       if (failed !== null) return { ok: false, problem: failed };
     }
+    const recorded = store.write(folder, id, base.decisionSeq, project, decided);
+    if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
     const opened = openProject(folder, options);
     if (opened.ok) writeViews(opened.opened.stored, opened.opened.project);
     return opened;

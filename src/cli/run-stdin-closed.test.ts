@@ -17,7 +17,7 @@ import {
 import { createEmptySessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
 import { createSessionProjectStore } from "../session/session-project-store.js";
-import { stateDirDecisionStore } from "../session/project-decisions.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
 
 /**
  * Issue #100: the real `run` entry, spawned with stdin already closed.
@@ -136,7 +136,7 @@ describe("run with stdin closed (issue #100)", () => {
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     resetConfigCache();
     expect(existsSync(join(workingDir, ".atomic", "project", "project.json"))).toBe(true);
-    const store = new SessionStore({ projectStore: createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) }) });
+    const store = new SessionStore({ projectStore: createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) }) });
     expect(store.load(id)?.project?.gate).toMatchObject({ kind: "milestone", id: "m1" });
     store.close();
   }, 60_000);

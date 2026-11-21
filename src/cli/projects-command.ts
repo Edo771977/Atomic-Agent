@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { stateDirDecisionStore } from "../session/project-decisions.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { openProject, projectFilePath } from "../session/project-store.js";
@@ -76,9 +76,9 @@ function projectSpend(project: ProjectState, stateDir: string): number | null {
 export function listProjectRows(stateDir: string): { rows: ProjectRow[]; registryProblem?: string } {
   const registry = readProjectRegistry(stateDir);
   if (!registry.ok) return { rows: [], registryProblem: registry.message };
-  const decisions = stateDirDecisionStore(stateDir);
+  const records = stateDirProjectRecords(stateDir);
   const rows = registry.folders.map((folder): ProjectRow => {
-    const opened = openProject(folder, { stateDir, decisions });
+    const opened = openProject(folder, { stateDir, records });
     if (!opened.ok) {
       const code = opened.problem.code;
       const status = code === "missing" ? "missing" : code === "damaged" ? "damaged" : code === "unsupported-schema" ? "unsupported" : "unreadable";
@@ -199,7 +199,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
   const config = deps.stateDir === undefined ? getConfig() : null;
   const stateDir = deps.stateDir?.() ?? config!.paths.stateDir;
   const projects = deps.projectStore ?? projectStoreForStateDir(stateDir);
-  const opened = openProject(folder, { stateDir, decisions: stateDirDecisionStore(stateDir) });
+  const opened = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
   if (!opened.ok) {
     stderr(`project resume: ${opened.problem.message}\n`);
     return 1;

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { stateDirDecisionStore } from "./project-decisions.js";
+import { stateDirProjectRecords } from "./project-decisions.js";
 import {
   commitProject,
   createProject,
@@ -41,7 +41,7 @@ function project(): ProjectState {
 beforeEach(() => {
   folder = mkdtempSync(join(tmpdir(), "aa-project-"));
   stateDir = mkdtempSync(join(tmpdir(), "aa-state-"));
-  options = { stateDir, decisions: stateDirDecisionStore(stateDir, () => 9), now: () => 1_700_000_100_000 };
+  options = { stateDir, records: stateDirProjectRecords(stateDir, () => 9), now: () => 1_700_000_100_000 };
 });
 
 afterEach(() => {

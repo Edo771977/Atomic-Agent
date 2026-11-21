@@ -105,12 +105,12 @@ describe("foldProjectUpdate with the folder store (issue #109)", () => {
     const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { createSessionProjectStore } = await import("../../session/session-project-store.js");
-    const { stateDirDecisionStore } = await import("../../session/project-decisions.js");
+    const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
     const { projectFilePath } = await import("../../session/project-store.js");
     const folder = mkdtempSync(join(tmpdir(), "aa-fold-"));
     const stateDir = mkdtempSync(join(tmpdir(), "aa-fold-state-"));
     try {
-      const store = createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+      const store = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
       const chat = createEmptySessionState({ id: "a", workingDir: folder });
       const first = foldProjectUpdate(chat, result("project.brief", brief), NOW, {}, store);
       expect(first.result.status).toBe("ok");

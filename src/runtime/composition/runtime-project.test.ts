@@ -226,11 +226,11 @@ describe("runtime.projectDecision on the folder store (issue #109)", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const { createSessionProjectStore } = await import("../../session/session-project-store.js");
-    const { stateDirDecisionStore } = await import("../../session/project-decisions.js");
+    const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
     const folder = mkdtempSync(join(tmpdir(), "aa-rp-"));
     const stateDir = mkdtempSync(join(tmpdir(), "aa-rp-state-"));
     try {
-      const projectStore = createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+      const projectStore = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
       const created = projectStore.commit(createEmptySessionState({ id: "a", workingDir: folder }), up(undefined, brief));
       if (!created.ok) throw new Error(created.problem.message);
       const sessions = new Map<string, SessionState>([

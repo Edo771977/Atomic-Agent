@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { gateDecided, stateDirDecisionStore, type ProjectDecisionInput, type ProjectDecisionStore } from "./project-decisions.js";
+import { gateDecided, stateDirProjectRecords, type ProjectDecisionInput, type ProjectRecordStore } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type OpenedProject, type ProjectStoreProblem } from "./project-store.js";
 import { withProject, type ProjectGate, type ProjectState } from "./session-project.js";
 import type { SessionState } from "./session-state.js";
@@ -33,7 +33,7 @@ export interface SessionProjectRef {
 
 export interface SessionProjectStoreOptions {
   stateDir: string;
-  decisions: ProjectDecisionStore;
+  records: ProjectRecordStore;
   platform?: NodeJS.Platform;
   now?: () => number;
 }
@@ -93,7 +93,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
     registerProjectFolder(options.stateDir, opened.stored.folder, options.platform);
     return bound(state, opened);
   };
-  const storeOptions = { stateDir: options.stateDir, decisions: options.decisions, ...(options.now === undefined ? {} : { now: options.now }) };
+  const storeOptions = { stateDir: options.stateDir, records: options.records, ...(options.now === undefined ? {} : { now: options.now }) };
   const open = (state: SessionState, ref: SessionProjectRef): SessionState => {
     // The project is the session's folder's: a reference to another folder
     // would carry its content past that folder's constraints.
@@ -131,7 +131,9 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
     },
     decided(state, gate, version) {
       const ref = readProjectRef(state);
-      return ref !== null && gateDecided(options.decisions.read(ref.id).decisions, gate, version);
+      if (ref === null) return false;
+      const read = options.records.read(ref.folder, ref.id);
+      return read.ok && gateDecided(read.record?.decisions ?? [], gate, version);
     },
     commit(state, next, decision) {
       const ref = readProjectRef(state);
@@ -157,7 +159,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
   };
 }
 
-/** The store every surface on one state dir shares: decisions under that state dir. */
+/** The store every surface on one state dir shares: records under that state dir. */
 export function projectStoreForStateDir(stateDir: string): SessionProjectStore {
-  return createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+  return createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
 }

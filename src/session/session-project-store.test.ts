@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { stateDirDecisionStore } from "./project-decisions.js";
+import { stateDirProjectRecords } from "./project-decisions.js";
 import { createProject, projectFilePath } from "./project-store.js";
 import { createSessionProjectStore, sameProjectFolder, type SessionProjectStore } from "./session-project-store.js";
 import { applyProjectDecision, gateVersion, normalizeProject, type ProjectState } from "./session-project.js";
@@ -27,7 +27,7 @@ let store: SessionStore;
 beforeEach(() => {
   folder = mkdtempSync(join(tmpdir(), "aa-folder-"));
   stateDir = mkdtempSync(join(tmpdir(), "aa-state-"));
-  projects = createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+  projects = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
   store = new SessionStore({ dbFile: join(stateDir, "sessions.sqlite"), projectStore: projects });
 });
 
@@ -99,7 +99,7 @@ describe("session project reference (issue #109)", () => {
   });
 
   it("keeps the project embedded when the folder already holds another one", () => {
-    const other = createProject(folder, { milestones: [], gate: { kind: "none" } }, { stateDir, decisions: stateDirDecisionStore(stateDir) });
+    const other = createProject(folder, { milestones: [], gate: { kind: "none" } }, { stateDir, records: stateDirProjectRecords(stateDir) });
     expect(other.ok).toBe(true);
     const embedded = savePreStoreSession();
     const opened = store.load("s-109-fixture")!;
@@ -160,10 +160,13 @@ describe("session project reference (issue #109)", () => {
     store.save(store.load("s-109-fixture")!);
     const otherState = mkdtempSync(join(tmpdir(), "aa-other-state-"));
     try {
-      const there = createSessionProjectStore({ stateDir: otherState, decisions: stateDirDecisionStore(otherState) });
+      const there = createSessionProjectStore({ stateDir: otherState, records: stateDirProjectRecords(otherState) });
       const p = there.prepareTurn(createEmptySessionState({ id: "x", workingDir: folder }), true).project!;
       expect(p.gate).toEqual({ kind: "brief" });
-      expect(p.milestones.map((m) => m.criteriaFacts?.length ?? 0)).toEqual([2, 2, 0]);
+      // Execution state stays on the machine that ran it: content travels, runs and evidence start over.
+      expect(p.brief?.what).toBe("A puzzle game");
+      expect(p.plan?.rows).toHaveLength(3);
+      expect(p.milestones.map((m) => `${m.state}:${m.criteriaFacts?.length ?? 0}`)).toEqual(["planned:0", "planned:0", "planned:0"]);
       expect(p.changedOutside).toEqual(["brief", "plan"]);
     } finally {
       rmSync(otherState, { recursive: true, force: true });

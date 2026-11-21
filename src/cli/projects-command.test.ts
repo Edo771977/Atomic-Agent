@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { stateDirDecisionStore } from "../session/project-decisions.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { projectRegistryPath, readProjectRegistry } from "../session/project-registry.js";
 import { projectFilePath } from "../session/project-store.js";
 import { createSessionProjectStore, type SessionProjectStore } from "../session/session-project-store.js";
@@ -27,7 +27,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "aa-projects-"));
   stateDir = join(root, "state");
   mkdirSync(stateDir);
-  projects = createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+  projects = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
 });
 
 afterEach(() => {
