@@ -12,6 +12,7 @@ import {
   type ProjectState,
   type ProjectVerdict,
 } from "./session-project.js";
+import { withFileLock } from "./project-lock.js";
 
 /**
  * A fusion project's record in the user's state dir (issue #109): the
@@ -437,6 +438,16 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
     write(rawFolder, id, baseSeq, next, decision) {
       if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
       const folder = canonicalProjectFolder(rawFolder, platform);
+      mkdirSync(dir, { recursive: true });
+      // Read, compare and write under a lock beside the record, in the
+      // trust-config dir: the folder's own lock serialises the folder's
+      // files only, and a command in the folder can remove it.
+      const locked = withFileLock(`${fileOf(folder)}.lock`, () => writeLocked(folder, id, baseSeq, next, decision), { now });
+      return locked.ok ? locked.value : { ok: false, problem: { code: "locked", message: "Another Atomic Agent is writing this project's record; try again." } };
+    },
+  };
+  function writeLocked(folder: string, id: string, baseSeq: number, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem } {
+    {
       const current = readAt(folder);
       if (!current.ok) return current;
       if (current.foreign === true) {
@@ -448,7 +459,6 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       const refused = checkWrite(current.record, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
       const out = nextRecord(current.record, folder, id, next, decision, now());
-      mkdirSync(dir, { recursive: true });
       const file = fileOf(folder);
       const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
@@ -459,8 +469,8 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
         return { ok: false, problem: { code: "io", message: (err as Error).message } };
       }
       return { ok: true, seq: out.seq };
-    },
-  };
+    }
+  }
 }
 
 /** In-memory records for tests. */

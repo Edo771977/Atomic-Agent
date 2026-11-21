@@ -131,3 +131,45 @@ describe("the record store (issue #109)", () => {
     expect(() => stateDirProjectRecords(dir).write("/f", "../x", 0, project())).toThrow(/safe file name/);
   });
 });
+
+describe("record writes are serialised beside the record (issue #109 review b3w)", () => {
+  it("two processes writing without the folder lock lose no update: each ok is one seq", async () => {
+    const { spawn } = await import("node:child_process");
+    const { writeFileSync } = await import("node:fs");
+    const { pathToFileURL } = await import("node:url");
+    const dir = mkdtempSync(join(tmpdir(), "aa-records-race-"));
+    try {
+      const stateDir = join(dir, "state");
+      const folder = join(dir, "A");
+      const script = join(dir, "writer.mts");
+      const module = pathToFileURL(join(import.meta.dirname, "project-decisions.ts")).href;
+      writeFileSync(script, `
+        import { stateDirProjectRecords } from ${JSON.stringify(module)};
+        const [stateDir, folder, tag, n] = process.argv.slice(2);
+        const rec = stateDirProjectRecords(stateDir);
+        let ok = 0;
+        const base = { milestones: [{ id: "m1", title: "t", kind: "base", state: "planned", runIds: [], updatedAt: 0 }], gate: { kind: "none" } };
+        for (let i = 0; i < Number(n); i++) {
+          const r = rec.read(folder);
+          if (!r.ok) continue;
+          const w = rec.write(folder, "pid1", r.record?.seq ?? 0, { ...base, milestones: [{ ...base.milestones[0], runIds: [tag + "-" + i] }] });
+          if (w.ok) ok++;
+        }
+        console.log(ok);
+      `);
+      const run = (tag: string) => new Promise<number>((resolve, reject) => {
+        const child = spawn(process.execPath, ["--import", "tsx", script, stateDir, folder, tag, "150"], { stdio: ["ignore", "pipe", "inherit"] });
+        let out = "";
+        child.stdout.on("data", (b: Buffer) => { out += b.toString(); });
+        child.on("error", reject);
+        child.on("close", () => resolve(Number(out.trim())));
+      });
+      const [a, b] = await Promise.all([run("a"), run("b")]);
+      const final = stateDirProjectRecords(stateDir).read(folder);
+      if (!final.ok || final.record === null) throw new Error("no record");
+      expect(a + b).toBe(final.record.seq);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
