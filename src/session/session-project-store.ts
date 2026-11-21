@@ -146,7 +146,7 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
     decided(state, gate, version) {
       const ref = readProjectRef(state);
       if (ref === null) return false;
-      const read = options.records.read(ref.folder, ref.id);
+      const read = options.records.read(ref.folder);
       return read.ok && gateDecided(read.record?.decisions ?? [], gate, version);
     },
     commit(state, next, decision) {

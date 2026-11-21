@@ -235,16 +235,16 @@ describe("records are bound to the project folder (issue #109 review)", () => {
     }
   });
 
-  it("ids that differ only by case have separate records", async () => {
+  it("one record per folder: another id, even one differing only by case, is refused, never a second record", async () => {
     const { stateDirProjectRecords: records } = await import("./project-decisions.js");
     const r = records(stateDir);
     const p = normalizeProject(fixture.session.project)!;
     expect(r.write(folder, "Proj", 0, p).ok).toBe(true);
-    expect(r.write(folder, "proj", 0, { ...p, gate: { kind: "none" } }).ok).toBe(true);
-    const a = r.read(folder, "Proj");
-    const b = r.read(folder, "proj");
-    expect(a.ok && a.record?.state.gate).toEqual({ kind: "milestone", id: "m2" });
-    expect(b.ok && b.record?.state.gate).toEqual({ kind: "none" });
+    const other = r.write(folder, "proj", 1, { ...p, gate: { kind: "none" } });
+    expect(!other.ok && other.problem.code).toBe("conflict");
+    const back = r.read(folder);
+    expect(back.ok && back.record?.id).toBe("Proj");
+    expect(back.ok && back.record?.state.gate).toEqual({ kind: "milestone", id: "m2" });
   });
 });
 
@@ -312,5 +312,49 @@ describe("an unusable record is reported and never overwritten (issue #109 revie
     const opened = projects.load(s);
     expect(opened.project).toBeUndefined();
     expect(projects.commit(opened, s.project!).ok).toBe(false);
+  });
+});
+
+describe("one record per folder: the file's id cannot pick another record (issue #109 review b1)", () => {
+  it("rewriting the id resets nothing, and a cancel survives restoring the old file", async () => {
+    const { checkProjectDispatch } = await import("../tools/fusion/project-dispatch.js");
+    const p0 = normalizeProject(fixture.session.project)!;
+    const p: ProjectState = { ...p0, gate: { kind: "none" }, milestones: p0.milestones.map((m) => (m.id === "m2" ? { ...m, state: "reviewed" as const } : m.id === "m3" ? { ...m, state: "approved" as const } : m)) };
+    let s = projects.load({ ...createEmptySessionState({ id: "a", workingDir: folder }), project: p });
+    const original = readFileSync(projectFilePath(folder), "utf8");
+    const j = JSON.parse(original);
+    j.id = "zzz";
+    writeFileSync(projectFilePath(folder), JSON.stringify(j));
+    s = projects.prepareTurn(s, true);
+    expect(s.project?.gate).toEqual({ kind: "none" });
+    expect(s.project?.milestones.map((m) => m.state)).toEqual(["reviewed", "reviewed", "approved"]);
+    const gate = s.project!.gate;
+    const version = gateVersion(s.project)!;
+    const d = applyProjectDecision(s.project, { gate, version, verdict: "cancel" }, { now: 10 });
+    if (!d.ok) throw new Error(d.error.message);
+    const c = projects.commit(s, d.project, { input: { gate, version, verdict: "cancel" }, decidedOn: s.project! });
+    if (!c.ok) throw new Error(c.problem.message);
+    writeFileSync(projectFilePath(folder), original);
+    const back = projects.prepareTurn(c.session, true).project!;
+    expect(back.cancelledAt).toBeDefined();
+    expect(checkProjectDispatch(back, ["t3"]).kind).toBe("refuse");
+  });
+
+  it("older per-id records of one folder: the newest wins, the rest are ignored and reported", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const { canonicalProjectFolder, projectRecordsDir, stateDirProjectRecords: records } = await import("./project-decisions.js");
+    const { createHash } = await import("node:crypto");
+    const p = normalizeProject(fixture.session.project)!;
+    const dir = projectRecordsDir(stateDir);
+    mkdirSync(dir, { recursive: true });
+    const canonical = canonicalProjectFolder(folder);
+    for (const [id, seq, gate] of [["old", 3, { kind: "none" }], ["new", 5, p.gate]] as const) {
+      const key = createHash("sha256").update(`${canonical}\n${id}`).digest("hex").slice(0, 40);
+      writeFileSync(join(dir, `${key}.json`), JSON.stringify({ version: 1, folder: canonical, id, seq, state: { ...p, gate }, decisions: [] }));
+    }
+    const read = records(stateDir).read(folder);
+    expect(read.ok && read.record?.id).toBe("new");
+    expect(read.ok && read.record?.seq).toBe(5);
+    expect(read.ok && read.ignored?.length).toBe(1);
   });
 });

@@ -117,7 +117,7 @@ describe("the record store (issue #109)", () => {
       expect(!again.ok && again.problem.code).toBe("already-decided");
       const stale = store.write("/f", "p1", 1, p);
       expect(!stale.ok && stale.problem.code).toBe("conflict");
-      const read = store.read("/f", "p1");
+      const read = store.read("/f");
       if (!read.ok || read.record === null) throw new Error("no record");
       expect(read.record.seq).toBe(2);
       expect(read.record.decisions).toEqual([{ seq: 2, at: 5, ...decision }]);
@@ -128,6 +128,6 @@ describe("the record store (issue #109)", () => {
   it("refuses an id that is not a safe file name", () => {
     const dir = mkdtempSync(join(tmpdir(), "aa-records-"));
     dirs.push(dir);
-    expect(() => stateDirProjectRecords(dir).read("/f", "../x")).toThrow(/safe file name/);
+    expect(() => stateDirProjectRecords(dir).write("/f", "../x", 0, project())).toThrow(/safe file name/);
   });
 });

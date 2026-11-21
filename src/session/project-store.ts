@@ -94,6 +94,8 @@ export interface OpenedProject {
   /** The decision store's `seq` it was resolved at; a write names it. */
   decisionSeq: number;
   decisions: readonly ProjectDecisionRecord[];
+  /** What the reader should be told but that does not stop the project (older records passed over). */
+  notices?: string[];
 }
 
 export type ProjectOpenResult = { ok: true; opened: OpenedProject } | { ok: false; problem: ProjectStoreProblem };
@@ -217,12 +219,14 @@ export function projectFileJson(stored: StoredProject, stateDir: string): Record
 export function openProject(folder: string, options: ProjectStoreOptions): ProjectOpenResult {
   const read = readProjectFile(folder, options);
   if (!read.ok) return read;
-  const record = options.records.read(read.stored.folder, read.stored.id);
+  const record = options.records.read(read.stored.folder);
   if (!record.ok) return { ok: false, problem: recordProblem(record.problem, read.stored.folder) };
   return {
     ok: true,
     opened: {
-      stored: read.stored,
+      // The folder's project is its record's: an id written in the file is content, never a key.
+      stored: record.record === null ? read.stored : { ...read.stored, id: record.record.id },
+      ...(record.ignored === undefined ? {} : { notices: record.ignored.map((f) => `older record ignored: ${f}`) }),
       project: resolveProject(read.stored.project, record.record, (options.now ?? Date.now)()),
       decisionSeq: record.record?.seq ?? 0,
       decisions: record.record?.decisions ?? [],
@@ -298,10 +302,13 @@ export function createProject(folder: string, project: ProjectState, options: Pr
     if (existing.ok || existing.problem.code !== "missing") {
       return problem("exists", `${folder} already holds a project (${projectFilePath(folder)}); open it instead.`);
     }
+    const prior = options.records.read(folder);
+    if (!prior.ok) return { ok: false, problem: recordProblem(prior.problem, folder) };
     const at = now();
     const stored: StoredProject = {
       schemaVersion: PROJECT_SCHEMA_VERSION,
-      id: options.id ?? randomUUID(),
+      // A folder whose file was removed keeps its record, and its project id.
+      id: prior.record?.id ?? options.id ?? randomUUID(),
       name: options.name ?? (basename(folder) || folder),
       folder,
       revision: 1,
@@ -310,8 +317,6 @@ export function createProject(folder: string, project: ProjectState, options: Pr
       project: projectContent(project),
       extra: {},
     };
-    const prior = options.records.read(folder, stored.id);
-    if (!prior.ok) return { ok: false, problem: recordProblem(prior.problem, folder) };
     // The record first: a crash before the file leaves no project (and a record nothing points at).
     const recorded = options.records.write(folder, stored.id, prior.record?.seq ?? 0, project);
     if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
@@ -348,11 +353,12 @@ export function commitProject(
   return withLock(projectStoreDir(folder), now, (): ProjectOpenResult => {
     const current = readProjectFile(folder, options);
     if (!current.ok) return current;
-    if (current.stored.id !== id) return problem("refused", `${projectFilePath(folder)} holds another project (${current.stored.id}, not ${id}).`);
     const store = options.records;
     const decision = options.decision;
-    const record = store.read(folder, id);
+    const record = store.read(folder);
     if (!record.ok) return { ok: false, problem: recordProblem(record.problem, folder) };
+    const folderId = record.record?.id ?? current.stored.id;
+    if (folderId !== id) return problem("refused", `${folder}'s project is ${folderId}, not ${id}; reload it.`);
     if (current.stored.revision !== base.revision) {
       if (decision !== undefined && gateDecided(record.record?.decisions ?? [], decision.gate, decision.version)) {
         return problem("already-decided", "That gate was already decided (in another chat); reload the project.");
@@ -371,17 +377,17 @@ export function commitProject(
     // No record for this folder: a copy, a moved folder or another
     // machine. It becomes its own project, under a new id, so its writes
     // can never reach the record of the folder it came from.
-    const ownId = record.record === null ? randomUUID() : id;
+    const ownId = record.record === null ? randomUUID() : record.record.id;
     // The file first: a crash between leaves our own content in the file, which reads as an outside draft, never as an approval.
     const content = projectContent(project);
-    if (ownId !== id || canonicalJson(content) !== canonicalJson(projectContent(current.stored.project))) {
+    if (ownId !== current.stored.id || canonicalJson(content) !== canonicalJson(projectContent(current.stored.project))) {
       const failed = writeFile({ ...current.stored, id: ownId, revision: current.stored.revision + 1, updatedAt: Math.max(now(), current.stored.updatedAt), project: content }, options);
       if (failed !== null) return { ok: false, problem: failed };
     }
     // An outside edit the chat's base had taken (and not yet recorded) stays flagged on whatever is written on top of it.
     const outside = resolveProject(current.stored.project, record.record, now()).changedOutside ?? [];
     const flagged = outside.length === 0 ? project : { ...project, changedOutside: [...new Set([...outside, ...(project.changedOutside ?? [])])] };
-    const recorded = store.write(folder, ownId, ownId === id ? base.decisionSeq : 0, flagged, decided);
+    const recorded = store.write(folder, ownId, record.record === null ? 0 : base.decisionSeq, flagged, decided);
     if (!recorded.ok) return { ok: false, problem: recordProblem(recorded.problem, folder) };
     const opened = openProject(folder, options);
     if (opened.ok) writeViews(opened.opened.stored, opened.opened.project);

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 import {
@@ -231,7 +231,10 @@ export interface ProjectRecordProblem {
   message: string;
 }
 
-export type ProjectRecordRead = { ok: true; record: ProjectRecord | null } | { ok: false; problem: ProjectRecordProblem };
+export type ProjectRecordRead =
+  /** `ignored`: older records of the same folder passed over (one per project id from an earlier layout). */
+  | { ok: true; record: ProjectRecord | null; ignored?: string[] }
+  | { ok: false; problem: ProjectRecordProblem };
 
 /**
  * Where a project's record is kept: the one seam between the folder's
@@ -239,13 +242,16 @@ export type ProjectRecordRead = { ok: true; record: ProjectRecord | null } | { o
  * made while the project folder's lock is held (`project-store.ts`).
  */
 export interface ProjectRecordStore {
-  read(folder: string, id: string): ProjectRecordRead;
+  /** The folder's record: one per folder, holding the folder's project id. */
+  read(folder: string): ProjectRecordRead;
   /**
    * Record `next` on top of `baseSeq`, with `decision` when a person
    * decided (bound to `hash`, the content its gate covered). The same
    * gate, version and content decided again is `already-decided`; a
    * record that moved on since `baseSeq` is `conflict`. A person's
-   * decision at a gate clears that gate from `changedOutside`.
+   * decision at a gate clears that gate from `changedOutside`. `id` is
+   * the folder's project id: the record's own once it exists (another is
+   * `conflict`), the file's when the first record is written.
    */
   write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
 }
@@ -283,9 +289,13 @@ export function canonicalProjectFolder(folder: string, platform: NodeJS.Platform
   return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
 }
 
-/** The record's file name: folder and id together, so ids differing by case, or one id in two folders, never share one. */
-function recordKey(folder: string, id: string): string {
-  return createHash("sha256").update(`${folder}\n${id}`).digest("hex").slice(0, 40);
+/**
+ * The record's file name: the folder alone. One record per folder, so
+ * the id written in the folder's file can never pick another record (an
+ * older one, a cancelled one's predecessor): the file's id is content.
+ */
+function recordKey(folder: string): string {
+  return createHash("sha256").update(`folder\n${folder}`).digest("hex").slice(0, 40);
 }
 
 /** Whether `path` lies inside `<stateDir>/fusion-runs` (where runs keep their pictures). */
@@ -357,62 +367,89 @@ function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (P
   return null;
 }
 
+/** One record file read and checked; `null` record for a missing file. */
+function readRecordFile(file: string, stateDir: string): { ok: true; record: ProjectRecord | null; folder?: unknown } | { ok: false; problem: ProjectRecordProblem } {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, record: null };
+    // A transient error (EBUSY, EPERM, EISDIR) is not an empty record: nothing is approved and nothing is written.
+    return { ok: false, problem: { code: "io", message: `the record ${file} could not be read: ${(err as Error).message}` } };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, problem: { code: "damaged", message: `the record ${file} is not valid JSON (${(err as Error).message})` } };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, problem: { code: "damaged", message: `the record ${file} is not a JSON object` } };
+  }
+  const raw = parsed as Record<string, unknown>;
+  if (raw.version !== 1) {
+    return { ok: false, problem: { code: "unsupported", message: `the record ${file} has version ${JSON.stringify(raw.version)}; this Atomic Agent reads version 1` } };
+  }
+  const state = readState(raw.state, stateDir);
+  const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
+  if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || typeof raw.folder !== "string" || typeof raw.id !== "string" || !SAFE_ID.test(raw.id) || state === null || decisions === null || decisions.some((d) => d === null)) {
+    return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };
+  }
+  return { ok: true, record: { version: 1, folder: raw.folder, id: raw.id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[] } };
+}
+
 /** The record store under the state dir; `now` for tests. */
 export function stateDirProjectRecords(stateDir: string, now: () => number = Date.now, platform: NodeJS.Platform = process.platform): ProjectRecordStore {
   const dir = projectRecordsDir(stateDir);
-  const fileOf = (folder: string, id: string) => {
-    if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
-    return join(dir, `${recordKey(folder, id)}.json`);
-  };
-  /** `foreign`: the file at this folder's key belongs to another folder or id; it is never replaced. */
-  const readAt = (folder: string, id: string): ProjectRecordRead & { foreign?: true } => {
-    const file = fileOf(folder, id);
-    let text: string;
+  const fileOf = (folder: string) => join(dir, `${recordKey(folder)}.json`);
+  /**
+   * The folder's record. A file at its name for another folder is not
+   * ours (`foreign`) and is never replaced. With no record under the
+   * folder's name, records of an earlier layout (one per folder and id)
+   * are looked for: the newest seq is taken, the others ignored and named.
+   */
+  const readAt = (folder: string): ProjectRecordRead & { foreign?: true } => {
+    const own = readRecordFile(fileOf(folder), stateDir);
+    if (!own.ok) return own;
+    if (own.record !== null) return own.record.folder === folder ? { ok: true, record: own.record } : { ok: true, record: null, foreign: true };
+    let names: string[] = [];
     try {
-      text = readFileSync(file, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, record: null };
-      // A transient error (EBUSY, EPERM, EISDIR) is not an empty record: nothing is approved and nothing is written.
-      return { ok: false, problem: { code: "io", message: `the record ${file} could not be read: ${(err as Error).message}` } };
+      names = readdirSync(dir).filter((n) => /^[0-9a-f]{40}\.json$/.test(n) && n !== `${recordKey(folder)}.json`);
+    } catch {
+      return { ok: true, record: null };
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      return { ok: false, problem: { code: "damaged", message: `the record ${file} is not valid JSON (${(err as Error).message})` } };
+    const legacy: Array<{ name: string; record: ProjectRecord }> = [];
+    for (const name of names) {
+      const r = readRecordFile(join(dir, name), stateDir);
+      if (r.ok && r.record !== null && r.record.folder === folder) legacy.push({ name, record: r.record });
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { ok: false, problem: { code: "damaged", message: `the record ${file} is not a JSON object` } };
-    }
-    const raw = parsed as Record<string, unknown>;
-    if (raw.version !== 1) {
-      return { ok: false, problem: { code: "unsupported", message: `the record ${file} has version ${JSON.stringify(raw.version)}; this Atomic Agent reads version 1` } };
-    }
-    const state = readState(raw.state, stateDir);
-    const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
-    if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || state === null || decisions === null || decisions.some((d) => d === null)) {
-      return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };
-    }
-    if (raw.folder !== folder || raw.id !== id) return { ok: true, record: null, foreign: true };
-    return { ok: true, record: { version: 1, folder, id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[] } };
+    if (legacy.length === 0) return { ok: true, record: null };
+    legacy.sort((a, b) => b.record.seq - a.record.seq || (a.name < b.name ? -1 : 1));
+    const ignored = legacy.slice(1).map((l) => join(dir, l.name));
+    return { ok: true, record: legacy[0]!.record, ...(ignored.length === 0 ? {} : { ignored }) };
   };
   return {
-    read(folder, id) {
-      const r = readAt(canonicalProjectFolder(folder, platform), id);
-      return r.ok ? { ok: true, record: r.record } : r;
+    read(folder) {
+      const r = readAt(canonicalProjectFolder(folder, platform));
+      if (!r.ok) return r;
+      return { ok: true, record: r.record, ...(r.ignored === undefined ? {} : { ignored: r.ignored }) };
     },
     write(rawFolder, id, baseSeq, next, decision) {
+      if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
       const folder = canonicalProjectFolder(rawFolder, platform);
-      const current = readAt(folder, id);
+      const current = readAt(folder);
       if (!current.ok) return current;
       if (current.foreign === true) {
-        return { ok: false, problem: { code: "conflict", message: "This folder's record file holds another project's record; it was left as it is." } };
+        return { ok: false, problem: { code: "conflict", message: "This folder's record file holds another folder's record; it was left as it is." } };
+      }
+      if (current.record !== null && current.record.id !== id) {
+        return { ok: false, problem: { code: "conflict", message: `This folder's project is ${current.record.id}, not ${id}; reload it.` } };
       }
       const refused = checkWrite(current.record, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
       const out = nextRecord(current.record, folder, id, next, decision, now());
       mkdirSync(dir, { recursive: true });
-      const file = fileOf(folder, id);
+      const file = fileOf(folder);
       const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
         writeFileSync(temp, `${JSON.stringify(out, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -429,16 +466,17 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
 /** In-memory records for tests. */
 export function memoryProjectRecords(now: () => number = Date.now): ProjectRecordStore & { records: Map<string, ProjectRecord> } {
   const records = new Map<string, ProjectRecord>();
-  const key = (folder: string, id: string) => recordKey(canonicalProjectFolder(folder), id);
+  const key = (folder: string) => recordKey(canonicalProjectFolder(folder));
   return {
     records,
-    read: (folder, id) => ({ ok: true, record: records.get(key(folder, id)) ?? null }),
+    read: (folder) => ({ ok: true, record: records.get(key(folder)) ?? null }),
     write(folder, id, baseSeq, next, decision) {
-      const current = records.get(key(folder, id)) ?? null;
+      const current = records.get(key(folder)) ?? null;
+      if (current !== null && current.id !== id) return { ok: false, problem: { code: "conflict", message: `This folder's project is ${current.id}, not ${id}; reload it.` } };
       const refused = checkWrite(current, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
       const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now());
-      records.set(key(folder, id), out);
+      records.set(key(folder), out);
       return { ok: true, seq: out.seq };
     },
   };

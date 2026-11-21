@@ -186,7 +186,7 @@ describe("attachment paths stay inside the state dir's fusion runs (issue #109 r
     const p = opened.opened.project;
     const outside = { ...p, milestones: p.milestones.map((m, i) => (i === 0 ? { ...m, attachments: [{ path: join(stateDir, "..", "x.png"), caption: "outside" }, ...(m.attachments ?? [])] } : m)) };
     expect(records.write(folder, "proj-1", opened.opened.decisionSeq, outside).ok).toBe(true);
-    const back = records.read(folder, "proj-1");
+    const back = records.read(folder);
     expect(back.ok && back.record?.state.milestones[0]?.attachments?.map((a) => a.caption)).toEqual(["The board"]);
   });
 });

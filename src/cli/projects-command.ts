@@ -58,6 +58,8 @@ export interface ProjectRow {
   /** Priced spend of the project's fusion runs still on disk; null when none were found. */
   spentUsd?: number | null;
   problem?: string;
+  /** Said with the row, not a failure (older records of the folder passed over). */
+  notices?: string[];
 }
 
 /** Spend of the runs the project's milestones record, from their checkpoints. */
@@ -94,6 +96,7 @@ export function listProjectRows(stateDir: string): { rows: ProjectRow[]; registr
       next: describeExpectation(projectExpectation(project)),
       updatedAt: stored.updatedAt,
       spentUsd: projectSpend(project, stateDir),
+      ...(opened.opened.notices === undefined ? {} : { notices: opened.opened.notices }),
     };
   });
   return { rows };
@@ -113,6 +116,7 @@ function formatRows(rows: readonly ProjectRow[]): string {
       `  next: ${r.next}`,
       `  last change: ${new Date(r.updatedAt!).toISOString()}`,
       `  spend: ${r.spentUsd === null || r.spentUsd === undefined ? "no recorded runs" : `$${r.spentUsd.toFixed(2)}`}`,
+      ...(r.notices ?? []).map((n) => `  note: ${n}`),
       "",
     );
   }
