@@ -55,6 +55,10 @@ export const evidenceRetiredHint = (title: string): string => `evidence retired:
 export const verifiedWithReservationsHint = (id: string, reservation: string): string => `verified with reservations: ${id} (${reservation})`;
 
 /** The gate card's payload. Pure. */
+/** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
+export const CHANGED_OUTSIDE_HINT =
+  "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
+
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
   const plan = project.plan;
@@ -106,7 +110,12 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       if (m !== undefined) hints.push(evidenceRetiredHint(m.title));
     }
   }
+  // Issue #109: what waits changed outside Atomic Agent since the person decided it.
+  const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
+  const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
+  if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
   return {
+    ...(changedOutside ? { changedOutside: true as const } : {}),
     schema: 1,
     sessionId: input.sessionId,
     gate: project.gate,

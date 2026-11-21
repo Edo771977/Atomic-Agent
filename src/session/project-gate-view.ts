@@ -54,6 +54,13 @@ export interface ProjectGateView {
    * (those are `violations`).
    */
   hints: string[];
+  /**
+   * Issue #109: the open gate's content changed outside Atomic Agent since
+   * the person last decided it (`project.json` edited by hand or by a
+   * command), or no decision is recorded on this machine. Absent
+   * otherwise. An automatic approval stops here for the person.
+   */
+  changedOutside?: true;
 }
 
 /**
