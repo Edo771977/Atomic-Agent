@@ -21,6 +21,7 @@ import type { SwarmRegistry } from "../../channels/swarm/swarm-registry.js";
 import type { ChannelRegistry } from "../../channels/channel-registry.js";
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import type { SentryClient } from "../../error-reporting/sentry-client.js";
+import type { RuntimeShutdownOptions } from "../runtime-contract.js";
 
 export interface RuntimeLifecycleResources {
   readonly compaction?: { shutdown(): void };
@@ -69,6 +70,32 @@ export interface RuntimeLifecycleResources {
   readonly traceExport?: { shutdown(): Promise<void> } | null;
 }
 
+const NO_STEP = (): void => {};
+
+/**
+ * `step(name)` reports the enter and returns the exit; the exit reports
+ * once, so a failure path's `done(false)` wins over the `done()` after it.
+ */
+function phaseMarker(onPhase: RuntimeShutdownOptions["onPhase"]): (phase: string) => (ok?: boolean) => void {
+  if (onPhase === undefined) return () => NO_STEP;
+  const report = (phase: string, edge: "enter" | "exit", ok?: boolean): void => {
+    try {
+      onPhase(phase, edge, ok);
+    } catch {
+      // observation never changes the teardown
+    }
+  };
+  return (phase) => {
+    report(phase, "enter");
+    let reported = false;
+    return (ok = true) => {
+      if (reported) return;
+      reported = true;
+      report(phase, "exit", ok);
+    };
+  };
+}
+
 /** Owns shutdown state and the existing ordered teardown, including its bounded grace. */
 export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
   const { sessionStore, logger, steeringInbox, shellJobs, reflectionRunner,
@@ -94,19 +121,25 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     }
   };
   let shutdownCalled = false;
-  const shutdown = async (): Promise<void> => {
+  const shutdown = async (options: RuntimeShutdownOptions = {}): Promise<void> => {
     if (shutdownCalled) return;
     shutdownCalled = true;
+    const step = phaseMarker(options.onPhase);
+    let done = step("compaction");
     resources.compaction?.shutdown();
+    done();
     // Say now, while the store is certainly open, that the turns still
     // running were interrupted: a stop that turns into a kill partway
     // through this teardown — the desktop gives it 4 s — still leaves
     // every row right. It goes in as a stand-in: a turn that writes its
     // own end before the store closes (below), or that throws and ends
     // through `releaseTurn`, replaces it with what really happened.
+    done = step("release-turns");
     releaseTurnsInterrupted({ keepMarks: true });
+    done();
     // Stop task ingress and abort every running task while both stores remain
     // open. This covers scheduler, run-on-create and explicit run requests.
+    done = step("task-runner-stop");
     const taskRunsStopped = resources.taskRunner
       .stop(SHUTDOWN_TURN_GRACE_MS)
       .catch((err: unknown) => {
@@ -115,6 +148,8 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
         });
         return 0;
       });
+    done();
+    done = step("scheduler-stop");
     const schedulerStopped = resources.scheduler
       ?.stop(SHUTDOWN_TURN_GRACE_MS)
       .catch((err: unknown) => {
@@ -122,27 +157,37 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+    done();
     // Nothing will drain the inbox after this point; drop pending
     // steers so a message cannot resurface in a later process.
+    done = step("steering-clear");
     steeringInbox.clearAll();
+    done();
     // Every detached shell job, kept or not: nothing will wait on it
     // once this process is gone, and its ceiling timer dies with us.
+    done = step("shell-jobs");
     shellJobs.endAll();
+    done();
     // And every language server: a child process of ours, idle or not.
+    done = step("language-servers");
     try {
       resources.languageServers?.dispose();
     } catch {
       // already stopped
     }
+    done();
     // Cancel any in-flight reflection before tearing down the profile
     // store — otherwise a late-arriving completion could try to write
     // into a closed SQLite connection.
+    done = step("reflection-abort");
     try {
       reflectionRunner?.abortPending();
     } catch {
       // runner already disposed
     }
+    done();
     // Same race, same reason, for session naming (`pendingSessionNamings`).
+    done = step("pending-aborts");
     for (const naming of pendingSessionNamings) naming.abort();
     pendingSessionNamings.clear();
     // And for a prompt rewrite nobody will read once the host is gone.
@@ -150,20 +195,29 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     resources.pendingPromptEnhances?.clear();
     for (const side of resources.pendingSideQuestions ?? []) side.abort();
     resources.pendingSideQuestions?.clear();
+    done();
     // And for the embedding backfill: abort its in-flight embed now, and
     // wait for it (below) before the notes store it writes into closes.
+    done = step("embedding-backfill-stop");
     const backfillStopped = resources.embeddingBackfill?.stop().catch(() => {});
+    done();
     // No "still waiting" ping from a process that is going away.
+    done = step("approval-pending");
     resources.approvalPendingNotifier?.dispose();
+    done();
+    done = step("telegram");
     if (resources.telegramChannelForShutdown) {
       try {
         await resources.telegramChannelForShutdown.stop();
       } catch (err) {
+        done(false);
         logger.warn("telegram: shutdown failed", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
+    done();
+    done = step("discord");
     if (resources.discordChannelForShutdown) {
       try {
         // Stops the gateway, aborts in-flight turns and releases the
@@ -171,29 +225,39 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
         // before the LLM client goes away.
         await resources.discordChannelForShutdown.stop();
       } catch (err) {
+        done(false);
         logger.warn("discord: shutdown failed", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
+    done();
+    done = step("swarm");
     if (resources.swarmForShutdown) {
       try {
         await resources.swarmForShutdown.stopAll();
       } catch (err) {
+        done(false);
         logger.warn("swarm: shutdown failed", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
+    done();
     // Slack, Signal and the other catalog adapters (ATO-1169). Telegram
     // and Discord were stopped above in their own order; `stopAll` logs
     // and swallows each adapter's failure itself.
+    done = step("channels");
     await resources.channelsForShutdown?.stopAll(new Set(["telegram", "discord"]));
+    done();
+    done = step("plugin-mcp-watch");
     try {
       resources.pluginMcpWatch?.();
     } catch {
       // best-effort: an unwatch never blocks the rest of shutdown
     }
+    done();
+    done = step("mcp");
     try {
       // MCP manager closes every connected `McpClient` (transport
       // + sampling handler) and clears the dynamic resource-class
@@ -201,26 +265,33 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
       // swallowed inside the manager.
       await mcpManager.shutdown();
     } catch (err) {
+      done(false);
       logger.warn("mcp: shutdown failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+    done();
+    done = step("browser");
     try {
       await browserBackend.shutdown();
     } catch (err) {
+      done(false);
       logger.warn("browser shutdown failed", {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+    done();
     // The turns their hosts stopped — `serve`'s dropped connections, the
     // TUI's and the sidecar's aborts, the channels above — are unwinding
     // now. Closing the store under them is how a turn cancelled by a quit
     // used to lose its end: it saved a moment after `close`, and its row
     // kept what it held before the turn. Give them a moment first; a
     // turn nobody stopped is not waited for. TaskRunner stopped owned tasks above.
+    done = step("turns-settle");
     const stillEnding = await turnsInFlight.settleCancelled(
       SHUTDOWN_TURN_GRACE_MS,
     );
+    done(stillEnding === 0);
     if (stillEnding > 0) {
       logger.warn("stopped turns still running at shutdown; recorded as interrupted", {
         count: stillEnding,
@@ -228,17 +299,24 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     }
     // A turn that did not end in time, or that started after the release
     // at the top, is recorded the same way before the store goes away.
+    done = step("release-turns-final");
     releaseTurnsInterrupted();
+    done();
+    done = step("session-store-close");
     try {
       sessionStore.close();
     } catch {
       // already closed
     }
+    done();
+    done = step("profile-store-close");
     try {
       profileStore.close();
     } catch {
       // already closed
     }
+    done();
+    done = step("lesson-store-close");
     try {
       // Memory-v2 phase 5. LessonStore owns its own SQLite handle on
       // the same `memory.sqlite` file as MemoryStore / ProfileStore /
@@ -248,6 +326,8 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     } catch {
       // already closed
     }
+    done();
+    done = step("procedure-store-close");
     try {
       // Memory-v2 phase 7b. ProcedureStore owns its own SQLite
       // handle on the same `memory.sqlite` file. Close it before
@@ -257,50 +337,71 @@ export function createRuntimeLifecycle(resources: RuntimeLifecycleResources) {
     } catch {
       // already closed
     }
+    done();
+    done = step("embedding-backfill-wait");
     await backfillStopped;
+    done();
+    done = step("notes-store-close");
     try {
       notesStore.close();
     } catch {
       // already closed
     }
+    done();
     // Both waits were bounded at the top. Runs that ignore cancellation stay
     // owned by this process, for the next boot to recover once it is gone.
+    done = step("scheduler-wait");
     await schedulerStopped;
+    done();
+    done = step("task-runs-wait");
     const tasksStillRunning = await taskRunsStopped;
+    done(tasksStillRunning === 0);
     if (tasksStillRunning > 0) {
       logger.warn("task runs still going at shutdown; left for the next boot", {
         count: tasksStillRunning,
       });
     }
+    done = step("consolidator");
     if (resources.consolidatorJob) {
       try {
         await resources.consolidatorJob.stop();
       } catch (err) {
+        done(false);
         logger.warn("consolidator stop failed", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
+    done();
+    done = step("task-store-close");
     try {
       resources.taskStore.close();
     } catch {
       // already closed
     }
+    done();
     // Flush any queued analytics events before the process exits.
     // Fire-safe: `shutdown()` swallows its own errors.
+    done = step("analytics");
     if (resources.analytics) {
       await resources.analytics.shutdown();
     }
+    done();
     // Flush any queued error reports before the process exits.
+    done = step("error-reporter");
     if (resources.errorReporter) {
       await resources.errorReporter.shutdown();
     }
+    done();
     // Last: the turns interrupted above have written their final rows.
+    done = step("trace-export");
     try {
       await resources.traceExport?.shutdown();
     } catch {
+      done(false);
       // best-effort: telemetry never blocks the exit
     }
+    done();
   };
 
   return { shutdown, isShutdown: () => shutdownCalled };
