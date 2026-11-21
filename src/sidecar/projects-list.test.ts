@@ -106,7 +106,11 @@ it("lists the known projects with damaged and missing folders as rows, resumes o
     const list = (await s.response("list")).payload as { schema: number; projects: Array<Record<string, unknown>>; registryProblem: string | null };
     expect(list.schema).toBe(1);
     expect(list.registryProblem).toBeNull();
-    expect(list.projects.map((r) => [r.folder, r.status])).toEqual([[game, "ok"], [gone, "missing"], [broken, "damaged"]]);
+    expect(list.projects.map((row) => [row.folder, row.status, row.zone])).toEqual([
+      [game, "ok", "needs-you"],
+      [gone, "missing", "problem"],
+      [broken, "damaged", "problem"],
+    ]);
     expect(list.projects[0]).toMatchObject({ name: "game", gate: "milestone m2", next: "you review milestone m2", spentUsd: null });
     expect(typeof list.projects[2]!.problem).toBe("string");
 

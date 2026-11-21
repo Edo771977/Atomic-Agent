@@ -79,11 +79,15 @@ function projectSpend(project: ProjectState, stateDir: string): number | null {
 }
 
 /** One row per known folder; a missing or damaged folder is a row, never an error. */
-export function listProjectRows(stateDir: string, now: number = Date.now()): { rows: ProjectRow[]; registryProblem?: string } {
+export function listProjectRows(
+  stateDir: string,
+  now: number = Date.now(),
+  includeFolder: (folder: string) => boolean = () => true,
+): { rows: ProjectRow[]; registryProblem?: string } {
   const registry = readProjectRegistry(stateDir);
   if (!registry.ok) return { rows: [], registryProblem: registry.message };
   const records = stateDirProjectRecords(stateDir);
-  const rows = registry.folders.map((folder): ProjectRow => {
+  const rows = registry.folders.filter(includeFolder).map((folder): ProjectRow => {
     const opened = openProject(folder, { stateDir, records });
     if (!opened.ok) {
       const code = opened.problem.code;
@@ -122,7 +126,7 @@ function formatRows(rows: readonly ProjectRow[]): string {
   const out: string[] = [];
   for (const r of rows) {
     if (r.status !== "ok") {
-      out.push(`${r.folder}`, `  ${r.status}: ${r.problem ?? ""}`, "");
+      out.push(`${r.folder}`, `  ${r.status}: ${r.problem ?? ""}`, `  attention: ${r.zone}`, "");
       continue;
     }
     out.push(

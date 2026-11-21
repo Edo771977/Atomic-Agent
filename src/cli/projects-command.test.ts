@@ -75,9 +75,14 @@ describe("projects list (issue #109)", () => {
     expect(t.out()).toContain("last change: ");
     expect(t.out()).toContain("missing: ");
     expect(t.out()).toContain("damaged: ");
+    expect(t.out().match(/attention: problem/g)).toHaveLength(2);
     const j = io();
     expect(await projectsCommand(["list", "--json"], j)).toBe(0);
-    expect(JSON.parse(j.out())).toHaveLength(3);
+    expect(JSON.parse(j.out())).toMatchObject([
+      { folder: game, zone: "needs-you" },
+      { folder: gone, zone: "problem" },
+      { folder: broken, zone: "problem" },
+    ]);
   });
 
   it("reports a damaged registry without overwriting it, and forgets a folder", async () => {
