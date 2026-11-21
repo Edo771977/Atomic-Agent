@@ -70,6 +70,7 @@ import {
 import { readContractInputs } from "./contract-inputs.js";
 import { readCheckInputs } from "./candidate-check-inputs.js";
 import { parseProvideExample } from "./contract-example.js";
+import { describeSevereFinding, lintContract } from "./contract-check-lint.js";
 import { readOutputEstimate } from "./worker-fit.js";
 import {
   FUSION_ROLES,
@@ -693,6 +694,12 @@ function readContract(
   }
 
   if (Object.keys(contract).length === 0) return undefined;
+  // Issue #110: a check or example that provably cannot fail is refused
+  // here, before anything runs; the lint reads the specs and runs nothing.
+  const lint = lintContract(contract);
+  for (const finding of lint) {
+    if (finding.severity === "severe") problems.push(describeSevereFinding(finding));
+  }
   // Stored before the block is measured: the workers pay for these
   // lines like any other.
   const warnings = contractWarnings(contract, tasks);
