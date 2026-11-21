@@ -593,14 +593,37 @@ function unwrap(code: string): string {
   return text;
 }
 
+/** The operands of `code`'s top-level `||` (outside any bracket); one entry when it has none. */
+function topLevelOr(code: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < code.length; i += 1) {
+    const c = code[i]!;
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (depth === 0 && c === "|" && code[i + 1] === "|") {
+      out.push(code.slice(start, i));
+      start = i + 2;
+      i += 1;
+    }
+  }
+  out.push(code.slice(start));
+  return out.map((segment) => segment.trim());
+}
+
 /** One finding for an example's `expect`, or null. */
 export function lintExampleExpect(expect: string, where: string): CheckLintFinding | null {
   const code = unwrap(expect);
   const bare = withoutStrings(code);
   const names = (bare.match(/[A-Za-z_$][\w$]*/g) ?? []).filter((w) => !LITERAL_WORDS.has(w));
   const tautology = /^([A-Za-z_$][\w$.]*)\s*={2,3}\s*\1$/.test(code);
-  const orTrue = !bare.includes("?") && (/\|\|\s*\(*\s*(?:true|!0|!false|1)\s*\)*\s*$/.test(bare) || /^\(*\s*(?:true|!0|!false|1)\s*\)*\s*\|\|/.test(bare));
-  if (names.length === 0 || tautology || orTrue) {
+  const segments = topLevelOr(bare);
+  const truthy = (segment: string): boolean => /^(?:true|!0|!false|1)$/.test(unwrap(segment));
+  const orTrue = !bare.includes("?") && segments.length > 1 && (truthy(segments[0]!) || truthy(segments[segments.length - 1]!));
+  // A `/` may open a regex literal, whose quotes and parens the string
+  // stripping above cannot pair: never severe through one.
+  if (!code.includes("/") && (names.length === 0 || tautology || orTrue)) {
     return {
       rule: "constant-example",
       severity: "severe",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ContractCheck } from "./contract.js";
-import { lintContractCheck } from "./contract-check-lint.js";
+import { lintContractCheck, lintExampleExpect } from "./contract-check-lint.js";
 
 /** Issue #110 review: severe false refusals and weak warnings found by an adversarial review. */
 
@@ -35,5 +35,20 @@ describe("words a subshell or interpreter re-reads are checked for metacharacter
     expect(severe({ task: "t", cmd: "pwsh", args: ["-Command", "Write-Output", "ok"], checks: ['stdout contains "ok"'] })).toBe(true);
     expect(severe({ task: "t", cmd: "echo", args: ["ok"], checks: ['stdout contains "ok"'] })).toBe(true);
     expect(severe({ task: "t", cmd: "node", args: ["-e", "console.log('ok')"], checks: ['stdout contains "ok"'] })).toBe(true);
+  });
+});
+
+describe("example expects: only a top-level trailing `|| true` is constant", () => {
+  const where = "contract.provides[0].example.expect";
+  it.each([
+    "r.average === r.sum / (r.count || 1)",
+    "r.pages === (r.total || 1)",
+    "/'/.test(r) && r !== ''",
+    "r.ok || (r.retry && true)",
+  ])("`%s` is not severe", (expect_) => {
+    expect(lintExampleExpect(expect_, where)?.severity).not.toBe("severe");
+  });
+  it.each(["r.ok || true", "(r.x > 0) || 1", "r.a && r.b || !0", "true || r.ok"])("`%s` is still severe", (expect_) => {
+    expect(lintExampleExpect(expect_, where)?.severity).toBe("severe");
   });
 });
