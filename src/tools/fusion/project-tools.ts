@@ -7,6 +7,7 @@ import {
   PROJECT_LIMITS,
   PROJECT_DELIVERABLES,
   normalizeCriterionId,
+  planDecisionsOf,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
@@ -466,7 +467,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
-      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []));
+      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), {}, ctx.project === undefined ? [] : planDecisionsOf(ctx.project));
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [

@@ -1,7 +1,7 @@
-import type { AssignmentRow, ProjectCriterion, ProjectReviewBlock } from "../../session/session-project.js";
+import type { AssignmentRow, ProjectBriefDecision, ProjectCriterion, ProjectDecisionStatus, ProjectReviewBlock } from "../../session/session-project.js";
 import { lintContractCheck } from "./contract-check-lint.js";
 
-export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability";
+export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage";
 export interface PlanCheckResult {
   dimension: PlanCheckDimension;
   verdict: "pass" | "warn" | "fail";
@@ -13,8 +13,29 @@ export interface PlanCheckOptions {
   blockingDimensions?: readonly PlanCheckDimension[];
 }
 
-/** Static analysis only. Criteria must come from the last approved brief. */
-export function evaluatePlanChecks(rows: readonly AssignmentRow[], criteria: readonly ProjectCriterion[], options: PlanCheckOptions = {}): PlanCheckResult[] {
+/** A decision of the last approved brief with the person's status for it (issue #112). */
+export interface PlanDecision extends ProjectBriefDecision {
+  status: ProjectDecisionStatus;
+}
+
+/**
+ * Issue #112: every `active` decision must be cited by a plan task's
+ * `decisions`; one that is not fails, whatever the caller's policy (the
+ * person can defer it at the plan gate). Absent when the brief has none.
+ */
+function decisionCoverage(rows: readonly AssignmentRow[], decisions: readonly PlanDecision[]): PlanCheckResult[] {
+  if (decisions.length === 0) return [];
+  const cited = new Set(rows.flatMap((r) => r.decisions ?? []));
+  const missing = decisions.filter((d) => d.status === "active" && !cited.has(d.id));
+  const excluded = decisions.filter((d) => d.status !== "active");
+  const aside = excluded.length === 0 ? "" : ` Not checked: ${excluded.map((d) => `${d.id} (${d.status})`).join(", ")}.`;
+  return [missing.length === 0
+    ? { dimension: "decision-coverage", verdict: "pass", detail: `Every active decision is cited by a plan task.${aside}`, taskIds: [] }
+    : { dimension: "decision-coverage", verdict: "fail", detail: `No plan task cites active decisions: ${missing.map((d) => `${d.id} (${d.text})`).join(", ")}. Cite each on a task's decisions, or the person defers it at the plan gate.${aside}`, taskIds: [] }];
+}
+
+/** Static analysis only. Criteria and decisions must come from the last approved brief. */
+export function evaluatePlanChecks(rows: readonly AssignmentRow[], criteria: readonly ProjectCriterion[], options: PlanCheckOptions = {}, decisions: readonly PlanDecision[] = []): PlanCheckResult[] {
   const checked = rows.filter((r) => (r.checks?.length ?? 0) > 0);
   const findings = checked.flatMap((row) => row.checks!.flatMap((check, i) =>
     lintContractCheck(check, i).map((finding) => ({ row, finding }))));
@@ -28,6 +49,7 @@ export function evaluatePlanChecks(rows: readonly AssignmentRow[], criteria: rea
     ...lint,
     { dimension: "criteria-coverage", verdict: missing.length === 0 ? "pass" : "warn", detail: missing.length === 0 ? "Every approved criterion is named by a plan check." : `No plan check names approved criteria: ${missing.map((c) => c.id).join(", ")}.`, taskIds: [] },
     { dimension: "verifiability", verdict: bare.length === 0 ? "pass" : "warn", detail: bare.length === 0 ? "No task is missing checks in a plan that uses them." : `Tasks without checks: ${bare.join(", ")}.`, taskIds: bare },
+    ...decisionCoverage(rows, decisions),
   ];
   return results.map((r) => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
 }
