@@ -131,6 +131,8 @@ export interface AgentLoopDependencies {
   prepareWorkspace?: (session: SessionState, cloud: boolean, signal?: AbortSignal, options?: import("../session/workspace-context.js").WorkspacePrepareOptions) => import("../session/workspace-context.js").SessionWorkspace;
   /** Save model-visible cloud messages before inference, under the turn owner. */
   persistContext?: (state: SessionState) => void;
+  /** Issue #109: the fusion project's folder store; director updates are written there. */
+  projectStore?: import("../session/session-project-store.js").SessionProjectStore;
   compaction?: ContextCompactionControl;
   registry: ToolRegistry;
   /**

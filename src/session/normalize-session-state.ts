@@ -2,6 +2,7 @@ import { validRollingSummary, validSessionCompaction } from "./session-compactio
 import type { SessionState } from "./session-state.js";
 import { readPlanSnapshot } from "../agent/plan/plan-snapshot.js";
 import { normalizeProject } from "./session-project.js";
+import { readProjectRef } from "./session-project-store.js";
 
 /**
  * Fill in the fields a parsed payload may lack. Rows written before a
@@ -53,6 +54,13 @@ export function normalizeSessionState(raw: unknown): SessionState {
   }
   // The fusion project (issue #39) gates delegation: a malformed one is
   // dropped whole rather than half-read.
+  // Issue #109: a malformed reference reads as none; the problem is transient.
+  if (normalized.projectRef !== undefined) {
+    const ref = readProjectRef(normalized);
+    if (ref === null) delete normalized.projectRef;
+    else normalized.projectRef = ref;
+  }
+  delete normalized.projectProblem;
   if (normalized.project !== undefined) {
     const project = normalizeProject(normalized.project);
     if (project === undefined) delete normalized.project;

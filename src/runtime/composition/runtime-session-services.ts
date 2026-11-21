@@ -11,6 +11,13 @@ import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { TaskStore } from "../../tasks/task-store.js";
+import { createSessionProjectStore, type SessionProjectStore } from "../../session/session-project-store.js";
+import { stateDirDecisionStore } from "../../session/project-decisions.js";
+
+/** The fusion project store every runtime surface shares (issue #109). */
+export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectStore {
+  return createSessionProjectStore({ stateDir: config.paths.stateDir, decisions: stateDirDecisionStore(config.paths.stateDir) });
+}
 
 export function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
@@ -20,7 +27,8 @@ export function prepareRuntimeSessionStore(
   // (issue #77) reads recent-session working dirs through the
   // column-only `listRecentWorkingDirs` projection, so the store must
   // exist by the time `registerOsTools` wires the closure below.
-  const sessionStore = new SessionStore();
+  // Issue #109: fusion projects live in their folder's store, decisions in the state dir.
+  const sessionStore = new SessionStore({ projectStore: runtimeProjectStore(config) });
   if (sessionStore.turnMarksUnavailable !== null) {
     // The first open after an upgrade adds the `turn_owner` column, and
     // could not this time. The runtime runs without turn marks — as it

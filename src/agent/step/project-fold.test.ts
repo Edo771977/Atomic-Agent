@@ -99,3 +99,39 @@ describe("foldProjectUpdate (issue #39)", () => {
     expect(refused.result.summary).toMatch(/shots/);
   });
 });
+
+describe("foldProjectUpdate with the folder store (issue #109)", () => {
+  it("writes the update to the project's store, built on the project as stored now", async () => {
+    const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { createSessionProjectStore } = await import("../../session/session-project-store.js");
+    const { stateDirDecisionStore } = await import("../../session/project-decisions.js");
+    const { projectFilePath } = await import("../../session/project-store.js");
+    const folder = mkdtempSync(join(tmpdir(), "aa-fold-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "aa-fold-state-"));
+    try {
+      const store = createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
+      const chat = createEmptySessionState({ id: "a", workingDir: folder });
+      const first = foldProjectUpdate(chat, result("project.brief", brief), NOW, {}, store);
+      expect(first.result.status).toBe("ok");
+      expect(first.session.projectRef?.folder).toBe(folder);
+      expect(JSON.parse(readFileSync(projectFilePath(folder), "utf8")).project.brief.what).toBe("A game");
+      // A second chat's stale copy still lands on top of what the store holds.
+      const other = foldProjectUpdate(first.session, result("project.brief", { ...brief, brief: { ...brief.brief, what: "A better game" } }), NOW, {}, store);
+      expect(other.session.project?.brief?.version).toBe(2);
+      const stale = foldProjectUpdate(first.session, result("project.brief", { ...brief, brief: { ...brief.brief, what: "Third" } }), NOW, {}, store);
+      expect(stale.result.status).toBe("ok");
+      expect(stale.session.project?.brief?.version).toBe(3);
+      // A damaged store refuses the update; the model reads why.
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(projectFilePath(folder), "{");
+      const refused = foldProjectUpdate(stale.session, result("project.brief", brief), NOW, {}, store);
+      expect(refused.result.status).toBe("error");
+      expect(refused.result.summary).toMatch(/not valid JSON/);
+      expect(readFileSync(projectFilePath(folder), "utf8")).toBe("{");
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});

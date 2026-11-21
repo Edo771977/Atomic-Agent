@@ -185,6 +185,18 @@ export interface SessionState {
    */
   project?: import("./session-project.js").ProjectState;
   /**
+   * Where the fusion project lives (issue #109): its folder store's
+   * folder and id, and the revision and decision seq last read. With a
+   * reference `project` is read from the store and never saved with the
+   * session (`session-project-store.ts`).
+   */
+  projectRef?: import("./session-project-store.js").SessionProjectRef;
+  /**
+   * Why the referenced project could not be opened (damaged, unsupported
+   * schema, another project in the folder). Transient: never saved.
+   */
+  projectProblem?: string;
+  /**
    * Steps since the model last re-planned (ATO-609): counted by the
    * agent loop only while `agent.task.replanEveryNSteps` is on, reset by
    * a successful `plan.update`, a re-plan notice or a new user message
@@ -444,6 +456,12 @@ export function incrementTurnCount(state: SessionState): SessionState {
  * next turn begins.
  */
 export function stripEphemeral(state: SessionState): SessionState {
+  if (state.projectProblem !== undefined || (state.projectRef !== undefined && state.project !== undefined)) {
+    // Issue #109: a referenced project lives in its folder store.
+    const { projectProblem: _pp, ...kept } = state;
+    if (kept.projectRef !== undefined) delete kept.project;
+    return stripEphemeral(kept);
+  }
   if (
     state.recalledNotes === undefined &&
     state.memoryIndex === undefined &&
