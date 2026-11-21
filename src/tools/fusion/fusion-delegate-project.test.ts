@@ -182,6 +182,17 @@ describe("fusion.delegate with a project (issue #39)", () => {
     expect(message).toContain("- Runs offline");
   });
 
+  it("every worker's brief carries the active decisions, not the deferred ones (issue #112)", async () => {
+    const withDecisions: ProjectUpdate = { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs offline"], decisions: [{ id: "d1", text: "No new dependencies" }, { id: "d2", text: "Italian UI" }] }, draftedAfterUntrusted: false };
+    const cited = { ...plan, rows: [{ ...row("board", "m1"), decisions: ["d1"] }, row("score", "m2")] };
+    const atPlan = up({ ...approve(up(undefined, withDecisions)), decisionStatus: { d2: "deferred" } }, cited);
+    const d = deps();
+    await buildFusionDelegateTool(d).run({ tasks: [task("board")] }, ctx(approve(atPlan)));
+    const message = (d.runTurn as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
+    expect(message).toContain("DECISIONS (how the project must be done; follow them):\n- d1: No new dependencies");
+    expect(message).not.toContain("Italian UI");
+  });
+
   it("a task outside the plan, another worker or a write outside the folder still asks", async () => {
     for (const tasks of [
       [task("board"), task("extra")],

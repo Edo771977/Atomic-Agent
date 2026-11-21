@@ -7,7 +7,7 @@
  * shown as zero.
  */
 
-import type { ProjectGateView } from "./project-gate-view.js";
+import type { ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
 import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, ProjectMilestoneAttachment } from "./session-project.js";
 
 const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
@@ -26,6 +26,21 @@ export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly
   const state = reserved ? "passed with reservations" : fact.state;
   const notes = [...(fact.why ? [fact.why] : []), ...(reserved ? [`reservations: ${fact.reservation}`] : [])];
   return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`}`;
+}
+
+/**
+ * One brief decision as a line (issue #112), e.g. "d1 Use SQLite (active;
+ * cited by t1, t2)", "d2 No new dependencies (active; cited by no task)"
+ * or "d3 Formal tone (deferred)".
+ */
+export function decisionLine(decision: ProjectGateDecision): string {
+  const cited = decision.status !== "active" ? "" : `; cited by ${decision.citedBy.length === 0 ? "no task" : decision.citedBy.join(", ")}`;
+  return `${decision.id} ${decision.text} (${decision.status}${cited})`;
+}
+
+/** The active decisions no plan task cites (issue #112): what blocks the plan, and what the person may defer. */
+export function uncitedDecisions(view: Pick<ProjectGateView, "decisions">): string[] {
+  return (view.decisions ?? []).filter((d) => d.status === "active" && d.citedBy.length === 0).map((d) => d.id);
 }
 
 /** A picture's caption with the criteria it shows, e.g. "The board [c1, c2]". */
@@ -90,6 +105,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
     }
     if (brief.successCriteria.length > 0) out.push(`  Done when: ${brief.successCriteria.join("; ")}`);
   }
+  if ((view.decisions ?? []).length > 0) out.push("  Decisions:", ...view.decisions!.map((d) => `    ${decisionLine(d)}`));
   if (view.gate.kind !== "brief" && view.plan?.draftedAfterUntrusted) {
     out.push(`  ${PLAN_UNTRUSTED_WARNING}`);
   }

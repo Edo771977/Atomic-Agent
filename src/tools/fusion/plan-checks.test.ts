@@ -34,6 +34,15 @@ describe("pure plan checks", () => {
     expect(evaluatePlanChecks([row("t1", [{ cmd: "node test.cjs", checks: ["stdout contains passed"] }])], [])).toContainEqual(expect.objectContaining({ dimension: "check-lint", verdict: "warn" }));
     expect(evaluatePlanChecks([row("t1")], [])).toContainEqual(expect.objectContaining({ dimension: "verifiability", verdict: "pass" }));
   });
+  it("warns, without failing, about task citations that name no decision of the brief (issue #112)", () => {
+    const cite = (taskId: string, decisions: string[]): AssignmentRow => ({ ...row(taskId), decisions });
+    const decisions = [{ id: "d1", text: "Use SQLite", status: "active" as const }];
+    const results = evaluatePlanChecks([cite("t1", ["d1", "zzz"]), cite("t2", ["yyy"])], [], {}, decisions);
+    expect(results).toContainEqual({ dimension: "decision-coverage", verdict: "warn", detail: "Tasks cite ids that are no decision of the approved brief: t1 (zzz), t2 (yyy).", taskIds: ["t1", "t2"] });
+    expect(results).toContainEqual(expect.objectContaining({ dimension: "decision-coverage", verdict: "pass" }));
+    expect(evaluatePlanChecks([cite("t1", ["zzz"])], [])).toContainEqual(expect.objectContaining({ dimension: "decision-coverage", verdict: "warn", taskIds: ["t1"] }));
+    expect(evaluatePlanChecks([cite("t1", ["d1"])], [], {}, decisions).filter((r) => r.verdict !== "pass")).toEqual([]);
+  });
   it("never executes a command or uses the network, even for hostile specs", () => {
     const spawn = vi.spyOn(childProcess, "spawn").mockImplementation(() => { throw new Error("executed"); });
     const exec = vi.spyOn(childProcess, "execSync").mockImplementation(() => { throw new Error("executed"); });

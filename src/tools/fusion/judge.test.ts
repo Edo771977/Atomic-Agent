@@ -337,6 +337,12 @@ describe("the structured review verdict (issue #38)", () => {
     expect(renderJudgePrompt({ task, items, facts: [], evidence: "" })).not.toContain("success criteria");
   });
 
+  it("gives the reviewer the project's active decisions, a violation being a blocker (issue #112)", () => {
+    const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "", successCriteria: ["Runs offline"], decisions: ["d1: Use SQLite, not Postgres"] });
+    expect(prompt).toContain("## The project's decisions (how it must be done; work that violates one is a blocker)\n- d1: Use SQLite, not Postgres");
+    expect(renderJudgePrompt({ task, items, facts: [], evidence: "" })).not.toContain("decisions");
+  });
+
   it("asks for the new JSON shape", () => {
     const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "" });
     expect(prompt).toContain('{"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}');

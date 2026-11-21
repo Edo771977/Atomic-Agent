@@ -1,4 +1,4 @@
-import { projectExpectation, type ProjectState } from "../session/session-project.js";
+import { decisionStatusOf, projectExpectation, type ProjectState } from "../session/session-project.js";
 
 /** Longest `what` the digest quotes; the brief itself is the person's card, not the prompt's. */
 const WHAT_CHARS = 300;
@@ -29,6 +29,13 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
     lines.push(`brief: ${brief.status} v${brief.version} — ${clip(brief.what, WHAT_CHARS)}`);
     if (brief.successCriteria.length > 0) {
       lines.push("success criteria (ids for contract checks' `criteria`):", ...brief.successCriteria.map((c) => `- ${c.id}: ${c.text}`));
+    }
+    // Issue #112: the plan must cite every active one; the person's status is theirs to set.
+    if ((brief.decisions ?? []).length > 0) {
+      lines.push("decisions (cite each active one in a plan task's `decisions`):", ...brief.decisions!.map((d) => {
+        const status = decisionStatusOf(project, d.id);
+        return `- ${d.id}: ${d.text}${status === "active" ? "" : ` (${status} by the person)`}`;
+      }));
     }
   }
   const plan = project.plan;
