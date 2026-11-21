@@ -8,7 +8,8 @@ import { makeReceipt, publicKeyId, verifyReceipt, type ReceiptKind, type Receipt
 
 type ReceiptKeychain = Pick<SecretKeychain, "read" | "write">;
 export type ProjectReceiptWriter = (folder: string, kind: ReceiptKind, payload: unknown) => void;
-const ACCOUNT = "ATOMIC_AGENT_RECEIPT_SIGNING_KEY";
+// Same OS credential service, distinct from accounts that export into the environment.
+const ACCOUNT = "receipts.ed25519.private.v1";
 
 function childDir(parent: string, name: string, create: boolean): string {
   const dir = join(parent, name);

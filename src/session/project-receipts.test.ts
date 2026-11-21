@@ -28,6 +28,8 @@ it("canonicalizes nested keys, newlines and NFC before hashing", () => {
 it("verifies historical keys and detects tampered payloads and recomputed hashes", async () => {
   const { dir, append, credentials } = setup();
   append(); append(); expect(credentials.size).toBe(1);
+  // The generic credential importer accepts uppercase environment-variable accounts.
+  expect([...credentials.keys()][0]).not.toMatch(/^[A-Z_][A-Z0-9_]*$/);
   const firstPrivateKey = [...credentials.values()][0]!;
   credentials.clear(); append();
   const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
