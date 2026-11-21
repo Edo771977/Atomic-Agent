@@ -8,9 +8,10 @@ import { forgetProjectFolder, readProjectRegistry } from "../session/project-reg
 import { openProject, projectFilePath } from "../session/project-store.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
-import { projectStoreForStateDir, readProjectRef, type SessionProjectStore } from "../session/session-project-store.js";
+import { projectStoreForStateDir, readProjectRef, sameProjectFolder, type SessionProjectStore } from "../session/session-project-store.js";
 import { createEmptySessionState, type SessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../tools/fusion/run-checkpoint.js";
 
@@ -102,6 +103,16 @@ export function listProjectRows(stateDir: string): { rows: ProjectRow[]; registr
   return { rows };
 }
 
+/**
+ * `folder` as the list spells it when it is listed, else null: a host
+ * resumes only a folder the list named (the CLI takes any folder).
+ */
+export function listedProjectFolder(stateDir: string, folder: string): string | null {
+  const registry = readProjectRegistry(stateDir);
+  if (!registry.ok) return null;
+  return registry.folders.find((f) => sameProjectFolder(f, folder)) ?? null;
+}
+
 function formatRows(rows: readonly ProjectRow[]): string {
   if (rows.length === 0) return "No fusion projects yet. A project starts when a chat's director drafts a brief.\n";
   const out: string[] = [];
@@ -179,6 +190,49 @@ function chatOnProject(store: SessionStore, folder: string, id: string): Session
   return null;
 }
 
+export interface ResumeProjectDeps {
+  stateDir: string;
+  sessionStore: SessionStore;
+  projectStore: SessionProjectStore;
+  newSessionId?: () => string;
+}
+
+/** A chat on a folder's project: the newest one on it, or a new one saved now. */
+export type ResumedProject =
+  | { ok: true; folder: string; name: string; session: SessionState; project: ProjectState; created: boolean }
+  | { ok: false; folder: string; problem: string };
+
+/**
+ * The chat `project resume` opens on `folder`'s project (issue #109): the
+ * newest chat in the folder on that project, or a new chat bound to it and
+ * saved. Every surface that resumes a project (the CLI, the sidecar, serve)
+ * goes through here, so they open the same chat.
+ */
+export function resumeProjectChat(folder: string, deps: ResumeProjectDeps): ResumedProject {
+  const { stateDir, sessionStore: store, projectStore: projects } = deps;
+  const opened = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
+  if (!opened.ok) return { ok: false, folder, problem: opened.problem.message };
+  const existing = chatOnProject(store, folder, opened.opened.stored.id);
+  let session = existing ?? projects.prepareTurn(
+    createEmptySessionState({ id: (deps.newSessionId ?? (() => `s-${randomUUID()}`))(), workingDir: folder }),
+    true,
+  );
+  if (existing === null) {
+    if (session.project === undefined) {
+      return { ok: false, folder, problem: session.projectProblem ?? `the project in ${projectFilePath(folder)} could not be opened` };
+    }
+    store.save(session);
+  } else {
+    session = projects.load(session);
+  }
+  return { ok: true, folder, name: opened.opened.stored.name, session, project: session.project ?? opened.opened.project, created: existing === null };
+}
+
+/** The gate view of a resumed chat without the live team's estimates (no runtime to ask). */
+export function resumedGateView(sessionId: string, project: ProjectState): ProjectGateView {
+  return projectGateView({ sessionId, project, estimate: null, selectable: { workers: [], reviewers: [] } });
+}
+
 /** `atomic-agent project resume <folder>`: 0 done, 1 the project could not be opened, 2 usage. */
 export async function projectCommand(args: string[], deps: ProjectCommandDeps = {}): Promise<number> {
   const stdout = deps.stdout ?? ((t: string) => void process.stdout.write(t));
@@ -203,37 +257,33 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
   const config = deps.stateDir === undefined ? getConfig() : null;
   const stateDir = deps.stateDir?.() ?? config!.paths.stateDir;
   const projects = deps.projectStore ?? projectStoreForStateDir(stateDir);
-  const opened = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
-  if (!opened.ok) {
-    stderr(`project resume: ${opened.problem.message}\n`);
+  const precheck = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
+  if (!precheck.ok) {
+    stderr(`project resume: ${precheck.problem.message}\n`);
     return 1;
   }
   const store = deps.sessionStore ?? new SessionStore({ dbFile: (config ?? getConfig()).paths.sessionsDbFile, projectStore: projects });
   try {
-    const existing = chatOnProject(store, folder, opened.opened.stored.id);
-    let session = existing ?? projects.prepareTurn(
-      createEmptySessionState({ id: (deps.newSessionId ?? (() => `s-${randomUUID()}`))(), workingDir: folder }),
-      true,
-    );
-    if (existing === null) {
-      if (session.project === undefined) {
-        stderr(`project resume: ${session.projectProblem ?? `the project in ${projectFilePath(folder)} could not be opened`}\n`);
-        return 1;
-      }
-      store.save(session);
-    } else {
-      session = projects.load(session);
+    const resumed = resumeProjectChat(folder, {
+      stateDir,
+      sessionStore: store,
+      projectStore: projects,
+      ...(deps.newSessionId === undefined ? {} : { newSessionId: deps.newSessionId }),
+    });
+    if (!resumed.ok) {
+      stderr(`project resume: ${resumed.problem}\n`);
+      return 1;
     }
-    const project = session.project ?? opened.opened.project;
-    stdout(`${opened.opened.stored.name}  (${folder})\n`);
+    const { session, project } = resumed;
+    stdout(`${resumed.name}  (${folder})\n`);
     if (project.gate.kind === "none") {
       stdout(`Nothing waits for you. Next: ${describeExpectation(projectExpectation(project))}.\n`);
     } else {
-      const view = projectGateView({ sessionId: session.id, project, estimate: null, selectable: { workers: [], reviewers: [] } });
+      const view = resumedGateView(session.id, project);
       stdout(`${formatProjectGateText(view)}\n`);
       if (view.version !== null) stdout(`Approve with: atomic-agent run --session ${session.id} --approve ${view.version}\n`);
     }
-    stdout(`chat: ${session.id}${existing === null ? " (new)" : ""}\nContinue with: atomic-agent tui --session ${session.id}\n`);
+    stdout(`chat: ${session.id}${resumed.created ? " (new)" : ""}\nContinue with: atomic-agent tui --session ${session.id}\n`);
     if (noOpen || deps.openChat === undefined) return 0;
     return await deps.openChat(session.id);
   } finally {
