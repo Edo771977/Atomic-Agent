@@ -196,4 +196,14 @@ describe("plan references (issue #120)", () => {
     expect(outcome(report.references, "Alpha")).toBe("verified");
     expect(outcome(report.references, "Betaxx")).toBe("verified");
   });
+
+  it("says a symbol or bare name ripgrep did not search is not found outside ignored, hidden or large files (review #2)", async () => {
+    const root = project({ ".gitignore": "dist\n", "dist/gen.ts": "export const Gammaxx = 1;\n", "src/a.ts": "" });
+    const run: PlanReferenceDeps["runCommand"] = async (_c, args) => args.includes("--files") ? result("src/a.ts\n") : result("", { exitCode: 1 });
+    const report = await checkPlanReferences([row("t1", "Use `Gammaxx` from `gen.ts`")], { root, deps: { ...noRg, resolveRgPath: () => "/rg", runCommand: run } });
+    expect(report.references.find((r) => r.value === "Gammaxx")).toMatchObject({ outcome: "missing", why: "not found outside ignored, hidden or >1 MB files" });
+    expect(report.references.find((r) => r.value === "gen.ts")).toMatchObject({ outcome: "missing", why: "no file of that name outside ignored or hidden files" });
+    expect(report.record.verdict).toBe("warn");
+  });
 });
+

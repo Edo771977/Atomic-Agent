@@ -458,7 +458,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       if ("why" in listed) return { outcome: "uncheckable", why: listed.why };
       const name = fold(rel, platform);
       const hits = listed.files.filter((f) => fold(f.split("/").pop() ?? f, platform) === name);
-      if (hits.length === 0) return { outcome: "missing", why: "no file of that name in the project folder" };
+      if (hits.length === 0) return { outcome: "missing", why: "no file of that name outside ignored or hidden files" };
       if (hits.length === 1) return { outcome: "verified" };
       return { outcome: "ambiguous", why: `${hits.length} files have that name: ${hits.slice(0, 3).join(", ")}${hits.length > 3 ? ", …" : ""}` };
     }
@@ -540,7 +540,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       for (const ref of symbols) {
         resolved.set(ref, seen.has(ref.value) ? { outcome: "verified" }
           : incomplete !== null ? { outcome: "uncheckable", why: incomplete }
-          : { outcome: "missing", why: "not found in the project's source" });
+          : { outcome: "missing", why: "not found outside ignored, hidden or >1 MB files" });
       }
     }
   }
