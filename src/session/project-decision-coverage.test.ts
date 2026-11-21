@@ -349,3 +349,34 @@ describe("changing a decision (issue #112)", () => {
     }
   });
 });
+
+describe("a decision's status follows the decision, not its id (review)", () => {
+  const ok = (r: { ok: true; project: ProjectState } | { ok: false; error: { message: string } }): ProjectState => {
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const decide = (p: ProjectState, verdict: "approve" | "edit", edits?: object) =>
+    ok(applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict, ...(edits === undefined ? {} : { edits: edits as never }) }, { now: 30 }));
+  const brief = (p: ProjectState, decisions: ProjectBriefDecision[]) =>
+    ok(applyProjectUpdate(p, { kind: "brief", brief: { what: "Notes app", users: "Me", how: "Node", successCriteria: criteria, decisions }, draftedAfterUntrusted: false }, 40));
+  const deferred = (): ProjectState => {
+    const p = decide(planDraft([row("t1", "m1", ["d1"])], [{ id: "d1", text: "Use SQLite" }, { id: "d2", text: "Formal tone" }]), "edit", { decisionStatus: { d2: "deferred" } });
+    return { ...decide(p, "approve"), gate: { kind: "none" } };
+  };
+
+  it("a removed decision's status goes; reusing its id starts active and must be cited", () => {
+    const removed = decide(brief(deferred(), [{ id: "d1", text: "Use SQLite" }]), "approve");
+    expect(removed.decisionStatus).toBeUndefined();
+    const reused = decide(brief(removed, [{ id: "d1", text: "Use SQLite" }, { id: "d2", text: "Must work offline" }]), "approve");
+    expect(reused.decisionStatus).toBeUndefined();
+    const replanned = ok(applyProjectUpdate(reused, { kind: "plan", milestones: [{ id: "m1", title: "Milestone m1", kind: "base" }], rows: [row("t1", "m1", ["d1"])], detail: "full" }, 50));
+    expect(approve(replanned).ok).toBe(false);
+  });
+
+  it("a decision whose text changed loses its status; an editorial change keeps it", () => {
+    const changed = decide(brief(deferred(), [{ id: "d1", text: "Use SQLite" }, { id: "d2", text: "Casual tone" }]), "approve");
+    expect(changed.decisionStatus).toBeUndefined();
+    const editorial = decide(brief(deferred(), [{ id: "d1", text: "Use SQLite" }, { id: "d2", text: "formal  TONE" }]), "approve");
+    expect(editorial.decisionStatus).toEqual({ d2: "deferred" });
+  });
+});

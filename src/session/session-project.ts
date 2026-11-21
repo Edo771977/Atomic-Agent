@@ -1722,10 +1722,18 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
           return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids), ...mergeRetired(project.plan, retired, ids) };
         })();
   const approvedDecisions = (brief.decisions ?? []).map((d) => ({ ...d }));
+  // The person's status belongs to the decision they set it on (#80's id-reuse rule):
+  // it goes when the id leaves the brief or its text changes beyond case and whitespace.
+  const textBefore = new Map(approvedDecisionsOf(project).map((d) => [d.id, workText(d.text)]));
+  const kept = Object.entries(project.decisionStatus ?? {}).filter(([id]) => {
+    const now = approvedDecisions.find((d) => d.id === id);
+    return now !== undefined && textBefore.get(id) === workText(now.text);
+  });
+  const decisionStatus = kept.length === 0 ? undefined : Object.fromEntries(kept) as Record<string, ProjectDecisionStatus>;
   if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, decisionStatus: project.decisionStatus }), finishedCitationsOf(milestones)) };
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
   }
-  const { approvedDecisions: _before, ...rest } = project;
+  const { approvedDecisions: _before, decisionStatus: _status, ...rest } = project;
   return {
     ...rest,
     brief: { ...brief, status: "approved", approvedAt: now },
@@ -1733,6 +1741,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     milestones,
     approvedCriteria: brief.successCriteria.map((c) => ({ ...c })),
     ...(approvedDecisions.length === 0 ? {} : { approvedDecisions }),
+    ...(decisionStatus === undefined ? {} : { decisionStatus }),
     // A store from before the count that had an approved brief: at least two now.
     briefApprovals: project.briefApprovals !== undefined ? project.briefApprovals + 1 : before === undefined ? 1 : 2,
     gate: { kind: "none" },
