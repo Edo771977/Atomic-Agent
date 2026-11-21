@@ -164,6 +164,9 @@ export const supplementalFiles = [
   // pipes (exit 3 at a gate, 0 otherwise), and a Core it starts must not
   // hold them; on Windows this is where an inherited handle would show.
   'src/cli/run-stdin-closed.test.ts',
+  // Issue #106: the run memory trace, written from both threads with one
+  // append per line, and still sampled by its worker while the main loop spins.
+  'src/cli/run-memory-trace.test.ts',
   'src/local-llm/core/core-detached-handles.test.ts',
 ];
 /**
