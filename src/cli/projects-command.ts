@@ -6,6 +6,7 @@ import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { openProject, projectFilePath } from "../session/project-store.js";
+import { projectAttentionZone, type ProjectAttentionZone } from "../session/project-attention.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
 import { projectStoreForStateDir, readProjectRef, sameProjectFolder, type SessionProjectStore } from "../session/session-project-store.js";
@@ -51,6 +52,8 @@ export interface ProjectsCommandIo {
 export interface ProjectRow {
   folder: string;
   status: "ok" | "missing" | "damaged" | "unsupported" | "unreadable";
+  /** What it asks of the person (issue #121): a row that is not `ok` is a `problem`. */
+  zone: ProjectAttentionZone;
   name?: string;
   id?: string;
   gate?: string;
@@ -76,7 +79,7 @@ function projectSpend(project: ProjectState, stateDir: string): number | null {
 }
 
 /** One row per known folder; a missing or damaged folder is a row, never an error. */
-export function listProjectRows(stateDir: string): { rows: ProjectRow[]; registryProblem?: string } {
+export function listProjectRows(stateDir: string, now: number = Date.now()): { rows: ProjectRow[]; registryProblem?: string } {
   const registry = readProjectRegistry(stateDir);
   if (!registry.ok) return { rows: [], registryProblem: registry.message };
   const records = stateDirProjectRecords(stateDir);
@@ -85,12 +88,13 @@ export function listProjectRows(stateDir: string): { rows: ProjectRow[]; registr
     if (!opened.ok) {
       const code = opened.problem.code;
       const status = code === "missing" ? "missing" : code === "damaged" ? "damaged" : code === "unsupported-schema" ? "unsupported" : "unreadable";
-      return { folder, status, problem: opened.problem.message };
+      return { folder, status, zone: projectAttentionZone(null, undefined, now), problem: opened.problem.message };
     }
     const { stored, project } = opened.opened;
     return {
       folder,
       status: "ok",
+      zone: projectAttentionZone(project, stored.updatedAt, now),
       name: stored.name,
       id: stored.id,
       gate: gateLabel(project),
@@ -124,6 +128,7 @@ function formatRows(rows: readonly ProjectRow[]): string {
     out.push(
       `${r.name}  (${r.folder})`,
       `  waiting on: ${r.gate}`,
+      `  attention: ${r.zone}`,
       `  next: ${r.next}`,
       `  last change: ${new Date(r.updatedAt!).toISOString()}`,
       `  spend: ${r.spentUsd === null || r.spentUsd === undefined ? "no recorded runs" : `$${r.spentUsd.toFixed(2)}`}`,
