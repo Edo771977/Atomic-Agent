@@ -162,7 +162,7 @@ describe("deferring a decision at the plan gate (issue #112)", () => {
     const p = planDraft([row("t1", "m1")]);
     const r = defer(p, { d1: "informational", d2: "deferred" });
     expect(r.ok && r.project.decisionStatus).toEqual({ d1: "informational", d2: "deferred" });
-    for (const bad of [{ d9: "deferred" }, { d1: "retired" }, { d1: "bogus" }]) {
+    for (const bad of [{ d9: "deferred" }, { d1: "retired" }, { d1: "bogus" }] as Record<string, string>[]) {
       expect(defer(p, bad), JSON.stringify(bad)).toMatchObject({ ok: false, error: { code: "invalid" } });
     }
     const brief = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "x", users: "y", how: "z", successCriteria: criteria, decisions: DECISIONS }, draftedAfterUntrusted: false }, 1);
