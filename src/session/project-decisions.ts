@@ -336,6 +336,11 @@ function recordKey(folder: string): string {
   return createHash("sha256").update(`folder\n${folder}`).digest("hex").slice(0, 40);
 }
 
+/** Identifier shared by the folder's decision record and receipt archive. */
+export function projectFolderKey(folder: string): string {
+  return recordKey(canonicalProjectFolder(folder));
+}
+
 /** Whether `path` lies inside `<stateDir>/fusion-runs` (where runs keep their pictures). */
 export function insideFusionRuns(stateDir: string, path: string): boolean {
   const rel = relative(join(stateDir, "fusion-runs"), resolve(path));

@@ -10,7 +10,7 @@ import { VERIFY_COPY_EXCLUDED, VERIFY_COPY_MAX_BYTES } from "../verify/verify-wo
 import { createBranchSet, planBranchSetCopy, defaultGitExec, BRANCH_MERGE_DIR, ensureMergeDir, type BranchCopyPlan, type BranchSet, type BranchWorkspace, type CreateBranchSetOptions, type GitExec } from "./branch-workspace.js";
 import { workspaceChanges, writeTaskPatch, type SavedTaskPatch } from "./branch-diff.js";
 import { resolveContractInputs } from "./contract-inputs.js";
-import { CONTRACT_CHECKS_HELD, inspectContractProvides, runContractChecks, type ContractCheckRunner, type ContractReport } from "./contract-checks.js";
+import { CONTRACT_CHECKS_HELD, inspectContractProvides, runContractChecks, type CheckRunRecorder, type ContractCheckRunner, type ContractReport } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
 import type { WorkerTaskResult } from "./worker-result.js";
@@ -268,6 +268,7 @@ export interface CandidateFinishInput {
   tasks?: readonly DelegateTask[];
   contract?: DelegateContract;
   runChecks?: ContractCheckRunner;
+  recordCheckRun?: CheckRunRecorder;
   /**
    * Asked once the candidate could otherwise be checked, before any check
    * runs: `undefined` to run them, or why they are held (the delegate's
@@ -600,7 +601,12 @@ export async function createCandidateIntegration(
         // Source observations do not establish that the actual execution-copy
         // observations completed; an abort before completion remains unknown.
         if (inputIntegrity !== undefined) verifiedInputs = 0;
-        const checked = await runContractChecks(rebaseChecked(checks), runner, { workingDir: checkedDir, signal: input.signal, ...(inputIntegrity === undefined ? {} : { inputIntegrity }) });
+        const checked = await runContractChecks(rebaseChecked(checks), runner, {
+          workingDir: checkedDir,
+          signal: input.signal,
+          recordCheckRun: input.recordCheckRun,
+          inputIntegrity,
+        });
         receiptEvidence = { findings: [], checks: checked.outcomes, ...(checked.checksSkipped === undefined ? {} : { checksSkipped: checked.checksSkipped }) };
         input.signal.throwIfAborted();
         // Each negative control (issue #110) is one more guarded execution.

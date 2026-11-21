@@ -112,6 +112,7 @@ export const criticalFiles = [
 ];
 /** Additional whole-file regressions outside the exhaustively classified core directories. */
 export const supplementalFiles = [
+  'src/session/project-receipts.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
   'src/runtime/daily-budget-fallback.test.ts',

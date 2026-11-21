@@ -3,6 +3,10 @@
 Status: current
 Owner: src/cli/
 
+`atomic-agent project verify [folder]` checks the archived evidence receipts for a project. With no folder it uses the current directory. Each line identifies a receipt by its position and reports `valid`, `hash-mismatch` (edited payload), `bad-signature` (invalid signature or malformed receipt), `unknown-key` (missing public key), or `unsigned` (installation signing key unavailable). Exit 0 means every receipt present verified, including an empty archive. Exit 1 indicates at least one problem or an unreadable archive. Exit 2 indicates incorrect usage.
+
+Phase 1 covers delivery manifests and check execution records. Verification checks the saved evidence, not the current workspace files or whether receipts were removed. The protected project decision record remains the boundary against model edits. A process running as the same user with keychain access can sign replacement evidence.
+
 Owns command parsing and terminal entry points. User turns enter runtime.runTurn; preserve exit semantics, state-dir selection and separation from release scripts.
 
 Entry point: [index.ts](index.ts). Read the root instruction route and the underlying domain instructions before cross-domain changes.

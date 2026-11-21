@@ -1,6 +1,7 @@
 import {
   CHECK_OUTPUT_CHARS,
   runContractChecks,
+  type CheckRunRecorder,
   tailClip,
   type ContractCheckOutcome,
   type ContractCheckRunner,
@@ -286,6 +287,7 @@ export async function runSelfCheck(input: {
   workingDir: string;
   startedAt: number;
   runChecks?: ContractCheckRunner;
+  recordCheckRun?: CheckRunRecorder;
   signal: AbortSignal;
   timeCapMs: number;
   /** The agent's own keys, for masking the checks' output. */
@@ -363,6 +365,7 @@ export async function runSelfCheck(input: {
       runContractChecks(checks, input.runChecks, {
         workingDir: input.workingDir,
         signal: AbortSignal.any([input.signal, cap.signal]),
+        recordCheckRun: input.recordCheckRun,
         ...(input.knownSecrets === undefined ? {} : { knownSecrets: input.knownSecrets }),
       }),
       capped,
