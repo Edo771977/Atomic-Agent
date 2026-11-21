@@ -3234,6 +3234,16 @@ export function buildFusionDelegateTool(
             workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
             ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
           });
+          // Held, refused, cancelled or not run: say so on each changed row (issue #106 review).
+          const notRun = [
+            ...(rerun.checksSkipped === undefined ? [] : [rerun.checksSkipped]),
+            ...rerun.outcomes.flatMap((o, i) => (!o.ok && checkDidNotRun(o.detail) ? [`${commandLineOf(regressionChecks[i] as ContractCheck)}: ${o.detail}`] : [])),
+          ];
+          if (notRun.length > 0) {
+            const note = `regression checks not run: ${notRun.join("; ")}; a case that passed on the reviewed version is not known to pass now`;
+            const ids = new Set(writers.map((w) => w.id));
+            results = results.map((r) => (ids.has(r.id) ? { ...r, notes: [...(r.notes ?? []), note] } : r));
+          }
           const broke = rerun.outcomes.flatMap((o, i) => (!o.ok && !checkDidNotRun(o.detail) ? [{ check: regressionChecks[i]!, outcome: o }] : []));
           reranPassed = rerun.outcomes.flatMap((o, i) => (o.ok ? [regressionChecks[i]!] : []));
           if (broke.length > 0) {

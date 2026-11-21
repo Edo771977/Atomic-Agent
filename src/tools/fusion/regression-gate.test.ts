@@ -88,7 +88,7 @@ const V1 = "// accepts a zero price: X,9007199254740993,0 -> {\"X\":0}\nmodule.e
 const V2_BROKEN = "// rejects rows with a huge quantity: Invalid row 2\nmodule.exports = 2;\n";
 const V2_KEEPS = `${V1}// and skips blank lines\n`;
 
-function milestone(dir: string, opts: { candidate?: boolean } = {}) {
+function milestone(dir: string, opts: { candidate?: boolean; holdZero?: () => boolean } = {}) {
   const runsDir = join(dir, "..", "runs");
   let write = V1;
   let turns = 0;
@@ -107,7 +107,11 @@ function milestone(dir: string, opts: { candidate?: boolean } = {}) {
   };
   // The zero-price check reads the program: it passes only while the program accepts a zero price.
   const ran: string[] = [];
-  const runChecks: FusionDelegateDeps["runChecks"] = async (specs, run) => ({
+  const runChecks: FusionDelegateDeps["runChecks"] = async (specs, run) => {
+    if (opts.holdZero?.() === true && specs.some((spec) => JSON.stringify(spec).includes("check-zero-price.cjs"))) {
+      throw new Error("the check runner is unavailable");
+    }
+    return {
     ok: true,
     results: specs.map((spec) => {
       const zero = JSON.stringify(spec).includes("check-zero-price.cjs");
@@ -120,7 +124,8 @@ function milestone(dir: string, opts: { candidate?: boolean } = {}) {
       const ok = !zero || program.includes("accepts a zero price");
       return ok ? { ok: true, summary: "passed", exitCode: 0 } : { ok: false, summary: "verify.run command: FAILED (exit 1): Invalid row 2", exitCode: 1 };
     }),
-  });
+    };
+  };
   let reviewer = review("needs-changes", "the summary line is missing");
   const tool = buildFusionDelegateTool(deps(dir, async () => ({ content: reviewer }), runTurn, {
     runChecks,
@@ -138,7 +143,7 @@ function milestone(dir: string, opts: { candidate?: boolean } = {}) {
       const result = await tool.run({ tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }], contract: { checks: [...checks] } }, { ...ctx(dir), project: p });
       // The fold the director's turn applies: the delegate's own milestone_run update.
       p = up(p, result.details.projectUpdate as ProjectUpdate);
-      return (result.details.tasks as Array<{ id: string; status: string; failure?: string; error?: string }>)[0]!;
+      return (result.details.tasks as Array<{ id: string; status: string; failure?: string; error?: string; notes?: string[] }>)[0]!;
     },
   };
 }
@@ -189,6 +194,21 @@ describe("a change must not break a case that already passed (issue #106)", () =
       const fix = await m.round(V2_KEEPS, [OTHER], review("accept"));
       expect(fix.failure).toBeUndefined();
       expect(fix.status).toBe("ok");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a regression check that could not run says so on the changed row (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "regression-gate-held-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      let hold = false;
+      const m = milestone(dir, { holdZero: () => hold });
+      await m.round(V1, [ZERO_PRICE], review("needs-changes", "the summary line is missing"));
+      hold = true;
+      const fix = await m.round(V2_BROKEN, [OTHER], review("accept"));
+      expect(fix.failure).toBeUndefined();
+      expect((fix.notes ?? []).join("\n")).toMatch(/regression checks not run: 1 check not run — the check runner failed: the check runner is unavailable; a case that passed on the reviewed version is not known to pass now/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
