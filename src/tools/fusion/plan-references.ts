@@ -366,6 +366,9 @@ export function extractPlanReferences(rows: readonly AssignmentRow[], root: stri
 
 // ------------------------------------------------------------------ resolution
 
+/** A file-system call stopped by the deadline or the signal; its message is the reason. */
+class Stalled extends Error {}
+
 /** Whether a task of the plan declares it creates this reference. */
 function declaredCreated(ref: PlanReference, created: ReadonlySet<string>, platform: NodeJS.Platform): boolean {
   if (ref.kind === "file") {
@@ -399,13 +402,39 @@ export interface PlanReferenceReport {
  * uncheckable.
  */
 export async function checkPlanReferences(rows: readonly AssignmentRow[], options: PlanReferenceOptions): Promise<PlanReferenceReport> {
-  const deps = { ...defaultDeps(), ...options.deps };
+  const given = { ...defaultDeps(), ...options.deps };
   const limits = { ...PLAN_REFERENCE_LIMITS, ...options.limits };
-  const { platform } = deps;
+  const { platform } = given;
   const p = pathFor(platform);
   const root = options.root;
-  const deadline = deps.now() + limits.maxMs;
-  const timeLeft = () => deadline - deps.now();
+  const deadline = given.now() + limits.maxMs;
+  const timeLeft = () => deadline - given.now();
+  // Every file-system call races the deadline and the signal: a hung mount
+  // cannot hold project.plan, and a cancel returns at once.
+  const race = <T>(op: () => Promise<T>): Promise<T> => new Promise<T>((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted === true) return reject(new Stalled("cancelled"));
+    const left = timeLeft();
+    if (left <= 0) return reject(new Stalled(`time limit (${limits.maxMs} ms)`));
+    const onAbort = () => finish(() => reject(new Stalled("cancelled")));
+    const timer = setTimeout(() => finish(() => reject(new Stalled(`time limit (${limits.maxMs} ms)`))), left);
+    let done = false;
+    function finish(settle: () => void): void {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      settle();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    op().then((v) => finish(() => resolve(v)), (e: unknown) => finish(() => reject(e)));
+  });
+  const deps: PlanReferenceDeps = {
+    ...given,
+    statPath: (path) => race(() => given.statPath(path)),
+    realPath: (path) => race(() => given.realPath(path)),
+    readText: (path, max) => race(() => given.readText(path, max)),
+  };
   const { references: all, created } = extractPlanReferences(rows, root, platform);
   const declared = all.filter((r) => declaredCreated(r, created, platform));
   const candidates = all.filter((r) => !declared.includes(r));
@@ -414,7 +443,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
   for (const r of over) resolved.set(r, { outcome: "uncheckable", why: `over the limit of ${limits.maxReferences} references` });
   const work = candidates.slice(0, limits.maxReferences);
   const abs = (rel: string): string => (rel === "" ? root : p.join(root, ...rel.split("/")));
-  const realRoot = (await deps.realPath(root)) ?? root;
+  const realRoot = (await deps.realPath(root).catch(() => null)) ?? root;
   const inside = (real: string): boolean => {
     const r = p.relative(realRoot, real);
     return r === "" || (!r.startsWith("..") && !p.isAbsolute(r));
@@ -547,16 +576,21 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       resolved.set(ref, late);
       continue;
     }
-    if (ref.kind === "file") resolved.set(ref, await resolveFile(ref.value, ref.dir !== undefined));
-    else if (ref.kind === "command") resolved.set(ref, await resolveCommand(ref));
-    else {
-      const scripts = await scriptsOf(ref.dir ?? "");
-      const where = ref.dir === undefined || ref.dir === "" ? "package.json" : `${ref.dir}/package.json`;
-      resolved.set(ref, scripts === "outside" ? { outcome: "uncheckable", why: OUTSIDE_DIR }
-        : scripts === "absent" ? { outcome: "missing", why: `no ${where}` }
-        : scripts === "unreadable" ? { outcome: "uncheckable", why: `${where} could not be read` }
-        : Object.hasOwn(scripts, ref.value) ? { outcome: "verified" } : { outcome: "missing", why: `no such script in ${where}` });
+    try {
+      resolved.set(ref, await resolveOne(ref));
+    } catch (err) {
+      resolved.set(ref, { outcome: "uncheckable", why: err instanceof Stalled ? err.message : "it could not be read" });
     }
+  }
+  async function resolveOne(ref: PlanReference): Promise<Resolution> {
+    if (ref.kind === "file") return resolveFile(ref.value, ref.dir !== undefined);
+    if (ref.kind === "command") return resolveCommand(ref);
+    const scripts = await scriptsOf(ref.dir ?? "");
+    const where = ref.dir === undefined || ref.dir === "" ? "package.json" : `${ref.dir}/package.json`;
+    return scripts === "outside" ? { outcome: "uncheckable", why: OUTSIDE_DIR }
+      : scripts === "absent" ? { outcome: "missing", why: `no ${where}` }
+      : scripts === "unreadable" ? { outcome: "uncheckable", why: `${where} could not be read` }
+      : Object.hasOwn(scripts, ref.value) ? { outcome: "verified" } : { outcome: "missing", why: `no such script in ${where}` };
   }
 
   if (symbols.length > 0) {

@@ -251,5 +251,22 @@ describe("plan references (issue #120)", () => {
     expect(find("command", "outtool", "")).toMatchObject({ outcome: "uncheckable", why: "node_modules/.bin leads outside the project folder" });
     expect(reads).toEqual([]);
   });
+
+  it("a hung file system cannot hold the check past its time limit, and a cancel returns at once (review #6)", async () => {
+    const hang = { statPath: () => new Promise<never>(() => {}), realPath: () => new Promise<never>(() => {}), readText: () => new Promise<never>(() => {}) };
+    const rows = [row("t1", "Edit src/a.ts", [{ cmd: "npm run build" }])];
+    const started = Date.now();
+    const slow = await checkPlanReferences(rows, { root: "/proj", limits: { maxMs: 50 }, deps: { ...noRg, ...hang } });
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(slow.references.length).toBe(3);
+    expect(slow.references.every((r) => r.outcome === "uncheckable" && r.why === "time limit (50 ms)")).toBe(true);
+    expect(slow.record.verdict).toBe("warn");
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+    const t0 = Date.now();
+    const cancelled = await checkPlanReferences(rows, { root: "/proj", signal: controller.signal, limits: { maxMs: 60_000 }, deps: { ...noRg, ...hang } });
+    expect(Date.now() - t0).toBeLessThan(1_500);
+    expect(cancelled.references.every((r) => r.outcome === "uncheckable" && r.why === "cancelled")).toBe(true);
+  });
 });
 
