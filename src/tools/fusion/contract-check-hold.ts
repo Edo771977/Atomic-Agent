@@ -5,6 +5,7 @@ import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import { authorizeVerifyBatch } from "../verify/verify-authorization.js";
 import type { ContractCheck } from "./contract.js";
 import { CONTRACT_CHECKS_HELD, ContractChecksHeldError, type ContractCheckRunner } from "./contract-checks.js";
+import { withNegativeControls } from "./contract-check-negative.js";
 
 export type ContractCheckHoldGate = Partial<Pick<ApprovalGate,
   "holdsForOutsideContent" | "outsideContentSources" | "request" | "ruleDecisionFor" | "hasDeclinedTarget" |
@@ -72,7 +73,9 @@ export function createContractCheckHold(options: {
     return maskSecrets(`${held} (${why})`, options.knownSecrets ?? []);
   };
   const decide = async (signal: AbortSignal, batch: readonly Record<string, unknown>[] = options.checks): Promise<string | undefined> => {
-    try { await authorize(batch, options.sourceWorkingDir ?? options.workingDir, signal); return undefined; }
+    // A declared check's negative control (issue #110) is authorized as the
+    // command it will run; the runner below gets it as its own batch.
+    try { await authorize(withNegativeControls(batch), options.sourceWorkingDir ?? options.workingDir, signal); return undefined; }
     catch (err) { return note(err, signal); }
   };
   const inner = options.runner;

@@ -169,6 +169,12 @@ export interface RuntimeTurnDependencies {
    * gate. Absent in narrow test rigs.
    */
   onProjectTurnEnd?: (sessionId: string, before: SessionState["project"], after: SessionState["project"]) => void;
+  /**
+   * Issue #109: the fusion project's folder store. Before a turn the
+   * session's project is read from it (another chat may have moved it),
+   * and a project-flow chat in a folder that holds one is bound to it.
+   */
+  projectStore?: import("../../session/session-project-store.js").SessionProjectStore;
 }
 
 export function createRuntimeTurnService(
@@ -924,6 +930,9 @@ export function createRuntimeTurnService(
             ...(answerChannel !== undefined ? { answerChannel } : {}),
             ...(runOptions.projectGates !== undefined ? { projectGates: runOptions.projectGates } : {}),
           });
+        if (deps.projectStore !== undefined && readFusionWorkerMeta(session.metadata) === null) {
+          session = deps.projectStore.prepareTurn(session, projectGates);
+        }
         const toolFilter = withProjectToolVisibility(
           withAskUserVisibility(runOptions.toolFilter, showsQuestions),
           projectGates,

@@ -130,4 +130,15 @@ describe("run flags for project gates", () => {
     expect(parseRunArgs(["--approve"])).toEqual({ error: "--approve needs --session <id>" });
     expect(parseRunArgs(["--session"])).toEqual({ error: "--session requires a value" });
   });
+
+  it("--auto-approve-project stops at a gate whose content changed outside Atomic Agent (issue #109)", async () => {
+    const rt = runtime(fixtureProjectGateView({ kind: "plan" }, { changedOutside: true }), fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "sess-1", "approve");
+    expect(step.kind).toBe("stop");
+    if (step.kind === "stop") expect(step.text).toContain("changed outside Atomic Agent");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    // The person's own --approve <version> still decides it.
+    const own = await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(own.kind).toBe("approved");
+  });
 });

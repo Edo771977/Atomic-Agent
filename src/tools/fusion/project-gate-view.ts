@@ -51,7 +51,14 @@ export const verdictResetHint = (title: string): string => `verdict reset: ${tit
 /** The plan gate's hint for a milestone that kept its verdict but lost its criteria evidence to history (issue #83). */
 export const evidenceRetiredHint = (title: string): string => `evidence retired: ${title}`;
 
+/** The milestone gate's hint for a criterion verified with reservations (issue #110). */
+export const verifiedWithReservationsHint = (id: string, reservation: string): string => `verified with reservations: ${id} (${reservation})`;
+
 /** The gate card's payload. Pure. */
+/** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
+export const CHANGED_OUTSIDE_HINT =
+  "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
+
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
   const plan = project.plan;
@@ -77,8 +84,13 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   // Issue #98: a milestone's open reviews, one line each, wherever its gate is open.
   if (project.gate.kind === "milestone") {
     const id = project.gate.id;
-    for (const block of project.milestones.find((m) => m.id === id)?.reviewBlocks ?? []) {
+    const milestone = project.milestones.find((m) => m.id === id);
+    for (const block of milestone?.reviewBlocks ?? []) {
       hints.push(`review open: ${block.taskId} (${block.reason})`);
+    }
+    // Issue #110: green only on checks that may pass on the wrong thing.
+    for (const fact of milestone?.criteriaFacts ?? []) {
+      if (fact.state === "passed" && fact.reservation !== undefined) hints.push(verifiedWithReservationsHint(fact.id, fact.reservation));
     }
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
@@ -98,7 +110,12 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       if (m !== undefined) hints.push(evidenceRetiredHint(m.title));
     }
   }
+  // Issue #109: what waits changed outside Atomic Agent since the person decided it.
+  const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
+  const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
+  if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
   return {
+    ...(changedOutside ? { changedOutside: true as const } : {}),
     schema: 1,
     sessionId: input.sessionId,
     gate: project.gate,

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import type { ApprovalCategory } from "../../../approval/approval-level.js";
 import {
@@ -35,6 +35,12 @@ export interface GitMutationApprovalRequest {
    * Omitted / empty disables the guard.
    */
   trustConfigPaths?: readonly string[];
+  /**
+   * The verb rewrites the work tree (a checkout): a fusion project's
+   * folder store in the repository (`.atomic/`, issue #109) then makes it
+   * a `trust_config` request, like the agent's own config inside it.
+   */
+  rewritesWorkTree?: boolean;
 }
 
 /**
@@ -71,7 +77,7 @@ export async function requireGitMutationApproval(
     options,
     {
       kind: "write",
-      paths: [request.repoRoot, ...trustInsideRepo],
+      paths: [request.repoRoot, ...trustInsideRepo, ...(request.rewritesWorkTree === true ? await projectStoresIn(request.repoRoot, request.workingDir) : [])],
       sessionId: request.sessionId,
       tool: request.tool,
       reason: request.reason,
@@ -138,3 +144,19 @@ function isContained(parent: string, child: string): boolean {
   if (rel === "") return true;
   return !rel.startsWith("..") && !isAbsolute(rel);
 }
+
+/** The `.atomic` folders of the repository root and of the session folder inside it, where they exist. */
+async function projectStoresIn(repoRoot: string, workingDir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const dir of new Set([repoRoot, workingDir])) {
+    const candidate = join(dir, ".atomic");
+    try {
+      await stat(candidate);
+      if (isContained(await canonicalizePath(repoRoot), await canonicalizePath(candidate))) out.push(candidate);
+    } catch {
+      // None there.
+    }
+  }
+  return out;
+}
+

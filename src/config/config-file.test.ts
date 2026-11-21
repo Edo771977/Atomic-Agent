@@ -17,6 +17,8 @@ import { coreSessionPath } from "../local-llm/core/core-state.js";
 import { userHooksPath } from "../hooks/hook-config.js";
 import { secretsStorePath } from "./secret-store.js";
 import { installedPluginDir, pluginsRoot } from "../plugins/plugin-store.js";
+import { projectRecordsDir } from "../session/project-decisions.js";
+import { projectRegistryPath } from "../session/project-registry.js";
 import {
   ensureUserConfigFileSync,
   getDotenvPath,
@@ -1003,6 +1005,15 @@ describe("the state's secret files (ATO-877)", () => {
     // model must not be able to grant itself an "always allow".
     expect(getTrustConfigPaths(paths)).toContain(getApprovalRulesPath(stateDir));
     expect(getStateSecretPaths(paths)).toContain(getApprovalRulesPath(stateDir));
+  });
+
+  it("protects the fusion projects' records and registry like config.json (issue #109)", () => {
+    const stateDir = join(tmpdir(), "atomic-state");
+    const paths = { stateDir, userConfigFile: getUserConfigPath(stateDir), localModelsDataDir: join(stateDir, "models") };
+    // Spelled here because config sits below session: pinned against the owners' paths.
+    expect(getTrustConfigPaths(paths)).toContain(projectRecordsDir(stateDir) + sep);
+    expect(getTrustConfigPaths(paths)).toContain(dirname(projectRegistryPath(stateDir)) + sep);
+    expect(getStateSecretPaths(paths)).toContain(projectRecordsDir(stateDir) + sep);
   });
 
   it("protects the OS keychain switch like .env (ATO-474)", () => {

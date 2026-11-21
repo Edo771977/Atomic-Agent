@@ -40,7 +40,8 @@ function inside(root: string, path: string): boolean {
 
 function ownSpecs(task: DelegateTask, contract: DelegateContract | undefined): Record<string, unknown>[] {
   return ownChecks(contract, task.id).map((check) => {
-    const { task: _task, ...spec } = check as unknown as Record<string, unknown>;
+    // A negative control is not a `verify.run` argument (issue #110).
+    const { task: _task, negative: _negative, ...spec } = check as unknown as Record<string, unknown>;
     return spec;
   });
 }

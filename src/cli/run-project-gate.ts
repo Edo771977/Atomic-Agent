@@ -51,11 +51,16 @@ export async function settleProjectGate(
     mode === "approve" &&
     view.gate.kind === "milestone" &&
     view.milestones.find((m) => m.id === (view.gate as { id: string }).id)?.state === "failed";
-  if (mode === "stop" || failedMilestone) {
+  // Issue #109: content changed outside Atomic Agent (a hand or shell edit
+  // of project.json, or a project from another machine) is not what the
+  // person's standing --auto-approve-project covered: a person reads it.
+  const changedOutside = mode === "approve" && view.changedOutside === true;
+  if (mode === "stop" || failedMilestone || changedOutside) {
     return {
       kind: "stop",
       text: [
         ...(failedMilestone ? ["The milestone failed: this needs a person, so it is not approved automatically."] : []),
+        ...(changedOutside ? ["This gate changed outside Atomic Agent since it was last decided: a person reads it, so it is not approved automatically."] : []),
         formatProjectGateText(view),
         `session: ${sessionId}`,
         `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),

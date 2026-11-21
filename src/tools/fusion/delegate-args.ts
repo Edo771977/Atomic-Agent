@@ -70,6 +70,8 @@ import {
 import { readContractInputs } from "./contract-inputs.js";
 import { readCheckInputs } from "./candidate-check-inputs.js";
 import { parseProvideExample } from "./contract-example.js";
+import { describeLintWarning, describeSevereFinding, lintContract } from "./contract-check-lint.js";
+import { parseCheckNegative } from "./contract-check-negative.js";
 import { readOutputEstimate } from "./worker-fit.js";
 import {
   FUSION_ROLES,
@@ -496,6 +498,7 @@ function readContract(
   raw: unknown,
   tasks: readonly BindableTask[],
   problems: string[],
+  options: ParseDelegateOptions = {},
 ): DelegateContract | undefined {
   const value = readJsonArg(raw);
   if (value === undefined || value === null) return undefined;
@@ -661,7 +664,7 @@ function readContract(
           problems.push(`${label} must be an object`);
           continue;
         }
-        const { task, criteria: rawCriteria, judge, ...spec } = entry;
+        const { task, criteria: rawCriteria, judge, negative: rawNegative, ...spec } = entry;
         if (Object.keys(spec).length === 0) {
           problems.push(`${label} carries no verify.run arguments`);
           continue;
@@ -669,7 +672,11 @@ function readContract(
         const criteria = readCheckCriteria(rawCriteria, `${label}.criteria`, problems);
         if (criteria === null) continue;
         if (!readCheckJudge(judge, spec, criteria, `${label}.judge`, problems)) continue;
-        const judged = judge === undefined || judge === null ? spec : { judge: "vision" as const, ...spec };
+        // Issue #110: the same command on an input that must fail.
+        const negative = parseCheckNegative(rawNegative, spec, label, problems);
+        if (negative === null) continue;
+        const controlled = negative === undefined ? spec : { ...spec, negative };
+        const judged = judge === undefined || judge === null ? controlled : { judge: "vision" as const, ...controlled };
         const withCriteria = criteria.length === 0 ? judged : { criteria, ...judged };
         if (task === undefined || task === null) {
           // Criteria close with a task (`criteria-facts.ts`): a call-level
@@ -693,9 +700,22 @@ function readContract(
   }
 
   if (Object.keys(contract).length === 0) return undefined;
-  // Stored before the block is measured: the workers pay for these
-  // lines like any other.
-  const warnings = contractWarnings(contract, tasks);
+  // Issue #110: a check or example that provably cannot fail is refused
+  // here, before anything runs; the lint reads the specs and runs nothing.
+  // A stored contract (a resume) was already approved: what is severe now
+  // is a warning on it, never a run that can no longer resume.
+  const lint = lintContract(contract).map((f) =>
+    options.storedContract === true && f.severity === "severe" ? { ...f, severity: "warning" as const } : f);
+  for (const finding of lint) {
+    if (finding.severity === "severe") problems.push(describeSevereFinding(finding));
+  }
+  // The checks that may pass on the wrong thing, after what cannot be
+  // honoured: the director reads them on the result (never the workers'
+  // block, `renderContractBlock`).
+  const warnings = [
+    ...contractWarnings(contract, tasks),
+    ...lint.filter((f) => f.severity !== "severe").map(describeLintWarning),
+  ];
   if (warnings.length > 0) contract.warnings = warnings;
   const rendered = renderContractBlock(contract).length;
   if (rendered > MAX_CONTRACT_RENDERED_CHARS) {
@@ -717,8 +737,18 @@ function readContract(
  * ends the parse on its own: there is nothing else to check against
  * and the model has to re-plan, not patch fields.
  */
+export interface ParseDelegateOptions {
+  /**
+   * The args are a run's stored checkpoint (a resume, issue #110): the
+   * person approved that contract, so a check lint finding that would
+   * refuse a new call is carried as a warning instead.
+   */
+  storedContract?: boolean;
+}
+
 export function parseDelegateArgs(
   raw: Record<string, unknown>,
+  options: ParseDelegateOptions = {},
 ): ParsedDelegateArgs {
   const rawTasks = readJsonArg(raw.tasks);
   if (!Array.isArray(rawTasks)) {
@@ -816,7 +846,7 @@ export function parseDelegateArgs(
   }
 
   const maxWorkers = readMaxWorkers(raw.maxWorkers, problems);
-  const contract = readContract(raw.contract, bindable, problems);
+  const contract = readContract(raw.contract, bindable, problems, options);
   if (problems.length > 0) return failAll(problems);
   return {
     ok: true,

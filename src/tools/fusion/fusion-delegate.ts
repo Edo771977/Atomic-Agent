@@ -196,6 +196,7 @@ import { currentPolicyAllows, currentProviderPolicy, runWithProviderRole } from 
 import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } from "./team-routing.js";
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
+import { CHECK_LINT_PREFIX, checksWithoutCriteriaHint, describeCheckLintForApproval } from "./contract-check-lint.js";
 import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
 import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
@@ -581,7 +582,8 @@ export function buildFusionDelegateTool(
         });
       }
       const delegateArgs = resumedFrom?.args ?? rawArgs;
-      const parsed = parseDelegateArgs(delegateArgs);
+      // A resume re-reads its approved contract: lint findings warn, never refuse (issue #110).
+      const parsed = parseDelegateArgs(delegateArgs, resumedFrom === null ? {} : { storedContract: true });
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
       // A check's criteria are the approved brief's (issue #40): an id it
       // does not have could never be shown to the person as a fact.
@@ -595,6 +597,16 @@ export function buildFusionDelegateTool(
           );
         }
       }
+      // Issue #110: task checks that prove no criterion of the approved
+      // brief, one hint on the result and the approval line (never a refusal).
+      const criteriaHint =
+        ctx.project?.brief?.status === "approved"
+          ? checksWithoutCriteriaHint(parsed.contract, ctx.project.brief.successCriteria.length)
+          : null;
+      const checkLintLines = [
+        ...(parsed.contract?.warnings ?? []).filter((w) => w.startsWith(CHECK_LINT_PREFIX)),
+        ...(criteriaHint === null ? [] : [criteriaHint]),
+      ];
       // The fusion project's gate (issue #39), before anything starts.
       const projectVerdict = checkProjectDispatch(ctx.project, parsed.tasks.map((t) => t.id));
       if (projectVerdict.kind === "refuse") {
@@ -1271,7 +1283,7 @@ export function buildFusionDelegateTool(
                 roleLegs.size === 0
                   ? ""
                   : ` and ${[...roleLegs.values()].map((l) => l.model).join(", ")}`
-              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), actionableTaskCount, mode) : ""}${describeOversizedLocalTasks(oversized)}${
+              }${tracksTurn ? describeTurnCounts(turnBudget.counts(ctx.sessionId), actionableTaskCount, mode) : ""}${describeOversizedLocalTasks(oversized)}${describeCheckLintForApproval(checkLintLines)}${
                 planReviewerNotes.size === 0
                   ? ""
                   : `; ${[...planReviewerNotes].map(([id, note]) => `task ${id}: ${note}`).join("; ")}`
@@ -1435,8 +1447,10 @@ export function buildFusionDelegateTool(
       // every provider that had not delivered when its dependent ran.
       // Each wave's block carries everything known so far; the result's
       // `contract:` line carries all of it.
-      const waveWarnings: string[] =
-        plan.cycle === undefined ? [] : [plan.cycle];
+      const waveWarnings: string[] = [
+        ...(plan.cycle === undefined ? [] : [plan.cycle]),
+        ...(criteriaHint === null ? [] : [criteriaHint]),
+      ];
       const dependencyCheckOutcomes = new Map<number, ContractCheckOutcome>();
       const verifiedNoChangesProviders = new Set<string>();
 
