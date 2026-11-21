@@ -13,6 +13,7 @@ import {
 } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
 import { describeNegative, negativeCheckOf } from "./contract-check-negative.js";
+import { CHECK_LINT_PREFIX } from "./contract-check-lint.js";
 import { parseTestOutput, type ExecutedTest } from "./test-output.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 import type { VerificationInputIntegrity } from "../verify/verify-input-integrity.js";
@@ -265,6 +266,8 @@ const CHECK_DETAIL_CHARS = 400;
 export const CHECK_OUTPUT_CHARS = 1_500;
 /** Where `verify.run`'s summary starts its output tails. */
 const TAIL_MARKER = /\n(?:stderr|stdout) \(tail\):\n/;
+/** How many check lint lines the `contract:` line shows (issue #110). */
+const CONTRACT_LINE_LINT_LINES = 3;
 /** Bound on the `contract:` line of the status table. */
 const CONTRACT_LINE_CHARS = 1200;
 
@@ -781,7 +784,11 @@ export function renderContractLine(report: ContractReport): string | undefined {
   const uncontrolled = report.checks.filter((o) => o.ok && o.negative !== undefined).length;
   if (uncontrolled > 0) parts.push(`${uncontrolled} negative control${uncontrolled === 1 ? "" : "s"} not run`);
   if (report.checksSkipped !== undefined) parts.push(report.checksSkipped);
-  parts.push(...(report.warnings ?? []));
+  // The check lint's lines (issue #110), at most a few: the rest are in the details.
+  const warnings = report.warnings ?? [];
+  const lint = warnings.filter((w) => w.startsWith(CHECK_LINT_PREFIX));
+  parts.push(...warnings.filter((w) => !w.startsWith(CHECK_LINT_PREFIX)), ...lint.slice(0, CONTRACT_LINE_LINT_LINES));
+  if (lint.length > CONTRACT_LINE_LINT_LINES) parts.push(`+${lint.length - CONTRACT_LINE_LINT_LINES} more check lint findings in details.contract.warnings`);
   if (parts.length === 0) return undefined;
   return `contract: ${head(parts.join("; "), CONTRACT_LINE_CHARS)}`;
 }

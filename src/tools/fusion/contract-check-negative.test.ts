@@ -149,3 +149,14 @@ describe("contract check negative control — one that could not run is said", (
     expect(fact).toMatchObject({ id: "c1", state: "passed", reservation: "check 1: its negative control did not run (not run: refused by the egress rule)" });
   });
 });
+
+describe("the contract line caps the check lint's lines (issue #110)", () => {
+  it("shows at most three, then how many more", () => {
+    const warnings = ["requires \"x\" (task t) has no provider — nothing produces it", ...Array.from({ length: 5 }, (_, i) => `check lint (warning): contract.checks[${i}] weak ${i}`)];
+    const line = renderContractLine({ findings: [], checks: [], warnings })!;
+    expect(line).toContain('requires "x"');
+    expect(line).toContain("contract.checks[2] weak 2");
+    expect(line).not.toContain("contract.checks[3]");
+    expect(line).toContain("+2 more check lint findings in details.contract.warnings");
+  });
+});
