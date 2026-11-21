@@ -52,3 +52,26 @@ describe("example expects: only a top-level trailing `|| true` is constant", () 
     expect(lintExampleExpect(expect_, where)?.severity).toBe("severe");
   });
 });
+
+describe("error-output-match counts only failure output a passing command could print", () => {
+  const rules = (check: ContractCheck): string[] => lintContractCheck(check, 0).map((f) => f.rule);
+  it("ignores failure output that only comes with a non-zero exit, which a passing command check never has", () => {
+    expect(rules({ task: "t", cmd: "node", args: ["app.js"], checks: ["exit 0", 'stdout contains "module"'] })).toEqual([]);
+    expect(rules({ task: "t", cmd: "node", args: ["app.js"], checks: ["exit 0", 'stdout contains "1"'] })).toEqual([]);
+    expect(rules({ task: "t", cmd: "npm", args: ["test"], checks: ["exit 0", "stdout matches /ok/"] })).toEqual([]);
+  });
+  it("keeps the warning for output an exit 0 run prints", () => {
+    expect(rules({ task: "t", cmd: "node", args: ["--test"], checks: ["exit 0", 'stdout contains "passed"'] })).toEqual(["error-output-match"]);
+  });
+  it("clears it when the check follows the advice and rules the failure form out", () => {
+    expect(rules({ task: "t", cmd: "node", args: ["--test"], checks: ["exit 0", "stdout matches /# pass \\d+/", 'stdout not contains "# pass 0"'] })).toEqual([]);
+    expect(rules({ task: "t", cmd: "node", args: ["--test"], checks: ["exit 0", 'stdout contains "passed"', "stdout not matches /\\b0 (tests )?passed|passed: 0/"] })).toEqual([]);
+  });
+  it("a negative assertion on the other stream does not clear it", () => {
+    expect(rules({ task: "t", cmd: "node", args: ["--test"], checks: ["exit 0", 'stdout contains "passed"', 'stderr not contains "0 passed"'] })).toEqual(["error-output-match"]);
+  });
+  it("names a negative control as a remedy", () => {
+    const [finding] = lintContractCheck({ task: "t", cmd: "node", args: ["--test"], checks: ['stdout contains "passed"'] }, 0);
+    expect(finding?.message).toContain("`negative`");
+  });
+});

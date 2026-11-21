@@ -68,29 +68,37 @@ export interface CheckLintFinding {
   message: string;
 }
 
-/** Output a failing or empty run commonly prints: an expectation it satisfies proves little. */
-export const ERROR_OUTPUT_SAMPLES: readonly string[] = [
-  "0 passed",
-  "0 tests passed",
-  "passed: 0",
-  "# pass 0",
-  "# fail 1",
-  "not ok 1 - test",
-  "1 failed",
-  "FAILED",
-  "Failed",
-  "failed",
-  "Error: Cannot find module './index.js'",
-  "error",
-  "ERROR",
-  "TypeError: x is not a function",
-  "Traceback (most recent call last):",
-  "not found",
-  "sh: 1: node: not found",
-  "command not found",
-  "No such file or directory",
-  "ENOENT: no such file or directory",
-  "SyntaxError: Unexpected token",
+/**
+ * Output a failing or empty run commonly prints: an expectation it
+ * satisfies proves little. `zeroExit`: a run that exits 0 can print it
+ * (an empty test run, a logged error); the rest only comes with a
+ * failure exit, which a passing command check never has (`verify.run`
+ * passes a command only on exit 0).
+ */
+export const ERROR_OUTPUT_SAMPLES: ReadonlyArray<{ text: string; zeroExit: boolean }> = [
+  { text: "0 passed", zeroExit: true },
+  { text: "0 tests passed", zeroExit: true },
+  { text: "passed: 0", zeroExit: true },
+  { text: "# pass 0", zeroExit: true },
+  { text: "# tests 0", zeroExit: true },
+  { text: "error", zeroExit: true },
+  { text: "Error", zeroExit: true },
+  { text: "ERROR", zeroExit: true },
+  { text: "not found", zeroExit: true },
+  { text: "# fail 1", zeroExit: false },
+  { text: "not ok 1 - test", zeroExit: false },
+  { text: "1 failed", zeroExit: false },
+  { text: "FAILED", zeroExit: false },
+  { text: "Failed", zeroExit: false },
+  { text: "failed", zeroExit: false },
+  { text: "Error: Cannot find module './index.js'", zeroExit: false },
+  { text: "TypeError: x is not a function", zeroExit: false },
+  { text: "Traceback (most recent call last):", zeroExit: false },
+  { text: "sh: 1: node: not found", zeroExit: false },
+  { text: "command not found", zeroExit: false },
+  { text: "No such file or directory", zeroExit: false },
+  { text: "ENOENT: no such file or directory", zeroExit: false },
+  { text: "SyntaxError: Unexpected token", zeroExit: false },
 ];
 
 // ------------------------------------------------------------ fixed output
@@ -453,47 +461,69 @@ function fixedOutputFinding(check: ContractCheck, where: string, index: number):
 
 // ------------------------------------------------------- weak assertions
 
-/** A positive output assertion's needle and how to test a sample with it. */
-function positiveOutputAssertions(spec: string): Array<{ text: string; test: (sample: string) => boolean }> {
+/** An output assertion: its stream, whether negated, its text and how it reads a sample. */
+interface OutputAssertion {
+  stream: "stdout" | "stderr";
+  negated: boolean;
+  text: string;
+  test: (sample: string) => boolean;
+}
+
+function outputAssertion(spec: string): OutputAssertion | null {
   const check = spec.trim();
   const tokens = tokenizeCheck(check);
-  if (tokens[0] !== "stdout" && tokens[0] !== "stderr") return [];
-  if (tokens[1] === "not") return [];
-  if (tokens[1] === "contains" && tokens[2] !== undefined) {
-    const needle = tokens[2];
-    return [{ text: `${tokens[0]} contains ${JSON.stringify(needle)}`, test: (sample) => sample.includes(needle) }];
+  if (tokens[0] !== "stdout" && tokens[0] !== "stderr") return null;
+  const stream = tokens[0];
+  const negated = tokens[1] === "not";
+  const verb = negated ? tokens[2] : tokens[1];
+  if (verb === "contains") {
+    const needle = negated ? tokens[3] : tokens[2];
+    if (needle === undefined) return null;
+    return { stream, negated, text: `${stream} ${negated ? "not " : ""}contains ${JSON.stringify(needle)}`, test: (sample) => sample.includes(needle) };
   }
-  if (tokens[1] === "matches") {
-    const m = /^(?:stdout|stderr)\s+matches\s+(.*)$/s.exec(check);
-    if (m === null) return [];
+  if (verb === "matches") {
+    const m = /^(?:stdout|stderr)\s+(?:not\s+)?matches\s+(.*)$/s.exec(check);
+    if (m === null) return null;
     const regex = compileCheckRegex(m[1]!);
-    if ("error" in regex) return [];
-    return [{
-      text: `${tokens[0]} matches /${regex.source}/${regex.flags}`,
+    if ("error" in regex) return null;
+    return {
+      stream, negated, text: `${stream} ${negated ? "not " : ""}matches /${regex.source}/${regex.flags}`,
       test: (sample) => {
         const tested = testCheckRegex(regex, sample);
         return !("error" in tested) && tested.matched;
       },
-    }];
+    };
   }
-  return [];
+  return null;
+}
+
+/** Whether a passing run of the check exited 0: a command always (`verify.run`), anything that asserts `exit 0`. */
+function passesOnlyOnExitZero(check: ContractCheck): boolean {
+  if (checkKind(check) === "command") return true;
+  return assertionsOf(check).some((spec) => /^exit\s+(?:==\s*)?0$/.test(spec.trim()));
 }
 
 function errorOutputFindings(check: ContractCheck, where: string, index: number): CheckLintFinding[] {
   if (expectsFailure(check)) return [];
+  const assertions = assertionsOf(check).flatMap((spec) => {
+    const a = outputAssertion(spec);
+    return a === null ? [] : [a];
+  });
+  const exitZero = passesOnlyOnExitZero(check);
   const out: CheckLintFinding[] = [];
-  for (const spec of assertionsOf(check)) {
-    for (const assertion of positiveOutputAssertions(spec)) {
-      const sample = ERROR_OUTPUT_SAMPLES.find((s) => assertion.test(s));
-      if (sample === undefined) continue;
-      out.push({
-        rule: "error-output-match",
-        severity: "warning",
-        where,
-        checkIndex: index,
-        message: `\`${assertion.text}\` also accepts failure output such as ${JSON.stringify(sample)}; assert on what only a correct run prints (an exact value, a count above zero), or add \`exit 0\` and a \`not contains\` for the failure`,
-      });
-    }
+  for (const assertion of assertions.filter((a) => !a.negated)) {
+    // A failure form the check's own negative assertions on that stream rule out cannot pass it.
+    const excluded = assertions.filter((a) => a.negated && a.stream === assertion.stream);
+    const sample = ERROR_OUTPUT_SAMPLES.find((s) =>
+      (s.zeroExit || !exitZero) && assertion.test(s.text) && !excluded.some((a) => a.test(s.text)));
+    if (sample === undefined) continue;
+    out.push({
+      rule: "error-output-match",
+      severity: "warning",
+      where,
+      checkIndex: index,
+      message: `\`${assertion.text}\` also accepts failure output such as ${JSON.stringify(sample.text)}; assert on what only a correct run prints (an exact value, a count above zero), add a \`not contains\` for that failure form, or give the check a \`negative\` input it must fail on`,
+    });
   }
   return out;
 }

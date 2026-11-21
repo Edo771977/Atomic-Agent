@@ -97,7 +97,9 @@ describe("contract check lint — severe: a check that cannot fail", () => {
 describe("contract check lint — warnings and hints", () => {
   it("an expectation that failure output also satisfies is a warning, never severe", () => {
     expect(rulesOf({ task: "t", cmd: "node", args: ["--test"], checks: ['stdout contains "passed"'] })).toEqual(["error-output-match:warning"]);
-    expect(rulesOf({ task: "t", cmd: "npm", args: ["test"], checks: ["exit 0", "stdout matches /ok/"] })).toEqual(["error-output-match:warning"]);
+    // "not ok 1" comes with a failure exit, which a passing command never has; a service's output has no such bound.
+    expect(rulesOf({ task: "t", cmd: "npm", args: ["test"], checks: ["exit 0", "stdout matches /ok/"] })).toEqual([]);
+    expect(rulesOf({ task: "t", kind: "service", start: { cmd: "node", args: ["server.js"] }, ready: { port: 3000 }, checks: ["status 200", "stdout matches /ok/"] })).toEqual(["error-output-match:warning"]);
     expect(rulesOf({ task: "t", cmd: "node", args: ["app.js"], checks: ['stderr contains "not found"'] })).toEqual(["error-output-match:warning"]);
   });
 
