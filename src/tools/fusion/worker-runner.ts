@@ -1576,7 +1576,8 @@ async function runOneTask(
       try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
     },
     // Runs of one check are counted together however the worker spelled it (issue #106).
-    (tool, args) => (tool === "verify.run" ? checkSpecKey(args) : [args.cmd, ...(Array.isArray(args.args) ? args.args : [])].join(" ")),
+    // A shell run is counted by its command line, its alias forms read as `cmd` (`commandOf`).
+    (tool, args) => (tool === "verify.run" ? checkSpecKey(args) : undefined),
   );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on

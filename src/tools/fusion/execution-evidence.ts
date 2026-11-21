@@ -1,4 +1,5 @@
 import { maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
+import { readShellAliases } from "../os/shell/shell-aliases.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
 import { evidencePath, fileSha256 } from "./attempt-evidence.js";
 import { MAX_TESTS, parseTestOutput, type ExecutedTest } from "./test-output.js";
@@ -69,8 +70,16 @@ export function isTestRunnerCommand(command: string): boolean {
 }
 
 
-function commandOf(args: Record<string, unknown>): string {
+/**
+ * A run's command line from its arguments: `command`, or `cmd` and
+ * `args`, also in the alias forms models send for `os.shell.run`'s
+ * `cmd` (`cmdline`, `command_line`, …, `readShellAliases`, ATO-1259),
+ * which the shell reads as `cmd` (issue #106 review).
+ */
+export function commandOf(raw: Record<string, unknown>): string {
+  const args = readShellAliases(raw)?.args ?? raw;
   if (typeof args.command === "string") return args.command;
+  if (Array.isArray(args.cmd)) return args.cmd.filter((a): a is string => typeof a === "string").join(" ").trim();
   const cmd = typeof args.cmd === "string" ? args.cmd : "";
   const rest = Array.isArray(args.args) ? args.args.filter((a): a is string => typeof a === "string") : [];
   return [cmd, ...rest].join(" ").trim();
@@ -97,7 +106,7 @@ export class ExecutionEvidenceTracker {
     /** The keys masked out of what is recorded (a command line can carry `API_KEY=…`). */
     private readonly knownSecrets: () => readonly KnownSecret[] = () => [],
     /** The identity runs are counted by: a `verify.run`'s spec key; otherwise the command line. */
-    private readonly keyOf: (tool: string, args: Record<string, unknown>) => string = (_tool, args) => commandOf(args),
+    private readonly keyOf: (tool: string, args: Record<string, unknown>) => string | undefined = () => undefined,
   ) {}
   private readonly counts = new Map<string, number>();
 
@@ -110,7 +119,8 @@ export class ExecutionEvidenceTracker {
       tool: call.tool,
       command: commandOf(call.args).slice(0, 300),
       ownCheck: call.tool === "verify.run" && this.isOwnCheck(call.args),
-      key: `${call.tool}\u0000${this.keyOf(call.tool, call.args)}`,
+      // Counted by the caller's key (a check's spec key), else by the command line itself.
+      key: `${call.tool}\u0000${this.keyOf(call.tool, call.args) ?? commandOf(call.args)}`,
     });
   }
 

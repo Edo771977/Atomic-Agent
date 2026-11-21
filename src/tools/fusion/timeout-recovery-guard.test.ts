@@ -73,7 +73,7 @@ export const OWN = { kind: "command", cmd: "node", args: ["--test", "sales.test.
 export type Step =
   | { write: string }
   | { verify: Record<string, unknown> }
-  | { shell: string; output?: string };
+  | { shell: string; output?: string; key?: string };
 
 const ev = (event: Record<string, unknown>) => ({ type: "llm_event", event: { batchIndex: 0, batchSize: 1, ...event } }) as never;
 
@@ -93,7 +93,7 @@ export function scripted(dir: string, steps: readonly Step[], onHang?: () => voi
           options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: step.verify } }));
           options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "verify.run command: passed (exit 0)", details: { exitCode: 0, stdoutTail: TAP }, truncated: false } }));
         } else {
-          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.shell.run", args: { cmd: step.shell } } }));
+          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.shell.run", args: { [step.key ?? "cmd"]: step.shell } } }));
           options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.shell.run", status: "ok", summary: `$ ${step.shell}\nexit: 0\n${step.output ?? ""}`, details: { exitCode: 0 }, truncated: false } }));
         }
         options.eventHook?.({ type: "step_finished", stepIndex, summary: "", durationMs: 1 } as never);
@@ -126,7 +126,7 @@ export async function timedOut(steps: readonly Step[], opts: { files?: string[] 
       ...(opts.contract === false ? {} : { contract: { checks: [{ task: "program", ...OWN }] } }),
     }, { ...ctx(dir), signal: controller.signal });
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    const row = ((await pending).details.tasks as Array<{ id: string; status: string; timedOutAfterRun?: true; outOfStepsAfterRun?: true; notes?: string[]; review?: { decision: string } }>)[0]!;
+    const row = ((await pending).details.tasks as Array<{ id: string; status: string; timedOutAfterRun?: true; outOfStepsAfterRun?: true; notes?: string[]; review?: { decision: string }; attempt?: { executed?: Array<{ command: string; ranTimes?: number; runNumber?: number }> } }>)[0]!;
     return { row, prompts, file: (() => { try { return readFileSync(join(dir, "sales.cjs"), "utf8"); } catch { return undefined; } })() };
   } finally {
     vi.useRealTimers();
@@ -251,5 +251,24 @@ describe("a worker out of steps after its own passing check (issue #106)", () =>
   it("the same strict conditions: its check before the write, or no own checks, stays max_steps", async () => {
     expect((await timedOut([{ verify: OWN }, { write: PROGRAM }], { end: "max_steps" })).row.status).toBe("max_steps");
     expect((await timedOut([{ write: PROGRAM }, { verify: OWN }], { end: "max_steps", contract: false })).row.status).toBe("max_steps");
+  });
+});
+
+describe("runs counted per command, in the alias forms models send (issue #106 review)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("four different shell test runs sent as `command`, `cmdline` and `command_line` are four commands, each run once", async () => {
+    const { row } = await timedOut([
+      { shell: "npm test", key: "command" },
+      { shell: "npx vitest run a.test.ts", key: "cmdline" },
+      { shell: "node --test b.test.cjs", key: "command_line" },
+      { shell: "npm run test", key: "command" },
+    ]);
+    expect((row.attempt?.executed ?? []).map((r) => [r.command, r.ranTimes, r.runNumber])).toEqual([
+      ["npm test", 1, 1],
+      ["npx vitest run a.test.ts", 1, 1],
+      ["node --test b.test.cjs", 1, 1],
+      ["npm run test", 1, 1],
+    ]);
   });
 });
