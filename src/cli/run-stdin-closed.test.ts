@@ -40,6 +40,14 @@ const row = (taskId: string): AssignmentRow => ({
   taskId, title: taskId, milestoneId: "m1", worker: "local-llama:small", reviewer: null, reason: "preset", basis: "preset",
   samples: 0, estCostUsd: null, estMs: null,
 });
+/** A project whose only milestone was done and approved: nothing waits on anyone. */
+function completedProject(): ProjectState {
+  const brief: ProjectUpdate = { kind: "brief", brief: { what: "CSV summary", users: "Ops", how: "Node", successCriteria: ["Sums"] }, draftedAfterUntrusted: false };
+  const plan: ProjectUpdate = { kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row("sales")], detail: "compact" };
+  const running = approve(up(approve(up(undefined, brief)), plan));
+  return approve(up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "both accepted" } as ProjectUpdate));
+}
+
 /** A project whose milestone m1 was reported failed: its gate waits on a person. */
 function failedMilestoneProject(): ProjectState {
   const brief: ProjectUpdate = { kind: "brief", brief: { what: "CSV summary", users: "Ops", how: "Node", successCriteria: ["Sums"] }, draftedAfterUntrusted: false };
@@ -128,6 +136,21 @@ describe("run with stdin closed (issue #100)", () => {
     const store = new SessionStore();
     expect(store.load(id)?.project?.gate).toMatchObject({ kind: "milestone", id: "m1" });
     store.close();
+  }, 60_000);
+
+  it("a chat whose plan completed exits 0 and its pipes close (issue #106)", async () => {
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    const project = completedProject();
+    expect(project.gate).toEqual({ kind: "none" });
+    const store = new SessionStore();
+    store.save(withProject({ ...createEmptySessionState({ id: "s-eof-done", workingDir }), turnCount: 1 }, project));
+    store.close();
+    const ran = await runCli(["--cwd", workingDir, "--session", "s-eof-done", "--auto-approve-project"], env);
+    expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
+    expect(ran.exitMs).toBeGreaterThanOrEqual(0);
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).not.toContain("watchdog");
   }, 60_000);
 
   it("a plain chat with nothing waiting still exits 0", async () => {

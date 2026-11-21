@@ -44,6 +44,7 @@ import {
   applyCheckOutcomes,
   applyContractFindings,
   CONTRACT_CHECKS_HELD,
+  commandLineOf,
   inspectContractProvides,
   renderContractLine,
   runContractChecks,
@@ -148,7 +149,8 @@ import {
   unknownModels,
   type TaskLeg,
 } from "./role-models.js";
-import { provideSearchPaths, type DelegateContract } from "./contract.js";
+import { provideSearchPaths, type ContractCheck, type DelegateContract } from "./contract.js";
+import { checkSpecKey } from "./worker-self-check.js";
 import { completionCostUsd, estimateUsageCostUsd } from "../../llm/provider/usage-cost.js";
 import { applyTaskProfiles, shadowedBuiltinNote, type AppliedProfileReport } from "./task-profiles.js";
 import {
@@ -195,12 +197,12 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
-import { VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
+import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ContractCheckRun } from "./contract-checks.js";
+import type { ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -1325,7 +1327,7 @@ export function buildFusionDelegateTool(
       // Tasks the call meant to review that ended with no verdict, and why (issue #95).
       let noReviewVerdict: Array<{ taskId: string; reason: string }> = [];
       let runReviews: RunTaskReview[] = [];
-      let runMeta: () => { ran: readonly string[]; judging: boolean } | undefined = () => undefined;
+      let runMeta: () => { ran: readonly string[]; judging: boolean; passedChecks?: readonly Record<string, unknown>[] } | undefined = () => undefined;
       let secretCollectionFailed = false;
       const collectKnownSecrets = (): readonly KnownSecret[] | undefined => {
         if (secretCollectionFailed) throw new Error("Secret metadata unavailable");
@@ -1333,6 +1335,10 @@ export function buildFusionDelegateTool(
         catch { secretCollectionFailed = true; throw new Error("Secret metadata unavailable"); }
       };
       let recordCandidateInterruption: ((report: CandidateIntegrationReport) => void) | undefined;
+      // The contract's checks as the director wrote them, before a
+      // candidate run rebases them into its private workspace: what a run
+      // keeps for later fix rounds (issue #106 review).
+      const checksAsWritten = parsed.contract?.checks ?? [];
       try {
       if (mode.integration === "candidate") {
         if (writeScope.some(path => !isInside(resolvePath(candidateOriginalDir), resolvePath(path)))) {
@@ -1554,7 +1560,9 @@ export function buildFusionDelegateTool(
       // The run the checks belong to, once its checkpoint exists: a page
       // check's screenshots are kept with it (issue #40). Read per call.
       let checkRun: ContractCheckRun | undefined;
-      const heldRunChecks = withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun);
+      // How many times the gate ran each check spec in this call (issue #106 review): a reused outcome is said to be reused.
+      const gateRunCounts = new Map<string, number>();
+      const heldRunChecks = countGateRuns(withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun), gateRunCounts);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -1706,6 +1714,57 @@ export function buildFusionDelegateTool(
       const attemptLedger = new Map<string, AttemptRecord[]>();
       /** A task's declared files, for the hashes its check runs record (issue #104 review). */
       const declaredFilesOf = (taskId: string): readonly string[] => parsed.tasks.find((t) => t.id === taskId)?.files ?? [];
+      /**
+       * The contract checks that passed on a reviewed version of this
+       * call's milestone in its earlier runs (issue #106), newest first,
+       * one per check identity, less those this call's contract runs itself.
+       */
+      const priorPassedChecks = (): Record<string, unknown>[] => {
+        const runsDir = deps.runCheckpoints?.runsDir;
+        const milestoneId = projectVerdict.kind === "admit" ? projectVerdict.milestoneId : null;
+        const milestone = milestoneId === null ? undefined : ctx.project?.milestones.find((m) => m.id === milestoneId);
+        if (runsDir === undefined || milestone === undefined) return [];
+        const own = new Set(checksAsWritten.map((c) => checkSpecKey(c)));
+        // A check of this call for the same task naming every criterion an
+        // earlier check named supersedes it: the director replaced it (issue #106 review).
+        const superseded = (check: Record<string, unknown>): boolean => {
+          const criteria = Array.isArray(check.criteria) ? check.criteria.filter((c): c is string => typeof c === "string") : [];
+          return criteria.length > 0 && checksAsWritten.some((c) => c.task === check.task && criteria.every((id) => (c.criteria ?? []).includes(id)));
+        };
+        const seen = new Set<string>();
+        const out: Record<string, unknown>[] = [];
+        for (const runId of [...milestone.runIds].reverse()) {
+          for (const check of readRunCriteria(runsDir, runId).passedChecks ?? []) {
+            const key = checkSpecKey(check);
+            if (own.has(key) || seen.has(key) || superseded(check)) continue;
+            seen.add(key);
+            out.push(check);
+          }
+        }
+        return out;
+      };
+      /**
+       * The brief's criteria the runtime knows are uncovered for this
+       * call's milestone (issue #106 review): no check of this call names
+       * one, and no earlier run of the milestone kept a fact for it. Only
+       * in a one-milestone project: the plan does not say which milestone
+       * owns a criterion, so in a larger one another milestone may cover it
+       * and nothing is called a gap here (a narrower fix-round contract
+       * keeps the facts of the runs before it).
+       */
+      const uncoveredCriteria = (): string[] => {
+        if (briefCriteria === undefined || ctx.project === undefined || ctx.project.milestones.length !== 1) return [];
+        const milestone = ctx.project.milestones[0]!;
+        const named = new Set((parsed.contract?.checks ?? []).flatMap((c) => c.criteria ?? []));
+        const runsDir = deps.runCheckpoints?.runsDir;
+        if (runsDir !== undefined) {
+          for (const runId of milestone.runIds) {
+            for (const t of readRunCriteria(runsDir, runId).tasks) t.facts.forEach((f) => named.add(f.id));
+          }
+        }
+        for (const f of milestone.criteriaFacts ?? []) named.add(f.id);
+        return [...briefCriteria.values()].filter((c) => !named.has(c.id)).map((c) => c.text);
+      };
       /** The newest review an earlier run of the task's milestone recorded for it (issue #104 review). */
       const priorReviewOf = (taskId: string): RunTaskReview | undefined => {
         const runsDir = deps.runCheckpoints?.runsDir;
@@ -1737,7 +1796,7 @@ export function buildFusionDelegateTool(
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
-      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = []): string => {
+      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = [], reply?: string): string => {
         const attempts = attemptLedger.get(task.id) ?? [];
         // Only paths inside the working dir or the session's read roots are read and named.
         const roots = [workingDir, ...(ctx.readRoots ?? [])];
@@ -1750,10 +1809,11 @@ export function buildFusionDelegateTool(
           const sha256 = sha256Of(full);
           return sha256 === undefined ? { path: display } : { path: display, sha256 };
         });
-        const own = (parsed.contract?.checks ?? []).flatMap((check, index) => {
+        const ownChecked = (parsed.contract?.checks ?? []).flatMap((check, index) => {
           const outcome = check.task === task.id ? facts.checkOutcomes[index] : undefined;
-          return outcome === undefined ? [] : [outcome];
+          return outcome === undefined ? [] : [{ outcome, runsThisCall: gateRunCounts.get(checkSpecKey(check)) ?? 0 }];
         });
+        const own = ownChecked.map((c) => c.outcome);
         const latest = attempts.at(-1);
         if (latest !== undefined && own.length > 0) {
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
@@ -1773,9 +1833,22 @@ export function buildFusionDelegateTool(
           ...(projectBrief?.successCriteria ?? []),
           ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
         ])];
-        const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
-        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known);
-        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed].filter((part) => part.length > 0).join("\n\n");
+        const gateRuns = ownChecked.flatMap(({ outcome: o, runsThisCall }) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run, runsThisCall }]));
+        // The brief's criteria known to be uncovered (issue #106): apart from name mismatches.
+        const uncovered = uncoveredCriteria();
+        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known, uncovered);
+        // No summary from the worker (issue #106): say so, and that the runtime record stands in for it.
+        const noSummary = reply !== undefined && isPlaceholderReply(reply)
+          ? [
+              "## Worker summary",
+              // True per case: a worker that ran no check did not end "after its checks" (issue #106 review).
+              (attempts.at(-1)?.executed ?? []).length > 0
+                ? "The worker gave no summary: it ended after its checks and before replying."
+                : "The worker gave no summary, and the runtime recorded no check run of its own.",
+              "The runtime record in this prompt is authoritative for what ran and stands in for the summary; do not require a worker summary as evidence.",
+            ].join("\n")
+          : "";
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed, noSummary].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
@@ -2021,7 +2094,7 @@ export function buildFusionDelegateTool(
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
-        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items);
+        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items, input.reply);
         const judged = await judgeTask({
           ...input,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
@@ -3155,6 +3228,53 @@ export function buildFusionDelegateTool(
             };
           });
         }
+        // A change must not break a case that already passed (issue #106):
+        // every contract check that passed on a reviewed version of this
+        // milestone (kept in its runs' criteria.json, whatever task it was
+        // for) and that this call's contract does not run itself is run
+        // again when a row of the call changed a file. One that fails now
+        // fails each row that changed a file, as a regression naming it.
+        const regressionChecks = priorPassedChecks();
+        const writers = results.filter((r) => (r.attempt?.wrote.length ?? 0) > 0 && r.status !== "failed" && r.status !== "cancelled");
+        let reranPassed: Record<string, unknown>[] = [];
+        if (regressionChecks.length > 0 && writers.length > 0 && !runSignal.aborted) {
+          // Kept as written; a candidate run checks them in its own workspace.
+          const toRun = (candidate === undefined
+            ? regressionChecks
+            : rebaseVerifyWorkspaceValue(regressionChecks, candidateOriginalDir, candidate.dir)) as ContractCheck[];
+          const rerun = await runContractChecks(toRun, heldRunChecks, {
+            workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
+            ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
+          });
+          // Held, refused, cancelled or not run: say so on each changed row (issue #106 review).
+          const notRun = [
+            ...(rerun.checksSkipped === undefined ? [] : [rerun.checksSkipped]),
+            ...rerun.outcomes.flatMap((o, i) => (!o.ok && checkDidNotRun(o.detail) ? [`${commandLineOf(regressionChecks[i] as ContractCheck)}: ${o.detail}`] : [])),
+          ];
+          if (notRun.length > 0) {
+            const note = `regression checks not run: ${notRun.join("; ")}; a case that passed on the reviewed version is not known to pass now`;
+            const ids = new Set(writers.map((w) => w.id));
+            results = results.map((r) => (ids.has(r.id) ? { ...r, notes: [...(r.notes ?? []), note] } : r));
+          }
+          const broke = rerun.outcomes.flatMap((o, i) => (!o.ok && !checkDidNotRun(o.detail) ? [{ check: regressionChecks[i]!, outcome: o }] : []));
+          reranPassed = rerun.outcomes.flatMap((o, i) => (o.ok ? [regressionChecks[i]!] : []));
+          // Blame (issue #106 review): a regressed check whose own task changed a
+          // file here fails that row; one whose task did not run here fails
+          // every changed row, each told which rows are suspected.
+          const failing = new Map<string, string[]>();
+          for (const { check, outcome } of broke) {
+            const owner = typeof check.task === "string" ? writers.find((w) => w.id === check.task) : undefined;
+            const blamed = owner !== undefined ? [owner] : writers;
+            const suspects = owner !== undefined ? "" : ` (its task did not change a file here; suspected: ${writers.map((w) => w.id).join(", ")})`;
+            for (const w of blamed) failing.set(w.id, [...(failing.get(w.id) ?? []), `${commandLineOf(check as ContractCheck)} (${outcome.detail})${suspects}`]);
+          }
+          results = results.map((r) => {
+            const named = failing.get(r.id);
+            if (named === undefined) return r;
+            const why = `regressed: ${named.join("; ")}: it passed on the reviewed version of the milestone's files and fails now`;
+            return { ...r, status: "failed", failure: "regressed-check", error: why, notes: [...(r.notes ?? []), why] };
+          });
+        }
         // A verify-only task that changed nothing closes only on work
         // already reviewed (issue #104 review): a review recorded by an
         // earlier run on exactly its current files, and its own contract
@@ -3198,6 +3318,8 @@ export function buildFusionDelegateTool(
           ? results.flatMap((r): RunTaskReview[] => {
               if (!parsed.tasks.some((t) => t.id === r.id) || (acceptance.get(r.id)?.length ?? 0) === 0) return [];
               const decision = r.judge?.review?.decision;
+              // A regression stands over any verdict on the changed files (issue #106).
+              if (r.failure === "regressed-check") return [{ taskId: r.id, verdict: "none", reason: (r.error ?? "regressed").slice(0, 300) }];
               if (r.judge !== undefined && r.judge.unverified === undefined && (decision === "accept" || decision === "needs-changes")) {
                 const reviewer = r.review?.reviewerIdentity ?? r.judge?.review?.reviewerIdentity;
                 // A needs-changes keeps its concrete blockers for a targeted
@@ -3225,7 +3347,17 @@ export function buildFusionDelegateTool(
         // Which tasks this call ran (not those carried from a checkpoint or never started), and whether review was on (issue #98).
         const carriedIds = new Set(resume?.carried.map((r) => r.id) ?? []);
         const ranIds = results.filter((r) => !carriedIds.has(r.id) && !(r.error ?? "").startsWith("not started:")).map((r) => r.id);
-        runMeta = () => ({ ran: ranIds, judging });
+        // The checks that passed on a reviewed version, this call's own and the re-run ones, for later fix rounds (issue #106).
+        const reviewedIds = new Set(runReviews.filter((v) => v.verdict === "accept" || v.verdict === "needs-changes").map((v) => v.taskId));
+        const passedChecks = [
+          ...(parsed.contract?.checks ?? []).flatMap((c, i) => {
+            const outcome = latestCheckOutcomes.get(i) ?? gateState.checkOutcomes.get(i);
+            // Kept as the director wrote it, never as rebased into a candidate's workspace.
+            return c.task !== undefined && reviewedIds.has(c.task) && outcome?.ok === true ? [checksAsWritten[i] ?? c] : [];
+          }),
+          ...reranPassed,
+        ];
+        runMeta = () => ({ ran: ranIds, judging, ...(passedChecks.length === 0 ? {} : { passedChecks }) });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
           writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
@@ -3691,6 +3823,19 @@ interface FanoutAdmission {
  * run), so the milestone shows the work started and the run to resume;
  * one refused or failed before any worker ran records nothing.
  */
+/** A check runner that counts each spec it runs, by check identity, into `counts` (issue #106 review). */
+function countGateRuns(runner: ContractCheckRunner | undefined, counts: Map<string, number>): ContractCheckRunner | undefined {
+  if (runner === undefined) return undefined;
+  const wrapped = (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]): ReturnType<ContractCheckRunner> => {
+    for (const spec of specs) {
+      const key = checkSpecKey(spec as Record<string, unknown>);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return runner(specs, ctx);
+  };
+  return Object.assign(wrapped, runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {});
+}
+
 function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
   const milestoneId = admitted.milestoneId;
   if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;

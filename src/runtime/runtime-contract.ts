@@ -981,7 +981,17 @@ export interface AgentRuntime {
   getPlanMode(): boolean;
   setPlanMode(on: boolean): void;
   /** Close all resources (browser, sqlite, llama client). Safe to call twice. */
-  shutdown(): Promise<void>;
+  shutdown(options?: RuntimeShutdownOptions): Promise<void>;
+}
+
+/**
+ * Optional observation of `shutdown()` (issue #106): `onPhase` hears each
+ * teardown step enter and exit, in order, with whether it went through
+ * (`ok`, on the exit). Observation only: a hook that throws is ignored.
+ * Absent, nothing is reported. A second call reports nothing.
+ */
+export interface RuntimeShutdownOptions {
+  onPhase?: (phase: string, edge: "enter" | "exit", ok?: boolean) => void;
 }
 
 /** One unfinished fusion run, as `AgentRuntime.fusionRuns` lists it. */

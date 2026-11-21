@@ -41,6 +41,7 @@ import {
   WorkerRunCollector,
   WORKER_QUEUED_NOTE,
   TIMED_OUT_AFTER_RUN_NOTE,
+  OUT_OF_STEPS_AFTER_RUN_NOTE,
   formatWaitMs,
   queuedWorkerHint,
   unservedWorkerHint,
@@ -1574,6 +1575,9 @@ async function runOneTask(
       // Unavailable metadata still leaves the pattern masking.
       try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
     },
+    // Runs of one check are counted together however the worker spelled it (issue #106).
+    // A shell run is counted by its command line, its alias forms read as `cmd` (`commandOf`).
+    (tool, args) => (tool === "verify.run" ? checkSpecKey(args) : undefined),
   );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on
@@ -2545,14 +2549,14 @@ async function runOneTask(
   // because an operator who cancelled a worker cancelled it. Here the
   // worker's OWN timer is what ended the turn, and the orchestrator's
   // remedy for that is a longer deadline, not a bigger step budget.
-  if (timedOutOutcome) {
-    // Out of time after its own checks passed on its own work (issue
-    // #102): the row goes on to its checks and review like a reply would,
-    // with no new worker; the gate re-runs the task's own checks on the
-    // files as they are now. Only when all of these hold: the attempt
-    // wrote a declared file, the worker's last check run is one of the
-    // task's own contract checks, passed after its last change, and the
-    // declared files still hash as that run recorded them.
+  // Out of time or out of steps after its own checks passed on its own
+  // work (issues #102, #106): the row goes on to its checks and review
+  // like a reply would, with no new worker; the gate re-runs the task's
+  // own checks on the files as they are now. Only when all of these
+  // hold: the attempt wrote a declared file, the worker's last check run
+  // is one of the task's own contract checks, passed after its last
+  // change, and the declared files still hash as that run recorded them.
+  const recoverableAfterRun = (): { command: string } | undefined => {
     const declared = task.files ?? [];
     const own = ownChecks(options.contract, task.id);
     const lastVerify = executionEvidence.recorded().filter((r) => r.tool === "verify.run").at(-1);
@@ -2565,7 +2569,11 @@ async function runOneTask(
       lastVerify.files.length > 0 &&
       lastVerify.files.every((f) => f.sha256 !== undefined && fileSha256(workingDir, f.path) === f.sha256) &&
       !stopByPerson.signal.aborted && !options.signal.aborted;
-    result = recovered
+    return recovered ? { command: lastVerify!.command } : undefined;
+  };
+  if (timedOutOutcome) {
+    const recovered = recoverableAfterRun();
+    result = recovered !== undefined
       ? {
           ...result,
           status: "ok",
@@ -2574,6 +2582,20 @@ async function runOneTask(
           notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its time limit")), TIMED_OUT_AFTER_RUN_NOTE],
         }
       : { ...result, status: "timeout" };
+  } else if (
+    result.status === "max_steps" &&
+    // Its step limit only: a spend, credit or no-progress stop says the turn should stop, not that the work is done.
+    !(result.notes ?? []).some((n) => /^stopped (because the provider is out of credit|at its spend limit|after a whole leg of steps made no progress)/.test(n))
+  ) {
+    const recovered = recoverableAfterRun();
+    if (recovered !== undefined) {
+      result = {
+        ...result,
+        status: "ok",
+        outOfStepsAfterRun: true,
+        notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its step limit")), OUT_OF_STEPS_AFTER_RUN_NOTE],
+      };
+    }
   }
 
   if (escalationNotes.length > 0) {

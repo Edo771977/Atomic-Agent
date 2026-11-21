@@ -182,7 +182,8 @@ function hashFiles(dir: string, paths: readonly string[]): Array<{ path: string;
   });
 }
 
-function commandLineOf(check: ContractCheck): string {
+/** A command check's command line as its spec writes it (`cmd` and `args`, or `command`). */
+export function commandLineOf(check: ContractCheck): string {
   const cmd = typeof check.cmd === "string" ? check.cmd : typeof check.command === "string" ? check.command : "";
   const args = Array.isArray(check.args) ? check.args.filter((a): a is string => typeof a === "string") : [];
   return [cmd, ...args].join(" ").trim();

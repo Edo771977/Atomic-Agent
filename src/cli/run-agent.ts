@@ -56,6 +56,7 @@ import {
   type StdinLineQueue,
 } from "./stdin-line-queue.js";
 import { armHardExitDeadline } from "./hard-exit-deadline.js";
+import { startRunMemoryTrace, type PhaseHook, type RunMemoryTrace } from "./run-memory-trace.js";
 import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
 import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { withProject } from "../session/session-project.js";
@@ -596,6 +597,13 @@ interface ChatLoopOptions {
    * Otherwise the loop stops at a gate and the run exits 3.
    */
   projectGate?: { approveFirst: boolean; approveVersion?: number | null; auto: boolean };
+  /** The opt-in memory trace (issue #106): each turn, gate check and stdin read is a phase. */
+  trace: RunMemoryTrace | null;
+}
+
+/** `fn` as the trace's phase `name`, or just `fn` with no trace. */
+function inPhase<T>(trace: RunMemoryTrace | null, name: string, fn: () => T, extra?: Readonly<Record<string, number>>): T {
+  return trace === null ? fn() : trace.span(name, fn, extra);
 }
 
 interface ChatLoopResult {
@@ -642,7 +650,12 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
   };
 
   let team = opts.team;
-  const driveTurn = async (message: string): Promise<void> => {
+  let turnsDriven = 0;
+  const driveTurn = (message: string): Promise<void> => {
+    turnsDriven += 1;
+    return inPhase(opts.trace, "turn", () => driveTurnUntraced(message), { n: turnsDriven });
+  };
+  const driveTurnUntraced = async (message: string): Promise<void> => {
     const collector = collectReply();
     const firstTeam = team;
     team = undefined;
@@ -681,14 +694,41 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
 
   const gate = opts.projectGate ?? { approveFirst: false, auto: false };
   let stoppedAt: ChatLoopResult["projectGate"];
+  let lastApprovedGate: string | null = null;
+  let autoApprovals = 0;
   /**
    * After a turn (or at the start with `--approve`): approve and
    * continue while gates open, or stop at one. False ends the loop.
    */
-  const settleGates = async (first: "stop" | "approve" | { version: number }): Promise<boolean> => {
+  const settleGates = (first: "stop" | "approve" | { version: number }): Promise<boolean> =>
+    inPhase(opts.trace, "settle-gates", () => settleGatesUntraced(first));
+  const settleGatesUntraced = async (first: "stop" | "approve" | { version: number }): Promise<boolean> => {
     let mode = first;
     for (;;) {
       if (opts.controller.signal.aborted) return false;
+      // Issue #106: auto-approval must make progress. The same gate at the
+      // same version open again right after its approval (a turn that
+      // could not move the project), or more approvals than any plan
+      // needs, stops here for a person instead of looping forever.
+      if (mode === "approve") {
+        const view = opts.runtime.projectState?.(session.id) ?? null;
+        const key = view === null || view.gate.kind === "none" ? null : `${view.gate.kind}:${"id" in view.gate ? view.gate.id : ""}:${view.version ?? ""}`;
+        const why = key !== null && key === lastApprovedGate
+          ? "the same gate is open again at the same version right after its approval"
+          : key !== null && autoApprovals >= MAX_AUTO_APPROVALS_PER_RUN
+            ? `this run already approved ${MAX_AUTO_APPROVALS_PER_RUN} gates`
+            : null;
+        if (why !== null) {
+          const shown = await settleProjectGate(opts.runtime, session.id, "stop");
+          process.stderr.write(`project: auto-approval made no progress (${why}); a person decides what next.\n${shown.kind === "stop" ? shown.text : ""}\n`);
+          stoppedAt = "waiting";
+          return false;
+        }
+        if (key !== null) {
+          lastApprovedGate = key;
+          autoApprovals += 1;
+        }
+      }
       const step = await settleProjectGate(opts.runtime, session.id, mode);
       if (step.kind === "open") return true;
       if (step.kind === "stop") {
@@ -738,7 +778,7 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
         await settleGates(gate.auto ? "approve" : "stop");
         break;
       }
-      const line = await opts.lines.next("you> ");
+      const line = await inPhase(opts.trace, "stdin-read", () => opts.lines.next("you> "));
       if (line === null) {
         await settleGates(gate.auto ? "approve" : "stop");
         break;
@@ -763,12 +803,20 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
   return { session, ...(stoppedAt ? { projectGate: stoppedAt } : {}) };
 }
 
+export interface RunAgentCommandOptions {
+  /** The memory trace to use instead of the one `ATOMIC_AGENT_RUN_MEMORY_TRACE` names (null: none). */
+  memoryTrace?: RunMemoryTrace | null;
+}
+
+/** More `--auto-approve-project` approvals than any plan's brief, plan and milestones need: past it, a person decides (issue #106). */
+export const MAX_AUTO_APPROVALS_PER_RUN = 50;
+
 /**
  * CLI entry for `atomic-agent run`. Pure interactive chat: each stdin
  * line is one user message, each `reply` from the model becomes one
  * assistant message. `/quit` exits, `/abort` cancels the current turn.
  */
-export async function runAgentCommand(args: string[]): Promise<number> {
+export async function runAgentCommand(args: string[], options: RunAgentCommandOptions = {}): Promise<number> {
   const parsed = parseRunArgs(args);
   if ("help" in parsed) {
     process.stdout.write(HELP);
@@ -778,6 +826,9 @@ export async function runAgentCommand(args: string[]): Promise<number> {
     process.stderr.write(`${parsed.error}\n`);
     return 2;
   }
+  // Issue #106: on only with ATOMIC_AGENT_RUN_MEMORY_TRACE; it samples until
+  // the process ends, so the exit path is in it too.
+  const trace = "memoryTrace" in options ? options.memoryTrace ?? null : startRunMemoryTrace(process.env, { argv: args });
   const config = getConfig();
   const approvalLevel = resolveBootApprovalLevel(
     parsed.noApproval,
@@ -802,7 +853,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
   const localModelConfigured =
     config.localModels.managed.modelId !== null || config.localModels.mode === "external";
 
-  const runtime = await createAgentRuntime({
+  const runtime = await inPhase(trace, "boot", () => createAgentRuntime({
     workingDir: parsed.workingDir,
     approvalLevel,
     traceDefault: true,
@@ -879,7 +930,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
       },
       logSinks: [createStderrSink()],
     },
-  });
+  }));
 
   process.stderr.write(
     `atomic-agent run (chat)\n` +
@@ -935,10 +986,11 @@ export async function runAgentCommand(args: string[]): Promise<number> {
         noApproval: parsed.noApproval,
       }),
       projectGate: { approveFirst: parsed.approve, approveVersion: parsed.approveVersion, auto: parsed.autoApproveProject },
+      trace,
     });
     const finalSession = loop.session;
-    if (!parsed.incognito) runtime.sessionStore.save(finalSession);
-    process.stderr.write(
+    if (!parsed.incognito) inPhase(trace, "session-save", () => runtime.sessionStore.save(finalSession));
+    inPhase(trace, "result-print", () => process.stderr.write(
       `${JSON.stringify(
         {
           sessionId: finalSession.id,
@@ -950,7 +1002,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
         null,
         2,
       )}\n`,
-    );
+    ));
     // `stalled` means the step budget ran out with nothing produced —
     // that is not success, and a CI job watching this exit code must not
     // read it as one. Only `completed` (and a clean EOF on an idle
@@ -967,14 +1019,17 @@ export async function runAgentCommand(args: string[]): Promise<number> {
   } finally {
     // Issue #104: from here the process ends within the hard deadline
     // with this run's exit code, whatever still holds the event loop.
-    armHardExitDeadline(() => exitCode);
-    stdinLines?.close();
+    inPhase(trace, "hard-exit-arm", () => armHardExitDeadline(() => exitCode));
+    inPhase(trace, "stdin-close", () => stdinLines?.close());
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     // The incognito chat goes before the store closes; one the delete
     // misses is swept at the next start.
-    if (incognitoSessionId !== null) runtime.discardIncognitoSession?.(incognitoSessionId);
-    await shutdownWithin(runtime, RUN_SHUTDOWN_GRACE_MS);
+    if (incognitoSessionId !== null) {
+      const id = incognitoSessionId;
+      inPhase(trace, "incognito-discard", () => runtime.discardIncognitoSession?.(id));
+    }
+    await inPhase(trace, "shutdown", () => shutdownWithin(runtime, RUN_SHUTDOWN_GRACE_MS, trace?.phaseHook("shutdown:")));
   }
   return exitCode;
 }
@@ -987,7 +1042,7 @@ export async function runAgentCommand(args: string[]): Promise<number> {
  */
 export const RUN_SHUTDOWN_GRACE_MS = 5_000;
 
-async function shutdownWithin(runtime: { shutdown(): Promise<void> }, graceMs: number): Promise<void> {
+async function shutdownWithin(runtime: Pick<AgentRuntime, "shutdown">, graceMs: number, onPhase?: PhaseHook): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<"expired">((resolve) => {
     // Kept referenced: a teardown stuck on a promise with nothing else
@@ -995,7 +1050,7 @@ async function shutdownWithin(runtime: { shutdown(): Promise<void> }, graceMs: n
     timer = setTimeout(() => resolve("expired"), graceMs);
   });
   const outcome = await Promise.race([
-    runtime.shutdown().then(() => "done" as const, () => "done" as const),
+    runtime.shutdown(onPhase === undefined ? undefined : { onPhase }).then(() => "done" as const, () => "done" as const),
     expired,
   ]);
   if (timer !== undefined) clearTimeout(timer);

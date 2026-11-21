@@ -222,7 +222,7 @@ export function applyDeclaredFileReport(
   const degenerate = report.degenerate ?? [];
   const emptied = report.emptied ?? [];
   // A worker recovered after a timeout has no reply by definition; its own note says so (issue #102).
-  const silentReply = result.status === "ok" && result.timedOutAfterRun !== true && isPlaceholderReply(result.reply);
+  const silentReply = result.status === "ok" && result.timedOutAfterRun !== true && result.outOfStepsAfterRun !== true && isPlaceholderReply(result.reply);
   if (
     report.missing.length === 0 &&
     report.unchanged.length === 0 &&

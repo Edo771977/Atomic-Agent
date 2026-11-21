@@ -89,7 +89,16 @@ export function writeRunCriteriaFacts(
    * it blocks. Older files have neither: their reviewed and fact-bearing
    * tasks count as the ones that ran, with review on.
    */
-  meta?: { ran: readonly string[]; judging: boolean },
+  meta?: {
+    ran: readonly string[];
+    judging: boolean;
+    /**
+     * The contract checks that passed on the reviewed version (issue
+     * #106): a later fix round re-runs them, whatever task they belong to,
+     * so a change that breaks a case that already passed fails as a regression.
+     */
+    passedChecks?: readonly Record<string, unknown>[];
+  },
 ): void {
   const kept = tasks
     .filter((t) => t.facts.length > 0)
@@ -121,6 +130,7 @@ export function writeRunCriteriaFacts(
         tasks: kept,
         ...(keptReviews.length === 0 ? {} : { reviews: keptReviews }),
         ...(ran === undefined ? {} : { ran, judging: meta!.judging }),
+        ...(meta?.passedChecks === undefined || meta.passedChecks.length === 0 ? {} : { passedChecks: keptChecks(meta.passedChecks) }),
       }),
       { mode: 0o600 },
     );
@@ -136,6 +146,21 @@ interface StoredRun {
   ran?: string[];
   /** Whether review was on; absent in older files. */
   judging?: boolean;
+  /** The contract checks that passed on the reviewed version (issue #106); absent in older files. */
+  passedChecks?: Record<string, unknown>[];
+}
+
+const MAX_PASSED_CHECKS = 32;
+const MAX_CHECK_JSON = 4_000;
+
+/** Passed checks as kept: plain JSON objects, at most {@link MAX_PASSED_CHECKS}, each small. */
+function keptChecks(checks: readonly unknown[]): Record<string, unknown>[] {
+  return checks
+    .filter((c): c is Record<string, unknown> => typeof c === "object" && c !== null && !Array.isArray(c))
+    .filter((c) => {
+      try { return JSON.stringify(c).length <= MAX_CHECK_JSON; } catch { return false; }
+    })
+    .slice(0, MAX_PASSED_CHECKS);
 }
 
 /** A stored review's reviewer, `source: "facts"` kept (issue #100 review); a malformed one is dropped. */
@@ -228,6 +253,11 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
     reviews,
     ...(ran === undefined ? {} : { ran }),
     ...(typeof rawJudging === "boolean" ? { judging: rawJudging } : {}),
+    ...(() => {
+      const raw2 = (raw as { passedChecks?: unknown }).passedChecks;
+      const kept = Array.isArray(raw2) ? keptChecks(raw2) : [];
+      return kept.length === 0 ? {} : { passedChecks: kept };
+    })(),
   };
 }
 

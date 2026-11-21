@@ -73,12 +73,12 @@ export const OWN = { kind: "command", cmd: "node", args: ["--test", "sales.test.
 export type Step =
   | { write: string }
   | { verify: Record<string, unknown> }
-  | { shell: string; output?: string };
+  | { shell: string; output?: string; key?: string };
 
 const ev = (event: Record<string, unknown>) => ({ type: "llm_event", event: { batchIndex: 0, batchSize: 1, ...event } }) as never;
 
 /** A worker that plays `steps` (one step each) on its first turn, then hangs until its clock or an abort ends it. */
-export function scripted(dir: string, steps: readonly Step[], onHang?: () => void): FusionDelegateDeps["runTurn"] {
+export function scripted(dir: string, steps: readonly Step[], onHang?: () => void, end: "hang" | "max_steps" = "hang"): FusionDelegateDeps["runTurn"] {
   let turns = 0;
   return async (session, _message, options) => {
     turns += 1;
@@ -93,11 +93,13 @@ export function scripted(dir: string, steps: readonly Step[], onHang?: () => voi
           options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "verify.run", args: step.verify } }));
           options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "verify.run", status: "ok", summary: "verify.run command: passed (exit 0)", details: { exitCode: 0, stdoutTail: TAP }, truncated: false } }));
         } else {
-          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.shell.run", args: { cmd: step.shell } } }));
+          options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.shell.run", args: { [step.key ?? "cmd"]: step.shell } } }));
           options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.shell.run", status: "ok", summary: `$ ${step.shell}\nexit: 0\n${step.output ?? ""}`, details: { exitCode: 0 }, truncated: false } }));
         }
         options.eventHook?.({ type: "step_finished", stepIndex, summary: "", durationMs: 1 } as never);
       });
+      // Out of steps (issue #106): the loop ends the turn at its step limit, before any reply.
+      if (end === "max_steps") return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "max_steps", stepCount: steps.length } as RunTurnResult;
       onHang?.();
       await new Promise<void>((resolve) => {
         if (options.signal?.aborted) resolve();
@@ -110,21 +112,21 @@ export function scripted(dir: string, steps: readonly Step[], onHang?: () => voi
 }
 
 /** One delegate call of the program task with the worker `steps`; the row as it came back. */
-export async function timedOut(steps: readonly Step[], opts: { files?: string[] | null; contract?: boolean; abort?: boolean; runChecks?: FusionDelegateDeps["runChecks"] } = {}) {
+export async function timedOut(steps: readonly Step[], opts: { files?: string[] | null; contract?: boolean; abort?: boolean; runChecks?: FusionDelegateDeps["runChecks"]; end?: "hang" | "max_steps" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "recovery-guard-"));
   try {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const controller = new AbortController();
     const prompts: string[] = [];
     const complete: EscalationComplete = async (call) => { prompts.push(call.prompt); return { content: review("accept") }; };
-    const runTurn = scripted(dir, steps, opts.abort === true ? () => controller.abort() : undefined);
+    const runTurn = scripted(dir, steps, opts.abort === true ? () => controller.abort() : undefined, opts.end ?? "hang");
     const files = opts.files === null ? {} : { files: opts.files ?? ["sales.cjs"] };
     const pending = buildFusionDelegateTool(deps(dir, complete, runTurn, opts.runChecks === undefined ? {} : { runChecks: opts.runChecks })).run({
       tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", ...files }],
       ...(opts.contract === false ? {} : { contract: { checks: [{ task: "program", ...OWN }] } }),
     }, { ...ctx(dir), signal: controller.signal });
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    const row = ((await pending).details.tasks as Array<{ id: string; status: string; timedOutAfterRun?: true; notes?: string[] }>)[0]!;
+    const row = ((await pending).details.tasks as Array<{ id: string; status: string; timedOutAfterRun?: true; outOfStepsAfterRun?: true; notes?: string[]; review?: { decision: string }; attempt?: { executed?: Array<{ command: string; ranTimes?: number; runNumber?: number }> } }>)[0]!;
     return { row, prompts, file: (() => { try { return readFileSync(join(dir, "sales.cjs"), "utf8"); } catch { return undefined; } })() };
   } finally {
     vi.useRealTimers();
@@ -231,4 +233,42 @@ describe("recovery with the real gate checks (issue #102 review)", () => {
       expect(prompts.some((p) => p.includes("## Execution evidence"))).toBe(true);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 30_000);
+});
+
+describe("a worker out of steps after its own passing check (issue #106)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("is reviewed from the runtime record: ok, accepted, one note, no new worker", async () => {
+    const { row, prompts } = await timedOut([{ write: PROGRAM }, { verify: OWN }], { end: "max_steps" });
+    expect(row.status).toBe("ok");
+    expect(row.outOfStepsAfterRun).toBe(true);
+    expect(row.review?.decision).toBe("accept");
+    expect(row.notes).toContain("ran out of steps after its own checks passed on the current files; reply missing");
+    expect((row.notes ?? []).join("\n")).not.toMatch(/stopped at its step limit|reply is empty or a placeholder/);
+    expect(prompts.some((p) => p.includes("strict acceptance judge"))).toBe(true);
+  });
+
+  it("the same strict conditions: its check before the write, or no own checks, stays max_steps", async () => {
+    expect((await timedOut([{ verify: OWN }, { write: PROGRAM }], { end: "max_steps" })).row.status).toBe("max_steps");
+    expect((await timedOut([{ write: PROGRAM }, { verify: OWN }], { end: "max_steps", contract: false })).row.status).toBe("max_steps");
+  });
+});
+
+describe("runs counted per command, in the alias forms models send (issue #106 review)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("four different shell test runs sent as `command`, `cmdline` and `command_line` are four commands, each run once", async () => {
+    const { row } = await timedOut([
+      { shell: "npm test", key: "command" },
+      { shell: "npx vitest run a.test.ts", key: "cmdline" },
+      { shell: "node --test b.test.cjs", key: "command_line" },
+      { shell: "npm run test", key: "command" },
+    ]);
+    expect((row.attempt?.executed ?? []).map((r) => [r.command, r.ranTimes, r.runNumber])).toEqual([
+      ["npm test", 1, 1],
+      ["npx vitest run a.test.ts", 1, 1],
+      ["node --test b.test.cjs", 1, 1],
+      ["npm run test", 1, 1],
+    ]);
+  });
 });

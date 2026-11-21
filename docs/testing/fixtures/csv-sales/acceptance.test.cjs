@@ -9,7 +9,9 @@
 //   - later non-blank lines: sku, qty, price_cents; qty and price_cents are
 //     non-negative decimal digit strings; any other row: stderr contains
 //     "Invalid row N" (N its physical line number, the header line 1),
-//     stdout is empty, exit 1; blank lines are skipped but counted;
+//     stdout is empty, exit 1; blank lines are skipped but counted; a total
+//     above Number.MAX_SAFE_INTEGER makes the row that takes it there invalid,
+//     while each qty and price may have any number of digits;
 //   - success: one JSON object on stdout, sku -> integer revenue in cents
 //     (sum of qty * price_cents), exit 0.
 //
@@ -107,6 +109,32 @@ test('an invalid row after a blank line names its physical line number', () => {
   const r = run(input);
   refused(r, /Invalid row 5(?!\d)/, input);
   assert.doesNotMatch(r.stderr, /Invalid row 3(?!\d)/, 'the line number counts the blank lines');
+});
+
+// Issue #106: the limit is on the accumulated total, not on each number; a qty or a price may itself be
+// larger than Number.MAX_SAFE_INTEGER (9007199254740991) when the total stays within it.
+test('a zero price makes a huge quantity a zero total', () => {
+  assert.deepEqual(summary(run([HEADER, 'X,9007199254740993,0', ''].join('\n'))), [['X', 0]]);
+  assert.deepEqual(summary(run([HEADER, 'X,123456789012345678901234567890,0', 'X,2,3', ''].join('\n'))), [['X', 6]]);
+});
+
+test('a zero quantity makes a huge price a zero total', () => {
+  assert.deepEqual(summary(run([HEADER, 'Y,0,9007199254740993', ''].join('\n'))), [['Y', 0]]);
+  assert.deepEqual(summary(run([HEADER, 'Y,0,999999999999999999999999', ''].join('\n'))), [['Y', 0]]);
+});
+
+test('a total exactly at Number.MAX_SAFE_INTEGER is accepted', () => {
+  assert.deepEqual(summary(run([HEADER, 'M,1,9007199254740991', ''].join('\n'))), [['M', 9007199254740991]]);
+  // Reached by accumulation over two rows.
+  assert.deepEqual(summary(run([HEADER, 'M,1,9007199254740990', 'M,1,1', ''].join('\n'))), [['M', 9007199254740991]]);
+});
+
+test('a total one past Number.MAX_SAFE_INTEGER is refused', () => {
+  const single = [HEADER, 'A,1,1', 'M,1,9007199254740992', ''].join('\n');
+  refused(run(single), /Invalid row 3(?!\d)/, single);
+  // The row that takes the accumulated total over the limit is the invalid one.
+  const accumulated = [HEADER, 'M,1,9007199254740990', 'M,2,1', ''].join('\n');
+  refused(run(accumulated), /Invalid row 3(?!\d)/, accumulated);
 });
 
 test('a wrong first line is refused with "Invalid header"', () => {

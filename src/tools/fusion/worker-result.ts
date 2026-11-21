@@ -296,7 +296,7 @@ export interface WorkerTaskResult {
    * as pending. `stuck` (issue #43): the watch's judge found the worker
    * stuck and stopped it; handed to the director the same way.
    */
-  failure?: "review-exhausted" | "stuck" | "regressed-verified";
+  failure?: "review-exhausted" | "stuck" | "regressed-verified" | "regressed-check";
   /**
    * Set with `failure: "stuck"` when the runner stopped a worker that kept
    * writing the same bytes to a file (issue #95, `worker-repeated-writes.ts`):
@@ -315,6 +315,8 @@ export interface WorkerTaskResult {
    * recorded run (`attempt.executed`), with no new worker.
    */
   timedOutAfterRun?: true;
+  /** The same recovery for a worker that ran out of steps after its own passing check (issue #106). */
+  outOfStepsAfterRun?: true;
   /**
    * A verify-only task that changed nothing (issue #104 review): `no_changes`
    * until the delegate finds a review already recorded on exactly its
@@ -743,6 +745,8 @@ export function finishedWithoutReplyNote(paths: readonly string[]): string {
 
 /** The one note on a worker recovered after its own checks passed and its clock ran out (issue #102). */
 export const TIMED_OUT_AFTER_RUN_NOTE = "timed out after its own checks passed on the current files; reply missing";
+/** The one note on a worker recovered after its own checks passed and its steps ran out (issue #106). */
+export const OUT_OF_STEPS_AFTER_RUN_NOTE = "ran out of steps after its own checks passed on the current files; reply missing";
 
 function stopCauseNote(cause: WorkerStopCause, stepCount: number): string {
   if (cause === "credit_exhausted") {

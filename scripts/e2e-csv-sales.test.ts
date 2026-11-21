@@ -4,9 +4,10 @@
 // and loose number parsing; the runner must read a recorded run (its printed
 // session, receipts, the session store and the outcome log) into the report.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -34,7 +35,7 @@ describe("the independent acceptance test", () => {
     expect(r.failed).toEqual([]);
     expect(r.exitCode).toBe(0);
     expect(r.fail).toBe(0);
-    expect(r.pass).toBe(13);
+    expect(r.pass).toBe(17);
   });
 
   // Issue #100: the live program lost its blank-line handling and still passed the 10 cases.
@@ -46,6 +47,22 @@ describe("the independent acceptance test", () => {
       "several trailing blank lines are skipped",
       "an invalid row after a blank line names its physical line number",
     ]);
+  });
+
+  // Issue #106: the final program refused `X,9007199254740993,0`, whose total is exactly zero.
+  it("fails a program that limits each number instead of the total on the zero-total cases, and only there", () => {
+    const r = acceptance("per-number-limit-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual([
+      "a zero price makes a huge quantity a zero total",
+      "a zero quantity makes a huge price a zero total",
+    ]);
+  });
+
+  it("fails an overflow check with >= on the total exactly at the limit, and only there", () => {
+    const r = acceptance("overflow-off-by-one-sales.cjs");
+    expect(r.exitCode).not.toBe(0);
+    expect(r.failed).toEqual(["a total exactly at Number.MAX_SAFE_INTEGER is accepted"]);
   });
 
   it("fails a program that numbers lines without the blank ones on the physical line number", () => {
@@ -86,7 +103,7 @@ describe("the task prompt", () => {
   it("is one line, since `atomic-agent run` takes each piped line as a turn, and names the interface", () => {
     const text = readFileSync(PROMPT, "utf8");
     expect(text.trimEnd().split(/\r?\n/)).toHaveLength(1);
-    for (const words of ["Blank lines", "physical line number", "Invalid row N", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
+    for (const words of ["Blank lines", "physical line number", "Invalid row N", "accumulated total", "any number of digits", "exactly zero", "sales.cjs", "node --test sales.test.cjs", "sku,qty,price_cents", "Invalid header", "Invalid row", "toString", "__proto__", "exit 1"]) {
       expect(text).toContain(words);
     }
   });
@@ -105,7 +122,7 @@ describe("the runner's parsing", () => {
 
   it("reads TAP counts and failing test names", () => {
     const tap = "TAP version 13\nok 1 - a\nnot ok 2 - b fails # with a note\n  ---\n1..2\n# tests 2\n# pass 1\n# fail 1\n";
-    expect(runner.parseTap(tap)).toEqual({ tests: 2, pass: 1, fail: 1, failed: ["b fails"] });
+    expect(runner.parseTap(tap)).toEqual({ tests: 2, pass: 1, fail: 1, failed: ["b fails"], passed: ["a"] });
   });
 
   it("finds the printed session and the receipt lines in a recorded run", () => {
@@ -156,7 +173,7 @@ describe("the runner's parsing", () => {
     expect(report.run).toMatchObject({ exitCode: 3, printedSession: "sess_95e2e7f1" });
     expect(report.run.receiptLines).toHaveLength(3);
     expect(report.session).toMatchObject({ id: "sess_95e2e7f1", status: "active", workingDir: cwd });
-    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 13, fail: 0 });
+    expect(report.tests.acceptance).toMatchObject({ exitCode: 0, pass: 17, fail: 0 });
     expect(report.tests.agent).toMatchObject({ exitCode: 0, pass: 1, fail: 0 });
     expect(report.tests.passed).toBe(true);
     expect(report.passed).toBe(false);
@@ -236,10 +253,10 @@ describe("verdicts joined to plan rows (taskKey / milestoneKey)", () => {
 /* ---------- issue #98: the runner's verdict ---------- */
 
 /** A run folder with green suites and a state folder holding `sample`'s session and outcome log; the runner's exit and report. */
-function runSample(sample: string): { status: number | null; report: any } {
+function runSample(sample: string, options: { program?: string } = {}): { status: number | null; report: any } {
   const dir = join(FIXTURES, sample);
   const cwd = temp("csv-sales-98-");
-  copyFileSync(join(FIXTURES, "reference-sales.cjs"), join(cwd, "sales.cjs"));
+  copyFileSync(join(FIXTURES, options.program ?? "reference-sales.cjs"), join(cwd, "sales.cjs"));
   copyFileSync(join(SAMPLE, "agent-sales.test.cjs"), join(cwd, "sales.test.cjs"));
   const stateDir = temp("csv-sales-98-state-");
   mkdirSync(join(stateDir, "fusion"));
@@ -249,6 +266,23 @@ function runSample(sample: string): { status: number | null; report: any } {
   db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, working_dir TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, turn_owner TEXT)");
   db.prepare("INSERT INTO sessions VALUES (?, ?, 'active', ?, 1, 2, NULL)").run(stored.id, cwd, JSON.stringify(stored));
   db.close();
+  // The run's file checkpoints (<stateDir>/file-checkpoints/<session>/), their paths in this run folder.
+  const checkpoints = join(dir, "file-checkpoints");
+  if (existsSync(checkpoints)) {
+    const into = join(stateDir, "file-checkpoints", stored.id);
+    mkdirSync(into, { recursive: true });
+    for (const name of readdirSync(checkpoints)) copyFileSync(join(checkpoints, name), join(into, name));
+    const index = readFileSync(join(into, "index.json"), "utf8").replaceAll("{cwd}/", JSON.stringify(cwd + sep).slice(1, -1));
+    writeFileSync(join(into, "index.json"), index);
+  }
+  // Another session's checkpoints in the same state dir (another chat, another project).
+  const other = join(dir, "file-checkpoints-other-session");
+  if (existsSync(other)) {
+    const into = join(stateDir, "file-checkpoints", "s-otherproject");
+    mkdirSync(into, { recursive: true });
+    for (const name of readdirSync(other)) copyFileSync(join(other, name), join(into, name));
+    writeFileSync(join(into, "index.json"), readFileSync(join(into, "index.json"), "utf8").replaceAll("{cwd}/", JSON.stringify(cwd + sep).slice(1, -1)));
+  }
   const out = join(stateDir, "report.json");
   const r = spawnSync(process.execPath, [join(import.meta.dirname, "e2e-csv-sales.mjs"), "--cwd", cwd, "--state-dir", stateDir,
     "--log", join(dir, "stdout.txt"), "--output", out], { encoding: "utf8", timeout: 120_000 });
@@ -373,5 +407,70 @@ describe("an accept by the task's checks alone", () => {
       "task a (A): not accepted: accept by its checks, which did not pass",
       "milestone m is done while 1 required task is not accepted",
     ]);
+  });
+});
+
+/* ---------- issue #106: the suite before and after the reviewer's changes ---------- */
+
+describe("earlier versions of sales.cjs", () => {
+  it("runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed", () => {
+    const { status, report } = runSample("sample-run-regressed", { program: "per-number-limit-sales.cjs" });
+    expect(status).toBe(1);
+    // Only this session's copies of the run folder's sales.cjs from its own time count: the same bytes twice, another file,
+    // a copy from before the session, a sales.cjs in another folder, one after its last update and another session's are not.
+    expect(report.earlierVersions).toHaveLength(1);
+    expect(report.earlierVersions[0].sha256).toBe(createHash("sha256").update(readFileSync(join(FIXTURES, "reference-sales.cjs"))).digest("hex"));
+    expect(report.earlierVersions[0]).toMatchObject({ tool: "os.fs.edit", at: 1795640100000, acceptance: { exitCode: 0, pass: 17, fail: 0 } });
+    expect(report.earlierVersions[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(report.regressed).toEqual([
+      { test: "a zero price makes a huge quantity a zero total", passedIn: [report.earlierVersions[0].sha256] },
+      { test: "a zero quantity makes a huge price a zero total", passedIn: [report.earlierVersions[0].sha256] },
+    ]);
+    expect(report.blocking).toEqual(expect.arrayContaining([
+      "the final sales.cjs fails 2 acceptance cases an earlier version passed: a zero price makes a huge quantity a zero total; a zero quantity makes a huge price a zero total",
+    ]));
+  });
+
+  it("says when no earlier version is available, and invents none", () => {
+    const { report } = runSample("sample-run-accepted");
+    expect(report.earlierVersions).toBe("unavailable");
+    expect(report.earlierVersionsWhy).toMatch(/no file checkpoints for session sess_98accepted/);
+    expect(report.regressed).toEqual([]);
+  });
+});
+
+describe("earlier versions are only this session's, of this run folder's sales.cjs, within the session's time", () => {
+  const sid = "s-run1";
+  const write = (stateDir: string, folder: string, entries: Array<{ path: string; at: number; body: string }>) => {
+    const dir = join(stateDir, "file-checkpoints", folder);
+    mkdirSync(dir, { recursive: true });
+    const index = { version: 1, next: entries.length + 1, totalBytes: 0, droppedThrough: 0,
+      entries: entries.map((e, i) => { writeFileSync(join(dir, `${i + 1}.bin`), e.body); return { n: i + 1, path: e.path, at: e.at, tool: "os.fs.write", existed: true, file: `${i + 1}.bin` }; }) };
+    writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+  };
+  const window = { from: 100, to: 200 };
+
+  it("ignores another session's sales.cjs", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, "s-other", [{ path: join(cwd, "sales.cjs"), at: 150, body: "other" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null)).toBeNull();
+    write(stateDir, sid, [{ path: join(cwd, "sales.cjs"), at: 150, body: "mine" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null).map((v: { at: number }) => v.at)).toEqual([150]);
+  });
+
+  it("ignores a sales.cjs from another folder in the same session", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, sid, [{ path: join(cwd, "sub", "sales.cjs"), at: 150, body: "a" }, { path: join(temp("csv-sales-c1-else-"), "sales.cjs"), at: 160, body: "b" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null)).toEqual([]);
+  });
+
+  it("ignores copies taken before the session started or after its last update", () => {
+    const stateDir = temp("csv-sales-c1-");
+    const cwd = temp("csv-sales-c1-run-");
+    write(stateDir, sid, [{ path: join(cwd, "sales.cjs"), at: 99, body: "before" }, { path: join(cwd, "sales.cjs"), at: 201, body: "after" },
+      { path: join(cwd, "sales.cjs"), at: 200, body: "last" }]);
+    expect(runner.earlierProgramVersions(stateDir, cwd, sid, window, null).map((v: { at: number }) => v.at)).toEqual([200]);
   });
 });

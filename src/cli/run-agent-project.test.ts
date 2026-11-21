@@ -259,6 +259,18 @@ describe("run at a fusion project gate", () => {
     await Promise.all(project.realShutdowns.map((stop) => stop()));
   }, 30_000);
 
+  it("an auto-approved gate that comes back unchanged stops with exit 3 instead of approving forever (issue #106)", async () => {
+    // Every approval "succeeds", yet the same plan gate at the same version is open again after each turn.
+    project.openAfterTurn = Array.from({ length: 40 }, () => planGate);
+    project.after = planGate;
+    feed(["build the game\n"]);
+    const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
+    expect(code).toBe(3);
+    expect(project.decisions.length).toBeLessThanOrEqual(2);
+    expect(stderr).toContain("made no progress");
+    expect(stderr).toContain(`atomic-agent run --session ${sessionIdIn(stderr)}`);
+  }, 60_000);
+
   it("an approval the runtime refuses (a hard cap) exits 1 with the reason", async () => {
     project.openAfterTurn = [planGate];
     feed(["build the game\n"]);

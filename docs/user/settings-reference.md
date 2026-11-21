@@ -623,6 +623,8 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_OFFLINE` | unset | env only | Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved. |
 | `ATOMIC_AGENT_ALLOWED_ORIGINS` | unset | env only | Comma-separated web origins that may call a keyless local `serve`, besides loopback ones. |
 | `ATOMIC_AGENT_SERVE_NO_PARENT_EXIT` | unset | env only | Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit). |
+| `ATOMIC_AGENT_RUN_RSS_LIMIT_MB` | unset | env only | Memory cap, in MB of resident memory, past which the exit watchdog of `run` ends the process. Unset: 4096. |
+| `ATOMIC_AGENT_RUN_MEMORY_TRACE` | unset | env only | File `run` appends a memory trace to (NDJSON: phases, heap and rss every second from the main thread and from a worker thread). Unset: no trace. |
 | `ATOMIC_AGENT_MODEL_CATALOG_URL` | unset | env only | URL of the extra local-model catalog JSON. Unset: the catalog hosted on atomicagent.io. |
 | `ATOMIC_AGENT_TELEGRAM_STREAM_REPLIES` | unset | env only | Stream Telegram replies into the owner's DM (private) or not (off). Wins over telegram.streamReplies when set. |
 | `ATOMIC_AGENT_WHISPER_BIN` | unset | env only | Path of the whisper.cpp CLI for audio transcription. Unset: the downloaded copy, then the PATH. |

@@ -45,6 +45,8 @@ export const criticalFiles = [
   'src/tools/fusion/check-run-record.test.ts',
   'src/tools/fusion/check-spec-key.test.ts',
   'src/tools/fusion/evidence-review.test.ts',
+  // Issue #106: a fix round re-runs contract checks that passed on the reviewed version.
+  'src/tools/fusion/regression-gate.test.ts',
   // Issue #102: execution evidence, recovery after a timed-out passing run, both verdicts, plan-task steering.
   'src/tools/fusion/execution-evidence.test.ts',
   'src/tools/fusion/timeout-recovery-guard.test.ts',
@@ -164,6 +166,11 @@ export const supplementalFiles = [
   // pipes (exit 3 at a gate, 0 otherwise), and a Core it starts must not
   // hold them; on Windows this is where an inherited handle would show.
   'src/cli/run-stdin-closed.test.ts',
+  // Issue #106: the run memory trace, written from both threads with one
+  // append per line, and still sampled by its worker while the main loop spins.
+  'src/cli/run-memory-trace.test.ts',
+  // Issue #106: the memory sampler's Windows path (one PowerShell loop, taskkill /T).
+  'scripts/sample-run-memory.test.ts',
   'src/local-llm/core/core-detached-handles.test.ts',
 ];
 /**

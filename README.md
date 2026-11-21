@@ -913,6 +913,7 @@ Useful environment variables:
 - `ATOMIC_AGENT_BROWSER_HEADLESS`: `1` to always run the browser headless, `0` to always show its window. Unset: `browser.headless` in `config.json` decides (default `"auto"`: no window for scheduled tasks and Telegram / Discord, a window for the TUI and the desktop app).
 - `ATOMIC_AGENT_BROWSER_NO_SANDBOX`: `1` to launch the browser with `--no-sandbox` (containers and CI only).
 - `ATOMIC_AGENT_UPDATE_CHECK_ON_STARTUP`: `false` to skip the TUI's update check.
+- `ATOMIC_AGENT_RUN_MEMORY_TRACE`: a file `run` appends an NDJSON memory trace to (phases of the run and its shutdown, heap and rss every second from the main thread and from a worker thread); see [src/cli/README.md](src/cli/README.md). Off when unset.
 
 The external `llama-server` URL is set in `config.json` (`localModels.url`), not through the environment.
 
