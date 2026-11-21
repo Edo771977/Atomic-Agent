@@ -298,6 +298,17 @@ function fixedPrintf(format: string): string | null {
 const POWERSHELL_FLAGS = new Set(["-noprofile", "-nop", "-noninteractive", "-nologo"]);
 
 /**
+ * What a subshell or interpreter could read in a word it is handed again:
+ * the POSIX and `cmd.exe` metacharacters, `%VAR%`, `^` escapes, a line
+ * break. `echo` and `exit` are `cmd.exe` builtins, so on Windows their
+ * `args` go through `cmd /d /s /c` (`needsShellInterpretation`), and a
+ * re-joined `cmd /c` or `powershell -Command` body is a command line.
+ */
+const WORD_META = /[|&;<>()$`*?[\]{}~!#%^\r\n"']/;
+const hasWordMeta = (words: readonly string[], allowBackslash = false): boolean =>
+  words.some((w) => WORD_META.test(w) || (!allowBackslash && w.includes("\\")));
+
+/**
  * What `words` print, when the command is a fixed print and exits 0.
  * Null for everything else — including every command that runs a file
  * or reads anything — so a null is never a finding.
@@ -308,6 +319,7 @@ export function fixedOutputOf(words: readonly string[], depth = 0): FixedOutput 
   const program = programName(head!);
   switch (program) {
     case "echo": {
+      if (hasWordMeta(rest)) return null;
       let args = rest;
       let newline = true;
       if (args[0] === "-n") {
@@ -318,13 +330,13 @@ export function fixedOutputOf(words: readonly string[], depth = 0): FixedOutput 
       return { stdout: `${args.join(" ")}${newline ? "\n" : ""}` };
     }
     case "printf": {
-      if (rest.length !== 1) return null;
+      if (rest.length !== 1 || hasWordMeta(rest, true)) return null;
       const out = fixedPrintf(rest[0]!);
       return out === null ? null : { stdout: out };
     }
     case "write-output":
     case "write-host":
-      return { stdout: rest.map((w) => `${w}\n`).join("") };
+      return hasWordMeta(rest) ? null : { stdout: rest.map((w) => `${w}\n`).join("") };
     case "true":
     case ":":
       return rest.length === 0 ? { stdout: "" } : null;
@@ -332,6 +344,8 @@ export function fixedOutputOf(words: readonly string[], depth = 0): FixedOutput 
       return rest.length === 0 || (rest.length === 1 && rest[0] === "0") ? { stdout: "" } : null;
     case "cmd": {
       if (rest.length < 2 || !/^\/[ck]$/i.test(rest[0]!)) return null;
+      // More than one word: cmd.exe re-joins them into a command line.
+      if (rest.length > 2 && hasWordMeta(rest.slice(1))) return null;
       const inner = rest.length === 2 ? splitPlainCommand(rest[1]!) : rest.slice(1);
       return inner === null ? null : fixedOutputOf(inner, depth + 1);
     }
@@ -351,6 +365,8 @@ export function fixedOutputOf(words: readonly string[], depth = 0): FixedOutput 
       if (flag !== "-command" && flag !== "-c") return null;
       const body = rest.slice(i + 1);
       if (body.length === 0) return null;
+      // A multi-word body is re-joined into one PowerShell command line.
+      if (body.length > 1 && hasWordMeta(body)) return null;
       const inner = body.length === 1 ? splitPlainCommand(body[0]!) : body;
       return inner === null ? null : fixedOutputOf(inner, depth + 1);
     }
