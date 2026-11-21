@@ -167,6 +167,8 @@ export const supplementalFiles = [
   // Issue #106: the run memory trace, written from both threads with one
   // append per line, and still sampled by its worker while the main loop spins.
   'src/cli/run-memory-trace.test.ts',
+  // Issue #106: the memory sampler's Windows path (one PowerShell loop, taskkill /T).
+  'scripts/sample-run-memory.test.ts',
   'src/local-llm/core/core-detached-handles.test.ts',
 ];
 /**
