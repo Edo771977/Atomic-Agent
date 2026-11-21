@@ -126,7 +126,11 @@ const WHY_INCOMPLETE = "The engine download did not finish. Check your connectio
 
 /* Not failures: a precondition the person resolves (stop the models first),
    or a stop on purpose. Neither earns the recovery card. */
-const NOT_A_FAILURE = /Stop local models before (?:updating|switching) the engine|was stopped before it finished|was cancelled|AbortError/i;
+const NOT_A_FAILURE = /Stop local models before switching the engine|was stopped before it finished|was cancelled|AbortError/i;
+
+export function coreUpdateNeedsStoppedModels(text: string): boolean {
+  return /Stop local models before updating the engine/i.test(text);
+}
 
 /**
  * The engine failure a piece of agent output describes, or null. Only Core's
@@ -145,7 +149,7 @@ export function engineFailureIn(text: string | null | undefined, ctx: EngineFail
   if (hintAt === undefined && !STAGE_SENTENCES.some(([re]) => re.test(all))
     && !/Atomic (?:Chat )?Core|atomic-chat-core|CoreUnavailable|\bMODEL_LOAD_FAILED\b/i.test(all)
     && !(ctx.core && loadFailed)) return null;
-  if (NOT_A_FAILURE.test(all)) return null;
+  if (coreUpdateNeedsStoppedModels(all) || NOT_A_FAILURE.test(all)) return null;
   const stage = stageOf(all);
   const detail = (hintAt === undefined ? all : all.slice(0, hintAt))
     // The agent's own sentence: not a stack frame, not a progress bar line, not the update's "current → latest".

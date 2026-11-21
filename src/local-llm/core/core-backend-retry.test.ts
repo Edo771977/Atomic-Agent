@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activateCoreVersion, installCoreBackend } from "./core-backend.js";
+import { activateCoreVersion, coreBackendUpdatePlan, installCoreBackend } from "./core-backend.js";
 import { connectCore, CoreRequestError } from "./core-client.js";
 import { CoreUnavailableError } from "./core-errors.js";
 import { installSelectedBackend } from "./core-backend.js";
@@ -99,6 +99,29 @@ it("switches to the newer pin when the older Core is idle", async () => {
   route(() => ({ path: backendPath }));
   await expect(installCoreBackend(dir)).resolves.toMatchObject({ activated: true });
   expect(activeCoreVersion(dir)).toBe(CORE_VERSION);
+});
+
+it("plans a newer pin without disturbing the active Core", async () => {
+  olderCoreServing([{ model_id: "m" }]);
+  const chatRunning = vi.fn(async () => true);
+  await expect(coreBackendUpdatePlan(dir, chatRunning)).resolves.toEqual({
+    targetVersion: CORE_VERSION, activeVersion: "0.11.2", requiresStop: false,
+  });
+  expect(chatRunning).not.toHaveBeenCalled();
+  expect(connectCore).not.toHaveBeenCalled();
+});
+
+it("plans a same-version reinstall only after chat and embedding stop", async () => {
+  olderCoreServing([], { enabled: true });
+  writeCoreJson(join(coreRoot(dir), "active.json"), { version: CORE_VERSION });
+  await expect(coreBackendUpdatePlan(dir, async () => false)).resolves.toEqual({
+    targetVersion: CORE_VERSION, activeVersion: CORE_VERSION, requiresStop: true,
+  });
+  olderCoreServing([], { enabled: false });
+  writeCoreJson(join(coreRoot(dir), "active.json"), { version: CORE_VERSION });
+  await expect(coreBackendUpdatePlan(dir, async () => true)).resolves.toMatchObject({ requiresStop: true });
+  await expect(coreBackendUpdatePlan(dir, async () => false)).resolves.toMatchObject({ requiresStop: false });
+  expect(fake.call).not.toHaveBeenCalled();
 });
 
 it("still refuses to reinstall the active version under running models", async () => {

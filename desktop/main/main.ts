@@ -18,11 +18,11 @@ import { detectSubscriptionCli, isSubscriptionCli } from "./subscription-cli-det
 import { openLoginTerminal } from "./subscription-cli-login.js";
 import { resetCoreForRedownload, seedBundledCore } from "./core-seed.js";
 import { engineBusy, retryWhileEngineBusy } from "./engine-busy-retry.js";
-import { coreUpdateNoticeVersion, readDismissedCoreUpdate, writeDismissedCoreUpdate } from "./core-update-notice.js";
+import { coreUpdateNoticeVersion, coreUpdatePlan, readDismissedCoreUpdate, writeDismissedCoreUpdate, type CoreUpdateVersions } from "./core-update-notice.js";
 import { folderDirForTurn, folderForTurn, readChatFolders, writeChatFolders } from "./chat-folders.js";
 import { assignChat, deleteProject, readProjects, saveProject, turnProject, updateProjects } from "./projects-store.js";
 import { newChatSessionId } from "./chat-session.js";
-import { cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
+import { coreUpdateNeedsStoppedModels, cpuFallbackOf, engineFailureOf, type EngineFailure } from "./engine-failure.js";
 import { runQuitShutdown, settleWithin } from "./quit-shutdown.js";
 import { busyPorts, modelPortsOf, onSmokeStopSignal, portsHeldByRun, runSmokeGuarded, signalExitCode, smokeMayStopModels, smokeOwnsItsState, smokeScreenshot } from "./smoke-exit.js";
 import { randomUUID } from "node:crypto";
@@ -739,18 +739,37 @@ function engineInstallStream(
   let slot: DownloadSlot | null = null;
   // ATO-123: as Settings' update (cli:modelsUpdate) — the update's own stop is on purpose, and the server comes back after it.
   const held: { hold: UpdateHold | null } = { hold: null };
+  let coreUpdate: CoreUpdateVersions | undefined;
+  let waitingForModels = false;
   const stopped = (error: string): InstallEnded => ({ ok: false, stdout: "", stderr: "", error, sawProgress: false, upToDate: false, timedOut: false, keptBackend: false });
   const done = updateInTurn<InstallEnded>(
     own.signal,
     stopped,
     async () => {
-      held.hold = updateBegins();
-      // In the daemon's turn: nothing is starting Core while its record goes.
-      if (fresh && managedEngineNow() === "atomic-core") {
+      const core = managedEngineNow() === "atomic-core";
+      if (core) {
+        const status = await modelsEngine("status", own.signal, { updatePlan: true });
+        const plan = coreUpdatePlan(status.value);
+        if (own.signal.aborted) return stopped(UPDATE_STOPPED);
+        if (plan) {
+          const { targetVersion, activeVersion } = plan;
+          coreUpdate = { targetVersion, activeVersion };
+        }
+        if (plan?.requiresStop) {
+          waitingForModels = true;
+          return stopped("Stop local models before updating the engine. Your running models are unchanged.");
+        }
+      } else {
+        held.hold = updateBegins();
+      }
+      // Recovery only invalidates the selected Core when it is the target.
+      // A newer pin installs alongside the active version in its own folder.
+      if (fresh && coreUpdate && coreUpdate.targetVersion === coreUpdate.activeVersion) {
         const reset = await resetCoreForRedownload(managedDataDirNow());
         console.error(`[desktop] local-llm: Download again: Atomic Core ${reset.version}${reset.removedRecord ? ", its install record removed" : ""}${reset.removedBinary ? ", its binary (it did not run) removed" : ""}`);
       }
       if (own.signal.aborted) return stopped(UPDATE_STOPPED);
+      pullFrame(slot, { id, kind: "runtime", started: true, ...(coreUpdate && { coreUpdate }) });
       const attempt = (): Promise<InstallEnded> => {
         const started = modelsUpdateStream((line) =>
           pullFrame(slot, { id, line, ...parsePullProgress(line, "runtime") }),
@@ -762,6 +781,13 @@ function engineInstallStream(
       // Settings' install hears at once that the engine is taken. The launch's and the setup's belong to a queue that was going to run anyway, so they wait.
       const ended = await (via === "settings" ? attempt() : retryWhileEngineBusy(attempt, { signal: own.signal }));
       if (own.signal.aborted && engineBusy(ended)) return stopped(UPDATE_STOPPED);
+      if (core && !ended.ok && !own.signal.aborted && !ended.timedOut &&
+          coreUpdateNeedsStoppedModels(ended.stderr || ended.error || "")) {
+        waitingForModels = true;
+        // The active version can have changed between the preview and the CLI guard.
+        if (coreUpdate) coreUpdate = { ...coreUpdate, activeVersion: coreUpdate.targetVersion };
+        return ended;
+      }
       return updateSwept(ended);
     },
   );
@@ -771,10 +797,12 @@ function engineInstallStream(
     /* ATO-128: one stopped by its own time limit left a llama.cpp in place
        as it was, so a server it stopped comes back on that one (keptBackend). */
     const res = held.hold ? await afterUpdate(ended, held.hold, { keptBackend: ended.keptBackend }) : ended;
-    A.runtimeUpdated(via, updateStartedAt, res, own.signal.aborted);
-    if (!own.signal.aborted) noteEngine(res, { clears: true, via });
-    // ATO-821: why the engine did not go in, in agent.log too, not only in the window.
-    if (!res.ok && !own.signal.aborted) sayDesktop(`[desktop] local-llm: the local engine install did not finish (${via}): ${res.error ?? "unknown error"}`);
+    if (!waitingForModels) {
+      A.runtimeUpdated(via, updateStartedAt, res, own.signal.aborted);
+      if (!own.signal.aborted) noteEngine(res, { clears: true, via });
+      // ATO-821: why the engine did not go in, in agent.log too, not only in the window.
+      if (!res.ok && !own.signal.aborted) sayDesktop(`[desktop] local-llm: the local engine install did not finish (${via}): ${res.error ?? "unknown error"}`);
+    }
     // ATO-821: the launch's install had failed, so its start never ran; this one went in.
     if (res.ok && !own.signal.aborted && via !== "launch") void startAfterEngineInstall();
     send("cli:pull", {
@@ -783,6 +811,9 @@ function engineInstallStream(
       ok: res.ok,
       error: res.error ?? null,
       kind: "runtime",
+      ...(coreUpdate && { coreUpdate }),
+      ...(waitingForModels && { waitingForModels, fresh }),
+      ...(res.ok && /switches to it at the next start once local models are stopped/i.test(ended.stdout) && { coreActivationPending: true }),
       // Nothing was downloaded: the version file already named the
       // latest tag. The renderer must not leave a bar standing that it
       // never drove — it draws the phase as passed instead.

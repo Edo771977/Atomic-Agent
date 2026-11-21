@@ -8,7 +8,13 @@ import { getUserConfigPath } from "../config/config-file.js";
 import { setConfigNoticeSink } from "../config/config-primitives.js";
 import { USER_CONFIG_DEFAULTS, USER_CONFIG_VERSION } from "../config/config-schema.js";
 import { resetConfigCache } from "../config/index.js";
+import { CORE_VERSION } from "../local-llm/core/core-state.js";
 import { modelsEngineCommand } from "./models-engine.js";
+
+vi.mock("../local-llm/server/daemon-lifecycle.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../local-llm/server/daemon-lifecycle.js")>()),
+  getDaemonStatus: vi.fn(async () => ({ running: true })),
+}));
 
 // The running-model guard probes real ports; the gate under test sits before it.
 vi.mock("../local-llm/engine-selection.js", () => ({
@@ -28,9 +34,9 @@ afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true });
 });
 
-async function status(): Promise<Record<string, unknown>> {
+async function status(...flags: string[]): Promise<Record<string, unknown>> {
   const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-  expect(await modelsEngineCommand(["status"])).toBe(0);
+  expect(await modelsEngineCommand(["status", ...flags])).toBe(0);
   const line = String(out.mock.calls.at(-1)?.[0]);
   out.mockRestore();
   return JSON.parse(line) as Record<string, unknown>;
@@ -38,6 +44,18 @@ async function status(): Promise<Record<string, unknown>> {
 
 it("reports Atomic Chat as the default engine, always offered", async () => {
   expect(await status()).toMatchObject({ engine: "atomic-core", choiceEnabled: true });
+});
+
+it("adds the local Core update plan only on request", async () => {
+  const config = structuredClone(USER_CONFIG_DEFAULTS);
+  config.localModels.mode = "managed";
+  writeFileSync(getUserConfigPath(stateDir), JSON.stringify(config));
+  expect(await status()).not.toHaveProperty("updatePlan");
+  expect(await status("--update-plan")).toMatchObject({
+    version: CORE_VERSION,
+    compatibleVersion: CORE_VERSION,
+    updatePlan: { targetVersion: CORE_VERSION, activeVersion: CORE_VERSION, requiresStop: true },
+  });
 });
 
 async function choose(engine: string): Promise<number> {

@@ -23,6 +23,22 @@ export interface CoreUpdateCheck {
   requiresAgentUpdate: boolean;
 }
 
+export interface CoreUpdateVersions {
+  targetVersion: string;
+  activeVersion: string;
+}
+
+/** Read the update preview, using the version fields also sent by older agents. */
+export function coreUpdatePlan(value: unknown): (CoreUpdateVersions & { requiresStop: boolean }) | null {
+  const status = value as { engine?: unknown; compatibleVersion?: unknown; version?: unknown; updatePlan?: unknown } | null;
+  if (status?.engine !== "atomic-core") return null;
+  const plan = status.updatePlan as { targetVersion?: unknown; activeVersion?: unknown; requiresStop?: unknown } | undefined;
+  const targetVersion = plan?.targetVersion ?? status.compatibleVersion;
+  const activeVersion = plan?.activeVersion ?? status.version;
+  if (typeof targetVersion !== "string" || typeof activeVersion !== "string") return null;
+  return { targetVersion, activeVersion, requiresStop: targetVersion === activeVersion && plan?.requiresStop === true };
+}
+
 /** The version a toast would be about, or null when there is nothing to say. */
 export function coreUpdateNoticeVersion(check: CoreUpdateCheck | null | undefined, dismissed: string | null): string | null {
   if (!check || !check.updateAvailable) return null;
