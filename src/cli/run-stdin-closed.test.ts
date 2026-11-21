@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +16,8 @@ import {
 } from "../session/session-project.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
+import { createSessionProjectStore } from "../session/session-project-store.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
 
 /**
  * Issue #100: the real `run` entry, spawned with stdin already closed.
@@ -130,10 +132,11 @@ describe("run with stdin closed (issue #100)", () => {
     expect(ran.stderr).toContain(`session: ${id}`);
     expect(ran.stderr).toContain(`atomic-agent run --session ${id} --approve`);
     expect(ran.stderr).toContain("The milestone failed: this needs a person");
-    // The session is still there to resume.
+    // The session is still there to resume; its project now in the folder store (issue #109).
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     resetConfigCache();
-    const store = new SessionStore();
+    expect(existsSync(join(workingDir, ".atomic", "project", "project.json"))).toBe(true);
+    const store = new SessionStore({ projectStore: createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) }) });
     expect(store.load(id)?.project?.gate).toMatchObject({ kind: "milestone", id: "m1" });
     store.close();
   }, 60_000);

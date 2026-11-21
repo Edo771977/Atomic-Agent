@@ -1,0 +1,190 @@
+{
+  "savedBy": "81fdb6171",
+  "note": "A session saved before issue #109: the fusion project embedded in the session JSON, waiting at milestone m2's review.",
+  "session": {
+    "id": "s-109-fixture",
+    "workingDir": "/work/puzzle",
+    "status": "completed",
+    "knownFacts": [],
+    "latestResult": null,
+    "loadedSkills": [],
+    "loadedTools": [],
+    "worldSnapshot": null,
+    "stepCount": 0,
+    "turnCount": 3,
+    "macroTurnStarts": [],
+    "turns": [],
+    "createdAt": 1699999995000,
+    "updatedAt": 1700000000010,
+    "lastError": null,
+    "metadata": {
+      "projectGates": true
+    },
+    "project": {
+      "brief": {
+        "version": 1,
+        "what": "A puzzle game",
+        "users": "Casual players",
+        "how": "Web canvas",
+        "successCriteria": [
+          {
+            "id": "c1",
+            "text": "Runs offline"
+          },
+          {
+            "id": "c2",
+            "text": "Ten levels"
+          }
+        ],
+        "status": "approved",
+        "draftedAfterUntrusted": false,
+        "approvedAt": 1700000000001
+      },
+      "plan": {
+        "rows": [
+          {
+            "taskId": "t1",
+            "title": "Task t1",
+            "milestoneId": "m1",
+            "worker": "local:a",
+            "reviewer": "cloud:r",
+            "reason": "preset",
+            "basis": "preset",
+            "samples": 0,
+            "estCostUsd": 0.1,
+            "estMs": 1000
+          },
+          {
+            "taskId": "t2",
+            "title": "Task t2",
+            "milestoneId": "m2",
+            "worker": "local:a",
+            "reviewer": null,
+            "reason": "preset",
+            "basis": "preset",
+            "samples": 0,
+            "estCostUsd": 0.1,
+            "estMs": 1000
+          },
+          {
+            "taskId": "t3",
+            "title": "Task t3",
+            "milestoneId": "m3",
+            "worker": "local:a",
+            "reviewer": null,
+            "reason": "preset",
+            "basis": "preset",
+            "samples": 0,
+            "estCostUsd": 0.1,
+            "estMs": 1000
+          }
+        ],
+        "totals": {
+          "costUsd": 0.3,
+          "ms": 3000,
+          "unknownCostRows": 0
+        },
+        "detail": "compact",
+        "status": "approved",
+        "version": 4,
+        "draftedAfterUntrusted": false,
+        "approvedAt": 1700000000001
+      },
+      "milestones": [
+        {
+          "id": "m1",
+          "title": "Base",
+          "kind": "base",
+          "state": "reviewed",
+          "runIds": [
+            "run-1"
+          ],
+          "updatedAt": 1700000000001,
+          "summary": "Board renders offline\napproved over open review by the person: reviewer offline; checked by hand",
+          "criteriaFacts": [
+            {
+              "id": "c1",
+              "state": "passed",
+              "reservation": "only a lint-warned check supports it"
+            },
+            {
+              "id": "c2",
+              "state": "unverified",
+              "why": "no vision reviewer"
+            }
+          ],
+          "attachments": [
+            {
+              "path": "/state/fusion-runs/run-1/shots/t1-1.png",
+              "caption": "The board",
+              "criteria": [
+                "c1"
+              ]
+            }
+          ],
+          "reviewOverride": {
+            "note": "reviewer offline; checked by hand",
+            "at": 1700000000001,
+            "blocks": [
+              {
+                "taskId": "t1",
+                "reason": "never reviewed"
+              }
+            ]
+          }
+        },
+        {
+          "id": "m2",
+          "title": "Levels",
+          "kind": "logic",
+          "state": "done",
+          "runIds": [
+            "run-2",
+            "run-3"
+          ],
+          "updatedAt": 1700000000000,
+          "summary": "Ten levels",
+          "corrections": [
+            {
+              "note": "Need ten levels, not five",
+              "at": 1700000000001
+            }
+          ],
+          "criteriaFacts": [
+            {
+              "id": "c1",
+              "state": "passed"
+            },
+            {
+              "id": "c2",
+              "state": "passed"
+            }
+          ]
+        },
+        {
+          "id": "m3",
+          "title": "Polish",
+          "kind": "polish",
+          "state": "planned",
+          "runIds": [],
+          "updatedAt": 1700000000000
+        }
+      ],
+      "gate": {
+        "kind": "milestone",
+        "id": "m2"
+      },
+      "approvedCriteria": [
+        {
+          "id": "c1",
+          "text": "Runs offline"
+        },
+        {
+          "id": "c2",
+          "text": "Ten levels"
+        }
+      ],
+      "briefApprovals": 1
+    }
+  }
+}

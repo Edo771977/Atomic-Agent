@@ -335,6 +335,13 @@ export interface ProjectState {
    * can never approve a brief or plan the person has not seen.
    */
   versionFloor?: number;
+  /**
+   * Gates whose content changed since the person decided them, outside
+   * Atomic Agent (issue #109): `brief`, `plan`, `milestone:<id>`. Set only
+   * when the project is read from its folder store (`resolveProject`),
+   * never stored; an automatic approval stops at such a gate.
+   */
+  changedOutside?: string[];
 }
 
 /**

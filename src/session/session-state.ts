@@ -178,12 +178,26 @@ export interface SessionState {
   /**
    * The fusion project (issue #39): brief, approvable plan and
    * milestones, folded by the step commit from director tools and changed
-   * by the person's decisions (`session-project.ts`). Persisted with the
-   * session so a reopened chat stops at the same gate. Absent on sessions
+   * by the person's decisions (`session-project.ts`). With `projectRef`
+   * it is read from the folder store and not saved with the session
+   * (issue #109); otherwise (an older store, a folder the store cannot be
+   * written in) it is persisted with the session. Absent on sessions
    * without one and on sessions that predate the field; a malformed one
    * is dropped on load.
    */
   project?: import("./session-project.js").ProjectState;
+  /**
+   * Where the fusion project lives (issue #109): its folder store's
+   * folder and id, and the revision and decision seq last read. With a
+   * reference `project` is read from the store and never saved with the
+   * session (`session-project-store.ts`).
+   */
+  projectRef?: import("./session-project-store.js").SessionProjectRef;
+  /**
+   * Why the referenced project could not be opened (damaged, unsupported
+   * schema, another project in the folder). Transient: never saved.
+   */
+  projectProblem?: string;
   /**
    * Steps since the model last re-planned (ATO-609): counted by the
    * agent loop only while `agent.task.replanEveryNSteps` is on, reset by
@@ -444,6 +458,12 @@ export function incrementTurnCount(state: SessionState): SessionState {
  * next turn begins.
  */
 export function stripEphemeral(state: SessionState): SessionState {
+  if (state.projectProblem !== undefined || (state.projectRef !== undefined && state.project !== undefined)) {
+    // Issue #109: a referenced project lives in its folder store.
+    const { projectProblem: _pp, ...kept } = state;
+    if (kept.projectRef !== undefined) delete kept.project;
+    return stripEphemeral(kept);
+  }
   if (
     state.recalledNotes === undefined &&
     state.memoryIndex === undefined &&

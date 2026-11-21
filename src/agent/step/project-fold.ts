@@ -1,6 +1,7 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
-import { applyProjectUpdate, withProject, type ProjectUpdate, type ProjectUpdateOptions } from "../../session/session-project.js";
+import { applyProjectUpdate, withProject, type ProjectState, type ProjectUpdate, type ProjectUpdateOptions } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
+import type { SessionProjectStore } from "../../session/session-project-store.js";
 
 /** Key of a project update in a result's `details` (`tools/fusion/project-tools.ts`). */
 const PROJECT_UPDATE_DETAIL = "projectUpdate";
@@ -36,6 +37,13 @@ export function foldProjectUpdate(
   now: number,
   /** `stateDir`: where a milestone report's attachments must lie (issue #40). */
   options: ProjectUpdateOptions = {},
+  /**
+   * Issue #109: the project's folder store. The update is applied to the
+   * project as the store holds it now (another chat may have changed it)
+   * and written back there; a store that refuses the write refuses the
+   * update. Absent: the project lives on the session, as before.
+   */
+  store?: SessionProjectStore,
 ): { session: SessionState; result: CompressedToolResult } {
   const details = result.details as Record<string, unknown> | undefined;
   if (details === undefined || !(PROJECT_UPDATE_DETAIL in details)) return { session, result };
@@ -44,18 +52,44 @@ export function foldProjectUpdate(
   if (owned === undefined) return { session, result };
   const kind = typeof raw === "object" && raw !== null ? (raw as { kind?: unknown }).kind : undefined;
   if (kind !== undefined && kind !== owned) return { session, result };
+  const base = store === undefined ? session : store.load(session);
+  const land = (project: ProjectState): { ok: true; session: SessionState } | { ok: false; message: string } => {
+    if (store === undefined) return { ok: true, session: withProject(base, project) };
+    const written = store.commit(base, project);
+    return written.ok ? written : { ok: false, message: written.problem.message };
+  };
   if (result.status !== "ok") {
     // A fan-out whose workers ran but failed still records its run on the
     // milestone (in progress, resumable); its own error stays the result.
     if (!isMilestoneRun(raw)) return { session, result };
-    const run = applyProjectUpdate(session.project, raw, now);
-    return run.ok ? { session: withProject(session, run.project), result } : { session, result };
+    const run = applyProjectUpdate(base.project, raw, now);
+    if (!run.ok) return { session: base, result };
+    const landed = land(run.project);
+    return { session: landed.ok ? landed.session : base, result };
+  }
+  if (base.projectProblem !== undefined) {
+    return refused(base, result, details, owned, { code: "project-unavailable", message: base.projectProblem });
   }
   const applied =
     typeof raw === "object" && raw !== null && typeof (raw as { kind?: unknown }).kind === "string"
-      ? applyProjectUpdate(session.project, raw as ProjectUpdate, now, options)
+      ? applyProjectUpdate(base.project, raw as ProjectUpdate, now, options)
       : { ok: false as const, error: { code: "invalid" as const, message: "the project update was malformed" } };
-  if (applied.ok) return { session: withProject(session, applied.project), result };
+  if (applied.ok) {
+    const landed = land(applied.project);
+    if (landed.ok) return { session: landed.session, result };
+    return refused(base, result, details, owned, { code: "project-store", message: landed.message });
+  }
+  return refused(base, result, details, owned, applied.error);
+}
+
+function refused(
+  session: SessionState,
+  result: CompressedToolResult,
+  details: Record<string, unknown>,
+  owned: ProjectUpdate["kind"],
+  error: { code: string; message: string },
+): { session: SessionState; result: CompressedToolResult } {
+  const applied = { error };
   const rest = { ...details };
   delete rest[PROJECT_UPDATE_DETAIL];
   if (owned === "milestone_run") {

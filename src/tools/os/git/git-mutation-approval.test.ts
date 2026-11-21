@@ -224,6 +224,15 @@ describe("git write tools ride the fs approval ladder", () => {
     expect(prompts[0]!.category).toBe("trust_config");
   });
 
+  it("a checkout in a repository holding a fusion project's store asks as trust_config (issue #109 review)", async () => {
+    await writeRepoFile(repo, ".atomic/project/project.json", "{}\n");
+    const prompts: ApprovalRequest[] = [];
+    const options: FsDangerousToolOptions = { approvals: makeRecordingGate(prompts), approvalRequired: true, trustConfigPaths: [] };
+    const result = await buildOsGitCheckoutTool(options).run({ branch: "elsewhere", create: true }, makeCtx(repo));
+    expect(result.status).toBe("ok");
+    expect(prompts[0]!.category).toBe("trust_config");
+  });
+
   it("stays a workspace write when the trust config lives elsewhere", async () => {
     const elsewhere = await mkdtemp(join(tmpdir(), "atomic-git-trust-"));
     try {

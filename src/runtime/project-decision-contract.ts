@@ -9,7 +9,11 @@ import type { ProjectGateView } from "../session/project-gate-view.js";
 export type RuntimeProjectDecisionError =
   | ProjectDecisionError
   | { code: "turn-running"; message: string }
-  | { code: "no-session"; message: string };
+  | { code: "no-session"; message: string }
+  /** Issue #109: another chat decided this gate at this version first. */
+  | { code: "already-decided"; message: string }
+  /** Issue #109: the project's folder store refused (damaged, unsupported, changed since read, locked). */
+  | { code: "project-store"; message: string };
 
 export type RuntimeProjectDecisionResult =
   | { ok: true; project: ProjectState; view: ProjectGateView }

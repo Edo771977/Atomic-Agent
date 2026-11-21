@@ -13,7 +13,7 @@ import { createCompactionTokenCounter } from "./compaction-token-counter.js";
 import { createWorkspaceLoader } from "./session-workspace.js";
 import { prepareRuntimeSkills, recurringTaskTexts, startRuntimeSkillCurator } from "./composition/runtime-skills.js";
 import { createRuntimeToolRegistry, registerRuntimeCoreTools, registerRuntimeVisionTools, registerRuntimeImageTools, registerRuntimeVideoTools, registerRuntimeAudioTools, connectRuntimeMcpCatalog, mcpGrammarHookFor, registerRuntimeFusionAndReadScope } from "./composition/runtime-tool-catalog.js";
-import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
+import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeSessionFactories, runtimeProjectStore } from "./composition/runtime-session-services.js";
 import { createInterruptedTurns } from "./interrupted-turns.js";
 import { prepareRuntimeTurnState, createRuntimeTurnService } from "./composition/runtime-turn-service.js";
 import { createIncognitoSessions } from "./incognito-sessions.js";
@@ -380,6 +380,8 @@ export async function createAgentRuntime(
   });
 
   const sessionStore = prepareRuntimeSessionStore(config, logger);
+  // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
+  const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
   // matched live against `projects.constraints`; see session-provider-policy.ts.
   const sessionProviderPolicy = createSessionProviderPolicy({
@@ -758,6 +760,7 @@ export async function createAgentRuntime(
   // value on every step — `refreshSkills()` then does not require tearing
   // down the loop.
   const loopDeps = {
+    projectStore,
     prepareWorkspace: promptPreviewDeps.prepareWorkspace,
     compaction: compaction.control,
     registry: toolRegistry,
@@ -1058,6 +1061,7 @@ export async function createAgentRuntime(
   const runtimeProject = createRuntimeProject({
     loadSession: (id) => sessionStore.load(id),
     saveSession: (session) => sessionStore.save(session),
+    projectStore,
     isBusy: (id) => turnController.isBusy(id),
     liveTurnElsewhere: (id) => sessionStore.liveTurnElsewhere(id),
     liveInputs: (session) => {
@@ -1087,6 +1091,7 @@ export async function createAgentRuntime(
     state: turnState, lifecycle, logger,
     emitEvent: emitAgentLoopEventFor,
     onProjectTurnEnd: runtimeProject.noteTurnEnd,
+    projectStore,
   });
   const { steer, controlGoal } = turnService;
   const runQueuedTurn = holdWhileRunning(keepAwake, turnService.runTurn);
