@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { AssignmentRow, ProjectBriefDecision, ProjectCriterion, ProjectDecisionStatus, ProjectReviewBlock } from "../../session/session-project.js";
 import { lintContractCheck } from "./contract-check-lint.js";
 
@@ -83,6 +85,26 @@ export function evaluatePlanChecks(
     ...decisionCoverage(rows, decisions, finished),
   ];
   return results.map((r) => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
+}
+
+/**
+ * Issue #120: the `references` dimension, computed by the runtime when
+ * the plan is drafted (`plan-references.ts`, which reads the project
+ * folder) and kept on the plan as a record. `basis` is
+ * {@link planReferenceBasis} of the rows it read: a record whose basis no
+ * longer matches the rows is reported as not re-checked. Never blocking.
+ */
+export interface PlanReferenceRecord {
+  verdict: "pass" | "warn";
+  detail: string;
+  taskIds: string[];
+  basis: string;
+}
+
+/** What the references were read from: each task's id, title and checks. */
+export function planReferenceBasis(rows: readonly AssignmentRow[]): string {
+  const text = JSON.stringify(rows.map((r) => [r.taskId, r.title, r.checks ?? []]));
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
 export const planCheckHint = (r: PlanCheckResult): string => `${r.dimension}: ${r.verdict}: ${r.detail}`;
