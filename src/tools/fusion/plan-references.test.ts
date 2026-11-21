@@ -216,5 +216,15 @@ describe("plan references (issue #120)", () => {
     expect(outcome(report.references, "web")).toBe("verified");
     expect(run).not.toHaveBeenCalled();
   });
+
+  it("never joins an absolute package folder or a drive-relative cwd under the check's cwd (review #4)", () => {
+    const rows = [row("t1", "Run", [{ cmd: "npm", args: ["--prefix", "/etc", "run", "y"], cwd: "sub" }, { cmd: "npm", args: ["-C", "D:\\pkg", "run", "z"], cwd: "sub" }])];
+    const posixRefs = extractPlanReferences(rows, "/proj", "linux").references;
+    expect(posixRefs.find((r) => r.kind === "script" && r.value === "y")).toMatchObject({ reason: "its package folder is outside the project folder (not read)" });
+    const winRefs = extractPlanReferences([...rows, row("t2", "Run", [{ cmd: "ls", cwd: "C:foo" }])], "C:\\proj", "win32").references;
+    expect(winRefs.find((r) => r.kind === "script" && r.value === "z")).toMatchObject({ reason: "its package folder is outside the project folder (not read)" });
+    expect(winRefs.find((r) => r.kind === "script" && r.value === "y")).toMatchObject({ reason: "its package folder is outside the project folder (not read)" });
+    expect(winRefs.find((r) => r.value === "C:foo")).toMatchObject({ kind: "file", reason: "outside the project folder (not read)" });
+  });
 });
 

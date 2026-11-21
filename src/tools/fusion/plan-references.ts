@@ -171,7 +171,9 @@ function pathLike(token: string, bare: boolean): boolean {
 function relativeRef(raw: string, root: string, platform: NodeJS.Platform): { rel: string } | { outside: string } {
   const p = pathFor(platform);
   const slashed = raw.replace(/\\/g, "/");
-  const absolute = slashed.startsWith("/") || (platform === "win32" && /^[A-Za-z]:\//.test(slashed));
+  // `C:foo` is relative to drive C's current folder, not to the project.
+  if (platform === "win32" && /^[A-Za-z]:(?!\/)/.test(slashed)) return { outside: raw };
+  const absolute = rootedRef(raw, platform);
   let rel: string;
   if (absolute) {
     const r = p.relative(root, platform === "win32" ? slashed.replace(/\//g, "\\") : slashed).replace(/\\/g, "/");
@@ -185,6 +187,12 @@ function relativeRef(raw: string, root: string, platform: NodeJS.Platform): { re
   if (rel === "." ) return { rel: "" };
   if (rel === ".." || rel.startsWith("../")) return { outside: raw };
   return { rel };
+}
+
+/** A path that names its own root (`/x`, `\\x`, and on win32 `C:\\x` or `C:x`): never joined under a cwd. */
+function rootedRef(raw: string, platform: NodeJS.Platform): boolean {
+  const slashed = raw.replace(/\\/g, "/");
+  return slashed.startsWith("/") || (platform === "win32" && /^[A-Za-z]:/.test(slashed));
 }
 
 const trimPunct = (w: string): string => w.replace(/^[("'«“]+/, "").replace(/[)"'»”,;:!?]+$/, "").replace(/\.+$/, "");
@@ -248,7 +256,7 @@ function scanText(text: string, taskId: string, root: string, platform: NodeJS.P
 
 /** `exact`: a check's argv path, relative to its cwd; a bare name in text may be anywhere in the folder. */
 function addPath(raw: string, taskId: string, root: string, platform: NodeJS.Platform, out: Collector, creating: boolean, base = "", exact = false): void {
-  const joined = base === "" || /^(?:[A-Za-z]:[\\/]|[\\/])/.test(raw) ? raw : `${base}/${raw}`;
+  const joined = base === "" || rootedRef(raw, platform) ? raw : `${base}/${raw}`;
   const ref = relativeRef(joined, root, platform);
   if ("outside" in ref) {
     if (!creating) out.add("file", ref.outside.replace(/\\/g, "/"), taskId, { reason: "outside the project folder (not read)" });
@@ -314,7 +322,7 @@ function scanCheck(check: ContractCheck, taskId: string, root: string, platform:
       const script = scriptOf(name, argv);
       if (script !== null) {
         const dir = script.dir === undefined ? base : (() => {
-          const r = relativeRef(base === "" ? script.dir : `${base}/${script.dir}`, root, platform);
+          const r = relativeRef(base === "" || rootedRef(script.dir, platform) ? script.dir : `${base}/${script.dir}`, root, platform);
           return "rel" in r ? r.rel : null;
         })();
         if (dir === null) out.add("script", script.name, taskId, { reason: "its package folder is outside the project folder (not read)" });
