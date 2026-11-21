@@ -31,6 +31,14 @@ const PC_CONFIRM_MS = 4000;
 const PC_WRITE_SCOPE_NOTE = "Approving lets these tasks write in this chat's folder (the session's working directory); a write outside it still asks.";
 const PC_PLAN_UNTRUSTED = "⚠ The plan was drafted after outside content entered the chat. Check its tasks and workers before approving: approving lets them run without asking again.";
 const PC_BRIEF_UNTRUSTED = '⚠ The brief was drafted after outside content entered the chat. Read it before approving.';
+/* Issue #109: the core's hint at a gate changed outside Atomic Agent (src/tools/fusion/project-gate-view.ts
+   CHANGED_OUTSIDE_HINT; test/project-card-outside.test.mjs keeps it equal). The card says it as a
+   warning naming the gate (pcChangedOutsideWarning) and drops the hint. */
+const PC_CHANGED_OUTSIDE_HINT = "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
+const PC_OUTSIDE_APPROVE_WHY = 'It changed outside Atomic Agent since your last decision: approving takes it as it is now';
+/* Issue #109: a chat whose project could not be opened (GET /api/project's 404 `project_problem`). */
+const PC_PROBLEM_HEADLINE = 'This chat’s Fusion project could not be opened';
+const PC_PROBLEM_TODO = 'Fix or restore the Fusion project file (.atomic/project/project.json in the chat’s folder), or put the folder back, then open this chat again. Nothing is approved or run while it cannot be opened.';
 
 const PC_MARK = {planned: '·', approved: '▸', in_progress: '◐', done: '✓', failed: '✕', reviewed: '✔'};
 /* A criterion fact's mark (project-gate-text.ts FACT_MARK; the test keeps them equal). */
@@ -278,6 +286,22 @@ function pcFactLine(fact, criteria) {
   return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
 }
 
+/** The warning at a gate changed outside Atomic Agent, naming that gate. */
+function pcChangedOutsideWarning(view) {
+  const gate = view && view.gate ? view.gate : {kind: 'none'};
+  let what = gate.kind;
+  if (gate.kind === 'milestone') {
+    const m = pcList(view.milestones).find((x) => x.id === gate.id);
+    what = 'milestone “' + pcStr(m && m.title || gate.id) + '”';
+  }
+  return '⚠ The ' + what + ' changed outside Atomic Agent since your last decision (the Fusion project file was edited, or the Fusion project came from another machine): review it before approving.';
+}
+
+/** The card for a chat whose project could not be opened: the problem and what to do, no verdicts. */
+function pcProblemModel(problem) {
+  return {kind: 'problem', headline: PC_PROBLEM_HEADLINE, problem: pcStr(problem), todo: PC_PROBLEM_TODO};
+}
+
 function pcHeadline(view) {
   switch (view.gate.kind) {
     case 'brief': return 'The Fusion project brief waits for your approval';
@@ -307,7 +331,7 @@ function pcActions(view, state) {
   return verdicts.map((verdict) => {
     switch (verdict) {
       case 'approve': return {verdict, label: view.gate.kind === 'milestone' ? 'Approve milestone' : 'Approve', primary: true,
-        disabled: hard || state.busy, why: hard ? 'Over a hard limit: change the plan first' : ''};
+        disabled: hard || state.busy, why: hard ? 'Over a hard limit: change the plan first' : view.changedOutside === true ? PC_OUTSIDE_APPROVE_WHY : ''};
       case 'edit':
         return view.gate.kind === 'milestone' ? {verdict, label: 'Correct…', open: 'correct', disabled: state.busy}
           : view.gate.kind === 'brief' ? {verdict, label: 'Revise in chat', revise: true, disabled: state.busy}
@@ -329,6 +353,8 @@ function pcModel(state) {
   const gate = view.gate.kind;
   const brief = view.brief && typeof view.brief === 'object' ? view.brief : null;
   const warnings = [];
+  const changedOutside = view.changedOutside === true;
+  if (changedOutside) warnings.push(pcChangedOutsideWarning(view));
   if (brief && brief.draftedAfterUntrusted) warnings.push(PC_BRIEF_UNTRUSTED);
   if (gate !== 'brief' && view.plan && view.plan.draftedAfterUntrusted) warnings.push(PC_PLAN_UNTRUSTED);
   const briefLines = [];
@@ -372,11 +398,12 @@ function pcModel(state) {
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   return {
+    kind: 'gate', changedOutside,
     gate, version: view.version, headline: pcHeadline(view),
     warnings, brief: briefLines, criteria, rows, totals,
     scopeNote: gate === 'plan' && rows.length ? PC_WRITE_SCOPE_NOTE : null,
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
-    hints: pcList(view.hints).map(pcStr).filter(Boolean),
+    hints: pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT)),
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -501,6 +528,7 @@ function pcDraw(doc, host, model, on) {
   while (host.firstChild) host.removeChild(host.firstChild);
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
+  if (model.kind === 'problem') { pcDrawProblem(doc, host, model, on, focusKey); return; }
   const card = pcEl(doc, 'section', 'pc-card');
   card.setAttribute('aria-label', 'Fusion project');
   const head = pcEl(doc, 'div', 'pc-head');
@@ -511,7 +539,7 @@ function pcDraw(doc, host, model, on) {
   /* Only the body scrolls: the head and the action bar stay in view. */
   const body = pcEl(doc, 'div', 'pc-body');
   card.appendChild(body);
-  for (const w of model.warnings) body.appendChild(pcEl(doc, 'p', 'pc-warn', w));
+  model.warnings.forEach((w, i) => body.appendChild(pcEl(doc, 'p', model.changedOutside && i === 0 ? 'pc-warn pc-outside' : 'pc-warn', w)));
   if (model.brief.length || model.criteria.length) {
     const b = pcEl(doc, 'dl', 'pc-brief');
     for (const line of model.brief) {
@@ -636,6 +664,23 @@ function pcDraw(doc, host, model, on) {
   }
 }
 
+/** The problem card (issue #109): what went wrong and what to do; Hide is its only button. */
+function pcDrawProblem(doc, host, model, on, focusKey) {
+  const card = pcEl(doc, 'section', 'pc-card pc-problem');
+  card.setAttribute('aria-label', 'Fusion project');
+  card.setAttribute('role', 'alert');
+  const head = pcEl(doc, 'div', 'pc-head');
+  head.appendChild(pcEl(doc, 'div', 'pc-title', model.headline));
+  head.appendChild(pcFocusKey(pcButton(doc, 'Hide', 'btn btn-g xs', () => on({type: 'hide'}), false, 'Put the card away; reopening the chat shows it again'), 'hide'));
+  card.appendChild(head);
+  const body = pcEl(doc, 'div', 'pc-body');
+  body.appendChild(pcEl(doc, 'p', 'pc-error', model.problem));
+  body.appendChild(pcEl(doc, 'p', 'pc-hint', model.todo));
+  card.appendChild(body);
+  host.appendChild(card);
+  if (focusKey === 'hide') { const b = pcFind(card, (e) => e.getAttribute && e.getAttribute('data-pc-focus') === 'hide'); if (b) b.focus(); }
+}
+
 /** The first element under `root` that `test` accepts (children only, so it works on any DOM). */
 function pcFind(root, test) {
   for (const c of root.children || []) {
@@ -679,6 +724,7 @@ function createProjectCard(opts) {
   const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
   // Issue #74: the gates a decision is in flight for (sid, gate, version), so leaving the chat and coming back keeps them busy.
   const deciding = new Set();
+  const problems = new Map();  // issue #109: sid → why its project could not be opened (the last read's)
   let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
   const key = () => {
     const v = state.view;
@@ -687,7 +733,8 @@ function createProjectCard(opts) {
   const changed = () => { if (opts.onChange) opts.onChange(); };
   const notify = changed;
   function paint() {
-    const model = sid && !hidden.has(key()) ? pcModel(state) : null;
+    let model = sid && !hidden.has(key()) ? pcModel(state) : null;
+    if (!model && sid && !pcOpen(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
     opts.draw(model, act);
   }
   function setView(view, notice) {
@@ -709,7 +756,7 @@ function createProjectCard(opts) {
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
-      case 'hide': hidden.add(key()); paint(); return changed();
+      case 'hide': hidden.add(pcOpen(state.view) ? key() : 'problem:' + sid); paint(); return changed();
       case 'revise': if (opts.onRevise) opts.onRevise(); state = pcReduce(state, {type: 'notice', notice: 'Say in the chat what to change; the director drafts the brief again.'}); return paint();
       default: state = pcReduce(state, {type: a.type}); return paint();
     }
@@ -773,7 +820,9 @@ function createProjectCard(opts) {
       Promise.resolve().then(() => opts.api.read(asked)).then((res) => {
         if (mine !== serial || !res || res.supported === false || !res.ok) return;
         if ((frames.get(asked) || 0) !== seen) return;   // a frame came after the read went out: it is newer
-        const changed = res.view ? store.put(asked, res.view) : store.drop(asked);
+        const was = problems.get(asked);
+        if (!res.view && typeof res.problem === 'string' && res.problem) problems.set(asked, res.problem); else problems.delete(asked);
+        const changed = (res.view ? store.put(asked, res.view) : store.drop(asked)) || problems.get(asked) !== was;
         if (changed) { state = pcReduce(state, {type: 'view', view: store.get(asked), inFlight: state.busy}); paint(); notify(); }
       }).catch(() => undefined);
     },
@@ -781,7 +830,7 @@ function createProjectCard(opts) {
        one said is not this one's, except a continue message still owed to a
        chat, which the person's decision already recorded. `next` is the chat
        the page shows now (null: none); left out, the one followed so far. */
-    reset(next) { const keep = next === undefined ? sid : next; store.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+    reset(next) { const keep = next === undefined ? sid : next; store.clear(); problems.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */
@@ -794,6 +843,7 @@ function createProjectCard(opts) {
 if (typeof module !== 'undefined') {
   module.exports = {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
+    PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };

@@ -1,0 +1,18 @@
+/* Issue #109: the Fusion projects sheet (fusion-projects.js), grouped by attention zone (#121). */
+.sheet-fprojects .sheetbody{display:flex;flex-direction:column;gap:14px;max-height:min(70vh,640px);overflow:auto}
+.fpj-zone{display:flex;flex-direction:column;gap:8px}
+.fpj-zhead{margin:0;color:var(--ink-2);display:flex;gap:6px;align-items:baseline}
+.fpj-zone--needs-you .fpj-zhead{color:var(--blue)}
+.fpj-zone--problem .fpj-zhead{color:var(--critical)}
+.fpj-row{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:var(--r-well);background:var(--well)}
+.fpj-row--bad{background:color-mix(in srgb, var(--critical) 6%, var(--well))}
+.fpj-top{display:flex;align-items:center;gap:8px;min-width:0}
+.fpj-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpj-badge{flex:none;font-size:var(--fs-label);padding:1px 8px;border-radius:999px;background:var(--lift);color:var(--ink-2)}
+.fpj-badge--needs-you{background:var(--brand-wash);color:var(--blue)}
+.fpj-badge--bad{background:color-mix(in srgb, var(--critical) 12%, var(--lift));color:var(--critical)}
+.fpj-folder{font-size:var(--fs-label);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpj-line{font-size:var(--fs-cap);color:var(--ink-2)}
+.fpj-note{font-size:var(--fs-cap);color:var(--critical);overflow-wrap:anywhere}
+.fpj-todo{font-size:var(--fs-cap);color:var(--ink-2)}
+.fpj-acts{display:flex;gap:6px;margin-top:6px}

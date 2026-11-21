@@ -2586,7 +2586,9 @@ export class AgentClient extends EventEmitter {
    * agent without the route.
    */
   async getProject(sessionId: string): Promise<
-    { supported: false } | { supported: true; ok: true; view: unknown } | { supported: true; ok: false; status: number; error: string }
+    | { supported: false }
+    | { supported: true; ok: true; view: unknown; problem?: string }
+    | { supported: true; ok: false; status: number; error: string }
   > {
     try {
       const res = await fetch(`${this.base()}/api/project?session=${encodeURIComponent(sessionId)}`, {
@@ -2598,12 +2600,93 @@ export class AgentClient extends EventEmitter {
         this.projectFlow = null;   // the agent changed under us: ask its capabilities again
         return { supported: false };
       }
-      if (res.status === 404) return { supported: true, ok: true, view: null };
+      if (res.status === 404) {
+        // Issue #109: a chat whose project did not open says why (`project_problem`).
+        let problem: unknown;
+        try { problem = (JSON.parse(text) as { project_problem?: unknown }).project_problem; } catch { /* not JSON */ }
+        return typeof problem === "string" && problem.trim() ? { supported: true, ok: true, view: null, problem } : { supported: true, ok: true, view: null };
+      }
       if (!res.ok) return { supported: true, ok: false, status: res.status, error: errorMessage(text, res.status) };
       const body = JSON.parse(text) as { view?: unknown };
       return { supported: true, ok: true, view: body.view ?? null };
     } catch (err) {
       return { supported: true, ok: false, status: 0, error: requestErrorText(err) };
+    }
+  }
+
+  /**
+   * Issue #109: the Fusion projects this computer knows (`GET /api/projects`,
+   * the agent's `projects list --json` rows with their `zone`).
+   * `registryProblem`: the list file could not be read (the agent leaves it
+   * as it is). `supported: false` is an agent without the route.
+   */
+  async listFusionProjects(): Promise<
+    | { supported: false }
+    | { supported: true; ok: true; projects: unknown[]; registryProblem: string | null }
+    | { supported: true; ok: false; status: number; error: string }
+  > {
+    const r = await this.projectsRequest("GET", "/api/projects", undefined);
+    if (!r.supported || !r.ok) return r;
+    const body = r.body as { projects?: unknown; registry_problem?: unknown };
+    return {
+      supported: true, ok: true,
+      projects: Array.isArray(body.projects) ? body.projects : [],
+      registryProblem: typeof body.registry_problem === "string" ? body.registry_problem : null,
+    };
+  }
+
+  /** Issue #109: `POST /api/projects/forget` — off the list; the folder's files stay. */
+  async forgetFusionProject(folder: string): Promise<
+    { supported: false } | { supported: true; ok: true; forgotten: boolean } | { supported: true; ok: false; status: number; error: string }
+  > {
+    const r = await this.projectsRequest("POST", "/api/projects/forget", { folder });
+    if (!r.supported || !r.ok) return r;
+    return { supported: true, ok: true, forgotten: (r.body as { forgotten?: unknown }).forgotten === true };
+  }
+
+  /**
+   * Issue #109: `POST /api/projects/resume` — `atag project resume`: the
+   * newest chat on the folder's project, or a new one (`created`), and its
+   * gate view. A refusal keeps the agent's `code` (`not-listed`,
+   * `project-unavailable`) and its reason.
+   */
+  async resumeFusionProject(folder: string): Promise<
+    | { supported: false }
+    | { supported: true; ok: true; sessionId: string; created: boolean; name: string; view: unknown }
+    | { supported: true; ok: false; status: number; code: string | null; error: string }
+  > {
+    const r = await this.projectsRequest("POST", "/api/projects/resume", { folder });
+    if (!r.supported) return r;
+    if (!r.ok) {
+      const code = (r.body as { error?: { code?: unknown } } | null)?.error?.code;
+      return { supported: true, ok: false, status: r.status, code: typeof code === "string" ? code : null, error: r.error };
+    }
+    const body = r.body as { session_id?: unknown; created?: unknown; name?: unknown; view?: unknown };
+    if (typeof body.session_id !== "string" || !body.session_id) return { supported: true, ok: false, status: 200, code: null, error: "the agent named no chat" };
+    return {
+      supported: true, ok: true, sessionId: body.session_id, created: body.created === true,
+      name: typeof body.name === "string" ? body.name : "", view: body.view ?? null,
+    };
+  }
+
+  private async projectsRequest(method: "GET" | "POST", path: string, body: unknown): Promise<
+    { supported: false } | { supported: true; ok: true; body: unknown } | { supported: true; ok: false; status: number; error: string; body: unknown }
+  > {
+    try {
+      const res = await fetch(`${this.base()}${path}`, {
+        method,
+        headers: this.headers(),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const text = await res.text();
+      if ((res.status === 404 && /No route for/.test(text)) || res.status === 501) return { supported: false };
+      let parsed: unknown = null;
+      try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+      if (!res.ok) return { supported: true, ok: false, status: res.status, error: errorMessage(text, res.status), body: parsed };
+      return { supported: true, ok: true, body: parsed ?? {} };
+    } catch (err) {
+      return { supported: true, ok: false, status: 0, error: requestErrorText(err), body: null };
     }
   }
 

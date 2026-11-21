@@ -5620,6 +5620,7 @@ function overlaysHTML() {
   if (S.overlay === 'bugrep') html += bugRepHTML();   // ATO-1466 (bug-report.js)
   if (S.overlay === 'pedit') html += projectEditHTML();   // ATO-1146 (chat-projects.js)
   if (S.overlay === 'pnew') html += projectCreateHTML();   // W2 QA (chat-projects.js)
+  if (S.overlay === 'fprojects') html += fusionProjectsHTML();   // Issue #109 (fusion-projects.js)
   if (S.overlay === 'deeplink') html += deeplinkSheetHTML(); else deeplinkWhenClosed();   // ATO-556 (deeplink.js): a waiting link opens once the card is closed
   if (SEL.open) html += selectorHTML();
   if (S.overlay === 'sessions') html += sessionSheet();
@@ -7887,6 +7888,8 @@ function act(a) {
   if (k === 'fnew')      { close(); folderCreate(v || null); return; }
   // ATO-1146: projects (chat-projects.js): New project, fold, remove.
   if (k === 'pnew' || k === 'ptoggle' || k === 'pdelask' || k === 'pdel' || k === 'pedit' || k === 'psave' || k === 'pmore' || k === 'pchat') { close(); projectAct(k, v); return; }
+  // Issue #109: the Fusion projects list (fusion-projects.js); its verbs reopen the sheet themselves.
+  if (k === 'fpjopen' || k === 'fpjreload' || k === 'fpjresume' || k === 'fpjforgetask' || k === 'fpjforget') { close(); fpjAct(k, v); return; }
   // W2 QA: the New project sheet's own buttons keep it open.
   if (k === 'pnewpick' || k === 'pnewclear' || k === 'pnewsave') { projectAct(k, v); return; }
   if (k === 'fautosort') { FOLDERS.state.autoSort = !FOLDERS.state.autoSort; saveFolders(); foldersAfterSessions(); render(); return; }

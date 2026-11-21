@@ -40,7 +40,7 @@ import { promisify } from "node:util";
 
 import { wireAgentAutoRestart } from "./agent-auto-restart-wire.js";
 import { AgentClient, APPROVAL_DECISIONS, commandOf, probeRemoteAgent, type ProjectTrustAnswerBody } from "./agent-client.js";
-import { parseProjectDecisionIpc, parseProjectSessionIpc } from "./project-ipc.js";
+import { parseProjectDecisionIpc, parseProjectFolderIpc, parseProjectSessionIpc } from "./project-ipc.js";
 import { wireAgentLiveIpc } from "./agent-live.js";
 import { wirePluginsIpc } from "./plugins-ipc.js";
 import { wireSkillEvalIpc } from "./skill-eval-ipc.js";
@@ -1856,6 +1856,20 @@ function wireIpc(client: AgentClient): void {
     const sid = parseProjectSessionIpc(sessionId);
     if (!sid) return { supported: true, ok: false, status: 0, error: "session required" };
     return client.getProject(sid);
+  });
+  /* Issue #109: the Fusion projects list (renderer/fusion-projects.js). A
+     folder is checked to be one absolute path; which folders the list
+     holds, and whether one may be resumed, stays the agent's to say. */
+  ipcMain.handle("agent:fusionProjects", async () => client.listFusionProjects());
+  ipcMain.handle("agent:fusionProjectForget", async (_event, raw: unknown) => {
+    const folder = parseProjectFolderIpc(raw);
+    if (!folder) return { supported: true, ok: false, status: 0, error: "folder required" };
+    return client.forgetFusionProject(folder);
+  });
+  ipcMain.handle("agent:fusionProjectResume", async (_event, raw: unknown) => {
+    const folder = parseProjectFolderIpc(raw);
+    if (!folder) return { supported: true, ok: false, status: 0, code: null, error: "folder required" };
+    return client.resumeFusionProject(folder);
   });
   ipcMain.handle("agent:projectDecision", async (_event, raw: unknown) => {
     const parsed = parseProjectDecisionIpc(raw);

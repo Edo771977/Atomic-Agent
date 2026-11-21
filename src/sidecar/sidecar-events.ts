@@ -9,6 +9,7 @@ import type { RiskLevel } from "../approval/risk-review.js";
 import type { UserQuestion } from "../approval/user-question.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import type { ProjectEdits, ProjectGate, ProjectVerdict } from "../session/session-project.js";
+import type { ProjectRow } from "../cli/projects-command.js";
 
 export type HostRequestType =
   | "start_session"
@@ -23,6 +24,10 @@ export type HostRequestType =
   | "get_provider_restriction"
   | "get_project"
   | "project_decision"
+  | "list_projects"
+  | "forget_project"
+  | "resume_project"
+  | "get_project_problem"
   | "skill_install"
   | "skill_uninstall"
   | "skill_list"
@@ -505,3 +510,59 @@ export interface ProjectDecisionPayload {
 export type ProjectDecisionResult =
   | { ok: true; view: ProjectGateView; continueMessage: string | null }
   | { ok: false; error: { code: string; message: string }; view?: ProjectGateView };
+
+/**
+ * Issue #109: the fusion projects this machine knows, for a host's project
+ * list. Each answer carries `schema: 1`; a later shape bumps it. The rows
+ * are `atomic-agent projects list --json`'s: a missing, damaged,
+ * unsupported or unreadable folder is a row with its `problem`, never a
+ * failure.
+ */
+export type ProjectListRow = ProjectRow;
+
+/** `list_projects` takes nothing. */
+export type ListProjectsPayload = Record<string, never>;
+
+/** `registryProblem`: the list itself could not be read (left as it is); `projects` is then empty. */
+export interface ListProjectsResult {
+  schema: 1;
+  projects: ProjectListRow[];
+  registryProblem: string | null;
+}
+
+/** `forget_project`: drop an absolute folder from the list. Its files are never touched. */
+export interface ForgetProjectPayload {
+  folder: string;
+}
+
+export interface ForgetProjectResult {
+  schema: 1;
+  folder: string;
+  /** False when the folder was not listed. */
+  forgotten: boolean;
+}
+
+/**
+ * `resume_project`: `atomic-agent project resume` for a listed absolute
+ * folder. The newest chat on the folder's project (or a new one bound to
+ * it) becomes the active session, with the project flow on; `view` is its
+ * gate (`null` without a project view).
+ */
+export interface ResumeProjectPayload {
+  folder: string;
+}
+
+/** `not-listed`: the folder is not in the list; `project-unavailable`: its project could not be opened (`message` says why). */
+export type ResumeProjectResult =
+  | { schema: 1; ok: true; folder: string; name: string; sessionId: string; created: boolean; view: ProjectGateView | null }
+  | { schema: 1; ok: false; folder: string; error: { code: "not-listed" | "project-unavailable"; message: string } };
+
+/** `get_project_problem`: why a session's project did not open (`problem: null` when it opened or it has none). */
+export interface GetProjectProblemPayload {
+  sessionId: string;
+}
+
+export interface GetProjectProblemResult {
+  sessionId: string;
+  problem: string | null;
+}

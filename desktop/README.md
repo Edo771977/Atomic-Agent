@@ -102,6 +102,36 @@ Everything is drawn with `textContent`: model text is never
 markup. Covered by `test/project-gate-routing.test.mjs`,
 `test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.
 
+**All Fusion projects (issues #109, #121).** In the sidebar's Projects
+heading, the Fusion projects button opens the projects known to this agent,
+including projects whose chats were deleted. The list groups them as Needs
+you, Problem, In progress, Idle (no activity for more than seven days), then
+Done, with the most recent activity first in each group. Every readable
+project shows its name, folder, waiting gate, next action, last activity and
+recorded spend. Missing, damaged, unreadable and newer-schema projects stay
+visible with the agent's reason and recovery advice; they can be forgotten
+but cannot be resumed. A damaged registry is reported without rewriting it.
+
+Resume opens the newest chat on that folder's Fusion project, or creates one,
+and shows its waiting gate, including a card previously hidden in that chat.
+It never sends a message or approves a gate. A slow answer does not switch
+back after the person leaves the list. Forget asks for confirmation and
+removes only the folder's registry entry: its files and chats remain, and
+opening a chat there can list it again. Reload refreshes the list; row actions
+wait while it reloads or an action is being sent. An older agent without
+these routes is reported as unsupported.
+
+The bridge uses `agent:fusionProjects`, `agent:fusionProjectForget` and
+`agent:fusionProjectResume` through `main/agent-client.ts`; the renderer is
+`renderer/fusion-projects.js` and `renderer/css/fusion-projects.css`, loaded
+by `index.html` and copied recursively by `scripts/copy-renderer.mjs`.
+`test/fusion-projects.test.mjs` covers rows and the asynchronous actions;
+`test/fusion-projects-api.test.mjs` covers HTTP/IPC, and
+`test/renderer-script-globals.test.mjs` checks all classic scripts together.
+The project card warns when a gate changed outside Atomic Agent and shows
+the agent's explanation when a chat's project cannot open
+(`test/project-card-outside.test.mjs`).
+
 Choosing another workspace restarts the agent in it, so it never happens
 under a running turn: the window keeps the picker shut while one of its chats
 is answering, and main checks again once the picker closes (a turn may have
@@ -146,6 +176,9 @@ open in this folder.") and Diagnostics keep the folder for new chats.
 | Approval verdicts | `POST /api/approval/resolve` |
 | A chat's fusion project gate (issue #39) | `GET /api/project?session=` |
 | Project decisions | `POST /api/project/decision` |
+| All Fusion projects, including unavailable folders | `GET /api/projects` |
+| Forget a Fusion project's registry entry; keep its files | `POST /api/projects/forget` |
+| Resume a Fusion project in its newest chat, or a new one | `POST /api/projects/resume` |
 | Steering the turn already running | `POST /api/sessions/{id}/steer` |
 | What a turn accepted but never read | `GET` / `DELETE /api/sessions/{id}/steer` |
 | Compacting a chat's context now | `POST /api/sessions/{id}/compact` |
