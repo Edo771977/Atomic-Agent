@@ -45,5 +45,14 @@ export type {
   GetProjectPayload,
   ProjectDecisionPayload,
   ProjectDecisionResult,
+  ProjectListRow,
+  ListProjectsPayload,
+  ListProjectsResult,
+  ForgetProjectPayload,
+  ForgetProjectResult,
+  ResumeProjectPayload,
+  ResumeProjectResult,
+  GetProjectProblemPayload,
+  GetProjectProblemResult,
 } from "./sidecar-events.js";
 export type { ProjectGateBrief, ProjectGateMilestone, ProjectGatePlan, ProjectGateRow, ProjectGateView, ProjectGateViolation } from "../session/project-gate-view.js";

@@ -61,22 +61,28 @@ describe("projects list (issue #109)", () => {
     expect(JSON.parse(readFileSync(projectRegistryPath(stateDir), "utf8"))).toEqual({ version: 1, folders: [game, gone, broken] });
 
     const { rows } = listProjectRows(stateDir);
-    expect(rows[0]).toMatchObject({ folder: game, status: "ok", name: "game", gate: "milestone m2", next: "you review milestone m2", spentUsd: null });
+    expect(rows[0]).toMatchObject({ folder: game, status: "ok", zone: "needs-you", name: "game", gate: "milestone m2", next: "you review milestone m2", spentUsd: null });
     expect(typeof rows[0]!.updatedAt).toBe("number");
-    expect(rows[1]).toMatchObject({ folder: gone, status: "missing" });
-    expect(rows[2]).toMatchObject({ folder: broken, status: "damaged" });
+    expect(rows[1]).toMatchObject({ folder: gone, status: "missing", zone: "problem" });
+    expect(rows[2]).toMatchObject({ folder: broken, status: "damaged", zone: "problem" });
 
     const t = io();
     expect(await projectsCommand(["list"], t)).toBe(0);
     expect(t.out()).toContain(`game  (${game})`);
     expect(t.out()).toContain("waiting on: milestone m2");
+    expect(t.out()).toContain("attention: needs-you");
     expect(t.out()).toContain("next: you review milestone m2");
     expect(t.out()).toContain("last change: ");
     expect(t.out()).toContain("missing: ");
     expect(t.out()).toContain("damaged: ");
+    expect(t.out().match(/attention: problem/g)).toHaveLength(2);
     const j = io();
     expect(await projectsCommand(["list", "--json"], j)).toBe(0);
-    expect(JSON.parse(j.out())).toHaveLength(3);
+    expect(JSON.parse(j.out())).toMatchObject([
+      { folder: game, zone: "needs-you" },
+      { folder: gone, zone: "problem" },
+      { folder: broken, zone: "problem" },
+    ]);
   });
 
   it("reports a damaged registry without overwriting it, and forgets a folder", async () => {

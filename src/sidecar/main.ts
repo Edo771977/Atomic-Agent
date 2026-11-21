@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import type { ProviderRestriction } from "../llm/provider-policy.js";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 import { approvalRequestPayload, resolveApprovalResponse } from "./approval-payload.js";
 import { MessageRouter } from "./message-router.js";
@@ -27,7 +27,19 @@ import type {
   GetProjectPayload,
   ProjectDecisionPayload,
   ProjectDecisionResult,
+  ListProjectsResult,
+  ForgetProjectPayload,
+  ForgetProjectResult,
+  ResumeProjectPayload,
+  ResumeProjectResult,
+  GetProjectProblemPayload,
+  GetProjectProblemResult,
 } from "./sidecar-events.js";
+import { listedProjectFolder, listProjectRows, resumeProjectChat } from "../cli/projects-command.js";
+import { forgetProjectFolder } from "../session/project-registry.js";
+import { openProject } from "../session/project-store.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { projectStoreForStateDir } from "../session/session-project-store.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { projectContinueMessage } from "../session/project-continue.js";
@@ -542,6 +554,57 @@ export async function bootstrapSidecar(): Promise<{
     },
   );
 
+  // Issue #109: the fusion projects this machine knows (`atomic-agent
+  // projects list`), forgetting one, and resuming one as the active session.
+  router.register<Record<string, never>, ListProjectsResult>("list_projects", () => {
+    const listed = listProjectRows(config.paths.stateDir);
+    return { schema: 1, projects: listed.rows, registryProblem: listed.registryProblem ?? null };
+  });
+
+  router.register<ForgetProjectPayload, ForgetProjectResult>("forget_project", (request) => {
+    const folder = requireProjectFolder(request.payload?.folder);
+    return { schema: 1, folder, forgotten: forgetProjectFolder(config.paths.stateDir, folder) };
+  });
+
+  router.register<ResumeProjectPayload, ResumeProjectResult>("resume_project", async (request) => {
+    const asked = requireProjectFolder(request.payload?.folder);
+    const stateDir = config.paths.stateDir;
+    const folder = listedProjectFolder(stateDir, asked);
+    if (folder === null) {
+      return { schema: 1, ok: false, folder: asked, error: { code: "not-listed", message: `${asked} is not in the projects list.` } };
+    }
+    // Said before the active session goes: a project that cannot open leaves it as it is.
+    const precheck = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
+    if (!precheck.ok) return { schema: 1, ok: false, folder, error: { code: "project-unavailable", message: precheck.problem.message } };
+    await disposeActive();
+    const runtime = await buildRuntime(folder);
+    const resumed = resumeProjectChat(folder, { stateDir, sessionStore: runtime.sessionStore, projectStore: projectStoreForStateDir(stateDir) });
+    if (!resumed.ok) {
+      await runtime.shutdown();
+      return { schema: 1, ok: false, folder, error: { code: "project-unavailable", message: resumed.problem } };
+    }
+    const session = resumed.session;
+    active = {
+      runtime,
+      session,
+      controller: new AbortController(),
+      eventSink: forwardAgentEvent(session.id),
+      // The host asking to resume a project draws its card.
+      projectGates: true,
+    };
+    protocol.emitEvent("session_started", { sessionId: session.id, workingDir: folder });
+    return {
+      schema: 1, ok: true, folder, name: resumed.name, sessionId: session.id, created: resumed.created,
+      view: runtime.projectState?.(session.id) ?? null,
+    };
+  });
+
+  router.register<GetProjectProblemPayload, GetProjectProblemResult>("get_project_problem", (request) => {
+    const id = requireSessionId(request.payload.sessionId);
+    if (!active) throw new Error("no active runtime — call start_session first");
+    return { sessionId: id, problem: active.runtime.sessionStore.load(id)?.projectProblem ?? null };
+  });
+
   router.register<SkillInstallPayload, { name: string; installedAt: string }>(
     "skill_install",
     async (request) => {
@@ -620,6 +683,14 @@ if (invokedDirectly) {
   // monotone, so `createAgentRuntime` widening it later is free.
   installTransportDeadlines();
   void bootstrapSidecar();
+}
+
+/** A project folder from a host: an absolute path, one line. */
+function requireProjectFolder(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || /[\r\n\0]/.test(value) || !isAbsolute(value)) {
+    throw new Error("folder must be an absolute path");
+  }
+  return resolve(value);
 }
 
 /**
