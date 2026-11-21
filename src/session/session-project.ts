@@ -23,6 +23,8 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
+import type { ContractCheck } from "../tools/fusion/contract.js";
+import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -307,6 +309,8 @@ export interface AssignmentRow {
   local?: true;
   /** Schema v2 (issue #112): ids of the brief's decisions this task honours. */
   decisions?: string[];
+  /** Same spec language as fusion.delegate; task ownership is implicit in this row. */
+  checks?: ContractCheck[];
 }
 
 export interface ProjectPlanTotals {
@@ -928,6 +932,9 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   if (title.length === 0) return null;
   const decisions = raw.decisions === undefined ? undefined : cleanRowDecisions(raw.decisions);
   if (decisions === null) return null;
+  const problems: string[] = [];
+  const checks = parsePlanRowChecks(raw.checks, taskId, problems);
+  if (problems.length > 0) return null;
   return {
     taskId,
     title,
@@ -942,6 +949,7 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
     ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
     ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
+    ...(raw.checks === undefined ? {} : { checks }),
   };
 }
 

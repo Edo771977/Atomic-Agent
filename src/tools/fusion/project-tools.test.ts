@@ -85,17 +85,18 @@ describe("schema v2 project tool fields", () => {
     expect(parseProjectBriefArgs({ ...briefArgs, deliverable: "banana" })).toMatchObject({ ok: false });
     for (const decisions of [["a decision"], [{ id: "d1", text: "" }], [{ id: "d1", text: "x" }, { id: "d1", text: "y" }]]) expect(parseProjectBriefArgs({ ...briefArgs, decisions })).toMatchObject({ ok: false });
   });
-  it("preserves enriched decision references", async () => {
+  it("preserves enriched checks and decision references", async () => {
     const p = applyProjectUpdate(undefined, { kind: "brief", brief: briefArgs, draftedAfterUntrusted: false }, NOW);
     if (!p.ok) throw new Error(p.error.message);
     const approved = applyProjectDecision(p.project, { gate: p.project.gate, version: gateVersion(p.project)!, verdict: "approve" }, { now: NOW });
     if (!approved.ok) throw new Error(approved.error.message);
-    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", decisions: ["d1"] }] }, { ...ctx, project: approved.project });
+    const checks = [{ cmd: "echo ok" }];
+    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", checks, decisions: ["d1"] }] }, { ...ctx, project: approved.project });
     expect(result.status).toBe("ok");
     const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
-    expect(update).toMatchObject({ rows: [{ decisions: ["d1"] }] });
+    expect(update).toMatchObject({ rows: [{ checks, decisions: ["d1"] }] });
     const folded = applyProjectUpdate(approved.project, update, NOW);
-    expect(folded.ok && folded.project.plan?.rows[0]).toMatchObject({ decisions: ["d1"] });
+    expect(folded.ok && folded.project.plan?.rows[0]).toMatchObject({ checks, decisions: ["d1"] });
   });
 });
 

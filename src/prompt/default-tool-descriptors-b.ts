@@ -425,7 +425,7 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     summary:
       "Draft or revise the plan for the approved brief: milestones in run order and the tasks of each. Each task gets a worker (yours to name from the ### fusion team, else the default), a reviewer and a cost/time estimate; the person approves, edits or picks a cheaper/higher-quality variant. Use the same task ids in fusion.delegate. After calling it, reply.",
     argsSchema:
-      "{ milestones: [{ id: string, title: string, kind: 'base' | 'ui' | 'logic' | 'polish' | 'other' }] /* 1..16, in run order */, tasks: [{ id: string, title: string, milestone: string /* a milestone id */, worker?: string /* a team worker */, reviewer?: string | null /* a team reviewer; null: no review */, decisions?: string[] /* max 20 decision ids */ }] /* 1..64 */ }",
+      "{ milestones: [{ id: string, title: string, kind: 'base' | 'ui' | 'logic' | 'polish' | 'other' }] /* 1..16, in run order */, tasks: [{ id: string, title: string, milestone: string /* a milestone id */, worker?: string /* a team worker */, reviewer?: string | null /* a team reviewer; null: no review */, decisions?: string[] /* max 20 decision ids */, checks?: object[] /* max 16 ContractCheck specs, implicit task; copied exactly to fusion.delegate, including negative */ }] /* 1..64 */ }",
     examples: [
       '{"milestones":[{"id":"base","title":"Board and snake","kind":"base"},{"id":"ui","title":"Score and restart","kind":"ui"}],"tasks":[{"id":"board","title":"Canvas board and game loop","milestone":"base"},{"id":"score","title":"Score panel and restart button","milestone":"ui"}]}',
     ],

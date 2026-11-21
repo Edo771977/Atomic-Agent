@@ -16,9 +16,9 @@ import {
  */
 
 describe("default tool argsJsonSchema map", () => {
-  it("advertises additive v2 author fields and decision references", () => {
+  it("advertises additive v2 brief fields and plan check specs", () => {
     expect(getDefaultArgsJsonSchema("project.brief")).toMatchObject({ properties: { deliverable: { enum: ["code", "document", "spreadsheet", "research", "files", "game"] }, decisions: { type: "array", maxItems: 20 } } });
-    expect(getDefaultArgsJsonSchema("project.plan")).toMatchObject({ properties: { tasks: { items: { properties: { decisions: { type: "array", maxItems: 20 } } } } } });
+    expect(getDefaultArgsJsonSchema("project.plan")).toMatchObject({ properties: { tasks: { items: { properties: { checks: { type: "array", maxItems: 16 }, decisions: { type: "array", maxItems: 20 } } } } } });
   });
 
   it("attaches a schema to every default descriptor that has one registered", () => {

@@ -28,6 +28,8 @@ import { verdictResetHint } from "./project-gate-view.js";
 import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
+import type { ContractCheck } from "./contract.js";
+import { parsePlanRowChecks } from "./contract-check-spec.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -191,6 +193,7 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 // ------------------------------------------------------------------- plan
 
 export interface ProjectPlanTaskArgs {
+  checks?: ContractCheck[];
   decisions?: string[];
   id: string;
   title: string;
@@ -242,7 +245,10 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "decisions"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions"], `task ${id}`));
+      const checkProblems: string[] = [];
+      const checks = parsePlanRowChecks(t.checks, id, checkProblems);
+      problems.push(...checkProblems.map((p) => `task ${id}: ${p}`));
       const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
       if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
@@ -255,6 +261,7 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         id,
         title: String(t.title ?? ""),
         milestone,
+        ...(t.checks === undefined ? {} : { checks }),
         ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
@@ -319,6 +326,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       local: context.isLocal?.(reviewer) ?? false,
     });
     rows.push(withReviewEstimate({
+      ...(task.checks === undefined ? {} : { checks: task.checks }),
       ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
       taskId: task.id,
       title: task.title,

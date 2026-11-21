@@ -891,6 +891,8 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
               milestone: stringSchema,
               worker: stringSchema,
               decisions: { type: "array", maxItems: 20, items: stringSchema },
+              // Same extensible verify.run specs as fusion.delegate, with implicit task ownership.
+              checks: { type: "array", maxItems: 16, items: { type: "object", additionalProperties: true } },
               // null: no review for this task.
               reviewer: { type: ["string", "null"] },
             },

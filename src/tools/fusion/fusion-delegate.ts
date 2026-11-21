@@ -32,7 +32,7 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
-import { checkProjectDispatch, planCoverageGap } from "./project-dispatch.js";
+import { checkProjectDispatch, planCoverageGap, plannedCheckMismatch } from "./project-dispatch.js";
 import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
@@ -584,7 +584,10 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       // A resume re-reads its approved contract: lint findings warn, never refuse (issue #110).
       const parsed = parseDelegateArgs(delegateArgs, resumedFrom === null ? {} : { storedContract: true });
-      if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      const plannedChecksHint = ctx.project?.plan?.rows.some((r) => (r.checks?.length ?? 0) > 0)
+        ? " Keep planned checks exactly; update the plan with project.plan and obtain approval before changing them."
+        : "";
+      if (!parsed.ok) return error(`${parsed.error}${plannedChecksHint}`, { field: "tasks" });
       // A check's criteria are the approved brief's (issue #40): an id it
       // does not have could never be shown to the person as a fact.
       if (ctx.project?.brief?.status === "approved") {
@@ -592,7 +595,7 @@ export function buildFusionDelegateTool(
         const unknown = [...new Set((parsed.contract?.checks ?? []).flatMap((c) => (c.criteria ?? []).filter((id) => !known.has(id))))];
         if (unknown.length > 0) {
           return error(
-            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}`,
+            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}${plannedChecksHint}`,
             { field: "contract" },
           );
         }
@@ -612,6 +615,8 @@ export function buildFusionDelegateTool(
       if (projectVerdict.kind === "refuse") {
         return error(`fusion.delegate did not run: ${projectVerdict.message}`, { reason: "project-gate", gate: projectVerdict.reason });
       }
+      const checksMismatch = plannedCheckMismatch(ctx.project, parsed.tasks.map((t) => t.id), parsed.contract);
+      if (checksMismatch !== null) return error(`fusion.delegate did not run: ${checksMismatch}`, { reason: "project-gate", gate: "plan-checks-mismatch" });
       if ((parsed.contract?.checkInputs?.length ?? 0) > 0 && mode.integration !== "candidate") {
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }

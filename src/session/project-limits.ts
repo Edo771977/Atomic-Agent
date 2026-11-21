@@ -1,7 +1,8 @@
 /**
  * Bounds on a stored or updated project. Text is clipped with an
  * ellipsis; a model update over an array cap is refused (the tool turns
- * it into an error the model can act on); a stored one is cut.
+ * it into an error the model can act on); a stored one is cut. Plan-row
+ * decision references and executable check lists are validated strictly.
  *  - `text` 2000: what/users/how, a summary — a paragraph, not a spec.
  *  - `shortText` 300: a success criterion, a game field, a reason.
  *  - `title` 160: a task or milestone title, as `PLAN_STEP_MAX_CHARS`.
@@ -15,9 +16,11 @@
  *  - `history` 4 per milestone (the newest are kept): earlier work's evidence.
  *  - `decisions` 20 (schema v2): the brief's decisions, each `shortText`,
  *    and a plan row's decision ids.
+ *  - `checks` 16 per row, shared with the contract-check parser.
  *  - `backlog` 32 (schema v2): items, `title` long, note and condition `shortText`.
  */
 export const PROJECT_LIMITS = {
+  checks: 16,
   text: 2000,
   shortText: 300,
   title: 160,

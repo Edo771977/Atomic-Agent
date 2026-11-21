@@ -86,7 +86,7 @@ const row = (taskId: string, milestoneId: string, worker = "local-llama:small"):
   taskId, title: taskId, milestoneId, worker, reviewer: null, reason: "preset", basis: "preset", samples: 0, estCostUsd: null, estMs: null,
 });
 const brief: ProjectUpdate = { kind: "brief", brief: { what: "A game", users: "Kids", how: "HTML", successCriteria: ["Runs offline"] }, draftedAfterUntrusted: false };
-const plan: ProjectUpdate = {
+const plan: Extract<ProjectUpdate, { kind: "plan" }> = {
   kind: "plan",
   milestones: [{ id: "m1", title: "Base", kind: "base" }, { id: "m2", title: "UI", kind: "ui" }],
   rows: [row("board", "m1"), row("score", "m2")],
@@ -96,6 +96,30 @@ const running = () => approve(up(approve(up(undefined, brief)), plan));
 // A native path, so the brief names a file the scope can grant on every
 // platform (a Unix-absolute path cannot be resolved under Windows).
 const task = (id: string) => ({ id, title: id, instructions: `Write ${join(REPO, "src", `${id}.js`)}` });
+
+describe("approved plan checks at dispatch", () => {
+  const check = { cmd: "node", args: ["board.cjs", "good"], checks: ["exit 0"], criteria: ["c1"], negative: { args: ["board.cjs", "bad"] } };
+  function checkedProject() {
+    return approve(up(approve(up(undefined, brief)), { ...plan, rows: [{ ...row("board", "m1"), checks: [check] }] }));
+  }
+  it("refuses missing, extra, changed or removed negative checks before workers, approval or runners", async () => {
+    for (const checks of [undefined, [], [{ ...check, task: "board", negative: undefined }], [{ ...check, task: "board", negative: { stdin: "bad" } }], [{ ...check, task: "board", criteria: [] }], [{ ...check, task: "board", criteria: ["unknown"] }], [{ cmd: "echo ok", task: "board" }], [{ ...check, task: "board" }, { ...check, task: "board" }]]) {
+      const d = deps({ runChecks: vi.fn(async () => ({ ok: true, results: [] })) });
+      const result = await buildFusionDelegateTool(d).run({ tasks: [task("board")], ...(checks === undefined ? {} : { contract: { checks } }) }, ctx(checkedProject()));
+      expect(result.status).toBe("error");
+      expect(result.summary).toMatch(/update.*plan/i);
+      expect(d.runTurn).not.toHaveBeenCalled();
+      expect(d.runChecks).not.toHaveBeenCalled();
+    }
+  });
+  it("admits exactly the planned checks", async () => {
+    const p = checkedProject();
+    const d = deps();
+    const result = await buildFusionDelegateTool(d).run({ tasks: [task("board")], contract: { checks: [{ ...check, task: "board" }] } }, ctx(p));
+    expect(result.summary).not.toMatch(/update.*plan/i);
+    expect(d.runTurn).toHaveBeenCalled();
+  });
+});
 
 describe("fusion.delegate with a project (issue #39)", () => {
   it("refuses before the plan is approved, with guidance, and runs no worker", async () => {
