@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 
 import { normalizeProject, type ProjectState } from "./session-project.js";
 import { renderProjectViews } from "./project-store-views.js";
+import { withFileLock } from "./project-lock.js";
 import {
   canonicalJson,
   gateContentHash,
@@ -229,36 +230,14 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   };
 }
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/** Run `fn` holding the store's lock file; `locked` when another writer keeps it. */
+/** Run `fn` holding the store's lock file (`project-lock.ts`); `locked` when another writer keeps it. */
 function withLock<T>(dir: string, now: () => number, fn: () => T): T | { ok: false; problem: ProjectStoreProblem } {
   const lock = join(dir, `${PROJECT_FILE_NAME}.lock`);
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      closeSync(openSync(lock, "wx"));
-      break;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") return problem("io", `${lock} could not be created: ${(err as Error).message}`);
-      try {
-        if (now() - statSync(lock).mtimeMs > STALE_LOCK_MS) {
-          rmSync(lock, { force: true });
-          continue;
-        }
-      } catch {
-        continue;
-      }
-      if (Date.now() >= deadline) return problem("locked", `Another Atomic Agent is writing ${dir}; try again.`);
-      sleepSync(25);
-    }
-  }
   try {
-    return fn();
-  } finally {
-    rmSync(lock, { force: true });
+    const out = withFileLock(lock, fn, { now, waitMs: LOCK_WAIT_MS, staleMs: STALE_LOCK_MS });
+    return out.ok ? out.value : problem("locked", `Another Atomic Agent is writing ${dir}; try again.`);
+  } catch (err) {
+    return problem("io", `${lock} could not be created: ${(err as Error).message}`);
   }
 }
 
