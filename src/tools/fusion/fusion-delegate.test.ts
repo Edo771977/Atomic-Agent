@@ -1392,7 +1392,7 @@ describe("fusion.delegate", () => {
         // t2 requires what t1 provides, so t2 ran in a second wave (F45).
         expect(lines[0]).toBe("2 tasks in 2 waves (t1 → t2): 1 ok, 1 failed");
         expect(lines[1]).toBe(
-          "contract: 2 missing — [t1] symbol HD.Ship.reset not in js/ship.js; [t2] id btn-launch not in index.html; call-level checks: 1 of 1 passed",
+          "contract: 2 missing — [t1] symbol HD.Ship.reset not in js/ship.js; [t2] id btn-launch not in index.html; call-level checks: 1 of 1 passed; check lint (warning): contract.checks[1] only asserts absences (`no errors`), which also pass on a wrong file, path or page; add one assertion of what a correct run shows, or give a command check a `negative` input it must fail on",
         );
         expect(lines[2]).toBe(
           "- [t1] ok — One — checks: 1 of 1 passed — contract: symbol HD.Ship.reset not in js/ship.js",

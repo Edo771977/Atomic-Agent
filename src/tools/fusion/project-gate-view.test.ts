@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { PROJECT_RUNS_DIR_NAME, applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { estimatePlan } from "./project-estimate.js";
-import { projectGateChanged, projectGateView } from "./project-gate-view.js";
+import { CHANGED_OUTSIDE_HINT, projectGateChanged, projectGateView } from "./project-gate-view.js";
 
 const NOW = 1_700_000_000_000;
 const up = (p: ProjectState | undefined, u: ProjectUpdate): ProjectState => {
@@ -160,5 +160,18 @@ describe("projectGateView hints and editable rows (issue #54)", () => {
   it("gives no plan hints at the brief gate", () => {
     const view = projectGateView({ sessionId: "s", project: up(undefined, brief), estimate: null, selectable: { workers: [], reviewers: [] }, reviewersConfigured: false });
     expect(view.hints).toEqual([]);
+  });
+});
+
+describe("a gate whose content changed outside Atomic Agent (issue #109)", () => {
+  it("is marked on the view with a hint", async () => {
+    const { applyProjectUpdate } = await import("../../session/session-project.js");
+    const r = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "A", users: "B", how: "C", successCriteria: ["x"] }, draftedAfterUntrusted: false }, 1);
+    if (!r.ok) throw new Error(r.error.message);
+    const view = projectGateView({ sessionId: "s", project: { ...r.project, changedOutside: ["brief"] }, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.changedOutside).toBe(true);
+    expect(view.hints).toContain(CHANGED_OUTSIDE_HINT);
+    const clean = projectGateView({ sessionId: "s", project: r.project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(clean.changedOutside).toBeUndefined();
   });
 });

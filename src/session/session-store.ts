@@ -311,6 +311,12 @@ export interface SessionStoreOptions {
    * never retry. See `turn-archive.ts`.
    */
   turnArchiveUnavailable?: boolean;
+  /**
+   * Issue #109: read a session's fusion project from its folder store on
+   * `load` (and migrate an embedded one there). Absent: a project stays
+   * embedded in the session JSON, as before.
+   */
+  projectStore?: import("./session-project-store.js").SessionProjectStore;
 }
 
 /** How long after a failed attempt the store tries the archive table again. */
@@ -409,6 +415,7 @@ export class SessionStore {
    */
   private unreadableSkips = 0;
   private readonly turnOwnerProbe: TurnOwnerProbe;
+  private readonly projectStore: import("./session-project-store.js").SessionProjectStore | undefined;
   /**
    * The rows this store has marked `running` and not yet ended, with the
    * exact mark it wrote on each — so a release only ever clears its own
@@ -446,6 +453,7 @@ export class SessionStore {
     this.archiveForcedOff = options.turnArchiveUnavailable === true;
     this.turnArchive();
     this.turnOwnerProbe = options.turnOwnerProbe ?? currentTurnOwnerProbe();
+    this.projectStore = options.projectStore;
     this.dbIdentity = databaseIdentity(file);
     this.insertStmt = this.db.prepare(
       `INSERT INTO sessions (id, working_dir, status, payload, created_at, updated_at)
@@ -1104,11 +1112,12 @@ export class SessionStore {
     const archive = this.turnArchive();
     // One read transaction, so the payload and the archived turns it
     // counts come from the same snapshot of the file.
-    return this.db.transaction((): SessionState | null => {
+    const state = this.db.transaction((): SessionState | null => {
       const row = this.selectStmt.get(id) as StoredPayloadRow | undefined;
       if (!row) return null;
       return this.readPayload(row, archive);
     })();
+    return state === null || this.projectStore === undefined ? state : this.projectStore.load(state);
   }
 
   listByWorkingDir(workingDir: string, limit = 25): SessionState[] {

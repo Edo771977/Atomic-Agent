@@ -8,6 +8,7 @@ import {
   type ProjectState,
 } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
+import type { SessionProjectStore } from "../../session/session-project-store.js";
 import { LIVE_SESSION_STATUSES } from "../../session/session-retention.js";
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { ModelTier } from "../../llm/provider/presets/model-tiers.js";
@@ -145,6 +146,8 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
 export interface RuntimeProjectDeps {
   loadSession: (sessionId: string) => SessionState | null;
   saveSession: (session: SessionState) => void;
+  /** Issue #109: the project's folder store; absent, the project lives on the session. */
+  projectStore?: SessionProjectStore;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
   isBusy: (sessionId: string) => boolean;
   /**
@@ -258,6 +261,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       // Issue #74: a turn another process on the state dir runs shows only in the stored status.
       // A status a crashed process left behind does not hold the gate shut (issue #74 review).
       if (LIVE_SESSION_STATUSES.includes(session.status) && (deps.liveTurnElsewhere?.(sessionId) ?? true)) return turnRunning;
+      if (session.projectProblem !== undefined) return { ok: false, error: { code: "project-store", message: session.projectProblem } };
       const project = session.project;
       const inputs = deps.liveInputs(session);
       const estimate = project === undefined ? null : estimateFor(project, inputs);
@@ -266,12 +270,28 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         hardViolations: estimate?.hardViolations ?? [],
         replan: liveReplan(inputs),
       });
-      if (!result.ok) return result;
-      const saved = withProject(session, result.project);
+      if (!result.ok) {
+        // Issue #109: the gate moved because another chat decided it.
+        if ((result.error.code === "wrong-gate" || result.error.code === "stale-version") && deps.projectStore?.decided(session, decision.gate, decision.version) === true) {
+          return { ok: false, error: { code: "already-decided", message: "That gate was already decided (in another chat); reload the project." } };
+        }
+        return result;
+      }
+      let saved: SessionState;
+      if (deps.projectStore === undefined || project === undefined) saved = withProject(session, result.project);
+      else {
+        const written = deps.projectStore.commit(session, result.project, { input: decision, decidedOn: project });
+        if (!written.ok) {
+          const code = written.problem.code === "already-decided" ? "already-decided" : "project-store";
+          return { ok: false, error: { code, message: written.problem.message } };
+        }
+        saved = written.session;
+      }
       deps.saveSession(saved);
-      const next = view(saved, result.project);
+      const decided = saved.project ?? result.project;
+      const next = view(saved, decided);
       deps.emit(sessionId, { type: "project_gate", view: next });
-      return { ok: true, project: result.project, view: next };
+      return { ok: true, project: decided, view: next };
     },
     noteTurnEnd(sessionId, before, after) {
       if (after === undefined || !projectGateChanged(before, after)) return;

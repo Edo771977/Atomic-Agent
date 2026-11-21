@@ -56,7 +56,8 @@ describe("loaded provider identity at Fusion dispatch", () => {
         slotManager: { poolSize: () => 2 }, workingDir: cwd, logger, outcomeLog: { append: (rows) => { for (const row of rows) if (row.type === "task") logged.push(row); } },
       });
       const execute = () => tools.get("fusion.delegate")!.run({ tasks: [{ id: "task", title: "Fixture", instructions: "work", model: "display-small" }],
-        contract: { checks: [{ task: "task", kind: "command", cmd: process.execPath, args: ["-e", "process.exit(0)"] }] },
+        // A check that can fail: one that only exits 0 is refused before anything runs (issue #110).
+        contract: { checks: [{ task: "task", kind: "command", cmd: process.execPath, args: ["-e", "process.exit(Number(process.env.FIXTURE_CHECK_EXIT ?? 0))"] }] },
       }, { workingDir: cwd, sessionId: `parent-${minted}`, stepIndex: 0, signal: new AbortController().signal });
 
       expect((await execute()).status).toBe("ok");

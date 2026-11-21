@@ -606,6 +606,7 @@ export class AgentLoop {
             registry: this.deps.registry,
             compactPromptLatch: this.compactPromptLatch,
             personaLatch: this.personaLatch,
+            ...(this.deps.projectStore ? { projectStore: this.deps.projectStore } : {}),
             commitSession: (next) => {
               state = next;
               stepContext.session = next;

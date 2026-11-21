@@ -456,3 +456,20 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(prompts.map((p) => p.category)).toEqual(["state_secret", "state_secret"]);
   });
 });
+
+describe("a shell command naming a fusion project's record (issue #109 review)", () => {
+  it("is found as a state secret", async () => {
+    const { getStateSecretPaths } = await import("../../config/config-file.js");
+    const home = mkdtempSync(join(tmpdir(), "state-secrets-records-"));
+    try {
+      const stateDir = join(home, ".atomic-agent");
+      const files = getStateSecretPaths({ userConfigFile: join(stateDir, "config.json"), stateDir, localModelsDataDir: join(stateDir, "models") });
+      const record = join(stateDir, "project-decisions", "abc.json");
+      const hits = findShellStateSecrets({ cmd: `echo {} > ${record}` }, { workingDir: join(home, "p") }, { stateDir, files }, { home, platform: process.platform });
+      expect(hits.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+

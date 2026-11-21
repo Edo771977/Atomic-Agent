@@ -20,6 +20,7 @@ import { taskCommand } from "./task-command.js";
 import { ideasCommand } from "./ideas-command.js";
 import { overnightCommand } from "./overnight-command.js";
 import { fusionCommand } from "./fusion-command.js";
+import { projectCommand, projectsCommand } from "./projects-command.js";
 import { memoryCommand } from "./memory-command.js";
 import { modelsCommand } from "./models-command.js";
 import { importCommand } from "./import-command.js";
@@ -171,6 +172,18 @@ const COMMANDS: CommandDescriptor[] = [
     name: "fusion",
     summary: "Report how fusion workers did and what the strong side cost (report [--days N] [--model X] [--json])",
     run: (args) => fusionCommand(args),
+  },
+  {
+    name: "projects",
+    summary: "The fusion projects this computer knows: what waits for you, what is next (list [--json]|forget <folder>)",
+    run: (args) => projectsCommand(args),
+  },
+  {
+    name: "project",
+    summary: "Open a chat on a folder's fusion project and show the gate waiting for you (resume <folder> [--no-open])",
+    run: (args) => projectCommand(args, {
+      ...(process.stdin.isTTY === true && process.stdout.isTTY === true ? { openChat: (id: string) => runTui(["--session", id]) } : {}),
+    }),
   },
   {
     name: "memory",

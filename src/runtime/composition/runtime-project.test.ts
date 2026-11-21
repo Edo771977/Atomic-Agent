@@ -219,3 +219,44 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
     expect(approved(reported).milestones.map((m) => m.state)).toEqual(["approved", "reviewed"]);
   });
 });
+
+describe("runtime.projectDecision on the folder store (issue #109)", () => {
+  it("a second chat deciding the gate another chat decided gets already-decided", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createSessionProjectStore } = await import("../../session/session-project-store.js");
+    const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+    const folder = mkdtempSync(join(tmpdir(), "aa-rp-"));
+    const stateDir = mkdtempSync(join(tmpdir(), "aa-rp-state-"));
+    try {
+      const projectStore = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) });
+      const created = projectStore.commit(createEmptySessionState({ id: "a", workingDir: folder }), up(undefined, brief));
+      if (!created.ok) throw new Error(created.problem.message);
+      const sessions = new Map<string, SessionState>([
+        ["a", created.session],
+        ["b", projectStore.prepareTurn(createEmptySessionState({ id: "b", workingDir: folder }), true)],
+      ]);
+      const inputs: LiveProjectInputs = { plan: planContext(), constraints: { isLocal: () => true }, strength: () => null, isLocal: () => true };
+      const runtime = createRuntimeProject({
+        loadSession: (id) => {
+          const s = sessions.get(id);
+          return s === undefined ? null : projectStore.load(s);
+        },
+        saveSession: (s) => { sessions.set(s.id, s); },
+        projectStore,
+        isBusy: () => false,
+        liveInputs: () => inputs,
+        emit: () => {},
+        now: () => NOW,
+      });
+      const decision = { gate: { kind: "brief" as const }, version: 1, verdict: "approve" as const };
+      expect(runtime.projectDecision("a", decision).ok).toBe(true);
+      expect(runtime.projectDecision("b", decision)).toMatchObject({ ok: false, error: { code: "already-decided", message: expect.stringMatching(/already decided/) } });
+      expect(runtime.projectState("b")?.brief?.status).toBe("approved");
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});

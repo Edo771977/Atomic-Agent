@@ -1,4 +1,4 @@
-import { lstat, readlink, realpath } from "node:fs/promises";
+import { access, lstat, readlink, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ApprovalCategory } from "../../../approval/approval-level.js";
@@ -82,6 +82,7 @@ export async function categorizeFsMutation(
   if (await touchesTrustConfig(absolutePaths, trustPaths, kind === "extract")) {
     return "trust_config";
   }
+  if (await touchesProjectStore(absolutePaths, kind !== "write")) return "trust_config";
   const scope = await resolveFsScope(absolutePaths, options);
   switch (kind) {
     case "write":
@@ -278,6 +279,66 @@ async function touchesTrustConfig(
       if (target.directory && isContained(target.path, canonical)) return true;
       if (holdsTrust && isContained(canonical, target.path)) return true;
     }
+  }
+  return false;
+}
+
+/**
+ * A fusion project's folder store (`<folder>/.atomic/project/`, issue
+ * #109): the agent's file tools never change it, or the `.atomic` folder
+ * holding it, silently. Its content is the project's author content,
+ * written by Atomic Agent itself; a worker or the model rewriting it by
+ * accident would reopen gates for the person. Approvals, runs and
+ * evidence do not live there (they are in the state dir's records), so
+ * this is about accidents, not forgery, and it applies with or without a
+ * trust list.
+ *
+ * A target counts when its resolved path or its real path (symlinks
+ * followed) names a `.atomic` folder or anything under one, compared
+ * without case on Windows and macOS; with `holds` (trash, extraction) a
+ * target that contains a `.atomic` folder counts too. Not covered: a
+ * shell command, and an archive that would create `.atomic` where none
+ * exists yet. Both are harmless by design: the folder's file is never
+ * the source of an approval or a run.
+ */
+async function touchesProjectStore(absolutePaths: readonly string[], holds: boolean): Promise<boolean> {
+  const fold = (part: string) => (process.platform === "win32" || process.platform === "darwin" ? part.toLowerCase() : part);
+  const names = (path: string) => path.split(/[\\/]+/).map(fold);
+  for (const path of absolutePaths) {
+    const canonical = await canonicalizeMutationTarget(path);
+    for (const form of [resolve(path), ...(canonical === null ? [] : [canonical])]) {
+      if (names(form).includes(".atomic")) return true;
+    }
+    if (canonical === null) continue;
+    // A link to the store itself (`alias -> .atomic/project`) resolves past the name.
+    if (await isStoreFolder(canonical)) return true;
+    if (!holds) continue;
+    try {
+      await access(join(canonical, ".atomic"));
+      return true;
+    } catch {
+      // No store under it.
+    }
+  }
+  return false;
+}
+
+/** Whether `canonical`, or one of its parents, is a `project` folder holding `project.json` beside a `.atomic` parent. */
+async function isStoreFolder(canonical: string): Promise<boolean> {
+  let current = canonical;
+  for (let i = 0; i < 3; i += 1) {
+    const parent = dirname(current);
+    if (parent === current) return false;
+    if (basenameOf(current).toLowerCase() === "project") {
+      try {
+        await access(join(current, "project.json"));
+        const up = basenameOf(parent);
+        if (up.toLowerCase() === ".atomic") return true;
+      } catch {
+        // Not a store.
+      }
+    }
+    current = parent;
   }
   return false;
 }

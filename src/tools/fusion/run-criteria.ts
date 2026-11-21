@@ -236,13 +236,14 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
     const facts: RunFact[] = [];
     for (const f of t.facts as unknown[]) {
       if (typeof f !== "object" || f === null) continue;
-      const { id, state, why, text } = f as Record<string, unknown>;
+      const { id, state, why, text, reservation } = f as Record<string, unknown>;
       const clean = normalizeCriterionId(id);
       if (clean === null || !CRITERION_FACT_STATES.includes(state as CriterionFactState)) continue;
       facts.push({
         id: clean,
         state: state as CriterionFactState,
         ...(typeof why === "string" ? { why } : {}),
+        ...(state === "passed" && typeof reservation === "string" ? { reservation } : {}),
         ...(typeof text === "string" ? { text } : {}),
       });
     }
@@ -360,7 +361,9 @@ export function readMilestoneEvidence(input: {
       byTask.set(task.taskId, valid.map(({ text: _text, ...fact }) => fact));
       for (const { text: _text, ...fact } of valid) {
         const known = inRun.get(fact.id);
-        if (known === undefined || RANK[fact.state] > RANK[known.state]) inRun.set(fact.id, fact);
+        // The worst state wins; between two passes, a clean one outranks one
+        // with reservations (issue #110): one clean passing check keeps it green.
+        if (known === undefined || RANK[fact.state] > RANK[known.state] || (fact.state === "passed" && known.state === "passed" && known.reservation !== undefined && fact.reservation === undefined)) inRun.set(fact.id, fact);
       }
     }
     for (const [id, fact] of inRun) worst.set(id, fact);

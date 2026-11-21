@@ -15,11 +15,17 @@ const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "
 /**
  * One criterion fact as a line (issue #40), e.g. "✓ c1 passed: Runs
  * offline" or "? c2 unverified: Looks right (no vision-capable
- * reviewer)". The text is the brief's when it names the id.
+ * reviewer)", or "~ c3 passed with reservations: …" (issue #110). The
+ * text is the brief's when it names the id.
  */
 export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly ProjectCriterion[] | undefined): string {
   const text = criteria?.find((c) => c.id === fact.id)?.text;
-  return `${FACT_MARK[fact.state] ?? "?"} ${fact.id} ${fact.state}${text === undefined ? "" : `: ${text}`}${fact.why ? ` (${fact.why})` : ""}`;
+  // Issue #110: passed only on checks that may pass on the wrong thing — never plain green.
+  const reserved = fact.state === "passed" && fact.reservation !== undefined;
+  const mark = reserved ? "~" : (FACT_MARK[fact.state] ?? "?");
+  const state = reserved ? "passed with reservations" : fact.state;
+  const notes = [...(fact.why ? [fact.why] : []), ...(reserved ? [`reservations: ${fact.reservation}`] : [])];
+  return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`}`;
 }
 
 /** A picture's caption with the criteria it shows, e.g. "The board [c1, c2]". */
