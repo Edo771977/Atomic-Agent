@@ -247,6 +247,16 @@ function wordsOf(text: string): Set<string> {
   );
 }
 
+/**
+ * A criterion no passing test name matches (issue #106): a mismatch of
+ * names, not a gap. In the live run 5 such lines read as 5 uncovered
+ * requirements; a real gap is listed apart (`NO_CHECK_NAMES_IT`).
+ */
+export const NAME_MISMATCH =
+  "no passing test name matches its words (a name mismatch, not evidence of a gap: check the test bodies or the output)";
+/** A criterion the runtime knows is uncovered: no contract check names it, so no fact stands for it (issue #106). */
+export const NO_CHECK_NAMES_IT = "No check names this criterion";
+
 const statusOf = (t: ExecutedTest): string => (t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok");
 
 /**
@@ -274,7 +284,7 @@ export function mapTestsToCriteria(tests: readonly ExecutedTest[], criteria: rea
     const passing = hits.filter((t) => t.ok && t.skipped !== true);
     const other = hits.filter((t) => !(t.ok && t.skipped !== true));
     passing.forEach((t) => matched.add(t));
-    const head = passing.length === 0 ? "no passing test name matches it" : passing.map((t) => `${statusOf(t)}: ${t.name}`).join("; ");
+    const head = passing.length === 0 ? NAME_MISMATCH : passing.map((t) => `${statusOf(t)}: ${t.name}`).join("; ");
     const notCounted = other.length === 0 ? "" : ` (not counted: ${other.map((t) => `${statusOf(t)}: ${t.name}`).join("; ")})`;
     return `- "${criterion}" <- ${head}${notCounted}`;
   });
@@ -312,6 +322,8 @@ export function renderCheckRunEvidence(
   current: ReadonlyArray<{ path: string; sha256?: string }>,
   criteria: readonly string[],
   knownSecrets: readonly KnownSecret[] = [],
+  /** Criteria no contract check names (issue #106): known gaps, listed apart from name mismatches. */
+  uncovered: readonly string[] = [],
 ): string {
   if (runs.length === 0) return "";
   const versions = current.map((f) => `${f.path} sha256 ${short(f.sha256)}`).join(", ");
@@ -356,5 +368,8 @@ export function renderCheckRunEvidence(
     blocks.push(block);
   }
   const left = runs.length - blocks.length;
-  return [head, ...blocks, ...(left > 0 ? [`- ${left} more check run${left === 1 ? "" : "s"} not shown`] : [])].join("\n");
+  const gaps = uncovered.length === 0
+    ? []
+    : [`${NO_CHECK_NAMES_IT} (the runtime has no check and no fact for it; a real gap unless the files show otherwise):`, ...uncovered.map((c) => `- "${c}"`)];
+  return [head, ...blocks, ...(left > 0 ? [`- ${left} more check run${left === 1 ? "" : "s"} not shown`] : []), ...gaps].join("\n");
 }

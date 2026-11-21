@@ -1774,7 +1774,10 @@ export function buildFusionDelegateTool(
           ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
         ])];
         const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
-        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known);
+        // The brief's criteria no check of the call names (issue #106): known gaps, apart from name mismatches.
+        const namedIds = new Set((parsed.contract?.checks ?? []).flatMap((c) => c.criteria ?? []));
+        const uncovered = briefCriteria === undefined ? [] : [...briefCriteria.values()].filter((c) => !namedIds.has(c.id)).map((c) => c.text);
+        const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known, uncovered);
         // No summary from the worker (issue #106): say so, and that the runtime record stands in for it.
         const noSummary = reply !== undefined && isPlaceholderReply(reply)
           ? [

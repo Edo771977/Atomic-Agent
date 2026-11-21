@@ -130,7 +130,7 @@ export const gateChecks: FusionDelegateDeps["runChecks"] = async (specs) => ({
 });
 
 /** One delegate call of the tests task, its worker timing out right after its suite ran; the judge prompt captured. */
-async function reviewAfterTimeout() {
+async function reviewAfterTimeout(opts: { criteria?: string[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "evidence-review-"));
   try {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
@@ -174,7 +174,7 @@ async function reviewAfterTimeout() {
       runChecks: gateChecks,
     };
     const pending = buildFusionDelegateTool(d).run(
-      { tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"] }], contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK }] } },
+      { tasks: [{ id: "sales-tests", title: "Tests", instructions: "write the tests in sales.test.cjs", files: ["sales.test.cjs"] }], contract: { checks: [{ task: "sales-tests", ...CONTRACT_CHECK, ...(opts.criteria === undefined ? {} : { criteria: opts.criteria }) }] } },
       { workingDir: dir, sessionId: "s-plan", stepIndex: 0, signal: new AbortController().signal, project: projectOf(["sales-tests"]) },
     );
     await vi.advanceTimersByTimeAsync(60 * 60_000);
@@ -212,7 +212,7 @@ describe("the evidence the reviewer receives (issue #104)", () => {
     expect(prompt).toContain('"sums revenue per region" <- ok: sums revenue per region');
     expect(prompt).toContain('"skips blank lines" <- ok: skips blank lines');
     expect(prompt).toContain('"ignores __proto__ keys safely" <- ok: ignores __proto__ keys');
-    expect(prompt).toContain('"reports a malformed row on stderr" <- no passing test name matches it');
+    expect(prompt).toContain('"reports a malformed row on stderr" <- no passing test name matches its words (a name mismatch, not evidence of a gap');
   });
 });
 
@@ -610,5 +610,12 @@ describe("the runtime record without a worker summary (issue #106)", () => {
   it("the judge's own instructions never ask for a worker summary", async () => {
     const { prompt } = await reviewAfterTimeout();
     expect(prompt).toContain("A worker summary is not evidence and is not required:");
+  });
+
+  it("names a criterion no check names as a gap, apart from the name mismatches", async () => {
+    // The check names c1-c3; the brief's c4 has no check and no fact.
+    const { prompt } = await reviewAfterTimeout({ criteria: ["c1", "c2", "c3"] });
+    expect(prompt).toContain('No check names this criterion (the runtime has no check and no fact for it; a real gap unless the files show otherwise):\n- "reports a malformed row on stderr"');
+    expect(prompt).not.toContain('- "skips blank lines"\n');
   });
 });
