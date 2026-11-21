@@ -192,6 +192,17 @@ const readVersionsText = (): string => {
 };
 
 /** A parsed `project.json` checked; exported for tests and readers that already hold the JSON. */
+/**
+ * The file's project without what only the runtime records (issue #120:
+ * `plan.referenceCheck`, read from the project folder when the plan was
+ * drafted): the state dir's record holds it, the file never does.
+ */
+function withoutRuntimeRecords(project: unknown): unknown {
+  if (!isObject(project) || !isObject(project.plan) || !("referenceCheck" in project.plan)) return project;
+  const { referenceCheck: _r, ...plan } = project.plan;
+  return { ...project, plan };
+}
+
 export function parseProjectFile(input: unknown, folder: string, stateDir: string): ProjectStoreResult {
   const file = projectFilePath(folder);
   const damaged = (what: string) => problem("damaged", `${file} is damaged: ${what}. Fix or restore it; the project was not opened.`);
@@ -211,7 +222,7 @@ export function parseProjectFile(input: unknown, folder: string, stateDir: strin
   if (typeof raw.name !== "string") return damaged("name is missing");
   if (typeof raw.revision !== "number" || !Number.isInteger(raw.revision) || raw.revision < 1) return damaged("revision is not a whole number from 1");
   if (!isTime(raw.createdAt) || !isTime(raw.updatedAt)) return damaged("createdAt or updatedAt is not a time");
-  const project = normalizeProject(mapAttachments(raw.project, (p) => fromFilePath(stateDir, p)));
+  const project = normalizeProject(mapAttachments(withoutRuntimeRecords(raw.project), (p) => fromFilePath(stateDir, p)));
   if (project === undefined) return damaged("the project (brief, plan, milestones or gate) does not read as a valid project");
   const extra: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) if (!KNOWN_KEYS.has(key)) extra[key] = value;
