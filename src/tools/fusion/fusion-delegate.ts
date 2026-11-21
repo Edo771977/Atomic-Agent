@@ -203,7 +203,9 @@ import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
+import type { ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { receiptHash } from "../../session/receipt-signing.js";
+import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -216,6 +218,7 @@ export const FUSION_DELEGATE_TOOL = "fusion.delegate";
 export const ORCHESTRATOR_TASK_MAX_WIDTH = 2;
 
 export interface FusionDelegateDeps extends WorkerRunnerDeps {
+  writeProjectReceipt?: ProjectReceiptWriter;
   /**
    * Whether the fan-out asks the operator before it runs. Same seam as
    * every other dangerous tool: production passes `true`, tests pass
@@ -1335,6 +1338,24 @@ export function buildFusionDelegateTool(
       }
 
       const candidateOriginalDir = ctx.workingDir;
+      const writeProjectReceipt = ctx.incognito ? undefined : deps.writeProjectReceipt;
+      const recordCheckRun: CheckRunRecorder | undefined = writeProjectReceipt === undefined
+        ? undefined
+        : (check, record, ok) => {
+            try {
+              writeProjectReceipt(candidateOriginalDir, "check-run-record", {
+                kind: check.kind ?? "command",
+                ...(check.task === undefined ? {} : { task: check.task }),
+                definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
+                recordHash: receiptHash(record),
+                outputHash: receiptHash(record.output),
+                exitCode: record.exitCode,
+                ok,
+              });
+            } catch {
+              deps.logger.warn("Could not record the Fusion check receipt");
+            }
+          };
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();
       const candidateWorkerRuns = new Map<string, number>();
@@ -1595,6 +1616,7 @@ export function buildFusionDelegateTool(
       const workerDeps: FusionDelegateDeps = {
         ...deps,
         ...(heldRunChecks === undefined ? {} : { runChecks: heldRunChecks }),
+        recordCheckRun,
         ...(deps.knownSecrets === undefined ? {} : { knownSecrets: () => collectKnownSecrets() ?? [] }),
         ...(candidate === undefined ? {} : { ruleWorkdir: candidateOriginalDir }),
         ...(deps.resolveRoutingIdentity === undefined ? {} : { runTurn: (session, message, options) => {
@@ -2313,6 +2335,7 @@ export function buildFusionDelegateTool(
             tasks: parsed.tasks,
             concurrent: tasks.map((t) => t.id),
             runChecks: heldRunChecks,
+            recordCheckRun,
             ...(deps.knownSecrets === undefined
               ? {}
               : { knownSecrets: collectKnownSecrets() }),
@@ -2570,7 +2593,7 @@ export function buildFusionDelegateTool(
                   heldRunChecks,
                   {
                     workingDir: ctx.workingDir,
-                    signal: runSignal, filesOf: declaredFilesOf,
+                    signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
                     ...(deps.knownSecrets === undefined
                       ? {}
                       : { knownSecrets: collectKnownSecrets() }),
@@ -2748,7 +2771,7 @@ export function buildFusionDelegateTool(
                   ? [{ check, index }] : [],
               );
               const checks = await runContractChecks(own.map((c) => c.check), heldRunChecks, {
-                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
+                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
                 ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
               });
               const previous = own.flatMap((c) => {
@@ -2961,7 +2984,7 @@ export function buildFusionDelegateTool(
             heldRunChecks,
             {
               workingDir: ctx.workingDir,
-              signal: runSignal, filesOf: declaredFilesOf,
+              signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
               ...(deps.knownSecrets === undefined
                 ? {}
                 : { knownSecrets: collectKnownSecrets() }),
@@ -3262,7 +3285,7 @@ export function buildFusionDelegateTool(
             ? regressionChecks
             : rebaseVerifyWorkspaceValue(regressionChecks, candidateOriginalDir, candidate.dir)) as ContractCheck[];
           const rerun = await runContractChecks(toRun, heldRunChecks, {
-            workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
+            workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
             ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
           });
           // Held, refused, cancelled or not run: say so on each changed row (issue #106 review).
@@ -3390,7 +3413,11 @@ export function buildFusionDelegateTool(
           verifiedNoChangesProviders,
         });
         for (const row of results) {
-          if (row.artifactManifest !== undefined) run?.recordArtifactManifest(row.id, row.artifactManifest);
+          if (row.artifactManifest === undefined) continue;
+          run?.recordArtifactManifest(row.id, row.artifactManifest);
+          if (candidate === undefined && row.status === "ok" && !carriedIds.has(row.id)) {
+            writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", row.artifactManifest);
+          }
         }
         // Automatic replanning (ATO-941): what did not close, from the
         // facts above, with the attempts it has left. The planner's next
@@ -3590,8 +3617,21 @@ export function buildFusionDelegateTool(
         // reading only the status merged nothing as if it were something.
         // Workers that were never served or timed out before a single step
         // count as nothing delivered too (ATO-234).
-        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
+        const candidateReport = candidate === undefined ? undefined : await candidate.finish({
+          rows: results,
+          tasks: parsed.tasks,
+          contract: parsed.contract,
+          runChecks: withContractCheckEgress(deps.runChecks, checkEgress),
+          holdChecks: deps.runChecks === undefined
+            ? undefined
+            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)),
+          signal: runSignal,
+          recordCheckRun,
+        });
         completedCandidateReport = candidateReport;
+        if (candidateReport?.status === "promoted" && candidateReport.artifactManifest !== undefined) {
+          writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", candidateReport.artifactManifest);
+        }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.
         if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {

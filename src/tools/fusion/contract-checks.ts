@@ -175,6 +175,8 @@ export interface CheckRunRecord {
   files?: Array<{ path: string; sha256?: string }>;
 }
 
+export type CheckRunRecorder = (check: ContractCheck, record: CheckRunRecord, ok: boolean) => void;
+
 const MAX_HASHED_BYTES = 8 * 1024 * 1024;
 
 /** The SHA-256 of each of `paths` inside `dir` as it is now; a path outside it is left out, an unreadable one has no hash. */
@@ -563,6 +565,7 @@ export async function runContractChecks(
     inputIntegrity?: VerificationInputIntegrity;
     /** A task's declared files, hashed as each of its checks runs on them (issue #104 review). */
     filesOf?: (taskId: string) => readonly string[];
+    recordCheckRun?: CheckRunRecorder;
   },
 ): Promise<{ outcomes: ContractCheckOutcome[]; checksSkipped?: string }> {
   if (checks.length === 0) return { outcomes: [] };
@@ -639,6 +642,7 @@ export async function runContractChecks(
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
+    if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
     return {
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),

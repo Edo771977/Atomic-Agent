@@ -78,7 +78,7 @@ import {
   type WatchJudgeCall,
   type WatchProgress,
 } from "./worker-watch.js";
-import type { ContractCheckRunner } from "./contract-checks.js";
+import type { CheckRunRecorder, ContractCheckRunner } from "./contract-checks.js";
 import {
   knownSecretsFromEnv,
   type KnownSecret,
@@ -619,6 +619,7 @@ export interface WorkerRunnerDeps {
    * are reported as not run and never assumed to have passed.
    */
   runChecks?: ContractCheckRunner;
+  recordCheckRun?: CheckRunRecorder;
   /**
    * The agent's own secrets (exact values: `.env`, the config's keys),
    * for masking check output that reaches a worker outside the tool
@@ -1822,6 +1823,7 @@ async function runOneTask(
       ...(deps.runChecks === undefined
         ? {}
         : { runChecks: withHoldTiming(deps.runChecks, onHold) }),
+      recordCheckRun: deps.recordCheckRun,
       signal: AbortSignal.any([
         options.signal,
         timeLimit,

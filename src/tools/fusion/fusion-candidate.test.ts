@@ -10,6 +10,7 @@ import { ApprovalRulesStore } from "../../approval/approval-rules-store.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
+import { receiptHash } from "../../session/receipt-signing.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
@@ -79,6 +80,49 @@ it("promotes the final checked fanout and preserves original rules and dirty fil
   expect(await readFile(join(f.root, "personal.txt"), "utf8")).toBe("untracked personal bytes\r\n");
   expect(f.policies).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ onPrompt: "refuse", ruleWorkdir: f.root }));
   expect(f.starts).not.toHaveBeenCalled(); expect(result.details.runId).toBeUndefined();
+});
+
+it.each([true, false])("archives check-run records and only delivered candidate manifests (pass=%s)", async passing => {
+  const writeProjectReceipt = vi.fn();
+  const f = await fixture({ writeProjectReceipt });
+  f.deps.runTurn = async session => {
+    await writeFile(join(session.workingDir, "api.json"), '{"name":"after"}');
+    return { session, reason: "reply", stepCount: 1 };
+  };
+  const output = "some check output that stays out of the archive";
+  const exitCode = passing ? 0 : 1;
+  f.deps.runChecks = async () => ({ ok: passing, results: [{ ok: passing, exitCode, stdoutTail: output }] });
+  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, f.ctx);
+  expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", {
+    kind: "command", ok: passing, exitCode,
+    definitionHash: receiptHash(contract.checks[0]),
+    outputHash: receiptHash(output),
+    recordHash: receiptHash({ command: "integration", exitCode, output, tests: [] }),
+  });
+  const manifests = writeProjectReceipt.mock.calls.filter(([, kind]) => kind === "artifact-manifest");
+  expect(manifests).toHaveLength(passing ? 1 : 0);
+  if (passing) expect(manifests[0]).toEqual([f.root, "artifact-manifest", expect.objectContaining({ binding: expect.objectContaining({ scope: "candidate-snapshot" }) })]);
+  expect(result.status).toBe(passing ? "ok" : "error");
+});
+
+it.each([true, false])("archives direct task manifests outside incognito (incognito=%s)", async incognito => {
+  const writeProjectReceipt = vi.fn();
+  const f = await fixture({ writeProjectReceipt }, false);
+  f.deps.runTurn = async session => {
+    await writeFile(join(session.workingDir, "api.json"), '{"name":"after"}');
+    return { session, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const result = await buildFusionDelegateTool(f.deps).run({
+    tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
+  }, { ...f.ctx, incognito });
+  expect(result.status).toBe("ok");
+  if (incognito) {
+    expect(writeProjectReceipt).not.toHaveBeenCalled();
+  } else {
+    expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", expect.objectContaining({ ok: true, exitCode: 0 }));
+    expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "artifact-manifest", expect.objectContaining({ coverage: expect.objectContaining({ source: "observed" }) }));
+  }
 });
 
 it("keeps rejected no-check output as a patch and refuses resume without dispatch", async () => {

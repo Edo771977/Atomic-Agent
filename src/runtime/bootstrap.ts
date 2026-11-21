@@ -1,3 +1,5 @@
+import { SecretKeychain } from "../config/secret-store.js";
+import { createProjectReceiptWriter } from "../session/project-receipts.js";
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
 import { createSessionTeamChoices, resolveSessionReviewer, resolveSessionWorker } from "./session-director.js";
 import { createRuntimeProject, liveProjectInputsFrom } from "./composition/runtime-project.js";
@@ -1155,6 +1157,11 @@ export async function createAgentRuntime(
     runCheckpoints: fusionRuns,
     outcomeLog: fusionOutcomes.outcomeLog,
     outcomeJournal: fusionOutcomeJournal,
+    writeProjectReceipt: createProjectReceiptWriter(
+      config.paths.stateDir,
+      new SecretKeychain(undefined, () => {}),
+      (message) => logger.warn(message),
+    ),
     turnLedger: fusionOutcomes.ledger,
     steerWorker: (sessionId, text) => steeringInbox.push(sessionId, text),
     orchestratorTurnSpendUsd: (sessionId) => turnUsageMeter.peekCostUsd(sessionId),
