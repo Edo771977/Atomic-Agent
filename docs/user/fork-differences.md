@@ -57,6 +57,14 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 
   See [#75](https://github.com/Edo771977/atomic-agent/pull/75).
 
+### A project lives in its folder
+
+- **The project is in the folder, not in the chat.** Brief, plan, milestones and their evidence are in `.atomic/project/project.json`, with `BRIEF.md`, `PLAN.md` and `STATUS.md` beside it to read. Deleting a chat keeps the project; a new chat in the same folder finds it, and several chats share it. The folder is meant to be committable; nothing secret is written there.
+- **Your approvals are kept on your computer, not in the folder.** If the file changes after you approved something (edited by hand or by a command), that gate waits for you again, and so does everything that depended on it. `--auto-approve-project` stops at such a gate. A project copied to another computer opens with all its content, and its gates wait for approval again there.
+- **Two chats cannot approve the same gate twice.** The second one is told the gate was already decided.
+- **Old chats move over on first open,** with their approvals, verdicts and evidence.
+- **`atomic-agent projects list`** shows each project with what waits for you and what is next; **`atomic-agent project resume <folder>`** opens a chat on it at the waiting gate. A damaged file, or one written by a newer version, is reported and not opened.
+
 ### Milestone verdicts stay tied to their work
 
 - **A material change to a milestone's work resets its verdict.** A changed kind, or a task added, removed, moved or retitled, sends it back to planned. Its old evidence moves to a short per-milestone history. Editorial changes keep the verdict: the title, the order, or a task's worker, reviewer or estimate. Work that has no verdict yet keeps its runs when tasks are only added. The plan gate says `verdict reset: <title>` ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).

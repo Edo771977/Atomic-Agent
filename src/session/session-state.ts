@@ -178,8 +178,10 @@ export interface SessionState {
   /**
    * The fusion project (issue #39): brief, approvable plan and
    * milestones, folded by the step commit from director tools and changed
-   * by the person's decisions (`session-project.ts`). Persisted with the
-   * session so a reopened chat stops at the same gate. Absent on sessions
+   * by the person's decisions (`session-project.ts`). With `projectRef`
+   * it is read from the folder store and not saved with the session
+   * (issue #109); otherwise (an older store, a folder the store cannot be
+   * written in) it is persisted with the session. Absent on sessions
    * without one and on sessions that predate the field; a malformed one
    * is dropped on load.
    */
