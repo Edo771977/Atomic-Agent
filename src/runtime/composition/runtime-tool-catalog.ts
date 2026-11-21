@@ -65,6 +65,7 @@ import { captureImageGenerated, captureVideoGenerated } from "../../analytics/an
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
+import { checkPlanReferences } from "../../tools/fusion/plan-references.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
 import { currentPolicyAllows, currentProviderPolicy } from "../../llm/provider-policy.js";
 import {
@@ -1276,6 +1277,9 @@ export function registerRuntimeFusionAndReadScope(input: {
       }).plan;
     },
     outsideContent: (sessionId) => approvals.outsideContentSources(sessionId).length > 0,
+    // Issue #120: the files, scripts, commands and symbols the draft cites,
+    // resolved in the project folder (stat, package.json, bundled ripgrep).
+    planReferences: async (rows, projectFolder, signal) => (await checkPlanReferences(rows, { root: projectFolder, signal })).record,
     // A done milestone's criteria facts and screenshots, from its runs'
     // folders under `<stateDir>/fusion-runs` (issue #40).
     milestoneEvidence: (milestone, criteriaOrder, current) =>

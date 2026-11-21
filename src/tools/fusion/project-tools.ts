@@ -34,7 +34,7 @@ import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
 import type { ContractCheck } from "./contract.js";
 import { parsePlanRowChecks } from "./contract-check-spec.js";
-import { evaluatePlanChecks, planCheckHint } from "./plan-checks.js";
+import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -106,6 +106,12 @@ export interface ProjectToolDeps {
    * report the milestone failed at once (it stays open at the gate).
    */
   correctionBudgetLeft?: (sessionId: string) => boolean;
+  /**
+   * Issue #120: resolve the drafted rows' cited files, scripts, commands
+   * and symbols in the project folder (`plan-references.ts`); never runs
+   * a project command. Absent: the plan has no `references` result.
+   */
+  planReferences?: (rows: readonly AssignmentRow[], projectFolder: string, signal: AbortSignal | undefined) => Promise<PlanReferenceRecord>;
   milestoneEvidence?: (
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
@@ -470,17 +476,23 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
+      const referenceCheck = deps.planReferences === undefined ? undefined : await deps.planReferences(rows, ctx.workingDir, ctx.signal).catch((err: unknown): PlanReferenceRecord => {
+        // A check that could not run is never green (issue #120).
+        ctx.signal?.throwIfAborted();
+        return { verdict: "warn", detail: `References not checked: ${err instanceof Error ? err.message : String(err)}.`, taskIds: [], basis: planReferenceBasis(rows) };
+      });
       const update: ProjectUpdate = {
         kind: "plan",
         milestones: parsed.plan.milestones,
         rows,
         detail,
         draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
+        ...(referenceCheck === undefined ? {} : { referenceCheck }),
       };
       // The milestones as this draft would leave them (issue #112): a finished one counts only for what it ran under.
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
-      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), {}, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), referenceCheck === undefined ? {} : { references: referenceCheck }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [

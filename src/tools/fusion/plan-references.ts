@@ -5,7 +5,7 @@ import { resolveRipgrepPath } from "../../runtime/ripgrep-resolver.js";
 import { runCommand as defaultRunCommand, type CommandOptions, type CommandResult } from "../../sandbox/command-runner.js";
 import type { AssignmentRow } from "../../session/session-project.js";
 import type { ContractCheck } from "./contract.js";
-import { planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
+import { REFERENCE_DETAIL_MAX, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 
 /**
  * Issue #120: the files, `package.json` scripts, check commands and
@@ -78,7 +78,7 @@ export interface PlanReferenceDeps {
 export interface PlanReferenceOptions {
   /** The project folder: the session's working dir. */
   root: string;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   limits?: Partial<PlanReferenceLimits>;
   deps?: Partial<PlanReferenceDeps>;
 }
@@ -579,5 +579,6 @@ function summarize(refs: ReadonlyArray<ResolvedPlanReference & { why?: string }>
     };
   }
   const taskIds = [...new Set([...missing, ...ambiguous].flatMap((r) => r.taskIds))];
-  return { verdict: "warn", detail: `${parts.join(" ")} ${tail}`, taskIds, basis };
+  const detail = `${parts.join(" ")} ${tail}`;
+  return { verdict: "warn", detail: detail.length <= REFERENCE_DETAIL_MAX ? detail : `${detail.slice(0, REFERENCE_DETAIL_MAX - 1)}…`, taskIds, basis };
 }
