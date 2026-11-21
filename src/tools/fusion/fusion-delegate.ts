@@ -1723,12 +1723,18 @@ export function buildFusionDelegateTool(
         const milestone = milestoneId === null ? undefined : ctx.project?.milestones.find((m) => m.id === milestoneId);
         if (runsDir === undefined || milestone === undefined) return [];
         const own = new Set(checksAsWritten.map((c) => checkSpecKey(c)));
+        // A check of this call for the same task naming every criterion an
+        // earlier check named supersedes it: the director replaced it (issue #106 review).
+        const superseded = (check: Record<string, unknown>): boolean => {
+          const criteria = Array.isArray(check.criteria) ? check.criteria.filter((c): c is string => typeof c === "string") : [];
+          return criteria.length > 0 && checksAsWritten.some((c) => c.task === check.task && criteria.every((id) => (c.criteria ?? []).includes(id)));
+        };
         const seen = new Set<string>();
         const out: Record<string, unknown>[] = [];
         for (const runId of [...milestone.runIds].reverse()) {
           for (const check of readRunCriteria(runsDir, runId).passedChecks ?? []) {
             const key = checkSpecKey(check);
-            if (own.has(key) || seen.has(key)) continue;
+            if (own.has(key) || seen.has(key) || superseded(check)) continue;
             seen.add(key);
             out.push(check);
           }
@@ -3246,12 +3252,22 @@ export function buildFusionDelegateTool(
           }
           const broke = rerun.outcomes.flatMap((o, i) => (!o.ok && !checkDidNotRun(o.detail) ? [{ check: regressionChecks[i]!, outcome: o }] : []));
           reranPassed = rerun.outcomes.flatMap((o, i) => (o.ok ? [regressionChecks[i]!] : []));
-          if (broke.length > 0) {
-            const named = broke.map(({ check, outcome }) => `${commandLineOf(check as ContractCheck)} (${outcome.detail})`).join("; ");
-            const why = `regressed: ${named}: it passed on the reviewed version of the milestone's files and fails now`;
-            const ids = new Set(writers.map((w) => w.id));
-            results = results.map((r) => (ids.has(r.id) ? { ...r, status: "failed", failure: "regressed-check", error: why, notes: [...(r.notes ?? []), why] } : r));
+          // Blame (issue #106 review): a regressed check whose own task changed a
+          // file here fails that row; one whose task did not run here fails
+          // every changed row, each told which rows are suspected.
+          const failing = new Map<string, string[]>();
+          for (const { check, outcome } of broke) {
+            const owner = typeof check.task === "string" ? writers.find((w) => w.id === check.task) : undefined;
+            const blamed = owner !== undefined ? [owner] : writers;
+            const suspects = owner !== undefined ? "" : ` (its task did not change a file here; suspected: ${writers.map((w) => w.id).join(", ")})`;
+            for (const w of blamed) failing.set(w.id, [...(failing.get(w.id) ?? []), `${commandLineOf(check as ContractCheck)} (${outcome.detail})${suspects}`]);
           }
+          results = results.map((r) => {
+            const named = failing.get(r.id);
+            if (named === undefined) return r;
+            const why = `regressed: ${named.join("; ")}: it passed on the reviewed version of the milestone's files and fails now`;
+            return { ...r, status: "failed", failure: "regressed-check", error: why, notes: [...(r.notes ?? []), why] };
+          });
         }
         // A verify-only task that changed nothing closes only on work
         // already reviewed (issue #104 review): a review recorded by an

@@ -94,12 +94,18 @@ function milestone(dir: string, opts: { candidate?: boolean; holdZero?: () => bo
   let turns = 0;
   let minted = 0;
   const ev = (event: Record<string, unknown>) => ({ type: "llm_event", event: { batchIndex: 0, batchSize: 1, ...event } }) as never;
-  const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
-    if (turns++ === 0) {
+  let started = new Set<string>();
+  const runTurn: FusionDelegateDeps["runTurn"] = async (session, message, options) => {
+    // Each task's worker acts on its first turn only; a docs task writes its own file.
+    const file = message.includes("write docs.md") ? "docs.md" : "sales.cjs";
+    turns += 1;
+    if (!started.has(file)) {
+      started.add(file);
+      const content = file === "docs.md" ? "# sales\n" : write;
       options.eventHook?.({ type: "turn_started", turnIndex: 0 } as never);
-      options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "sales.cjs", content: write } } }));
+      options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: file, content } } }));
       // The worker's own folder: a candidate run's private workspace, else the project's.
-      writeFileSync(join(session.workingDir, "sales.cjs"), write);
+      writeFileSync(join(session.workingDir, file), content);
       options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
       options.eventHook?.({ type: "step_finished", stepIndex: 0, summary: "", durationMs: 1 } as never);
     }
@@ -134,13 +140,21 @@ function milestone(dir: string, opts: { candidate?: boolean; holdZero?: () => bo
     ...(opts.candidate === true ? { resolveRunMode: () => ({ ...mode(), integration: "candidate" as const }) } : {}),
   }));
   let p = projectOf();
+  let rows: Array<{ id: string; status: string; failure?: string; error?: string; notes?: string[] }> = [];
   return {
     ran,
-    async round(content: string, checks: readonly Record<string, unknown>[], answer: string) {
+    get rows() { return rows; },
+    async round(content: string, checks: readonly Record<string, unknown>[], answer: string, withDocs = false) {
       write = content;
       turns = 0;
+      started = new Set();
       reviewer = answer;
-      const result = await tool.run({ tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }], contract: { checks: [...checks] } }, { ...ctx(dir), project: p });
+      const tasks = [
+        { id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] },
+        ...(withDocs ? [{ id: "docs", title: "Docs", instructions: "write docs.md", files: ["docs.md"] }] : []),
+      ];
+      const result = await tool.run({ tasks, contract: { checks: [...checks] } }, { ...ctx(dir), project: p });
+      rows = result.details.tasks as Array<{ id: string; status: string; failure?: string; error?: string; notes?: string[] }>;
       // The fold the director's turn applies: the delegate's own milestone_run update.
       p = up(p, result.details.projectUpdate as ProjectUpdate);
       return (result.details.tasks as Array<{ id: string; status: string; failure?: string; error?: string; notes?: string[] }>)[0]!;
@@ -209,6 +223,35 @@ describe("a change must not break a case that already passed (issue #106)", () =
       const fix = await m.round(V2_BROKEN, [OTHER], review("accept"));
       expect(fix.failure).toBeUndefined();
       expect((fix.notes ?? []).join("\n")).toMatch(/regression checks not run: 1 check not run — the check runner failed: the check runner is unavailable; a case that passed on the reviewed version is not known to pass now/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("only the row of the regressed check's own task fails; another changed row is not blamed (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "regression-gate-blame-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      const m = milestone(dir);
+      await m.round(V1, [ZERO_PRICE], review("needs-changes", "the summary line is missing"));
+      await m.round(V2_BROKEN, [OTHER], review("accept"), true);
+      const byId = Object.fromEntries(m.rows.map((r) => [r.id, r]));
+      expect(byId.program).toMatchObject({ status: "failed", failure: "regressed-check" });
+      expect(byId.docs!.failure).toBeUndefined();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("an earlier check superseded by this call's check naming the same criteria is not re-run (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "regression-gate-superseded-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      const m = milestone(dir);
+      await m.round(V1, [{ ...ZERO_PRICE, criteria: ["c1"] }], review("needs-changes", "the summary line is missing"));
+      m.ran.length = 0;
+      // The director replaced the zero-price check with another one for the same criterion.
+      const fix = await m.round(V2_BROKEN, [{ ...OTHER, criteria: ["c1"] }], review("accept"));
+      expect(m.ran).not.toContain("zero-price");
+      expect(fix.failure).toBeUndefined();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
