@@ -60,7 +60,9 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 ### A project lives in its folder
 
 - **The project is in the folder, not in the chat.** Brief, plan, milestones and their evidence are in `.atomic/project/project.json`, with `BRIEF.md`, `PLAN.md` and `STATUS.md` beside it to read. Deleting a chat keeps the project; a new chat in the same folder finds it, and several chats share it. The folder is meant to be committable; nothing secret is written there.
-- **Your approvals are kept on your computer, not in the folder.** If the file changes after you approved something (edited by hand or by a command), that gate waits for you again, and so does everything that depended on it. `--auto-approve-project` stops at such a gate. A project copied to another computer opens with all its content, and its gates wait for approval again there.
+- **Your approvals and the project's progress are kept on your computer, not in the folder.** The folder's file holds what you approve (brief, plan, milestone names); which milestone runs, its runs and its evidence are kept beside your approvals. If you or a command edit the brief or the plan in the file, that gate waits for you again, and so does everything that depended on it; `--auto-approve-project` stops at such a gate. Editing a milestone's state or evidence in the file does nothing.
+- **A copy starts over.** A project copied to another computer or folder opens with its brief, plan and milestones; its runs, evidence and gates start over there, and it becomes a project of its own.
+- **Incognito chats keep their project in the chat** and leave nothing in the folder.
 - **Two chats cannot approve the same gate twice.** The second one is told the gate was already decided.
 - **Old chats move over on first open,** with their approvals, verdicts and evidence.
 - **`atomic-agent projects list`** shows each project with what waits for you and what is next; **`atomic-agent project resume <folder>`** opens a chat on it at the waiting gate. A damaged file, or one written by a newer version, is reported and not opened.
