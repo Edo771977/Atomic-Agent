@@ -296,7 +296,7 @@ export interface WorkerTaskResult {
    * as pending. `stuck` (issue #43): the watch's judge found the worker
    * stuck and stopped it; handed to the director the same way.
    */
-  failure?: "review-exhausted" | "stuck" | "regressed-verified";
+  failure?: "review-exhausted" | "stuck" | "regressed-verified" | "regressed-check";
   /**
    * Set with `failure: "stuck"` when the runner stopped a worker that kept
    * writing the same bytes to a file (issue #95, `worker-repeated-writes.ts`):
