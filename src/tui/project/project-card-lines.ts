@@ -178,7 +178,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       if (full || m.id === gateId) {
         // Evidence of the result (issue #40): never a claim the view does not carry.
         for (const f of m.criteriaFacts ?? []) {
-          text(criterionFactLine(f, brief?.criteria), f.state === "passed" ? "ok" : f.state === "failed" ? "error" : "warn", 4);
+          text(criterionFactLine(f, brief?.criteria), f.state === "passed" && f.reservation === undefined ? "ok" : f.state === "failed" ? "error" : "warn", 4);
         }
         for (const a of m.attachments ?? []) {
           text(`▣ ${attachmentLabel(a)}`, "plain", 4);

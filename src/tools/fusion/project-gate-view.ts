@@ -51,6 +51,9 @@ export const verdictResetHint = (title: string): string => `verdict reset: ${tit
 /** The plan gate's hint for a milestone that kept its verdict but lost its criteria evidence to history (issue #83). */
 export const evidenceRetiredHint = (title: string): string => `evidence retired: ${title}`;
 
+/** The milestone gate's hint for a criterion verified with reservations (issue #110). */
+export const verifiedWithReservationsHint = (id: string, reservation: string): string => `verified with reservations: ${id} (${reservation})`;
+
 /** The gate card's payload. Pure. */
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
@@ -77,8 +80,13 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   // Issue #98: a milestone's open reviews, one line each, wherever its gate is open.
   if (project.gate.kind === "milestone") {
     const id = project.gate.id;
-    for (const block of project.milestones.find((m) => m.id === id)?.reviewBlocks ?? []) {
+    const milestone = project.milestones.find((m) => m.id === id);
+    for (const block of milestone?.reviewBlocks ?? []) {
       hints.push(`review open: ${block.taskId} (${block.reason})`);
+    }
+    // Issue #110: green only on checks that may pass on the wrong thing.
+    for (const fact of milestone?.criteriaFacts ?? []) {
+      if (fact.state === "passed" && fact.reservation !== undefined) hints.push(verifiedWithReservationsHint(fact.id, fact.reservation));
     }
   }
   if (project.gate.kind === "plan" && plan !== undefined) {

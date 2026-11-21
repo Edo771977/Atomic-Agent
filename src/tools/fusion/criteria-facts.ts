@@ -1,6 +1,7 @@
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
+import { checkReservations } from "./contract-check-lint.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 
 /**
@@ -19,6 +20,11 @@ import type { WorkerTaskResult } from "./worker-result.js";
  *
  * `failed` outranks `unverified`, which outranks `passed`: vision can
  * only add red or unverified, never turn a red check green.
+ *
+ * A `passed` criterion that only checks with a lint warning support
+ * (`contract-check-lint.ts`: they may also pass on the wrong thing)
+ * carries a `reservation` — "verified with reservations". No verdict
+ * reads it: it stays `passed`, and one clean passing check clears it.
  */
 
 /** One criterion a task's checks name, with the check indices (into `contract.checks`) naming it. */
@@ -70,9 +76,12 @@ export function criteriaFactsFor(
   outcomes: readonly (ContractCheckOutcome | undefined)[],
   vision: VisionJudgements | undefined,
 ): ProjectCriterionFact[] {
+  const reservations = checkReservations(contract);
   return criteria.map((criterion) => {
     let state: CriterionFactState = "passed";
     let why = "every check naming it passed";
+    // Issue #110: whether a passing check without a lint warning supports it.
+    let clean = false;
     const note = (next: CriterionFactState, line: string): void => {
       if (RANK[next] > RANK[state]) {
         state = next;
@@ -95,7 +104,10 @@ export function criteriaFactsFor(
         note("unverified", `${label} is unreliable: ${outcome.unreliable}`);
         continue;
       }
-      if (contract?.checks?.[index]?.judge !== "vision") continue;
+      if (contract?.checks?.[index]?.judge !== "vision") {
+        if (!reservations.has(index)) clean = true;
+        continue;
+      }
       if (outcome.screenshotErrors !== undefined && outcome.screenshotErrors.length > 0) {
         note("unverified", `${label} took no screenshot: ${outcome.screenshotErrors[0]}`);
         continue;
@@ -110,8 +122,11 @@ export function criteriaFactsFor(
         continue;
       }
       if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
+      else if (!reservations.has(index)) clean = true;
     }
-    return { id: criterion.id, state, why };
+    if (state !== "passed" || clean) return { id: criterion.id, state, why };
+    const reservation = [...new Set(criterion.checkIndexes.flatMap((i) => (reservations.has(i) ? [`check ${i + 1}: ${reservations.get(i)!}`] : [])))].join("; ");
+    return reservation.length === 0 ? { id: criterion.id, state, why } : { id: criterion.id, state, why, reservation };
   });
 }
 
