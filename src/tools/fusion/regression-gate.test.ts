@@ -7,7 +7,7 @@
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
@@ -88,16 +88,18 @@ const V1 = "// accepts a zero price: X,9007199254740993,0 -> {\"X\":0}\nmodule.e
 const V2_BROKEN = "// rejects rows with a huge quantity: Invalid row 2\nmodule.exports = 2;\n";
 const V2_KEEPS = `${V1}// and skips blank lines\n`;
 
-function milestone(dir: string) {
+function milestone(dir: string, opts: { candidate?: boolean } = {}) {
   const runsDir = join(dir, "..", "runs");
   let write = V1;
   let turns = 0;
+  let minted = 0;
   const ev = (event: Record<string, unknown>) => ({ type: "llm_event", event: { batchIndex: 0, batchSize: 1, ...event } }) as never;
   const runTurn: FusionDelegateDeps["runTurn"] = async (session, _m, options) => {
     if (turns++ === 0) {
       options.eventHook?.({ type: "turn_started", turnIndex: 0 } as never);
       options.eventHook?.(ev({ type: "tool_call_parsed", call: { tool: "os.fs.write", args: { path: "sales.cjs", content: write } } }));
-      writeFileSync(join(dir, "sales.cjs"), write);
+      // The worker's own folder: a candidate run's private workspace, else the project's.
+      writeFileSync(join(session.workingDir, "sales.cjs"), write);
       options.eventHook?.(ev({ type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "", details: {}, truncated: false } }));
       options.eventHook?.({ type: "step_finished", stepIndex: 0, summary: "", durationMs: 1 } as never);
     }
@@ -110,12 +112,22 @@ function milestone(dir: string) {
     results: specs.map((spec) => {
       const zero = JSON.stringify(spec).includes("check-zero-price.cjs");
       ran.push(zero ? "zero-price" : "other");
-      const ok = !zero || readFileSync(join(run.workingDir, "sales.cjs"), "utf8").includes("accepts a zero price");
+      // A check naming an absolute script reads the program beside it, as a real one would.
+      const script = Array.isArray(spec.args) ? String(spec.args[0]) : "";
+      const base = isAbsolute(script) ? dirname(script) : run.workingDir;
+      let program = "";
+      try { program = readFileSync(join(base, "sales.cjs"), "utf8"); } catch { program = ""; }
+      const ok = !zero || program.includes("accepts a zero price");
       return ok ? { ok: true, summary: "passed", exitCode: 0 } : { ok: false, summary: "verify.run command: FAILED (exit 1): Invalid row 2", exitCode: 1 };
     }),
   });
   let reviewer = review("needs-changes", "the summary line is missing");
-  const tool = buildFusionDelegateTool(deps(dir, async () => ({ content: reviewer }), runTurn, { runChecks, runCheckpoints: new FusionRunStore({ dir: runsDir }) }));
+  const tool = buildFusionDelegateTool(deps(dir, async () => ({ content: reviewer }), runTurn, {
+    runChecks,
+    runCheckpoints: new FusionRunStore({ dir: runsDir }),
+    createEphemeralSession: (meta, workingDir) => createEmptySessionState({ id: `${FUSION_WORKER_ID_PREFIX}r${++minted}`, workingDir: workingDir ?? dir, metadata: { fusionWorker: { ...meta } } }),
+    ...(opts.candidate === true ? { resolveRunMode: () => ({ ...mode(), integration: "candidate" as const }) } : {}),
+  }));
   let p = projectOf();
   return {
     ran,
@@ -124,7 +136,8 @@ function milestone(dir: string) {
       turns = 0;
       reviewer = answer;
       const result = await tool.run({ tasks: [{ id: "program", title: "Program", instructions: "write sales.cjs", files: ["sales.cjs"] }], contract: { checks: [...checks] } }, { ...ctx(dir), project: p });
-      p = up(p, { kind: "milestone_run", id: "m1", runId: result.details.runId as string });
+      // The fold the director's turn applies: the delegate's own milestone_run update.
+      p = up(p, result.details.projectUpdate as ProjectUpdate);
       return (result.details.tasks as Array<{ id: string; status: string; failure?: string; error?: string }>)[0]!;
     },
   };
@@ -158,6 +171,24 @@ describe("a change must not break a case that already passed (issue #106)", () =
       const fix = await m.round(V2_KEEPS, [OTHER], review("accept"));
       expect(fix.status).toBe("ok");
       expect(fix.failure).toBeUndefined();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "regression-gate-candidate-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      // The check names its script by an absolute path in the project folder.
+      const zeroAbs = { ...ZERO_PRICE, args: [join(dir, "check-zero-price.cjs")] };
+      const m = milestone(dir, { candidate: true });
+      const first = await m.round(V1, [zeroAbs], review("accept"));
+      expect(first.status).toBe("ok");
+      expect(readFileSync(join(dir, "sales.cjs"), "utf8")).toBe(V1);
+      // A fix that keeps the case: the kept check runs on the files now, never on the deleted workspace.
+      const fix = await m.round(V2_KEEPS, [OTHER], review("accept"));
+      expect(fix.failure).toBeUndefined();
+      expect(fix.status).toBe("ok");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

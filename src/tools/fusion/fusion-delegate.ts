@@ -1335,6 +1335,10 @@ export function buildFusionDelegateTool(
         catch { secretCollectionFailed = true; throw new Error("Secret metadata unavailable"); }
       };
       let recordCandidateInterruption: ((report: CandidateIntegrationReport) => void) | undefined;
+      // The contract's checks as the director wrote them, before a
+      // candidate run rebases them into its private workspace: what a run
+      // keeps for later fix rounds (issue #106 review).
+      const checksAsWritten = parsed.contract?.checks ?? [];
       try {
       if (mode.integration === "candidate") {
         if (writeScope.some(path => !isInside(resolvePath(candidateOriginalDir), resolvePath(path)))) {
@@ -1718,7 +1722,7 @@ export function buildFusionDelegateTool(
         const milestoneId = projectVerdict.kind === "admit" ? projectVerdict.milestoneId : null;
         const milestone = milestoneId === null ? undefined : ctx.project?.milestones.find((m) => m.id === milestoneId);
         if (runsDir === undefined || milestone === undefined) return [];
-        const own = new Set((parsed.contract?.checks ?? []).map((c) => checkSpecKey(c)));
+        const own = new Set(checksAsWritten.map((c) => checkSpecKey(c)));
         const seen = new Set<string>();
         const out: Record<string, unknown>[] = [];
         for (const runId of [...milestone.runIds].reverse()) {
@@ -3222,7 +3226,11 @@ export function buildFusionDelegateTool(
         const writers = results.filter((r) => (r.attempt?.wrote.length ?? 0) > 0 && r.status !== "failed" && r.status !== "cancelled");
         let reranPassed: Record<string, unknown>[] = [];
         if (regressionChecks.length > 0 && writers.length > 0 && !runSignal.aborted) {
-          const rerun = await runContractChecks(regressionChecks as ContractCheck[], heldRunChecks, {
+          // Kept as written; a candidate run checks them in its own workspace.
+          const toRun = (candidate === undefined
+            ? regressionChecks
+            : rebaseVerifyWorkspaceValue(regressionChecks, candidateOriginalDir, candidate.dir)) as ContractCheck[];
+          const rerun = await runContractChecks(toRun, heldRunChecks, {
             workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
             ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
           });
@@ -3310,9 +3318,10 @@ export function buildFusionDelegateTool(
         // The checks that passed on a reviewed version, this call's own and the re-run ones, for later fix rounds (issue #106).
         const reviewedIds = new Set(runReviews.filter((v) => v.verdict === "accept" || v.verdict === "needs-changes").map((v) => v.taskId));
         const passedChecks = [
-          ...(parsed.contract?.checks ?? []).filter((c, i) => {
+          ...(parsed.contract?.checks ?? []).flatMap((c, i) => {
             const outcome = latestCheckOutcomes.get(i) ?? gateState.checkOutcomes.get(i);
-            return c.task !== undefined && reviewedIds.has(c.task) && outcome?.ok === true;
+            // Kept as the director wrote it, never as rebased into a candidate's workspace.
+            return c.task !== undefined && reviewedIds.has(c.task) && outcome?.ok === true ? [checksAsWritten[i] ?? c] : [];
           }),
           ...reranPassed,
         ];
