@@ -699,9 +699,12 @@ export function applyCheckOutcomes(
     if (own.length === 0) return row;
     // A check that passes on its negative input too (issue #110) is said on the row.
     const unreliable = own.filter((o) => o.ok && o.unreliable !== undefined);
-    const result = unreliable.length === 0
-      ? row
-      : { ...row, notes: [...(row.notes ?? []), ...unreliable.map((o) => `checks: unreliable — ${o.detail}`)] };
+    const uncontrolled = own.filter((o) => o.ok && o.negative !== undefined);
+    const extra = [
+      ...unreliable.map((o) => `checks: unreliable — ${o.detail}`),
+      ...uncontrolled.map((o) => `checks: negative control not run — ${o.detail} (${o.negative})`),
+    ];
+    const result = extra.length === 0 ? row : { ...row, notes: [...(row.notes ?? []), ...extra] };
     const failed = own.filter((o) => !o.ok);
     const detail =
       failed.length > 0 ? failed.map((o) => o.detail).join("; ") : undefined;
@@ -775,6 +778,8 @@ export function renderContractLine(report: ContractReport): string | undefined {
   }
   const unreliable = report.checks.filter((o) => o.ok && o.unreliable !== undefined).length;
   if (unreliable > 0) parts.push(`${unreliable} check${unreliable === 1 ? "" : "s"} unreliable: the negative control passed too`);
+  const uncontrolled = report.checks.filter((o) => o.ok && o.negative !== undefined).length;
+  if (uncontrolled > 0) parts.push(`${uncontrolled} negative control${uncontrolled === 1 ? "" : "s"} not run`);
   if (report.checksSkipped !== undefined) parts.push(report.checksSkipped);
   parts.push(...(report.warnings ?? []));
   if (parts.length === 0) return undefined;

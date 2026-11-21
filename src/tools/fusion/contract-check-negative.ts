@@ -15,8 +15,13 @@
  * cancellation — and then the declared checks. A negative that passes
  * marks the check unreliable (`ContractCheckOutcome.unreliable`), and a
  * criterion it names is `unverified`, never `passed`
- * (`criteria-facts.ts`). One that could not run (refused, held, timed
- * out) is no verdict either way.
+ * (`criteria-facts.ts`). One the approval refuses or holds throws like
+ * the batch would, so no check runs. One the runner reports as not run
+ * (an `error`, such as an egress refusal, or no result) is no verdict on
+ * the check: the outcome's `negative` says why, the row and the contract
+ * line say so, and a criterion it alone supports is `passed` with a
+ * reservation. One that ran and timed out counts as failed, as any
+ * failing check does.
  */
 
 import type { ContractCheck, ContractCheckNegative } from "./contract.js";

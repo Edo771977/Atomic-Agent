@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ApprovalGate, type ApprovalRequest } from "../../approval/approval-gate.js";
 import type { ContractCheck } from "./contract.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
-import { runContractChecks, type ContractCheckResult, type ContractCheckRunner } from "./contract-checks.js";
+import { applyCheckOutcomes, renderContractLine, runContractChecks, type ContractCheckResult, type ContractCheckRunner } from "./contract-checks.js";
+import type { WorkerTaskResult } from "./worker-result.js";
 import { criteriaFactsFor, taskCriteria } from "./criteria-facts.js";
 import { parseDelegateArgs } from "./delegate-args.js";
 import { checkSpecKey } from "./worker-self-check.js";
@@ -132,5 +133,19 @@ describe("contract check negative control — running", () => {
     const preview = requests.map((r) => r.preview ?? "").join("\n");
     expect(preview).toContain("bad.csv");
     expect(preview).toContain("good.csv");
+  });
+});
+
+describe("contract check negative control — one that could not run is said", () => {
+  const notRun = { task: "t", ok: true, detail: "ok", criteria: ["c1"], negative: "not run: refused by the egress rule" };
+  it("on the row and the contract line", () => {
+    const [row] = applyCheckOutcomes([{ id: "t", status: "ok", notes: [] } as unknown as WorkerTaskResult], [notRun]);
+    expect(row!.notes).toContain("checks: negative control not run — ok (not run: refused by the egress rule)");
+    expect(renderContractLine({ findings: [], checks: [notRun] })).toContain("1 negative control not run");
+  });
+  it("as a reservation on the criterion, never plain green", () => {
+    const criteria = taskCriteria("t", { checks: [CHECK] }, new Map([["c1", { id: "c1", text: "sums per sku" }]]));
+    const [fact] = criteriaFactsFor(criteria, { checks: [CHECK] }, [notRun], undefined);
+    expect(fact).toMatchObject({ id: "c1", state: "passed", reservation: "check 1: its negative control did not run (not run: refused by the egress rule)" });
   });
 });

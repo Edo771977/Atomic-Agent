@@ -77,11 +77,23 @@ export function criteriaFactsFor(
   vision: VisionJudgements | undefined,
 ): ProjectCriterionFact[] {
   const reservations = checkReservations(contract);
+  /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
+  const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
+    if (outcome.negative !== undefined) return `its negative control did not run (${outcome.negative})`;
+    return reservations.get(index);
+  };
   return criteria.map((criterion) => {
     let state: CriterionFactState = "passed";
     let why = "every check naming it passed";
-    // Issue #110: whether a passing check without a lint warning supports it.
+    // Issue #110: whether a passing check with nothing held against it
+    // supports it, and what is held against the others.
     let clean = false;
+    const held = new Map<number, string>();
+    const settle = (index: number, outcome: ContractCheckOutcome): void => {
+      const reason = reservationOf(index, outcome);
+      if (reason === undefined) clean = true;
+      else held.set(index, reason);
+    };
     const note = (next: CriterionFactState, line: string): void => {
       if (RANK[next] > RANK[state]) {
         state = next;
@@ -105,7 +117,7 @@ export function criteriaFactsFor(
         continue;
       }
       if (contract?.checks?.[index]?.judge !== "vision") {
-        if (!reservations.has(index)) clean = true;
+        settle(index, outcome);
         continue;
       }
       if (outcome.screenshotErrors !== undefined && outcome.screenshotErrors.length > 0) {
@@ -122,10 +134,10 @@ export function criteriaFactsFor(
         continue;
       }
       if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
-      else if (!reservations.has(index)) clean = true;
+      else settle(index, outcome);
     }
     if (state !== "passed" || clean) return { id: criterion.id, state, why };
-    const reservation = [...new Set(criterion.checkIndexes.flatMap((i) => (reservations.has(i) ? [`check ${i + 1}: ${reservations.get(i)!}`] : [])))].join("; ");
+    const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
     return reservation.length === 0 ? { id: criterion.id, state, why } : { id: criterion.id, state, why, reservation };
   });
 }
