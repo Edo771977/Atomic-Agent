@@ -127,6 +127,8 @@ export const supplementalFiles = [
   'src/tasks/task-store-open-failure.test.ts',
   'src/tasks/task-store.test.ts',
   'src/import/atomic-desktop/atomic-desktop-importer.test.ts',
+  // Windows 64-bit file ids compared exactly (the importer refused a real source as the target).
+  'src/import/atomic-desktop/same-dir.test.ts',
   'src/local-llm/server/daemon-lifecycle.test.ts',
   'src/local-llm/server/port-holder.test.ts',
   'src/cli/overnight-args.test.ts',
