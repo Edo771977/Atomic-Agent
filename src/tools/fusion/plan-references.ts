@@ -526,7 +526,9 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       for (const ref of symbols) resolved.set(ref, { outcome: "uncheckable", why: "why" in listed ? listed.why : late!.why! });
     } else {
       // One ripgrep over the folder for every symbol: fixed strings, whole words, matches only.
-      const args = ["--no-config", "--fixed-strings", "--word-regexp", "--only-matching", "--no-filename", "--no-line-number", "--max-count", "5",
+      // No --max-count: it caps matching lines per file over all patterns, hiding a later symbol;
+      // the output cap bounds the search instead (over it: uncheckable).
+      const args = ["--no-config", "--fixed-strings", "--word-regexp", "--only-matching", "--no-filename", "--no-line-number",
         "--max-filesize", "1M", "--glob", "!node_modules", "--glob", "!.atomic", ...symbols.flatMap((s) => ["-e", s.value]), "--", "."];
       const out = await deps.runCommand(rgPath!, args, {
         cwd: root, timeoutMs: Math.max(1, timeLeft()), maxOutputBytes: 1024 * 1024, ...(options.signal === undefined ? {} : { signal: options.signal }),

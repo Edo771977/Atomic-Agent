@@ -183,4 +183,17 @@ describe("plan references (issue #120)", () => {
     const report = await checkPlanReferences([row("t1", "Make it nicer")], { root: project({}), deps: noRg });
     expect(report.record).toMatchObject({ verdict: "pass", detail: "The plan cites no file, script, command or symbol.", taskIds: [] });
   });
+
+  it("finds a symbol in a file where another symbol already matched many lines (review #1)", async () => {
+    const root = project({ "a.ts": "Alpha\nAlpha\nAlpha\nAlpha\nAlpha\nexport function Betaxx() {}\n" });
+    const rg = resolveRipgrepPath();
+    // Without ripgrep here, a runner shaped like it: --max-count caps matching lines per file over all patterns.
+    const shaped: PlanReferenceDeps["runCommand"] = async (_c, args) => args.includes("--files") ? result("a.ts\n")
+      : result(args.includes("--max-count") ? "Alpha\nAlpha\nAlpha\nAlpha\nAlpha\n" : "Alpha\nAlpha\nAlpha\nAlpha\nAlpha\nBetaxx\n");
+    const report = await checkPlanReferences([row("t1", "Use `Alpha` and `Betaxx`")], {
+      root, deps: { ...noRg, resolveRgPath: () => rg ?? "/rg", ...(rg === null ? { runCommand: shaped } : {}) },
+    });
+    expect(outcome(report.references, "Alpha")).toBe("verified");
+    expect(outcome(report.references, "Betaxx")).toBe("verified");
+  });
 });
