@@ -193,6 +193,11 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     for (const kind of ["e2e", "page", "game", "visual"]) expect(PROJECT_FLOW_GUIDANCE).toContain(kind);
   });
 
+  it("asks for decisions in the brief and each one cited by a plan task (issue #112)", () => {
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.brief`:.*decisions/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/`project\.plan`:.*each decision.*`decisions`/);
+  });
+
   it("teaches planned checks, exact delegation and updating the plan for a change", () => {
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/plan.*checks/i);
     expect(PROJECT_FLOW_GUIDANCE).toMatch(/negative/);

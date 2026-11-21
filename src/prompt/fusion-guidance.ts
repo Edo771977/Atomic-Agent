@@ -261,8 +261,8 @@ export function isProjectActive(descriptors: readonly ToolDescriptor[]): boolean
  */
 export const PROJECT_FLOW_GUIDANCE = [
   "Three gates; after each, reply and stop:",
-  "1. `project.brief`: what, for whom, how, success criteria.",
-  "2. Once approved, `project.plan`: ordered milestones, task ids and checks.",
+  "1. `project.brief`: what, for whom, how, success criteria, decisions.",
+  "2. Once approved, `project.plan`: ordered milestones, task ids, checks; cite each decision in a task's `decisions`.",
   "3. Delegate approved tasks (same ids/workers/checks, including negative); report with `project.milestone`.",
   "Never delegate while a gate waits; `### fusion project` shows it. To change checks, update the plan and obtain approval.",
   "Map each criterion to plan checks (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`). Resolve fail results before approval; warn results need attention.",
