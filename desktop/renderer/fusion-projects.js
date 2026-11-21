@@ -30,7 +30,7 @@ const FPJ_STATUS = {
   unsupported: {badge: 'Unsupported', todo: 'It was written by a newer Atomic Agent. Update Atomic Agent to open it.'},
   unreadable: {badge: 'Unreadable', todo: 'It could not be read now (permissions, a disk not mounted). Check the folder, then reload the list.'},
 };
-const FPJ = {loading: false, rows: [], registryProblem: null, error: null, unsupported: false, busy: null, forget: null, seq: 0};
+const FPJ = {loading: false, rows: [], registryProblem: null, error: null, unsupported: false, busy: null, forget: null, seq: 0, visit: 0};
 
 const fpjStr = (v) => (typeof v === 'string' ? v : '');
 
@@ -106,8 +106,8 @@ function fpjBodyHTML(state, now, escape) {
         + r.notes.map((n) => '<div class="fpj-note">' + escape(n) + '</div>').join('')
         + (r.todo ? '<div class="fpj-todo">' + escape(r.todo) + '</div>' : '')
         + '<div class="fpj-acts">'
-          + (r.canResume ? '<button class="btn btn-p sm" data-act="fpjresume:' + at + '"' + (state.busy ? ' disabled' : '') + '>' + (busy ? '<span class="tk-spin"></span>' : '') + 'Open</button>' : '')
-          + (r.canForget ? '<button class="btn btn-s sm" data-act="fpjforgetask:' + at + '"' + (state.busy ? ' disabled' : '') + '>Forget…</button>' : '')
+          + (r.canResume ? '<button class="btn btn-p sm" data-act="fpjresume:' + at + '"' + (state.busy || state.loading ? ' disabled' : '') + '>' + (busy ? '<span class="tk-spin"></span>' : '') + 'Resume</button>' : '')
+          + (r.canForget ? '<button class="btn btn-s sm" data-act="fpjforgetask:' + at + '"' + (state.busy || state.loading ? ' disabled' : '') + '>Forget…</button>' : '')
         + '</div></div>';
     }
     html += '</section>';
@@ -162,6 +162,7 @@ async function fusionProjectsLoad() {
 
 function fusionProjectsOpen() {
   if (!fpjApi()) return;
+  FPJ.visit++;
   S.overlay = 'fprojects';
   void fusionProjectsLoad();
 }
@@ -170,43 +171,57 @@ function fusionProjectsOpen() {
 function fusionProjectsHTML() {
   return sheet('Fusion projects', fpjBodyHTML(FPJ, Date.now(), esc),
     '<span class="grow sd-cap">Grouped by what needs you. Forget only takes a folder off this list.</span>'
-    + '<button class="btn btn-s sm" data-act="fpjreload:"' + (FPJ.loading ? ' disabled' : '') + '>Reload</button>'
+    + '<button class="btn btn-s sm" data-act="fpjreload:"' + (FPJ.loading || FPJ.busy ? ' disabled' : '') + '>Reload</button>'
     + '<button class="btn btn-p sm" data-act="close">Done</button>',
     'sheet-fprojects');
 }
 
 async function fusionProjectResume(model) {
   const api = fpjApi();
-  if (!api || FPJ.busy) return;
+  if (!api || FPJ.busy || FPJ.loading) return;
   // As New project: a chat that runs a turn is not left from here.
   if (S.busy) { if (typeof restartRefusedToast === 'function') restartRefusedToast({here: true, title: ''}); return; }
+  const visit = FPJ.visit, session = S.sessionId;
+  const stillHere = () => S.overlay === 'fprojects' && FPJ.visit === visit && S.sessionId === session;
   FPJ.busy = model.folder; render();
   let res;
   try { res = await api.fusionProjectResume(model.folder); } catch (e) { res = {supported: true, ok: false, error: String(e && e.message || e)}; }
-  FPJ.busy = null;
   const out = fpjResumeOutcome(res);
-  if (out.error) { toast('Could not open “' + model.name + '”', out.error, 'bad'); render(); void fusionProjectsLoad(); return; }
-  if (S.overlay === 'fprojects') S.overlay = null;
-  if (out.created && typeof refreshSessions === 'function') void refreshSessions();
-  openSession(out.sessionId);
+  if (out.error) { FPJ.busy = null; toast('Could not open “' + model.name + '”', out.error, 'bad'); render(); void fusionProjectsLoad(); return; }
+  if (typeof PCARD !== 'undefined' && PCARD && Object.prototype.hasOwnProperty.call(res, 'view')) {
+    PCARD.onFrame({sessionId: out.sessionId, view: res.view});
+  }
+  try {
+    if (out.created && typeof refreshSessions === 'function') await refreshSessions();
+    if (stillHere()) {
+      S.overlay = null;
+      await openSession(out.sessionId);
+      if (S.agentSession === out.sessionId && typeof PCARD !== 'undefined' && PCARD) PCARD.show();
+    }
+  } catch (e) {
+    toast('Could not open “' + model.name + '”', String(e && e.message || e), 'bad');
+  } finally {
+    FPJ.busy = null; render();
+  }
 }
 
 async function fusionProjectForget(folder) {
   const api = fpjApi();
-  if (!api || !folder) return;
+  if (!api || !folder || FPJ.busy) return;
+  FPJ.busy = folder; render();
   let res;
   try { res = await api.fusionProjectForget(folder); } catch (e) { res = {supported: true, ok: false, error: String(e && e.message || e)}; }
+  FPJ.busy = null;
   if (!res || res.supported === false || !res.ok) toast('Could not forget the Fusion project', (res && res.error) || 'This agent cannot; update it.', 'bad');
   else toast('Fusion project forgotten', 'Its folder and files are kept');
-  S.overlay = 'fprojects';
   void fusionProjectsLoad();
 }
 
 /** The act verbs this file owns (renderer.js act() hands them over, after closing what was open). */
 function fpjAct(k, v) {
-  const model = () => fpjDrawn(FPJ.rows, Date.now())[Number(v)] || null;
+  const model = () => !FPJ.loading && !FPJ.busy && /^\d+$/.test(v) ? fpjDrawn(FPJ.rows, Date.now())[Number(v)] || null : null;
   if (k === 'fpjopen') { fusionProjectsOpen(); return true; }
-  if (k === 'fpjreload') { S.overlay = 'fprojects'; void fusionProjectsLoad(); return true; }
+  if (k === 'fpjreload') { S.overlay = 'fprojects'; if (!FPJ.busy) void fusionProjectsLoad(); else render(); return true; }
   if (k === 'fpjresume') { const m = model(); S.overlay = 'fprojects'; if (m && m.canResume) void fusionProjectResume(m); else render(); return true; }
   if (k === 'fpjforgetask') {
     const m = model();
@@ -215,7 +230,7 @@ function fpjAct(k, v) {
     S.alert = fpjForgetAlert(m);
     render(); return true;
   }
-  if (k === 'fpjforget') { const folder = FPJ.forget; FPJ.forget = null; void fusionProjectForget(folder); return true; }
+  if (k === 'fpjforget') { const folder = FPJ.forget; FPJ.forget = null; if (folder) { S.overlay = 'fprojects'; void fusionProjectForget(folder); } return true; }
   return false;
 }
 

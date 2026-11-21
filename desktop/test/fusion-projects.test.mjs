@@ -8,9 +8,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const F = require('../renderer/fusion-projects.js');
+
+function projectsWindow(api = {}) {
+  const calls = {opened: [], toasts: [], refreshes: 0};
+  const context = vm.createContext({
+    BR: {fusionProjects: async () => ({supported: true, ok: true, projects: ROWS}), ...api},
+    S: {overlay: null, alert: null, busy: false},
+    render() {}, esc,
+    toast: (...args) => calls.toasts.push(args),
+    refreshSessions: async () => { calls.refreshes++; },
+    openSession: async (id) => calls.opened.push(id),
+  });
+  vm.runInContext(readFileSync(new URL('../renderer/fusion-projects.js', import.meta.url), 'utf8'), context);
+  return {calls, context, state: vm.runInContext('FPJ', context)};
+}
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 const DAY = 86_400_000;
 const NOW = 1_000 * DAY;
@@ -102,4 +118,104 @@ test('the list opens from the Projects header in the sidebar, and its script is 
   const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(renderer, /S\.overlay === 'fprojects'\) html \+= fusionProjectsHTML\(\)/);
   assert.match(renderer, /fpjAct\(k, v\)/);
+});
+
+test('reload keeps row actions unavailable until the new draw order is known', () => {
+  const html = F.fpjBodyHTML({rows: ROWS, loading: true}, NOW, esc);
+  for (const button of html.matchAll(/<button[^>]*data-act="fpj(?:resume|forgetask):[^>]*>/g)) {
+    assert.match(button[0], / disabled/, 'an old index cannot act on a newly loaded row');
+  }
+});
+
+test('opening, reloading and forgetting use the bridge; forget needs confirmation and runs only once', async () => {
+  const forgotten = [];
+  let finish;
+  const w = projectsWindow({fusionProjectForget: (folder) => {
+    forgotten.push(folder);
+    return new Promise((resolve) => { finish = resolve; });
+  }});
+  w.context.fpjAct('fpjopen');
+  await settle();
+  assert.equal(w.context.S.overlay, 'fprojects');
+  assert.equal(w.state.rows.length, ROWS.length);
+  w.context.fpjAct('fpjforgetask', '0');
+  assert.deepEqual(forgotten, [], 'opening the confirmation sends nothing');
+  assert.match(w.context.S.alert.msg, /files are not touched/);
+  w.context.fpjAct('fpjforget');
+  assert.deepEqual(forgotten, ['/w/new'], 'the sorted row is the confirmed folder');
+  assert.equal(w.state.busy, '/w/new');
+  w.context.fpjAct('fpjforget');
+  assert.equal(forgotten.length, 1);
+  w.context.S.overlay = 'settings';
+  finish({supported: true, ok: true, forgotten: true});
+  await settle();
+  assert.equal(w.state.busy, null);
+  assert.equal(w.context.S.overlay, 'settings', 'completion does not reopen a dismissed sheet');
+});
+
+test('resume opens the named chat after refreshing the list; a refused resume reports why', async () => {
+  let refreshed;
+  const w = projectsWindow({fusionProjectResume: async () => ({supported: true, ok: true, sessionId: 's-new', created: true})});
+  w.context.refreshSessions = () => new Promise((resolve) => { refreshed = resolve; });
+  w.state.rows = ROWS;
+  w.context.fpjAct('fpjresume', '0');
+  await settle();
+  assert.deepEqual(w.calls.opened, [], 'the new chat must be in the sidebar before opening it');
+  refreshed();
+  await settle();
+  assert.deepEqual(w.calls.opened, ['s-new']);
+  assert.equal(w.context.S.overlay, null);
+  w.context.BR.fusionProjectResume = async () => ({supported: true, ok: false, error: 'project.json is damaged'});
+  w.context.fpjAct('fpjresume', '0');
+  await settle();
+  assert.match(w.calls.toasts.at(-1)[1], /damaged/);
+  assert.equal(w.context.S.overlay, 'fprojects');
+});
+
+test('closing the sheet or switching chat while resume waits does not navigate back', async () => {
+  let finish;
+  const w = projectsWindow({fusionProjectResume: () => new Promise((resolve) => { finish = resolve; })});
+  w.state.rows = ROWS;
+  w.context.fpjAct('fpjresume', '0');
+  w.context.S.overlay = null;
+  w.context.S.sessionId = 'another-chat';
+  finish({supported: true, ok: true, sessionId: 's-resumed', created: false});
+  await settle();
+  assert.deepEqual(w.calls.opened, []);
+  assert.equal(w.context.S.sessionId, 'another-chat');
+});
+
+test('resuming the chat already on screen reveals its waiting gate again', async () => {
+  const w = projectsWindow({fusionProjectResume: async () => ({supported: true, ok: true, sessionId: 's-open', created: false})});
+  const frames = [];
+  let shown = 0;
+  w.context.PCARD = {onFrame: (frame) => frames.push(frame), show: () => { shown++; }};
+  const view = {schema: 1, sessionId: 's-open', gate: {kind: 'plan'}, version: 4};
+  w.context.BR.fusionProjectResume = async () => ({supported: true, ok: true, sessionId: 's-open', view});
+  w.state.rows = ROWS;
+  w.context.S.sessionId = 's-open';
+  w.context.S.agentSession = 's-open';
+  w.context.fpjAct('fpjresume', '0');
+  await settle();
+  assert.equal(shown, 1);
+  assert.equal(frames.at(-1)?.view, view, 'resume carries the current gate, including outside edits');
+});
+
+test('stale list responses are ignored and failed reads can be retried', async () => {
+  const pending = [];
+  const w = projectsWindow({fusionProjects: () => new Promise((resolve) => pending.push(resolve))});
+  w.context.fpjAct('fpjopen');
+  w.context.fpjAct('fpjreload');
+  pending[1]({supported: true, ok: true, projects: [ROWS[2]]});
+  await settle();
+  pending[0]({supported: true, ok: true, projects: ROWS});
+  await settle();
+  assert.equal(w.state.rows.length, 1);
+  w.context.BR.fusionProjects = async () => { throw new Error('agent disconnected'); };
+  await w.context.fusionProjectsLoad();
+  assert.equal(w.state.error, 'agent disconnected');
+  w.context.BR.fusionProjects = async () => ({supported: true, ok: true, projects: ROWS});
+  await w.context.fusionProjectsLoad();
+  assert.equal(w.state.error, null);
+  assert.equal(w.state.rows.length, ROWS.length);
 });

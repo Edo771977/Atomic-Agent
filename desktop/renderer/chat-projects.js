@@ -567,10 +567,11 @@ function projectsSidebarHTML(groups, folders) {
   const plus = typeof lucideIcon === 'function' ? lucideIcon('folderPlus') : ic('folder');
   return '<div class="sb-list sb-folders sb-projects' + (items.length ? '' : ' sb-projects-empty') + '" data-list="projects">'
     + '<div class="sb-list-head micro"><span>Projects</span>'
+      + '<button class="iconbtn sb-add sb-pnew" data-act="pnew:" title="New project" aria-label="New project">' + plus + '</button>'
       /* Issue #109: the Fusion projects this computer knows (fusion-projects.js). */
       + (typeof fusionProjectsOpen === 'function' && typeof BR !== 'undefined' && BR && typeof BR.fusionProjects === 'function'
         ? '<button class="iconbtn sb-add sb-fpj" data-act="fpjopen:" title="Fusion projects: what waits for you" aria-label="Fusion projects">' + (typeof lucideIcon === 'function' ? lucideIcon('sparkles') : ic('folder')) + '</button>' : '')
-      + '<button class="iconbtn sb-add sb-pnew" data-act="pnew:" title="New project" aria-label="New project">' + plus + '</button></div>'
+      + '</div>'
     + cut.shown.map((g) => {
       const folder = g.kind === 'folder';
       const shut = folder ? g.item.collapsed : projectCollapsed(g.id);
