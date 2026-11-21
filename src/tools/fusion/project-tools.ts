@@ -6,6 +6,7 @@ import {
   MILESTONE_KINDS,
   PROJECT_LIMITS,
   PROJECT_DELIVERABLES,
+  activeDecisionsOf,
   normalizeCriterionId,
   planDecisionsOf,
   planTotals,
@@ -597,6 +598,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
+      }
+      // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
+      const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
+      const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));
+      if (decisions.length > 0) {
+        const line = `Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): ${decisions.map((d) => `${d.id} (${d.text})`).join(", ")}.`;
+        report = { ...report, summary: `${report.summary}\n${line}` };
+        lines.push(line);
       }
       return accepted(
         PROJECT_MILESTONE_TOOL,
