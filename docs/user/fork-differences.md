@@ -66,6 +66,8 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 - **Two chats cannot approve the same gate twice.** The second one is told the gate was already decided.
 - **Old chats move over on first open,** with their approvals, verdicts and evidence.
 - **`atomic-agent projects list`** shows each project with what waits for you and what is next; **`atomic-agent project resume <folder>`** opens a chat on it at the waiting gate. A damaged file, or one written by a newer version, is reported and not opened.
+- **The desktop's Fusion projects button**, beside New project in the sidebar's Projects heading, lists all projects known to the agent, including those whose chats were deleted. Groups are Needs you, Problem, In progress, Idle (more than seven days without activity), then Done, newest first within each. Rows show name, folder, waiting gate, next action, last activity and recorded spend. Missing, damaged or unsupported projects show their reason too. Resume opens or creates the project's chat and shows its waiting gate; Forget asks first and removes only the list entry, keeping every file and chat. Reload updates the list. The CLI's text and `--json` rows also include the attention zone (`zone` in JSON).
+- **A gate changed outside Atomic Agent is marked on the desktop card**, asking you to review it before approving. A project that cannot open shows its problem and recovery advice in the chat; nothing is approved automatically.
 
 ### Milestone verdicts stay tied to their work
 
