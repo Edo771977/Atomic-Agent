@@ -208,4 +208,60 @@ describe("runtime lifecycle ownership", () => {
     expect(events.filter((event) => !event.startsWith("backfill."))).toEqual(order);
   });
 
+  it("reports each teardown step to an optional phase hook, in order, around the work it does (issue #106)", async () => {
+    const events: string[] = [];
+    const { resources } = fixture(events);
+    const lifecycle = createRuntimeLifecycle({
+      ...resources,
+      telegramChannelForShutdown: { stop: async () => { events.push("telegram.stop"); throw new Error("down"); } },
+      traceExport: { shutdown: async () => { events.push("traces.stop"); } },
+    });
+    const oks: Record<string, boolean | undefined> = {};
+    await lifecycle.shutdown({
+      onPhase: (phase, edge, ok) => {
+        events.push(`${edge === "enter" ? ">" : "<"}${phase}`);
+        if (edge === "exit") oks[phase] = ok;
+      },
+    });
+    const work = events.filter((event) => !/^[<>]/.test(event) && !event.startsWith("warn:"));
+    expect(work).toEqual([...order, "traces.stop"]);
+    const phases = events.filter((event) => /^[<>]/.test(event));
+    // Every step enters and exits once, the next one only after the last ended.
+    for (let i = 0; i < phases.length; i += 2) {
+      expect(phases[i]!.startsWith(">")).toBe(true);
+      expect(phases[i + 1]).toBe(`<${phases[i]!.slice(1)}`);
+    }
+    const names = phases.filter((event) => event.startsWith(">")).map((event) => event.slice(1));
+    expect(names).toEqual([
+      "compaction", "release-turns", "task-runner-stop", "scheduler-stop", "steering-clear", "shell-jobs",
+      "language-servers", "reflection-abort", "pending-aborts", "embedding-backfill-stop", "approval-pending",
+      "telegram", "discord", "swarm", "channels", "plugin-mcp-watch", "mcp", "browser", "turns-settle",
+      "release-turns-final", "session-store-close", "profile-store-close", "lesson-store-close",
+      "procedure-store-close", "embedding-backfill-wait", "notes-store-close", "scheduler-wait",
+      "task-runs-wait", "consolidator", "task-store-close", "analytics", "error-reporter", "trace-export",
+    ]);
+    const within = (phase: string, work: string): void => {
+      expect(events.indexOf(`>${phase}`)).toBeLessThan(events.indexOf(work));
+      expect(events.indexOf(work)).toBeLessThan(events.indexOf(`<${phase}`));
+    };
+    within("mcp", "mcp.stop");
+    within("browser", "browser.stop");
+    within("turns-settle", "turns.settle:1500");
+    within("notes-store-close", "notes.close");
+    within("consolidator", "consolidator.stop");
+    within("analytics", "analytics.stop");
+    within("error-reporter", "reporter.stop");
+    within("trace-export", "traces.stop");
+    expect(oks.telegram).toBe(false);
+    expect(oks.mcp).toBe(true);
+  });
+
+  it("finishes the teardown when the phase hook itself throws", async () => {
+    const events: string[] = [];
+    const { resources } = fixture(events);
+    const lifecycle = createRuntimeLifecycle(resources);
+    await lifecycle.shutdown({ onPhase: () => { throw new Error("hook broke"); } });
+    expect(events).toEqual(order);
+  });
+
 });

@@ -1135,10 +1135,28 @@ export function registerRuntimeFusionAndReadScope(input: {
             // Cost tracking never takes an escalation down.
           }
         }
+        // The model that effectively answered (issue #98). A subscription
+        // CLI echoes its configured model when it reports none: only one
+        // that differs from what it was asked for counts as reported.
+        const reportedModel = (() => {
+          const id = result.modelId ?? undefined;
+          if (id === undefined || id.length === 0) return undefined;
+          const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
+          if (entry?.kind !== "subscription-cli") return id;
+          const asked = model ?? provider.chatModelId ?? entry.defaultChatModel ?? entry.model;
+          return id === asked || id === "default" ? undefined : id;
+        })();
         return {
           content: result.content,
           ...(result.usage === undefined ? {} : { usage: result.usage }),
+          ...(reportedModel === undefined ? {} : { model: reportedModel }),
         };
+      },
+      // In the order the completion seam asks for a model: the provider's own first.
+      resolveDefaultModel: (providerId: string) => {
+        const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
+        const id = providerRegistry.getProvider(providerId)?.chatModelId ?? entry?.defaultChatModel ?? entry?.model;
+        return typeof id === "string" && id.length > 0 && id !== "default" ? id : undefined;
       },
       ...(liveWorkers === undefined ? {} : { liveWorkers }),
       ...(steerWorker === undefined ? {} : { steerWorker }),
@@ -1231,6 +1249,16 @@ export function registerRuntimeFusionAndReadScope(input: {
   // `project.plan` assigns and estimates from the same live team, policy
   // and outcome history the fan-out routes by.
   for (const tool of buildProjectTools({
+    // Issue #100: a correction round needs budget left on the turn's caps.
+    correctionBudgetLeft: (sessionId) => {
+      if (turnBudget === undefined) return true;
+      const mode = resolveCurrentRunMode();
+      const limits = {
+        ...(mode.turnBudgetUsd === undefined ? {} : { usd: mode.turnBudgetUsd }),
+        ...(mode.turnTimeBudgetMs === undefined ? {} : { timeMs: mode.turnTimeBudgetMs }),
+      };
+      return turnBudget.check(sessionId, limits) === undefined;
+    },
     planContext: () => {
       const mode = resolveCurrentRunMode();
       return liveProjectInputsFrom({

@@ -53,11 +53,12 @@ export function handleProjectCardKey(
   if (card.mode === "note") {
     if (key.return) {
       const note = card.note.trim();
+      const overReview = card.noteFor === "approveOverReview";
       if (note.length === 0) {
-        dispatch({ type: "project_card_failed", error: "Type the correction first." });
+        dispatch({ type: "project_card_failed", error: overReview ? "Type why you approve over the open review first." : "Type the correction first." });
         return;
       }
-      send({ ...base, verdict: "edit", edits: { note } });
+      send({ ...base, verdict: overReview ? "approveOverReview" : "edit", edits: { note } });
       return;
     }
     if (key.backspace || key.delete) {
@@ -103,6 +104,11 @@ export function handleProjectCardKey(
   run(picked.verdict);
 
   function run(verdict: ProjectVerdict): void {
+    if (verdict === "approveOverReview") {
+      // Issue #98: the person's reason goes with it.
+      dispatch({ type: "project_card_mode_set", mode: "note", noteFor: "approveOverReview" });
+      return;
+    }
     if (verdict !== "edit") {
       send({ ...base, verdict });
       return;

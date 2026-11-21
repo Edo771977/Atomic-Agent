@@ -40,6 +40,8 @@ import {
 import {
   WorkerRunCollector,
   WORKER_QUEUED_NOTE,
+  TIMED_OUT_AFTER_RUN_NOTE,
+  OUT_OF_STEPS_AFTER_RUN_NOTE,
   formatWaitMs,
   queuedWorkerHint,
   unservedWorkerHint,
@@ -91,11 +93,15 @@ import {
   describeSelfCheck,
   hasFindings,
   ownChecks,
+  checkSpecKey,
   renderSelfCheckNotice,
   runSelfCheck,
+  GREEN_CHECK_REPEAT_LIMIT,
 } from "./worker-self-check.js";
 import { describeStalledWrite, RepeatedWritesTracker, specNames, type StalledWrite } from "./worker-repeated-writes.js";
-import { AttemptFilesTracker } from "./attempt-evidence.js";
+import { AttemptFilesTracker, fileSha256 } from "./attempt-evidence.js";
+import { ExecutionEvidenceTracker, runPassed } from "./execution-evidence.js";
+import { guardVerifiedVersion, verifiedSnapshot, WorkerWriteHashes } from "./verified-version.js";
 import { WrittenFilesTracker } from "./worker-files-written.js";
 import { estimatedOutputTokens } from "./worker-fit.js";
 
@@ -1559,10 +1565,28 @@ async function runOneTask(
   const repeatedWrites = new RepeatedWritesTracker(READ_ONLY_TOOLS, workingDir);
   // This attempt's file evidence for the reviewer (issue #95).
   const attemptFiles = new AttemptFilesTracker(workingDir);
+  // Its test runs as the tool results showed them (issue #102): kept on
+  // the attempt even when the worker times out before its summary.
+  const executionEvidence = new ExecutionEvidenceTracker(
+    workingDir,
+    task.files ?? [],
+    (args) => ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === checkSpecKey(args)),
+    () => {
+      // Unavailable metadata still leaves the pattern masking.
+      try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
+    },
+    // Runs of one check are counted together however the worker spelled it (issue #106).
+    // A shell run is counted by its command line, its alias forms read as `cmd` (`commandOf`).
+    (tool, args) => (tool === "verify.run" ? checkSpecKey(args) : undefined),
+  );
   let stalledWrite: StalledWrite | undefined;
+  // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on
+  // unchanged files (issue #98): passed and current, the worker stops as done.
+  let passedAndCurrent: { spec: string; runs: number } | undefined;
   /** Feeds the write trackers; true when the call rewrote a file with the bytes it held. */
-  const noteWriteOutcome = (result: { tool: string; status: string; details?: Record<string, unknown> }, batchIndex: number): boolean => {
+  const noteWriteOutcome = (result: { tool: string; status: string; summary: string; details?: Record<string, unknown>; fullOutput?: string }, batchIndex: number): boolean => {
     attemptFiles.observeExecuted(result, batchIndex);
+    executionEvidence.observeExecuted(result, batchIndex);
     const { identical, repeat } = repeatedWrites.observeExecuted(result, batchIndex);
     if (repeat === undefined || stalledWrite !== undefined || stopByWatch.signal.aborted) return identical;
     const last = checkRuns.lastRunOutcome();
@@ -1927,6 +1951,11 @@ async function runOneTask(
       ...(watchPlan.clock === undefined ? {} : { clock: watchPlan.clock }),
     });
   };
+  // A verify-only task (issue #100): its declared files, when the task's
+  // own checks pass on them now, are the verified version to keep.
+  const verified = await verifiedSnapshot(task, options.contract, workingDir, deps.runChecks, options.signal);
+  // What the worker's own writes left in each file: only those bytes may be replaced.
+  const workerWrites = new WorkerWriteHashes(workingDir);
   let result: WorkerTaskResult;
   try {
     const workerTurnOptions = (
@@ -2005,6 +2034,8 @@ async function runOneTask(
           filesWritten.observeParsed(event.event.call, event.event.batchIndex);
           repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
           attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
+          executionEvidence.observeParsed(event.event.call, event.event.batchIndex);
+          workerWrites.observeParsed(event.event.call, event.event.batchIndex);
           try {
             options.onWorkerTool?.(task.id, event.event.call.tool);
           } catch {
@@ -2066,6 +2097,7 @@ async function runOneTask(
           }
           // The write trackers first: an identical rewrite does not make an earlier check stale.
           const identical = noteWriteOutcome(result, event.event.batchIndex);
+          workerWrites.observeExecuted(result, event.event.batchIndex);
           checkRuns.executed(
             result.tool,
             result.status,
@@ -2073,6 +2105,17 @@ async function runOneTask(
             stepsFinished,
             identical,
           );
+          if (result.tool === "verify.run" && result.status === "ok" && passedAndCurrent === undefined && !stopByWatch.signal.aborted) {
+            const green = checkRuns.greenRunsInARow();
+            // Only the task's own contract check counts, and only after the
+            // attempt wrote something: a `node -e 0`, or a check run before
+            // any edit, says nothing about this task's work (issue #98 review).
+            const ownSpec = green !== undefined && ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === green.spec);
+            if (green !== undefined && ownSpec && wroteSomething && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
+              passedAndCurrent = green;
+              stopByWatch.abort(new Error("passed and current: the same check passed on unchanged files"));
+            }
+          }
           if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
             announceUsage(0, true);
           }
@@ -2334,6 +2377,7 @@ async function runOneTask(
               );
               repeatedWrites.observeParsed(event.event.call, event.event.batchIndex);
               attemptFiles.observeParsed(event.event.call, event.event.batchIndex);
+              executionEvidence.observeParsed(event.event.call, event.event.batchIndex);
               try {
                 options.onWorkerTool?.(task.id, event.event.call.tool);
               } catch {
@@ -2424,8 +2468,31 @@ async function runOneTask(
   if (stopByWatch.signal.aborted) {
     const record = watchRecord;
     const checks = record?.checks ?? 0;
-    const { finishedWithoutReply: _unvouched, ...rest } = result;
-    result = stalledWrite !== undefined
+    const { finishedWithoutReply: _unvouched, error: _stopError, failure: _failure, ...rest } = result;
+    const last = stalledWrite?.lastCheck;
+    // A stalled worker whose file passed a check naming it after its last
+    // change, or one that kept re-running a green check on unchanged
+    // files, is done (issue #98): its artifact is kept for the director,
+    // the milestone does not fail and its dependents run.
+    const usable = last !== undefined && last.sinceLastChange && last.ok && last.coversFile;
+    // A stalled write decides first: green checks never override it unless its check covers the file.
+    result = passedAndCurrent !== undefined && (stalledWrite === undefined || usable)
+      ? {
+          ...rest,
+          status: "ok",
+          notes: [
+            ...(rest.notes ?? []),
+            `stopped: the check ${passedAndCurrent.spec.slice(0, 120)} passed ${passedAndCurrent.runs} times in a row on unchanged files: passed and current; the work is kept as done`,
+          ],
+        }
+      : stalledWrite !== undefined && usable
+      ? {
+          ...rest,
+          status: "ok",
+          stalled: stalledWrite,
+          notes: [...(rest.notes ?? []), `${describeStalledWrite(stalledWrite)}; kept as done: its last check passed after its last change`],
+        }
+      : stalledWrite !== undefined
       ? { ...rest, status: "failed", failure: "stuck", stalled: stalledWrite, error: describeStalledWrite(stalledWrite) }
       : {
           ...rest,
@@ -2436,7 +2503,10 @@ async function runOneTask(
   }
   {
     const files = attemptFiles.finish();
-    if (files !== undefined) result = { ...result, attempt: files };
+    const executed = executionEvidence.recorded();
+    if (files !== undefined || executed.length > 0) {
+      result = { ...result, attempt: { ...(files ?? { wrote: [], alreadyApplied: [] }), ...(executed.length === 0 ? {} : { executed }) } };
+    }
   }
   if (personNotes.length > 0) {
     // The orchestrator reads the row: a worker that changed course on
@@ -2479,8 +2549,53 @@ async function runOneTask(
   // because an operator who cancelled a worker cancelled it. Here the
   // worker's OWN timer is what ended the turn, and the orchestrator's
   // remedy for that is a longer deadline, not a bigger step budget.
+  // Out of time or out of steps after its own checks passed on its own
+  // work (issues #102, #106): the row goes on to its checks and review
+  // like a reply would, with no new worker; the gate re-runs the task's
+  // own checks on the files as they are now. Only when all of these
+  // hold: the attempt wrote a declared file, the worker's last check run
+  // is one of the task's own contract checks, passed after its last
+  // change, and the declared files still hash as that run recorded them.
+  const recoverableAfterRun = (): { command: string } | undefined => {
+    const declared = task.files ?? [];
+    const own = ownChecks(options.contract, task.id);
+    const lastVerify = executionEvidence.recorded().filter((r) => r.tool === "verify.run").at(-1);
+    const recovered =
+      declared.length > 0 && own.length > 0 &&
+      // A verify-only task is done by writing nothing (issue #104); its files must still hash as its run saw them.
+      (task.verifyOnly === true || attemptFiles.wroteOneOf(declared)) &&
+      checkRuns.lastRunPassedOneOf(own) &&
+      lastVerify !== undefined && runPassed(lastVerify) &&
+      lastVerify.files.length > 0 &&
+      lastVerify.files.every((f) => f.sha256 !== undefined && fileSha256(workingDir, f.path) === f.sha256) &&
+      !stopByPerson.signal.aborted && !options.signal.aborted;
+    return recovered ? { command: lastVerify!.command } : undefined;
+  };
   if (timedOutOutcome) {
-    result = { ...result, status: "timeout" };
+    const recovered = recoverableAfterRun();
+    result = recovered !== undefined
+      ? {
+          ...result,
+          status: "ok",
+          timedOutAfterRun: true,
+          // One note in place of the time-limit "split it" advice: the work is done, only the reply is missing.
+          notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its time limit")), TIMED_OUT_AFTER_RUN_NOTE],
+        }
+      : { ...result, status: "timeout" };
+  } else if (
+    result.status === "max_steps" &&
+    // Its step limit only: a spend, credit or no-progress stop says the turn should stop, not that the work is done.
+    !(result.notes ?? []).some((n) => /^stopped (because the provider is out of credit|at its spend limit|after a whole leg of steps made no progress)/.test(n))
+  ) {
+    const recovered = recoverableAfterRun();
+    if (recovered !== undefined) {
+      result = {
+        ...result,
+        status: "ok",
+        outOfStepsAfterRun: true,
+        notes: [...(result.notes ?? []).filter((n) => !n.startsWith("stopped at its step limit")), OUT_OF_STEPS_AFTER_RUN_NOTE],
+      };
+    }
   }
 
   if (escalationNotes.length > 0) {
@@ -2628,6 +2743,26 @@ async function runOneTask(
     };
   }
 
+  // A verify-only task's changed files are checked again against its own
+  // checks; the verified version is put back when the new one fails.
+  if (verified !== undefined) {
+    const regressed = await guardVerifiedVersion({
+      verified,
+      task,
+      contract: options.contract,
+      workingDir,
+      writeScope: isolated?.writeScope ?? options.writeScope ?? [],
+      isolated: isolated !== undefined,
+      runChecks: deps.runChecks,
+      signal: options.signal,
+      writes: workerWrites,
+    });
+    // A regression is never `ok`, restored or not (issue #100).
+    if (regressed !== undefined) {
+      result = { ...result, status: "failed", failure: "regressed-verified", error: regressed, notes: [...(result.notes ?? []), regressed] };
+    }
+  }
+
   // Ground truth before the orchestrator reads the reply: a worker that
   // says it wrote a file it never wrote must not come back `ok`, and one
   // that wrote nothing at all is `no_changes`. Only for statuses that
@@ -2677,6 +2812,7 @@ async function runOneTask(
     result = applyNoChangesRule(
       applyDeclaredFileReport(result, report),
       report,
+      { verifyOnly: task.verifyOnly === true },
     );
   }
 

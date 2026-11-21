@@ -88,6 +88,17 @@ export interface ReviewOutcome {
   decision: ReviewDecision;
   passes: number;
   reviewer: string | null;
+  /** The reviewer's provider (issue #98); absent on older records. */
+  reviewerProvider?: string;
+  /** The model it effectively ran, when the provider reported one. */
+  reviewerModel?: string;
+  /** The plan row's reviewer ref, when it names a different member. */
+  reviewerPlanRef?: string;
+  /**
+   * `facts`: red facts decided the verdict and no reviewer was asked
+   * (issue #100 review); such a verdict is no evidence about the reviewer.
+   */
+  reviewerSource?: "facts";
   blockers: number;
   majors: number;
   minors: number;
@@ -334,15 +345,22 @@ export function reviewOutcome(
   verdict: {
     decision: ReviewDecision;
     reviewer: string | null;
+    reviewerIdentity?: { provider: string; model?: string; planRef?: string; source?: "facts" };
     issues: ReadonlyArray<{ severity: "blocker" | "major" | "minor" }>;
   },
   passes: number,
 ): ReviewOutcome {
   const count = (severity: string): number => verdict.issues.filter((i) => i.severity === severity).length;
+  const who = verdict.reviewerIdentity;
   return {
     decision: verdict.decision,
     passes: Number.isFinite(passes) ? Math.max(0, Math.floor(passes)) : 0,
     reviewer: verdict.reviewer === null ? null : outcomeLabel(verdict.reviewer),
+    // Issue #98: the provider and effective model, and the plan's ref when it differs.
+    ...(who === undefined ? {} : { reviewerProvider: outcomeLabel(who.provider) }),
+    ...(who?.model === undefined ? {} : { reviewerModel: outcomeLabel(who.model) }),
+    ...(who?.planRef === undefined ? {} : { reviewerPlanRef: outcomeLabel(who.planRef) }),
+    ...(who?.source === "facts" ? { reviewerSource: "facts" as const } : {}),
     blockers: count("blocker"),
     majors: count("major"),
     minors: count("minor"),
@@ -362,6 +380,7 @@ export function readReviewOutcome(row: TaskOutcomeRecord): ReviewOutcome | undef
     decision: r.decision as ReviewDecision,
     passes: r.passes,
     reviewer: r.reviewer,
+    ...(r.reviewerSource === "facts" ? { reviewerSource: "facts" as const } : {}),
     blockers: r.blockers,
     majors: r.majors,
     minors: r.minors,

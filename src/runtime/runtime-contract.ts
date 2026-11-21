@@ -984,7 +984,10 @@ export interface AgentRuntime {
   shutdown(options?: RuntimeShutdownOptions): Promise<void>;
 }
 
-/** Why the runtime is being shut down, where it matters to what it leaves behind. */
+/**
+ * Why the runtime is being shut down, where it matters to what it leaves
+ * behind, and an optional observation of the teardown (issue #106).
+ */
 export interface RuntimeShutdownOptions {
   /**
    * The process is ending itself because it is unhealthy (the serve
@@ -994,6 +997,13 @@ export interface RuntimeShutdownOptions {
    * times (ATO-1419).
    */
   crashed?: boolean;
+  /**
+   * `onPhase` hears each teardown step enter and exit, in order, with
+   * whether it went through (`ok`, on the exit). Observation only: a hook
+   * that throws is ignored. Absent, nothing is reported. A second call
+   * reports nothing.
+   */
+  onPhase?: (phase: string, edge: "enter" | "exit", ok?: boolean) => void;
 }
 
 /** One unfinished fusion run, as `AgentRuntime.fusionRuns` lists it. */

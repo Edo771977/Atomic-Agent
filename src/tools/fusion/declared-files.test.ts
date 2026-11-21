@@ -189,6 +189,17 @@ describe("applyNoChangesRule", () => {
     ]);
   });
 
+  it("a verify-only task that changed nothing is still no_changes, flagged for the delegate's check (issue #104 review)", () => {
+    const result = applyNoChangesRule(row(), untouched, { verifyOnly: true });
+    expect(result.status).toBe("no_changes");
+    expect(result.verifyOnlyUnchanged).toBe(true);
+    expect(result.notes?.join("\n")).not.toMatch(/name the file and the exact edit/);
+    expect(result.notes?.join("\n")).toContain("it closes only when a review is already recorded on exactly these files");
+    // A verify-only task that did change a file is judged as any other.
+    const wrote = row({ tools: { calls: 1, errors: 0, writes: 1, byTool: { "os.fs.write": 1 } } });
+    expect(applyNoChangesRule(wrote, untouched, { verifyOnly: true })).toBe(wrote);
+  });
+
   it("leaves the task ok when either a write call succeeded or the disk shows a change", () => {
     // A successful write whose target is not among the declared files
     // (or the declared files are globs): the call is the evidence.

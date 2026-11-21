@@ -4,7 +4,7 @@
  * review verdict is listed, in the fan-out result and the milestone report.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -163,6 +163,7 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       const listed = result.details.noReviewVerdict as Array<{ taskId: string; reason: string }>;
       expect(listed).toEqual([{ taskId: "tests", reason: expect.stringMatching(/^the task ended failed before review: /) }]);
       expect(result.summary).toMatch(/no review verdict: tests \(the task ended failed before review/);
+      expect(result.summary).toMatch(/re-delegate each with its own task id/);
       // The milestone report reads it from the run.
       const runId = result.details.runId as string;
       const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: [] });
@@ -246,6 +247,64 @@ describe("reviewer evidence across attempts (issue #95)", () => {
       }
       expect(tracker.finish()?.wrote.map((w) => w.path)).toEqual(["a.js"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a re-delegated task that changes nothing is re-reviewed on its unchanged files (issue #98)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "attempt-rereview-"));
+    try {
+      writeFileSync(join(dir, "sales.test.cjs"), "test('sums', () => {});\n");
+      // Written by an earlier attempt, well before this one.
+      utimesSync(join(dir, "sales.test.cjs"), new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+      const prompts: string[] = [];
+      const runTurn: FusionDelegateDeps["runTurn"] = async (session) =>
+        ({ session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 }) as RunTurnResult;
+      const complete: EscalationComplete = async (call) => {
+        prompts.push(call.prompt);
+        return { content: review("accept") };
+      };
+      const result = await buildFusionDelegateTool(deps(dir, complete, runTurn)).run({
+        tasks: [{ id: "tests", title: "Tests", instructions: "report the suite's counts for sales.test.cjs", files: ["sales.test.cjs"] }],
+        contract: { checks: [{ task: "tests", type: "command", command: "node --test sales.test.cjs" }] },
+      }, ctx(dir));
+      const row = (result.details.tasks as Array<{ status: string; review?: { decision: string } }>)[0]!;
+      expect(row.status).toBe("no_changes");
+      expect(prompts).toHaveLength(1);
+      expect(row.review?.decision).toBe("accept");
+      expect(result.details.noReviewVerdict).toBeUndefined();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("records the reviewer's provider and effective model on the row, the outcome record and the run's reviews (issue #98)", async () => {
+    for (const reported of ["model-r-2026-11", undefined]) {
+      const dir = mkdtempSync(join(tmpdir(), "attempt-reviewer-"));
+      const state = mkdtempSync(join(tmpdir(), "attempt-reviewer-state-"));
+      try {
+        const runsDir = join(state, "fusion-runs");
+        const records: Array<Record<string, unknown>> = [];
+        const runTurn: FusionDelegateDeps["runTurn"] = async (session) => {
+          writeFileSync(join(dir, "sales.cjs"), `${NEW}\n`);
+          return { session: createEmptySessionState({ id: session.id, workingDir: dir }), reason: "reply", stepCount: 1 } as RunTurnResult;
+        };
+        // A subscription CLI that reports no model answers without one.
+        const complete: EscalationComplete = async () => ({ content: review("accept"), ...(reported === undefined ? {} : { model: reported }) });
+        const result = await buildFusionDelegateTool(deps(dir, complete, runTurn, {
+          runCheckpoints: new FusionRunStore({ dir: runsDir }),
+          outcomeLog: { append: (rows) => { records.push(...(rows as unknown as Array<Record<string, unknown>>)); } },
+        })).run({ tasks: [{ id: "impl", title: "Impl", instructions: "write sales.cjs", files: ["sales.cjs"] }] }, ctx(dir));
+        const identity = reported === undefined ? { provider: "cli-b" } : { provider: "cli-b", model: reported };
+        const row = (result.details.tasks as Array<{ review?: { reviewerIdentity?: unknown } }>)[0]!;
+        expect(row.review?.reviewerIdentity).toEqual(identity);
+        const task = records.find((r) => r.type === "task") as { review?: Record<string, unknown> };
+        expect(task.review).toMatchObject({ reviewerProvider: "cli-b", ...(reported === undefined ? {} : { reviewerModel: reported }) });
+        if (reported === undefined) expect(task.review!.reviewerModel).toBeUndefined();
+        const runId = result.details.runId as string;
+        const stored = JSON.parse(readFileSync(join(runsDir, runId, "criteria.json"), "utf8")) as { reviews: Array<{ reviewer?: unknown }> };
+        expect(stored.reviews[0]!.reviewer).toEqual(identity);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(state, { recursive: true, force: true });
+      }
+    }
   });
 });
 

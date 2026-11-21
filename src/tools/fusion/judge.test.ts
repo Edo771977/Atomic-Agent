@@ -121,6 +121,8 @@ describe("the judge cannot pass what the facts fail", () => {
       decision: "needs-changes",
       issues: [{ item: "a3", severity: "major", file: "a.txt", why: "no score", by: "reviewer" }],
       reviewer: "judge-model",
+      // Issue #98: who answered; the provider reported no model here.
+      reviewerIdentity: { provider: "cloud" },
     });
   });
 
@@ -145,6 +147,53 @@ describe("the judge cannot pass what the facts fail", () => {
   it("parses a JSON answer wrapped in prose", () => {
     const parsed = parseJudgeAnswer(`Here: ${reviewJson("accept", [{ item: "a1", severity: "minor", file: null, why: "nit" }])} done`);
     expect(parsed).toEqual({ ok: true, decision: "accept", issues: [{ item: "a1", severity: "minor", file: null, why: "nit" }] });
+  });
+});
+
+describe("every review names its reviewer (issue #100)", () => {
+  it("a verdict the facts decided, with no reviewer asked, still records the configured reviewer's provider", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-id-"));
+    try {
+      let asked = 0;
+      const verdict = await judgeTask({
+        task: { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] },
+        items: [{ id: "a1", kind: "file", text: "a.txt exists", path: "a.txt" }, { id: "a2", kind: "instructions", text: "write a.txt", judged: true }] as AcceptanceItem[],
+        facts: { checkOutcomes: [], findings: [] },
+        reply: "",
+        contract: undefined,
+        workingDir: dir,
+        target: { providerId: "codex-cli", model: null, pinModel: "default" },
+        pricing: undefined,
+        complete: async () => { asked += 1; return { content: "{}" }; },
+        signal: new AbortController().signal,
+        planReviewerRef: "codex-cli:default",
+      });
+      // a.txt is missing: a red fact, so no reviewer was asked.
+      expect(asked).toBe(0);
+      expect(verdict.review.decision).toBe("needs-changes");
+      expect(verdict.review.reviewerIdentity).toEqual({ provider: "codex-cli", source: "facts" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("a reviewer asked on its `default` model is recorded with its provider, not as a bare `default`", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-id-"));
+    try {
+      writeFileSync(join(dir, "a.txt"), "x");
+      const verdict = await judgeTask({
+        task: { id: "t", title: "T", instructions: "write a.txt", files: ["a.txt"] },
+        items: [{ id: "a1", kind: "file", text: "a.txt exists", path: "a.txt" }, { id: "a2", kind: "instructions", text: "write a.txt", judged: true }] as AcceptanceItem[],
+        facts: { checkOutcomes: [], findings: [] },
+        reply: "",
+        contract: undefined,
+        workingDir: dir,
+        target: { providerId: "codex-cli", model: null, pinModel: "default" },
+        pricing: undefined,
+        complete: answer(ACCEPT),
+        signal: new AbortController().signal,
+      });
+      expect(verdict.review.reviewer).toBe("codex-cli:default");
+      expect(verdict.review.reviewerIdentity).toEqual({ provider: "codex-cli" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 
@@ -212,6 +261,7 @@ describe("the structured review verdict (issue #38)", () => {
         decision: "accept",
         issues: [{ item: "a2", severity: "minor", file: "a.txt", why: "rename x", by: "reviewer" }],
         reviewer: "judge-model",
+        reviewerIdentity: { provider: "cloud" },
       });
       expect(verdict.items.every((v) => v.pass)).toBe(true);
     }
@@ -232,7 +282,7 @@ describe("the structured review verdict (issue #38)", () => {
     const verdict = await judge(JSON.stringify({ items: [{ id: "a2", pass: true }] }), { ...TARGET, pinModel: "model-r" });
     expect(verdict.green).toBe(false);
     expect(verdict.unverified).toMatch(/could not be read/);
-    expect(verdict.review).toEqual({ decision: "unverified", issues: [], reviewer: "model-r" });
+    expect(verdict.review).toEqual({ decision: "unverified", issues: [], reviewer: "model-r", reviewerIdentity: { provider: "cloud" } });
   });
 
   it("makes red facts blocker issues by fact, without asking the reviewer", async () => {
@@ -258,6 +308,8 @@ describe("the structured review verdict (issue #38)", () => {
       decision: "needs-changes",
       issues: [{ item: "a1", severity: "blocker", file: "a.txt", why: "missing", by: "fact" }],
       reviewer: null,
+      // Issue #100: the configured reviewer is named, its verdict from the facts.
+      reviewerIdentity: { provider: "cloud", source: "facts" },
     });
     rmSync(empty, { recursive: true, force: true });
   });
@@ -276,7 +328,7 @@ describe("the structured review verdict (issue #38)", () => {
       signal: new AbortController().signal,
     });
     expect(verdict.green).toBe(true);
-    expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null });
+    expect(verdict.review).toEqual({ decision: "accept", issues: [], reviewer: null, reviewerIdentity: { provider: "cloud", source: "facts" } });
   });
 
   it("gives the reviewer the project's success criteria (issue #39)", () => {
@@ -911,7 +963,7 @@ describe("review passes with a fusion team (issue #38)", () => {
     const outcomeLog = { append: (records: readonly unknown[]) => { written.push(...(records as Array<Record<string, unknown>>)); } };
     await run(team(), () => blocker, { outcomeLog });
     const task = written.find((r) => r.type === "task")!;
-    expect(task.review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "model-r", blockers: 1, majors: 0, minors: 0 });
+    expect(task.review).toEqual({ decision: "needs-changes", passes: 2, reviewer: "model-r", reviewerProvider: "cli-b", blockers: 1, majors: 0, minors: 0 });
     expect(task.judgeRetried).toBe(true);
     expect(task.failure).toBe("review-exhausted");
     expect(JSON.stringify(written)).not.toContain("no score");
@@ -1017,6 +1069,7 @@ describe("review exhausted: the director decides (issue #38)", () => {
       decision: "needs-changes",
       passes: 2,
       reviewer: "model-r",
+      reviewerIdentity: { provider: "cli-b" },
       issues: [{ item: "a2", severity: "blocker", file: "a.txt", why: "no score", by: "reviewer" }],
     });
   });

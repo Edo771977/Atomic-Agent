@@ -10,7 +10,9 @@ import { resolveAllowedExecutable, type ExecutableFs } from "./run-allowed-execu
  * `node`, never one the model can plant in --cwd or reach through a
  * relative or empty PATH entry.
  */
-describe("resolveAllowedExecutable on POSIX", () => {
+// An executable bit, `#!` lines and file symlinks are POSIX semantics; the
+// Windows rules (PATHEXT, .cmd/.bat) are covered below with an injected fs.
+describe.skipIf(process.platform === "win32")("resolveAllowedExecutable on POSIX", () => {
   const exe = (dir: string, name: string): string => {
     const file = join(dir, name);
     writeFileSync(file, "#!/bin/sh\nexit 0\n");

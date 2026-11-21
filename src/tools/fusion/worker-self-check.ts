@@ -41,6 +41,9 @@ export const SELF_CHECK_GRACE_STEPS = 4;
  * with less of its budget left ends as it always did.
  */
 export const SELF_CHECK_MIN_GRACE_STEPS = 2;
+
+/** Passes in a row of the same check on unchanged files after which the runner stops the worker as done (issue #98). */
+export const GREEN_CHECK_REPEAT_LIMIT = 3;
 /** The longest the in-worker run of a task's own checks may take. */
 export const SELF_CHECK_MAX_MS = 120_000;
 /** Less of the worker's clock than this left, and nothing is checked. */
@@ -131,12 +134,35 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/** A word a shell reads as itself: no quotes, spaces or metacharacters. */
+const PLAIN_WORD = /^[\w@+=:,./-]+$/;
+
 /**
  * The identity of a check's `verify.run` spec: the contract's entry
- * without its `task`, or a worker's `verify.run` arguments.
+ * without its `task`, or a worker's `verify.run` arguments. A command
+ * spelled as one line (`cmd: "node --test a.cjs"`) and as words (`cmd:
+ * "node", args: ["--test", "a.cjs"]`) runs the same thing (verify.run
+ * runs a one-line command through the subshell), so both read as the
+ * line, when every word is plain (issue #104: the live worker spelled
+ * the contract's check as one line, and it was not seen as the task's own).
  */
 export function checkSpecKey(spec: Record<string, unknown>): string {
-  const { task: _task, ...rest } = spec;
+  // Not verify.run arguments: the runner strips them too (issue #106: a
+  // check naming criteria was no longer the worker's own run of it).
+  const { task: _task, criteria: _criteria, judge: _judge, ...rest } = spec;
+  const kind = rest.kind ?? "command";
+  if (kind === "command" && typeof rest.cmd === "string" && (rest.args === undefined || Array.isArray(rest.args))) {
+    const cmdWords = rest.cmd.trim().split(/\s+/);
+    const args = (rest.args as unknown[] | undefined) ?? [];
+    // Only the two spellings: one word with its args, or one line with none.
+    // `cmd: "node --test", args: ["a.cjs"]` is neither, and stays as it is.
+    const spelling = cmdWords.length === 1 || args.length === 0;
+    const words = [...cmdWords, ...args];
+    if (spelling && words.length > 0 && words.every((w) => typeof w === "string" && PLAIN_WORD.test(w))) {
+      const { args: _args, ...noArgs } = rest;
+      return canonical({ ...noArgs, kind: "command", cmd: words.join(" ") });
+    }
+  }
   return canonical(rest);
 }
 
@@ -158,6 +184,8 @@ export class WorkerCheckRuns {
   private lastChangeStep = -1;
   /** The worker's most recent `verify.run`, whatever its spec. */
   private lastRun: { key: string; ok: boolean; step: number } | undefined;
+  /** Passes in a row of the same spec with no change between them (issue #98). */
+  private greenRuns = 0;
   private readonly parsed = new Map<number, Record<string, unknown>>();
 
   constructor(private readonly readOnlyTools: ReadonlySet<string>) {}
@@ -177,6 +205,9 @@ export class WorkerCheckRuns {
       this.parsed.delete(batchIndex);
       const key = args === undefined ? undefined : checkSpecKey(args);
       if (key === undefined) return;
+      const prev = this.lastRun;
+      const again = prev !== undefined && prev.key === key && prev.ok && prev.step > this.lastChangeStep;
+      this.greenRuns = status !== "ok" ? 0 : again ? this.greenRuns + 1 : 1;
       this.lastRun = { key, ok: status === "ok", step };
       if (status === "ok") this.passedAt.set(key, step);
       else this.passedAt.delete(key);
@@ -206,6 +237,16 @@ export class WorkerCheckRuns {
   lastRunOutcome(): { spec: string; ok: boolean; sinceLastChange: boolean } | undefined {
     const last = this.lastRun;
     return last === undefined ? undefined : { spec: last.key, ok: last.ok, sinceLastChange: last.step > this.lastChangeStep };
+  }
+
+  /**
+   * The same check passed this many times in a row with nothing changed
+   * between the runs (issue #98): the files it checks are passed and
+   * current, and running it again tells nobody anything.
+   */
+  greenRunsInARow(): { spec: string; runs: number } | undefined {
+    const last = this.lastRun;
+    return last === undefined || !last.ok || this.greenRuns === 0 ? undefined : { spec: last.key, runs: this.greenRuns };
   }
 
   /** Whether `check` passed after the worker's last change. */

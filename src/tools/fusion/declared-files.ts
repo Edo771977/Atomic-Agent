@@ -221,7 +221,8 @@ export function applyDeclaredFileReport(
 ): WorkerTaskResult {
   const degenerate = report.degenerate ?? [];
   const emptied = report.emptied ?? [];
-  const silentReply = result.status === "ok" && isPlaceholderReply(result.reply);
+  // A worker recovered after a timeout has no reply by definition; its own note says so (issue #102).
+  const silentReply = result.status === "ok" && result.timedOutAfterRun !== true && result.outOfStepsAfterRun !== true && isPlaceholderReply(result.reply);
   if (
     report.missing.length === 0 &&
     report.unchanged.length === 0 &&
@@ -270,6 +271,10 @@ export function applyDeclaredFileReport(
   };
 }
 
+/** The note on a verify-only task that changed nothing, as it was asked (issue #104). */
+export const VERIFY_ONLY_UNCHANGED_NOTE =
+  "verify-only: no file changed; it closes only when a review is already recorded on exactly these files and its own check passes on them, otherwise it stays no_changes";
+
 /**
  * An `ok` task that declared `files`, made no successful write, edit
  * or patch call, and changed none of those files on disk is
@@ -287,9 +292,17 @@ export function applyDeclaredFileReport(
 export function applyNoChangesRule(
   result: WorkerTaskResult,
   report: DeclaredFileReport,
+  options: { verifyOnly?: boolean } = {},
 ): WorkerTaskResult {
   if (result.status !== "ok") return result;
   if (result.tools.writes > 0 || report.modified.length > 0) return result;
+  // A verify-only task that changed nothing stays no_changes here (issue
+  // #104 review): the delegate closes it only when a review is already
+  // recorded on exactly these files and its own check passed on them,
+  // so verifyOnly never lets a first call skip the work.
+  if (options.verifyOnly === true) {
+    return { ...result, status: "no_changes", verifyOnlyUnchanged: true, notes: [...(result.notes ?? []), VERIFY_ONLY_UNCHANGED_NOTE] };
+  }
   return {
     ...result,
     status: "no_changes",

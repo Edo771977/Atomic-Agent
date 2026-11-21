@@ -171,3 +171,38 @@ describe("the plan row's reviewer reviews the task (issue #74)", () => {
     expect(rows[0]!.notes?.join("\n")).toContain("plan reviewer api-a:model-o is no longer usable here");
   });
 });
+
+describe("plan coverage compares members by identity, not spelling (issue #98)", () => {
+  /** The project's milestone failed, then re-approved for another run of its planned task. */
+  const reapproved = (reviewer: string): ProjectState => {
+    let p = up(project(reviewer, false), { kind: "milestone_run", id: "m1", runId: "fr-1" });
+    p = approve(up(p, { kind: "milestone", id: "m1", state: "failed", summary: "stalled" }));
+    expect(p.milestones[0]!.state).toBe("approved");
+    return p;
+  };
+  const resolveDefaultModel = (providerId: string) => (providerId === "cli-b" ? "model-r" : undefined);
+
+  it("a plan row reviewer `cli-b:default`, the reviewer resolving to `cli-b:model-r`: the re-delegation is covered, no fan-out prompt", async () => {
+    const covered = await run(reapproved("cli-b:default"), { resolveDefaultModel });
+    expect(covered.prompts.filter((q) => q.tool === "fusion.delegate")).toEqual([]);
+    expect(covered.calls).toEqual(["cli-b:model-r"]);
+  });
+
+  it("a worker spelled differently but the same member is covered too", async () => {
+    const p = reapproved("cli-b:model-r");
+    const respelled: ProjectState = { ...p, plan: { ...p.plan!, rows: p.plan!.rows.map((r) => ({ ...r, worker: "local:default" })) } };
+    const covered = await run(respelled, { resolveDefaultModel: (id) => (id === "local" ? "small" : resolveDefaultModel(id)) });
+    expect(covered.prompts.filter((q) => q.tool === "fusion.delegate")).toEqual([]);
+  });
+
+  it("a genuinely different reviewer still asks, and so does a new task id", async () => {
+    const other = await run(reapproved("cli-b:other-model"), { resolveDefaultModel, resolveFusionTeam: () => team({}, { reviewers: ["cli-b:model-r", "cli-b:other-model"] }) });
+    expect(other.calls).toEqual(["cli-b:other-model"]);
+    // The plan names other-model, but suppose the team's pick runs instead: it must ask.
+    const replaced = await run(reapproved("cli-b:other-model"), { resolveDefaultModel });
+    expect(replaced.prompts.filter((q) => q.tool === "fusion.delegate")).toHaveLength(1);
+    const unplanned = await run(reapproved("cli-b:default"), { resolveDefaultModel }, "t-new");
+    expect(unplanned.prompts.filter((q) => q.tool === "fusion.delegate")).toHaveLength(1);
+  });
+});
+

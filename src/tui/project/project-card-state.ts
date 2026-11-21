@@ -37,6 +37,8 @@ export interface ProjectCardState {
   field: ProjectCardField;
   picks: Record<string, ProjectCardPick>;
   note: string;
+  /** What the typed note answers in `note` mode: a correction (`edit`) or an approval over open reviews. */
+  noteFor?: "edit" | "approveOverReview";
   /** First body line drawn (PgUp/PgDn), for a view taller than the pane. */
   scroll: number;
   /** A decision is in flight: keys other than Esc wait. */
@@ -77,6 +79,9 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
         return { verdict, label: "quality", key: "q" };
       case "cancel":
         return { verdict, label: "cancel project", key: "x" };
+      case "approveOverReview":
+        // The person's call over open reviews (issue #98): a reason is typed on the card.
+        return { verdict, label: "approve over review", key: "o" };
     }
   });
 }
@@ -138,7 +143,7 @@ export type ProjectCardAction =
   | { type: "project_card_shown"; sessionId: string; view: ProjectGateView; full?: boolean }
   | { type: "project_card_closed" }
   | { type: "project_card_cursor_moved"; delta: number }
-  | { type: "project_card_mode_set"; mode: ProjectCardMode }
+  | { type: "project_card_mode_set"; mode: ProjectCardMode; noteFor?: "edit" | "approveOverReview" }
   | { type: "project_card_row_moved"; delta: number }
   | { type: "project_card_field_toggled" }
   | { type: "project_card_pick_cycled"; delta: number }
@@ -192,7 +197,13 @@ export function reduceProjectCard(
       return { ...card, cursor: wrap(card.cursor + action.delta, projectCardActions(card.view).length) };
     case "project_card_mode_set":
       if (action.mode === "edit" && projectRows(card.view).length === 0) return card;
-      return { ...card, mode: action.mode, error: null, ...(action.mode === "actions" ? { picks: {}, note: "" } : {}) };
+      return {
+        ...card,
+        mode: action.mode,
+        error: null,
+        ...(action.mode === "note" ? { noteFor: action.noteFor ?? "edit" } : {}),
+        ...(action.mode === "actions" ? { picks: {}, note: "" } : {}),
+      };
     case "project_card_row_moved":
       return { ...card, row: wrap(card.row + action.delta, projectRows(card.view).length) };
     case "project_card_field_toggled":

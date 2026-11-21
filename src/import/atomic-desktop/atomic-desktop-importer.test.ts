@@ -130,7 +130,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       expect(result.sessions).toEqual({ imported: 1, skipped: 1 });
       const copied = target.sessionStore.load("s-only-desktop");
       expect(copied?.workingDir).toBe("/d");
@@ -237,7 +237,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       expect(result.sessions).toEqual({ imported: 1, skipped: 1 });
       expect(result.warnings.join("\n")).toMatch(/could not be read/);
       expect(target.sessionStore.load("s-bad")).toBeNull();
@@ -286,7 +286,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       expect(result.tasks).toEqual({ imported: 3, skipped: 1 });
       const pending = target.taskStore.get("t-pending");
       expect(pending?.status).toBe("pending");
@@ -359,7 +359,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       expect(result.notes).toEqual({ imported: 1, skipped: 1 });
       const notes = target.memoryStore.list({ scope: "all", limit: 50 });
       expect(notes.map((n) => n.content).sort()).toEqual([
@@ -396,7 +396,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       expect(result.profileFacts).toEqual({ imported: 3, skipped: 1 });
       expect(target.profileStore.get("editor")?.value).toBe("emacs");
       expect(target.profileStore.get("city")?.value).toBe("Lisbon");
@@ -422,7 +422,7 @@ describe("importAtomicDesktop", () => {
 
       const result = await run();
 
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
       const check = new DatabaseCtor(join(targetDir, "memory.sqlite"), {
         readonly: true,
       });
@@ -501,7 +501,7 @@ describe("importAtomicDesktop", () => {
 
     const result = await run();
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, JSON.stringify({ errors: (result as { errors?: unknown }).errors, warnings: result.warnings })).toBe(true);
     expect(result.warnings).toEqual([
       "no tasks.sqlite in the source; no tasks to import",
       "no memory.sqlite in the source; no memory to import",

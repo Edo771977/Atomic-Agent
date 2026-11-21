@@ -1,0 +1,75 @@
+{
+ "version": 1,
+ "next": 8,
+ "totalBytes": 0,
+ "droppedThrough": 0,
+ "entries": [
+  {
+   "n": 1,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795640100000,
+   "tool": "os.fs.edit",
+   "existed": true,
+   "file": "1.bin",
+   "bytes": 1134,
+   "sha256": "2810e5a0899d77772cb3bff46b58c087c81b56790f0086957230e8fe1491f6a1"
+  },
+  {
+   "n": 2,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795640200000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "2.bin",
+   "bytes": 1134,
+   "sha256": "2810e5a0899d77772cb3bff46b58c087c81b56790f0086957230e8fe1491f6a1"
+  },
+  {
+   "n": 3,
+   "path": "{cwd}/sales.test.cjs",
+   "at": 1795640300000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "3.bin",
+   "bytes": 33,
+   "sha256": "c23c8951e4194ef1732e04affabe65c60089ce72a4e6f776b6c1bb8fd4b1fd3a"
+  },
+  {
+   "n": 4,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795630000000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "4.bin",
+   "bytes": 1133,
+   "sha256": "bf3299f7548076f0b56cef5ea6101fcc3803b57b2478aec3b9d242f114ce6ec6"
+  },
+  {
+   "n": 5,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795640000500,
+   "tool": "os.fs.write",
+   "existed": false
+  },
+  {
+   "n": 6,
+   "path": "{cwd}/../elsewhere/sales.cjs",
+   "at": 1795640400000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "6.bin",
+   "bytes": 1074,
+   "sha256": "8a68ea325d0bc03f18775d6268fcd413892718a41fd551b17ebefa9c29d33503"
+  },
+  {
+   "n": 7,
+   "path": "{cwd}/sales.cjs",
+   "at": 1795660000000,
+   "tool": "os.fs.write",
+   "existed": true,
+   "file": "7.bin",
+   "bytes": 1251,
+   "sha256": "488dedfe60da3788cf28c72743dd8c4f89bef4611d41a05175eafe0b1f420e14"
+  }
+ ]
+}

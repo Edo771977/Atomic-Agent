@@ -290,6 +290,10 @@ export function renderWorkerBrief(
   if (task.deliverable) {
     lines.push(``, `DELIVERABLE: ${task.deliverable}`);
   }
+  if (task.verifyOnly === true) {
+    // Issue #100: a check, not a change; a changed file that fails its checks is put back.
+    lines.push(``, "VERIFY ONLY: run the checks and report what they show. Do not rewrite the files: a change that fails this task's own checks is undone.");
+  }
   if (options.project !== undefined) {
     lines.push(``, `PROJECT: ${options.project.what}`);
     if (options.project.successCriteria.length > 0) {

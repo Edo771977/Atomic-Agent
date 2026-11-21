@@ -40,6 +40,27 @@ export const criticalFiles = [
   'src/tools/fusion/fusion-delegate-criteria.test.ts',
   // Issue #74: a planned task is reviewed by its approved plan row's reviewer.
   'src/tools/fusion/fusion-delegate-plan-reviewer.test.ts',
+  // Issue #104: gate check runs kept for the reviewer, evidence-only review, check spec keys.
+  'src/tools/fusion/check-run-evidence.test.ts',
+  'src/tools/fusion/check-run-record.test.ts',
+  'src/tools/fusion/check-spec-key.test.ts',
+  'src/tools/fusion/evidence-review.test.ts',
+  // Issue #106: a fix round re-runs contract checks that passed on the reviewed version.
+  'src/tools/fusion/regression-gate.test.ts',
+  // Issue #102: execution evidence, recovery after a timed-out passing run, both verdicts, plan-task steering.
+  'src/tools/fusion/execution-evidence.test.ts',
+  'src/tools/fusion/timeout-recovery-guard.test.ts',
+  'src/tools/fusion/both-verdicts.test.ts',
+  'src/tools/fusion/director-takeover.test.ts',
+  // Issue #100: bounded correction rounds, verify-only tasks, timeout recovery, review issues.
+  'src/tools/fusion/milestone-correction.test.ts',
+  'src/tools/fusion/review-issues.test.ts',
+  'src/tools/fusion/timeout-recovery.test.ts',
+  'src/tools/fusion/verify-only.test.ts',
+  // Issue #98: milestone review gate, stall recovery, member identity.
+  'src/tools/fusion/milestone-review-gate.test.ts',
+  'src/tools/fusion/stall-recovery.test.ts',
+  'src/tools/fusion/member-identity.test.ts',
   // Issue #95: stalled workers stopped on repeated identical writes, reviewer evidence per attempt.
   'src/tools/fusion/worker-repeated-writes.test.ts',
   'src/tools/fusion/attempt-evidence.test.ts',
@@ -133,6 +154,24 @@ export const supplementalFiles = [
   'src/config/project-constraint-match.test.ts',
   'src/runtime/session-provider-policy.test.ts',
   'src/llm/fallback/provider-policy-fallback.test.ts',
+  // Issue #98: --allow-command, its pinned exec and the unavailable
+  // approval (issues #95/#96), with link cases skipped where links cannot
+  // be made and POSIX-only cases (#!, executable bit) skipped on Windows.
+  'src/cli/run-agent-approval.test.ts',
+  'src/cli/run-allowed-command.test.ts',
+  'src/cli/run-allowed-executable.test.ts',
+  'src/tools/os/shell/shell-pinned-exec.test.ts',
+  'src/approval/unavailable-in-turn.test.ts',
+  // Issue #102: the real CLI with stdin closed must exit and close its
+  // pipes (exit 3 at a gate, 0 otherwise), and a Core it starts must not
+  // hold them; on Windows this is where an inherited handle would show.
+  'src/cli/run-stdin-closed.test.ts',
+  // Issue #106: the run memory trace, written from both threads with one
+  // append per line, and still sampled by its worker while the main loop spins.
+  'src/cli/run-memory-trace.test.ts',
+  // Issue #106: the memory sampler's Windows path (one PowerShell loop, taskkill /T).
+  'scripts/sample-run-memory.test.ts',
+  'src/local-llm/core/core-detached-handles.test.ts',
 ];
 /**
  * Test files in coreDirectories deliberately outside the Windows gate: not yet
