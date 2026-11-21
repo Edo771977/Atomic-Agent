@@ -33,7 +33,7 @@ import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { checkProjectDispatch, planCoverageGap, plannedCheckMismatch } from "./project-dispatch.js";
-import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
+import { activeDecisionsOf, criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -1409,7 +1409,11 @@ export function buildFusionDelegateTool(
       const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
       const projectBrief = approvedBrief === undefined
         ? undefined
-        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text) };
+        : (() => {
+            // Issue #112: the active decisions go with the criteria to every worker and reviewer.
+            const decisions = activeDecisionsOf(ctx.project!).map((d) => `${d.id}: ${d.text}`);
+            return { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text), ...(decisions.length === 0 ? {} : { decisions }) };
+          })();
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).
       const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
@@ -2121,6 +2125,7 @@ export function buildFusionDelegateTool(
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
+          ...(projectBrief?.decisions === undefined ? {} : { decisions: projectBrief.decisions }),
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
