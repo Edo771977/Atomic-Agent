@@ -1574,6 +1574,8 @@ async function runOneTask(
       // Unavailable metadata still leaves the pattern masking.
       try { return deps.knownSecrets?.() ?? knownSecretsFromEnv(); } catch { return []; }
     },
+    // Runs of one check are counted together however the worker spelled it (issue #106).
+    (tool, args) => (tool === "verify.run" ? checkSpecKey(args) : [args.cmd, ...(Array.isArray(args.args) ? args.args : [])].join(" ")),
   );
   let stalledWrite: StalledWrite | undefined;
   // The same check green GREEN_CHECK_REPEAT_LIMIT times in a row on

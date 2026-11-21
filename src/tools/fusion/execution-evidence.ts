@@ -32,6 +32,14 @@ export interface ExecutionRun {
   counts?: { pass: number; fail: number; total: number };
   /** The run is one of the task's own contract checks (the identical `verify.run` spec). */
   ownCheck?: true;
+  /**
+   * Which run of the same command this was in the attempt, and how many
+   * runs of it the attempt made in all (issue #106: the reviewer asked
+   * for proof the command ran exactly once). Counted by the check's spec
+   * key, older runs past the kept six included.
+   */
+  runNumber?: number;
+  ranTimes?: number;
 }
 
 const MAX_RUNS = 6;
@@ -77,7 +85,8 @@ function outputOf(result: { summary: string; details?: Record<string, unknown>; 
 
 /** Fed from one worker run's `tool_call_parsed` / `tool_call_executed` events. */
 export class ExecutionEvidenceTracker {
-  private readonly pending = new Map<number, { tool: ExecutionRun["tool"]; command: string; ownCheck: boolean }>();
+  private readonly pending = new Map<number, { tool: ExecutionRun["tool"]; command: string; ownCheck: boolean; key: string }>();
+  private readonly keys: string[] = [];
   private readonly runs: ExecutionRun[] = [];
 
   constructor(
@@ -87,7 +96,10 @@ export class ExecutionEvidenceTracker {
     private readonly isOwnCheck: (args: Record<string, unknown>) => boolean = () => false,
     /** The keys masked out of what is recorded (a command line can carry `API_KEY=…`). */
     private readonly knownSecrets: () => readonly KnownSecret[] = () => [],
+    /** The identity runs are counted by: a `verify.run`'s spec key; otherwise the command line. */
+    private readonly keyOf: (tool: string, args: Record<string, unknown>) => string = (_tool, args) => commandOf(args),
   ) {}
+  private readonly counts = new Map<string, number>();
 
   observeParsed(call: { tool: string; args: Record<string, unknown> }, batchIndex: number): void {
     if (call.tool !== "verify.run" && call.tool !== "os.shell.run") {
@@ -98,6 +110,7 @@ export class ExecutionEvidenceTracker {
       tool: call.tool,
       command: commandOf(call.args).slice(0, 300),
       ownCheck: call.tool === "verify.run" && this.isOwnCheck(call.args),
+      key: `${call.tool}\u0000${this.keyOf(call.tool, call.args)}`,
     });
   }
 
@@ -116,7 +129,11 @@ export class ExecutionEvidenceTracker {
       const sha256 = fileSha256(this.workingDir, inside.display);
       return [sha256 === undefined ? { path: inside.display } : { path: inside.display, sha256 }];
     });
+    const runNumber = (this.counts.get(pending.key) ?? 0) + 1;
+    this.counts.set(pending.key, runNumber);
+    this.keys.push(pending.key);
     this.runs.push({
+      runNumber,
       tool: pending.tool,
       command: maskSecrets(pending.command, known),
       exitCode: typeof exit === "number" ? exit : null,
@@ -125,12 +142,15 @@ export class ExecutionEvidenceTracker {
       ...parsed,
       ...(pending.ownCheck ? { ownCheck: true as const } : {}),
     });
-    if (this.runs.length > MAX_RUNS) this.runs.shift();
+    if (this.runs.length > MAX_RUNS) {
+      this.runs.shift();
+      this.keys.shift();
+    }
   }
 
-  /** The runs recorded so far, oldest first; the newest {@link MAX_RUNS}. */
+  /** The runs recorded so far, oldest first; the newest {@link MAX_RUNS}, each with how many runs of its command the attempt made. */
   recorded(): ExecutionRun[] {
-    return this.runs.map((r) => ({ ...r, files: [...r.files], tests: [...r.tests] }));
+    return this.runs.map((r, i) => ({ ...r, files: [...r.files], tests: [...r.tests], ranTimes: this.counts.get(this.keys[i]!) ?? 1 }));
   }
 }
 
@@ -187,8 +207,11 @@ export function renderExecutionEvidence(
       : run.tests.length === 0
         ? ["  (the output named no test case)"]
         : [frameUntrustedText(run.tests.map((t) => `- ${t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok"}: ${t.name}`).join("\n"), EXECUTION_OUTPUT_SOURCE)];
+    const times = run.ranTimes ?? 1;
+    const ran = `  ${run.command} ran ${times} time${times === 1 ? "" : "s"} in attempt ${run.attempt} (shown: run ${run.runNumber ?? 1} of ${times})`;
     return [
       `- attempt ${run.attempt}, ${run.tool}${run.ownCheck === true ? " (the task's own check)" : ""}: ${run.command} — ${exit}${counts}`,
+      ran,
       ...(versions.length === 0 ? [] : [`  ran against: ${versions.join(", ")}`]),
       ...cases,
     ].join("\n");
@@ -317,7 +340,10 @@ export function renderCheckRunEvidence(
       const same = now !== undefined && now.sha256 !== undefined && now.sha256 === f.sha256;
       return `${f.path} sha256 ${short(f.sha256)} ${same ? "(the version under review)" : `(NOT the version under review: ${now === undefined ? "not under review" : `under review sha256 ${short(now.sha256)}`})`}`;
     });
-    const ran = ranOn.length === 0 ? ["Ran on: (no declared file hashed when it ran)"] : [`Ran on: ${ranOn.join(", ")}`];
+    const ran = [
+      "The runtime ran this check once on these files for this review (the run shown).",
+      ...(ranOn.length === 0 ? ["Ran on: (no declared file hashed when it ran)"] : [`Ran on: ${ranOn.join(", ")}`]),
+    ];
     return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, ...ran, "Cases:", ...cases, ...output].join("\n");
   };
   let budget = CHECK_RUN_EVIDENCE_CHARS - head.length - 20;

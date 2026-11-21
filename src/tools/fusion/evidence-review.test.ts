@@ -585,3 +585,30 @@ describe("two accepts close the milestone (issue #104)", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   }, 30_000);
 });
+
+/**
+ * Issue #106: the runtime record stands without the worker's summary. In
+ * the live run Codex recognised the TAP but asked for the worker's
+ * summary and for proof the command ran exactly once.
+ */
+describe("the runtime record without a worker summary (issue #106)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("the worker ends after its check and before any summary: command, run count, exit, TAP, versions, and the no-summary line", async () => {
+    const { row, prompt, testsSha } = await reviewAfterTimeout();
+    expect(row.status).toBe("ok");
+    expect(prompt).toContain("node --test sales.test.cjs");
+    expect(prompt).toContain("node --test sales.test.cjs ran 1 time in attempt 1 (shown: run 1 of 1)");
+    expect(prompt).toContain("The runtime ran this check once on these files for this review (the run shown).");
+    expect(prompt).toMatch(/exit 0/);
+    for (const line of TAP.split("\n")) expect(prompt, line).toContain(line);
+    expect(prompt).toContain(`sales.test.cjs sha256 ${testsSha}`);
+    expect(prompt).toContain("The worker gave no summary: it ended after its checks and before replying.");
+    expect(prompt).toContain("The runtime record in this prompt is authoritative for what ran and stands in for the summary; do not require a worker summary as evidence.");
+  });
+
+  it("the judge's own instructions never ask for a worker summary", async () => {
+    const { prompt } = await reviewAfterTimeout();
+    expect(prompt).toContain("A worker summary is not evidence and is not required:");
+  });
+});

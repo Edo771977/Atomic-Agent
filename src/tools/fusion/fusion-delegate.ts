@@ -195,7 +195,7 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
-import { VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
+import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
@@ -1737,7 +1737,7 @@ export function buildFusionDelegateTool(
         attemptLedger.set(result.id, list);
       };
       /** The latest attempt marked with what its checks tested; the reviewer's attempts section. */
-      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = []): string => {
+      const attemptEvidenceFor = (task: DelegateTask, facts: JudgeFacts, workingDir: string, items: readonly AcceptanceItem[] = [], reply?: string): string => {
         const attempts = attemptLedger.get(task.id) ?? [];
         // Only paths inside the working dir or the session's read roots are read and named.
         const roots = [workingDir, ...(ctx.readRoots ?? [])];
@@ -1775,7 +1775,15 @@ export function buildFusionDelegateTool(
         ])];
         const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
         const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known);
-        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed].filter((part) => part.length > 0).join("\n\n");
+        // No summary from the worker (issue #106): say so, and that the runtime record stands in for it.
+        const noSummary = reply !== undefined && isPlaceholderReply(reply)
+          ? [
+              "## Worker summary",
+              "The worker gave no summary: it ended after its checks and before replying.",
+              "The runtime record in this prompt is authoritative for what ran and stands in for the summary; do not require a worker summary as evidence.",
+            ].join("\n")
+          : "";
+        return [renderAttemptEvidence(attempts, current, task.files ?? []), checkRuns, executed, noSummary].filter((part) => part.length > 0).join("\n\n");
       };
       // Priced per leg: a role model's task is recorded at its own price.
       const checkpointOptionsFor = (
@@ -2021,7 +2029,7 @@ export function buildFusionDelegateTool(
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
-        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items);
+        const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items, input.reply);
         const judged = await judgeTask({
           ...input,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,

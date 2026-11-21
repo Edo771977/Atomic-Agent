@@ -482,6 +482,7 @@ export function renderJudgePrompt(input: {
   );
   return [
     "You are a strict acceptance judge. A worker says it finished the task below. Do not trust it: find where the work does NOT meet each item. Rule only from the evidence shown. If the evidence does not show an item is met, it is not met.",
+    "A worker summary is not evidence and is not required: rule from the files, the facts established by scripts and the runtime's record of what ran (issue #106).",
     "",
     "## Task",
     input.task.instructions.slice(0, 4_000),
