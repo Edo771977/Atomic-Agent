@@ -154,6 +154,6 @@ describe("project resume line", () => {
     expect(out).toContain("d1 Use SQLite (active; cited by t1)");
     expect(out).toContain("d2 No new dependencies (active; cited by no task)");
     expect(out).toContain("d3 Formal tone (deferred)");
-    expect(out).toMatch(/d defer 1 uncited decision/);
+    expect(out).toContain(" d defer d2 ");
   });
 });

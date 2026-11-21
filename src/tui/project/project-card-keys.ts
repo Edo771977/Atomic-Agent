@@ -101,9 +101,9 @@ export function handleProjectCardKey(
       ? actions.find((a) => a.key === input.toLowerCase())
       : undefined;
   if (picked === undefined) return;
-  if (picked.deferDecisions !== undefined) {
+  if (picked.decisionStatus !== undefined) {
     // Issue #112: the person's call, recorded with the plan; the plan waits for approval again.
-    send({ ...base, verdict: "edit", edits: { decisionStatus: Object.fromEntries(picked.deferDecisions.map((id) => [id, "deferred" as const])) } });
+    send({ ...base, verdict: "edit", edits: { decisionStatus: picked.decisionStatus } });
     return;
   }
   run(picked.verdict);

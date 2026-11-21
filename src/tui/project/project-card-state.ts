@@ -52,8 +52,8 @@ export interface ProjectCardActionInfo {
   label: string;
   /** The plain letter that runs it in `actions` mode. */
   key: string;
-  /** Issue #112: an `edit` that defers these uncited active decisions instead of editing rows. */
-  deferDecisions?: string[];
+  /** Issue #112: an `edit` that sets these decisions' status instead of editing rows. */
+  decisionStatus?: Record<string, "active" | "deferred">;
 }
 
 /**
@@ -87,12 +87,17 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
         return { verdict, label: "approve over review", key: "o" };
     }
   });
-  // Issue #112: the person may defer the active decisions no task cites, from the plan gate.
-  const uncited = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit") ? uncitedDecisions(view) : [];
-  if (uncited.length > 0) {
+  // Issue #112: at the plan gate `d` defers the active decisions no task cites; with none
+  // left, it sets the deferred and informational ones back to active.
+  const plan = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit");
+  const uncited = plan ? uncitedDecisions(view) : [];
+  const setAside = plan && uncited.length === 0 ? (view.decisions ?? []).filter((d) => d.status === "deferred" || d.status === "informational").map((d) => d.id) : [];
+  const ids = uncited.length > 0 ? uncited : setAside;
+  if (ids.length > 0) {
+    const to = uncited.length > 0 ? "deferred" as const : "active" as const;
     const at = actions.findIndex((a) => a.verdict === "cancel");
-    const defer: ProjectCardActionInfo = { verdict: "edit", label: `defer ${uncited.length} uncited decision${uncited.length === 1 ? "" : "s"}`, key: "d", deferDecisions: uncited };
-    actions.splice(at === -1 ? actions.length : at, 0, defer);
+    const toggle: ProjectCardActionInfo = { verdict: "edit", label: `${to === "deferred" ? "defer" : "reactivate"} ${ids.join(", ")}`, key: "d", decisionStatus: Object.fromEntries(ids.map((id) => [id, to])) };
+    actions.splice(at === -1 ? actions.length : at, 0, toggle);
   }
   return actions;
 }
