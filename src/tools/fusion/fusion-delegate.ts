@@ -582,7 +582,8 @@ export function buildFusionDelegateTool(
         });
       }
       const delegateArgs = resumedFrom?.args ?? rawArgs;
-      const parsed = parseDelegateArgs(delegateArgs);
+      // A resume re-reads its approved contract: lint findings warn, never refuse (issue #110).
+      const parsed = parseDelegateArgs(delegateArgs, resumedFrom === null ? {} : { storedContract: true });
       if (!parsed.ok) return error(parsed.error, { field: "tasks" });
       // A check's criteria are the approved brief's (issue #40): an id it
       // does not have could never be shown to the person as a fact.

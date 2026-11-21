@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ContractCheck } from "./contract.js";
 import { lintContractCheck, lintExampleExpect } from "./contract-check-lint.js";
+import { parseDelegateArgs } from "./delegate-args.js";
 
 /** Issue #110 review: severe false refusals and weak warnings found by an adversarial review. */
 
@@ -83,5 +84,18 @@ describe("a check that sets env or cwd is never severe", () => {
     ["a cwd", { task: "t", cmd: "echo ok", cwd: "sub", checks: ['stdout contains "ok"'] }],
   ])("%s", (_name, check) => {
     expect(severe(check)).toBe(false);
+  });
+});
+
+describe("a resumed run's stored contract is not refused for a check the person already approved", () => {
+  const args = { tasks: [{ id: "t", instructions: "x" }], contract: { checks: [{ task: "t", cmd: "echo ok", checks: ['stdout contains "ok"'] }] } };
+  it("a new call is refused", () => {
+    expect(parseDelegateArgs(args).ok).toBe(false);
+  });
+  it("the stored contract of a resume parses, with the finding as a warning", () => {
+    const parsed = parseDelegateArgs(args, { storedContract: true });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.contract?.warnings).toEqual([expect.stringMatching(/^check lint \(warning\): contract\.checks\[0\] cannot fail/)]);
   });
 });
