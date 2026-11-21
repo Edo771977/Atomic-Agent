@@ -31,6 +31,12 @@ export interface ProjectDecisionBody {
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_CHARS && !/[\r\n]/.test(v);
 
+/** Issue #109: one absolute folder (POSIX or Windows) for the projects list's forget / resume, or null. */
+export function parseProjectFolderIpc(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 4096 || /[\r\n\0]/.test(raw)) return null;
+  return raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") ? raw : null;
+}
+
 /** A session id for `GET /api/project`, or null. */
 export function parseProjectSessionIpc(raw: unknown): string | null {
   return isId(raw) ? raw : null;
