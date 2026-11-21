@@ -442,6 +442,9 @@ function show(text: string, cap = 60): string {
 
 function fixedOutputFinding(check: ContractCheck, where: string, index: number): CheckLintFinding | null {
   if (checkKind(check) !== "command") return null;
+  // An environment (NODE_OPTIONS, PATH, …) or a working directory can
+  // change what even a plain print runs: never provably fixed.
+  if ((check.env !== undefined && check.env !== null && Object.keys(check.env as object).length > 0) || (typeof check.cwd === "string" && check.cwd.trim().length > 0)) return null;
   const words = commandWords(check);
   if (words === null) return null;
   const fixed = fixedOutputOf(words);

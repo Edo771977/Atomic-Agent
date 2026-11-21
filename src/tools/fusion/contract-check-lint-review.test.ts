@@ -75,3 +75,13 @@ describe("error-output-match counts only failure output a passing command could 
     expect(finding?.message).toContain("`negative`");
   });
 });
+
+describe("a check that sets env or cwd is never severe", () => {
+  it.each<[string, ContractCheck]>([
+    ["NODE_OPTIONS can preload code", { task: "t", cmd: "node", args: ["-e", "console.log('ok')"], env: { NODE_OPTIONS: "--require ./check.js" }, checks: ['stdout contains "ok"'] }],
+    ["PATH can shadow echo", { task: "t", cmd: "echo ok", env: { PATH: "./bin" }, checks: ['stdout contains "ok"'] }],
+    ["a cwd", { task: "t", cmd: "echo ok", cwd: "sub", checks: ['stdout contains "ok"'] }],
+  ])("%s", (_name, check) => {
+    expect(severe(check)).toBe(false);
+  });
+});
