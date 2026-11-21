@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -225,6 +225,31 @@ describe("plan references (issue #120)", () => {
     expect(winRefs.find((r) => r.kind === "script" && r.value === "z")).toMatchObject({ reason: "its package folder is outside the project folder (not read)" });
     expect(winRefs.find((r) => r.kind === "script" && r.value === "y")).toMatchObject({ reason: "its package folder is outside the project folder (not read)" });
     expect(winRefs.find((r) => r.value === "C:foo")).toMatchObject({ kind: "file", reason: "outside the project folder (not read)" });
+  });
+
+  it("never reads or stats through a symlink that leads outside the project folder (review #5)", async (t) => {
+    const outside = project({ "secret.txt": "x", "package.json": JSON.stringify({ scripts: { deploy: "x" } }), "node_modules/.bin/outtool": "" });
+    const root = project({ "package.json": JSON.stringify({ scripts: {} }) });
+    try {
+      symlinkSync(outside, join(root, "link"), "dir");
+      symlinkSync(join(outside, "node_modules"), join(root, "node_modules"), "dir");
+    } catch {
+      t.skip();
+      return;
+    }
+    const reads: string[] = [];
+    const rows = [
+      row("t1", "Touch link/secret.txt and link/nothere.txt"),
+      row("t2", "x", [{ cmd: "npm run deploy", cwd: "link" }, { cmd: "outtool", cwd: "link" }, { cmd: "outtool" }]),
+    ];
+    const report = await checkPlanReferences(rows, { root, deps: { resolveRgPath: () => null, env: { PATH: "" }, readText: async (p) => { reads.push(p); return null; } } });
+    const find = (kind: string, value: string, dir?: string) => report.references.find((r) => r.kind === kind && r.value === value && (dir === undefined || r.dir === dir));
+    expect(find("file", "link/secret.txt")?.outcome).toBe("uncheckable");
+    expect(find("file", "link/nothere.txt")).toMatchObject({ outcome: "uncheckable", why: "it leads outside the project folder" });
+    expect(find("script", "deploy", "link")).toMatchObject({ outcome: "uncheckable", why: "its folder leads outside the project folder (not read)" });
+    expect(find("command", "outtool", "link")).toMatchObject({ outcome: "uncheckable", why: "its folder leads outside the project folder (not read)" });
+    expect(find("command", "outtool", "")).toMatchObject({ outcome: "uncheckable", why: "node_modules/.bin leads outside the project folder" });
+    expect(reads).toEqual([]);
   });
 });
 

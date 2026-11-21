@@ -20,7 +20,10 @@ import { REFERENCE_DETAIL_MAX, planReferenceBasis, type PlanReferenceRecord } fr
  *
  * Deterministic and model-free. It reads only inside the project folder
  * (stat, `package.json`, and ripgrep over the folder for symbols and bare
- * file names); a command is looked up on PATH by `stat` alone. It never
+ * file names); a command is looked up on PATH by `stat` alone. A path,
+ * cwd, package folder or `node_modules/.bin` whose real path (or its
+ * nearest existing ancestor's) leads outside the folder is uncheckable
+ * and nothing under it is stat-ed or read. It never
  * runs a project command and never uses the network: the only process it
  * starts is the bundled ripgrep binary.
  */
@@ -416,6 +419,23 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
     const r = p.relative(realRoot, real);
     return r === "" || (!r.startsWith("..") && !p.isAbsolute(r));
   };
+  /**
+   * Whether `rel` stays in the folder: the real path of it, or of its
+   * nearest existing ancestor, is under the real root. Checked before
+   * anything under it is stat-ed or read, so a symlink out of the folder
+   * is never followed (nor used as an existence oracle).
+   */
+  const staysInside = async (rel: string): Promise<boolean> => {
+    const parts = rel === "" ? [] : rel.split("/");
+    for (let i = parts.length; i >= 0; i -= 1) {
+      const at = parts.slice(0, i).join("/");
+      if (i > 0 && (await deps.statPath(abs(at))) === null) continue;
+      const real = await deps.realPath(abs(at));
+      return real === null || inside(real);
+    }
+    return true;
+  };
+  const OUTSIDE_DIR = "its folder leads outside the project folder (not read)";
   const outOfTime = (): Resolution | null => {
     if (options.signal?.aborted === true) return { outcome: "uncheckable", why: "cancelled" };
     return timeLeft() <= 0 ? { outcome: "uncheckable", why: `time limit (${limits.maxMs} ms)` } : null;
@@ -439,13 +459,16 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
     return (listing = { files });
   };
 
-  const packages = new Map<string, Record<string, unknown> | "absent" | "unreadable">();
+  const packages = new Map<string, Record<string, unknown> | "absent" | "unreadable" | "outside">();
   const scriptsOf = async (dir: string) => {
     const known = packages.get(dir);
     if (known !== undefined) return known;
-    const file = abs(dir === "" ? "package.json" : `${dir}/package.json`);
-    let value: Record<string, unknown> | "absent" | "unreadable";
-    if ((await deps.statPath(file)) !== "file") value = "absent";
+    const rel = dir === "" ? "package.json" : `${dir}/package.json`;
+    const file = abs(rel);
+    let value: Record<string, unknown> | "absent" | "unreadable" | "outside";
+    if (!(await staysInside(dir))) value = "outside";
+    else if ((await deps.statPath(file)) !== "file") value = "absent";
+    else if (!(await staysInside(rel))) value = "outside";
     else {
       const text = await deps.readText(file, 1024 * 1024);
       try {
@@ -471,6 +494,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       if (hits.length === 1) return { outcome: "verified" };
       return { outcome: "ambiguous", why: `${hits.length} files have that name: ${hits.slice(0, 3).join(", ")}${hits.length > 3 ? ", …" : ""}` };
     }
+    if (!(await staysInside(rel))) return { outcome: "uncheckable", why: "it leads outside the project folder" };
     if ((await deps.statPath(abs(rel))) === null) return { outcome: "missing", why: "not in the project folder" };
     return contained(rel);
   };
@@ -486,11 +510,17 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
     const exts = platform === "win32"
       ? ["", ...(deps.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0)]
       : [""];
+    if (ref.dir !== undefined && ref.dir !== "" && !(await staysInside(ref.dir))) return { outcome: "uncheckable", why: OUTSIDE_DIR };
     const dirs = [...new Set([ref.dir ?? "", ""])];
+    let binOutside = false;
     for (const d of dirs) {
+      const binDir = d === "" ? "node_modules/.bin" : `${d}/node_modules/.bin`;
+      if (!(await staysInside(binDir))) {
+        binOutside = true;
+        continue;
+      }
       for (const ext of exts) {
-        const bin = d === "" ? `node_modules/.bin/${name}${ext}` : `${d}/node_modules/.bin/${name}${ext}`;
-        if ((await deps.statPath(abs(bin))) === "file") return { outcome: "verified" };
+        if ((await deps.statPath(abs(`${binDir}/${name}${ext}`))) === "file") return { outcome: "verified" };
       }
     }
     const pathVar = deps.env.PATH ?? deps.env.Path ?? deps.env.path ?? "";
@@ -502,7 +532,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
       const late = outOfTime();
       if (late !== null) return late;
     }
-    return { outcome: "missing", why: "not on PATH nor in node_modules/.bin" };
+    return binOutside ? { outcome: "uncheckable", why: "node_modules/.bin leads outside the project folder" } : { outcome: "missing", why: "not on PATH nor in node_modules/.bin" };
   };
 
   const symbols = work.filter((r) => r.kind === "symbol" && r.reason === undefined);
@@ -522,7 +552,8 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
     else {
       const scripts = await scriptsOf(ref.dir ?? "");
       const where = ref.dir === undefined || ref.dir === "" ? "package.json" : `${ref.dir}/package.json`;
-      resolved.set(ref, scripts === "absent" ? { outcome: "missing", why: `no ${where}` }
+      resolved.set(ref, scripts === "outside" ? { outcome: "uncheckable", why: OUTSIDE_DIR }
+        : scripts === "absent" ? { outcome: "missing", why: `no ${where}` }
         : scripts === "unreadable" ? { outcome: "uncheckable", why: `${where} could not be read` }
         : Object.hasOwn(scripts, ref.value) ? { outcome: "verified" } : { outcome: "missing", why: `no such script in ${where}` });
     }
