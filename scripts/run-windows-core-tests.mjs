@@ -47,6 +47,7 @@ export const criticalFiles = [
   'src/tools/fusion/evidence-review.test.ts',
   // Issue #110: contract checks that cannot fail are refused before anything runs; weak ones are named; negative controls; criteria verified with reservations.
   'src/tools/fusion/contract-check-lint.test.ts',
+  'src/tools/fusion/contract-check-lint-review.test.ts',
   'src/tools/fusion/fusion-delegate-check-lint.test.ts',
   'src/tools/fusion/contract-check-negative.test.ts',
   'src/tools/fusion/criteria-reservations.test.ts',

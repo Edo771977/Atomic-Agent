@@ -110,6 +110,9 @@ const SHELL_META = /[|&;<>()$`*?[\]{}~!#\\]/;
  * or a backtick inside double quotes) or an unterminated quote.
  */
 export function splitPlainCommand(line: string): string[] | null {
+  // A newline or carriage return separates commands for `sh -c` and
+  // `cmd /c`, inside quotes or not: never a single plain command.
+  if (/[\r\n]/.test(line)) return null;
   const words: string[] = [];
   let current = "";
   let inWord = false;
