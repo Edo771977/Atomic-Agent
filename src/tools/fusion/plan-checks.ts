@@ -24,7 +24,19 @@ export interface PlanDecision extends ProjectBriefDecision {
  * person can defer it at the plan gate). Absent when the brief has none.
  */
 function decisionCoverage(rows: readonly AssignmentRow[], decisions: readonly PlanDecision[], finished: ReadonlyMap<string, readonly string[]>): PlanCheckResult[] {
-  if (decisions.length === 0) return [];
+  // A citation of an id that is no decision is a slip, not a block: warn, naming it per task.
+  const known = new Set(decisions.map((d) => d.id));
+  const strays = rows.flatMap((r) => {
+    const unknown = (r.decisions ?? []).filter((id) => !known.has(id));
+    return unknown.length === 0 ? [] : [{ taskId: r.taskId, unknown }];
+  });
+  const stray: PlanCheckResult[] = strays.length === 0 ? [] : [{
+    dimension: "decision-coverage",
+    verdict: "warn",
+    detail: `Tasks cite ids that are no decision of the approved brief: ${strays.map((s) => `${s.taskId} (${s.unknown.join(", ")})`).join(", ")}.`,
+    taskIds: strays.map((s) => s.taskId),
+  }];
+  if (decisions.length === 0) return stray;
   // A done or reviewed milestone's task counts only for what it cited when it ran (its snapshot):
   // a citation added to it since names work that will not run again.
   const cited = new Set([
@@ -38,7 +50,7 @@ function decisionCoverage(rows: readonly AssignmentRow[], decisions: readonly Pl
     .join("");
   const excluded = decisions.filter((d) => d.status !== "active");
   const aside = excluded.length === 0 ? "" : ` Not checked: ${excluded.map((d) => `${d.id} (${d.status})`).join(", ")}.`;
-  return [missing.length === 0
+  return [...stray, missing.length === 0
     ? { dimension: "decision-coverage", verdict: "pass", detail: `Every active decision is cited by a plan task.${aside}`, taskIds: [] }
     : { dimension: "decision-coverage", verdict: "fail", detail: `No plan task that will run cites active decisions: ${missing.map((d) => `${d.id} (${d.text})`).join(", ")}. Cite each on a task's decisions, or the person defers it at the plan gate.${missing.map((d) => late(d.id)).join("")}${aside}`, taskIds: [] }];
 }
