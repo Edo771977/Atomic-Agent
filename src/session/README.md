@@ -5,6 +5,10 @@ Owner: src/session/
 
 This area owns session state and persistence. Read [AGENTS.md](AGENTS.md) before changing it.
 
+## Evidence receipts
+
+Each project appends evidence snapshots to `<stateDir>/receipts/<project-key>/receipts.ndjson`. The folder key is shared with the protected decision record. The signing key is generated on first use in the operating system credential store. Public keys remain in `<stateDir>/signing/` so historical signatures survive key replacement. If the keychain is unavailable, the writer records the evidence as unsigned. Verification only reads public keys. See the [CLI guide](../cli/README.md) for statuses and trust limits.
+
 ## Entry points
 
 - [session-state.ts](session-state.ts)

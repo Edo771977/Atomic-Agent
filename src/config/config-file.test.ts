@@ -1014,6 +1014,10 @@ describe("the state's secret files (ATO-877)", () => {
     expect(getTrustConfigPaths(paths)).toContain(projectRecordsDir(stateDir) + sep);
     expect(getTrustConfigPaths(paths)).toContain(dirname(projectRegistryPath(stateDir)) + sep);
     expect(getStateSecretPaths(paths)).toContain(projectRecordsDir(stateDir) + sep);
+    for (const dir of ["receipts", "signing"]) {
+      expect(getTrustConfigPaths(paths)).toContain(join(stateDir, dir) + sep);
+      expect(getStateSecretPaths(paths)).toContain(join(stateDir, dir) + sep);
+    }
   });
 
   it("protects the OS keychain switch like .env (ATO-474)", () => {
