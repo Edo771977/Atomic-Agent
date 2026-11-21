@@ -23,6 +23,9 @@
 .pc-actions{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 16px 14px;
   border-top:1px solid var(--line-hair,var(--line));background:var(--lift)}
 .pc-warn{margin:0;padding:8px 10px;border-radius:var(--r-well);background:var(--warn-wash);color:var(--warn);font-size:var(--fs-cap)}
+/* Issue #109: a gate changed outside Atomic Agent leads, bordered; a project that could not be opened. */
+.pc-outside{border:1px solid var(--warn);font-weight:600}
+.pc-problem .pc-error{overflow-wrap:anywhere}
 .pc-brief{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0;font-size:var(--fs-cap)}
 .pc-brief dt{color:var(--ink-2)}
 .pc-brief dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
