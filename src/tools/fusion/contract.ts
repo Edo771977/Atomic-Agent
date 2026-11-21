@@ -36,6 +36,7 @@
  */
 
 import { renderContractInputs } from "./contract-inputs.js";
+import { CHECK_LINT_PREFIX } from "./contract-check-lint.js";
 import { CRITERION_ID_PATTERN, PROJECT_LIMITS, normalizeCriterionId } from "../../session/session-project.js";
 import {
   describeExample,
@@ -356,7 +357,9 @@ export function renderContractBlock(contract: DelegateContract): string {
       ...checks.map(renderCheck),
     );
   }
-  lines.push(...(contract.warnings ?? []).map((w) => `contract: ${w}`));
+  // The check lint's lines (issue #110) are the director's to act on: a
+  // worker cannot change the contract, and they must not eat its budget.
+  lines.push(...(contract.warnings ?? []).filter((w) => !w.startsWith(CHECK_LINT_PREFIX)).map((w) => `contract: ${w}`));
   return lines.join("\n");
 }
 

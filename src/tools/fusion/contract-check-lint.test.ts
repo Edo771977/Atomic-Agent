@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContractCheck, DelegateContract } from "./contract.js";
+import { renderContractBlock, type ContractCheck, type DelegateContract } from "./contract.js";
 import {
   checkReservations,
   checksWithoutCriteriaHint,
@@ -186,6 +186,15 @@ describe("parseDelegateArgs refuses a contract that cannot fail (issue #110)", (
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
     expect(parsed.error).toContain("contract.provides[0].example.expect is always");
+  });
+
+  it("keeps its lines out of the workers' block, so many warned checks never push the contract over its size limit", () => {
+    const many = Array.from({ length: 16 }, (_, i) => ({ task: "t1", kind: "command", cmd: "node", args: ["--test", `t${i}.test.cjs`], checks: ['stdout contains "passed"', 'stdout not contains "Error"'] }));
+    const parsed = parseDelegateArgs({ tasks, contract: { checks: many } });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.contract?.warnings?.length).toBe(16);
+    expect(renderContractBlock(parsed.contract!)).not.toContain("check lint");
   });
 
   it("passes the real CSV and game contracts through", () => {
