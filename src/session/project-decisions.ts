@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import {
   applyProjectUpdate,
@@ -279,10 +279,25 @@ function recordKey(folder: string, id: string): string {
   return createHash("sha256").update(`${folder}\n${id}`).digest("hex").slice(0, 40);
 }
 
-/** The stored state: the normalized project with its `changedOutside` labels. */
-function readState(raw: unknown): ProjectState | null {
-  const project = normalizeProject(raw);
-  if (project === undefined) return null;
+/** Whether `path` lies inside `<stateDir>/fusion-runs` (where runs keep their pictures). */
+export function insideFusionRuns(stateDir: string, path: string): boolean {
+  const rel = relative(join(stateDir, "fusion-runs"), resolve(path));
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/** The stored state: the normalized project with its `changedOutside` labels, pictures outside the runs dropped. */
+function readState(raw: unknown, stateDir: string): ProjectState | null {
+  const normalized = normalizeProject(raw);
+  if (normalized === undefined) return null;
+  const project: ProjectState = {
+    ...normalized,
+    milestones: normalized.milestones.map((m) => {
+      if (m.attachments === undefined) return m;
+      const kept = m.attachments.filter((a) => insideFusionRuns(stateDir, a.path));
+      const { attachments: _a, ...rest } = m;
+      return kept.length === 0 ? rest : { ...rest, attachments: kept };
+    }),
+  };
   const changed = (raw as { changedOutside?: unknown }).changedOutside;
   const labels = Array.isArray(changed) ? changed.filter((l): l is string => typeof l === "string" && l.length <= 80) : [];
   return withChanged(project, labels);
@@ -361,7 +376,7 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
     if (raw.version !== 1) {
       return { ok: false, problem: { code: "unsupported", message: `the record ${file} has version ${JSON.stringify(raw.version)}; this Atomic Agent reads version 1` } };
     }
-    const state = readState(raw.state);
+    const state = readState(raw.state, stateDir);
     const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
     if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || state === null || decisions === null || decisions.some((d) => d === null)) {
       return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };

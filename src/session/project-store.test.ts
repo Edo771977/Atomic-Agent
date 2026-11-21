@@ -13,6 +13,7 @@ import {
   openProject,
   projectFilePath,
   projectStoreDir,
+  parseProjectFile,
   readProjectFile,
   type ProjectStoreOptions,
 } from "./project-store.js";
@@ -165,3 +166,28 @@ describe("project store (issue #109)", () => {
     expect(existsSync(join(projectStoreDir(folder), "BRIEF.md"))).toBe(true);
   });
 });
+
+describe("attachment paths stay inside the state dir's fusion runs (issue #109 review)", () => {
+  it("the file's mirror and the record drop a picture outside <stateDir>/fusion-runs", async () => {
+    const { stateDirProjectRecords } = await import("./project-decisions.js");
+    created();
+    const raw = JSON.parse(readFileSync(projectFilePath(folder), "utf8")) as Record<string, any>;
+    raw.project.milestones[0].attachments = [
+      { path: "../../escape.png", caption: "up" },
+      { path: join(tmpdir(), "elsewhere.png"), caption: "absolute" },
+      { path: "fusion-runs/run-1/shots/t1-1.png", caption: "kept" },
+    ];
+    const read = parseProjectFile(raw, folder, stateDir);
+    expect(read.ok && read.stored.project.milestones[0]?.attachments?.map((a) => a.caption)).toEqual(["kept"]);
+
+    const records = stateDirProjectRecords(stateDir);
+    const opened = openProject(folder, options);
+    if (!opened.ok) throw new Error(opened.problem.message);
+    const p = opened.opened.project;
+    const outside = { ...p, milestones: p.milestones.map((m, i) => (i === 0 ? { ...m, attachments: [{ path: join(stateDir, "..", "x.png"), caption: "outside" }, ...(m.attachments ?? [])] } : m)) };
+    expect(records.write(folder, "proj-1", opened.opened.decisionSeq, outside).ok).toBe(true);
+    const back = records.read(folder, "proj-1");
+    expect(back.ok && back.record?.state.milestones[0]?.attachments?.map((a) => a.caption)).toEqual(["The board"]);
+  });
+});
+

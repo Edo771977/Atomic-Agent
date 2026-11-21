@@ -8,6 +8,7 @@ import {
   canonicalJson,
   gateContentHash,
   gateDecided,
+  insideFusionRuns,
   projectContent,
   resolveProject,
   type ProjectDecisionInput,
@@ -108,7 +109,7 @@ function problem(code: ProjectStoreProblemCode, message: string): { ok: false; p
 }
 
 /** Attachment paths: absolute under `stateDir` become relative (portable `/` form), and back. */
-function mapAttachments(project: unknown, map: (path: string) => string): unknown {
+function mapAttachments(project: unknown, map: (path: string) => string | null): unknown {
   if (!isObject(project) || !Array.isArray(project.milestones)) return project;
   return {
     ...project,
@@ -116,7 +117,11 @@ function mapAttachments(project: unknown, map: (path: string) => string): unknow
       if (!isObject(m) || !Array.isArray(m.attachments)) return m;
       return {
         ...m,
-        attachments: m.attachments.map((a) => (isObject(a) && typeof a.path === "string" ? { ...a, path: map(a.path) } : a)),
+        attachments: m.attachments.flatMap((a) => {
+          if (!isObject(a) || typeof a.path !== "string") return [a];
+          const path = map(a.path);
+          return path === null ? [] : [{ ...a, path }];
+        }),
       };
     }),
   };
@@ -128,8 +133,11 @@ function toFilePath(stateDir: string, path: string): string {
   return rel.split(sep).join("/");
 }
 
-function fromFilePath(stateDir: string, path: string): string {
-  return isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path) ? path : join(stateDir, ...path.split("/"));
+/** A mirror's picture path back under the state dir; null (dropped) for an absolute path or one leaving `<stateDir>/fusion-runs`. */
+function fromFilePath(stateDir: string, path: string): string | null {
+  if (isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path)) return null;
+  const resolved = join(stateDir, ...path.split("/"));
+  return insideFusionRuns(stateDir, resolved) ? resolved : null;
 }
 
 /** The file read and checked for shape only (no decisions applied). */

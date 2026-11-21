@@ -40,6 +40,12 @@ afterEach(() => {
 /** The fixture session, as a store before issue #109 saved it, in this test's folder. */
 function savePreStoreSession(id = "s-109-fixture"): ProjectState {
   const state = normalizeSessionState({ ...fixture.session, id, workingDir: folder }) as SessionState;
+  // The run's picture lies in this machine's state dir, as a real run leaves it.
+  state.project = {
+    ...state.project!,
+    milestones: state.project!.milestones.map((m) =>
+      m.attachments === undefined ? m : { ...m, attachments: m.attachments.map((a) => ({ ...a, path: join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.png") })) }),
+  };
   // Written without a project store: exactly the row an older build left.
   const old = new SessionStore({ dbFile: join(stateDir, "sessions.sqlite") });
   old.save(state);

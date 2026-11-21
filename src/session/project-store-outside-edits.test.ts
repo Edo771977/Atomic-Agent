@@ -37,15 +37,18 @@ afterEach(() => {
 /** The fixture with m2 running under the approved plan (no gate open), its plan drafted after outside content. */
 function running(): ProjectState {
   const p = normalizeProject(fixture.session.project)!;
+  // The run's picture lies in this machine's state dir, as a real run leaves it.
+  const shot = join(stateDir, "fusion-runs", "run-1", "shots", "t1-1.png");
   return {
     ...p,
     gate: { kind: "none" },
     plan: { ...p.plan!, draftedAfterUntrusted: true },
-    milestones: p.milestones.map((m) =>
-      m.id === "m2"
-        ? { ...m, state: "in_progress" as const, runIds: ["run-real"], reviewBlocks: [{ taskId: "t2", reason: "never reviewed" }], criteriaFacts: [{ id: "c2", state: "failed" as const, why: "five levels" }] }
-        : m,
-    ),
+    milestones: p.milestones.map((m) => {
+      const here = m.attachments === undefined ? m : { ...m, attachments: m.attachments.map((a) => ({ ...a, path: shot })) };
+      return m.id === "m2"
+        ? { ...here, state: "in_progress" as const, runIds: ["run-real"], reviewBlocks: [{ taskId: "t2", reason: "never reviewed" }], criteriaFacts: [{ id: "c2", state: "failed" as const, why: "five levels" }] }
+        : here;
+    }),
   };
 }
 
