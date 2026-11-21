@@ -2,14 +2,13 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { runtimeProjectStore } from "../runtime/composition/runtime-session-services.js";
 import { stateDirDecisionStore } from "../session/project-decisions.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { openProject, projectFilePath } from "../session/project-store.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
-import { readProjectRef, type SessionProjectStore } from "../session/session-project-store.js";
+import { projectStoreForStateDir, readProjectRef, type SessionProjectStore } from "../session/session-project-store.js";
 import { createEmptySessionState, type SessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
@@ -199,7 +198,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
   const folder = resolve(positional[0]!);
   const config = deps.stateDir === undefined ? getConfig() : null;
   const stateDir = deps.stateDir?.() ?? config!.paths.stateDir;
-  const projects = deps.projectStore ?? runtimeProjectStore(config ?? getConfig());
+  const projects = deps.projectStore ?? projectStoreForStateDir(stateDir);
   const opened = openProject(folder, { stateDir, decisions: stateDirDecisionStore(stateDir) });
   if (!opened.ok) {
     stderr(`project resume: ${opened.problem.message}\n`);

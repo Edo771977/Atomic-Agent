@@ -11,12 +11,11 @@ import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { TaskStore } from "../../tasks/task-store.js";
-import { createSessionProjectStore, type SessionProjectStore } from "../../session/session-project-store.js";
-import { stateDirDecisionStore } from "../../session/project-decisions.js";
+import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
 
 /** The fusion project store every runtime surface shares (issue #109). */
 export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectStore {
-  return createSessionProjectStore({ stateDir: config.paths.stateDir, decisions: stateDirDecisionStore(config.paths.stateDir) });
+  return projectStoreForStateDir(config.paths.stateDir);
 }
 
 export function prepareRuntimeSessionStore(

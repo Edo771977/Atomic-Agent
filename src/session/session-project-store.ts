@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { gateDecided, type ProjectDecisionInput, type ProjectDecisionStore } from "./project-decisions.js";
+import { gateDecided, stateDirDecisionStore, type ProjectDecisionInput, type ProjectDecisionStore } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type OpenedProject, type ProjectStoreProblem } from "./project-store.js";
 import { withProject, type ProjectGate, type ProjectState } from "./session-project.js";
 import type { SessionState } from "./session-state.js";
@@ -155,4 +155,9 @@ export function createSessionProjectStore(options: SessionProjectStoreOptions): 
       return { ok: true, session: withProject(state, next) };
     },
   };
+}
+
+/** The store every surface on one state dir shares: decisions under that state dir. */
+export function projectStoreForStateDir(stateDir: string): SessionProjectStore {
+  return createSessionProjectStore({ stateDir, decisions: stateDirDecisionStore(stateDir) });
 }
