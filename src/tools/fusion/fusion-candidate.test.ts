@@ -11,6 +11,7 @@ import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { receiptHash } from "../../session/receipt-signing.js";
+import { createProjectReceiptWriter, verifyProjectReceipts } from "../../session/project-receipts.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
@@ -106,7 +107,14 @@ it.each([true, false])("archives check-run records and only delivered candidate 
 });
 
 it.each([true, false])("archives direct task manifests outside incognito (incognito=%s)", async incognito => {
-  const writeProjectReceipt = vi.fn();
+  const stateDir = await mkdtemp(join(tmpdir(), "fusion-receipt-state-"));
+  roots.push(stateDir);
+  const credentials = new Map<string, string>();
+  const warn = vi.fn();
+  const writeProjectReceipt = vi.fn(createProjectReceiptWriter(stateDir, {
+    read: name => ({ ok: true, value: credentials.get(name) ?? null }),
+    write: (name, value) => { credentials.set(name, value); return true; },
+  }, warn));
   const f = await fixture({ writeProjectReceipt }, false);
   f.deps.runTurn = async session => {
     await writeFile(join(session.workingDir, "api.json"), '{"name":"after"}');
@@ -119,9 +127,13 @@ it.each([true, false])("archives direct task manifests outside incognito (incogn
   expect(result.status).toBe("ok");
   if (incognito) {
     expect(writeProjectReceipt).not.toHaveBeenCalled();
+    expect(credentials.size).toBe(0);
+    expect(verifyProjectReceipts(stateDir, f.root)).toEqual([]);
   } else {
     expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", expect.objectContaining({ ok: true, exitCode: 0 }));
     expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "artifact-manifest", expect.objectContaining({ coverage: expect.objectContaining({ source: "observed" }) }));
+    expect(warn).not.toHaveBeenCalled();
+    expect(verifyProjectReceipts(stateDir, f.root)).toEqual(writeProjectReceipt.mock.calls.map(() => "valid"));
   }
 });
 
