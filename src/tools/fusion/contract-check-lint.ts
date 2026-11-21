@@ -619,9 +619,33 @@ export function describeSevereFinding(finding: CheckLintFinding): string {
   return `${finding.where} ${finding.message}`;
 }
 
+/** How every lint line starts, on the contract's warnings. */
+export const CHECK_LINT_PREFIX = "check lint (";
+
 /** The contract warning line of a non-severe finding (`contract:` line, worker blocks). */
 export function describeLintWarning(finding: CheckLintFinding): string {
-  return `check lint (${finding.severity}): ${finding.where} ${finding.message}`;
+  return `${CHECK_LINT_PREFIX}${finding.severity}): ${finding.where} ${finding.message}`;
+}
+
+/** How much of the lint lines the fan-out's approval line carries. */
+const APPROVAL_LINT_CHARS = 400;
+
+/**
+ * The approval line's clause (`; check lint: 2 warnings — …`): what the
+ * person approving should know about the checks before anything runs.
+ * Empty when there is nothing to say.
+ */
+export function describeCheckLintForApproval(lines: readonly string[]): string {
+  if (lines.length === 0) return "";
+  const severities = lines.map((l) => (l.startsWith(`${CHECK_LINT_PREFIX}hint`) ? "hint" : "warning"));
+  const counts = (["warning", "hint"] as const)
+    .map((s) => [s, severities.filter((x) => x === s).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([s, n]) => `${n} ${s}${n === 1 ? "" : "s"}`)
+    .join(", ");
+  const text = lines.map((l) => l.replace(/^check lint \((?:warning|hint)\): /, "")).join("; ");
+  const clipped = text.length > APPROVAL_LINT_CHARS ? `${text.slice(0, APPROVAL_LINT_CHARS - 1)}…` : text;
+  return `; check lint: ${counts} — ${clipped}`;
 }
 
 /**
@@ -649,5 +673,5 @@ export function checksWithoutCriteriaHint(contract: DelegateContract | undefined
     check.task !== undefined && (check.criteria ?? []).length === 0 && check.judge === undefined ? [index] : []);
   if (bare.length === 0) return null;
   const list = bare.map((i) => `contract.checks[${i}]`).join(", ");
-  return `check lint (hint): ${list} name${bare.length === 1 ? "s" : ""} no success criterion while the approved brief has ${briefCriteria}; a pass there proves no criterion — add \`criteria\` where the check verifies one`;
+  return `${CHECK_LINT_PREFIX}hint): ${list} name${bare.length === 1 ? "s" : ""} no success criterion while the approved brief has ${briefCriteria}; a pass there proves no criterion — add \`criteria\` where the check verifies one`;
 }

@@ -70,7 +70,7 @@ import {
 import { readContractInputs } from "./contract-inputs.js";
 import { readCheckInputs } from "./candidate-check-inputs.js";
 import { parseProvideExample } from "./contract-example.js";
-import { describeSevereFinding, lintContract } from "./contract-check-lint.js";
+import { describeLintWarning, describeSevereFinding, lintContract } from "./contract-check-lint.js";
 import { readOutputEstimate } from "./worker-fit.js";
 import {
   FUSION_ROLES,
@@ -702,7 +702,12 @@ function readContract(
   }
   // Stored before the block is measured: the workers pay for these
   // lines like any other.
-  const warnings = contractWarnings(contract, tasks);
+  // The checks that may pass on the wrong thing, after what cannot be
+  // honoured: the director reads them on the result, the workers in their block.
+  const warnings = [
+    ...contractWarnings(contract, tasks),
+    ...lint.filter((f) => f.severity !== "severe").map(describeLintWarning),
+  ];
   if (warnings.length > 0) contract.warnings = warnings;
   const rendered = renderContractBlock(contract).length;
   if (rendered > MAX_CONTRACT_RENDERED_CHARS) {
