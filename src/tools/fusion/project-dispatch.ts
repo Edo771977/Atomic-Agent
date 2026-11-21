@@ -3,6 +3,8 @@ import { resolve as resolvePath } from "node:path";
 import { isInside } from "../../approval/fanout-scope.js";
 import type { ProjectState } from "../../session/session-project.js";
 import { sameMember, type DefaultModelOf } from "./member-identity.js";
+import type { DelegateContract, ContractCheck } from "./contract.js";
+import { checkSpecKey } from "./worker-self-check.js";
 
 /**
  * The fusion project's dispatch gate (issue #39), enforced by
@@ -32,6 +34,23 @@ export type ProjectDispatchVerdict =
     };
 
 const REPLY = "Reply to the person and wait for their decision";
+
+/** Exact per-task multiset: verify spec identity plus proof metadata and negative input. */
+export function plannedCheckMismatch(project: ProjectState | undefined, taskIds: readonly string[], contract: DelegateContract | undefined): string | null {
+  const canonical = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (value !== null && typeof value === "object") return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+    return JSON.stringify(value) ?? "null";
+  };
+  const key = (c: ContractCheck): string => canonical({ spec: checkSpecKey(c), negative: c.negative ?? null, criteria: [...(c.criteria ?? [])].sort(), judge: c.judge ?? null });
+  for (const row of project?.plan?.rows ?? []) {
+    if (!taskIds.includes(row.taskId) || (row.checks?.length ?? 0) === 0) continue;
+    const planned = row.checks!.map(key).sort();
+    const actual = (contract?.checks ?? []).filter((c) => c.task === row.taskId).map(key).sort();
+    if (canonical(planned) !== canonical(actual)) return `Task ${row.taskId}'s contract checks differ from its approved plan checks (including negative controls). Update the plan with project.plan and obtain approval before changing these checks.`;
+  }
+  return null;
+}
 
 export function checkProjectDispatch(project: ProjectState | undefined, taskIds: readonly string[]): ProjectDispatchVerdict {
   if (project === undefined) return { kind: "no-project" };

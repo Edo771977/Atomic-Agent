@@ -20,6 +20,12 @@
 
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { PROJECT_LIMITS } from "./project-limits.js";
+export { PROJECT_LIMITS } from "./project-limits.js";
+import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
+import type { ContractCheck } from "../tools/fusion/contract.js";
+import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult } from "../tools/fusion/plan-checks.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -46,7 +52,58 @@ export interface ProjectCriterion {
 export type ProjectCriterionInput = string | ProjectCriterion;
 
 /** A criterion id's shape ({@link ProjectCriterion}). */
-export const CRITERION_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+export { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
+
+/**
+ * What the project delivers (schema v2, issue #113). Absent means
+ * `code`. Stored and hashed with the brief only: nothing reads it yet
+ * (`brief.game` keeps working as before; #113 folds it in).
+ */
+export type ProjectDeliverable = "code" | "document" | "spreadsheet" | "research" | "files" | "game";
+export const PROJECT_DELIVERABLES: readonly ProjectDeliverable[] = ["code", "document", "spreadsheet", "research", "files", "game"];
+
+/**
+ * A project decision (schema v2, issue #112): how something must be done
+ * ("SQLite, not Postgres"). Author content, approved with the brief and
+ * covered by its hash; ids follow {@link CRITERION_ID_PATTERN}. Its
+ * status is the person's call and lives in the record
+ * ({@link ProjectState.decisionStatus}), never in `project.json`.
+ */
+export interface ProjectBriefDecision {
+  id: string;
+  text: string;
+}
+
+/** A decision's status (issue #112); absent from {@link ProjectState.decisionStatus} means `active`. */
+export type ProjectDecisionStatus = "active" | "informational" | "deferred" | "retired";
+export const PROJECT_DECISION_STATUSES: readonly ProjectDecisionStatus[] = ["active", "informational", "deferred", "retired"];
+
+/** Who proposed a backlog item (issue #111). */
+export type ProjectBacklogSource = "person" | "director" | "worker" | "reviewer";
+export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person", "director", "worker", "reviewer"];
+
+/**
+ * A backlog item (schema v2, issue #111): work not ready for the plan
+ * yet, optionally with a `condition` (a seed). Proposed items are author
+ * content in `project.json`, outside every gate's hash: editing the
+ * backlog reopens no gate. Whether the person promoted or dropped one is
+ * the record's ({@link ProjectState.backlogStates}). `source` is a label
+ * as written, not a proof of who wrote it.
+ */
+export interface ProjectBacklogItem {
+  id: string;
+  title: string;
+  note?: string;
+  /** A seed's activation condition, free text. */
+  condition?: string;
+  source: ProjectBacklogSource;
+  createdAt: number;
+  /** The milestone or task it came from. */
+  origin?: { milestoneId?: string; taskId?: string };
+}
+
+/** The person's call on a backlog item; absent from {@link ProjectState.backlogStates} means open. */
+export type ProjectBacklogState = "promoted" | "dropped";
 
 export interface ProjectBrief {
   /** 1 on the first draft; +1 on every edit by the model or the person. */
@@ -55,6 +112,10 @@ export interface ProjectBrief {
   users: string;
   how: string;
   game?: ProjectGameBrief;
+  /** Schema v2 (issue #113); absent: code. */
+  deliverable?: ProjectDeliverable;
+  /** Schema v2 (issue #112), at most {@link PROJECT_LIMITS}.decisions. */
+  decisions?: ProjectBriefDecision[];
   successCriteria: ProjectCriterion[];
   status: "draft" | "approved";
   /** Epoch ms of the person's approval; absent on a draft. */
@@ -247,6 +308,10 @@ export interface AssignmentRow {
   estMs: number | null;
   /** The worker runs on a local server: `estCostUsd` is 0, shown as "$0.00 (local)" (issue #54). */
   local?: true;
+  /** Schema v2 (issue #112): ids of the brief's decisions this task honours. */
+  decisions?: string[];
+  /** Same spec language as fusion.delegate; task ownership is implicit in this row. */
+  checks?: ContractCheck[];
 }
 
 export interface ProjectPlanTotals {
@@ -261,6 +326,8 @@ export interface ProjectPlanTotals {
 export type PlanDetail = "compact" | "full";
 
 export interface ProjectPlan {
+  /** Runtime-derived static analysis, recomputed when loading or approving. Record only. */
+  checkResults?: PlanCheckResult[];
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -342,41 +409,20 @@ export interface ProjectState {
    * never stored; an automatic approval stops at such a gate.
    */
   changedOutside?: string[];
+  /**
+   * Schema v2 (issue #111): proposed work outside the plan, at most
+   * {@link PROJECT_LIMITS}.backlog. Author content, covered by no gate's hash.
+   */
+  backlog?: ProjectBacklogItem[];
+  /**
+   * The person's status per brief decision id (issue #112); a decision
+   * not listed is `active`. Record only: never written to or read from
+   * `project.json`.
+   */
+  decisionStatus?: Record<string, ProjectDecisionStatus>;
+  /** The person's call per backlog item id (issue #111); one not listed is open. Record only. */
+  backlogStates?: Record<string, ProjectBacklogState>;
 }
-
-/**
- * Bounds on a stored or updated project. Text is clipped with an
- * ellipsis; a model update over an array cap is refused (the tool turns
- * it into an error the model can act on); a stored one is cut.
- *  - `text` 2000: what/users/how, a summary — a paragraph, not a spec.
- *  - `shortText` 300: a success criterion, a game field, a reason.
- *  - `title` 160: a task or milestone title, as `PLAN_STEP_MAX_CHARS`.
- *  - `id` 64, `criterionId` 32 and `memberRef` 256: identifiers.
- *  - `successCriteria` 20, `milestones` 16, `rows` 64 (the task tree's
- *    node ceiling), `runIds` 32 per milestone (the newest are kept).
- *  - `correctionNote` 2000 and `corrections` 8 per milestone (the newest
- *    are kept): the person's notes at a milestone gate.
- *  - `attachments` 8 per milestone, `attachmentPath` 1024: the result's
- *    pictures (a caption is `shortText`). Criteria facts: one per criterion.
- *  - `history` 4 per milestone (the newest are kept): earlier work's evidence.
- */
-export const PROJECT_LIMITS = {
-  text: 2000,
-  shortText: 300,
-  title: 160,
-  id: 64,
-  memberRef: 256,
-  successCriteria: 20,
-  criterionId: 32,
-  milestones: 16,
-  rows: 64,
-  runIds: 32,
-  correctionNote: 2000,
-  corrections: 8,
-  attachments: 8,
-  attachmentPath: 1024,
-  history: 4,
-} as const;
 
 /**
  * `metadata.projectGates`: whether this session runs the project flow
@@ -399,6 +445,10 @@ export interface ProjectBriefDraft {
   users: string;
   how: string;
   game?: ProjectGameBrief;
+  /** Schema v2 (issue #113). */
+  deliverable?: ProjectDeliverable;
+  /** Schema v2 (issue #112): ids as {@link CRITERION_ID_PATTERN}, unique. */
+  decisions?: ReadonlyArray<ProjectBriefDecision>;
   /** Ids are given or assigned ({@link ProjectCriterion}). */
   successCriteria: ReadonlyArray<ProjectCriterionInput>;
 }
@@ -519,6 +569,8 @@ export interface ProjectDecision {
 
 export interface ProjectDecisionOptions {
   now: number;
+  /** Runtime policy, never taken from project.json. */
+  planChecks?: PlanCheckOptions;
   /**
    * Hard-cap violations of the plan as it stands (`estimatePlan`, from
    * the caller's live budget): non-empty refuses `approve` at the plan
@@ -674,22 +726,6 @@ function readGame(raw: unknown): ProjectGameBrief | undefined | null {
 }
 
 /**
- * A criterion id trimmed and lower-cased; null when it breaks
- * {@link CRITERION_ID_PATTERN}. The one rule for criterion ids: the
- * brief, milestone reports and contract checks all normalize through it,
- * so an id a check names always matches the brief's.
- */
-export function normalizeCriterionId(raw: unknown): string | null {
-  return cleanCriterionId(raw);
-}
-
-function cleanCriterionId(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const id = raw.trim().toLowerCase();
-  return CRITERION_ID_PATTERN.test(id) ? id : null;
-}
-
-/**
  * Criteria cleaned, ids given or assigned ({@link ProjectCriterion}).
  * `strict` (a draft): over the cap, a malformed entry, a bad or repeated
  * id is the error message. `lenient` (a stored brief): the list is cut,
@@ -715,7 +751,7 @@ function cleanCriteria(
     if (typeof item === "string") text = item;
     else if (isObject(item) && typeof item.text === "string") {
       text = item.text;
-      id = cleanCriterionId(item.id);
+      id = normalizeCriterionId(item.id);
       if (id === null || taken.has(id)) {
         if (mode === "strict") {
           return id === null
@@ -750,8 +786,98 @@ function cleanCriteria(
   });
 }
 
+/**
+ * A brief's decisions (schema v2). `strict` (a draft): a malformed list,
+ * entry, id or repeated id, or more than the cap, is the error message.
+ * `lenient` (stored): malformed entries are dropped, the list cut.
+ * Undefined when absent (or, lenient, nothing usable).
+ */
+function cleanDecisions(raw: unknown, mode: "strict" | "lenient"): ProjectBriefDecision[] | undefined | string {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) return mode === "strict" ? "brief.decisions must be a list of { id, text }" : undefined;
+  if (mode === "strict" && raw.length > PROJECT_LIMITS.decisions) return `brief.decisions: at most ${PROJECT_LIMITS.decisions}`;
+  const out: ProjectBriefDecision[] = [];
+  for (const [i, d] of raw.entries()) {
+    if (out.length >= PROJECT_LIMITS.decisions) break;
+    const id = isObject(d) ? normalizeCriterionId(d.id) : null;
+    const text = isObject(d) && typeof d.text === "string" ? clip(d.text, PROJECT_LIMITS.shortText) : "";
+    if (id === null || text.length === 0 || out.some((x) => x.id === id)) {
+      if (mode === "lenient") continue;
+      if (id !== null && out.some((x) => x.id === id)) return `brief.decisions: id ${id} is used twice`;
+      return id === null
+        ? `brief.decisions ${i + 1}: id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`
+        : `brief.decisions ${i + 1} needs a text`;
+    }
+    out.push({ id, text });
+  }
+  return out.length === 0 && mode === "lenient" ? undefined : out;
+}
+
+const DELIVERABLES: ReadonlySet<string> = new Set(PROJECT_DELIVERABLES);
+
+/** A list of decision ids on a plan row: unique, each a criterion-shaped id; null when malformed. */
+function cleanRowDecisions(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.decisions) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    const id = normalizeCriterionId(item);
+    if (id === null || out.includes(id)) return null;
+    out.push(id);
+  }
+  return out;
+}
+
+/** A stored backlog read leniently: malformed or repeated items dropped, the list cut. */
+function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ProjectBacklogItem[] = [];
+  for (const b of raw) {
+    if (out.length >= PROJECT_LIMITS.backlog) break;
+    if (!isObject(b)) continue;
+    const id = normalizeCriterionId(b.id);
+    const title = typeof b.title === "string" ? clip(b.title, PROJECT_LIMITS.title) : "";
+    if (id === null || title.length === 0 || out.some((x) => x.id === id)) continue;
+    if (typeof b.source !== "string" || !(PROJECT_BACKLOG_SOURCES as readonly string[]).includes(b.source) || !isTime(b.createdAt)) continue;
+    const note = typeof b.note === "string" ? clip(b.note, PROJECT_LIMITS.shortText) : "";
+    const condition = typeof b.condition === "string" ? clip(b.condition, PROJECT_LIMITS.shortText) : "";
+    const milestoneId = isObject(b.origin) ? cleanId(b.origin.milestoneId) : null;
+    const taskId = isObject(b.origin) ? cleanId(b.origin.taskId) : null;
+    out.push({
+      id,
+      title,
+      ...(note.length === 0 ? {} : { note }),
+      ...(condition.length === 0 ? {} : { condition }),
+      source: b.source as ProjectBacklogSource,
+      createdAt: b.createdAt,
+      ...(milestoneId === null && taskId === null ? {} : { origin: { ...(milestoneId === null ? {} : { milestoneId }), ...(taskId === null ? {} : { taskId }) } }),
+    });
+  }
+  return out.length === 0 ? undefined : out;
+}
+
+/** A stored id → value map read leniently: keys criterion-shaped, values in `allowed`. */
+function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): Record<string, T> | undefined {
+  if (!isObject(raw)) return undefined;
+  const out: Record<string, T> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const id = normalizeCriterionId(key);
+    if (id === null || id !== key || typeof value !== "string" || !(allowed as readonly string[]).includes(value)) continue;
+    out[id] = value as T;
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
+/** The backlog and the person's calls on it and on the decisions: carried by every update. */
+function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates"> {
+  return {
+    ...(project?.backlog === undefined ? {} : { backlog: project.backlog }),
+    ...(project?.backlogStates === undefined ? {} : { backlogStates: project.backlogStates }),
+    ...(!decisionsToo || project?.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
+  };
+}
+
 /** A brief's fields as stored: criteria carry their ids. */
-type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria"> & { successCriteria: ProjectCriterion[] };
+type CleanBriefDraft = Omit<ProjectBriefDraft, "successCriteria" | "decisions"> & { successCriteria: ProjectCriterion[]; decisions?: ProjectBriefDecision[] };
 
 /** A draft's fields cleaned, or an error message; `previous` is the brief being revised. */
 function cleanBriefDraft(draft: ProjectBriefDraft, previous: readonly ProjectCriterion[] = []): CleanBriefDraft | string {
@@ -767,11 +893,18 @@ function cleanBriefDraft(draft: ProjectBriefDraft, previous: readonly ProjectCri
     return criteria ?? `brief.successCriteria must be a list of at most ${PROJECT_LIMITS.successCriteria} short sentences`;
   }
   if (criteria.length === 0) return "brief.successCriteria needs at least one criterion";
+  if (draft.deliverable !== undefined && !DELIVERABLES.has(draft.deliverable as string)) {
+    return `brief.deliverable must be one of ${PROJECT_DELIVERABLES.join("|")}`;
+  }
+  const decisions = cleanDecisions(draft.decisions, "strict");
+  if (typeof decisions === "string") return decisions;
   return {
     what,
     users: clipText(draft.users, PROJECT_LIMITS.text),
     how: clipText(draft.how, PROJECT_LIMITS.text),
     ...(game === undefined ? {} : { game }),
+    ...(draft.deliverable === undefined ? {} : { deliverable: draft.deliverable }),
+    ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
     successCriteria: criteria,
   };
 }
@@ -802,6 +935,11 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   if (!isCount(raw.samples) || !isAmount(raw.estCostUsd) || !isAmount(raw.estMs)) return null;
   const title = clip(raw.title, PROJECT_LIMITS.title);
   if (title.length === 0) return null;
+  const decisions = raw.decisions === undefined ? undefined : cleanRowDecisions(raw.decisions);
+  if (decisions === null) return null;
+  const problems: string[] = [];
+  const checks = parsePlanRowChecks(raw.checks, taskId, problems);
+  if (problems.length > 0) return null;
   return {
     taskId,
     title,
@@ -815,6 +953,8 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     estMs: raw.estMs,
     ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
     ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
+    ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
+    ...(raw.checks === undefined ? {} : { checks }),
   };
 }
 
@@ -838,7 +978,7 @@ function cleanIdList(raw: unknown): string[] | null {
   if (!Array.isArray(raw)) return null;
   const out: string[] = [];
   for (const item of raw.slice(0, PROJECT_LIMITS.successCriteria)) {
-    const id = cleanCriterionId(item);
+    const id = normalizeCriterionId(item);
     if (id === null) return null;
     if (!out.includes(id)) out.push(id);
   }
@@ -956,7 +1096,7 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
   for (const f of raw) {
     if (out.length >= PROJECT_LIMITS.successCriteria) break;
     if (!isObject(f)) continue;
-    const id = cleanCriterionId(f.id);
+    const id = normalizeCriterionId(f.id);
     if (id === null || out.some((x) => x.id === id)) continue;
     if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
     const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
@@ -1042,12 +1182,12 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
   const summary = typeof raw.summary === "string" ? clipText(raw.summary, PROJECT_LIMITS.shortText) : "";
   const unknownCriteria: string[] = [];
   for (const u of Array.isArray(raw.unknownCriteria) ? raw.unknownCriteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
-    const id = cleanCriterionId(u);
+    const id = normalizeCriterionId(u);
     if (id !== null && !unknownCriteria.includes(id)) unknownCriteria.push(id);
   }
   const criteria: ProjectCriterion[] = [];
   for (const c of Array.isArray(raw.criteria) ? raw.criteria.slice(0, PROJECT_LIMITS.successCriteria) : []) {
-    const id = isObject(c) ? cleanCriterionId(c.id) : null;
+    const id = isObject(c) ? normalizeCriterionId(c.id) : null;
     if (id === null || typeof (c as { text?: unknown }).text !== "string" || criteria.some((x) => x.id === id)) continue;
     criteria.push({ id, text: clipText((c as { text: string }).text, PROJECT_LIMITS.shortText) });
   }
@@ -1078,12 +1218,17 @@ function readBrief(raw: unknown): ProjectBrief | null {
   const game = readGame(raw.game);
   const criteria = cleanCriteria(raw.successCriteria, "lenient");
   if (game === null || criteria === null || typeof criteria === "string") return null;
+  // Schema v2: read leniently (an unknown deliverable reads as absent, a malformed decision is dropped).
+  const deliverable = typeof raw.deliverable === "string" && DELIVERABLES.has(raw.deliverable) ? (raw.deliverable as ProjectDeliverable) : undefined;
+  const decisions = cleanDecisions(raw.decisions, "lenient") as ProjectBriefDecision[] | undefined;
   return {
     version: raw.version,
     what: clipText(raw.what, PROJECT_LIMITS.text),
     users: clipText(raw.users, PROJECT_LIMITS.text),
     how: clipText(raw.how, PROJECT_LIMITS.text),
     ...(game === undefined ? {} : { game }),
+    ...(deliverable === undefined ? {} : { deliverable }),
+    ...(decisions === undefined ? {} : { decisions }),
     successCriteria: criteria,
     status: raw.status,
     ...(raw.status === "approved" && raw.approvedAt !== undefined ? { approvedAt: raw.approvedAt as number } : {}),
@@ -1163,7 +1308,13 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   // Extras: a malformed list reads as absent (the approved brief's own criteria stand in).
   const stored = raw.approvedCriteria === undefined ? null : cleanCriteria(raw.approvedCriteria, "lenient");
   const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
+  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? []);
+  }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
+  const backlog = readBacklog(raw.backlog);
+  const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
+  const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -1173,6 +1324,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(isCount(raw.briefApprovals) && (raw.briefApprovals as number) > 0 ? { briefApprovals: raw.briefApprovals as number } : {}),
     ...(raw.cancelledAt === undefined ? {} : { cancelledAt: raw.cancelledAt as number }),
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
+    ...(backlog === undefined ? {} : { backlog }),
+    ...(decisionStatus === undefined ? {} : { decisionStatus }),
+    ...(backlogStates === undefined ? {} : { backlogStates }),
   };
 }
 
@@ -1255,6 +1409,8 @@ function briefUpdate(
       ...(approvedCriteria === undefined ? {} : { approvedCriteria }),
       ...(base?.briefApprovals === undefined ? {} : { briefApprovals: base.briefApprovals }),
       ...floorOf(project),
+      // The backlog is the folder's: it outlives a cancel; decision statuses belong to the project's decisions.
+      ...personCalls(project, base !== undefined),
     },
   };
 }
@@ -1438,7 +1594,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
       return m.state === was.state && (m.state === "reviewed" || m.state === "done") && hasCriteriaEvidence(was) && !hasCriteriaEvidence(m);
     })
     .map((m) => m.id);
-  const plan =
+  let plan =
     project.plan === undefined || project.plan.status !== "draft"
       ? project.plan
       : (() => {
@@ -1446,6 +1602,9 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
           const ids = new Set(milestones.map((m) => m.id));
           return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids), ...mergeRetired(project.plan, retired, ids) };
         })();
+  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria) };
+  }
   return {
     ...project,
     brief: { ...brief, status: "approved", approvedAt: now },
@@ -1665,6 +1824,7 @@ function planUpdate(
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -1683,6 +1843,7 @@ function planUpdate(
       ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
       ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
       ...floorOf(project),
+      ...personCalls(project, true),
     },
   };
 }
@@ -1958,12 +2119,16 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks);
+      const blocks = planCheckReviewBlocks(results);
+      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       return {
         ok: true,
         project: {
           ...project,
           plan: {
             ...withoutResets(project.plan!),
+            checkResults: results,
             status: "approved",
             approvedAt: now,
             // Every surface draws the warning from the view it approves from.
@@ -2044,6 +2209,8 @@ export function applyProjectDecision(
       users: project.brief!.users,
       how: project.brief!.how,
       ...(project.brief!.game === undefined ? {} : { game: project.brief!.game }),
+      ...(project.brief!.deliverable === undefined ? {} : { deliverable: project.brief!.deliverable }),
+      ...(project.brief!.decisions === undefined ? {} : { decisions: project.brief!.decisions }),
       successCriteria: project.brief!.successCriteria,
       ...(decision.edits?.brief ?? {}),
     };

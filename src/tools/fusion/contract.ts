@@ -185,7 +185,7 @@ export interface DelegateContract {
 }
 
 export const MAX_CONTRACT_PROVIDES = 64;
-export const MAX_CONTRACT_CHECKS = 16;
+export { MAX_CONTRACT_CHECKS } from "./contract-check-spec.js";
 /** Bound on the shared block every worker pays for in its context. */
 export const MAX_CONTRACT_RENDERED_CHARS = 8000;
 

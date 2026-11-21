@@ -193,6 +193,15 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     for (const kind of ["e2e", "page", "game", "visual"]) expect(PROJECT_FLOW_GUIDANCE).toContain(kind);
   });
 
+  it("teaches planned checks, exact delegation and updating the plan for a change", () => {
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/plan.*checks/i);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/negative/);
+    expect(PROJECT_FLOW_GUIDANCE).toMatch(/update.*plan/i);
+    const plan = DEFAULT_TOOL_DESCRIPTORS.find((d) => d.name === "project.plan")!;
+    expect(plan.argsSchema).toContain("checks?");
+    expect(plan.argsSchema).toContain("decisions?");
+  });
+
   it("the project.brief descriptor states the fixed game API (issue #40)", () => {
     const brief = DEFAULT_TOOL_DESCRIPTORS.find((d) => d.name === "project.brief")!;
     expect(brief.summary).toContain("window.__game");

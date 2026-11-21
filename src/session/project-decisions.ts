@@ -7,6 +7,9 @@ import {
   normalizeProject,
   type AssignmentRow,
   type PlanDetail,
+  type ProjectBacklogItem,
+  type ProjectBriefDecision,
+  type ProjectDeliverable,
   type ProjectGate,
   type ProjectMilestone,
   type ProjectState,
@@ -99,9 +102,11 @@ export function projectContent(project: ProjectState): ProjectState {
     return { ...rest, status: "draft" as const };
   })();
   const plan = project.plan === undefined ? undefined : (() => {
-    const { approvedAt: _a, approvedWithUntrustedWarning: _w, ...rest } = project.plan;
+    const { approvedAt: _a, approvedWithUntrustedWarning: _w, checkResults: _checks, ...rest } = project.plan;
     return { ...rest, status: "draft" as const };
   })();
+  // Schema v2: the backlog is content; a decision's status and a backlog
+  // item's promotion are the person's calls and stay in the record.
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -110,12 +115,30 @@ export function projectContent(project: ProjectState): ProjectState {
       return { ...rest, state: mirrorState(m.state) };
     }),
     gate: { kind: "none" },
+    ...(project.backlog === undefined ? {} : { backlog: project.backlog }),
   };
+}
+
+/**
+ * The backlog as author content (schema v2, issue #111): read back from
+ * the file like the brief and plan, but outside every gate's hash, so an
+ * edit of it reopens no gate.
+ */
+export function backlogContent(project: ProjectState): ProjectBacklogItem[] {
+  return project.backlog ?? [];
 }
 
 /** What the person approves and may edit by hand: the brief's text, the plan's rows, the milestones' names. */
 export interface ProjectAuthorContent {
-  brief?: { what: string; users: string; how: string; game?: unknown; successCriteria: Array<{ id: string; text: string }> };
+  brief?: {
+    what: string;
+    users: string;
+    how: string;
+    game?: unknown;
+    deliverable?: ProjectDeliverable;
+    decisions?: ProjectBriefDecision[];
+    successCriteria: Array<{ id: string; text: string }>;
+  };
   plan?: { rows: AssignmentRow[]; detail: PlanDetail };
   milestones: Array<{ id: string; title: string; kind: ProjectMilestone["kind"] }>;
 }
@@ -130,6 +153,9 @@ export function authorContent(project: ProjectState): ProjectAuthorContent {
             users: project.brief.users,
             how: project.brief.how,
             ...(project.brief.game === undefined ? {} : { game: project.brief.game }),
+            // Schema v2: covered by the brief's hash, so changing them reopens the brief gate.
+            ...(project.brief.deliverable === undefined ? {} : { deliverable: project.brief.deliverable }),
+            ...(project.brief.decisions === undefined ? {} : { decisions: project.brief.decisions.map((d) => ({ id: d.id, text: d.text })) }),
             successCriteria: project.brief.successCriteria.map((c) => ({ id: c.id, text: c.text })),
           },
         }),
@@ -188,6 +214,7 @@ export function freshFromContent(file: ProjectState): ProjectState {
     ...(a.plan === undefined ? {} : { plan: { rows: a.plan.rows, detail: a.plan.detail, status: "draft", version: 1, draftedAfterUntrusted: true } }),
     milestones: a.milestones.map((m) => ({ ...m, state: "planned", runIds: [], updatedAt: at })),
     gate: a.brief === undefined ? { kind: "none" } : { kind: "brief" },
+    ...(file.backlog === undefined ? {} : { backlog: backlogContent(file) }),
   }) ?? { milestones: [], gate: { kind: "none" } };
   return withChanged(fresh, [...(fresh.brief === undefined ? [] : ["brief"]), ...(fresh.plan === undefined ? [] : ["plan"])]);
 }
@@ -221,6 +248,11 @@ export function resolveProject(file: ProjectState, record: ProjectRecord | null,
       state = r.project;
       labels.push("plan");
     }
+  }
+  // The backlog (schema v2) is taken as written: it is no gate's content.
+  if (canonicalJson(backlogContent(file)) !== canonicalJson(backlogContent(state))) {
+    const { backlog: _b, ...rest } = state;
+    state = file.backlog === undefined ? rest : { ...rest, backlog: backlogContent(file) };
   }
   return withChanged(state, labels);
 }
