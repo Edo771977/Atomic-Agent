@@ -1,4 +1,4 @@
-import { lstat, readlink, realpath } from "node:fs/promises";
+import { access, lstat, readlink, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ApprovalCategory } from "../../../approval/approval-level.js";
@@ -82,6 +82,7 @@ export async function categorizeFsMutation(
   if (await touchesTrustConfig(absolutePaths, trustPaths, kind === "extract")) {
     return "trust_config";
   }
+  if (await touchesProjectStore(absolutePaths, kind !== "write")) return "trust_config";
   const scope = await resolveFsScope(absolutePaths, options);
   switch (kind) {
     case "write":
@@ -277,6 +278,36 @@ async function touchesTrustConfig(
       if (canonical === target.path) return true;
       if (target.directory && isContained(target.path, canonical)) return true;
       if (holdsTrust && isContained(canonical, target.path)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A fusion project's folder store (`<folder>/.atomic/project/`, issue
+ * #109): the agent's file tools never edit it silently. Its content is
+ * the project's, written by Atomic Agent itself; a worker or the model
+ * rewriting it by accident would reopen gates for the person. Approvals
+ * do not live there (they are in the state dir), so this is about
+ * accidents, not forgery, and it applies with or without a trust list.
+ * With `holds` (trash, extraction) a target that contains a store counts.
+ */
+async function touchesProjectStore(absolutePaths: readonly string[], holds: boolean): Promise<boolean> {
+  const fold = (part: string) => (process.platform === "win32" || process.platform === "darwin" ? part.toLowerCase() : part);
+  for (const path of absolutePaths) {
+    const canonical = await canonicalizeMutationTarget(path);
+    if (canonical === null) continue;
+    const parts = canonical.split(/[\\/]+/).map(fold);
+    for (let i = 0; i + 1 < parts.length; i += 1) {
+      if (parts[i] === ".atomic" && parts[i + 1] === "project") return true;
+    }
+    if (!holds) continue;
+    const inside = parts[parts.length - 1] === ".atomic" ? join(canonical, "project") : join(canonical, ".atomic", "project");
+    try {
+      await access(inside);
+      return true;
+    } catch {
+      // No store under it.
     }
   }
   return false;

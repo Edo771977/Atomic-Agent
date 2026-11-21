@@ -322,4 +322,27 @@ describe("fs approval scope", () => {
       });
     });
   });
+
+  describe("a fusion project's store (issue #109)", () => {
+    it("a write, trash or extraction into .atomic/project is trust_config (asks until L5), even with no trust list", async () => {
+      const store = join(workspace, ".atomic", "project");
+      await mkdir(store, { recursive: true });
+      await writeFile(join(store, "project.json"), "{}", "utf8");
+      expect(await categorizeFsMutation("write", [join(store, "project.json")], opts())).toBe("trust_config");
+      expect(await categorizeFsMutation("write", [join(workspace, "sub", ".atomic", "project", "PLAN.md")], opts())).toBe("trust_config");
+      expect(await categorizeFsMutation("trash", [store], opts())).toBe("trust_config");
+      expect(await categorizeFsMutation("trash", [join(workspace, ".atomic")], opts())).toBe("trust_config");
+      expect(await categorizeFsMutation("extract", [workspace], opts())).toBe("trust_config");
+      // Anything else under .atomic is an ordinary workspace write.
+      expect(await categorizeFsMutation("write", [join(workspace, ".atomic", "notes.md")], opts())).toBe("fs_write_workspace");
+    });
+
+    it("a symlink into the store is classified by its target", async () => {
+      const store = join(workspace, ".atomic", "project");
+      await mkdir(store, { recursive: true });
+      await symlink(join(store, "project.json"), join(workspace, "link.json"));
+      expect(await categorizeFsMutation("write", [join(workspace, "link.json")], opts())).toBe("trust_config");
+    });
+  });
 });
+
