@@ -4532,14 +4532,16 @@ export function backendInstalled(): boolean {
   } catch { return false; }
 }
 
-export async function modelsEngine(action: string, signal?: AbortSignal): Promise<CliResult & { value?: unknown }> {
+export async function modelsEngine(action: string, signal?: AbortSignal, opts: { updatePlan?: boolean } = {}): Promise<CliResult & { value?: unknown }> {
   if (!["status", "check", "atomic-core", "llama-server"].includes(action)) return { ok: false, stdout: "", stderr: "", error: "Unknown engine action" };
   // status and check only read (check also asks GitHub): no config lock, so the background check never holds up a switch.
   const readOnly = action === "status" || action === "check";
   /* `signal` (the launch's background Core check, main.ts watchCoreUpdates):
      the quit ends the child at once rather than leaving a GitHub request
      running behind the app. */
-  const result = readOnly ? await cli(["models", "engine", action], 30_000, undefined, signal) : await withConfigLock(() => cli(["models", "engine", action], 30_000, undefined, signal));
+  const args = ["models", "engine", action];
+  if (action === "status" && opts.updatePlan) args.push("--update-plan");
+  const result = readOnly ? await cli(args, 30_000, undefined, signal) : await withConfigLock(() => cli(args, 30_000, undefined, signal));
   if (result.ok && (action === "status" || action === "check")) {
     try { return { ...result, value: JSON.parse(result.stdout) }; }
     catch { return { ...result, ok: false, error: "The agent returned invalid engine status" }; }
@@ -4723,7 +4725,7 @@ export function modelsUpdateStream(
         keptBackend,
       });
     };
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       if (code === 0) return finish({ ok: true, stdout, stderr });
       if (timedOut === null) return finish({ ok: false, stdout, stderr, error: noLocalModelsHere(stderr) ?? (code === null || cancelledByUs ? null : updateFailureCause(stderr)) ?? `models update exited with code ${code ?? "null"}` });
       const keptBackend = kept();

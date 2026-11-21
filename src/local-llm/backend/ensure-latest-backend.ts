@@ -322,7 +322,8 @@ export async function maybeAutoUpdateBackend(
  * it: the new pin is installed into its own version folder even while the
  * older Core serves models, and the active version switches only when no
  * model runs (`deferred` until then; a later idle start switches without
- * downloading again). A failure is reported, not thrown, with the structured
+ * downloading again, even when automatic downloads are disabled). A failure
+ * is reported, not thrown, with the structured
  * CoreUnavailableError fields, so the caller can offer "download again" or,
  * for a computer without a Core build, fall back. Cancellation propagates as
  * an `update_failed` like the legacy path; the caller checks its own signal.
@@ -340,15 +341,16 @@ async function ensureCoreEngine(
   const installed = isCoreBackendInstalled(dataDir);
   const active = activeCoreVersion(dataDir);
   const currentTag = `Atomic Core ${active}`;
-  if (installed && (active === CORE_VERSION || !opts.enabled)) return { action: "current", tag: currentTag };
+  if (installed && active === CORE_VERSION) return { action: "current", tag: currentTag };
   try {
-    if (installed && isCoreBackendInstalled(dataDir, CORE_VERSION)) {
+    if (active !== CORE_VERSION && isCoreBackendInstalled(dataDir, CORE_VERSION)) {
       // Installed earlier beside the older Core: switch now if nothing runs on it.
       if (opts.keepDaemonRunning || !(await activateCoreVersion(dataDir, CORE_VERSION))) {
         return { action: "deferred", reason: "daemon_live" };
       }
-      return { action: "updated", from: currentTag, to: `Atomic Core ${CORE_VERSION} · ${readCoreBackend(dataDir, CORE_VERSION)?.version ?? "installed"}` };
+      return { action: "updated", from: installed ? currentTag : null, to: `Atomic Core ${CORE_VERSION} · ${readCoreBackend(dataDir, CORE_VERSION)?.version ?? "installed"}` };
     }
+    if (installed && !opts.enabled) return { action: "current", tag: currentTag };
     opts.onWillDownload?.();
     const done = await downloadBackend(dataDir, {
       engine: "atomic-core",

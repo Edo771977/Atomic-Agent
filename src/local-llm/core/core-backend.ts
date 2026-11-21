@@ -39,6 +39,17 @@ async function activeCoreIdleOnce(dataDir: string): Promise<boolean> {
   return !embedding?.enabled;
 }
 
+/** Read-only preview. The CLI and installer still enforce their guards when the update runs. */
+export async function coreBackendUpdatePlan(dataDir: string, chatRunning: () => Promise<boolean>): Promise<{
+  activeVersion: string;
+  targetVersion: string;
+  requiresStop: boolean;
+}> {
+  const activeVersion = activeCoreVersion(dataDir);
+  const requiresStop = activeVersion === CORE_VERSION && (await chatRunning() || !(await activeCoreIdle(dataDir)));
+  return { activeVersion, targetVersion: CORE_VERSION, requiresStop };
+}
+
 function writeActiveVersion(dataDir: string, version: string): void {
   const previous = activeCoreVersion(dataDir);
   if (previous === version) return;

@@ -1430,6 +1430,7 @@ const LLMP = {
   externalDraft:null, externalInvalid:false, steerUrl:null,
   fallbackPicker:null, // {cursor}
   daemonPhase:null, // 'starting' | 'stopping' while a `models start|stop` runs (the TUI's daemonPhase)
+  coreUpdateWaiting:null, // a same-version install waiting for the operator to stop models
   pulling:null, pullLog:[], pullFrame:null, // {kind:'chat'|'embedding', id} while a `models pull[-embedding]` streams
   tune:{busy:null, msg:null, err:null}, // the Thinking knobs and the chat template: busy = the config path being written; where = 'tune' | 'adv', the card the last write's line goes under
   timer:null, seq:0, inflight:null,
@@ -14302,6 +14303,7 @@ function dlOnPull(ev) {
   // this bar: folding its percent into the weights bar would report a
   // download the operator is not waiting on.
   if (ev.kind === 'projector') return false;
+  if (DL.job.kind === 'runtime' && ev.coreUpdate) DL.job.coreUpdate = ev.coreUpdate;
   if (ev.done) {
     const finished = DL.job;
     DL.job = null;
@@ -14320,7 +14322,10 @@ function dlOnPull(ev) {
          apart from `error`, the queued weights job is not discarded, and
          the phase stays `waiting`, which is the truth about the bytes. */
       DL.runtime.drove = ev.sawProgress === true || DL.runtime.drove;
-      if (ev.ok === false) {
+      if (!cancelled && ev.waitingForModels === true) {
+        LLMP.coreUpdateWaiting = {...ev.coreUpdate, fresh: ev.fresh === true};
+        DL.runtimeError = null;
+      } else if (ev.ok === false) {
         DL.runtimeError = cancelled ? 'the local engine download was cancelled'
           : (ev.error || 'the local engine download failed');
         if (!cancelled) dlFail(finished, DL.runtimeError);
@@ -14473,14 +14478,17 @@ function dlCardRows() {
   if (job) {
     rows.push({src:'dl', kind: job.kind, id: job.id, cancel:'dlc:cancel',
       state: job.cancelled ? 'cancelling' : job.sawProgress ? 'active' : 'starting',
-      track: job, rate: DL.rate, samples: DL.samples});
+      track: job, rate: DL.rate, samples: DL.samples, coreUpdate: job.coreUpdate});
   }
   DL.queue.forEach((q) => rows.push({src:'dl', kind: q.kind, id: q.id, state:'queued', cancel:'dlc:drop:' + q.kind + ':' + q.id}));
   const x = xpullOwner();
-  if (x) {
+  if (x && !x.checking) {
     rows.push({src: x.src, kind: x.kind, id: x.id, cancel: x.cancel,
       state: x.cancelled ? 'cancelling' : XPULL.key === x.key && XPULL.sawProgress ? 'active' : 'starting',
-      track: XPULL, rate: XPULL.rate, samples: XPULL.samples});
+      track: XPULL, rate: XPULL.rate, samples: XPULL.samples, coreUpdate: x.coreUpdate});
+  }
+  if (LLMP.coreUpdateWaiting) {
+    rows.push({src:'core-update', kind:'runtime', id:'the local engine', state:'waiting', coreUpdate: LLMP.coreUpdateWaiting});
   }
   // F8: a vision projector waiting for its turn (dlProjectorPark). Its × takes it off.
   DL.projectorQueue.forEach((p) => rows.push({src:'dl', kind:'projector', id: p.id, state:'queued', cancel:'dlc:drop:projector:' + p.id}));
@@ -14496,7 +14504,7 @@ function dlCardRows() {
   // A failure whose model is downloading again is that download's row now.
   DL.failed.forEach((f) => {
     if (rows.some((r) => r.kind === f.kind && r.id === f.id)) return;
-    rows.push({src:'failed', kind: f.kind, id: f.id, state:'failed', error: f.error, n: f.n});
+    rows.push({src:'failed', kind: f.kind, id: f.id, state:'failed', error: f.error, n: f.n, coreUpdate: f.coreUpdate});
   });
   return rows;
 }
@@ -14511,7 +14519,7 @@ function xpullOwner() {
   const p = LLMP.pulling;
   if (p) {
     return {key:'llm:' + p.kind + ':' + p.id + (p.phase ? ':' + p.phase : ''), src:'llm', id: p.id, llmKind: p.kind,
-      kind: p.phase === 'mmproj' ? 'projector' : p.kind === 'embedding' ? 'embedding' : p.kind === 'runtime' ? 'runtime' : 'weights', cancel:'llm:cancelPull'};
+      checking: p.checking, coreUpdate: p.coreUpdate, kind: p.phase === 'mmproj' ? 'projector' : p.kind === 'embedding' ? 'embedding' : p.kind === 'runtime' ? 'runtime' : 'weights', cancel:'llm:cancelPull'};
   }
   return null;
 }
@@ -14551,11 +14559,12 @@ function dlCardPercent(r) {
 
 /** The line under a row's bar. No bar figures before the first real sample. */
 function dlCardLine(r) {
-  if (r.state === 'failed') return r.error;
+  const versions = r.coreUpdate ? llmCoreUpdateText(r.coreUpdate) + ' · ' : '';
+  if (r.state === 'failed') return versions + r.error;
   if (r.state === 'ready') return 'Downloaded. The agent stays on its current model until you switch.';
   if (r.state === 'restart') return r.error || 'Restart the model to read images.';
   if (r.state === 'restarting') return 'Restarting the model…';
-  const lead = r.kind === 'projector' ? 'Vision projector · ' : '';
+  const lead = r.kind === 'projector' ? 'Vision projector · ' : versions;
   if (r.state === 'queued') return lead + 'Queued';
   if (r.state === 'cancelling') return 'Cancelling…';
   if (r.state === 'starting') return lead + 'Starting…';
@@ -14569,6 +14578,9 @@ function dlCardLine(r) {
 
 function dlCardRowHTML(r, i) {
   const name = dlCardName(r);
+  if (r.state === 'waiting') {
+    return '<li class="dlc-row" data-dlc-row="' + i + '">' + llmCoreUpdateWaitingHTML(r.coreUpdate) + '</li>';
+  }
   if (r.state === 'restart' || r.state === 'restarting') {
     // ATO-1373: no bar, the files are on disk. The restart is the person's to press.
     const busy = r.state === 'restarting';
@@ -14607,7 +14619,7 @@ function dlCardRowHTML(r, i) {
 
 /** A row whose bytes are still coming: not failed, not landed, not a restart offer (ATO-1373). */
 function dlRowMoving(r) {
-  return r.state !== 'failed' && r.state !== 'ready' && r.src !== 'restart';
+  return r.state !== 'failed' && r.state !== 'ready' && r.state !== 'waiting' && r.src !== 'restart';
 }
 
 /** Open: a header with the count and the fold, the rows, the cloud offer. */
@@ -14615,14 +14627,16 @@ function dlCardHTML(rows) {
   const moving = rows.some((r) => dlRowMoving(r));
   const failed = rows.some((r) => r.state === 'failed');
   const ready = rows.some((r) => r.state === 'ready' || r.src === 'restart');
+  const waiting = rows.some((r) => r.state === 'waiting');
   const n = rows.length;
   /* The setup screen's "set up a cloud model meanwhile" offer moved here with
      the download it was about. Not for an embedding model: nothing waits on it.
      Not beside a ready row alone either: that model landed while the agent was
      already on another one. */
-  const offer = (moving || failed) && rows.some((r) => r.kind !== 'embedding' && r.state !== 'ready' && r.src !== 'restart');
-  const title = moving ? 'Downloading' : failed && ready ? 'Downloads' : failed ? 'Download failed' : 'Download complete';
-  const glyph = moving ? ic('download') : failed ? ic('alert') : ic('check');
+  const offer = rows.some((r) => r.kind !== 'embedding' && (dlRowMoving(r) || r.state === 'failed'));
+  const title = moving ? 'Downloading' : failed && (ready || waiting) ? 'Downloads' : failed ? 'Download failed'
+    : waiting ? 'Waiting for models to stop' : 'Download complete';
+  const glyph = moving ? ic('download') : failed ? ic('alert') : waiting ? ic('clock') : ic('check');
   return '<section class="dlc" role="region" aria-label="Downloads">'
     + '<div class="dlc-head"><span class="dlc-ttl' + (moving ? '' : failed ? ' is-failed' : ' is-done') + '">' + glyph
       + '<span>' + title + '</span>'
@@ -14641,10 +14655,11 @@ function dlCardHTML(rows) {
 function dlCardBadgeHTML(rows, open) {
   const failed = rows.some((r) => r.state === 'failed');
   const moving = rows.some((r) => dlRowMoving(r));
+  const waiting = rows.some((r) => r.state === 'waiting');
   return '<button class="dlc-badge' + (failed ? ' has-failed' : '') + (moving ? ' is-moving' : '') + '" data-act="dlc:' + (open ? 'fold' : 'unfold') + '"'
     + ' aria-expanded="' + (open ? 'true' : 'false') + '"'
     + ' aria-label="' + (open ? 'Hide' : 'Show') + ' downloads (' + rows.length + ')" title="'
-    + (failed ? 'A download failed' : moving ? 'Downloading' : 'Download complete') + '">'
+    + (failed ? 'A download failed' : moving ? 'Downloading' : waiting ? 'Waiting for models to stop' : 'Download complete') + '">'
     + ic('download') + '<span class="dlc-n">' + rows.length + '</span></button>';
 }
 
@@ -14683,7 +14698,8 @@ function renderDlcard() {
   if (!DLC.had) DLC.collapsed = false;
   DLC.had = true;
   const shape = (DLC.collapsed ? 'c|' : 'o|') + rows.map((r) =>
-    [r.src, r.kind, r.id, r.state, r.n || '', r.error || '', r.cancel || '', dlCardName(r)].join('~')).join('|');
+    [r.src, r.kind, r.id, r.state, r.n || '', r.error || '', r.cancel || '', dlCardName(r),
+      r.coreUpdate ? JSON.stringify(r.coreUpdate) : ''].join('~')).join('|');
   dlIndicatorPaint(rows);
   // ATO-1185: closed, the list is away and the header icon is all there is.
   if (DLC.collapsed) {
@@ -14935,6 +14951,7 @@ function dlCardAct(verb) {
     return;
   }
   if (v === 'cancel') { dlCancel(); return; }
+  if (v === 'coreStop' || v === 'coreLater') { void llmCoreUpdateAction(v); return; }
   // ATO-1373: the serving model's projector landed. Restart on a press only; Later leaves it for the next start.
   if (v === 'visionRestart') { void visionRestart(); return; }
   if (v === 'visionLater') { VISION.restart = null; render(); return; }
@@ -15042,7 +15059,7 @@ function dlFail(job, error, retry) {
   // A Retry is a new start: its landing asks on the card rather than switching by itself.
   if (DL.spotlight && DL.spotlight.id === job.id) DL.spotlight = null;
   dlFailClear(job.kind, job.id);
-  DL.failed.push({n: ++DL.failSeq, kind: job.kind, id: job.id, error: String(error || 'the download failed'),
+  DL.failed.push({n: ++DL.failSeq, kind: job.kind, id: job.id, error: String(error || 'the download failed'), coreUpdate: job.coreUpdate,
     // The setup queue's own jobs go back in its queue; the rest need the one pull slot free.
     queueable: !retry, retry: retry || (() => dlRequeue(job))});
 }
@@ -15128,7 +15145,9 @@ if (BR) {
       // The projector sends no `done` of its own: obFetchProjector's promise ends it.
       if (owner.src === 'proj') return;
       if (ev.ok === false) {
-        dlFail(owner, ev.error || 'the download failed', xpullRetry(owner));
+        if (owner.kind !== 'runtime' || ev.waitingForModels !== true) {
+          dlFail(owner, ev.error || 'the download failed', xpullRetry(owner));
+        }
       } else xpullProjectorSkipped(owner, ev);
       XPULL.key = null;
       // Once the owner's own subscriber has let go of the pull.
@@ -15181,7 +15200,9 @@ function obProgressHTML() {
       + '<span class="ob-engfail-acts">' + engfActsHTML('xs') + '</span></div>'
     : DL.runtimeError
     ? '<div class="ob-err">' + ic('alert') + '<span>' + esc(DL.runtimeError) + '</span></div>' : '';
-  return row(OB_COPY.phaseRuntime, DL.runtime) + runtimeErr + row(OB_COPY.phaseWeights, DL.weights)
+  const waiting = LLMP.coreUpdateWaiting;
+  const runtime = waiting ? '<div class="llm-tune-card">' + llmCoreUpdateWaitingHTML(waiting) + '</div>' : row(OB_COPY.phaseRuntime, DL.runtime);
+  return runtime + runtimeErr + row(OB_COPY.phaseWeights, DL.weights)
     + '<div class="ob-rate">' + esc(rate) + '</div>';
 }
 
@@ -28235,6 +28256,7 @@ function llmPanelHTML() {
       ? '<div class="tk-notice tk-notice--blue llm-start"><span class="tk-spin"></span><span class="grow"><b>The model is starting</b>'
         + '<span class="llm-note">Loading it into memory. Chats wait until it is ready.</span></span></div>' : '')
     + (view === 'local' && LLMP.pulling ? llmDownloadBannerHTML() : '')
+    + (view === 'local' && LLMP.coreUpdateWaiting ? '<div class="llm-tune-card">' + llmCoreUpdateWaitingHTML(LLMP.coreUpdateWaiting) + '</div>' : '')
     + (msg ? (msg.restart ? restartLine(msg.text) : llmMsgHTML(msg.text)) : '')
     + (view === 'fusion' ? llmFusionHTML()
       : view === 'cloud' ? (mode === 'fallback' ? llmFallbackHTML() : llmCloudHTML())
@@ -28653,7 +28675,7 @@ function llmAdvancedHTML(mode) {
               : llmTuneRowHTML('Engine choice', 'llama.cpp runs your local models now. Stop local models before switching back. Your downloaded models stay available.',
                   btn('llm:engine', 'Use Atomic Chat engine', 'Switch back to the default local engine')))
           + (onCore
-              ? llmTuneRowHTML('Core updates', 'Checks never install or interrupt your models. Updates apply after you stop local models.', btn('llm:engineCheck', 'Check for updates', 'Check Atomic Core releases'))
+              ? llmTuneRowHTML('Core updates', 'A newer supported version installs while models run and takes over at the next start with no models running.', btn('llm:engineCheck', 'Check for updates', 'Check Atomic Core releases'))
               : llmTuneRowHTML('Update automatically', 'Fetch a newer llama.cpp after each start.',
                   sw('llm:autoUpdate', autoOn, 'Update llama.cpp automatically', 'Fetch a newer llama.cpp after each start')))
           + llmTuneRowHTML('Device', 'Auto runs the model on the GPU when there is one. A change applies the next time the model server starts.',
@@ -29596,11 +29618,13 @@ function llmPaintPull(line) {
 }
 function llmDownloadBannerHTML() {
   const p = LLMP.pulling;
+  if (p.checking) return '<div class="tk-notice tk-notice--blue llm-dl"><span class="tk-spin"></span>Checking the local engine…</div>';
   const v = llmPullView(LLMP.pullLog[LLMP.pullLog.length - 1], llmPullFrame());
   const w = v.pct === null ? 0 : v.pct;
   // ST-21: a blue notice; the pull subscriber repaints #llm-pull-meta and #llm-pull-bar in place.
   return '<div class="tk-notice tk-notice--blue llm-dl"><span class="tk-ico tk-ico--sm tk-ico--blue">' + ic('download') + '</span>'
     + '<span class="grow llm-dl-body"><b>Downloading ' + esc(p.id) + '</b>'
+    + (p.coreUpdate ? '<span class="llm-note">' + esc(llmCoreUpdateText(p.coreUpdate)) + '</span>' : '')
     + '<span class="tk-prog llm-dl-prog" id="llm-pull-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + w + '"><i style="width:' + w + '%"></i></span>'
     + '<span class="llm-note llm-dl-meta" id="llm-pull-meta">' + esc(v.meta) + '</span>'
     + '<span class="llm-note llm-dl-file" id="llm-pull-file" title="' + esc(v.file) + '">' + esc(v.file) + '</span></span>'
@@ -29888,6 +29912,44 @@ async function llmBackendUpdate() {
   else LLMP.msg = {text:'local-llm: backend update — ' + ((res.stdout || '').trim().split('\n').pop() || 'done')};
   llmRefresh();
 }
+function llmCoreUpdateText(update) {
+  return 'Target ' + (update.targetVersion || 'unknown') + ' · Active ' + (update.activeVersion || 'unknown');
+}
+function llmCoreUpdateWaitingHTML(update) {
+  const disabled = update.stopping ? ' disabled' : '';
+  const why = update.error || 'This reinstalls the active version. Stop local models before updating.';
+  return '<div class="dlc-top"><span class="dlc-name">Local engine</span>'
+    + '<button class="btn btn-t xs" data-act="dlc:coreStop"' + disabled + '>'
+    + (update.stopping ? 'Stopping models…' : 'Stop models and update') + '</button>'
+    + '<button class="btn btn-g xs" data-act="dlc:coreLater"' + disabled + '>Later</button></div>'
+    + '<p class="dlc-line">' + esc(why) + '</p>'
+    + '<p class="dlc-line">' + esc(llmCoreUpdateText(update)) + '</p>';
+}
+async function llmCoreUpdateAction(action) {
+  const update = LLMP.coreUpdateWaiting;
+  if (!update || update.stopping) return;
+  if (action === 'coreLater') {
+    LLMP.coreUpdateWaiting = null;
+  } else {
+    if (LLMP.busy || LLMP.pulling || dlChipBusy()) {
+      update.error = 'Try again when the current download or engine action finishes.';
+    } else {
+      update.stopping = true;
+      update.error = null;
+      render(); llmRepaint();
+      try {
+        const stopped = await llmDaemon('stop');
+        if (!stopped || !stopped.ok) update.error = stopped && (stopped.error || stopped.stderr) || 'The models could not be stopped.';
+        else if (llmEngineInstall({fresh: update.fresh})) LLMP.coreUpdateWaiting = null;
+      } catch (err) {
+        update.error = (err && err.message) || String(err);
+      } finally {
+        update.stopping = false;
+      }
+    }
+  }
+  render(); llmRepaint();
+}
 /**
  * The local engine's install as a download with a bar: `models update`
  * streamed (cli:modelsUpdateStream, the setup's runtime path), drawn in
@@ -29915,9 +29977,11 @@ function llmEngineInstall(opts) {
   if (!BR.modelsUpdateStream) { llmBackendUpdate(); return true; }
   if (ENGF.f) ENGF.dismissed = ENGF.f.at;   // the card's question is being answered; its result says the rest
   LLMP.msg = null; LLMP.statusErr = null;
-  LLMP.pulling = {kind:'runtime', id: composerEngineId() === 'atomic-core' ? 'the local engine' : 'llama.cpp'};
+  LLMP.coreUpdateWaiting = null;
+  const core = composerEngineId() === 'atomic-core';
+  LLMP.pulling = {kind:'runtime', id: core ? 'the local engine' : 'llama.cpp', checking: core};
   LLMP.pullLog = ['starting…'];
-  if (!llmVisible()) toast('Downloading the local engine', 'Its progress is in the download card.', 'info');
+  if (!core && !llmVisible()) toast('Downloading the local engine', 'Its progress is in the download card.', 'info');
   render(); llmRepaint();
   Promise.resolve(fresh ? BR.modelsUpdateStream('settings', {fresh: true}) : BR.modelsUpdateStream('settings')).then((res) => {
     if (res && res.ok === false) {
@@ -29943,10 +30007,11 @@ async function llmEngineAction(action) {
     if (!res || !res.ok) LLMP.msg = {text: '! ' + llmFail('Engine action failed', res)};
     else if (action === 'check') {
       const check = res.value && res.value.check;
-      LLMP.msg = {text: check ? (check.requiresAgentUpdate
-        ? 'Atomic Core ' + check.latestVersion + ' is available. A newer Agent build must support it before installation.'
-        : check.updateAvailable ? 'Atomic Core ' + check.compatibleVersion + ' is ready to install. Stop local models, then choose Update now.'
-        : 'Atomic Core is up to date (' + check.currentVersion + ').') : 'Engine status unavailable.'};
+      LLMP.msg = {text: check ? (check.updateAvailable
+        ? 'Atomic Core ' + check.compatibleVersion + ' is ready to install. Choose Update now.'
+        : 'Atomic Core is up to date (' + check.currentVersion + ').')
+        + (check.requiresAgentUpdate ? ' Atomic Core ' + check.latestVersion + ' requires a newer Agent build.' : '')
+        : 'Engine status unavailable.'};
     } else {
       LLMP.msg = {text: 'Local engine: ' + (action === 'atomic-core' ? 'Atomic Core' : 'llama.cpp') + '. Choose Update now to install it.'};
       await refreshLiveConfig();
@@ -30750,14 +30815,31 @@ if (BR) {
 if (BR) {
   BR.onPull((ev) => {
     if (!ev || !LLMP.pulling) return;
+    const pulling = LLMP.pulling;
+    if (pulling.kind === 'runtime' && ev.kind === 'runtime') {
+      if (ev.coreUpdate) pulling.coreUpdate = ev.coreUpdate;
+      if (ev.started && (pulling.checking || ev.coreUpdate)) {
+        if (pulling.checking && !llmVisible()) toast('Downloading the local engine', 'Its progress is in the download card.', 'info');
+        pulling.checking = false;
+        render(); llmRepaint();
+      }
+    }
     if (typeof ev.percent === 'number') LLMP.pullFrame = ev;
     if (ev.line) { LLMP.pullLog.push(ev.line); llmPaintPull(ev.line); }
     if (ev.done) {
       const p = LLMP.pulling; LLMP.pulling = null;
       // The engine install (llmEngineInstall): no model to activate; a failure is main's engine:failure card too.
       if (p.kind === 'runtime') {
-        LLMP.msg = ev.ok ? {text: ev.upToDate ? 'local-llm: the local engine is already installed' : 'local-llm: the local engine is installed'}
-          : {text: '! ' + (ev.error || 'the local engine download failed')};
+        if (ev.waitingForModels === true) {
+          LLMP.coreUpdateWaiting = {...ev.coreUpdate, fresh: ev.fresh === true};
+          LLMP.msg = null;
+        } else {
+          LLMP.msg = ev.ok ? {text: ev.coreActivationPending && ev.coreUpdate
+            ? 'Atomic Core ' + ev.coreUpdate.targetVersion + ' is installed. Version ' + ev.coreUpdate.activeVersion
+              + ' stays active until the next start with no models running.'
+            : ev.upToDate ? 'local-llm: the local engine is already installed' : 'local-llm: the local engine is installed'}
+            : {text: '! ' + (ev.error || 'the local engine download failed')};
+        }
         render(); llmRefresh();
         return;
       }

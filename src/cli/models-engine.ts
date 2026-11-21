@@ -1,9 +1,9 @@
 import { getConfig, ensureUserConfigFileSync, parseUserConfigFile, writeUserConfigFileSync, resetConfigCache } from "../config/index.js";
-import { stopEmbeddingDaemon } from "../local-llm/server/daemon-lifecycle.js";
+import { getDaemonStatus, stopEmbeddingDaemon } from "../local-llm/server/daemon-lifecycle.js";
 import { selectManagedEngine } from "../local-llm/engine-selection.js";
 import { CORE_VERSION, activeCoreVersion, readCoreBackend } from "../local-llm/core/core-state.js";
 import { checkCoreUpdate } from "../local-llm/core/core-install.js";
-import { isCoreBackendInstalled } from "../local-llm/core/core-backend.js";
+import { coreBackendUpdatePlan, isCoreBackendInstalled } from "../local-llm/core/core-backend.js";
 
 /**
  * Write `localModels.managed.engine` to the user config file and drop the cache.
@@ -24,7 +24,16 @@ export async function modelsEngineCommand(args: string[]): Promise<number> {
   const action = args[0] ?? "status";
   if (action === "status" || action === "check") {
     const check = action === "check" ? await checkCoreUpdate(dataDir, fetch, true) : undefined;
-    process.stdout.write(JSON.stringify({ engine: cfg.localModels.managed.engine ?? "atomic-core", choiceEnabled: true, installed: isCoreBackendInstalled(dataDir), version: activeCoreVersion(dataDir), compatibleVersion: CORE_VERSION, backend: readCoreBackend(dataDir)?.version ?? null, ...(check ? { check } : {}) }) + "\n");
+    const engine = cfg.localModels.managed.engine ?? "atomic-core";
+    const updatePlan = action === "status" && args.includes("--update-plan") &&
+      engine === "atomic-core" && cfg.localModels.mode === "managed"
+      ? await coreBackendUpdatePlan(dataDir, async () => (await getDaemonStatus(dataDir, cfg.localModels.managed.port)).running)
+      : undefined;
+    process.stdout.write(JSON.stringify({
+      engine, choiceEnabled: true, installed: isCoreBackendInstalled(dataDir), version: activeCoreVersion(dataDir),
+      compatibleVersion: CORE_VERSION, backend: readCoreBackend(dataDir)?.version ?? null,
+      ...(check ? { check } : {}), ...(updatePlan ? { updatePlan } : {}),
+    }) + "\n");
     return 0;
   }
   if (action !== "atomic-core" && action !== "llama-server") throw new Error("Usage: models engine [status|check|atomic-core|llama-server]");
