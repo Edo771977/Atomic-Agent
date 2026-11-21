@@ -681,6 +681,8 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
 
   const gate = opts.projectGate ?? { approveFirst: false, auto: false };
   let stoppedAt: ChatLoopResult["projectGate"];
+  let lastApprovedGate: string | null = null;
+  let autoApprovals = 0;
   /**
    * After a turn (or at the start with `--approve`): approve and
    * continue while gates open, or stop at one. False ends the loop.
@@ -689,6 +691,29 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
     let mode = first;
     for (;;) {
       if (opts.controller.signal.aborted) return false;
+      // Issue #106: auto-approval must make progress. The same gate at the
+      // same version open again right after its approval (a turn that
+      // could not move the project), or more approvals than any plan
+      // needs, stops here for a person instead of looping forever.
+      if (mode === "approve") {
+        const view = opts.runtime.projectState?.(session.id) ?? null;
+        const key = view === null || view.gate.kind === "none" ? null : `${view.gate.kind}:${"id" in view.gate ? view.gate.id : ""}:${view.version ?? ""}`;
+        const why = key !== null && key === lastApprovedGate
+          ? "the same gate is open again at the same version right after its approval"
+          : key !== null && autoApprovals >= MAX_AUTO_APPROVALS_PER_RUN
+            ? `this run already approved ${MAX_AUTO_APPROVALS_PER_RUN} gates`
+            : null;
+        if (why !== null) {
+          const shown = await settleProjectGate(opts.runtime, session.id, "stop");
+          process.stderr.write(`project: auto-approval made no progress (${why}); a person decides what next.\n${shown.kind === "stop" ? shown.text : ""}\n`);
+          stoppedAt = "waiting";
+          return false;
+        }
+        if (key !== null) {
+          lastApprovedGate = key;
+          autoApprovals += 1;
+        }
+      }
       const step = await settleProjectGate(opts.runtime, session.id, mode);
       if (step.kind === "open") return true;
       if (step.kind === "stop") {
@@ -762,6 +787,9 @@ async function runChatLoop(opts: ChatLoopOptions): Promise<ChatLoopResult> {
   }
   return { session, ...(stoppedAt ? { projectGate: stoppedAt } : {}) };
 }
+
+/** More `--auto-approve-project` approvals than any plan's brief, plan and milestones need: past it, a person decides (issue #106). */
+export const MAX_AUTO_APPROVALS_PER_RUN = 50;
 
 /**
  * CLI entry for `atomic-agent run`. Pure interactive chat: each stdin
