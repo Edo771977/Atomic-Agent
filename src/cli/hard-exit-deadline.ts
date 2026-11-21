@@ -142,7 +142,7 @@ const end = (why) => {
 setInterval(() => {
   const rss = process.memoryUsage.rss();
   if (rss > rssLimitBytes) return end("memory " + mib(rss) + " is over the cap of " + mib(rssLimitBytes).replace(".0 MiB", " MiB"));
-  if (Date.now() - started >= deadlineMs) end("the main thread did not end the process within " + (deadlineMs / 1000) + " s (exit code " + code + ")");
+  if (Date.now() - started >= deadlineMs) end("the main thread did not end the process within " + (deadlineMs / 1000) + " s");
 }, sampleMs);
 `;
 

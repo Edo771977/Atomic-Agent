@@ -48,7 +48,7 @@ describe("the exit watchdog (issue #106)", () => {
     expect(ended.ms).toBeLessThan(20_000);
     expect(ended.code === 0).toBe(false);
     expect(ended.stderr).toContain("atomic-agent watchdog:");
-    expect(ended.stderr).toMatch(/main thread did not end the process.*exit code 3/);
+    expect(ended.stderr).toMatch(/main thread did not end the process within [\d.]+ s; .*the run's exit code was 3\)/);
   }, 40_000);
 
   it("ends a process whose memory grows past the cap, before the deadline, with the figures", async () => {
