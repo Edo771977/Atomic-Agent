@@ -78,6 +78,15 @@ it("installs the new pin beside an older Core that is serving, and switches only
   expect(downloadBackend).toHaveBeenCalledTimes(1);
 });
 
+it("activates a staged update on idle start even when automatic downloads are disabled", async () => {
+  olderPinActive(true);
+  vi.mocked(activateCoreVersion).mockResolvedValue(true);
+  await expect(maybeAutoUpdateBackend(DATA, { engine: "atomic-core", enabled: false }))
+    .resolves.toMatchObject({ action: "updated", from: "Atomic Core 0.11.2" });
+  expect(activateCoreVersion).toHaveBeenCalledWith(DATA, CORE_VERSION);
+  expect(downloadBackend).not.toHaveBeenCalled();
+});
+
 it("reports a computer without a Core build as non-retryable, for the start to fall back", async () => {
   vi.mocked(isCoreBackendInstalled).mockReturnValue(false);
   vi.mocked(downloadBackend).mockRejectedValue(new CoreUnavailableError({ stage: "backend", reasonCode: "no_backend", detail: "Atomic Core found no compatible inference backend for this computer" }));
