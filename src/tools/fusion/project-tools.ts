@@ -30,6 +30,7 @@ import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
 import type { ContractCheck } from "./contract.js";
 import { parsePlanRowChecks } from "./contract-check-spec.js";
+import { evaluatePlanChecks, planCheckHint } from "./plan-checks.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -465,6 +466,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
+      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []));
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [
@@ -474,6 +476,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
+        ...planChecks.map(planCheckHint),
         AWAIT_PERSON,
       ];
       const update: ProjectUpdate = {
@@ -488,7 +491,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (resets.length > 0) {
         lines.splice(lines.length - 1, 0, ...resets.map(verdictResetHint), "Their earlier results moved to history; tell the person these run again.");
       }
-      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), update);
+      const result = accepted(PROJECT_PLAN_TOOL, lines.join("\n"), update);
+      return { ...result, details: { ...result.details, planChecks } };
     },
   };
   const milestone: ToolDefinition = {

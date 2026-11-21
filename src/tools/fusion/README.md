@@ -49,6 +49,9 @@ The director can declare `tasks[].checks` in `project.plan`: up to 16 [ContractC
 
 Declare verification while drafting the plan, mapping every approved criterion to `criteria: [ids]`. At `fusion.delegate`, copy each planned task's checks into `contract.checks` with its `task` id. Dispatch compares an exact multiset using `checkSpecKey` for verify-spec identity, plus negative inputs, criterion ids and vision metadata. Reordering checks or object keys and equivalent plain command spellings are accepted; missing, added or changed task checks are refused before workers, approval or verification start. Update the plan and obtain approval before changing them. Rows with no checks retain existing delegation behavior.
 
+[plan-checks.ts](plan-checks.ts) statically returns `{ dimension, verdict: "pass" | "warn" | "fail", detail, taskIds }[]`. `check-lint` reuses issue #110: severe findings fail, warnings and hints warn. `criteria-coverage` warns for each set of approved criterion ids absent from plan checks. `verifiability` warns about tasks without checks only when another row has checks. No command, file read or network request is needed for analysis. Callers may promote warnings to failures by dimension with `PlanCheckOptions.blockingDimensions` (also `ProjectDecisionOptions.planChecks`); this is an explicit API option, with no new config or model argument.
+
+Results appear in plan-gate hints, the text and additive `details.planChecks` of `project.plan`, and the record's `plan.checkResults`. They are recomputed on loading and approval, so file edits cannot forge them. Any failure blocks plan approval through the existing `review-open`/`ProjectReviewBlock` mechanism, including automatic approval; no milestone override can approve a failing plan. Warnings remain approvable by default. The [tests](plan-checks.test.ts) spy on execution and network and cover validation, fingerprints, persistence and approval.
 
 ## Worker lifecycle
 

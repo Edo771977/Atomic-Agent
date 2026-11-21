@@ -198,6 +198,28 @@ describe("schema v2 fields: ownership and hashing", () => {
     expect(fresh.ok && fresh.opened.project.backlogStates).toBeUndefined();
   });
 
+  it("plan check edits reopen the plan, recompute results and cannot forge a passing record", () => {
+    const p = withFields();
+    p.plan!.rows[0]!.checks = [{ cmd: "node check.cjs", checks: ["exit 0"], negative: { stdin: "bad" } }];
+    const created = createProject(folder, p, options);
+    if (!created.ok) throw new Error(created.problem.message);
+    edit((j) => {
+      expect(j.project.plan.checkResults).toBeUndefined();
+      j.project.plan.rows[0].checks[0] = { cmd: "echo ok" };
+      j.project.plan.checkResults = [{ dimension: "check-lint", verdict: "pass", detail: "forged", taskIds: [] }];
+    });
+    const changed = open();
+    expect(changed.gate).toEqual({ kind: "plan" });
+    expect(changed.changedOutside).toEqual(["plan"]);
+    expect(changed.plan?.checkResults).toContainEqual(expect.objectContaining({ dimension: "check-lint", verdict: "fail" }));
+    const opened = openProject(folder, options);
+    if (!opened.ok) throw new Error(opened.problem.message);
+    const saved = commitProject(folder, opened.opened.stored.id, { revision: opened.opened.stored.revision, decisionSeq: opened.opened.decisionSeq }, changed, options);
+    expect(saved.ok).toBe(true);
+    const record = options.records.read(folder);
+    expect(record.ok && record.record?.state.plan?.checkResults).toEqual(changed.plan?.checkResults);
+    expect(JSON.parse(readFileSync(projectFilePath(folder), "utf8")).project.plan.checkResults).toBeUndefined();
+  });
 
   it("a backlog edit in project.json is taken and reopens no gate", () => {
     const c = createProject(folder, withFields(), options);

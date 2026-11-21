@@ -25,6 +25,7 @@ export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult } from "../tools/fusion/plan-checks.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -325,6 +326,8 @@ export interface ProjectPlanTotals {
 export type PlanDetail = "compact" | "full";
 
 export interface ProjectPlan {
+  /** Runtime-derived static analysis, recomputed when loading or approving. Record only. */
+  checkResults?: PlanCheckResult[];
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -566,6 +569,8 @@ export interface ProjectDecision {
 
 export interface ProjectDecisionOptions {
   now: number;
+  /** Runtime policy, never taken from project.json. */
+  planChecks?: PlanCheckOptions;
   /**
    * Hard-cap violations of the plan as it stands (`estimatePlan`, from
    * the caller's live budget): non-empty refuses `approve` at the plan
@@ -1303,6 +1308,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   // Extras: a malformed list reads as absent (the approved brief's own criteria stand in).
   const stored = raw.approvedCriteria === undefined ? null : cleanCriteria(raw.approvedCriteria, "lenient");
   const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
+  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? []);
+  }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
@@ -1586,7 +1594,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
       return m.state === was.state && (m.state === "reviewed" || m.state === "done") && hasCriteriaEvidence(was) && !hasCriteriaEvidence(m);
     })
     .map((m) => m.id);
-  const plan =
+  let plan =
     project.plan === undefined || project.plan.status !== "draft"
       ? project.plan
       : (() => {
@@ -1594,6 +1602,9 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
           const ids = new Set(milestones.map((m) => m.id));
           return { ...rest, ...mergeResets(project.plan, freshResets(project.milestones, milestones), ids), ...mergeRetired(project.plan, retired, ids) };
         })();
+  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria) };
+  }
   return {
     ...project,
     brief: { ...brief, status: "approved", approvedAt: now },
@@ -1813,6 +1824,7 @@ function planUpdate(
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const plan: ProjectPlan = {
     rows,
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2107,12 +2119,16 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks);
+      const blocks = planCheckReviewBlocks(results);
+      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       return {
         ok: true,
         project: {
           ...project,
           plan: {
             ...withoutResets(project.plan!),
+            checkResults: results,
             status: "approved",
             approvedAt: now,
             // Every surface draws the warning from the view it approves from.
