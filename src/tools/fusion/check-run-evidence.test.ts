@@ -61,4 +61,11 @@ describe("the check-run section (issue #104 review)", () => {
     expect(outsideFences(text)).toContain('No check names this criterion (the runtime has no check and no fact for it; a real gap unless the files show otherwise):\n- "reports a malformed row on stderr"');
     expect(text).not.toMatch(/"sums revenue per region"\n/);
   });
+
+  it("says when a gate outcome is reused, and how many times the check ran in this call (issue #106 review)", () => {
+    const run = { ok: true, command: "node --test a.cjs", exitCode: 0, output: "", tests: [] };
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 0 }], [], [])).toContain("Reused: the runtime did not run this check again in this call");
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 2 }], [], [])).toContain("The runtime ran this check 2 times in this call; the run shown is the latest.");
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 1 }], [], [])).toContain("The runtime ran this check once in this call (the run shown).");
+  });
 });

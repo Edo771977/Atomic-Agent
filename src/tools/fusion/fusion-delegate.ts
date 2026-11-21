@@ -202,7 +202,7 @@ import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ContractCheckRun } from "./contract-checks.js";
+import type { ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -1560,7 +1560,9 @@ export function buildFusionDelegateTool(
       // The run the checks belong to, once its checkpoint exists: a page
       // check's screenshots are kept with it (issue #40). Read per call.
       let checkRun: ContractCheckRun | undefined;
-      const heldRunChecks = withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun);
+      // How many times the gate ran each check spec in this call (issue #106 review): a reused outcome is said to be reused.
+      const gateRunCounts = new Map<string, number>();
+      const heldRunChecks = countGateRuns(withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun), gateRunCounts);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -1807,10 +1809,11 @@ export function buildFusionDelegateTool(
           const sha256 = sha256Of(full);
           return sha256 === undefined ? { path: display } : { path: display, sha256 };
         });
-        const own = (parsed.contract?.checks ?? []).flatMap((check, index) => {
+        const ownChecked = (parsed.contract?.checks ?? []).flatMap((check, index) => {
           const outcome = check.task === task.id ? facts.checkOutcomes[index] : undefined;
-          return outcome === undefined ? [] : [outcome];
+          return outcome === undefined ? [] : [{ outcome, runsThisCall: gateRunCounts.get(checkSpecKey(check)) ?? 0 }];
         });
+        const own = ownChecked.map((c) => c.outcome);
         const latest = attempts.at(-1);
         if (latest !== undefined && own.length > 0) {
           latest.tested = { passed: own.filter((o) => o.ok).length, total: own.length, versions: current };
@@ -1830,7 +1833,7 @@ export function buildFusionDelegateTool(
           ...(projectBrief?.successCriteria ?? []),
           ...items.flatMap((item) => (item.kind === "criterion" ? [item.criterion?.text || item.text] : [])),
         ])];
-        const gateRuns = own.flatMap((o) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run }]));
+        const gateRuns = ownChecked.flatMap(({ outcome: o, runsThisCall }) => (o.run === undefined ? [] : [{ ok: o.ok, ...o.run, runsThisCall }]));
         // The brief's criteria known to be uncovered (issue #106): apart from name mismatches.
         const uncovered = uncoveredCriteria();
         const checkRuns = known === undefined ? "" : renderCheckRunEvidence(gateRuns, current, criteriaTexts, known, uncovered);
@@ -1838,7 +1841,10 @@ export function buildFusionDelegateTool(
         const noSummary = reply !== undefined && isPlaceholderReply(reply)
           ? [
               "## Worker summary",
-              "The worker gave no summary: it ended after its checks and before replying.",
+              // True per case: a worker that ran no check did not end "after its checks" (issue #106 review).
+              (attempts.at(-1)?.executed ?? []).length > 0
+                ? "The worker gave no summary: it ended after its checks and before replying."
+                : "The worker gave no summary, and the runtime recorded no check run of its own.",
               "The runtime record in this prompt is authoritative for what ran and stands in for the summary; do not require a worker summary as evidence.",
             ].join("\n")
           : "";
@@ -3817,6 +3823,19 @@ interface FanoutAdmission {
  * run), so the milestone shows the work started and the run to resume;
  * one refused or failed before any worker ran records nothing.
  */
+/** A check runner that counts each spec it runs, by check identity, into `counts` (issue #106 review). */
+function countGateRuns(runner: ContractCheckRunner | undefined, counts: Map<string, number>): ContractCheckRunner | undefined {
+  if (runner === undefined) return undefined;
+  const wrapped = (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]): ReturnType<ContractCheckRunner> => {
+    for (const spec of specs) {
+      const key = checkSpecKey(spec as Record<string, unknown>);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return runner(specs, ctx);
+  };
+  return Object.assign(wrapped, runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {});
+}
+
 function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmission): CompressedToolResult {
   const milestoneId = admitted.milestoneId;
   if (milestoneId === null || (result.status !== "ok" && !admitted.started)) return result;

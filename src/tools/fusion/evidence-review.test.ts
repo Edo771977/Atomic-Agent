@@ -605,7 +605,7 @@ describe("the runtime record without a worker summary (issue #106)", () => {
     expect(row.status).toBe("ok");
     expect(prompt).toContain("node --test sales.test.cjs");
     expect(prompt).toContain("node --test sales.test.cjs ran 1 time in attempt 1 (shown: run 1 of 1)");
-    expect(prompt).toContain("The runtime ran this check once on these files for this review (the run shown).");
+    expect(prompt).toContain("The runtime ran this check once in this call (the run shown).");
     expect(prompt).toMatch(/exit 0/);
     for (const line of TAP.split("\n")) expect(prompt, line).toContain(line);
     expect(prompt).toContain(`sales.test.cjs sha256 ${testsSha}`);
@@ -640,6 +640,21 @@ describe("the runtime record without a worker summary (issue #106)", () => {
       const project = up(projectOf(["sales-tests"]), { kind: "milestone_run", id: "m1", runId: "fr-prior" });
       const { prompt } = await reviewAfterTimeout({ criteria: ["c1", "c2", "c3"], project, runCheckpoints: new FusionRunStore({ dir: runsDir }) });
       expect(prompt).not.toContain("No check names this criterion");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("a worker that ran no check of its own is not said to have ended after its checks (issue #106 review)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "no-summary-no-check-"));
+    const dir = join(root, "work");
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, "sales.cjs"), PROGRAM);
+      const prompts: string[] = [];
+      const s = session(dir, (prompt) => { prompts.push(prompt); return ACCEPT; });
+      await s.call(projectOf(["sales-tests"]), {}, ["write-suite"]);
+      const prompt = prompts.find((p) => p.includes("strict acceptance judge"))!;
+      expect(prompt).toContain("The worker gave no summary, and the runtime recorded no check run of its own.");
+      expect(prompt).not.toContain("it ended after its checks and before replying");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

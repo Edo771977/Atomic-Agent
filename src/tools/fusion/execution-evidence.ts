@@ -316,6 +316,8 @@ export interface GateCheckRun {
   counts?: { pass: number; fail: number; total: number };
   /** The declared files as the check ran on them, hashed then (issue #104 review). */
   files?: Array<{ path: string; sha256?: string }>;
+  /** How many times the gate ran this check in this call; 0: the outcome is reused from an earlier run (issue #106 review). */
+  runsThisCall?: number;
 }
 
 /**
@@ -363,7 +365,11 @@ export function renderCheckRunEvidence(
       return `${f.path} sha256 ${short(f.sha256)} ${same ? "(the version under review)" : `(NOT the version under review: ${now === undefined ? "not under review" : `under review sha256 ${short(now.sha256)}`})`}`;
     });
     const ran = [
-      "The runtime ran this check once on these files for this review (the run shown).",
+      run.runsThisCall === undefined || run.runsThisCall === 1
+        ? "The runtime ran this check once in this call (the run shown)."
+        : run.runsThisCall === 0
+          ? "Reused: the runtime did not run this check again in this call; the run shown is an earlier one, on the files listed under Ran on."
+          : `The runtime ran this check ${run.runsThisCall} times in this call; the run shown is the latest.`,
       ...(ranOn.length === 0 ? ["Ran on: (no declared file hashed when it ran)"] : [`Ran on: ${ranOn.join(", ")}`]),
     ];
     return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, ...ran, "Cases:", ...cases, ...output].join("\n");
