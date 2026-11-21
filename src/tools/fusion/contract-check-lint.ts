@@ -551,7 +551,7 @@ function absenceFinding(check: ContractCheck, where: string, index: number): Che
     severity: "warning",
     where,
     checkIndex: index,
-    message: `only asserts absences (${assertions.map((a) => `\`${a}\``).join(", ")}), which also pass on a wrong file, path or page; add one assertion of what a correct run shows`,
+    message: `only asserts absences (${assertions.map((a) => `\`${a}\``).join(", ")}), which also pass on a wrong file, path or page; add one assertion of what a correct run shows, or give a command check a \`negative\` input it must fail on`,
   };
 }
 

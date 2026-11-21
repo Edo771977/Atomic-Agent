@@ -100,3 +100,12 @@ describe("criteria verified with reservations (issue #110)", () => {
     expect(view.hints).toContain("verified with reservations: c1 (only asserts absences)");
   });
 });
+
+describe("a negative control that failed as it should clears a lint reservation (issue #110)", () => {
+  it("a warned check with a working negative keeps its criterion plainly green", () => {
+    const controlled: ContractCheck = { ...WEAK, negative: { args: ["--test", "broken.test.cjs"] } };
+    const contract: DelegateContract = { checks: [controlled] };
+    const [fact] = criteriaFactsFor(taskCriteria("t", contract, BRIEF), contract, green(1), undefined);
+    expect(fact).toEqual({ id: "c1", state: "passed", why: "every check naming it passed" });
+  });
+});

@@ -80,6 +80,9 @@ export function criteriaFactsFor(
   /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
   const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
     if (outcome.negative !== undefined) return `its negative control did not run (${outcome.negative})`;
+    // Its negative control ran and failed as it should (an unreliable one
+    // never gets here): the check has shown it can fail, whatever the lint read.
+    if (contract?.checks?.[index]?.negative !== undefined) return undefined;
     return reservations.get(index);
   };
   return criteria.map((criterion) => {
