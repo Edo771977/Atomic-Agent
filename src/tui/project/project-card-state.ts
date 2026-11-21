@@ -11,6 +11,7 @@
  * gate: the person's correction in their own words).
  */
 
+import { uncitedDecisions } from "../../session/project-gate-text.js";
 import type { ProjectGateRow, ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectVerdict } from "../../session/session-project.js";
 
@@ -51,6 +52,8 @@ export interface ProjectCardActionInfo {
   label: string;
   /** The plain letter that runs it in `actions` mode. */
   key: string;
+  /** Issue #112: an `edit` that defers these uncited active decisions instead of editing rows. */
+  deferDecisions?: string[];
 }
 
 /**
@@ -63,7 +66,7 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
   const verdicts = view.gate.kind === "plan" && view.plan?.editable === false
     ? view.allowedVerdicts.filter((verdict) => verdict !== "edit")
     : view.allowedVerdicts;
-  return verdicts.map((verdict) => {
+  const actions = verdicts.map((verdict): ProjectCardActionInfo => {
     switch (verdict) {
       case "approve":
         return { verdict, label: "approve", key: "a" };
@@ -84,6 +87,14 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
         return { verdict, label: "approve over review", key: "o" };
     }
   });
+  // Issue #112: the person may defer the active decisions no task cites, from the plan gate.
+  const uncited = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit") ? uncitedDecisions(view) : [];
+  if (uncited.length > 0) {
+    const at = actions.findIndex((a) => a.verdict === "cancel");
+    const defer: ProjectCardActionInfo = { verdict: "edit", label: `defer ${uncited.length} uncited decision${uncited.length === 1 ? "" : "s"}`, key: "d", deferDecisions: uncited };
+    actions.splice(at === -1 ? actions.length : at, 0, defer);
+  }
+  return actions;
 }
 
 /** The plan's rows; none before a plan exists. */

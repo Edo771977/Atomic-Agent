@@ -1,5 +1,6 @@
 import {
   allowedProjectVerdicts,
+  decisionStatusOf,
   gateVersion,
   planDecisionsOf,
   projectExpectation,
@@ -119,8 +120,15 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
+  const decisions = (project.brief?.decisions ?? []).map((d) => ({
+    id: d.id,
+    text: d.text,
+    status: decisionStatusOf(project, d.id),
+    citedBy: (plan?.rows ?? []).filter((r) => (r.decisions ?? []).includes(d.id)).map((r) => r.taskId),
+  }));
   return {
     ...(changedOutside ? { changedOutside: true as const } : {}),
+    ...(decisions.length === 0 ? {} : { decisions }),
     schema: 1,
     sessionId: input.sessionId,
     gate: project.gate,

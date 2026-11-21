@@ -77,6 +77,9 @@ export interface ProjectBriefDecision {
 /** A decision's status (issue #112); absent from {@link ProjectState.decisionStatus} means `active`. */
 export type ProjectDecisionStatus = "active" | "informational" | "deferred" | "retired";
 export const PROJECT_DECISION_STATUSES: readonly ProjectDecisionStatus[] = ["active", "informational", "deferred", "retired"];
+/** What the person may set at the plan gate (`ProjectEdits.decisionStatus`); `retired` is not one. */
+export type PersonDecisionStatus = Exclude<ProjectDecisionStatus, "retired">;
+export const PERSON_DECISION_STATUSES: readonly PersonDecisionStatus[] = ["active", "informational", "deferred"];
 
 /** Who proposed a backlog item (issue #111). */
 export type ProjectBacklogSource = "person" | "director" | "worker" | "reviewer";
@@ -581,6 +584,14 @@ export interface ProjectEdits {
   brief?: Partial<ProjectBriefDraft>;
   /** Plan gate: per task, a new worker and/or reviewer (null: no review). */
   rows?: ReadonlyArray<{ taskId: string; worker?: string; reviewer?: string | null }>;
+  /**
+   * Plan gate (issue #112): the person's status for decisions of the
+   * approved brief, by id. `deferred` or `informational` takes one out of
+   * the plan's decision coverage; `active` puts it back. Only the person
+   * sets these (no director update carries them); they are recorded in
+   * the project's record, never in `project.json`.
+   */
+  decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
   /**
    * Milestone gate: what is wrong with the result. The milestone goes
    * back to `approved` for another run, the note recorded on it
@@ -2124,6 +2135,10 @@ export function applyProjectDecision(
     };
   }
 
+  if (decision.verdict === "edit" && decision.edits?.decisionStatus !== undefined && gate.kind !== "plan") {
+    return refuse({ code: "invalid", message: "A decision's status is set at the plan gate." });
+  }
+
   if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
     // The person's call over open reviews (issue #98): with a note, the
     // result is approved as done, the blocks and the note kept on it.
@@ -2269,7 +2284,25 @@ export function applyProjectDecision(
   if (gate.kind === "plan") {
     const plan = project.plan!;
     let rows: AssignmentRow[] | string;
-    if (decision.verdict === "edit") {
+    const statusEdit = decision.verdict === "edit" ? decision.edits?.decisionStatus : undefined;
+    let decisionStatus = project.decisionStatus;
+    if (statusEdit !== undefined) {
+      const known = new Set(approvedDecisionsOf(project).map((d) => d.id));
+      const next: Record<string, ProjectDecisionStatus> = { ...(project.decisionStatus ?? {}) };
+      for (const [id, status] of Object.entries(statusEdit)) {
+        if (!known.has(id)) return refuse({ code: "invalid", message: `the approved brief has no decision ${id}` });
+        if (!(PERSON_DECISION_STATUSES as readonly string[]).includes(status)) {
+          return refuse({ code: "invalid", message: `decision ${id}: status must be one of ${PERSON_DECISION_STATUSES.join(", ")}` });
+        }
+        if (status === "active") delete next[id];
+        else next[id] = status;
+      }
+      decisionStatus = Object.keys(next).length === 0 ? undefined : next;
+    }
+    if (statusEdit !== undefined && (decision.edits?.rows ?? []).length === 0) {
+      // Only the decisions' status changed: the rows stay as they are.
+      rows = plan.rows.map((r) => ({ ...r }));
+    } else if (decision.verdict === "edit") {
       rows = editRows(plan, decision.edits?.rows ?? [], options.replan);
     } else {
       if (options.replan === undefined) {
@@ -2285,11 +2318,20 @@ export function applyProjectDecision(
       if (read === null) return refuse({ code: "invalid", message: "the re-estimated plan has a malformed task" });
       checked.push(read);
     }
+    const { decisionStatus: _status, ...rest } = project;
+    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }) };
     return {
       ok: true,
       project: {
-        ...project,
-        plan: { ...withoutApproval(plan), rows: checked, totals: planTotals(checked), status: "draft", version: plan.version + 1 },
+        ...next,
+        plan: {
+          ...withoutApproval(plan),
+          rows: checked,
+          totals: planTotals(checked),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next)) }),
+          status: "draft",
+          version: plan.version + 1,
+        },
       },
     };
   }
