@@ -21,7 +21,7 @@ const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "s
   session: { project: unknown };
 };
 const project = (): ProjectState => normalizeProject(fixture.session.project)!;
-const record = (state: ProjectState): ProjectRecord => ({ version: 1, id: "p", seq: 1, state, decisions: [] });
+const record = (state: ProjectState): ProjectRecord => ({ version: 1, folder: "/f", id: "p", seq: 1, state, decisions: [] });
 /** m2 running under the approved plan, no gate open. */
 const running = (): ProjectState => {
   const p = project();
