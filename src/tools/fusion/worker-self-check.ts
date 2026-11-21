@@ -147,7 +147,9 @@ const PLAIN_WORD = /^[\w@+=:,./-]+$/;
  * the contract's check as one line, and it was not seen as the task's own).
  */
 export function checkSpecKey(spec: Record<string, unknown>): string {
-  const { task: _task, ...rest } = spec;
+  // Not verify.run arguments: the runner strips them too (issue #106: a
+  // check naming criteria was no longer the worker's own run of it).
+  const { task: _task, criteria: _criteria, judge: _judge, ...rest } = spec;
   const kind = rest.kind ?? "command";
   if (kind === "command" && typeof rest.cmd === "string" && (rest.args === undefined || Array.isArray(rest.args))) {
     const cmdWords = rest.cmd.trim().split(/\s+/);

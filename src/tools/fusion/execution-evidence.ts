@@ -1,4 +1,5 @@
 import { maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
+import { readShellAliases } from "../os/shell/shell-aliases.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
 import { evidencePath, fileSha256 } from "./attempt-evidence.js";
 import { MAX_TESTS, parseTestOutput, type ExecutedTest } from "./test-output.js";
@@ -32,6 +33,14 @@ export interface ExecutionRun {
   counts?: { pass: number; fail: number; total: number };
   /** The run is one of the task's own contract checks (the identical `verify.run` spec). */
   ownCheck?: true;
+  /**
+   * Which run of the same command this was in the attempt, and how many
+   * runs of it the attempt made in all (issue #106: the reviewer asked
+   * for proof the command ran exactly once). Counted by the check's spec
+   * key, older runs past the kept six included.
+   */
+  runNumber?: number;
+  ranTimes?: number;
 }
 
 const MAX_RUNS = 6;
@@ -61,8 +70,16 @@ export function isTestRunnerCommand(command: string): boolean {
 }
 
 
-function commandOf(args: Record<string, unknown>): string {
+/**
+ * A run's command line from its arguments: `command`, or `cmd` and
+ * `args`, also in the alias forms models send for `os.shell.run`'s
+ * `cmd` (`cmdline`, `command_line`, …, `readShellAliases`, ATO-1259),
+ * which the shell reads as `cmd` (issue #106 review).
+ */
+export function commandOf(raw: Record<string, unknown>): string {
+  const args = readShellAliases(raw)?.args ?? raw;
   if (typeof args.command === "string") return args.command;
+  if (Array.isArray(args.cmd)) return args.cmd.filter((a): a is string => typeof a === "string").join(" ").trim();
   const cmd = typeof args.cmd === "string" ? args.cmd : "";
   const rest = Array.isArray(args.args) ? args.args.filter((a): a is string => typeof a === "string") : [];
   return [cmd, ...rest].join(" ").trim();
@@ -77,7 +94,8 @@ function outputOf(result: { summary: string; details?: Record<string, unknown>; 
 
 /** Fed from one worker run's `tool_call_parsed` / `tool_call_executed` events. */
 export class ExecutionEvidenceTracker {
-  private readonly pending = new Map<number, { tool: ExecutionRun["tool"]; command: string; ownCheck: boolean }>();
+  private readonly pending = new Map<number, { tool: ExecutionRun["tool"]; command: string; ownCheck: boolean; key: string }>();
+  private readonly keys: string[] = [];
   private readonly runs: ExecutionRun[] = [];
 
   constructor(
@@ -87,7 +105,10 @@ export class ExecutionEvidenceTracker {
     private readonly isOwnCheck: (args: Record<string, unknown>) => boolean = () => false,
     /** The keys masked out of what is recorded (a command line can carry `API_KEY=…`). */
     private readonly knownSecrets: () => readonly KnownSecret[] = () => [],
+    /** The identity runs are counted by: a `verify.run`'s spec key; otherwise the command line. */
+    private readonly keyOf: (tool: string, args: Record<string, unknown>) => string | undefined = () => undefined,
   ) {}
+  private readonly counts = new Map<string, number>();
 
   observeParsed(call: { tool: string; args: Record<string, unknown> }, batchIndex: number): void {
     if (call.tool !== "verify.run" && call.tool !== "os.shell.run") {
@@ -98,6 +119,8 @@ export class ExecutionEvidenceTracker {
       tool: call.tool,
       command: commandOf(call.args).slice(0, 300),
       ownCheck: call.tool === "verify.run" && this.isOwnCheck(call.args),
+      // Counted by the caller's key (a check's spec key), else by the command line itself.
+      key: `${call.tool}\u0000${this.keyOf(call.tool, call.args) ?? commandOf(call.args)}`,
     });
   }
 
@@ -116,7 +139,11 @@ export class ExecutionEvidenceTracker {
       const sha256 = fileSha256(this.workingDir, inside.display);
       return [sha256 === undefined ? { path: inside.display } : { path: inside.display, sha256 }];
     });
+    const runNumber = (this.counts.get(pending.key) ?? 0) + 1;
+    this.counts.set(pending.key, runNumber);
+    this.keys.push(pending.key);
     this.runs.push({
+      runNumber,
       tool: pending.tool,
       command: maskSecrets(pending.command, known),
       exitCode: typeof exit === "number" ? exit : null,
@@ -125,12 +152,15 @@ export class ExecutionEvidenceTracker {
       ...parsed,
       ...(pending.ownCheck ? { ownCheck: true as const } : {}),
     });
-    if (this.runs.length > MAX_RUNS) this.runs.shift();
+    if (this.runs.length > MAX_RUNS) {
+      this.runs.shift();
+      this.keys.shift();
+    }
   }
 
-  /** The runs recorded so far, oldest first; the newest {@link MAX_RUNS}. */
+  /** The runs recorded so far, oldest first; the newest {@link MAX_RUNS}, each with how many runs of its command the attempt made. */
   recorded(): ExecutionRun[] {
-    return this.runs.map((r) => ({ ...r, files: [...r.files], tests: [...r.tests] }));
+    return this.runs.map((r, i) => ({ ...r, files: [...r.files], tests: [...r.tests], ranTimes: this.counts.get(this.keys[i]!) ?? 1 }));
   }
 }
 
@@ -187,8 +217,11 @@ export function renderExecutionEvidence(
       : run.tests.length === 0
         ? ["  (the output named no test case)"]
         : [frameUntrustedText(run.tests.map((t) => `- ${t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok"}: ${t.name}`).join("\n"), EXECUTION_OUTPUT_SOURCE)];
+    const times = run.ranTimes ?? 1;
+    const ran = `  ${run.command} ran ${times} time${times === 1 ? "" : "s"} in attempt ${run.attempt} (shown: run ${run.runNumber ?? 1} of ${times})`;
     return [
       `- attempt ${run.attempt}, ${run.tool}${run.ownCheck === true ? " (the task's own check)" : ""}: ${run.command} — ${exit}${counts}`,
+      ran,
       ...(versions.length === 0 ? [] : [`  ran against: ${versions.join(", ")}`]),
       ...cases,
     ].join("\n");
@@ -224,6 +257,16 @@ function wordsOf(text: string): Set<string> {
   );
 }
 
+/**
+ * A criterion no passing test name matches (issue #106): a mismatch of
+ * names, not a gap. In the live run 5 such lines read as 5 uncovered
+ * requirements; a real gap is listed apart (`NO_CHECK_NAMES_IT`).
+ */
+export const NAME_MISMATCH =
+  "no passing test name matches its words (a name mismatch, not evidence of a gap: check the test bodies or the output)";
+/** A criterion the runtime knows is uncovered: no contract check names it, so no fact stands for it (issue #106). */
+export const NO_CHECK_NAMES_IT = "No check names this criterion";
+
 const statusOf = (t: ExecutedTest): string => (t.skipped === true ? "skipped" : t.ok ? "ok" : "not ok");
 
 /**
@@ -251,7 +294,7 @@ export function mapTestsToCriteria(tests: readonly ExecutedTest[], criteria: rea
     const passing = hits.filter((t) => t.ok && t.skipped !== true);
     const other = hits.filter((t) => !(t.ok && t.skipped !== true));
     passing.forEach((t) => matched.add(t));
-    const head = passing.length === 0 ? "no passing test name matches it" : passing.map((t) => `${statusOf(t)}: ${t.name}`).join("; ");
+    const head = passing.length === 0 ? NAME_MISMATCH : passing.map((t) => `${statusOf(t)}: ${t.name}`).join("; ");
     const notCounted = other.length === 0 ? "" : ` (not counted: ${other.map((t) => `${statusOf(t)}: ${t.name}`).join("; ")})`;
     return `- "${criterion}" <- ${head}${notCounted}`;
   });
@@ -273,6 +316,8 @@ export interface GateCheckRun {
   counts?: { pass: number; fail: number; total: number };
   /** The declared files as the check ran on them, hashed then (issue #104 review). */
   files?: Array<{ path: string; sha256?: string }>;
+  /** How many times the gate ran this check in this call; 0: the outcome is reused from an earlier run (issue #106 review). */
+  runsThisCall?: number;
 }
 
 /**
@@ -289,6 +334,8 @@ export function renderCheckRunEvidence(
   current: ReadonlyArray<{ path: string; sha256?: string }>,
   criteria: readonly string[],
   knownSecrets: readonly KnownSecret[] = [],
+  /** Criteria no contract check names (issue #106): known gaps, listed apart from name mismatches. */
+  uncovered: readonly string[] = [],
 ): string {
   if (runs.length === 0) return "";
   const versions = current.map((f) => `${f.path} sha256 ${short(f.sha256)}`).join(", ");
@@ -317,7 +364,14 @@ export function renderCheckRunEvidence(
       const same = now !== undefined && now.sha256 !== undefined && now.sha256 === f.sha256;
       return `${f.path} sha256 ${short(f.sha256)} ${same ? "(the version under review)" : `(NOT the version under review: ${now === undefined ? "not under review" : `under review sha256 ${short(now.sha256)}`})`}`;
     });
-    const ran = ranOn.length === 0 ? ["Ran on: (no declared file hashed when it ran)"] : [`Ran on: ${ranOn.join(", ")}`];
+    const ran = [
+      run.runsThisCall === undefined || run.runsThisCall === 1
+        ? "The runtime ran this check once in this call (the run shown)."
+        : run.runsThisCall === 0
+          ? "Reused: the runtime did not run this check again in this call; the run shown is an earlier one, on the files listed under Ran on."
+          : `The runtime ran this check ${run.runsThisCall} times in this call; the run shown is the latest.`,
+      ...(ranOn.length === 0 ? ["Ran on: (no declared file hashed when it ran)"] : [`Ran on: ${ranOn.join(", ")}`]),
+    ];
     return [`- ${maskSecrets(run.command, knownSecrets)} — ${exit}${counts}`, ...ran, "Cases:", ...cases, ...output].join("\n");
   };
   let budget = CHECK_RUN_EVIDENCE_CHARS - head.length - 20;
@@ -330,5 +384,8 @@ export function renderCheckRunEvidence(
     blocks.push(block);
   }
   const left = runs.length - blocks.length;
-  return [head, ...blocks, ...(left > 0 ? [`- ${left} more check run${left === 1 ? "" : "s"} not shown`] : [])].join("\n");
+  const gaps = uncovered.length === 0
+    ? []
+    : [`${NO_CHECK_NAMES_IT} (the runtime has no check and no fact for it; a real gap unless the files show otherwise):`, ...uncovered.map((c) => `- "${c}"`)];
+  return [head, ...blocks, ...(left > 0 ? [`- ${left} more check run${left === 1 ? "" : "s"} not shown`] : []), ...gaps].join("\n");
 }

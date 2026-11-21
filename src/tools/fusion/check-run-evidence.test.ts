@@ -34,8 +34,8 @@ describe("the check-run section (issue #104 review)", () => {
       ["skips blank lines", "sums revenue per region", "ignores __proto__ keys safely"],
     );
     expect(lines).toEqual([
-      '- "skips blank lines" <- no passing test name matches it (not counted: not ok: skips blank lines)',
-      '- "sums revenue per region" <- no passing test name matches it (not counted: skipped: sums revenue per region)',
+      '- "skips blank lines" <- no passing test name matches its words (a name mismatch, not evidence of a gap: check the test bodies or the output) (not counted: not ok: skips blank lines)',
+      '- "sums revenue per region" <- no passing test name matches its words (a name mismatch, not evidence of a gap: check the test bodies or the output) (not counted: skipped: sums revenue per region)',
       '- "ignores __proto__ keys safely" <- ok: ignores __proto__ keys',
       "- passing tests whose name matches no criterion: does not skip blank lines",
     ]);
@@ -47,5 +47,25 @@ describe("the check-run section (issue #104 review)", () => {
     expect(same).toContain("Ran on: a.cjs sha256 aaaaaaaaaaaa (the version under review)");
     const changed = renderCheckRunEvidence([{ ...run, files: [{ path: "a.cjs", sha256: "a".repeat(64) }] }], [{ path: "a.cjs", sha256: "b".repeat(64) }], []);
     expect(changed).toContain("Ran on: a.cjs sha256 aaaaaaaaaaaa (NOT the version under review: under review sha256 bbbbbbbbbbbb)");
+  });
+
+  it("a name mismatch is not a gap; a criterion no check names is listed apart (issue #106)", () => {
+    const text = renderCheckRunEvidence(
+      [{ ok: true, command: "node --test a.cjs", exitCode: 0, output: "", tests: [{ name: "parses quoted fields", ok: true }] }],
+      [],
+      ["sums revenue per region"],
+      [],
+      ["reports a malformed row on stderr"],
+    );
+    expect(text).toContain('"sums revenue per region" <- no passing test name matches its words (a name mismatch, not evidence of a gap: check the test bodies or the output)');
+    expect(outsideFences(text)).toContain('No check names this criterion (the runtime has no check and no fact for it; a real gap unless the files show otherwise):\n- "reports a malformed row on stderr"');
+    expect(text).not.toMatch(/"sums revenue per region"\n/);
+  });
+
+  it("says when a gate outcome is reused, and how many times the check ran in this call (issue #106 review)", () => {
+    const run = { ok: true, command: "node --test a.cjs", exitCode: 0, output: "", tests: [] };
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 0 }], [], [])).toContain("Reused: the runtime did not run this check again in this call");
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 2 }], [], [])).toContain("The runtime ran this check 2 times in this call; the run shown is the latest.");
+    expect(renderCheckRunEvidence([{ ...run, runsThisCall: 1 }], [], [])).toContain("The runtime ran this check once in this call (the run shown).");
   });
 });
