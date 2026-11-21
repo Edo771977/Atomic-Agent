@@ -134,6 +134,7 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_OFFLINE", null, "Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved."),
   env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins that may call a keyless local `serve`, besides loopback ones."),
   env("ATOMIC_AGENT_SERVE_NO_PARENT_EXIT", null, "Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit)."),
+  env("ATOMIC_AGENT_RUN_RSS_LIMIT_MB", null, "Memory cap, in MB of resident memory, past which the exit watchdog of `run` ends the process. Unset: 4096."),
   env("ATOMIC_AGENT_MODEL_CATALOG_URL", null, "URL of the extra local-model catalog JSON. Unset: the catalog hosted on atomicagent.io."),
 
   // Channels and media.
