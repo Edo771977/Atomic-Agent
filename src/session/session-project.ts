@@ -685,7 +685,7 @@ export type ProjectUpdate =
        */
       holdForCorrection?: true;
     }
-  | { kind: "milestone_run"; id: string; runId: string }
+  | { kind: "milestone_run"; id: string; runId: string; startedAt?: number }
   /** Issue #111: `project.backlog.add`'s item; opens and moves no gate. */
   | { kind: "backlog_add"; item: ProjectBacklogDraft };
 
@@ -2322,7 +2322,13 @@ function milestoneUpdate(
     const runId = cleanId(update.runId);
     if (runId === null) return invalid("a run id is a short id without spaces");
     const runIds = current.runIds.includes(runId) ? current.runIds : [...current.runIds, runId].slice(-PROJECT_LIMITS.runIds);
-    const evidenceSince = current.evidenceSince ?? (current.runIds.length === 0 ? current.updatedAt : undefined);
+    const startedAt = isTime(update.startedAt) ? update.startedAt : undefined;
+    const firstCurrentRun = current.runIds.every(id => current.replacedEvidenceRunIds?.includes(id));
+    const evidenceSince = firstCurrentRun
+      ? startedAt ?? current.evidenceSince ?? current.updatedAt
+      : current.evidenceSince !== undefined && startedAt !== undefined
+        ? Math.min(current.evidenceSince, startedAt)
+        : current.evidenceSince;
     const run: ProjectMilestone = {
       ...current, state: "in_progress", runIds, updatedAt: now,
       ...(evidenceSince === undefined ? {} : { evidenceSince }),

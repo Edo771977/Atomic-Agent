@@ -1748,6 +1748,7 @@ export function buildFusionDelegateTool(
         : undefined;
       // The checkpoint (ATO-617): written after every task and wave, so a
       // run cut off by a crash or a quit can be resumed from where it was.
+      const runStartedAt = resumedFrom?.startedAt ?? Date.now();
       const run: FusionRunRecorder | undefined = candidate === undefined ? deps.runCheckpoints?.start({
         ...(resume === undefined ? {} : { runId: resume.runId }),
         ...(directorRef === null ? {} : { director: directorRef }),
@@ -1773,6 +1774,7 @@ export function buildFusionDelegateTool(
             : undefined;
       if (evidenceRun !== undefined) checkRun = evidenceRun;
       admitted.runId = evidenceRun?.runId ?? newFusionRunId();
+      admitted.runStartedAt = runStartedAt;
       // Each worker run of a task is an attempt (issue #95): what it wrote
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.
@@ -3898,6 +3900,7 @@ interface FanoutAdmission {
   started: boolean;
   /** The run whose folder holds the fan-out's evidence (its checkpoint's, or a candidate run's; issue #74). */
   runId?: string;
+  runStartedAt?: number;
 }
 
 /**
@@ -3929,7 +3932,10 @@ function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmissio
   const runId =
     admitted.runId ??
     (typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`);
-  const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
+  const update: ProjectUpdate = {
+    kind: "milestone_run", id: milestoneId, runId,
+    ...(admitted.runStartedAt === undefined ? {} : { startedAt: admitted.runStartedAt }),
+  };
   const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
   // Keep the non-enumerable full output the result may carry.
   for (const key of ["fullOutput", "fullOutputTruncated"] as const) {
