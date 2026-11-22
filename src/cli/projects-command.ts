@@ -14,6 +14,7 @@ import { projectExpectation, type ProjectState } from "../session/session-projec
 import { projectStoreForStateDir, readProjectRef, sameProjectFolder, type SessionProjectStore } from "../session/session-project-store.js";
 import { createEmptySessionState, type SessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
+import { LIVE_SESSION_STATUSES } from "../session/session-retention.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../tools/fusion/run-checkpoint.js";
@@ -274,7 +275,21 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
-  if (sub === "backlog") return backlogCommand(args.slice(1), { stdout, stderr, stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir });
+  if (sub === "backlog") {
+    return backlogCommand(args.slice(1), {
+      stdout,
+      stderr,
+      stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
+      liveTurn: (folder, id) => {
+        const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+        try {
+          return liveTurnOnProject(store, folder, id);
+        } finally {
+          if (deps.sessionStore === undefined) store.close();
+        }
+      },
+    });
+  }
   if (sub !== "resume") {
     stderr(`unknown subcommand: ${sub}\n${PROJECT_HELP}`);
     return 2;
@@ -333,7 +348,26 @@ const BACKLOG_CALLS: Readonly<Record<string, ProjectBacklogDecision["state"]>> =
  * written to the project's record in the state dir (never to
  * `project.json`). No gate moves. 0 done, 1 refused, 2 usage.
  */
-async function backlogCommand(args: string[], io: { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string }): Promise<number> {
+/**
+ * A chat on `folder`'s project `id` with a turn really running (the gate
+ * path's rule, `runtime.projectDecision`): a stored live status whose
+ * owner is alive. Its id, else null. A director or worker shell could
+ * otherwise run `project backlog --promote` mid-turn and the next step
+ * would read it as the person's call. (The agent sets no marker in the
+ * environment of the shells it runs, so that cannot be checked here.)
+ */
+export function liveTurnOnProject(store: SessionStore, folder: string, id: string): string | null {
+  for (const s of store.listByWorkingDir(folder, 200)) {
+    if (readProjectRef(s)?.id !== id) continue;
+    if (LIVE_SESSION_STATUSES.includes(s.status) && store.liveTurnElsewhere(s.id)) return s.id;
+  }
+  return null;
+}
+
+async function backlogCommand(
+  args: string[],
+  io: { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null },
+): Promise<number> {
   const usage = () => {
     io.stderr("Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n");
     return 2;
@@ -367,6 +401,12 @@ async function backlogCommand(args: string[], io: { stdout: (t: string) => void;
     const record = options.records.read(folder);
     if (!record.ok || record.record === null) {
       io.stderr(`project backlog: this computer has no record of the project in ${folder}; open this project in a chat first (atomic-agent project resume ${folder}).\n`);
+      return 1;
+    }
+    // Between turns only, as a gate decision.
+    const live = io.liveTurn(folder, record.record.id);
+    if (live !== null) {
+      io.stderr(`project backlog: a turn is running on ${live}, a chat on this project; wait for it to finish, then decide.\n`);
       return 1;
     }
     const decided = applyBacklogDecision(project, call);

@@ -215,6 +215,27 @@ describe("project backlog (issue #111)", () => {
     expect(JSON.parse(j.out()).items[0]).toMatchObject({ id: "b1", state: "promoted", plannedIn: 4 });
   });
 
+  it("refuses a call while a turn runs on a chat bound to the project (review)", async () => {
+    const folder = folderWithBacklog();
+    const store = new SessionStore({ dbFile: join(stateDir, "sessions.sqlite"), projectStore: projects });
+    try {
+      const chat = projects.prepareTurn(createEmptySessionState({ id: "chat-live", workingDir: folder }), true);
+      store.save(chat);
+      expect(store.beginTurn("chat-live")).toBe(true);
+      const t = io();
+      expect(await projectCommand(["backlog", folder, "--promote", "b1"], { ...t, sessionStore: store })).toBe(1);
+      expect(t.err()).toMatch(/a turn is running on chat-live/);
+      const record = stateDirProjectRecords(stateDir).read(folder);
+      expect(record.ok && record.record?.state.backlogStates).toBeUndefined();
+      // Listing is fine mid-turn; once the turn ends the call goes through.
+      expect(await projectCommand(["backlog", folder], { ...io(), sessionStore: store })).toBe(0);
+      store.releaseTurn("chat-live", { status: "completed" });
+      expect(await projectCommand(["backlog", folder, "--promote", "b1"], { ...io(), sessionStore: store })).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
   it("refuses a call on a folder this computer has no record for (review)", async () => {
     const folder = folderWithBacklog();
     const before = readFileSync(projectFilePath(folder), "utf8");
