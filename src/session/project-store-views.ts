@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { criterionFactLine } from "./project-gate-text.js";
+import { criterionFactLine, directorReportWarningLine, directorReportWarnings } from "./project-gate-text.js";
 import { backlogSourceLabel, backlogStateOf } from "./project-backlog.js";
 import { projectExpectation, type ProjectExpectation, type ProjectState } from "./session-project.js";
 
@@ -105,10 +105,17 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
     ...(project.changedOutside === undefined ? [] : [`Changed since your decision: ${project.changedOutside.join(", ")}`]),
     "",
   ];
+  const criteria = project.approvedCriteria ?? brief?.successCriteria ?? [];
   for (const m of project.milestones) {
     statusLines.push(`## ${m.title}: ${m.state}`, "");
-    if (m.summary !== undefined) statusLines.push(m.summary, "");
-    for (const fact of m.criteriaFacts ?? []) statusLines.push(`- ${criterionFactLine(fact, brief?.successCriteria)}`);
+    if (m.summary !== undefined) {
+      statusLines.push("**Director report**", "", m.summary, "");
+      for (const warning of directorReportWarnings(m.summary, m.criteriaFacts ?? [], criteria)) {
+        statusLines.push(`- ${directorReportWarningLine(warning)}`);
+      }
+    }
+    for (const note of m.reportNotes ?? []) statusLines.push(`- ${note}`);
+    for (const fact of m.criteriaFacts ?? []) statusLines.push(`- ${criterionFactLine(fact, criteria)}`);
     for (const a of m.attachments ?? []) statusLines.push(`- picture: ${a.caption} (${basename(a.path)})`);
     if ((m.criteriaFacts ?? []).length > 0 || (m.attachments ?? []).length > 0) statusLines.push("");
   }
