@@ -14,6 +14,7 @@ import {
   applyProjectDecision,
   applyProjectUpdate,
   gateVersion,
+  milestoneToApproveNext,
   normalizeProject,
   readProject,
   withProject,
@@ -140,13 +141,18 @@ describe("project state across a session save and load (issue #80)", () => {
     expect(p.milestones.map((m) => m.state)).toEqual(["planned", "in_progress"]);
     p = reopen(approve(p));
     expect(p.milestones.map((m) => m.state)).toEqual(["planned", "in_progress"]);
+    expect(milestoneToApproveNext(p.milestones)).toBeUndefined();
     expect(applyProjectUpdate(p, { kind: "milestone_run", id: "a", runId: "run-a2" }, NOW)).toMatchObject({ ok: false, error: { code: "milestone-not-approved" } });
     // B's result waits for the person: A still waits.
     p = reopen(fold(p, { kind: "milestone", id: "b", state: "done", summary: "B works" }));
     expect(p.milestones.map((m) => m.state)).toEqual(["planned", "done"]);
-    // B reviewed: A is next.
-    p = approve(p);
+    expect(p.gate).toEqual({ kind: "milestone", id: "b" });
+    expect(milestoneToApproveNext(p.milestones)).toBeUndefined();
+    // B reviewed: A is next and can start after reopening.
+    p = reopen(approve(p));
     expect(p.milestones.map((m) => m.state)).toEqual(["approved", "reviewed"]);
+    p = fold(p, { kind: "milestone_run", id: "a", runId: "run-a2" });
+    expect(p.milestones.map((m) => m.state)).toEqual(["in_progress", "reviewed"]);
   });
 
   it("a project saved before issue #80 that kept a removed criterion's pass does not lend it to a reused id (issue #83)", () => {
