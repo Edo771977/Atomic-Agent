@@ -13,7 +13,7 @@ import { describeViolation, type PlanEstimate, type PlanViolation } from "./proj
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
-import { backlogStateOf, openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
+import { backlogStateOf, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -140,7 +140,15 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   if (project.cancelledAt === undefined && (project.gate.kind === "plan" || project.gate.kind === "milestone")) {
     for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
   }
-  if (project.gate.kind === "plan") for (const b of promotedForPlan(project)) hints.push(promotedHint(b.id, b.title));
+  if (project.gate.kind === "plan") {
+    for (const b of promotedForPlan(project)) hints.push(promotedHint(b.id, b.title));
+    // Review of #111: a call bound to text that changed, or to an item removed, outside Atomic Agent.
+    for (const s of staleBacklogCalls(project)) {
+      hints.push(s.reason === "removed"
+        ? `promoted item ${s.id} was removed outside Atomic Agent`
+        : `backlog item ${s.id} changed since you ${s.state} it: it reads open again; ${s.state === "promoted" ? "promote" : "drop"} it again if you still want it`);
+    }
+  }
   const expectation = projectExpectation(project);
   if (expectation.kind === "complete" && expectation.openBacklog !== undefined) {
     const n = expectation.openBacklog;
@@ -152,7 +160,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
         open: openBacklog(project).length,
         seeds: openSeeds(project).map((b) => ({ id: b.id, title: b.title, condition: b.condition! })),
         promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title })),
-        items: project.backlog!.map((b) => ({ ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id) })),
+        stale: staleBacklogCalls(project),
+        items: project.backlog!.map((b) => {
+          const plannedIn = backlogStateOf(project, b.id) === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }) };
+        }),
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;

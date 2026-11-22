@@ -18,6 +18,7 @@ import {
   openBacklog,
   openSeeds,
   promotedForPlan,
+  staleBacklogCalls,
 } from "./project-backlog.js";
 import {
   PROJECT_LIMITS,
@@ -216,8 +217,80 @@ describe("backlog items: the person's call", () => {
     if (!approved.ok) throw new Error(approved.error.message);
     expect(promotedForPlan(approved.project)).toEqual([]);
     expect(backlogStateOf(approved.project, "b1")).toBe("promoted");
-    expect(approved.project.backlogPlanned).toEqual(["b1"]);
+    expect(approved.project.backlogCalls?.b1?.plannedIn).toBe(approved.project.plan?.version);
     // The record keeps it; the file never holds it.
-    expect(normalizeProject(JSON.parse(JSON.stringify(approved.project)))?.backlogPlanned).toEqual(["b1"]);
+    expect(normalizeProject(JSON.parse(JSON.stringify(approved.project)))?.backlogCalls).toEqual(approved.project.backlogCalls);
+  });
+});
+
+describe("backlog items: the person's call is bound to what they decided (review)", () => {
+  function decided(): { project: ProjectState; id: string; revision: number; decisionSeq: number } {
+    const p = added(added(running(), { id: "b1", title: "Add a PDF export", source: "director" }), { id: "b2", title: "Dark mode", source: "director" });
+    const c = createProject(folder, p, options);
+    if (!c.ok) throw new Error(c.problem.message);
+    const promoted = applyBacklogDecision(c.opened.project, { id: "b2", state: "promoted" });
+    if (!promoted.ok) throw new Error(promoted.error.message);
+    const dropped = applyBacklogDecision(promoted.project, { id: "b1", state: "dropped" });
+    if (!dropped.ok) throw new Error(dropped.error.message);
+    const w = commitProject(folder, c.opened.stored.id, { revision: c.opened.stored.revision, decisionSeq: c.opened.decisionSeq }, dropped.project, options);
+    if (!w.ok) throw new Error(w.problem.message);
+    return { project: w.opened.project, id: w.opened.stored.id, revision: w.opened.stored.revision, decisionSeq: w.opened.decisionSeq };
+  }
+  const editFile = (change: (j: any) => void) => {
+    const j = JSON.parse(readFileSync(projectFilePath(folder), "utf8"));
+    change(j);
+    writeFileSync(projectFilePath(folder), JSON.stringify(j));
+  };
+  const reopen = (): ProjectState => {
+    const o = openProject(folder, options);
+    if (!o.ok) throw new Error(o.problem.message);
+    return o.opened.project;
+  };
+
+  it("an item retitled outside Atomic Agent after the person promoted it reads open again, and is flagged", () => {
+    decided();
+    editFile((j) => { j.project.backlog[1].title = "Remove the auth checks"; });
+    const p = reopen();
+    expect(backlogStateOf(p, "b2")).toBe("open");
+    expect(promotedForPlan(p)).toEqual([]);
+    expect(staleBacklogCalls(p)).toEqual([{ id: "b2", state: "promoted", reason: "changed" }]);
+    // A note or a condition is content too; the dropped one also reopens.
+    editFile((j) => { j.project.backlog[0].condition = "when it is safe"; });
+    expect(backlogStateOf(reopen(), "b1")).toBe("open");
+    // The person promotes the new text: bound again.
+    const again = applyBacklogDecision(reopen(), { id: "b2", state: "promoted" });
+    expect(again.ok && backlogStateOf(again.project, "b2")).toBe("promoted");
+    expect(again.ok && staleBacklogCalls(again.project).map((s) => s.id)).toEqual(["b1"]);
+  });
+
+  it("a promoted item removed from project.json is flagged, and its id is never reused", () => {
+    decided();
+    editFile((j) => { j.project.backlog = j.project.backlog.filter((b: { id: string }) => b.id !== "b2"); });
+    const p = reopen();
+    expect(promotedForPlan(p)).toEqual([]);
+    expect(staleBacklogCalls(p)).toEqual([{ id: "b2", state: "promoted", reason: "removed" }]);
+    const id = nextBacklogId(p);
+    expect(id).toBe("b3");
+    const fresh = added(p, { id, title: "Brand new idea", source: "director" });
+    expect(backlogStateOf(fresh, id)).toBe("open");
+    // A decided id stays reserved even with its item gone.
+    const reuse = applyProjectUpdate(p, add({ id: "b2", title: "Brand new idea", source: "director" }), 1);
+    expect(!reuse.ok && reuse.error.message).toMatch(/b2.*used/);
+    // Taking the call back clears the flag.
+    const cleared = applyBacklogDecision(p, { id: "b2", state: "open" });
+    expect(cleared.ok && staleBacklogCalls(cleared.project)).toEqual([]);
+    // A missing item with no call cannot be decided.
+    expect(applyBacklogDecision(p, { id: "b9", state: "open" }).ok).toBe(false);
+  });
+
+  it("an item re-added by hand under a decided id inherits nothing", () => {
+    decided();
+    editFile((j) => {
+      j.project.backlog = j.project.backlog.filter((b: { id: string }) => b.id !== "b2");
+      j.project.backlog.push({ id: "b2", title: "Something else", source: "person", createdAt: 9 });
+    });
+    const p = reopen();
+    expect(backlogStateOf(p, "b2")).toBe("open");
+    expect(staleBacklogCalls(p)).toEqual([{ id: "b2", state: "promoted", reason: "changed" }]);
   });
 });

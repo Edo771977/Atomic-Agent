@@ -477,10 +477,17 @@ export interface ProjectState {
   /** The person's call per backlog item id (issue #111); one not listed is open. Record only. */
   backlogStates?: Record<string, ProjectBacklogState>;
   /**
-   * Promoted backlog items a plan the person approved since has taken in
-   * (issue #111): no longer proposed for the next plan. Record only.
+   * What each of the person's backlog calls is bound to (issue #111
+   * review): the item's text hash when they decided, and the plan version
+   * the person approved that took a promoted item in. Record only.
    */
-  backlogPlanned?: string[];
+  backlogCalls?: Record<string, ProjectBacklogCall>;
+}
+
+/** A backlog call's binding: `hash` of the item's text when decided; `plannedIn`, the approved plan version that took it in. */
+export interface ProjectBacklogCall {
+  hash: string;
+  plannedIn?: number;
 }
 
 /**
@@ -1040,6 +1047,17 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   return out.length === 0 ? undefined : out;
 }
 
+/** Stored backlog call bindings: only for a recorded call, a 16-hex hash, a version from 1. */
+function readBacklogCalls(raw: unknown, states: Record<string, ProjectBacklogState> | undefined): Record<string, ProjectBacklogCall> | undefined {
+  if (!isObject(raw) || states === undefined) return undefined;
+  const out: Record<string, ProjectBacklogCall> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (states[id] === undefined || !isObject(value) || typeof value.hash !== "string" || !/^[0-9a-f]{16}$/.test(value.hash)) continue;
+    out[id] = { hash: value.hash, ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number } : {}) };
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
 /** A stored id → value map read leniently: keys criterion-shaped, values in `allowed`. */
 function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): Record<string, T> | undefined {
   if (!isObject(raw)) return undefined;
@@ -1053,11 +1071,11 @@ function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): R
 }
 
 /** The backlog and the person's calls on it and on the decisions: carried by every update. */
-function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogPlanned"> {
+function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogCalls"> {
   return {
     ...(project?.backlog === undefined ? {} : { backlog: project.backlog }),
     ...(project?.backlogStates === undefined ? {} : { backlogStates: project.backlogStates }),
-    ...(project?.backlogPlanned === undefined ? {} : { backlogPlanned: project.backlogPlanned }),
+    ...(project?.backlogCalls === undefined ? {} : { backlogCalls: project.backlogCalls }),
     ...(!decisionsToo || project?.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
   };
 }
@@ -1528,9 +1546,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
-  const backlogPlanned = Array.isArray(raw.backlogPlanned)
-    ? [...new Set(raw.backlogPlanned.map(normalizeCriterionId).filter((id): id is string => id !== null && backlogStates?.[id] === "promoted"))]
-    : [];
+  const backlogCalls = readBacklogCalls(raw.backlogCalls, backlogStates);
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -1544,7 +1560,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(backlog === undefined ? {} : { backlog }),
     ...(decisionStatus === undefined ? {} : { decisionStatus }),
     ...(backlogStates === undefined ? {} : { backlogStates }),
-    ...(backlogPlanned.length === 0 ? {} : { backlogPlanned }),
+    ...(backlogCalls === undefined ? {} : { backlogCalls }),
   };
 }
 
@@ -2468,7 +2484,7 @@ function decideProject(
             const waiting = project.milestones.find(unreviewed);
             return waiting === undefined ? { kind: "none" as const } : { kind: "milestone" as const, id: waiting.id };
           })(),
-        }),
+        }, project.plan!.version),
       };
     }
     if (gate.kind === "milestone") {

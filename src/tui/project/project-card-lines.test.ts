@@ -163,6 +163,7 @@ describe("the project card's backlog (issue #111)", () => {
     open: 2,
     seeds: [{ id: "b1", title: "Sounds", condition: "when the UI exists" }],
     promoted: [{ id: "b3", title: "PDF export" }],
+    stale: [],
     items: [],
   };
 

@@ -94,8 +94,10 @@ export interface ProjectGateBacklog {
   open: number;
   seeds: Array<{ id: string; title: string; condition: string }>;
   promoted: Array<{ id: string; title: string }>;
-  /** Every item with the person's call on it (`open` when none). */
-  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped" }>;
+  /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
+  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
+  /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
+  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number }>;
 }
 
 /** The plan reviewer's notes as the card shows them (issue #118). */

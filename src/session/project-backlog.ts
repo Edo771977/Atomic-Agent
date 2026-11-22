@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+
 import { PROJECT_LIMITS } from "./project-limits.js";
 import { normalizeCriterionId } from "./project-criterion-id.js";
 import type {
+  ProjectBacklogCall,
   ProjectBacklogItem,
   ProjectBacklogSource,
   ProjectDecisionResult,
@@ -17,7 +20,11 @@ export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person
  * (`ProjectState.backlog`, outside every gate's hash, so adding one
  * reopens no gate); what the person decided on it — promoted or dropped
  * — is theirs alone and lives in the state dir's record
- * (`backlogStates`, `backlogPlanned`), never in the file.
+ * (`backlogStates`, `backlogCalls`), never in the file. A call is bound
+ * to the item's text as the person saw it ({@link backlogItemHash}): an
+ * item edited outside Atomic Agent since reads open again, and the plan
+ * gate says so ({@link staleBacklogCalls}); a decided id is never given
+ * to a new item.
  *
  * The director adds items (`project.backlog.add`, orchestrator only);
  * workers and reviewers only suggest them in their replies. Only the
@@ -59,33 +66,70 @@ const cleanRef = (v: unknown): string | null =>
 
 const invalid = (message: string): ProjectUpdateResult => ({ ok: false, error: { code: "invalid", message } });
 
-/** An item's state: the record's call, else open. */
-export function backlogStateOf(project: Pick<ProjectState, "backlogStates">, id: string): ProjectBacklogItemState {
-  return project.backlogStates?.[id] ?? "open";
+type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls">;
+
+/** What a person's call on an item is bound to: its title, note and condition (not its source, origin or time). */
+export function backlogItemHash(item: Pick<ProjectBacklogItem, "title" | "note" | "condition">): string {
+  return createHash("sha256").update(JSON.stringify([item.title, item.note ?? null, item.condition ?? null])).digest("hex").slice(0, 16);
+}
+
+/**
+ * An item's state: the record's call while the item still reads as the
+ * person decided it (same {@link backlogItemHash}), else open — the same
+ * rule as a decision's status (#80): a call belongs to the text it was made on.
+ */
+export function backlogStateOf(project: BacklogView, id: string): ProjectBacklogItemState {
+  const state = project.backlogStates?.[id];
+  if (state === undefined) return "open";
+  const item = (project.backlog ?? []).find((b) => b.id === id);
+  return item !== undefined && project.backlogCalls?.[id]?.hash === backlogItemHash(item) ? state : "open";
 }
 
 /** The items nobody decided on yet, in backlog order. */
-export function openBacklog(project: Pick<ProjectState, "backlog" | "backlogStates">): ProjectBacklogItem[] {
+export function openBacklog(project: BacklogView): ProjectBacklogItem[] {
   return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "open");
 }
 
 /** The open items with a condition: the seeds the person is shown at a plan or milestone gate. */
-export function openSeeds(project: Pick<ProjectState, "backlog" | "backlogStates">): ProjectBacklogItem[] {
+export function openSeeds(project: BacklogView): ProjectBacklogItem[] {
   return openBacklog(project).filter((b) => b.condition !== undefined);
 }
 
 /** The items the person promoted that no plan they approved has taken in yet. */
-export function promotedForPlan(project: Pick<ProjectState, "backlog" | "backlogStates" | "backlogPlanned">): ProjectBacklogItem[] {
-  const planned = new Set(project.backlogPlanned ?? []);
-  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && !planned.has(b.id));
+export function promotedForPlan(project: BacklogView): ProjectBacklogItem[] {
+  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && project.backlogCalls?.[b.id]?.plannedIn === undefined);
 }
 
-/** The first free `b<n>` id, counting from the backlog's length. */
-export function nextBacklogId(project: Pick<ProjectState, "backlog"> | undefined): string {
-  const taken = new Set((project?.backlog ?? []).map((b) => b.id));
-  let n = taken.size + 1;
-  while (taken.has(`b${n}`)) n += 1;
-  return `b${n}`;
+/**
+ * The person's calls that no longer stand (review of #111): the item was
+ * changed outside Atomic Agent since (`changed`: it reads open again), or
+ * a promoted one was removed from `project.json` (`removed`). A dropped
+ * item removed is what dropping meant, so it is not listed.
+ */
+export function staleBacklogCalls(project: BacklogView): Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }> {
+  const out: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }> = [];
+  for (const [id, state] of Object.entries(project.backlogStates ?? {})) {
+    const item = (project.backlog ?? []).find((b) => b.id === id);
+    if (item === undefined) {
+      if (state === "promoted") out.push({ id, state, reason: "removed" });
+    } else if (project.backlogCalls?.[id]?.hash !== backlogItemHash(item)) out.push({ id, state, reason: "changed" });
+  }
+  return out;
+}
+
+/** Ids no new item may take: the backlog's, and every id the person decided on (kept in the record). */
+function reservedIds(project: BacklogView | undefined): Set<string> {
+  return new Set([...(project?.backlog ?? []).map((b) => b.id), ...Object.keys(project?.backlogStates ?? {}), ...Object.keys(project?.backlogCalls ?? {})]);
+}
+
+/** The next `b<n>` id: past every `b<n>` the backlog or the record has held, so a decided id is never reused. */
+export function nextBacklogId(project: BacklogView | undefined): string {
+  let max = 0;
+  for (const id of reservedIds(project)) {
+    const m = /^b(\d+)$/.exec(id);
+    if (m !== null) max = Math.max(max, Number(m[1]));
+  }
+  return `b${max + 1}`;
 }
 
 /**
@@ -109,7 +153,7 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
   }
   const id = normalizeCriterionId(raw.id);
   if (id === null) return invalid(`a backlog id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);
-  if (backlog.some((b) => b.id === id)) return invalid(`backlog item ${id} exists already`);
+  if (reservedIds(project).has(id)) return invalid(`backlog id ${id} is used already (by an item or by the person's call on one); take ${nextBacklogId(project)}`);
   const title = typeof raw.title === "string" ? clip(raw.title, PROJECT_LIMITS.title) : "";
   if (title.length === 0) return invalid("a backlog item needs a title");
   if (typeof raw.source !== "string" || !(PROJECT_BACKLOG_SOURCES as readonly string[]).includes(raw.source)) {
@@ -161,28 +205,38 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
   if (!["promoted", "dropped", "open"].includes(decision.state)) {
     return { ok: false, error: { code: "invalid", message: "a backlog item is promoted, dropped or open" } };
   }
-  if (!(project.backlog ?? []).some((b) => b.id === decision.id)) {
+  const item = (project.backlog ?? []).find((b) => b.id === decision.id);
+  // A call on an item removed outside Atomic Agent can only be taken back (it clears the flag).
+  const orphan = item === undefined && project.backlogStates?.[decision.id] !== undefined;
+  if (item === undefined && !(orphan && decision.state === "open")) {
     return { ok: false, error: { code: "invalid", message: `the backlog has no item ${decision.id}` } };
   }
   const states = { ...(project.backlogStates ?? {}) };
-  if (decision.state === "open") delete states[decision.id];
-  else states[decision.id] = decision.state;
-  const planned = (project.backlogPlanned ?? []).filter((id) => id !== decision.id);
-  const { backlogStates: _s, backlogPlanned: _p, ...rest } = project;
+  const calls = { ...(project.backlogCalls ?? {}) };
+  if (decision.state === "open") {
+    delete states[decision.id];
+    delete calls[decision.id];
+  } else {
+    states[decision.id] = decision.state;
+    // Bound to the text the person decided on; a promotion given again waits for a plan again.
+    calls[decision.id] = { hash: backlogItemHash(item!) };
+  }
+  const { backlogStates: _s, backlogCalls: _c, ...rest } = project;
   return {
     ok: true,
     project: {
       ...rest,
       ...(Object.keys(states).length === 0 ? {} : { backlogStates: states }),
-      // A promotion taken back and given again waits for a plan again.
-      ...(planned.length === 0 ? {} : { backlogPlanned: planned }),
+      ...(Object.keys(calls).length === 0 ? {} : { backlogCalls: calls }),
     },
   };
 }
 
-/** The person approved a plan: every promoted item waiting for one is taken in. */
-export function markPromotedPlanned(project: ProjectState): ProjectState {
+/** The person approved plan `version`: every promoted item waiting for a plan is recorded as taken in by it. */
+export function markPromotedPlanned(project: ProjectState, version: number): ProjectState {
   const waiting = promotedForPlan(project);
   if (waiting.length === 0) return project;
-  return { ...project, backlogPlanned: [...(project.backlogPlanned ?? []), ...waiting.map((b) => b.id)] };
+  const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
+  for (const b of waiting) calls[b.id] = { ...calls[b.id]!, plannedIn: version };
+  return { ...project, backlogCalls: calls };
 }

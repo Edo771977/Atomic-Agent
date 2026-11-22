@@ -119,3 +119,17 @@ describe("the director's view of the backlog (issue #111)", () => {
     expect((result.details[PROJECT_UPDATE_DETAIL] as { kind: string }).kind).toBe("plan");
   });
 });
+
+describe("the plan gate flags the person's calls that no longer stand (review)", () => {
+  it("an item changed since the person promoted it, and a promoted item removed outside Atomic Agent", () => {
+    let p = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
+    p = ok(applyBacklogDecision(p, { id: "b1", state: "promoted" }));
+    // As a hand edit of project.json would leave it: b2 retitled, b1 gone.
+    const edited: ProjectState = { ...p, backlog: p.backlog!.filter((b) => b.id !== "b1").map((b) => (b.id === "b2" ? { ...b, title: "Remove the auth checks" } : b)) };
+    const v = view(edited);
+    expect(v.hints).toContain("backlog item b2 changed since you promoted it: it reads open again; promote it again if you still want it");
+    expect(v.hints).toContain("promoted item b1 was removed outside Atomic Agent");
+    expect(v.backlog!.promoted).toEqual([]);
+    expect(v.backlog!.stale).toEqual([{ id: "b2", state: "promoted", reason: "changed" }, { id: "b1", state: "promoted", reason: "removed" }]);
+  });
+});
