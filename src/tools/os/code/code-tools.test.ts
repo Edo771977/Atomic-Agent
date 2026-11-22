@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { runCommand } from "../../../sandbox/command-runner.js";
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import type { CommandResult } from "../../../sandbox/command-runner.js";
@@ -116,13 +116,13 @@ describe("resolveAstGrepPath", () => {
     ).toBe("/opt/ag");
     expect(
       resolveAstGrepPath({
-        env: { PATH: "/a:/b" },
+        env: { PATH: ["/a", "/b"].join(delimiter) },
         platform: "linux",
-        fileExists: exists(["/b/ast-grep"]),
+        fileExists: exists([join("/b", "ast-grep")]),
       }),
-    ).toBe("/b/ast-grep");
+    ).toBe(join("/b", "ast-grep"));
     expect(
-      resolveAstGrepPath({ env: { PATH: "/a" }, platform: "linux", fileExists: exists(["/a/sg"]) }),
+      resolveAstGrepPath({ env: { PATH: "/a" }, platform: "linux", fileExists: exists([join("/a", "sg")]) }),
     ).toBeNull();
     expect(
       resolveAstGrepPath({
