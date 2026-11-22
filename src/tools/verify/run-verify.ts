@@ -245,11 +245,11 @@ export async function runVerify(
   const started = Date.now();
   const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
-    finish({ kind: args.kind, isolated, error, ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
+    finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode === "workspace-unavailable" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
-  if ((args.kind === "ui" || isArtifactKind(args.kind)) && ctx.inputIntegrity === undefined) {
+  if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
     try {
       const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started);
       return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
