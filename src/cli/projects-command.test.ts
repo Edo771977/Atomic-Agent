@@ -194,6 +194,27 @@ describe("project backlog (issue #111)", () => {
     expect(again.ok && again.record?.state.backlogStates).toEqual({ b1: "promoted" });
   });
 
+  it("says whether a promoted item is in a plan yet (review)", async () => {
+    const folder = folderWithBacklog();
+    expect(await projectCommand(["backlog", folder, "--promote", "b1"], io())).toBe(0);
+    const t = io();
+    expect(await projectCommand(["backlog", folder], t)).toBe(0);
+    expect(t.out()).toContain("b1 promoted, not in any plan  Export PDF");
+    // The person approves a plan after the promotion: it records which version took it in.
+    const record = stateDirProjectRecords(stateDir).read(folder);
+    if (!record.ok || record.record === null) throw new Error("no record");
+    const state = record.record.state;
+    const calls = { b1: { ...state.backlogCalls!.b1!, plannedIn: 4 } };
+    const w = stateDirProjectRecords(stateDir).write(folder, record.record.id, record.record.seq, { ...state, backlogCalls: calls });
+    expect(w.ok).toBe(true);
+    const u = io();
+    expect(await projectCommand(["backlog", folder], u)).toBe(0);
+    expect(u.out()).toContain("b1 promoted, taken in by plan v4  Export PDF");
+    const j = io();
+    expect(await projectCommand(["backlog", folder, "--json"], j)).toBe(0);
+    expect(JSON.parse(j.out()).items[0]).toMatchObject({ id: "b1", state: "promoted", plannedIn: 4 });
+  });
+
   it("refuses an unknown item, two calls at once and a folder without a project", async () => {
     const folder = folderWithBacklog();
     const u = io();

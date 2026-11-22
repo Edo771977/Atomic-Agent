@@ -87,6 +87,21 @@ export async function settleProjectGate(
       ].join("\n"),
     };
   }
+  // Issue #111 review: whether the plan takes in what the person promoted is theirs to check;
+  // a person's --approve <version> still approves (the gate shows it as a warning).
+  const promoted = view.gate.kind === "plan" ? (view.backlog?.promoted ?? []) : [];
+  if (mode === "approve" && promoted.length > 0) {
+    return {
+      kind: "stop",
+      text: [
+        `The person promoted backlog items for this plan (${promoted.map((b) => `${b.id} ${b.title}`).join("; ")}): a person checks the plan takes them in, so it is not approved automatically.`,
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
+        "Or continue the chat with --session to ask the director to take them in.",
+      ].join("\n"),
+    };
+  }
   if (runtime.projectDecision === undefined || view.version === null || !view.allowedVerdicts.includes("approve")) {
     return { kind: "failed", text: `${formatProjectGateText(view)}\nThis gate cannot be approved here.` };
   }

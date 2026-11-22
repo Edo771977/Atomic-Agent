@@ -377,7 +377,11 @@ async function backlogCommand(args: string[], io: { stdout: (t: string) => void;
     project = written.opened.project;
     io.stdout(`${call.id} is ${call.state} now.\n`);
   }
-  const items = (project.backlog ?? []).map((b) => ({ ...b, state: backlogStateOf(project, b.id) }));
+  const items = (project.backlog ?? []).map((b) => {
+    const state = backlogStateOf(project, b.id);
+    const plannedIn = state === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }) };
+  });
   if (json) {
     io.stdout(`${JSON.stringify({ folder, open: openBacklog(project).length, items }, null, 2)}\n`);
     return 0;
@@ -388,7 +392,8 @@ async function backlogCommand(args: string[], io: { stdout: (t: string) => void;
   }
   for (const b of items) {
     const from = [`from ${backlogSourceLabel(b)}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
-    io.stdout(`${b.id} ${b.state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
+    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? "promoted, not in any plan" : `promoted, taken in by plan v${b.plannedIn}`;
+    io.stdout(`${b.id} ${state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
     if (b.note !== undefined) io.stdout(`    ${b.note}\n`);
   }
   io.stdout(`${openBacklog(project).length} open. Promote, drop or reopen one with --promote, --drop or --reopen <id>.\n`);
