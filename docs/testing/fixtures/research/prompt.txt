@@ -1,0 +1,1 @@
+Use the existing reference.md and with-url.md in this project as read-only inputs. Run verify.run with kind research and requireDates true on each file. Leave network disabled. Report the citation and date results and the status of the URL in with-url.md.

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RuntimeProjectDecisionResult } from "../../runtime/project-decision-contract.js";
 import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateBacklog, ProjectGateView } from "../../session/project-gate-view.js";
-import type { ProjectBacklogDecision } from "../../session/project-backlog.js";
+import { backlogDecisionFingerprint, type ProjectBacklogDecision } from "../../session/project-backlog.js";
 import { runBacklogCommand, type BacklogCommand } from "./backlog-command.js";
 
 const items: ProjectGateBacklog["items"] = [
@@ -63,6 +63,28 @@ describe("Telegram backlog commands", () => {
       expect(h.runtime.projectBacklogDecision).toHaveBeenCalledWith("s1", { id, state, expectedFingerprint: expect.any(String) });
     },
   );
+
+  it("uses the view fingerprint when present, with the same confirmation as a legacy view", () => {
+    const h = harness();
+    const legacy = h.run("/promote", ["b1"]);
+    const item = items[0]!;
+    const fingerprint = backlogDecisionFingerprint(item, item.state, item.plannedIn, backlog.stale[0]);
+    const withFingerprint = (shownFingerprint: string) => ({
+      ...project, backlog: { ...backlog, items: [{ ...item, fingerprint: shownFingerprint }, ...items.slice(1)] },
+    });
+    h.setView(withFingerprint(fingerprint));
+    expect(h.run("/promote", ["b1"])).toBe(legacy);
+    expect(h.run("/promote", ["b1", codeOf(legacy)])).toMatch(/Updated backlog/);
+    expect(h.runtime.projectBacklogDecision).toHaveBeenLastCalledWith("s1", { id: "b1", state: "promoted", expectedFingerprint: fingerprint });
+
+    // A supplied token wins even if the local calculation would return another value.
+    const supplied = "a".repeat(64);
+    h.setView(withFingerprint(supplied));
+    const code = codeOf(h.run("/promote", ["b1"]));
+    expect(code).not.toBe(codeOf(legacy));
+    h.run("/promote", ["b1", code]);
+    expect(h.runtime.projectBacklogDecision).toHaveBeenLastCalledWith("s1", { id: "b1", state: "promoted", expectedFingerprint: supplied });
+  });
 
   it("pins confirmation to the action, chat, session, item content and status without needing a gate version", () => {
     const h = harness();

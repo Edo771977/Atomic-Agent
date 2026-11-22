@@ -9,18 +9,20 @@ import {
   planReviewFactsOf,
   planReviewPersonCalls,
   type ProjectState,
+  type ProjectMilestone,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
-import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
+import { verifyProjectReceiptDetails, type MilestoneReceiptCache } from "../../session/project-receipts.js";
+import type { MilestoneEvidenceReceipts, ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
-import { seedHint } from "../../session/project-gate-text.js";
-import { backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
+import { directorReportWarnings, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { backlogDecisionFingerprint, backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
  * types live in `session/project-gate-view.ts` so surfaces can import
- * them; this file only fills them, pure.
+ * them. The optional receipt source is used only for the active milestone.
  */
 
 // The view's violation kinds must stay the estimator's.
@@ -35,6 +37,7 @@ export interface ProjectGateViewInput {
   planChecks?: PlanCheckOptions;
   sessionId: string;
   project: ProjectState;
+  receiptSource?: { stateDir: string; folder: string; projectId: string | null; cache?: MilestoneReceiptCache };
   /** `estimatePlan` of the plan's rows with live limits; null without a plan. */
   estimate: PlanEstimate | null;
   /** The members the person may pick, in config order. */
@@ -82,6 +85,30 @@ export const deferredHint = (id: string, title: string): string => `promoted fro
 /** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
 export const CHANGED_OUTSIDE_HINT =
   "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
+
+function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilestone): MilestoneEvidenceReceipts | undefined {
+  const source = input.receiptSource;
+  if (source === undefined) return undefined;
+  const counts: MilestoneEvidenceReceipts = { folder: source.folder, valid: 0, unsigned: 0, problems: 0 };
+  try {
+    const { receipts, partial } = verifyProjectReceiptDetails(source.stateDir, source.folder, {
+      projectId: source.projectId,
+      sessionId: input.sessionId,
+      milestoneId: milestone.id,
+      runIds: milestone.runIds.filter(id => !milestone.replacedEvidenceRunIds?.includes(id)),
+      version: gateVersion(input.project),
+      since: milestone.evidenceSince ?? milestone.corrections?.at(-1)?.at,
+    }, source.cache);
+    for (const { status } of receipts) {
+      if (status === "valid" || status === "unsigned") counts[status]++;
+      else counts.problems++;
+    }
+    if (partial) counts.partial = true;
+    return receipts.length > 0 || partial ? counts : undefined;
+  } catch {
+    return { ...counts, archiveUnavailable: true };
+  }
+}
 
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
@@ -143,10 +170,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   if (project.cancelledAt === undefined && (project.gate.kind === "plan" || project.gate.kind === "milestone")) {
     for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
   }
+  const staleCalls = staleBacklogCalls(project);
   if (project.gate.kind === "plan") {
     for (const b of promotedForPlan(project)) hints.push(project.backlogCalls?.[b.id]?.deferred === true ? deferredHint(b.id, b.title) : promotedHint(b.id, b.title));
     // Review of #111: a call bound to text that changed, or to an item removed, outside Atomic Agent.
-    for (const s of staleBacklogCalls(project)) {
+    for (const s of staleCalls) {
       hints.push(s.reason === "removed"
         ? `promoted item ${s.id} was removed outside Atomic Agent`
         : `backlog item ${s.id} changed since you ${s.state} it: it reads open again; ${s.state === "promoted" ? "promote" : "drop"} it again if you still want it`);
@@ -164,7 +192,22 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   }
   // A call on an item removed outside Atomic Agent keeps the backlog in view, so the card can say so
   // even when project.json holds no item any more.
-  const backlog = (project.backlog ?? []).length === 0 && staleBacklogCalls(project).length === 0
+  const staleById = new Map(staleCalls.map((call) => [call.id, call]));
+  const items = (project.backlog ?? []).map((item) => {
+    const state = backlogStateOf(project, item.id);
+    const plannedIn = state === "promoted" ? backlogTakenIn(project, item.id) : undefined;
+    const deferred = state === "promoted" && plannedIn === undefined && project.backlogCalls?.[item.id]?.deferred === true;
+    return {
+      ...item,
+      ...(item.origin === undefined ? {} : { origin: { ...item.origin } }),
+      state,
+      ...(plannedIn === undefined ? {} : { plannedIn }),
+      ...(deferred ? { deferred: true as const } : {}),
+      fingerprint: backlogDecisionFingerprint(item, state, plannedIn, staleById.get(item.id)),
+    };
+  });
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const backlog = items.length === 0 && staleCalls.length === 0
     ? undefined
     : {
         open: openBacklog(project).length,
@@ -175,15 +218,14 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
           ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}),
           citedBy: (plan?.rows ?? []).filter((r) => (r.backlog ?? []).includes(b.id)).map((r) => r.taskId),
         })),
-        stale: staleBacklogCalls(project),
-        items: (project.backlog ?? []).map((b) => {
-          const promoted = backlogStateOf(project, b.id) === "promoted";
-          const plannedIn = promoted ? backlogTakenIn(project, b.id) : undefined;
-          const deferred = promoted && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
-          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
-        }),
+        stale: staleCalls.map((call) => ({
+          ...call,
+          fingerprint: itemsById.get(call.id)?.fingerprint ?? backlogDecisionFingerprint(undefined, undefined, undefined, call),
+        })),
+        items,
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
+  const evidenceMilestone = project.gate.kind === "milestone" ? project.gate.id : null;
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
@@ -236,11 +278,23 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             totals: estimate?.totals ?? plan.totals,
             editable,
           },
-    milestones: project.milestones.map((m) => ({
-      ...m,
-      estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
-      estMs: byMilestone.get(m.id)?.ms ?? null,
-    })),
+    milestones: project.milestones.map(m => {
+      const view = {
+        ...m,
+        ...(m.criteriaFacts?.length ? { criteriaBasisSummary: summarizeCriterionBases(m.criteriaFacts) } : {}),
+        ...(m.summary === undefined ? {} : {
+          directorReportWarnings: directorReportWarnings(m.summary, m.criteriaFacts ?? [], project.approvedCriteria ?? project.brief?.successCriteria ?? []),
+        }),
+        estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
+        estMs: byMilestone.get(m.id)?.ms ?? null,
+      };
+      // Only card renderers request verification. Serializing the common
+      // gate view for other surfaces leaves the archive untouched.
+      if (m.id === evidenceMilestone && input.receiptSource !== undefined) {
+        Object.defineProperty(view, "evidenceReceipts", { get: () => milestoneEvidence(input, m) });
+      }
+      return view;
+    }),
     violations,
     hints,
   };

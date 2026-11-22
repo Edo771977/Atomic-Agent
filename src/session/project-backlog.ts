@@ -269,18 +269,18 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
     return { ok: false, error: { code: "invalid", message: "a backlog item is promoted, dropped or open" } };
   }
   const item = (project.backlog ?? []).find((b) => b.id === decision.id);
-  // A call on an item removed outside Atomic Agent can only be taken back (it clears the flag).
-  const orphan = item === undefined && project.backlogStates?.[decision.id] !== undefined;
-  if (item === undefined && !(orphan && decision.state === "open")) {
-    return { ok: false, error: { code: "invalid", message: `the backlog has no item ${decision.id}` } };
-  }
   if (decision.expectedFingerprint !== undefined) {
     const state = item === undefined ? undefined : backlogStateOf(project, decision.id);
     const plannedIn = state === "promoted" ? backlogTakenIn(project, decision.id) : undefined;
     const stale = staleBacklogCalls(project).find(({ id }) => id === decision.id);
     if (decision.expectedFingerprint !== backlogDecisionFingerprint(item, state, plannedIn, stale)) {
-      return { ok: false, error: { code: "invalid", message: `Backlog item ${decision.id} changed since it was shown. Preview the decision again.` } };
+      return { ok: false, error: { code: "stale-view", message: `Backlog item ${decision.id} changed since it was shown. Preview the decision again.` } };
     }
+  }
+  // A call on an item removed outside Atomic Agent can only be taken back (it clears the flag).
+  const orphan = item === undefined && project.backlogStates?.[decision.id] !== undefined;
+  if (item === undefined && !(orphan && decision.state === "open")) {
+    return { ok: false, error: { code: "invalid", message: `the backlog has no item ${decision.id}` } };
   }
   const states = { ...(project.backlogStates ?? {}) };
   const calls = { ...(project.backlogCalls ?? {}) };
@@ -341,5 +341,10 @@ export function parseBacklogDecision(raw: Record<string, unknown>): ProjectBackl
   const id = typeof raw.item === "string" ? raw.item.trim() : "";
   if (id.length === 0 || id.length > PROJECT_LIMITS.id) return "item must be a backlog item's id";
   if (raw.state !== "promoted" && raw.state !== "dropped" && raw.state !== "open") return "state must be promoted, dropped or open";
-  return { id, state: raw.state };
+  const fingerprint = raw.expectedFingerprint;
+  if (fingerprint === undefined) return { id, state: raw.state };
+  if (typeof fingerprint !== "string" || fingerprint.length !== 64 || !/^[0-9a-f]{64}$/i.test(fingerprint)) {
+    return "expectedFingerprint must be a 64-character hexadecimal string";
+  }
+  return { id, state: raw.state, expectedFingerprint: fingerprint.toLowerCase() };
 }

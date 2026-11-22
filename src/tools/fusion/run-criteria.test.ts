@@ -32,6 +32,26 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(out.uncovered).toEqual(["c3"]);
   });
 
+  it("keeps the weakest basis across tasks without changing the criterion verdict", () => {
+    const state = stateDir();
+    writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [
+      { taskId: "rules", facts: [{ id: "c1", state: "passed", why: "check wins tie", basis: { kind: "check", checks: [{ index: 1 }] } }] },
+      { taskId: "board", facts: [{ id: "c1", state: "passed", basis: { kind: "vision", model: "cloud:vision" } }] },
+    ]);
+    const out = readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1"], criteriaOrder: ORDER });
+    expect(out.facts).toEqual([{ id: "c1", state: "passed", why: "check wins tie", basis: { kind: "vision", model: "cloud:vision" } }]);
+  });
+
+  it("keeps the model behind the winning verdict when multiple tasks used vision", () => {
+    const state = stateDir();
+    writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [
+      { taskId: "board", facts: [{ id: "c1", state: "passed", basis: { kind: "vision", model: "cloud:board" } }] },
+      { taskId: "rules", facts: [{ id: "c1", state: "failed", basis: { kind: "vision", model: "cloud:rules" } }] },
+    ]);
+    const out = readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1"], criteriaOrder: ORDER });
+    expect(out.facts).toEqual([{ id: "c1", state: "failed", basis: { kind: "vision", model: "cloud:rules" } }]);
+  });
+
   it("takes the newest run's fact per criterion, whichever task carried it (worst within one run)", () => {
     const state = stateDir();
     // An older run's task red on c1; a newer run fixed c1 under another task id.

@@ -41,6 +41,8 @@ export const criticalFiles = [
   'src/tools/verify/safe-regex.test.ts',
   // Issue #113 phase 1: deterministic document and spreadsheet checks.
   'src/tools/verify/artifact-run.test.ts',
+  'src/tools/verify/delivery-check.test.ts',
+  'src/tools/verify/impeccable-check.test.ts',
   'src/tools/verify/document-check.test.ts',
   'src/tools/verify/spreadsheet-check.test.ts',
   'src/tools/verify/spreadsheet-e2e.test.ts',
@@ -126,6 +128,9 @@ export const supplementalFiles = [
   'src/runtime/ripgrep-resolver.test.ts',
   'src/tools/os/fs/fs-grep.test.ts',
   'src/session/project-receipts.test.ts',
+  'src/runtime/composition/runtime-project.test.ts',
+  'src/session/project-lessons.test.ts',
+  'src/cli/project-lessons-command.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
   'src/runtime/daily-budget-fallback.test.ts',

@@ -1,3 +1,5 @@
+export const PROJECT_STORE_DIR_PARTS = [".atomic", "project"] as const;
+
 /**
  * Bounds on a stored or updated project. Text is clipped with an
  * ellipsis; a model update over an array cap is refused (the tool turns
@@ -41,4 +43,8 @@ export const PROJECT_LIMITS = {
   decisions: 20,
   backlog: 32,
   backlogStored: 128,
+  lessonFiles: 128,
+  lessonFileBytes: 16 * 1024,
+  lessonTouches: 32,
+  lessonTouchPath: 1024,
 } as const;

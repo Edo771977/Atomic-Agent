@@ -239,7 +239,8 @@ export function buildFusionGuidance(
           LOCAL_WORKER_SEES,
         )
       : FUSION_GUIDANCE;
-  return [base, options.project === true ? PROJECT_FLOW_GUIDANCE : null, machine, roles, team, past]
+  const project = options.project === true ? [PROJECT_FLOW_GUIDANCE, PROJECT_MILESTONE_GUIDANCE] : [];
+  return [base, ...project, machine, roles, team, past]
     .filter((line): line is string => line !== null)
     .join("\n");
 }
@@ -267,6 +268,8 @@ export const PROJECT_FLOW_GUIDANCE = [
   "Never delegate while a gate waits; `### fusion project` shows it. To change checks, update the plan and obtain approval.",
   "Map each criterion to plan checks (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`). Resolve fail results before approval; warn results need attention.",
 ].join("\n");
+
+const PROJECT_MILESTONE_GUIDANCE = "Non-code: use draft/review/final milestones.";
 
 /**
  * The fusion team's workers (issue #37), one line, or `null` without

@@ -5,18 +5,25 @@ import { isSea } from "node:sea";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ArtifactKind, VerifyRunArgs } from "./verify-run-args.js";
 
+import { MAX_CHANGED_PATHS } from "./files-check.js";
+import type { ResearchLink, ResearchLinkVerdict } from "./research-check.js";
+
 export const ARTIFACT_NODE_OPTIONS = "--permission --allow-fs-read=* --max-old-space-size=256";
 
 export interface ArtifactOutcome {
   status: "pass" | "fail" | "uncheckable";
   detail: string;
   timedOut?: boolean;
+  links?: readonly ResearchLink[];
+  linkLimit?: boolean;
+  researchLinks?: readonly ResearchLinkVerdict[];
 }
 export interface ArtifactJob {
   root: string;
   cwd: string;
   kind: ArtifactKind;
-  path: string;
+  path?: string;
+  changedPaths?: readonly string[];
   spec: Record<string, unknown>;
 }
 
@@ -44,7 +51,7 @@ function childCommand(): string[] {
 }
 
 /** Parent-owned timeout also interrupts synchronous library work and native I/O. */
-export async function runArtifactCheck(kind: ArtifactKind, args: VerifyRunArgs, root: string, cwd: string, signal?: AbortSignal): Promise<ArtifactOutcome> {
+export async function runArtifactCheck(kind: ArtifactKind, args: VerifyRunArgs, root: string, cwd: string, signal?: AbortSignal, changedPaths?: readonly string[]): Promise<ArtifactOutcome> {
   signal?.throwIfAborted();
   const timeoutMs = Math.max(1, Math.min(15_000, Math.floor(args.timeoutMs)));
   const child = spawn(process.execPath, childCommand(), {
@@ -70,7 +77,7 @@ export async function runArtifactCheck(kind: ArtifactKind, args: VerifyRunArgs, 
     child.once("message", (result: ArtifactOutcome) => finish(result));
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) { cancel(); return; }
-    const job: ArtifactJob = { root, cwd: relative(root, cwd), kind, path: args.path!, spec: { ...args } };
+    const job: ArtifactJob = { root, cwd: relative(root, cwd), kind, path: args.path, changedPaths: changedPaths?.slice(0, MAX_CHANGED_PATHS + 1), spec: { ...args } };
     child.send(job, error => {
       if (error) finish({ status: "uncheckable", detail: "could not start artifact verification" });
     });

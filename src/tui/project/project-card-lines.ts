@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, seedHint } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionBasisSummaryLine, criterionFactLine, decisionLine, directorReportWarningLine, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -19,6 +19,16 @@ import {
   projectFieldValue,
   type ProjectCardState,
 } from "./project-card-state.js";
+
+function evidenceVerifyHint(folder: string | undefined): string {
+  const command = "Run atomic-agent project verify";
+  if (folder === undefined) return command;
+  // Keep unusual paths as a quoted display value, away from shell syntax.
+  if (/[\x00-\x1f\x7f-\x9f"$%!`]/.test(folder) || folder.endsWith("\\")) {
+    return command + " for folder " + JSON.stringify(folder).replace(/[\x7f-\x9f]/g, char => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+  }
+  return command + ' "' + folder + '"';
+}
 
 export type ProjectLineTone = "title" | "muted" | "warn" | "error" | "ok" | "plain";
 
@@ -83,6 +93,12 @@ function fileLink(path: string): string | undefined {
     return undefined;
   }
 }
+
+const MILESTONE_KIND_LABEL: Partial<Record<ProjectMilestone["kind"], string>> = {
+  draft: "Draft",
+  review: "Review",
+  final: "Final",
+};
 
 const MILESTONE_MARK: Record<ProjectMilestone["state"], string> = {
   planned: "·", approved: "▸", in_progress: "◐", done: "✓", failed: "✕", reviewed: "✔",
@@ -221,11 +237,28 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;
     const shown = full ? view.milestones : view.milestones.filter((m) => m.id === gateId);
     for (const m of shown) {
-      text(`${MILESTONE_MARK[m.state]} ${m.title} (${m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
-      if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
+      text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (full || m.id === gateId) {
+        if (m.summary) text(`Director report: ${m.summary}`, "muted", 4);
+        for (const note of m.reportNotes ?? []) text(note, "muted", 4);
+        const evidence = m.evidenceReceipts;
+        if (evidence !== undefined) {
+          const { folder, valid, unsigned, problems, partial, archiveUnavailable } = evidence;
+          const details: string[] = [];
+          if (valid) details.push(`${valid} signed`);
+          if (unsigned) details.push(`${unsigned} unsigned (not verifiable; the signing key may have been unavailable)`);
+          if (problems) details.push(`${problems} problem${problems === 1 ? "" : "s"}`);
+          if (partial) details.push("partial scan");
+          if (archiveUnavailable) details.push("archive unavailable");
+          const tone = problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok";
+          text(`Evidence: ${details.join(", ")}`, tone, 4);
+          if (unsigned || problems || partial || archiveUnavailable) text(evidenceVerifyHint(folder), tone, 4);
+        }
         // Evidence of the result (issue #40): never a claim the view does not carry.
-        for (const f of m.criteriaFacts ?? []) {
+        for (const warning of m.directorReportWarnings ?? []) text(directorReportWarningLine(warning), "warn", 4);
+        const facts = m.criteriaFacts ?? [];
+        if (facts.length > 0) text(criterionBasisSummaryLine(m.criteriaBasisSummary ?? summarizeCriterionBases(facts)), "plain", 4);
+        for (const f of facts) {
           text(criterionFactLine(f, brief?.criteria), f.state === "passed" && f.reservation === undefined ? "ok" : f.state === "failed" ? "error" : "warn", 4);
         }
         for (const a of m.attachments ?? []) {

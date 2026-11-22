@@ -5,7 +5,7 @@
  * all render this one shape, so they cannot disagree about what is being
  * approved. Types only, here so every surface may import them; the
  * runtime builds the view with `projectGateView`
- * (`tools/fusion/project-gate-view.ts`, pure) from `SessionState.project`
+ * (`tools/fusion/project-gate-view.ts`) from `SessionState.project`
  * ([session-project.ts](session-project.ts)) and the live estimates, and
  * announces it as the `project_gate` event.
  *
@@ -91,7 +91,10 @@ export interface ProjectGateView {
   backlog?: ProjectGateBacklog;
 }
 
-/** The backlog as a card shows it (issue #111). */
+/**
+ * The backlog as a card shows it (issue #111). New views include
+ * fingerprints on items and stale calls; older views may omit them.
+ */
 export interface ProjectGateBacklog {
   open: number;
   seeds: Array<{ id: string; title: string; condition: string }>;
@@ -102,9 +105,9 @@ export interface ProjectGateBacklog {
    */
   promoted: Array<{ id: string; title: string; deferred?: true; citedBy?: string[] }>;
   /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
-  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
+  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed"; fingerprint?: string }>;
   /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
-  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true }>;
+  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true; fingerprint?: string }>;
 }
 
 /** The plan reviewer's notes as the card shows them (issue #118). */
@@ -170,6 +173,24 @@ export interface ProjectGateRow extends AssignmentRow {
   selectableReviewers: string[];
 }
 
+export interface ProjectCriterionBasisSummary {
+  check: number;
+  vision: number;
+  person: number;
+  unrecorded: number;
+}
+
+export interface MilestoneEvidenceReceipts {
+  /** Project folder to pass to the full receipt verifier. */
+  folder?: string;
+  valid: number;
+  unsigned: number;
+  problems: number;
+  /** Only a bounded part of the receipt archive was checked. */
+  partial?: true;
+  archiveUnavailable?: true;
+}
+
 /**
  * A milestone as stored, with its estimate. From issue #40 it may carry
  * `attachments` (screenshots of the result: `path` is absolute, inside
@@ -181,6 +202,12 @@ export interface ProjectGateRow extends AssignmentRow {
  * re-plan replaced (optional, additive; not the current result).
  */
 export interface ProjectGateMilestone extends ProjectMilestone {
+  /** Counts of reported criterion facts by basis. */
+  criteriaBasisSummary?: ProjectCriterionBasisSummary;
+  /** Sentences in the director report with a verification claim and no matching passed fact. */
+  directorReportWarnings?: string[];
+  /** Receipt verification for the milestone awaiting review. */
+  evidenceReceipts?: MilestoneEvidenceReceipts;
   /** The milestone's estimate (`estimatePlan`); null when unknown. */
   estCostUsd: number | null;
   estMs: number | null;

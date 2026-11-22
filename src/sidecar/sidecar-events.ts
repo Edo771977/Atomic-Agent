@@ -522,6 +522,7 @@ export interface ProjectBacklogDecisionPayload {
   sessionId: string;
   item: string;
   state: "promoted" | "dropped" | "open";
+  expectedFingerprint?: string;
 }
 
 export type ProjectBacklogDecisionResult =

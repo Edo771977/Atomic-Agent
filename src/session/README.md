@@ -7,7 +7,13 @@ This area owns session state and persistence. Read [AGENTS.md](AGENTS.md) before
 
 ## Evidence receipts
 
-Each project appends evidence snapshots to `<stateDir>/receipts/<project-key>/receipts.ndjson`. The folder key is shared with the protected decision record. The signing key is generated on first use in the operating system credential store. Public keys remain in `<stateDir>/signing/` so historical signatures survive key replacement. If the keychain is unavailable, the writer records the evidence as unsigned. Verification only reads public keys. See the [CLI guide](../cli/README.md) for statuses and trust limits.
+Each project appends evidence snapshots to `<stateDir>/receipts/<project-key>/receipts.ndjson`. The folder key is shared with the protected decision record. Runs in a session worktree archive their receipts under the original project folder. The signing key is generated on first use in the operating system credential store. Public keys remain in `<stateDir>/signing/` so historical signatures survive key replacement. If the keychain is unavailable, the writer records the evidence as unsigned. Verification only reads public keys.
+
+The archive includes artifact manifests, check-run records, gate verdicts and milestone reports. A saved gate verdict names the gate, version, verdict, decision source and the same content fingerprint as the decision record. New receipts carry the bound project ID, or null for an embedded project. If the folder already holds a project, an unbound session skips receipt writes. Historical receipts without a project ID still verify. The milestone card counts attributed manifests and checks for the current runs and the report for the current gate version. Earlier checks and manifests without run IDs are still available to the full verifier. Embedded milestone evidence carries the chat ID for attribution and stays visible if that chat later binds to the folder project and the evidence still belongs to the current work. The card requests verification on demand. It uses only public keys and reuses results for unchanged receipt rows. The scan reads up to the latest 2 MiB and 512 rows, marking counts partial if it cannot reach a row before the current work. `edit`, `cheaper` and `quality` also record the resulting content fingerprint as `resultHash`. Approval over a review includes the person's bounded note. A saved milestone report records its state, criterion results and attachment SHA-256 fingerprints. The `criterionHash`, `whyHash` and `reservationHash` fingerprints support integrity checks. Anyone who guesses the original text can confirm their guess against the hash. Prompts, raw model output and attachment bytes are excluded. An unavailable attachment fingerprint is recorded as null and logged. Incognito chats produce no receipts. A receipt write failure leaves the saved project decision or report in place.
+
+Signatures support retrospective verification. A process running as the same user with access to the OS credential store can sign replacement evidence. See the [CLI guide](../cli/README.md) for statuses and trust limits.
+
+Criterion facts may carry an additive `basis` field. A milestone report receipt signs that field when present, including check references and retained output fingerprints or the vision model reference. Older facts and signed receipts remain readable with the field absent.
 
 ## Entry points
 
@@ -80,4 +86,44 @@ The optional author fields are bounded by [PROJECT_LIMITS](project-limits.ts), w
 
 `decisionStatus` (`active`, `informational`, `deferred`, `retired`; absent means active) and `backlogStates` (`promoted`, `dropped`; absent means open) live only in the folder-bound record. A decision's status is set only by the person, at the plan gate: `edit` with `edits.decisionStatus` (`active`, `deferred` or `informational` for an id of the approved brief; `retired` is not offered), recorded as that gate's decision with the new state, the plan's version bumped so an older card cannot approve; no director update carries it. A status belongs to the decision it was set on: a brief approval drops it when its id leaves the approved decisions or its text changes beyond case and whitespace (the id-reuse rule of #80), so a reused id starts active. The author file cannot set them, including by adding status fields inside an entry or when opening without a record. New brief and plan drafts preserve these recorded calls. Stored malformed brief decisions and backlog entries are dropped and their lists/text are bounded; plan references and check specs are validated strictly. Drafts refuse malformed author decisions and plan references.
 
+Use milestone kinds `draft`, `review` and `final` for non-code deliveries. Saved milestones with `base`, `ui`, `logic`, `polish` or `other` continue to load.
+
 Plan rows also accept optional `checks`, sharing the contract parser with `fusion.delegate`; ownership is implicit in the row. Their full content, including negative controls, is covered by the plan fingerprint. Runtime-derived `plan.checkResults` are saved in the record, omitted from `project.json`, and recomputed from rows and the last approved criteria on load and approval. A new plan saves results even if it has no checks; an older plan without results continues to load. `plan.referenceCheck` (issue #120) is the runtime's record of the references check (`{verdict, detail, taskIds, basis}`), kept in the state dir's record only (omitted from `project.json`, and one written there is dropped when the file is read); it cannot be recomputed on load (it reads the folder), so a record whose `basis` no longer matches the rows' ids, titles and checks reads as `references: warn: Not re-checked`, and a malformed one is dropped. `plan.review` (issue #118) is the plan reviewer's record (`{outcome, reviewer, results, reason?, round, sentBack, basis, costUsd, decided?, heldAtTurnEnd?}`; the model's verdicts only, the facts floor is recomputed when it is used), set by `project.plan` on the plan update with `holdForReview` when it sent the draft back (the draft then opens no gate until the turn ends, `releaseHeldPlan`); a person's decision at any gate marks it `decided`, which starts the next draft's round count over. `plan.reviewOverride` (`{note, at, blocks, basis?}`) is the person's `approveOverReview` over its open fails, valid while the plan holds the review of that basis; both live in the state dir's record only, never in `project.json` (a copy written there is dropped on read), and a review whose `basis` no longer matches the rows and milestone order reads as stale and blocks nothing. Failures use the existing `review-open` approval refusal. The [Fusion guide](../tools/fusion/README.md#planned-verification) describes analysis and delegation. [Schema migration tests](project-store-schema.test.ts) cover v1 and embedded-session migration without data loss and refusal to overwrite v3; [field tests](project-schema-v2-fields.test.ts) cover file edits across the record boundary.
+
+## Project lesson files
+
+[The lesson reader](project-lessons.ts) validates UTF-8 Markdown in direct children of the project's lesson directory. Save one lesson per file. For example, save this as .atomic/project/lessons/local-storage.md.
+
+~~~markdown
+---
+id: local-storage
+title: Use SQLite for local storage
+source: correction
+from: milestone m2, run r7
+touches: [src/storage, package.json]
+status: proposed
+always: false
+---
+## Deciso
+Keep the database local.
+
+## Provato e scartato
+A remote database added an unnecessary service dependency.
+
+## Attenzione
+Check the migration against a copy of the database.
+~~~
+
+The front matter accepts one unindented key per line between exact delimiter lines. All keys shown are required except for `from`. The accepted sources are `correction`, `milestone-failure`, `person` and `director`. The declared status is `proposed`, `active` or `retired`. Use bare `true` and `false` for `always`. Text values can be plain, single-quoted (double a literal apostrophe), or double-quoted using JSON string escapes. Blank lines and comments are allowed. A hash starts a comment at the start of a value or after whitespace. Quote literal hashes, quotes and colons followed by whitespace. `touches` accepts only an inline list of paths, including an empty list. Quote an item containing a comma. Multiline values, nested mappings, anchors, tags and trailing list commas are unsupported.
+
+Use the three level-two Markdown headings once each. Their English equivalents are **Decided**, **Tried and ruled out**, and **Watch out**. The section bodies may be empty.
+
+[Project limits](project-limits.ts) cap the directory at 128 Markdown entries, each at 16 KiB. IDs match the filename stem exactly and use up to 64 lowercase ASCII letters, digits or hyphens. Titles and provenance are capped at 160 and 300 characters respectively. Each lesson can list up to 32 paths of 1,024 characters each. Paths are interpreted relative to the project with either slash convention. Absolute paths, drive qualifiers, path components with ambiguous Windows trailing dots or spaces, and paths that escape above the project are refused. The reader treats paths as metadata and never opens them.
+
+Invalid files are skipped whole and reported. All files with the same parsed ID are skipped. Symbolic links in the lesson path and symbolic-link lesson entries are refused. An absent lesson directory gives an empty list. A directory over the entry limit gives one directory-level problem and an empty list.
+
+The Markdown is author content. The person's choices are kept as `lessonCalls` in the folder's protected decision record under `<stateDir>/project-decisions/`. Approve or retire a lesson to bind the choice to the SHA-256 fingerprint of its current Markdown, including the front matter and section text. An edit makes the choice stale. A missing or invalid lesson also leaves a stale choice that can be cleared by reopening it. Copying the folder starts with fresh choices.
+
+A lesson enters prompts only when the file declares `status: active` and the current fingerprint has the person's approval. These lessons are project data, stored and read separately from personal memory. Incognito chats have no persisted lesson choices.
+
+The session records restricted lesson exposure on the first transcript entry of the affected turn. The marker survives reload and archiving. See [how runtime handles memory for restricted lessons](../runtime/README.md#memory-and-restricted-project-lessons).

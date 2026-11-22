@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../../tools/tool-registry.js";
 import { SlotManager } from "../../llm/slot-manager.js";
 import { PLAIN_INSTRUCT_PROFILE } from "../../llm/model-profile.js";
@@ -258,6 +258,40 @@ describe("step batch lifecycle owner seams", () => {
       stepDurationMs: 0, progressNote: note, trimmedBatchNotice: undefined, waveSplitNotice: undefined,
     })).toThrow(CancelledError);
     expect(events.some((event) => event.type === "assistant_reply" && event.text === "progress")).toBe(true);
+  });
+
+  it.each(["local", "cloud"] as const)("preserves %s cancellation when an embedded milestone was reported", (mode) => {
+    const { ctx, deps } = fixture();
+    ctx.session.project = {
+      gate: { kind: "none" },
+      milestones: [{ id: "m1", title: "Base", kind: "base", state: "in_progress", runIds: ["run-1"], updatedAt: 0 }],
+      plan: { status: "approved", version: 1, rows: [], detail: "compact", draftedAfterUntrusted: false, totals: { costUsd: null, ms: null, unknownCostRows: 0 } },
+    };
+    let saved = ctx.session;
+    const commitSession = vi.fn((session: StepContext["session"]) => { saved = session; });
+    const writeMilestoneReport = vi.fn(() => {
+      expect(saved.project?.milestones[0]?.state).toBe("done");
+    });
+    deps.commitSession = commitSession;
+    deps.writeMilestoneReport = writeMilestoneReport;
+    const call = { tool: "project.milestone", args: {} };
+    register(deps, call.tool);
+    const completion = { ...result([call]), servedModelMode: { mode, source: "provider" as const, providerId: "test", modelId: null } };
+    const { prompt } = prepareStepInference(ctx, deps);
+    const policy = createStepBatchPolicy(ctx, deps, () => false);
+    const admission = prepareStepDispatch(ctx, deps, { kind: "single", calls: [call] }, completion, policy);
+    const compressed = compressToolResult({
+      tool: call.tool, status: "ok", output: "saved result",
+      details: { projectUpdate: { kind: "milestone", id: "m1", state: "done", summary: "Done" } },
+    });
+    expect(() => commitStepBatch({
+      ctx, deps, prompt, completion, reasoning: "", admission,
+      batchOutcome: { results: [{ batchIndex: 0, call, resourceClass: "pure_read", durationMs: 0, cancelled: false, compressed }], cancelled: true, loopSignals: [] },
+      stepDurationMs: 0, progressNote: null, trimmedBatchNotice: undefined, waveSplitNotice: undefined,
+    })).toThrow(CancelledError);
+    expect(commitSession).toHaveBeenCalledTimes(mode === "cloud" ? 1 : 0);
+    expect(writeMilestoneReport).toHaveBeenCalledTimes(mode === "cloud" ? 1 : 0);
+    expect(saved.project?.milestones[0]?.state).toBe(mode === "cloud" ? "done" : "in_progress");
   });
 
   it("refuses wave splitting for invalid args even when the batch is entirely pure reads", () => {

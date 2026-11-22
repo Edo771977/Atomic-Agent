@@ -1,3 +1,4 @@
+import { restrictedProjectLessonExposureInSpan } from "../session/project-lesson-exposure.js";
 import type { LlmStreamParams } from "../agent/step/step-contract.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
 import { getReasoningTurnFraming } from "../llm/model-profile.js";
@@ -100,7 +101,7 @@ export interface MemoryFlushRequest {
 export type MemoryFlushOutcome =
   | { status: "written"; observations: number; costUsd?: number }
   | { status: "none"; costUsd?: number }
-  | { status: "skipped"; reason: "notes_disabled" | "window_too_small" | "empty_span" | "fusion_worker" | "incognito" }
+  | { status: "skipped"; reason: "notes_disabled" | "window_too_small" | "empty_span" | "fusion_worker" | "incognito" | "restricted_project_lesson" }
   | { status: "failed"; message: string; costUsd?: number };
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -289,6 +290,9 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     // ATO-586: an incognito chat writes nothing to memory; the runner checks too.
     if (isIncognitoSession(state)) return { status: "skipped", reason: "incognito" };
     if (through <= from) return { status: "skipped", reason: "empty_span" };
+    if (restrictedProjectLessonExposureInSpan(state, from, through)) {
+      return { status: "skipped", reason: "restricted_project_lesson" };
+    }
     const now = request.now?.() ?? Date.now();
     const today = localDay(now);
     const days = coveredDays(input, from, through);

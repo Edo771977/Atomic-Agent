@@ -1,6 +1,9 @@
 import type { ProjectDecisionError, ProjectState } from "../session/session-project.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 
+/* The caller supplies this separately from the decision sent by a frontend. */
+export type ProjectDecisionActor = "person" | "auto-approve";
+
 /**
  * What `runtime.projectDecision` returns (issue #39): the project's own
  * refusals (`applyProjectDecision`) plus the runtime's. Implemented in

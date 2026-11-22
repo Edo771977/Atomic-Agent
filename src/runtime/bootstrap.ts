@@ -1,4 +1,5 @@
 import { SecretKeychain } from "../config/secret-store.js";
+import { writeMilestoneReportReceipt } from "../session/project-milestone-receipt.js";
 import { createProjectReceiptWriter } from "../session/project-receipts.js";
 import { completionCostUsd } from "../llm/provider/usage-cost.js";
 import { createSessionTeamChoices, resolveSessionReviewer, resolveSessionWorker } from "./session-director.js";
@@ -761,8 +762,16 @@ export async function createAgentRuntime(
   // The `skillCatalog` is a getter so that `agent-loop` reads the current
   // value on every step — `refreshSkills()` then does not require tearing
   // down the loop.
+  const warnReceipt = (message: string) => logger.warn(message);
+  const writeProjectReceipt = createProjectReceiptWriter(
+    config.paths.stateDir,
+    new SecretKeychain(undefined, () => {}),
+    warnReceipt,
+  );
   const loopDeps = {
     projectStore,
+    writeMilestoneReport: (session: SessionState, milestoneId: string) =>
+      writeMilestoneReportReceipt(config.paths.stateDir, writeProjectReceipt, warnReceipt, session, milestoneId),
     prepareWorkspace: promptPreviewDeps.prepareWorkspace,
     compaction: compaction.control,
     registry: toolRegistry,
@@ -1064,6 +1073,9 @@ export async function createAgentRuntime(
     loadSession: (id) => sessionStore.load(id),
     saveSession: (session) => sessionStore.save(session),
     projectStore,
+    receiptStateDir: config.paths.stateDir,
+    writeProjectReceipt,
+    warnReceipt,
     isBusy: (id) => turnController.isBusy(id),
     liveTurnElsewhere: (id) => sessionStore.liveTurnElsewhere(id),
     liveInputs: (session) => {
@@ -1157,11 +1169,8 @@ export async function createAgentRuntime(
     runCheckpoints: fusionRuns,
     outcomeLog: fusionOutcomes.outcomeLog,
     outcomeJournal: fusionOutcomeJournal,
-    writeProjectReceipt: createProjectReceiptWriter(
-      config.paths.stateDir,
-      new SecretKeychain(undefined, () => {}),
-      (message) => logger.warn(message),
-    ),
+    writeProjectReceipt,
+    receiptProjectFolder: () => turnContext.getStore()?.projectFolder,
     turnLedger: fusionOutcomes.ledger,
     steerWorker: (sessionId, text) => steeringInbox.push(sessionId, text),
     orchestratorTurnSpendUsd: (sessionId) => turnUsageMeter.peekCostUsd(sessionId),

@@ -78,6 +78,17 @@ describe("project state across a session save and load (issue #80)", () => {
     return back;
   }
 
+  it("loads every legacy milestone kind from a saved project", () => {
+    const kinds = ["base", "ui", "logic", "polish", "other"] as const;
+    const project = fold(approve(fold(undefined, brief(["Works offline"]))), {
+      kind: "plan",
+      milestones: kinds.map((kind) => ({ id: kind, title: kind, kind })),
+      rows: kinds.map((kind) => row(kind, kind)),
+      detail: "compact",
+    });
+    expect(reopen(project).milestones.map((milestone) => milestone.kind)).toEqual(kinds);
+  });
+
   it("a criterion id removed and reused for a new requirement carries no pass; the old one stays with its text", () => {
     const offline = { id: "a", text: "works offline" };
     const levels = { id: "lv", text: "Has three levels" };

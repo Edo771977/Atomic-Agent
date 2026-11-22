@@ -241,6 +241,8 @@ export interface BuiltPromptTruncationFlags {
 }
 
 export interface BuiltPrompt {
+  /** The outgoing prompt includes lesson data from a provider-constrained project. */
+  restrictedProjectLessonData?: true;
   cloudContext?: import("../session/cloud-context.js").CloudContext;
   contextBudget?: { window: number | null; replyReserve: number };
   /** Diagnostic only; never included in the model-visible text. */

@@ -14,6 +14,7 @@ import type { LlmFailureCategory } from "../../llm/reliability/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { CHANNEL_RESTRICTED_NOTICE, isChannelRestricted } from "../../runtime/session-provider-policy.js";
 import { channelSendWithheld } from "../channel-egress.js";
+import { normalizeCriterionId } from "../../session/project-criterion-id.js";
 import type { SessionState } from "../../session/index.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 
@@ -306,6 +307,7 @@ function helpText(ctx: InboundContext): string {
     "  /plan — the fusion project gate waiting on you; /plan approve <version> or /plan cancel decides it\n" +
     "  /defer <id> or /reactivate <id> — review a status change for a decision at the project plan gate\n" +
     "  /backlog — list the project's backlog; /promote <id>, /drop <id> or /reopen <id> previews a change\n" +
+    "  /defer <backlog-id> or /activate <backlog-id> — preview a promoted item's status change at the plan gate\n" +
     "  /cron — list scheduled tasks; /cron add <cron> <task>, /cron pause|resume|delete <id> (/cron help)\n" +
     "  /cancel — abort this chat's current turn if one is running"
   );
@@ -795,6 +797,7 @@ async function handleSlashCommand(
     case "/plan":
     case "/defer":
     case "/reactivate":
+    case "/activate":
     case "/backlog":
     case "/promote":
     case "/drop":
@@ -810,7 +813,14 @@ async function handleSlashCommand(
         sessionId: sessionId ?? null,
         busy: ctx.inflight.has(ref.key),
       };
-      if (verb === "/backlog" || verb === "/promote" || verb === "/drop" || verb === "/reopen") {
+      const deferId = verb === "/defer" ? normalizeCriterionId(rest[0]) : null;
+      const view = deferId !== null && sessionId ? ctx.runtime.projectState?.(sessionId) : undefined;
+      const deferBacklog = deferId !== null && (
+        view?.backlog?.items.some((item) => item.id === deferId) ||
+        (/^b[0-9]+$/.test(deferId) && !view?.decisions?.some((decision) => decision.id === deferId))
+      );
+      if (verb === "/backlog" || verb === "/promote" || verb === "/drop" || verb === "/reopen" ||
+          verb === "/activate" || (verb === "/defer" && deferBacklog)) {
         const text = runBacklogCommand(verb, rest, { ...deps, chatKey: ref.key });
         await sendText(ctx, ref.target, text);
         return;

@@ -143,7 +143,7 @@ export function createRuntimeTraces(
    * closure can look up the right recorder without a process-global
    * pointer.
    */
-  const turnContext = new AsyncLocalStorage<{ sessionId: string }>();
+  const turnContext = new AsyncLocalStorage<{ sessionId: string; projectFolder?: string }>();
   /**
    * The running turn's window occupancy, per session. Written by
    * `emitAgentLoopEvent` (`prompt_built`, refined by `llm_completed`),

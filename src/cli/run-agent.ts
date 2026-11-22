@@ -58,10 +58,10 @@ import {
 import { armHardExitDeadline } from "./hard-exit-deadline.js";
 import { startRunMemoryTrace, type PhaseHook, type RunMemoryTrace } from "./run-memory-trace.js";
 import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
-import { editProjectDecisionStatuses, PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
+import { editProjectStatuses, PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { normalizeCriterionId } from "../session/project-criterion-id.js";
 import { PROJECT_LIMITS } from "../session/project-limits.js";
-import { withProject, type PersonDecisionStatus } from "../session/session-project.js";
+import { withProject, type PersonBacklogStatus, type PersonDecisionStatus } from "../session/session-project.js";
 
 interface RunArgs {
   workingDir: string;
@@ -83,6 +83,7 @@ interface RunArgs {
   approveVersion: number | null;
   /** An explicit person-initiated edit for the plan gate before reading stdin. */
   decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
+  backlogStatus?: Readonly<Record<string, PersonBacklogStatus>>;
   /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
   autoApproveProject: boolean;
   /** Issue #95: `--allow-command "<exact command>"` (repeatable), pre-approved in `--cwd` or below. */
@@ -116,6 +117,11 @@ const HELP =
     "                       Needs --session at the plan gate. Prints the new plan version",
     "                       and exits 3 for separate approval. Cannot be combined with",
     "                       --approve or --auto-approve-project.",
+    "  --defer-backlog <id>[,<id>]       Make promoted backlog items optional in the plan",
+    "  --activate-backlog <id>[,<id>]    Require coverage of promoted backlog items again",
+    "                       Needs --session at the plan gate. Edit first, then approve",
+    "                       the printed version in a separate command. Exit 3 after an edit.",
+    "                       Cannot be combined with --approve or --auto-approve-project.",
     "  --auto-approve-project",
     "                       Approve every fusion project gate at its current version as it opens,",
     "                       printing each with its version (scripts only); a failed milestone",
@@ -148,6 +154,7 @@ export function parseRunArgs(
   let approveVersion: number | null = null;
   let autoApproveProject = false;
   const decisionStatus = new Map<string, PersonDecisionStatus>();
+  const backlogStatus = new Map<string, PersonBacklogStatus>();
   const allowCommands: AllowedCommand[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
@@ -226,6 +233,25 @@ export function parseRunArgs(
         }
         break;
       }
+      case "--defer-backlog":
+      case "--activate-backlog": {
+        const value = args[++i];
+        if (value === undefined || value.startsWith("--")) return { error: `${flag} expects a comma-separated list of backlog ids` };
+        const status = flag === "--defer-backlog" ? "deferred" : "active";
+        for (const raw of value.split(",")) {
+          const id = raw.trim();
+          if (!id || id.length > PROJECT_LIMITS.id || /\s/.test(id)) return { error: `${flag} expects valid backlog ids` };
+          const previous = backlogStatus.get(id);
+          if (previous !== undefined && previous !== status) {
+            return { error: `cannot defer and activate backlog item ${id} in one command` };
+          }
+          backlogStatus.set(id, status);
+          if (backlogStatus.size > PROJECT_LIMITS.backlog) {
+            return { error: `at most ${PROJECT_LIMITS.backlog} backlog ids may be edited` };
+          }
+        }
+        break;
+      }
       case "--allow-command": {
         const value = args[++i];
         if (value === undefined) return { error: "--allow-command requires a command" };
@@ -263,6 +289,11 @@ export function parseRunArgs(
     if (approve) return { error: "decision status edits cannot be combined with --approve" };
     if (autoApproveProject) return { error: "decision status edits cannot be combined with --auto-approve-project" };
   }
+  if (backlogStatus.size > 0) {
+    if (session === null) return { error: "backlog status edits need --session <id>" };
+    if (approve) return { error: "backlog status edits cannot be combined with --approve" };
+    if (autoApproveProject) return { error: "backlog status edits cannot be combined with --auto-approve-project" };
+  }
   if (approve && session === null) return { error: "--approve needs --session <id>" };
   if (session !== null && incognito) return { error: "--session and --incognito cannot be combined" };
   return {
@@ -277,6 +308,7 @@ export function parseRunArgs(
     approve,
     approveVersion,
     ...(decisionStatus.size === 0 ? {} : { decisionStatus: Object.fromEntries(decisionStatus) }),
+    ...(backlogStatus.size === 0 ? {} : { backlogStatus: Object.fromEntries(backlogStatus) }),
     autoApproveProject,
     allowCommands,
   };
@@ -996,11 +1028,11 @@ export async function runAgentCommand(args: string[], options: RunAgentCommandOp
       parsed.incognito ? { incognito: true } : undefined,
     );
     incognitoSessionId = parsed.incognito ? session.id : null;
-    const decisionStatus = parsed.decisionStatus;
-    if (decisionStatus !== undefined) {
+    const { decisionStatus, backlogStatus } = parsed;
+    if (decisionStatus !== undefined || backlogStatus !== undefined) {
       // The runtime persists this decision. The ordinary turn save would
       // write the session copy loaded before the edit over its result.
-      const step = inPhase(trace, "settle-gates", () => editProjectDecisionStatuses(runtime, session.id, decisionStatus));
+      const step = inPhase(trace, "settle-gates", () => editProjectStatuses(runtime, session.id, { decisionStatus, backlogStatus }));
       process.stderr.write(`${step.text}\n`);
       exitCode = step.kind === "updated" ? PROJECT_GATE_EXIT : 1;
       return exitCode;

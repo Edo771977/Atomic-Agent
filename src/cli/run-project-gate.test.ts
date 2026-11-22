@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
-import { editProjectDecisionStatuses, settleProjectGate } from "./run-project-gate.js";
+import { editProjectStatuses, settleProjectGate } from "./run-project-gate.js";
 
 function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
   return {
@@ -64,7 +64,12 @@ describe("run at a project gate", () => {
   it("a milestone gate prints its criteria facts and pictures (issue #40)", async () => {
     const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
     const step = await settleProjectGate(runtime(view), "s", "stop");
-    expect(step.kind === "stop" && step.text).toContain("Criteria:\n    ✓ c1 passed: Runs in a browser");
+    expect(step.kind === "stop" && step.text).toContain([
+      "  Criteria:",
+      "    2 criteria: 1 measured, 1 basis not recorded",
+      "    ✓ c1 passed: Runs in a browser · measured",
+      "    ? c2 unverified: Ten levels (no vision-capable reviewer) · basis not recorded",
+    ].join("\n"));
     expect(step.kind === "stop" && step.text).toContain(`Picture: The board at start [c1] — ${FIXTURE_SHOT_PATH}`);
   });
 
@@ -106,7 +111,7 @@ describe("run at a project gate", () => {
   it("--auto-approve-project approves the current version", async () => {
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }), fixtureProjectGateView({ kind: "none" }));
     expect((await settleProjectGate(rt, "s", "approve")).kind).toBe("approved");
-    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
+    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" }, "auto-approve");
   });
 
   it("auto approval stops at a failed milestone: only a person decides a retry", async () => {
@@ -149,9 +154,9 @@ describe("run flags for project gates", () => {
   it("refuses status edits outside the plan gate or against an unknown brief decision", () => {
     const brief = runtime(fixtureProjectGateView({ kind: "brief" }));
     const plan = runtime(fixtureProjectGateView({ kind: "plan" }));
-    expect(editProjectDecisionStatuses(brief, "s", { d1: "active" }))
+    expect(editProjectStatuses(brief, "s", { decisionStatus: { d1: "active" } }))
       .toMatchObject({ kind: "failed", text: expect.stringContaining("only at the plan gate") });
-    expect(editProjectDecisionStatuses(plan, "s", { d9: "deferred" }))
+    expect(editProjectStatuses(plan, "s", { decisionStatus: { d9: "deferred" } }))
       .toMatchObject({ kind: "failed", text: expect.stringContaining("d9 is not a decision of the approved brief") });
     expect(brief.projectDecision).not.toHaveBeenCalled();
     expect(plan.projectDecision).not.toHaveBeenCalled();
@@ -193,7 +198,7 @@ describe("run at a plan the plan reviewer still fails (issue #118)", () => {
     if (step.kind !== "stop") return;
     expect(step.text).toContain(`The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${message}`);
     expect(rt.projectDecision).toHaveBeenCalledTimes(1);
-    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }), "auto-approve");
   });
 });
 

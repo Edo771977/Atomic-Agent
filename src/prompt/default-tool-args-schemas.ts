@@ -1,3 +1,4 @@
+import { MILESTONE_KINDS } from "../session/session-project.js";
 import { OS_FS_READ_CONTRACT } from "../tools/os/fs/fs-read-contract.js";
 import { OS_FS_LIST_CONTRACT } from "../tools/os/fs/fs-list-contract.js";
 import { OS_FS_GLOB_CONTRACT } from "../tools/os/fs/fs-glob-contract.js";
@@ -875,7 +876,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
             {
               id: stringSchema,
               title: stringSchema,
-              kind: { type: "string", enum: ["base", "ui", "logic", "polish", "other"] },
+              kind: { type: "string", enum: [...MILESTONE_KINDS] },
             },
             ["id", "title", "kind"],
           ),
@@ -1073,7 +1074,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     "verify.run",
     obj(
       {
-        kind: { type: "string", enum: ["command", "service", "page", "document", "spreadsheet"] },
+        kind: { type: "string", enum: ["command", "service", "page", "document", "spreadsheet", "ui", "files", "research"] },
         cwd: stringSchema,
         // A map of arbitrary keys, like `os.http.request.headers`; the
         // strict converter refuses it, knowingly.
@@ -1119,6 +1120,9 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
         screenshot: obj({ fullPage: booleanSchema }),
         stdin: stringSchema,
         checks: stringArraySchema,
+        expected: stringArraySchema,
+        within: stringSchema,
+        requireDates: booleanSchema,
         requiredSections: stringArraySchema,
         wordRange: obj({ min: integerSchema, max: integerSchema }, ["min", "max"]),
         language: { type: "string", enum: ["en", "it", "es", "fr", "de", "pt"] },

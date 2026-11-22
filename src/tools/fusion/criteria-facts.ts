@@ -1,4 +1,7 @@
+import { weakestCriterionBasis, type ProjectCriterionBasis } from "../../session/project-criterion-basis.js";
+import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
+import { checkDidNotRun } from "./check-ran.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
 import { checkReservations } from "./contract-check-lint.js";
@@ -39,6 +42,8 @@ export interface TaskCriterion {
 export interface VisionCriterionVerdict {
   state: CriterionFactState;
   why: string;
+  /** Model reference only when the model gave a verdict. */
+  model?: string;
 }
 
 /** Criterion id → its vision judgement, for one task. */
@@ -75,6 +80,7 @@ export function criteriaFactsFor(
   contract: DelegateContract | undefined,
   outcomes: readonly (ContractCheckOutcome | undefined)[],
   vision: VisionJudgements | undefined,
+  runId?: string,
 ): ProjectCriterionFact[] {
   const reservations = checkReservations(contract);
   /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
@@ -97,11 +103,17 @@ export function criteriaFactsFor(
       if (reason === undefined) clean = true;
       else held.set(index, reason);
     };
-    const note = (next: CriterionFactState, line: string): void => {
+    let decisiveBasis: ProjectCriterionBasis | undefined;
+    const note = (next: CriterionFactState, line: string, source?: ProjectCriterionBasis): void => {
       if (RANK[next] > RANK[state]) {
         state = next;
         why = line;
+        decisiveBasis = source;
       }
+    };
+    let basis: ProjectCriterionBasis | undefined;
+    const addBasis = (source: ProjectCriterionBasis): void => {
+      basis = basis === undefined ? source : weakestCriterionBasis(basis, source);
     };
     for (const index of criterion.checkIndexes) {
       const outcome = outcomes[index];
@@ -110,8 +122,16 @@ export function criteriaFactsFor(
         note("failed", `${label} did not run`);
         continue;
       }
+      if (outcome.artifactStatus === "uncheckable") {
+        note("unverified", `${label} uncheckable: ${outcome.detail}`);
+        continue;
+      }
+      const output = outcome.run?.output;
+      const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
+        ? { kind: "check", checks: [{ index: index + 1, ...(runId === undefined ? {} : { runId }), ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
+        : undefined;
       if (!outcome.ok) {
-        note("failed", `${label} failed: ${outcome.detail}`);
+        note("failed", `${label} failed: ${outcome.detail}`, measured);
         continue;
       }
       // Issue #110: green on the input it must fail on too, so its green proves nothing.
@@ -119,6 +139,7 @@ export function criteriaFactsFor(
         note("unverified", `${label} is unreliable: ${outcome.unreliable}`);
         continue;
       }
+      if (measured !== undefined) addBasis(measured);
       if (contract?.checks?.[index]?.judge !== "vision") {
         settle(index, outcome);
         continue;
@@ -136,12 +157,18 @@ export function criteriaFactsFor(
         note("unverified", `${label} is visual and has no vision judgement`);
         continue;
       }
-      if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
-      else settle(index, outcome);
+      const visual: ProjectCriterionBasis | undefined = judged.model === undefined ? undefined : { kind: "vision", model: judged.model };
+      if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`, visual);
+      else {
+        if (visual !== undefined) addBasis(visual);
+        settle(index, outcome);
+      }
     }
-    if (state !== "passed" || clean) return { id: criterion.id, state, why };
+    const source = (state as CriterionFactState) === "passed" ? basis : decisiveBasis;
+    const fact = { id: criterion.id, state, why, ...(source === undefined ? {} : { basis: source }) };
+    if (state !== "passed" || clean) return fact;
     const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
-    return reservation.length === 0 ? { id: criterion.id, state, why } : { id: criterion.id, state, why, reservation };
+    return reservation.length === 0 ? fact : { ...fact, reservation };
   });
 }
 
@@ -161,10 +188,11 @@ export function holdOnCriteria(
   criteria: readonly TaskCriterion[],
   contract: DelegateContract | undefined,
   outcomes: readonly (ContractCheckOutcome | undefined)[],
+  runId?: string,
 ): WorkerTaskResult {
   if (criteria.length === 0) return row;
   const judged = row.judge?.criteria;
-  const facts = judged ?? criteriaFactsFor(criteria, contract, outcomes, undefined);
+  const facts = judged ?? criteriaFactsFor(criteria, contract, outcomes, undefined, runId);
   const out: WorkerTaskResult = { ...row, criteria: facts };
   if (judged !== undefined || row.status !== "ok") return out;
   const open = facts.filter((fact) => fact.state !== "passed");
