@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   MCP_SERVER_HELP,
   McpServerUsageError,
@@ -17,13 +17,14 @@ describe("parseMcpServerArgs (ATO-549)", () => {
   });
 
   it("reads the opt-in flags, repeated --tool and --cwd", () => {
+    const cwd = resolve("/work");
     expect(
       parseMcpServerArgs(
         ["--allow-write", "--allow-exec", "--tool", "skills_list", "--tool", "memory.notes.recall", "--cwd", "proj"],
-        "/work",
+        cwd,
       ),
     ).toEqual({
-      workingDir: join("/work", "proj"),
+      workingDir: join(cwd, "proj"),
       allowWrite: true,
       allowExec: true,
       tools: ["skills_list", "memory.notes.recall"],

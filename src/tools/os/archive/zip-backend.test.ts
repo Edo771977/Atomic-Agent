@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { requireSymlinks } from "../../../test-symlink-support.js";
 import { existsSync, lstatSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -140,7 +141,8 @@ describe("ZipBackend", () => {
 describe("ZipBackend symlink containment", () => {
   const LINK = { unixPermissions: 0o120777 };
 
-  it("does not write through a chain of symlinks the archive created", async () => {
+  it("does not write through a chain of symlinks the archive created", async (context) => {
+    requireSymlinks(context);
     const zip = new JSZip();
     zip.folder("x");
     zip.file("x/up", "..", LINK);
@@ -163,7 +165,8 @@ describe("ZipBackend symlink containment", () => {
     });
   });
 
-  it("removes an escaping chained link even when extraction fails later", async () => {
+  it("removes an escaping chained link even when extraction fails later", async (context) => {
+    requireSymlinks(context);
     const zip = new JSZip();
     zip.folder("d");
     zip.file("d/b", "..", LINK);
@@ -187,7 +190,8 @@ describe("ZipBackend symlink containment", () => {
     });
   });
 
-  it("keeps a symlink that stays inside destDir", async () => {
+  it("keeps a symlink that stays inside destDir", async (context) => {
+    requireSymlinks(context);
     const zip = new JSZip();
     zip.file("real.txt", "ok");
     zip.file("alias", "real.txt", LINK);

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { requireSymlinks } from "../../test-symlink-support.js";
 import { expandFileMentions, mentionTokens, resolveMentionedFile } from "./expand-mentions.js";
 import { splitMentionedFiles } from "./mention-block.js";
 
@@ -52,7 +53,8 @@ describe("expandFileMentions", () => {
     expect(expandFileMentions(`cat @${outside}`, root)).toBe(`cat @${outside}`);
   });
 
-  it("refuses a symlink inside the folder that points out of it", () => {
+  it("refuses a symlink inside the folder that points out of it", (context) => {
+    requireSymlinks(context);
     symlinkSync(outside, join(root, "link.txt"));
     expect(resolveMentionedFile(root, "link.txt")).toBeNull();
     expect(expandFileMentions("cat @link.txt", root)).toBe("cat @link.txt");

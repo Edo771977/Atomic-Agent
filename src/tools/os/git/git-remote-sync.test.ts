@@ -48,6 +48,7 @@ describe("os.git remote sync tools", () => {
     bare = join(scratch, "remote.git");
     await runGitRaw(scratch, ["init", "--bare", "-q", "--initial-branch=main", bare]);
     work = await makeGitRepo("atomic-git-work-");
+    await runGitRaw(work, ["config", "core.autocrlf", "false"]);
     await writeRepoFile(work, "a.txt", "one\n");
     await runGitRaw(work, ["add", "."]);
     await runGitRaw(work, ["commit", "-q", "-m", "init"]);

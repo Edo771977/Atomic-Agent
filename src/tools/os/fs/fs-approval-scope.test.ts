@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { requireSymlinks } from "../../../test-symlink-support.js";
 import { categorizeFsMutation, resolveFsScope } from "./fs-approval-scope.js";
+
+const directoryLink = process.platform === "win32" ? "junction" : "dir";
 
 describe("fs approval scope", () => {
   let root: string;
@@ -60,18 +63,19 @@ describe("fs approval scope", () => {
   });
 
   it("a symlink inside the workspace that points outside is NOT workspace", async () => {
-    await symlink(elsewhere, join(workspace, "link-out"));
+    await symlink(elsewhere, join(workspace, "link-out"), directoryLink);
     expect(
       await resolveFsScope([join(workspace, "link-out", "f.txt")], opts()),
     ).toBe("outside");
-    await symlink(join(home, "sub"), join(workspace, "link-home"));
     await mkdir(join(home, "sub"), { recursive: true });
+    await symlink(join(home, "sub"), join(workspace, "link-home"), directoryLink);
     expect(
       await resolveFsScope([join(workspace, "link-home", "f.txt")], opts()),
     ).toBe("home");
   });
 
-  it("C2: a DANGLING symlink in the workspace pointing outside classifies by target (asks)", async () => {
+  it("C2: a DANGLING symlink in the workspace pointing outside classifies by target (asks)", async (context) => {
+    requireSymlinks(context);
     // Broken link leak.txt -> /elsewhere/ghost.txt (target does not
     // exist). realpath(leak.txt) throws ENOENT; the naive
     // deepest-existing-ancestor fallback would re-glue the leaf to the
@@ -86,7 +90,8 @@ describe("fs approval scope", () => {
     );
   });
 
-  it("C2: a dangling symlink to a not-yet-existing file INSIDE the workspace stays workspace", async () => {
+  it("C2: a dangling symlink to a not-yet-existing file INSIDE the workspace stays workspace", async (context) => {
+    requireSymlinks(context);
     // The legitimate case: a link to a workspace file that has not been
     // created yet must still be a workspace write (silent at L2).
     const danglingIn = join(workspace, "pending.txt");
@@ -97,7 +102,8 @@ describe("fs approval scope", () => {
     );
   });
 
-  it("C2: a chain of dangling symlinks is followed to where the write lands", async () => {
+  it("C2: a chain of dangling symlinks is followed to where the write lands", async (context) => {
+    requireSymlinks(context);
     // a -> b -> /elsewhere/ghost.txt, none existing: still outside.
     await symlink(join(workspace, "b.txt"), join(workspace, "a.txt"));
     await symlink(join(elsewhere, "ghost.txt"), join(workspace, "b.txt"));
@@ -108,7 +114,7 @@ describe("fs approval scope", () => {
 
   it("a symlinked workspace root still contains its own files (realpath both sides)", async () => {
     const linkedWorkspace = join(root, "ws-link");
-    await symlink(workspace, linkedWorkspace);
+    await symlink(workspace, linkedWorkspace, directoryLink);
     expect(
       await resolveFsScope([join(workspace, "f.txt")], {
         workingDir: linkedWorkspace,
@@ -228,7 +234,8 @@ describe("fs approval scope", () => {
       ).toBe("trust_config");
     });
 
-    it("catches a symlink detour to config.json (compared on realpath, not string)", async () => {
+    it("catches a symlink detour to config.json (compared on realpath, not string)", async (context) => {
+      requireSymlinks(context);
       const decoy = join(workspace, "innocent.json");
       await symlink(configFile, decoy);
       expect(await categorizeFsMutation("write", [decoy], trustOpts())).toBe(
@@ -305,7 +312,7 @@ describe("fs approval scope", () => {
       it("catches a symlink into the directory", async () => {
         const inside = join(stateDir, "plugins", "installed", "x");
         await mkdir(inside, { recursive: true });
-        await symlink(inside, join(workspace, "linked"));
+        await symlink(inside, join(workspace, "linked"), directoryLink);
         expect(
           await categorizeFsMutation("write", [join(workspace, "linked", "a.sh")], withInstalled()),
         ).toBe("trust_config");
@@ -337,7 +344,8 @@ describe("fs approval scope", () => {
       expect(await categorizeFsMutation("write", [join(workspace, ".atomic", "notes.md")], opts())).toBe("trust_config");
     });
 
-    it("a symlink into the store is classified by its target", async () => {
+    it("a symlink into the store is classified by its target", async (context) => {
+      requireSymlinks(context);
       const store = join(workspace, ".atomic", "project");
       await mkdir(store, { recursive: true });
       await symlink(join(store, "project.json"), join(workspace, "link.json"));
@@ -385,9 +393,9 @@ describe("moves, links and extraction around a project's store (issue #109 revie
     await mkdir(join(real, "project"), { recursive: true });
     const linked = join(ws, "sub");
     await mkdir(linked);
-    await symlink(real, join(linked, ".atomic"));
+    await symlink(real, join(linked, ".atomic"), directoryLink);
     expect(await categorizeFsMutation("write", [join(linked, ".atomic", "project", "project.json")], o())).toBe("trust_config");
-    await symlink(join(ws, ".atomic", "project"), join(ws, "alias"));
+    await symlink(join(ws, ".atomic", "project"), join(ws, "alias"), directoryLink);
     expect(await categorizeFsMutation("write", [join(ws, "alias", "project.json")], o())).toBe("trust_config");
   });
 

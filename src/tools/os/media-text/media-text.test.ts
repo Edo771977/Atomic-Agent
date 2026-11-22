@@ -46,10 +46,14 @@ function visionModel(over: { canSee?: boolean; answer?: string; error?: Error } 
   return { model, describeImage };
 }
 
+const binDir = join(tmpdir(), "media-text-test-bin");
+const whisper = join(binDir, "whisper-cli");
+const ffmpeg = join(binDir, "ffmpeg");
+
 const MODEL = () => join(data, "whisper", "ggml-base.bin");
 
 function audio(over: { binaries?: string[]; modelOnDisk?: boolean; run?: RunProcess } = {}) {
-  const binaries = over.binaries ?? ["/bin/whisper-cli", "/bin/ffmpeg"];
+  const binaries = over.binaries ?? [whisper, ffmpeg];
   const calls: Array<{ cmd: string; args: readonly string[] }> = [];
   const run: RunProcess =
     over.run ??
@@ -64,7 +68,7 @@ function audio(over: { binaries?: string[]; modelOnDisk?: boolean; run?: RunProc
     enabled: true,
     localModelsDataDir: data,
     binaryLookup: {
-      env: { PATH: "/bin" },
+      env: { PATH: binDir },
       platform: "darwin" as const,
       widenEnv: (e: NodeJS.ProcessEnv) => e,
       isExecutable: (p: string) => binaries.includes(p),
@@ -163,7 +167,7 @@ describe("extractMediaText: audio goes through whisper.cpp", () => {
     const { options, calls } = audio();
     const out = await extractMediaText(ogg, { ...options, transcriptionLanguage: "ru" });
     expect(out).toEqual({ status: "ok", kind: "audio", engine: "whisper.cpp", text: "Hello there.\nGeneral Kenobi." });
-    expect(calls.map((c) => c.cmd)).toEqual(["/bin/ffmpeg", "/bin/whisper-cli"]);
+    expect(calls.map((c) => c.cmd)).toEqual([ffmpeg, whisper]);
     expect(calls[0]!.args).toContain(ogg);
     expect(calls[1]!.args).toEqual(expect.arrayContaining(["-m", MODEL(), "-l", "ru", "-nt", "-np"]));
   });
@@ -188,7 +192,7 @@ describe("extractMediaText: audio goes through whisper.cpp", () => {
     expect(download).toHaveBeenCalledTimes(1);
     expect(download.mock.calls[0]![0]).toContain("ggml-base.bin");
     expect(download.mock.calls[0]![1]).toBe(MODEL());
-    expect(calls.map((c) => c.cmd)).toEqual(["/bin/ffmpeg", "/bin/whisper-cli"]);
+    expect(calls.map((c) => c.cmd)).toEqual([ffmpeg, whisper]);
   });
 
   it("reports a failed download", async () => {
@@ -204,18 +208,18 @@ describe("extractMediaText: audio goes through whisper.cpp", () => {
   });
 
   it("skips when whisper.cpp is not installed", async () => {
-    const { options, calls } = audio({ binaries: ["/bin/ffmpeg"] });
+    const { options, calls } = audio({ binaries: [ffmpeg] });
     const out = await extractMediaText(ogg, options);
     expect(out).toMatchObject({ status: "skipped", reason: "no-engine" });
     expect(calls).toHaveLength(0);
   });
 
   it("skips non-WAV audio without ffmpeg, but runs a WAV as is", async () => {
-    const { options, calls } = audio({ binaries: ["/bin/whisper-cli"] });
+    const { options, calls } = audio({ binaries: [whisper] });
     expect(await extractMediaText(ogg, options)).toMatchObject({ status: "skipped", reason: "needs-ffmpeg" });
     const out = await extractMediaText(wav, options);
     expect(out.status).toBe("ok");
-    expect(calls.map((c) => c.cmd)).toEqual(["/bin/whisper-cli"]);
+    expect(calls.map((c) => c.cmd)).toEqual([whisper]);
     expect(calls[0]!.args).toEqual(expect.arrayContaining(["-f", wav]));
   });
 
