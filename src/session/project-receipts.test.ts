@@ -242,3 +242,15 @@ it("counts unreadable lines that may belong to the current work", () => {
     vi.useRealTimers();
   }
 });
+
+it("keeps current embedded receipts after binding the same session", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  const embedded = { projectId: null, sessionId: "chat", milestoneId: "m1", runId: "current" };
+  appendProjectReceipt(dir, dir, "artifact-manifest", embedded, noKey);
+  appendProjectReceipt(dir, dir, "artifact-manifest", { ...embedded, sessionId: "different-chat" }, noKey);
+  appendProjectReceipt(dir, dir, "check-run-record", { ...embedded, projectId: "p" }, noKey);
+  expect(verifyProjectReceiptDetails(dir, dir, scope).receipts.map(({ kind, status }) => [kind, status]))
+    .toEqual([["artifact-manifest", "unsigned"], ["check-run-record", "unsigned"]]);
+});

@@ -219,9 +219,9 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
       if (scope !== undefined) {
         // A damaged receipt can still claim this milestone. Its attribution
         // stays unverified and is used only to surface the problem on the card.
-        matched = kind !== "gate-verdict" && id === scope.projectId &&
+        const sameProject = id === null ? row?.payload?.sessionId === scope.sessionId : id === scope.projectId;
+        matched = kind !== "gate-verdict" && sameProject &&
           row?.payload?.milestoneId === scope.milestoneId &&
-          (id !== null || row?.payload?.sessionId === scope.sessionId) &&
           (scope.runIds === undefined || (kind === "milestone-report"
             ? row.payload.version === scope.version
             : scope.runIds.includes(row.payload.runId) &&
