@@ -34,6 +34,18 @@ describe("projectGateView (issue #39)", () => {
     expect(view.milestones[0]?.directorReportWarnings).toEqual(["Also [c9] verified and works."]);
   });
 
+  it("matches known bare IDs, recognizes common claim forms and skips negated claims", () => {
+    const project = up(undefined, brief);
+    project.approvedCriteria = [{ id: "keys", text: "Keys steer" }];
+    project.milestones = [{ id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Keys passed and tested. The timer is not verified. Il timer non funziona. Luci funzionano. UI verificata. Timer tested. Search is working. Export passes. Monkeykeys works.",
+      criteriaFacts: [{ id: "keys", state: "passed" }] }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual([
+      "Luci funzionano.", "UI verificata.", "Timer tested.", "Search is working.", "Export passes.", "Monkeykeys works.",
+    ]);
+  });
+
   it("counts legacy facts and warns only about uncited verification claims", () => {
     const project = up(undefined, brief);
     project.milestones = [{

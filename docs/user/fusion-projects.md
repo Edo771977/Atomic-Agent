@@ -9,7 +9,7 @@ Fusion can use Draft, Review and Final milestones for non-code work, and task re
 
 The milestone report shows the status and basis of each reported criterion, plus counts by basis. **Measured** means a check ran. **Judged by** names the model that assessed the screenshot. **Basis not recorded** covers earlier facts and cases where no source produced evidence. Approving over a review records your decision about the milestone.
 
-The director report is displayed separately. A sentence containing “verified”, “verificato”, “works” or “funziona” is flagged unless the same sentence cites a passed criterion by its bracketed ID, such as `[c1]`, or includes its full text. This wording check is advisory and does not change criterion status or approval.
+The director report and runtime notes appear separately. Each sentence is checked for affirmative forms of “verified”, “tested”, “works”, “working”, “passes”, “verificato” (including gender and plural forms), “funziona”, “funzionano” and “funzionante”. The check skips simple negations such as “not verified” and “non funziona”. A claim needs the full text or exact ID (with or without brackets) of a passed criterion in the same sentence. The check uses the approved criteria when available and the brief otherwise. The warning does not change criterion status or approval.
 
 ## Find or resume a project
 

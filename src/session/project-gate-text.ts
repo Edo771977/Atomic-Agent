@@ -29,25 +29,28 @@ export function criterionBasisSummaryLine(counts: ProjectCriterionBasisSummary):
   return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.filter(Boolean).join(", ")}`;
 }
 
-/** A claim needs a passed criterion cited by bracketed ID or by its full text in the same sentence. */
+const CLAIM = /\b(?:verificat[oaie]|verified|funziona(?:no|nte)?|works|tested|working|passes)\b/gu;
+const NEGATED = /\b(?:not|non)(?:\s+(?:yet|still|fully|ancora|del tutto|è|sono))*\s*$/u;
+
+/** An affirmative claim needs a passed criterion cited by exact ID or full text in the same sentence. */
 export function directorReportWarnings(
   report: string,
   facts: readonly ProjectCriterionFact[],
   criteria: readonly ProjectCriterion[],
 ): string[] {
-  const passed = facts.filter((fact) => fact.state === "passed");
-  const textById = new Map(criteria.map(({ id, text }) => [id, text.toLowerCase()]));
+  const passedIds = new Set(facts.filter((fact) => fact.state === "passed").map((fact) => fact.id));
+  const passed = criteria.filter(({ id }) => passedIds.has(id));
   return report
     .split(/\r?\n/u)
     .flatMap((line) => line.split(/(?<=[.!?])\s+/u))
     .map((sentence) => sentence.trim())
     .filter((sentence) => {
-      const text = sentence.toLowerCase();
-      if (!/\b(?:verificato|verified|funziona|works)\b/u.test(text)) return false;
-      return !passed.some(({ id }) => {
-        const criterion = textById.get(id);
-        return text.includes(`[${id}]`) || (criterion !== undefined && criterion.length > 0 && text.includes(criterion));
-      });
+      const text = sentence.toLowerCase().replace(/\s+/gu, " ");
+      if (![...text.matchAll(CLAIM)].some(({ index }) => !NEGATED.test(text.slice(0, index)))) return false;
+      const tokens = new Set(text.match(/[a-z0-9-]+/gu));
+      return !passed.some(({ id, text: criterion }) =>
+        tokens.has(id) || (criterion.length > 0 && text.includes(criterion.toLowerCase().replace(/\s+/gu, " "))),
+      );
     });
 }
 

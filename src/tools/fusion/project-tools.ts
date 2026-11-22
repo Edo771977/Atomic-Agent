@@ -691,6 +691,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       // and their screenshots when the report names none: the runtime's,
       // never the model's (its arguments cannot carry facts).
       const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
+      const criteria = ctx.project?.approvedCriteria ?? ctx.project?.brief?.successCriteria ?? [];
       // The required tasks: the approved plan's rows for this milestone
       // that name a reviewer (issue #98); a "no review" row records no
       // verdict and never blocks.
@@ -700,8 +701,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "failed" && milestone !== undefined && deps.milestoneEvidence !== undefined && requiredTasks.length > 0) {
         // A failed result keeps its open reviews for the person's gate (issue #98).
         const approvals = ctx.project?.briefApprovals;
-        const failedEvidence = deps.milestoneEvidence(milestone, (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id), {
-          criteria: ctx.project?.brief?.successCriteria ?? [],
+        const failedEvidence = deps.milestoneEvidence(milestone, criteria.map((c) => c.id), {
+          criteria,
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
           requiredTasks,
         });
@@ -734,10 +735,10 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         }
       }
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
-        const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
+        const order = criteria.map((c) => c.id);
         const approvals = ctx.project?.briefApprovals;
         const evidence = deps.milestoneEvidence(milestone, order, {
-          criteria: ctx.project?.brief?.successCriteria ?? [],
+          criteria,
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
           ...(requiredTasks.length === 0 ? {} : { requiredTasks }),
         });
@@ -781,7 +782,6 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
       }
-      const criteria = ctx.project?.approvedCriteria ?? ctx.project?.brief?.successCriteria ?? [];
       lines.push(...directorReportWarnings(parsed.report.summary, report.criteriaFacts ?? [], criteria).map(directorReportWarningLine));
       // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
       const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
