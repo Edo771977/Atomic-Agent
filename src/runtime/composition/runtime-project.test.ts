@@ -192,7 +192,7 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
         plan: { ...project.plan!, version: previousVersion! + 1 },
         milestones: project.milestones.map(m => m.id !== "m1" ? m : {
           ...m, runIds: scenario === "corrected" ? ["old", "new"] : ["new"],
-          ...(scenario === "corrected" ? { corrections: [{ note: "Retry", at: NOW + 1 }] } : {}),
+          ...(scenario === "corrected" ? { corrections: [{ note: "Retry", at: NOW + 1 }], evidenceSince: NOW + 1 } : {}),
         }),
       };
       const session = createEmptySessionState({ id: "s1", workingDir: folder });

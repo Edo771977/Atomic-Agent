@@ -199,3 +199,26 @@ it("bounds a milestone scan and includes identifiable receipts with verification
     expect(result.receipts.slice(-3).map(({ status }) => status)).toEqual(["unknown-kind", "unknown-key", "bad-signature"]);
   }
 });
+
+it("marks a bounded scan partial only before reaching the current work", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2, since: 20_000 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  vi.useFakeTimers({ now: 10_000 });
+  try {
+    appendProjectReceipt(dir, dir, "check-run-record", { ...scope, runId: "old" }, noKey);
+    const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+    const old = readFileSync(path, "utf8");
+    writeFileSync(path, old.repeat(600));
+    vi.setSystemTime(21_000);
+    appendProjectReceipt(dir, dir, "check-run-record", { ...scope, runId: "current" }, noKey);
+    const complete = verifyProjectReceiptDetails(dir, dir, scope);
+    expect(complete.partial).toBe(false);
+    expect(complete.receipts).toHaveLength(1);
+    const current = readFileSync(path, "utf8").slice(old.length * 600);
+    writeFileSync(path, old + current.repeat(513));
+    expect(verifyProjectReceiptDetails(dir, dir, scope).partial).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});

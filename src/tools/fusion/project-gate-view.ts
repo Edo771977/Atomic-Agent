@@ -97,7 +97,7 @@ function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilest
       milestoneId: milestone.id,
       runIds: milestone.runIds,
       version: gateVersion(input.project),
-      since: milestone.corrections?.at(-1)?.at,
+      since: milestone.evidenceSince ?? milestone.corrections?.at(-1)?.at,
     }, source.cache);
     for (const { status } of receipts) {
       if (status === "valid" || status === "unsigned") counts[status]++;

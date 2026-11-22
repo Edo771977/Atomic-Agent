@@ -200,11 +200,17 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
     return keys.get(id) ?? null;
   };
   const receipts: ProjectReceiptVerification[] = [];
+  let oldestTimestamp: number | undefined;
   for (const line of lines) {
     let kind: ReceiptKind | null = null;
     let matched = scope === undefined;
     try {
       const row = JSON.parse(line);
+      if (scope?.since !== undefined) {
+        const timestamp = Date.parse(row?.signedAt);
+        if (Number.isFinite(timestamp)) oldestTimestamp ??= timestamp;
+        if (timestamp < scope.since) continue;
+      }
       if (isReceiptKind(row?.kind)) kind = row.kind;
       const id: unknown = row?.payload?.projectId;
       if (scope !== undefined) {
@@ -236,7 +242,8 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
     }
   }
   if (scope === undefined) return receipts;
-  const result = { receipts, partial };
+  const reachedStart = scope.since !== undefined && oldestTimestamp !== undefined && oldestTimestamp < scope.since;
+  const result = { receipts, partial: partial && !reachedStart };
   if (cacheKey !== undefined && cache !== undefined) {
     cache.delete(cacheKey);
     cache.set(cacheKey, { archive: revision, signingDir: signingRevision, rows: scanned, result });
