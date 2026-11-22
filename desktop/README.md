@@ -120,17 +120,20 @@ backlog (`b` in `/plan`) and `atomic-agent project backlog
 --promote|--drop|--reopen`. A call made stale outside Atomic Agent is flagged
 "changed outside Atomic Agent since you promoted it" with **Promote again**,
 **Drop** and **Keep open**; a promoted item removed outside offers **Clear**.
-A call goes through `agent:projectBacklog` (`{sessionId, item, state}`,
-checked in `main/project-ipc.ts`: a strict session id, the core's backlog id
-pattern, only `promoted`, `dropped` or `open`) to `POST /api/project/backlog`,
+A call goes through `agent:projectBacklog` (`{sessionId, item, state,
+expectedFingerprint}`, checked in `main/project-ipc.ts`: a strict session id,
+the core's backlog id pattern, only `promoted`, `dropped` or `open`, and the
+view's 64-hex fingerprint when one is sent) to `POST /api/project/backlog`,
 the HTTP form of the sidecar's `project_backlog_decision`. It moves no gate:
 the card keeps its gate and draws the view the agent answers (unless a newer
 frame came meanwhile), or why it refused. Calls wait for the chat's turn: the
 page says whether one runs (`turnRunning`), and the section's buttons are
 disabled with "Decide once the turn finishes". A call in flight keeps the
-card busy across a chat switch. The card does not yet bind a call to the item
-text it showed (the route takes no `expectedFingerprint`; a core follow-up
-adds it), so an item edited outside in the meantime is decided as it is now.
+card busy across a chat switch. Each call carries the `fingerprint` of the
+item (or stale call) the card drew as `expectedFingerprint` (issue #162); an
+agent whose view has none gets the call without it. When the item or its call
+changed in the meantime, the agent refuses `stale-view` and the card says
+"This item changed — read it again" over the view the refusal carries.
 At the plan gate a promoted item no approved plan took in says
 "Cited by: t…" or "No citing tasks" and offers **Defer**, or **Reactivate**
 once deferred: the gate's `edit` with `edits.backlogStatus`, which main lets

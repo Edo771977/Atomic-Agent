@@ -144,6 +144,8 @@ const draw = (model, on = () => {}) => { const doc = fakeDoc(); const host = doc
 const buttons = (host) => host.findAll((e) => e.tagName === 'BUTTON');
 const byLabel = (host, label) => buttons(host).find((b) => b.getAttribute('aria-label') === label);
 const tick = () => new Promise((r) => setTimeout(r, 0));
+/** A backlog call without its fingerprint (issue #162 has its own tests). */
+const bare = ({expectedFingerprint: _fp, ...rest}) => rest;
 
 function controller({backlog, decide, read, turnRunning}) {
   const drawn = [];
@@ -207,7 +209,7 @@ test('Promote sends {sessionId, item, state} through the backlog call; the view 
   byLabel(host, 'Promote b3').fire('click');
   assert.equal(c.last().model.busy, true);
   await tick(); await tick();
-  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'promoted'}]);
+  assert.deepEqual(sent.map(bare), [{sessionId: 'ses-1', item: 'b3', state: 'promoted'}]);
   const after = c.last().model;
   assert.equal(after.busy, false);
   assert.equal(after.gate, 'plan');
@@ -215,7 +217,7 @@ test('Promote sends {sessionId, item, state} through the backlog call; the view 
   assert.match(after.notice, /b3 promoted/);
   byLabel(draw(after, c.last().on), 'Reopen b3').fire('click');
   await tick(); await tick();
-  assert.deepEqual(sent.at(-1), {sessionId: 'ses-1', item: 'b3', state: 'open'});
+  assert.deepEqual(bare(sent.at(-1)), {sessionId: 'ses-1', item: 'b3', state: 'open'});
   assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'open');
 });
 
@@ -371,7 +373,7 @@ test('a complete project with a promoted item never done says so, and its backlo
   assert.equal(buttons(host).some((b) => ['Approve', 'Defer', 'Reactivate'].includes(b.textContent)), false, 'no gate verdict to give');
   byLabel(host, 'Drop b1').fire('click');
   await tick(); await tick();
-  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b1', state: 'dropped'}]);
+  assert.deepEqual(sent.map(bare), [{sessionId: 'ses-1', item: 'b1', state: 'dropped'}]);
   assert.match(c.last().model.notice, /b1 dropped/);
 });
 
@@ -509,7 +511,7 @@ test('a decided item offers every other call directly, as the TUI\'s backlog', a
   await tick(); await tick();
   byLabel(draw(c.last().model, c.last().on), 'Promote b4').fire('click');
   await tick(); await tick();
-  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'dropped'}, {sessionId: 'ses-1', item: 'b4', state: 'promoted'}]);
+  assert.deepEqual(sent.map(bare), [{sessionId: 'ses-1', item: 'b3', state: 'dropped'}, {sessionId: 'ses-1', item: 'b4', state: 'promoted'}]);
   assert.deepEqual(actions('b3'), ['Promote', 'Reopen']);
 });
 
@@ -531,6 +533,89 @@ test('a backlog answer that lands after a newer frame does not overwrite it', as
   assert.equal(items.find((i) => i.id === 'b1').state, 'dropped', 'the newer frame stands');
   assert.equal(c.last().model.busy, false);
   assert.match(c.last().model.notice, /b3 promoted/);
+});
+
+/* ---------------- issue #162: a call is bound to the item the card showed ---------------- */
+
+/** The route's own handling (route-project.ts): parseBacklogDecision, then the real core's decision. */
+function route(get, set) {
+  return (body) => {
+    const decision = BL.parseBacklogDecision({item: body.item, state: body.state, ...(body.expectedFingerprint === undefined ? {} : {expectedFingerprint: body.expectedFingerprint})});
+    assert.equal(typeof decision, 'object', String(decision));
+    const r = BL.applyBacklogDecision(get(), decision);
+    if (r.ok) { set(r.project); return {supported: true, ok: true, view: view(r.project)}; }
+    return {supported: true, ok: false, status: r.error.code === 'stale-view' ? 409 : 400, code: r.error.code, error: r.error.message, view: view(get())};
+  };
+}
+
+test('a backlog call sends the fingerprint of the item the card showed, and the core takes it', async () => {
+  const sent = [];
+  let p = call(project(), 'b4', 'dropped');
+  const c = controller({read: () => ({supported: true, ok: true, view: view(p)}), decide: () => ({}),
+    backlog: (body) => { sent.push(body); return route(() => p, (x) => { p = x; })(body); }});
+  c.card.follow('ses-1');
+  await tick();
+  const shown = view(p).backlog.items.find((i) => i.id === 'b3').fingerprint;
+  assert.match(shown, /^[0-9a-f]{64}$/);
+  byLabel(draw(c.last().model, c.last().on), 'Promote b3').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'promoted', expectedFingerprint: shown}]);
+  assert.equal(c.last().model.error, null);
+  assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'promoted');
+  // The view it answered carries the new fingerprint, and the next call sends that one.
+  byLabel(draw(c.last().model, c.last().on), 'Reopen b4').fire('click');
+  await tick(); await tick();
+  assert.equal(sent[1].expectedFingerprint, view(call(project(), 'b4', 'dropped')).backlog.items.find((i) => i.id === 'b4').fingerprint);
+  assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b4').state, 'open');
+});
+
+test('an item changed since it was shown is refused as stale-view: the card says to read it again and draws the view it got', async () => {
+  let p = project();
+  const shown = view(p);
+  const c = controller({read: () => ({supported: true, ok: true, view: shown}), decide: () => ({}),
+    backlog: route(() => p, (x) => { p = x; })});
+  c.card.follow('ses-1');
+  await tick();
+  // Edited outside Atomic Agent after the card drew it.
+  p = {...p, backlog: p.backlog.map((b) => (b.id === 'b3' ? {...b, title: 'Dark theme and high contrast'} : b))};
+  byLabel(draw(c.last().model, c.last().on), 'Promote b3').fire('click');
+  await tick(); await tick();
+  const m = c.last().model;
+  assert.equal(m.error, 'This item changed \u2014 read it again');
+  assert.equal(m.busy, false);
+  assert.equal(m.gate, 'plan', 'no gate moved');
+  const b3 = m.backlog.items.find((i) => i.id === 'b3');
+  assert.equal(b3.title, 'Dark theme and high contrast', 'the item as it reads now');
+  assert.equal(b3.state, 'open', 'nothing was decided');
+  assert.equal(BL.backlogStateOf(p, 'b3'), 'open');
+});
+
+test('a stale call sends the stale entry\'s fingerprint (Clear on a removed item, Promote again on a changed one)', async () => {
+  const sent = [];
+  let p = call(call(project(), 'b3', 'promoted'), 'b1', 'promoted');
+  p = {...p, backlog: p.backlog.filter((b) => b.id !== 'b1').map((b) => (b.id === 'b3' ? {...b, title: 'Dark theme and high contrast'} : b))};
+  const v = view(p);
+  const c = controller({read: () => ({supported: true, ok: true, view: v}), decide: () => ({}),
+    backlog: (body) => { sent.push(body); return route(() => p, (x) => { p = x; })(body); }});
+  c.card.follow('ses-1');
+  await tick();
+  byLabel(draw(c.last().model, c.last().on), 'Clear b1').fire('click');
+  await tick(); await tick();
+  assert.equal(sent[0].expectedFingerprint, v.backlog.stale.find((s) => s.id === 'b1').fingerprint);
+  assert.equal(c.last().model.error, null);
+  byLabel(draw(c.last().model, c.last().on), 'Promote again b3').fire('click');
+  await tick(); await tick();
+  assert.equal(sent[1].expectedFingerprint, v.backlog.items.find((i) => i.id === 'b3').fingerprint);
+  assert.equal(c.last().model.error, null);
+  assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'promoted');
+});
+
+test('an agent whose view carries no fingerprint gets the call without one, as before', () => {
+  const v = view(project());
+  const strip = {...v, backlog: {...v.backlog, items: v.backlog.items.map(({fingerprint: _f, ...i}) => i), stale: []}};
+  assert.deepEqual(C.pcBacklogCall(C.pcInitial(strip), 'ses-1', 'b3', 'promoted'), {body: {sessionId: 'ses-1', item: 'b3', state: 'promoted'}});
+  const odd = {...v, backlog: {...v.backlog, items: v.backlog.items.map((i) => ({...i, fingerprint: 'not-hex'}))}};
+  assert.deepEqual(C.pcBacklogCall(C.pcInitial(odd), 'ses-1', 'b3', 'promoted'), {body: {sessionId: 'ses-1', item: 'b3', state: 'promoted'}}, 'a malformed one is not sent');
 });
 
 /* ---------------- the helper stays the core's shape ---------------- */

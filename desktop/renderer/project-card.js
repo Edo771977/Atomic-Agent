@@ -26,6 +26,8 @@
 const PC_NOTE_MAX = 2000;
 /* Issue #146: a backlog call waits for the chat's turn (the agent would answer turn-running). */
 const PC_WAIT_TURN = 'Decide once the turn finishes';
+/* Issue #162: a backlog call refused as `stale-view` (the item changed since the card showed it). */
+const PC_STALE_VIEW = 'This item changed \u2014 read it again';
 /* How long "Confirm cancel" waits for the second press. */
 const PC_CONFIRM_MS = 4000;
 
@@ -511,6 +513,8 @@ function pcBacklogModel(view, plan, canEdit) {
   const staleOf = (id) => backlog.stale.find((x) => x.id === id) || null;
   const entry = (item, stale) => ({
     id: item ? item.id : stale.id,
+    // Issue #162: what the person saw, sent back as expectedFingerprint (an older agent sends none).
+    fingerprint: pcFingerprint(item && item.fingerprint) || pcFingerprint(stale && stale.fingerprint),
     title: item ? pcStr(item.title) : '',
     note: item ? pcStr(item.note) : '',
     state: item ? item.state : 'removed',
@@ -528,6 +532,11 @@ function pcBacklogModel(view, plan, canEdit) {
   return {summary, items, hints: pcBacklogHints(backlog)};
 }
 
+/** A view's decision fingerprint (backlogDecisionFingerprint: 64 lowercase hex), or null. */
+function pcFingerprint(v) {
+  return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v) ? v : null;
+}
+
 /** A promoted item waiting for the plan: who cites it, and its status edit. */
 function pcBacklogWaiting(promoted, canEdit) {
   // An agent before #146's coverage sends no citedBy and takes no backlogStatus edit (it would be an empty plan edit).
@@ -536,12 +545,16 @@ function pcBacklogWaiting(promoted, canEdit) {
   return {cited: by.length ? 'Cited by: ' + by.join(', ') : 'No citing tasks', statusActions: canEdit ? pcBacklogStatusActions(promoted) : []};
 }
 
-/** The backlog call `{sessionId, item, state}` for main (agent:projectBacklog), or {error} when the view offers no such call. */
+/**
+ * The backlog call `{sessionId, item, state, expectedFingerprint?}` for main
+ * (agent:projectBacklog), or {error} when the view offers no such call.
+ * Issue #162: the fingerprint binds the call to the item as the card showed it.
+ */
 function pcBacklogCall(state, sid, id, to) {
   const backlog = pcBacklogModel(state.view);
   const item = backlog && backlog.items.find((i) => i.id === id);
   if (!item || !item.actions.some(([, s]) => s === to)) return {error: 'This backlog call is unavailable'};
-  return {body: {sessionId: sid, item: id, state: to}};
+  return {body: {sessionId: sid, item: id, state: to, ...(item.fingerprint ? {expectedFingerprint: item.fingerprint} : {})}};
 }
 
 /** What the window does with main's answer to a backlog call: the view to draw, and a notice or an error. */
@@ -550,6 +563,8 @@ function pcBacklogOutcome(res, id, to) {
   if (res.ok) return {view: res.view || null, notice: id + (to === 'promoted' ? ' promoted for the next plan.' : to === 'dropped' ? ' dropped.' : ' is open again.')};
   const view = res.view || null;
   if (res.code === 'turn-running') return {view, error: 'A turn is running in this chat. Decide once it has finished.'};
+  // Issue #162: the item or its call changed since the card drew it; the answer's view is drawn instead.
+  if (res.code === 'stale-view') return {view, error: PC_STALE_VIEW};
   if (res.status === 404 && !view) return {closed: true, notice: 'This chat has no Fusion project any more.'};
   return {view, error: res.error || 'The backlog call did not go through'};
 }
