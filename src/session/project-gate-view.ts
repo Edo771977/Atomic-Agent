@@ -91,7 +91,10 @@ export interface ProjectGateView {
   backlog?: ProjectGateBacklog;
 }
 
-/** The backlog as a card shows it (issue #111). */
+/**
+ * The backlog as a card shows it (issue #111). New views include
+ * fingerprints on items and stale calls; older views may omit them.
+ */
 export interface ProjectGateBacklog {
   open: number;
   seeds: Array<{ id: string; title: string; condition: string }>;
@@ -102,9 +105,9 @@ export interface ProjectGateBacklog {
    */
   promoted: Array<{ id: string; title: string; deferred?: true; citedBy?: string[] }>;
   /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
-  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
+  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed"; fingerprint?: string }>;
   /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
-  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true }>;
+  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true; fingerprint?: string }>;
 }
 
 /** The plan reviewer's notes as the card shows them (issue #118). */

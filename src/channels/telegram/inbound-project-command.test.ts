@@ -175,6 +175,43 @@ describe("Telegram project gate", () => {
     expect(messages).toEqual(["build a puzzle game"]);
   });
 
+  it.each([["/defer", "deferred", false], ["/activate", "active", true]] as const)(
+    "previews and confirms %s for the displayed plan and backlog item", async (command, status, deferred) => {
+      await say("build a puzzle game");
+      const base = backlogView({ kind: "plan" });
+      const item = { ...base.backlog!.items[0]!, state: "promoted" as const };
+      const promoted = { id: item.id, title: item.title, citedBy: ["t1"], ...(deferred ? { deferred: true as const } : {}) };
+      const shown = { ...base, backlog: { ...base.backlog!, items: [item], promoted: [promoted] } };
+
+      view = { ...shown, gate: { kind: "none" } };
+      await say(`${command} b1`);
+      expect(sent.at(-1)).toMatch(/plan.*approval/i);
+      view = { ...shown, backlog: { ...shown.backlog, promoted: [{ id: item.id, title: item.title }] } };
+      await say(`${command} b1`);
+      expect(sent.at(-1)).toMatch(/promoted.*plan/i);
+      view = shown;
+      await say(`${command} b1`);
+      const preview = sent.at(-1)!;
+      expect(preview).toContain(item.title);
+      const code = preview.match(/b1 ([0-9a-f]{16})/)?.[1];
+      expect(code).toBeDefined();
+      expect(decisions).toEqual([]);
+
+      view = { ...shown, version: 4 };
+      await say(`${command} b1 ${code}`);
+      expect(sent.at(-1)).toMatch(/preview.*again/i);
+      view = { ...shown, backlog: { ...shown.backlog, items: [{ ...item, title: "Changed outside" }] } };
+      await say(`${command} b1 ${code}`);
+      expect(sent.at(-1)).toMatch(/preview.*again/i);
+      view = shown;
+      await say(`${command} b1 ${code}`, OWNER + 1);
+      expect(decisions).toEqual([]);
+      await say(`${command} b1 ${code}`);
+      expect(decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { backlogStatus: { b1: status } } }]);
+      expect(messages).toEqual(["build a puzzle game"]);
+    },
+  );
+
   it("does not promote a seed when showing or approving the plan", async () => {
     await say("build a puzzle game");
     view = backlogView({ kind: "plan" });

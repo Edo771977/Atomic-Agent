@@ -15,7 +15,7 @@ import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } 
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
 import { seedHint } from "../../session/project-gate-text.js";
-import { backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
+import { backlogDecisionFingerprint, backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -143,10 +143,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   if (project.cancelledAt === undefined && (project.gate.kind === "plan" || project.gate.kind === "milestone")) {
     for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
   }
+  const staleCalls = staleBacklogCalls(project);
   if (project.gate.kind === "plan") {
     for (const b of promotedForPlan(project)) hints.push(project.backlogCalls?.[b.id]?.deferred === true ? deferredHint(b.id, b.title) : promotedHint(b.id, b.title));
     // Review of #111: a call bound to text that changed, or to an item removed, outside Atomic Agent.
-    for (const s of staleBacklogCalls(project)) {
+    for (const s of staleCalls) {
       hints.push(s.reason === "removed"
         ? `promoted item ${s.id} was removed outside Atomic Agent`
         : `backlog item ${s.id} changed since you ${s.state} it: it reads open again; ${s.state === "promoted" ? "promote" : "drop"} it again if you still want it`);
@@ -164,7 +165,22 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   }
   // A call on an item removed outside Atomic Agent keeps the backlog in view, so the card can say so
   // even when project.json holds no item any more.
-  const backlog = (project.backlog ?? []).length === 0 && staleBacklogCalls(project).length === 0
+  const staleById = new Map(staleCalls.map((call) => [call.id, call]));
+  const items = (project.backlog ?? []).map((item) => {
+    const state = backlogStateOf(project, item.id);
+    const plannedIn = state === "promoted" ? backlogTakenIn(project, item.id) : undefined;
+    const deferred = state === "promoted" && plannedIn === undefined && project.backlogCalls?.[item.id]?.deferred === true;
+    return {
+      ...item,
+      ...(item.origin === undefined ? {} : { origin: { ...item.origin } }),
+      state,
+      ...(plannedIn === undefined ? {} : { plannedIn }),
+      ...(deferred ? { deferred: true as const } : {}),
+      fingerprint: backlogDecisionFingerprint(item, state, plannedIn, staleById.get(item.id)),
+    };
+  });
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const backlog = items.length === 0 && staleCalls.length === 0
     ? undefined
     : {
         open: openBacklog(project).length,
@@ -175,13 +191,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
           ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}),
           citedBy: (plan?.rows ?? []).filter((r) => (r.backlog ?? []).includes(b.id)).map((r) => r.taskId),
         })),
-        stale: staleBacklogCalls(project),
-        items: (project.backlog ?? []).map((b) => {
-          const promoted = backlogStateOf(project, b.id) === "promoted";
-          const plannedIn = promoted ? backlogTakenIn(project, b.id) : undefined;
-          const deferred = promoted && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
-          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
-        }),
+        stale: staleCalls.map((call) => ({
+          ...call,
+          fingerprint: itemsById.get(call.id)?.fingerprint ?? backlogDecisionFingerprint(undefined, undefined, undefined, call),
+        })),
+        items,
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
