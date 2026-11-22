@@ -332,6 +332,9 @@ async function main(): Promise<number> {
   // Windows only: UTF-8 console code page for this run, restored on exit.
   ensureUtf8Console();
   const [command, ...rest] = userArgsFromArgv();
+  if (command === "--internal-verify-artifact" && process.send) {
+    return (await import("../tools/verify/artifact-reader.js")).serveArtifactCheck();
+  }
   if (command === "-h" || command === "--help") {
     printHelp();
     return 0;
