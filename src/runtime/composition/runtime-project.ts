@@ -1,6 +1,7 @@
+import { projectFolderOf } from "../../session/project-folder.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { gateContentHash } from "../../session/project-decisions.js";
-import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { writeEvidenceReceipt, type MilestoneReceiptCache, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import type { ProjectDecisionActor, RuntimeProjectDecisionResult } from "../project-decision-contract.js";
 import {
   applyProjectDecision,
@@ -155,6 +156,7 @@ export interface RuntimeProjectDeps {
   saveSession: (session: SessionState) => void;
   /** Issue #109: the project's folder store; absent, the project lives on the session. */
   projectStore?: SessionProjectStore;
+  receiptStateDir?: string;
   writeProjectReceipt?: ProjectReceiptWriter;
   warnReceipt?: (message: string) => void;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
@@ -247,11 +249,20 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
 
 export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
   const now = deps.now ?? Date.now;
+  const receiptCache: MilestoneReceiptCache = new Map();
   const view = (session: SessionState, project: ProjectState): ProjectGateView => {
     const inputs = deps.liveInputs(session);
     return projectGateView({
       sessionId: session.id,
       project,
+      ...(deps.receiptStateDir === undefined || isIncognitoSession(session) ? {} : {
+        receiptSource: {
+          stateDir: deps.receiptStateDir,
+          cache: receiptCache,
+          folder: session.projectRef?.folder ?? projectFolderOf(session),
+          projectId: session.projectRef?.id ?? null,
+        },
+      }),
       estimate: estimateFor(project, inputs),
       selectable: {
         workers: inputs.plan.workers.map((m) => m.ref),

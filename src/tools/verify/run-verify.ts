@@ -9,7 +9,9 @@
  */
 import { resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
-import { resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
+import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
+import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
+import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
@@ -27,6 +29,7 @@ import { APPROVED_IMPECCABLE, isImpeccableMarkup, runImpeccableCheck, type Appro
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
+import type { ResearchLinkVerdict } from "./research-check.js";
 import type { VerificationInputIntegrity } from "./verify-input-integrity.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 
@@ -35,6 +38,7 @@ export interface VerifyRunResult {
   readonly kind: VerifyRunKind;
   readonly isolated: boolean;
   readonly artifactStatus?: ArtifactOutcome["status"];
+  readonly researchLinks?: readonly ResearchLinkVerdict[];
   readonly impeccableVersion?: string;
   readonly impeccableFindings?: readonly string[];
   readonly impeccableSuppressions?: readonly string[];
@@ -93,6 +97,10 @@ export interface VerifyRunContext {
   readonly inputIntegrity?: VerificationInputIntegrity;
   readonly shellPolicy?: ShellGuardPolicy;
   readonly workingDir: string;
+  readonly changedPaths?: readonly string[];
+  readonly knownSecrets?: readonly KnownSecret[];
+  /** Test seam. The transport is still subject to an authorized research spec. */
+  readonly researchProbe?: ResearchProbe;
   /** Browser settings and copy limit; `getConfig().browser` for page runs when omitted. */
   readonly config?: VerifyRunConfig;
   readonly signal?: AbortSignal;
@@ -149,7 +157,7 @@ function boundedDetectorDetails(lines: readonly string[], budget: number): strin
   return shown;
 }
 
-async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable): Promise<VerifyRunResult> {
+async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable, approveResearch?: ResearchApproval): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
@@ -159,15 +167,33 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   const common = { kind: args.kind, isolated };
   const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
   if (ui !== undefined || isArtifactKind(args.kind)) {
-    const out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal) : ui!;
+    let out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal, args.kind === "files" ? ctx.changedPaths : undefined) : ui!;
+    const delivery = args.kind === "research" || args.kind === "files";
+    const known = delivery ? [...knownSecretsFromEnv(), ...(ctx.knownSecrets ?? [])] : [];
+    if (args.kind === "research" && out.links?.length) {
+      const eligible = out.links.filter(link => !link.ambiguous);
+      const refusal = out.status === "fail" ? "local research check failed"
+        : approveResearch === undefined || out.linkLimit || !eligible.length ? "network disabled or approval unavailable"
+        : await approveResearch(eligible);
+      const probe: ResearchProbe = ctx.researchProbe ?? ((url, signal) => probeResearchLink(url, signal, {
+        allowUrl: target => researchUrlMayBeDisclosed(target, known),
+      }));
+      out = await checkResearchLinks(out, refusal === undefined ? probe : undefined, args.timeoutMs, ctx.signal, refusal);
+    }
     const ok = out.status === "pass";
-    const text = `${out.status}: ${out.detail}`;
+    let detail = out.status + ": " + out.detail;
+    const researchLinks = out.researchLinks?.map(link => {
+      const url = redactResearchUrl(link.url, known);
+      if (url !== link.url) detail = detail.replaceAll(link.url, () => url);
+      return { ...link, url, reason: maskVerificationSecrets(link.reason, known) };
+    });
+    const text = delivery ? maskVerificationSecrets(detail, known) : detail;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
     const findingsBudget = ui?.suppressions?.length ? 4094 : 8188;
     const suppressionsBudget = ui?.findings?.length ? 4094 : 8188;
-    return finish({ ...common, artifactStatus: out.status, stdoutTail: ui === undefined ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
+    return finish({ ...common, artifactStatus: out.status, ...(researchLinks === undefined ? {} : { researchLinks }), stdoutTail: ui === undefined && !delivery ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
       ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, findingsBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, suppressionsBudget) }),
-      ...(out.status === "uncheckable" ? { error: ui === undefined ? text : text.split("\n", 1)[0] } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
+      ...(out.status === "uncheckable" ? { error: ui !== undefined ? text.split("\n", 1)[0] : delivery ? text.slice(0, OUTPUT_TAIL_CHARS) : text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
   if (args.kind === "command") {
@@ -265,8 +291,9 @@ export async function runVerify(
   const started = Date.now();
   const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
   const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
+  const approveResearch = args.network ? (rawArgs as { readonly [APPROVE_RESEARCH_LINKS]?: ResearchApproval })[APPROVE_RESEARCH_LINKS] : undefined;
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
-    finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
+    finish({ kind: args.kind, isolated, error, ...((args.kind === "ui" || isArtifactKind(args.kind)) && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
   if (args.kind === "ui" && detector === undefined) {
     const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
@@ -275,9 +302,12 @@ export async function runVerify(
   }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
-  if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
+  if (args.kind === "files" || (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined)) {
     try {
-      const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started);
+      // Metadata-only file checks can observe the frozen source directly.
+      const complete = await ctx.inputIntegrity?.begin(ctx.workingDir, ctx.signal ?? new AbortController().signal);
+      const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started, undefined, approveResearch);
+      await complete?.();
       return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
     } catch (error) {
       return failed(error instanceof Error ? error.message : "uncheckable artifact", ctx.signal?.aborted ? "cancelled" : undefined);
@@ -299,7 +329,7 @@ export async function runVerify(
     } else {
       const completeIntegrity = await ctx.inputIntegrity?.begin(workspace.dir, ctx.signal ?? new AbortController().signal);
       const executionArgs = rebaseVerifyWorkspaceValue(args, ctx.workingDir, workspace.dir);
-      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector);
+      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector, approveResearch);
       executionResult = result;
       await completeIntegrity?.();
       // Executors may settle normally after an abort (a page can skip

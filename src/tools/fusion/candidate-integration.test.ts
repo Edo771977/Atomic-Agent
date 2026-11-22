@@ -770,3 +770,21 @@ it("preserves passing final checks alongside an uncheckable UI check", async () 
     await candidate.cleanup();
   }
 });
+
+it("rejects a delivery that deletes an observed file outside within", async () => {
+  const { runChecks } = await import("../verify/run-verify.js");
+  const root = await project();
+  await mkdir(join(root, "delivery"));
+  await writeFile(join(root, "delivery", "report.txt"), "fixture");
+  const candidate = await createCandidateIntegration(root);
+  try {
+    await rm(join(candidate.dir, "dirty.txt"));
+    const report = await candidate.finish({
+      rows, signal, contract: { checks: [{ kind: "files", expected: [join("delivery", "report.txt")], within: "delivery" }] },
+      runChecks,
+    });
+    expect(report).toMatchObject({ status: "rejected", contract: { checks: [
+      { ok: false, artifactStatus: "fail", output: expect.stringContaining("dirty.txt") },
+    ] } });
+  } finally { await candidate.cleanup(); }
+}, windowsCandidateTimeout);

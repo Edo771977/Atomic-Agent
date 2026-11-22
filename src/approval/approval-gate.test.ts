@@ -133,6 +133,15 @@ describe("ApprovalGate", () => {
     expect(decision.reason).toBe("auto-approved (level 5)");
   });
 
+  it("can require an explicit HTTP decision at an automatic approval level", async () => {
+    const emitted: string[] = [];
+    const gate = new ApprovalGate({ level: 5, emit: req => { emitted.push(req.approvalId); } });
+    const decision = gate.request({ sessionId: "research", category: "http", tool: "verify.run", reason: "probe sources" }, { requireExplicitDecision: true });
+    expect(emitted).toHaveLength(1);
+    gate.resolve({ approvalId: emitted[0]!, approved: false });
+    expect(await decision).toMatchObject({ approved: false });
+  });
+
   it("at a mid-ladder level, silences covered categories and prompts the rest", async () => {
     let emitted = 0;
     const gate = new ApprovalGate({
@@ -799,4 +808,19 @@ describe("ApprovalGate abort-listener lifecycle (issue #121)", () => {
     ).rejects.toThrow(/aborted/);
     expect(gate.pendingCount()).toBe(0);
   });
+});
+
+it("cannot turn an explicit research answer into an HTTP site grant", async () => {
+  const emitted: import("./approval-gate.js").ApprovalRequest[] = [];
+  const gate = new ApprovalGate({ level: 1, emit: req => { emitted.push(req); } });
+  const target = { sessionId: "research", category: "http" as const, affectedResources: ["https://example.test/research"], reason: "source probe" };
+  const first = gate.request({ ...target, tool: "verify.run" }, { requireExplicitDecision: true });
+  expect(emitted).toHaveLength(1);
+  const canGrant = canGrantCategory(emitted[0]!);
+  gate.resolve({ approvalId: emitted[0]!.approvalId, approved: true, grant: "category" });
+  await first;
+  const second = gate.request({ ...target, tool: "os.http.request" });
+  if (emitted[1]) gate.resolve({ approvalId: emitted[1].approvalId, approved: false });
+  expect(canGrant).toBe(false);
+  expect(await second).toMatchObject({ approved: false });
 });

@@ -41,6 +41,7 @@ export const criticalFiles = [
   'src/tools/verify/safe-regex.test.ts',
   // Issue #113 phase 1: deterministic document and spreadsheet checks.
   'src/tools/verify/artifact-run.test.ts',
+  'src/tools/verify/delivery-check.test.ts',
   'src/tools/verify/impeccable-check.test.ts',
   'src/tools/verify/document-check.test.ts',
   'src/tools/verify/spreadsheet-check.test.ts',

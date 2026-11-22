@@ -123,6 +123,28 @@ describe("project card lines", () => {
     expect(text(card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "plan" }))))).not.toContain("The board at start");
   });
 
+  it.each([
+    [{ valid: 4, unsigned: 0, problems: 0 }, "Evidence: 4 signed", "ok"],
+    [{ valid: 2, unsigned: 1, problems: 0 }, "Evidence: 2 signed, 1 unsigned (not verifiable; the signing key may have been unavailable)", "warn"],
+    [{ valid: 0, unsigned: 0, problems: 1 }, "Evidence: 1 problem", "error"],
+  ] as const)("shows evidence status and verification guidance as text", (evidenceReceipts, expected, tone) => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    view.milestones = view.milestones.map(m => m.id === "m1" ? { ...m, evidenceReceipts } : m);
+    const segments = projectCardLines(card(view), 90).flatMap(line => line.segments);
+    expect(segments.filter(s => s.tone === tone).map(s => s.text.trim()).join(" ")).toContain(expected);
+    if (evidenceReceipts.unsigned || evidenceReceipts.problems) {
+      expect(segments.map(s => s.text.trim()).join(" ")).toContain("Run atomic-agent project verify");
+    }
+  });
+
+  it("names the project folder in the evidence verification hint", () => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    view.milestones = view.milestones.map(m => m.id === "m1" ? {
+      ...m, evidenceReceipts: { valid: 0, unsigned: 0, problems: 1, folder: "/work/My Project" },
+    } : m);
+    expect(text(card(view))).toContain('Run atomic-agent project verify "/work/My Project"');
+  });
+
   it("note mode shows the typed correction", () => {
     let c = card(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
     c = reduceProjectCard(c, { type: "project_card_mode_set", mode: "note" })!;

@@ -506,11 +506,11 @@ describe("strict-tool conformance over every registered tool", () => {
     ]);
   });
 
-  it("advertises UI and its path in verify.run under strict-tool negotiation", () => {
+  it("advertises UI, files and research in verify.run under strict-tool negotiation", () => {
     const verify = strictTools.find((tool) => (tool.function as Schema).name === "verify__run");
     expect(verify?.function).toMatchObject({
       strict: false, // The existing free-form env map still needs its original wire schema.
-      parameters: { required: ["kind"], properties: { kind: { enum: expect.arrayContaining(["ui"]) }, path: { type: "string" } } },
+      parameters: { required: ["kind"], properties: { kind: { enum: expect.arrayContaining(["ui", "files", "research"]) }, path: { type: "string" }, expected: { type: "array" }, within: { type: "string" }, requireDates: { type: "boolean" } } },
     });
   });
 

@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { writeMilestoneReportReceipt } from "./project-milestone-receipt.js";
 import { createEmptySessionState } from "./session-state.js";
 import { canonicalJson, receiptHash } from "./receipt-signing.js";
-import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts } from "./project-receipts.js";
+import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceiptDetails, verifyProjectReceipts } from "./project-receipts.js";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -164,4 +164,93 @@ it("warns without exposing the requested ID when a saved milestone is missing", 
   writeMilestoneReportReceipt(dir, writer, warn, session, "private model text");
   expect(writer).not.toHaveBeenCalled();
   expect(warn).toHaveBeenCalledExactlyOnceWith("Could not save a milestone evidence receipt because the saved milestone was missing.");
+});
+
+it("keeps phase-one receipts without project IDs verifiable", () => {
+  const { dir, append } = setup();
+  append();
+  expect(verifyProjectReceiptDetails(dir, dir)).toEqual([
+    { kind: "check-run-record", projectId: null, status: "valid" },
+  ]);
+});
+
+it("bounds a milestone scan and includes identifiable receipts with verification problems", () => {
+  const { dir, credentials } = setup();
+  const keychain = {
+    read: (key: string) => ({ ok: true as const, value: credentials.get(key) ?? null }),
+    write: (key: string, value: string) => { credentials.set(key, value); return true; },
+  };
+  const scope = { projectId: "project-one", sessionId: "chat-one", milestoneId: "m1" };
+  appendProjectReceipt(dir, dir, "check-run-record", scope, keychain);
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const line = readFileSync(path, "utf8");
+  const row = JSON.parse(line);
+  const problems = [
+    { ...row, kind: "future-evidence" },
+    { ...row, keyId: "0".repeat(32) },
+    { ...row, signature: "invalid signature" },
+  ];
+  const tail = problems.map(problem => JSON.stringify(problem)).join("\n") + "\n";
+  for (const prefix of [line.repeat(513), JSON.stringify({ padding: "x".repeat(2 * 1024 * 1024) }) + "\n"]) {
+    writeFileSync(path, prefix + tail);
+    const result = verifyProjectReceiptDetails(dir, dir, scope);
+    expect(result.partial).toBe(true);
+    expect(result.receipts.length).toBeLessThanOrEqual(512);
+    expect(result.receipts.slice(-3).map(({ status }) => status)).toEqual(["unknown-kind", "unknown-key", "bad-signature"]);
+  }
+});
+
+it("marks a bounded scan partial only before reaching the current work", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2, since: 20_000 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  vi.useFakeTimers({ now: 10_000 });
+  try {
+    appendProjectReceipt(dir, dir, "check-run-record", { ...scope, runId: "old" }, noKey);
+    const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+    const old = readFileSync(path, "utf8");
+    writeFileSync(path, old.repeat(600));
+    vi.setSystemTime(21_000);
+    appendProjectReceipt(dir, dir, "check-run-record", { ...scope, runId: "current" }, noKey);
+    const complete = verifyProjectReceiptDetails(dir, dir, scope);
+    expect(complete.partial).toBe(false);
+    expect(complete.receipts).toHaveLength(1);
+    const current = readFileSync(path, "utf8").slice(old.length * 600);
+    writeFileSync(path, old + current.repeat(513));
+    expect(verifyProjectReceiptDetails(dir, dir, scope).partial).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("counts unreadable lines that may belong to the current work", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2, since: 20_000 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  vi.useFakeTimers({ now: 10_000 });
+  try {
+    appendProjectReceipt(dir, dir, "artifact-manifest", { ...scope, runId: "old" }, noKey);
+    const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+    const old = readFileSync(path, "utf8");
+    vi.setSystemTime(21_000);
+    appendProjectReceipt(dir, dir, "artifact-manifest", { ...scope, runId: "current" }, noKey);
+    const current = readFileSync(path, "utf8").slice(old.length);
+    writeFileSync(path, "{broken\n" + old + current + '{"kind":"check-run');
+    expect(verifyProjectReceiptDetails(dir, dir, scope).receipts.map(row => row.status))
+      .toEqual(["unsigned", "bad-signature"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps current embedded receipts after binding the same session", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  const embedded = { projectId: null, sessionId: "chat", milestoneId: "m1", runId: "current" };
+  appendProjectReceipt(dir, dir, "artifact-manifest", embedded, noKey);
+  appendProjectReceipt(dir, dir, "artifact-manifest", { ...embedded, sessionId: "different-chat" }, noKey);
+  appendProjectReceipt(dir, dir, "check-run-record", { ...embedded, projectId: "p" }, noKey);
+  expect(verifyProjectReceiptDetails(dir, dir, scope).receipts.map(({ kind, status }) => [kind, status]))
+    .toEqual([["artifact-manifest", "unsigned"], ["check-run-record", "unsigned"]]);
 });

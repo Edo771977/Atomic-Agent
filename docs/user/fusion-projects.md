@@ -86,6 +86,15 @@ The backlog holds work that is not ready for the plan yet. Only you promote, dro
 
 If the item can wait, defer it from the plan gate. It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft. The gate and `PLAN.md` show which tasks cite each item, and the worker of such a task is given the item's text. When every milestone is reviewed, the project says which promoted items were never done.
 
+Use the plan card in the TUI or Desktop, Telegram's `/defer` and `/activate`, or send a versioned plan-gate `edit` with `edits.backlogStatus` over HTTP. In the CLI, use one of these commands at the plan gate:
+
+```sh
+atomic-agent run --session <session-id> --defer-backlog b1,b2
+atomic-agent run --session <session-id> --activate-backlog b1
+```
+
+The command prints the updated plan and exits 3 while it waits for approval. Review the updated plan, then run `atomic-agent run --session <session-id> --approve <version>` separately with the version shown. Run `atomic-agent project backlog [folder]` to list the items and their current status.
+
 ## Read the plan review
 
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.
@@ -102,10 +111,13 @@ atomic-agent run --session <session-id> --approve <version>
 
 ## Check documents and spreadsheets
 
-Not every deliverable is code. A check can read a local document or spreadsheet without running anything:
+Not every deliverable is code. A check can verify local documents, spreadsheets, file deliveries and research:
 
 - **Documents** (`.docx`, `.md`, `.pdf`, `.txt`): required section headings, a word range, leftover placeholders such as `TODO`, `lorem ipsum` or `[insert]`, and the expected language. When the language cannot be told from the text, the result is **uncheckable**, never a pass.
 - **Spreadsheets** (`.xlsx`, `.csv`): required sheets and columns, cells with errors such as `#REF!` or `#DIV/0!` (named by sheet and cell), and totals recalculated from the data within a stated tolerance.
+
+- **Files**: expected names and paths, optional entry types, and containment of known changes inside a delivery folder. Without a change list, containment is uncheckable.
+- **Research**: numbered citations, matching sources and source dates. URLs are verified only with permitted HTTP egress and explicit approval. In a restricted or offline folder, URLs are shown as unverified and cannot pass a linked criterion.
 
 Macros and formulas are never run; workbook formulas need their saved results. Files over the size or time limits are reported as uncheckable with the reason. For the exact fields, see the [verification guide](../../src/tools/verify/README.md).
 
@@ -119,8 +131,10 @@ For a UI or polish milestone, the director can pair visual review with an Impecc
 atomic-agent project verify ./my-project
 ~~~
 
-This command checks saved delivery, check-execution, gate-decision and milestone-report receipts. Use `atomic-agent project verify ./my-project --json` for machine-readable results. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. Receipts may be unsigned when the signing key is unavailable.
+This command checks saved delivery, check-execution, gate-decision and milestone-report receipts. Use `atomic-agent project verify ./my-project --json` for machine-readable results. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. The terminal milestone card shows counts for signed, unsigned and problematic delivery, check and report receipts attributed to the milestone. An unsigned receipt has no verifiable signature. The signing key may have been unavailable, for example if the OS keychain was closed or missing. The card points to the full verifier for unsigned receipts and verification problems. A large archive can yield partial counts on the card. Run the command above for the full archive, including older receipts that lack project or milestone attribution. Incognito chats write no receipts and show no receipt summary.
 
-Verification covers the receipts present. It cannot tell whether a receipt was removed or whether current project files match the old delivery. A process running as your user with access to the signing key can sign replacement receipts.
+An unbound chat in a folder with an existing `.atomic/project/project.json` skips writing project receipts, including receipts for checks and artifact manifests. The checks still execute.
+
+Signatures support retrospective verification of the receipts present. It cannot tell whether a receipt was removed or whether current project files match the old delivery. A process running as your user with access to the signing key can sign replacement receipts.
 
 For implementation details, see the [session storage guide](../../src/session/README.md), the [Fusion module guide](../../src/tools/fusion/README.md) and the [CLI reference](../../src/cli/README.md).

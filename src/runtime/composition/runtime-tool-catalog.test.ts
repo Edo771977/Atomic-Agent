@@ -408,9 +408,11 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
       providerRegistry: { getProvider: () => undefined }, llama: { measuredTokensPerSecond: () => null, fetchSlots: async () => ({ slots: [] }), probeHealth: async () => "answered" as const }, slotManager: { poolSize: () => 2 }, workingDir: directory, logger });
     const wired = builder.mock.calls.at(-1)?.[0];
     expect(wired?.contractCheckEgress).toBeTypeOf("function");
-    expect(wired!.contractCheckEgress!({ kind: "page", path: "index.html" }, { sessionId: "s-parent", workingDir: directory })?.message).toContain('add "browser"');
-    expect(wired!.contractCheckEgress!({ kind: "command", cmd: "node" }, { sessionId: "s-parent", workingDir: directory })).toBeNull();
-    expect(seen).toEqual([{ tool: "verify.run", sessionId: "s-parent" }, { tool: "verify.run", sessionId: "s-parent" }]);
+    const ctx = { sessionId: "s-parent", workingDir: directory, stepIndex: 0, signal: new AbortController().signal };
+    expect(wired!.contractCheckEgress!({ kind: "page", path: "index.html" }, ctx)?.message).toContain('add "browser"');
+    expect(wired!.contractCheckEgress!({ kind: "command", cmd: "node" }, ctx)).toBeNull();
+    expect(wired!.contractCheckEgress!({ type: "research", path: "sources.md", network: true }, ctx)).toBeNull();
+    expect(seen).toEqual(["verify.run", "verify.run", "verify.run", "os.http.request"].map(tool => ({ tool, sessionId: "s-parent" })));
   });
 
   it("wires project.milestone's correctionBudgetLeft to the turn's caps (issue #100 review)", () => {

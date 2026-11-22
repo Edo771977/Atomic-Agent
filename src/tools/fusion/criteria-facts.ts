@@ -119,6 +119,10 @@ export function criteriaFactsFor(
         note("failed", `${label} did not run`);
         continue;
       }
+      if (outcome.artifactStatus === "uncheckable") {
+        note("unverified", `${label} uncheckable: ${outcome.detail}`);
+        continue;
+      }
       if (outcome.ok || !checkDidNotRun(outcome.detail)) {
         const output = outcome.run?.output ?? outcome.output;
         addBasis({ kind: "check", checks: [{ index: index + 1, ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] });

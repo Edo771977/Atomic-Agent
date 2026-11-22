@@ -7,6 +7,8 @@ import { execWriteTargets, shellWriteTargets, type ShellGuardPolicy } from "../o
 import { shellCommandArgv, shellRuleSegments, shellRunsUnreadableScript } from "../os/shell/shell-command-argv.js";
 import { formatShellPreview, needsShellInterpretation, shellGrantShape } from "../os/shell/shell-interpretation.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
+import { isOfflineNetwork } from "../../llm/offline-network.js";
+import type { ResearchApproval } from "./research-links.js";
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyCommand, guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
@@ -34,6 +36,8 @@ function maskedVerificationValue(value: unknown, known: readonly KnownSecret[]):
   if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [maskVerificationSecrets(key, known), maskedVerificationValue(item, known)]));
   return value;
 }
+export const APPROVE_RESEARCH_LINKS = Symbol("approve research link requests");
+
 const UI_UNCHECKABLE = Symbol("UI verification did not run");
 export function uiVerificationUnavailable(spec: Record<string, unknown>): string | undefined {
   return (spec as { readonly [UI_UNCHECKABLE]?: string })[UI_UNCHECKABLE];
@@ -45,6 +49,7 @@ function markUiUnavailable(spec: Record<string, unknown>, reason: string): void 
 export interface VerifyAuthorizationOptions extends DangerousToolOptions {
   /** Return a verdict for a refused UI check without holding its siblings. */
   continueOnUiApprovalDenial?: boolean;
+  researchNetworkRefusal?: string;
   shellPolicy?: ShellGuardPolicy;
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
@@ -96,7 +101,7 @@ const VERIFICATION_FIELDS = new Set([
   // A fusion contract check's vision judgement (issue #40): read by the
   // judge, stripped before the runner like `task` and `criteria`.
   "judge",
-  "requiredSections", "wordRange", "language", "extraPlaceholders", "requiredSheets", "requiredColumns", "totals",
+  "requiredSections", "wordRange", "language", "extraPlaceholders", "requiredSheets", "requiredColumns", "totals", "expected", "within", "requireDates",
 ]);
 
 /** Reject alternative executor meanings before interpreting or describing any plan. */
@@ -198,6 +203,7 @@ export async function authorizeVerifyBatch(
       relative(ctx.workingDir, file)).find(file => file && file !== ".." && !file.startsWith(`..${sep}`) && !isAbsolute(file));
     const execution = ui
       ? detector === undefined ? "no detector process will run" : "run installed impeccable in a private copy of this project"
+      : logical.kind === "files" ? "inspect path names and types only"
       : artifactTarget === undefined
       ? "in a private verification copy of this project; absolute project references are rebased into that copy"
       : "read a bounded file snapshot with an offline parser";
@@ -212,7 +218,8 @@ export async function authorizeVerifyBatch(
     const prompt = {
       sessionId: ctx.sessionId, tool: "verify.run",
       category: dangerous ? "shell_dangerous" as const : ui ? "verify_ui_detector" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
-      reason: artifactTarget === undefined
+      reason: logical.kind === "files" ? `verify file names and types in ${maskVerificationSecrets(cwd, previewKnown)}`
+        : artifactTarget === undefined
         ? `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`
         : logical.kind === "ui"
           ? `verify UI with ${maskVerificationSecrets(detector?.file ?? "impeccable (unavailable)", previewKnown)} on ${maskVerificationSecrets(artifactTarget, previewKnown)}`
@@ -251,6 +258,10 @@ export async function authorizeVerifyBatch(
     if (uiVerificationUnavailable(spec) !== undefined) continue;
     const readContext = { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] };
     const paths = (logical.kind === "page" || logical.kind === "ui" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
+    if (logical.kind === "files") {
+      for (const item of logical.expected ?? []) paths.push(resolve(cwd, item.replace(/^(?:file|dir):/u, "")));
+      if (logical.within !== undefined) paths.push(resolve(cwd, logical.within));
+    }
     const urls = [logical.url, logical.ready?.url, ...(logical.requests ?? []).flatMap(request => [request.url, request.path])];
     for (const url of urls) {
       if (url === undefined) continue;
@@ -336,5 +347,46 @@ export async function authorizeVerifyBatch(
     }
   }
   ctx.signal.throwIfAborted();
-  return snapshot;
+  return snapshot.map(spec => attachResearchNetworkApproval(spec, options, ctx));
+}
+
+/** Attach the lazy network approval without repeating the local preflight. */
+export function researchUrlMayBeDisclosed(url: string, known: readonly KnownSecret[]): boolean {
+  return redactResearchUrl(url, known) === url;
+}
+
+export function redactResearchUrl(url: string, known: readonly KnownSecret[]): string {
+  const masked = maskVerificationSecrets(url, known);
+  if (masked !== url) return masked;
+  try {
+    const decoded = decodeURIComponent(url);
+    return maskVerificationSecrets(decoded, known) === decoded ? url : "[redacted:source URL]";
+  } catch {
+    return url;
+  }
+}
+
+export function attachResearchNetworkApproval(
+  spec: Record<string, unknown>,
+  options: Pick<VerifyAuthorizationOptions, "approvals" | "knownSecrets" | "researchNetworkRefusal">,
+  ctx: Pick<VerifyAuthorizationContext, "sessionId" | "signal" | "workingDir" | "ruleWorkdir">,
+): Record<string, unknown> {
+  if ((spec.kind ?? spec.type) !== "research" || spec.network !== true) return spec;
+  const project = ctx.ruleWorkdir ?? ctx.workingDir;
+  const known = [...knownSecretsFromEnv(), ...(options.knownSecrets ?? [])];
+  const approve: ResearchApproval = async links => {
+    if (options.researchNetworkRefusal !== undefined) return maskVerificationSecrets(options.researchNetworkRefusal, known);
+    if (isOfflineNetwork()) return "runtime is offline";
+    if (typeof options.approvals.request !== "function") return "network approval unavailable";
+    ctx.signal.throwIfAborted();
+    const urls = links.map(link => link.url);
+    if (urls.some(url => !researchUrlMayBeDisclosed(url, known))) return "source URLs contain a hidden value";
+    const decision = await options.approvals.request({
+      sessionId: ctx.sessionId, tool: "verify.run", category: "http", workdir: project,
+      reason: `verify the reachability of ${urls.length} research URL(s), following up to three redirects per URL`,
+      preview: urls.join("\n"), affectedResources: urls,
+    }, { signal: ctx.signal, requireExplicitDecision: true });
+    return decision.approved && decision.automatic !== true ? undefined : "explicit network approval unavailable or declined";
+  };
+  return Object.defineProperty({ ...spec }, APPROVE_RESEARCH_LINKS, { value: approve });
 }

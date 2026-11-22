@@ -278,7 +278,7 @@ describe("json-schema-to-gbnf: what falls back", () => {
   });
 
   it("throws past the per-tool size cap, and leaves the table untouched", () => {
-    const wide = obj(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, { type: "string" }])));
+    const wide = obj(Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, { enum: [`value${i}`, "common"] }])));
     const table = new RuleTable(HOST_NAMES);
     expect(() => convertArgsSchema(wide, "args-wide", table, { maxRules: 20, maxChars: 50_000 })).toThrow(
       SchemaConversionError,

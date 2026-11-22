@@ -548,7 +548,7 @@ async function reviewDraft(
   // Rounds count per plan cycle: on from the last review until a person decides (issue #118).
   const continues = previous !== undefined && previous.decided !== true;
   const answer = await deps.planReview({
-    ...(ctx.incognito || ctx.projectLessonSource === undefined ? {} : { lessonSource: ctx.projectLessonSource }),
+    ...(ctx.incognito || ctx.projectRef === undefined ? {} : { lessonSource: ctx.projectRef }),
     input: {
       brief: { what: project.brief.what, users: project.brief.users, how: project.brief.how, ...(project.brief.deliverable === undefined ? {} : { deliverable: project.brief.deliverable }) },
       criteria: draft.criteria,

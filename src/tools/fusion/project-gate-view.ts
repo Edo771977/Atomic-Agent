@@ -9,9 +9,11 @@ import {
   planReviewFactsOf,
   planReviewPersonCalls,
   type ProjectState,
+  type ProjectMilestone,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
-import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
+import { verifyProjectReceiptDetails, type MilestoneReceiptCache } from "../../session/project-receipts.js";
+import type { MilestoneEvidenceReceipts, ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
 import { directorReportWarnings, milestoneReportParts, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
@@ -20,7 +22,7 @@ import { backlogDecisionFingerprint, backlogStateOf, backlogTakenIn, openBacklog
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
  * types live in `session/project-gate-view.ts` so surfaces can import
- * them; this file only fills them, pure.
+ * them. The optional receipt source is used only for the active milestone.
  */
 
 // The view's violation kinds must stay the estimator's.
@@ -35,6 +37,7 @@ export interface ProjectGateViewInput {
   planChecks?: PlanCheckOptions;
   sessionId: string;
   project: ProjectState;
+  receiptSource?: { stateDir: string; folder: string; projectId: string | null; cache?: MilestoneReceiptCache };
   /** `estimatePlan` of the plan's rows with live limits; null without a plan. */
   estimate: PlanEstimate | null;
   /** The members the person may pick, in config order. */
@@ -82,6 +85,30 @@ export const deferredHint = (id: string, title: string): string => `promoted fro
 /** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
 export const CHANGED_OUTSIDE_HINT =
   "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
+
+function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilestone): MilestoneEvidenceReceipts | undefined {
+  const source = input.receiptSource;
+  if (source === undefined) return undefined;
+  const counts: MilestoneEvidenceReceipts = { folder: source.folder, valid: 0, unsigned: 0, problems: 0 };
+  try {
+    const { receipts, partial } = verifyProjectReceiptDetails(source.stateDir, source.folder, {
+      projectId: source.projectId,
+      sessionId: input.sessionId,
+      milestoneId: milestone.id,
+      runIds: milestone.runIds.filter(id => !milestone.replacedEvidenceRunIds?.includes(id)),
+      version: gateVersion(input.project),
+      since: milestone.evidenceSince ?? milestone.corrections?.at(-1)?.at,
+    }, source.cache);
+    for (const { status } of receipts) {
+      if (status === "valid" || status === "unsigned") counts[status]++;
+      else counts.problems++;
+    }
+    if (partial) counts.partial = true;
+    return receipts.length > 0 || partial ? counts : undefined;
+  } catch {
+    return { ...counts, archiveUnavailable: true };
+  }
+}
 
 export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const { project, estimate } = input;
@@ -198,6 +225,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
         items,
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
+  const evidenceMilestone = project.gate.kind === "milestone" ? project.gate.id : null;
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
@@ -250,15 +278,23 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             totals: estimate?.totals ?? plan.totals,
             editable,
           },
-    milestones: project.milestones.map((m) => ({
-      ...m,
-      ...(m.criteriaFacts?.length ? { criteriaBasisSummary: summarizeCriterionBases(m.criteriaFacts) } : {}),
-      ...(m.summary === undefined ? {} : {
-        directorReportWarnings: directorReportWarnings(milestoneReportParts(m.summary).report, m.criteriaFacts ?? [], project.approvedCriteria ?? project.brief?.successCriteria ?? []),
-      }),
-      estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
-      estMs: byMilestone.get(m.id)?.ms ?? null,
-    })),
+    milestones: project.milestones.map(m => {
+      const view = {
+        ...m,
+        ...(m.criteriaFacts?.length ? { criteriaBasisSummary: summarizeCriterionBases(m.criteriaFacts) } : {}),
+        ...(m.summary === undefined ? {} : {
+          directorReportWarnings: directorReportWarnings(milestoneReportParts(m.summary).report, m.criteriaFacts ?? [], project.approvedCriteria ?? project.brief?.successCriteria ?? []),
+        }),
+        estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
+        estMs: byMilestone.get(m.id)?.ms ?? null,
+      };
+      // Only card renderers request verification. Serializing the common
+      // gate view for other surfaces leaves the archive untouched.
+      if (m.id === evidenceMilestone && input.receiptSource !== undefined) {
+        Object.defineProperty(view, "evidenceReceipts", { get: () => milestoneEvidence(input, m) });
+      }
+      return view;
+    }),
     violations,
     hints,
   };

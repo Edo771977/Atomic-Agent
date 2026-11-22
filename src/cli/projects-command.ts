@@ -396,8 +396,15 @@ async function backlogCommand(
   args: string[],
   io: ProjectCommandIO,
 ): Promise<number> {
+  const help =
+    "Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n" +
+    "At the plan gate, use atomic-agent run --session <id> --defer-backlog <id> or --activate-backlog <id>.\n";
+  if (args.includes("--help") || args.includes("-h")) {
+    io.stdout(help);
+    return 0;
+  }
   const usage = () => {
-    io.stderr("Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n");
+    io.stderr(help);
     return 2;
   };
   let json = false;

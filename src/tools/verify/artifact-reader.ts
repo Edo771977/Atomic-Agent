@@ -1,3 +1,5 @@
+import { evaluateResearch } from "./research-check.js";
+import { evaluateFiles } from "./files-check.js";
 import { extname } from "node:path";
 import { readArtifactSnapshot } from "./artifact-snapshot.js";
 import { Readable } from "node:stream";
@@ -25,13 +27,16 @@ async function checkOfficeBudget(bytes: Buffer): Promise<void> {
   }
 }
 
-async function evaluateFile({ root, cwd, kind, path, spec }: ArtifactJob): Promise<ArtifactOutcome> {
+async function evaluateFile({ root, cwd, kind, path, spec, changedPaths }: ArtifactJob): Promise<ArtifactOutcome> {
+  if (kind === "files") return evaluateFiles(root, cwd, spec.expected as string[], spec.within as string | undefined, changedPaths);
+  if (path === undefined) throw new Error("artifact path is missing");
   const extension = extname(path).toLowerCase();
-  const supported = kind === "document" ? [".md", ".docx", ".txt", ".pdf"] : [".csv", ".xlsx"];
+  const supported = kind !== "spreadsheet" ? [".md", ".docx", ".txt", ".pdf"] : [".csv", ".xlsx"];
   const bytes = await readArtifactSnapshot(root, cwd, path, () => {
     if (!supported.includes(extension)) throw new Error(`unsupported ${kind} extension: ${extension}`);
   });
   if (extension === ".docx" || extension === ".xlsx") await checkOfficeBudget(bytes);
+  if (kind === "research") return evaluateResearch(bytes, extension, spec.requireDates === true);
   return kind === "document"
     ? evaluateDocument(bytes, extension, parseDocumentSpec(spec))
     : evaluateSpreadsheet(bytes, extension, parseSpreadsheetSpec(spec));
