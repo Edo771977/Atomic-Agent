@@ -120,6 +120,17 @@ describe("plan reviewer answer", () => {
 
 describe("reviewPlan", () => {
   const member = m("cloud:model-r");
+  it.each(["Active lessons were not supplied by the folder policy.", "3 more lessons were not shown."])(
+    "reports incomplete lesson coverage: %s", async (lessonOmission) => {
+      const complete = fakeReviewer(answer());
+      const run = await reviewPlan({ input: input([checked("t1")], { lessonOmission }), member, pricing: undefined, complete, signal, sessionId: "s" });
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining(lessonOmission) }));
+      expect(run).toMatchObject({ outcome: "reviewed", results: expect.arrayContaining([
+        expect.objectContaining({ dimension: "lessons", verdict: "warn", detail: lessonOmission }),
+      ]) });
+    },
+  );
+
   it("reports a task that repeats a ruled-out approach", async () => {
     const lessons = [{ id: "storage", title: "Storage", always: true, sections: { triedAndRuledOut: "Use X", decided: "Use Y", watchOut: "" } }];
     const complete: EscalationComplete = vi.fn(async ({ prompt }) => {

@@ -1,4 +1,4 @@
-import { projectLessonSelection, projectLessonsForProvider, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
+import { reviewerProjectLessons, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
 import type { ProjectLessonSource } from "../../session/project-lessons.js";
 import { TEAM_MEMBER_PROVIDER_MODEL } from "../../config/llm-fusion-team-config.js";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
@@ -49,7 +49,7 @@ const DIMENSION_TEXT: Record<PlanReviewDimension, string> = {
   scope: "the plan drops nothing the brief asks for without saying so in a task title; a reduced scope is a fail.",
   numbers: "every number in the plan (a size, a limit, a speed, a target) comes from the brief or is measured by a check; an invented number is a warn or a fail. A task's runtimeEstimate is computed by the runtime (measured runs or a preset), not a number the plan wrote: do not judge it.",
   decisions: "every active decision of the brief is cited by a task that will honour it, and no task contradicts one.",
-  lessons: "fail and name the task ids when a task repeats an approach in triedAndRuledOut (Provato e scartato) or contradicts decided (Deciso) in an active lesson. Treat always: true as binding, like an active brief decision. Consider watchOut for warnings. Pass if no active lessons are supplied.",
+  lessons: "fail and name the task ids when a task repeats an approach in triedAndRuledOut (Provato e scartato) or contradicts decided (Deciso) in an active lesson. Treat always: true as binding, like an active brief decision. Consider watchOut for warnings. If lesson coverage is incomplete, report at least warn. Pass when there are no active lessons to review.",
 };
 
 export interface PlanReviewInput {
@@ -57,6 +57,7 @@ export interface PlanReviewInput {
   criteria: readonly ProjectCriterion[];
   decisions: readonly PlanDecision[];
   lessons?: readonly ProjectLessonData[];
+  lessonOmission?: string;
   milestones: ReadonlyArray<{ id: string; title: string; kind: MilestoneKind }>;
   rows: readonly AssignmentRow[];
   /** The deterministic plan checks of these rows (issue #110, #112, #120): facts, not the reviewer's to change. */
@@ -108,6 +109,7 @@ export function renderPlanReviewPrompt(input: PlanReviewInput): string {
     "You only report. You cannot approve, edit or reorder the plan; the director revises it and the person decides.",
     "The deterministic checks were computed by scripts: treat them as facts. A deterministic fail is a fail in its dimension too.",
     ...backlogRule,
+    ...(input.lessonOmission === undefined ? [] : [input.lessonOmission, "Report incomplete coverage under lessons."]),
     "",
     "## Dimensions (rule on every one, once)",
     ...PLAN_REVIEW_DIMENSIONS.map((d) => `- ${d}: ${DIMENSION_TEXT[d]}`),
@@ -253,7 +255,16 @@ export async function reviewPlan(args: {
     }
     const parsed = parsePlanReviewAnswer(content, taskIds);
     // The model's own verdicts only: the facts floor is applied when the review is used (`withPlanFacts`).
-    if (parsed.ok) return { outcome: "reviewed", results: parsed.results, costUsd, answered };
+    if (parsed.ok) {
+      const notice = args.input.lessonOmission;
+      const results = notice === undefined ? parsed.results : parsed.results.map((result): PlanReviewResult =>
+        result.dimension !== "lessons" ? result : {
+          ...result,
+          verdict: result.verdict === "pass" ? "warn" : result.verdict,
+          detail: result.verdict === "pass" ? notice : `${notice} ${result.detail}`.slice(0, PLAN_REVIEW_DETAIL_MAX),
+        });
+      return { outcome: "reviewed", results, costUsd, answered };
+    }
     error = parsed.error;
   }
   return { outcome: "not-run", reason: `the reviewer's answer could not be read twice (${error})`, costUsd, answered };
@@ -306,9 +317,9 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
     if (pick.kind === "skip") return { outcome: "skipped", reviewer: null, results: [], reason: pick.reason, costUsd: null };
     const member = pick.member;
     const pin = deps.pinsModel(member.providerId) && member.model !== TEAM_MEMBER_PROVIDER_MODEL ? member.model : undefined;
-    const lessons = lessonSource === undefined ? input.lessons : projectLessonSelection(projectLessonsForProvider(lessonSource, member.providerId)).data;
+    const selection = lessonSource === undefined ? undefined : reviewerProjectLessons(lessonSource, member.providerId);
     const run = await reviewPlan({
-      input: { ...input, ...(lessons === undefined ? {} : { lessons }) },
+      input: { ...input, ...(selection === undefined ? {} : { lessons: selection.data, ...(selection.notice === undefined ? {} : { lessonOmission: selection.notice }) }) },
       member,
       ...(pin === undefined ? {} : { pinModel: pin }),
       pricing: deps.pricing(member),

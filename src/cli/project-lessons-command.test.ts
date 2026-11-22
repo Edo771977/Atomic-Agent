@@ -214,7 +214,9 @@ describe("project lessons", () => {
     resetConfigCache();
     expect(director("local", "local-llama").tail).toContain("private-active");
     expect(director("cloud", "cloud", { ...saved.session, cloudContext: cloud.cloudContext! }).text).not.toContain("private-active");
-    expect(await reviewer("cloud")).not.toContain("private-active");
+    const restrictedReview = await reviewer("cloud");
+    expect(restrictedReview).not.toContain("private-active");
+    expect(restrictedReview).toContain("Active lessons were not supplied by the folder policy.");
     expect(worker("cloud")).toBeNull();
   });
 

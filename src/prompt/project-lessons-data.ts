@@ -3,7 +3,7 @@ import { resolveProjectConstraint } from "../config/project-constraint-match.js"
 import { activeProjectLessons, type ProjectLesson, type ProjectLessonSource } from "../session/project-lessons.js";
 import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
 
-import type { ProjectLessonData } from "../session/project-lesson-projection.js";
+import { projectLessonSelection, type ProjectLessonData } from "../session/project-lesson-projection.js";
 export { projectLessonSelection, type ProjectLessonData } from "../session/project-lesson-projection.js";
 
 export const DIRECTOR_LESSONS_GUIDANCE =
@@ -15,6 +15,17 @@ export function projectLessonsForProvider(source: ProjectLessonSource, providerI
   const policy = resolveProjectConstraint(config, source.folder);
   if (policy !== undefined && (providerId === undefined || !policy.allows(providerId))) return [];
   return activeProjectLessons(source, config.paths.stateDir);
+}
+
+export function reviewerProjectLessons(source: ProjectLessonSource, providerId: string) {
+  const config = getConfig();
+  const active = activeProjectLessons(source, config.paths.stateDir);
+  const denied = resolveProjectConstraint(config, source.folder)?.allows(providerId) === false;
+  const selection = projectLessonSelection(denied ? [] : active);
+  const notice = denied && active.length > 0
+    ? "Active lessons were not supplied by the folder policy."
+    : selection.omitted > 0 ? projectLessonOmissionNotice(selection.omitted) : undefined;
+  return { ...selection, notice };
 }
 
 export function projectLessonOmissionNotice(omitted: number): string {
