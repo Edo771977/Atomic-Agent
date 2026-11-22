@@ -257,11 +257,11 @@ const FORMS: Record<string, CompactToolForm> = {
     tier: RARE,
   },
   "fusion.delegate": {
-    summary: "Hand independent parts of the work to local workers; call it alone.",
+    summary: "Delegate independent tasks alone. See ### fusion for checks that can fail.",
     tier: RARE,
   },
   "project.brief": { summary: "Draft the project brief for the person to approve; then reply." },
-  "project.plan": { summary: "Draft the plan (milestones, tasks) for the approved brief; then reply." },
+  "project.plan": { summary: "Draft milestones and tasks. See ### fusion for checks that can fail. Then reply." },
   "project.milestone": { summary: "Report the approved milestone's result (done|failed, summary); then reply." },
   reply: {
     summary:

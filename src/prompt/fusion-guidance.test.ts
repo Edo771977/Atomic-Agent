@@ -18,6 +18,7 @@ import { COMPOSIO_SEARCH_TOOL } from "./composio-guidance.js";
 import { buildStablePrefix, type ToolDescriptor } from "./stable-prefix.js";
 import type { CapabilitiesSummary } from "./capabilities.js";
 import { DEFAULT_TOOL_DESCRIPTORS } from "./tool-descriptors.js";
+import { evaluateChecks } from "../tools/verify/verify-checks.js";
 
 function descriptor(name: string): ToolDescriptor {
   return { name, summary: `${name} summary`, argsSchema: "{}" };
@@ -131,11 +132,41 @@ describe("the ### fusion prefix section", () => {
   });
 
   it("says the call is solo and that results must be verified", () => {
-    expect(FUSION_GUIDANCE).toMatch(/on its own, never alongside/i);
+    expect(FUSION_GUIDANCE).toContain("Call `fusion.delegate` on its own.");
     expect(FUSION_GUIDANCE).toContain("needs_orchestrator");
     // ATO-945: a worker's question is answered by the orchestrator and the task re-sent.
     expect(FUSION_GUIDANCE).toContain("`needs_input`: answer it, re-send.");
     expect(FUSION_GUIDANCE).not.toContain("cannot ask");
+  });
+
+  it.each([false, true])("teaches command checks that can fail in the rendered prefix (compact=%s)", (compact) => {
+    const toolDescriptors = DEFAULT_TOOL_DESCRIPTORS.filter(
+      ({ name }) => name === "fusion.delegate" || name === "project.plan",
+    );
+    const prefix = buildStablePrefix({ toolDescriptors, capabilities: CAPS, skillCatalog: [], compact });
+    const guidance = prefix.slice(prefix.indexOf("### fusion\n"), prefix.indexOf("### instructions"));
+    expect(guidance).toMatch(/observe the actual result/i);
+    expect(guidance).toMatch(/measure numbers from source/i);
+    expect(guidance).toMatch(/print and assert a success-only marker/i);
+    expect(guidance).toMatch(/absence.*known positive.*`negative`.*must fail/i);
+    expect(guidance).toContain("Review checks before work");
+    const checks = [...guidance.matchAll(/`(exit 0|stdout (?:not )?contains "[^"]+")`/g)].map((match) => match[1]!);
+    expect(checks).toEqual(["exit 0", 'stdout contains "passed"', 'stdout not contains "Tests: 0 passed"']);
+    const verify = (exitCode: number, stdout: string): boolean =>
+      evaluateChecks(checks, { kind: "command", exitCode, stdout }).every(({ ok }) => ok);
+    expect(verify(0, "Tests: 1 passed")).toBe(true);
+    expect(verify(0, "Tests: 10 passed")).toBe(true);
+    expect(verify(0, "Tests: 0 passed")).toBe(false);
+    expect(verify(1, "Tests: 1 passed")).toBe(false);
+  });
+
+  it("points both authoring descriptors at the check guidance in their full and compact forms", () => {
+    for (const name of ["fusion.delegate", "project.plan"]) {
+      const descriptor = DEFAULT_TOOL_DESCRIPTORS.find((tool) => tool.name === name)!;
+      expect(descriptor.summary).toContain("checks that can fail");
+      expect(descriptor.compact?.summary).toContain("checks that can fail");
+      expect(descriptor.compact?.summary.length).toBeLessThan(120);
+    }
   });
 
   it("says a task that replaced a user's file is not done until it is restored or the replacement was wanted (F43)", () => {
@@ -326,8 +357,8 @@ describe("the machine facts in the ### fusion block", () => {
     // a re-run of `verify.syntax` is a strong step for nothing.
     expect(FUSION_GUIDANCE).toContain("Checks and syntax run for you");
     expect(FUSION_GUIDANCE).not.toContain("`verify.syntax` on the declared files");
-    expect(FUSION_GUIDANCE).toContain("`verify.run` on what the request must do");
-    expect(FUSION_GUIDANCE).toMatch(/only makes sense with this conversation/i);
+    expect(FUSION_GUIDANCE).toContain("`verify.run` for uncovered criteria");
+    expect(FUSION_GUIDANCE).toContain("context-dependent judgement");
     // And the width is stated as the model's own call.
     expect(FUSION_GUIDANCE).toMatch(/You choose `maxWorkers`/);
   });
@@ -419,8 +450,7 @@ describe("a local worker's limits in the ### fusion block (ATO-1363)", () => {
     const block = buildFusionGuidance({ ...LIMITS, tokensPerSecond: 6.4 });
     expect(block).toContain("Set `outputTokens` (or `outputLines`)");
     expect(block).toContain("is flagged on its row");
-    // The estimate line never refuses a task (the base block's "Tools that
-    // change things are refused for you" is about the orchestrator).
+    // The estimate line reports fit without refusing the task.
     const estimateLine = block.split("\n").find((line) => line.includes("outputTokens"));
     expect(estimateLine).not.toContain("refused");
   });

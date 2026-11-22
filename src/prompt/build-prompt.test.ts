@@ -10,7 +10,6 @@ import {
 } from "../llm/model-profile.js";
 import { buildPrompt } from "./build-prompt.js";
 import { PROFILE_SECTION_CAPTION } from "../memory/profile-renderer.js";
-import { FUSION_GUIDANCE } from "./fusion-guidance.js";
 import { DEFAULT_TOOL_DESCRIPTORS } from "./tool-descriptors.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import type { SessionState } from "../session/session-state.js";
@@ -164,8 +163,7 @@ describe("buildPrompt", () => {
       skillCatalog: SKILLS,
     });
     expect(withFusion.text).toContain("### fusion");
-    // The behavioural lines; the task-sizing clause depends on the leg.
-    expect(withFusion.text).toContain(FUSION_GUIDANCE.split("\n")[0]!);
+    expect(withFusion.text).toContain("Keep the design and review each reply against its brief.");
     expect(withFusion.text.indexOf("### fusion")).toBeLessThan(
       withFusion.text.indexOf("### instructions"),
     );
