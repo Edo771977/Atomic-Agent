@@ -477,3 +477,11 @@ describe("runChecks", () => {
     expect(good.ok).toBe(true);
   });
 });
+
+it("marks every verify child even with a differently cased environment override", async () => {
+  const result = await runVerify({
+    kind: "command", cmd: NODE, env: { atomic_agent_tool_child: "override" },
+    args: ["-e", "console.log('marker:' + process.env.ATOMIC_AGENT_TOOL_CHILD)"],
+  }, ctx());
+  expect(result.stdoutTail).toContain("marker:1");
+});

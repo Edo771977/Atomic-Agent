@@ -34,6 +34,10 @@ export function parseContractChecks(raw: unknown, known: (task: unknown, label: 
       if (criteria === null) continue;
       if (!readCheckJudge(judge, spec, criteria, `${label}.judge`, problems)) continue;
       // Issue #110: the same command on an input that must fail.
+      if ((spec.kind ?? spec.type) === "ui" && typeof spec.service === "string" && rawNegative != null) {
+        problems.push(`${label}: service-backed UI checks cannot have a negative control`);
+        continue;
+      }
       const negative = parseCheckNegative(rawNegative, spec, label, problems);
       if (negative === null) continue;
       const controlled = negative === undefined ? spec : { ...spec, negative };
@@ -55,6 +59,19 @@ export function parseContractChecks(raw: unknown, known: (task: unknown, label: 
         continue;
       }
       checks.push({ task: (task as string).trim(), ...withCriteria });
+    }
+    const services = new Map<string, ContractCheck>();
+    for (const check of checks) {
+      const kind = check.kind ?? check.type;
+      if (kind === "service" && typeof check.id === "string") {
+        if (services.has(check.id)) problems.push(`duplicate contract check service: ${check.id}`);
+        services.set(check.id, check);
+      } else if (kind === "ui" && typeof check.service === "string") {
+        const service = services.get(check.service);
+        if (service === undefined || service.task !== check.task) {
+          problems.push(`UI check service ${check.service} must name an earlier service check on the same task or at the same call level`);
+        }
+      }
     }
     return checks;
   }

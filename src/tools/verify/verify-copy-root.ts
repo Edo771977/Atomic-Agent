@@ -53,7 +53,7 @@ export function verifyCopyRoot(
   workingDir: string,
   home: string = homedir(),
 ): VerifyCopyRoot {
-  if (!isTooBroadScope(workingDir, home)) return { ok: true, root: workingDir, args: rawArgs };
+  if ((args.kind === "ui" && args.url !== undefined) || !isTooBroadScope(workingDir, home)) return { ok: true, root: workingDir, args: rawArgs };
   const refuse = (): VerifyCopyRoot => ({ ok: false, message: tooBroadWorkdirMessage(workingDir, "verify.run did not run: a verification copy") });
   let cwd: string;
   try {

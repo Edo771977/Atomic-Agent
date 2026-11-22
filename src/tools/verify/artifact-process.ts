@@ -1,3 +1,4 @@
+import { markAgentToolChild } from "../../sandbox/command-env.js";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -58,7 +59,7 @@ export async function runArtifactCheck(kind: ArtifactKind, args: VerifyRunArgs, 
     cwd: tmpdir(), windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
     // Load the installed parsers and read the authorized file. The child has
     // no network, subprocess or filesystem write permission, nor runtime credentials.
-    env: { SystemRoot: process.env.SystemRoot, NODE_OPTIONS: ARTIFACT_NODE_OPTIONS },
+    env: markAgentToolChild({ SystemRoot: process.env.SystemRoot, NODE_OPTIONS: ARTIFACT_NODE_OPTIONS }),
   });
   return new Promise<ArtifactOutcome>((done) => {
     let settled = false;

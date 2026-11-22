@@ -19,7 +19,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 
-import { buildCommandEnv } from "../../sandbox/command-env.js";
+import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
 import {
   buildDirectInvocation,
@@ -141,10 +141,10 @@ export function spawnVerifyProcess(
   const detached = process.platform !== "win32";
   const child = spawn(invocation.command, invocation.args, {
     cwd: options.cwd,
-    env: withEnvOverrides({
+    env: markAgentToolChild(withEnvOverrides({
       ...buildCommandEnv(process.env),
       ...(options.network ? {} : networkBlockEnv()),
-    }, options.env ?? {}),
+    }, options.env ?? {})),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,

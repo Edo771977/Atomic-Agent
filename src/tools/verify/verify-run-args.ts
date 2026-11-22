@@ -77,6 +77,8 @@ export interface VerifyRunArgs extends Partial<DocumentSpec>, Partial<Spreadshee
   /** Fed to the command's standard input, then closed; at most 64 KB (UTF-8). Absent: an empty stdin. */
   readonly stdin?: string;
   // service, and optionally page (a server the page is loaded from)
+  readonly id?: string;
+  readonly service?: string;
   readonly start?: { readonly cmd: string; readonly args?: readonly string[] };
   readonly ready?: {
     readonly port?: number;
@@ -335,6 +337,24 @@ function relativeEntry(path: string, field: string): string {
   return path;
 }
 
+export function localUiUrl(url: string): string {
+  const match = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):([0-9]{1,5})(?:[/?#]|$)/i.exec(url);
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 65535 || /[\\\s"<>\p{Cc}\p{Cf}]/u.test(url)) {
+    fail("UI url must be an HTTP loopback URL (127.0.0.1, localhost or [::1]) with an explicit port");
+  }
+  return url;
+}
+
+function serviceName(raw: unknown, field: string): string | undefined {
+  const name = optionalNonEmptyString(raw, field);
+  if (name !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(name)) fail(`${field} must be a service identifier`);
+  return name;
+}
+
+export function uiServiceUrl(ready: NonNullable<VerifyRunArgs["ready"]>): string {
+  return localUiUrl(ready.url ?? `http://127.0.0.1:${ready.port}/`);
+}
+
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind ?? raw.type, "kind");
   if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet, ui, files, research");
@@ -353,11 +373,17 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const game = parseGame(raw.game, kind);
   const screenshot = parseScreenshot(raw.screenshot, kind);
   if (isArtifactKind(kind) || kind === "ui") {
-    const path = kind === "files" ? undefined : requiredString(raw.path, "path");
+    const url = kind === "ui" ? optionalNonEmptyString(raw.url, "url") : undefined;
+    const service = kind === "ui" ? serviceName(raw.service, "service") : undefined;
+    const path = kind === "files" ? undefined : kind === "ui" ? optionalNonEmptyString(raw.path, "path") : requiredString(raw.path, "path");
+    if (kind === "ui" && [path, url, service].filter(value => value !== undefined).length !== 1) {
+      fail("UI needs exactly one of path, url or service");
+    }
+    if (url !== undefined) localUiUrl(url);
     if (path !== undefined && (isAbsolute(path) || win32.isAbsolute(path) || /[:\0]/.test(path) || path.split(/[\\/]/).includes(".."))) {
       fail("artifact path must be relative to the project folder");
     }
-    if ((base.network && kind !== "research") || optionalNonEmptyString(raw.url, "url") || startGiven(raw.start) ||
+    if ((base.network && kind !== "research") || (kind !== "ui" && optionalNonEmptyString(raw.url, "url")) || startGiven(raw.start) ||
         [raw.cmd, raw.command].some(value => typeof value === "string" && value.trim()) ||
         (Array.isArray(raw.args) && raw.args.length > 0) || Object.keys(base.env ?? {}).length) {
       fail("artifact checks read a local file and do not accept network, URLs, commands or environment overrides");
@@ -376,7 +402,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
       if (raw.requireDates != null && typeof raw.requireDates !== "boolean") fail("requireDates must be a boolean");
       return { ...base, kind, path, requireDates: raw.requireDates === true };
     }
-    if (kind === "ui") return { ...base, kind, path };
+    if (kind === "ui") return { ...base, kind, path, url, service };
     const spec = kind === "document" ? parseDocumentSpec(raw) : parseSpreadsheetSpec(raw);
     return { ...base, ...spec, kind, path };
   }
@@ -391,6 +417,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
     if (port === undefined && url === undefined) fail("service needs `ready.port` or `ready.url`");
     return {
       ...base,
+      id: serviceName(raw.id, "id"),
       start: { cmd: requiredString(start.cmd, "start.cmd"), args: optionalStringArray(start.args, "start.args") ?? [] },
       ready: { port, url, timeoutMs: clampedNumber(ready.timeoutMs, "ready.timeoutMs", VERIFY_READY_DEFAULT_TIMEOUT_MS, VERIFY_RUN_MAX_TIMEOUT_MS) },
       requests: parseRequests(raw.requests) ?? [],
