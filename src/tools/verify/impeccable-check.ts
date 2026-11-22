@@ -191,7 +191,7 @@ export async function runImpeccableCheck(
           ...(approved.path === undefined ? {} : { PATH: approved.path }),
           ...(args.url === undefined ? {} : { NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1" }),
           DO_NOT_TRACK: "1",
-          IMPECCABLE_SAMPLE_CACHE: join(root, ".impeccable-sample-cache"),
+          ...(args.url === undefined ? { IMPECCABLE_SAMPLE_CACHE: join(root, ".impeccable-sample-cache") } : {}),
           npm_config_offline: "true",
         },
       });

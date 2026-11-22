@@ -236,7 +236,9 @@ export async function authorizeVerifyBatch(
     const localExecutable = detector === undefined ? undefined : [detector.candidate, detector.file].map(file =>
       relative(ctx.workingDir, file)).find(file => file && file !== ".." && !file.startsWith(`..${sep}`) && !isAbsolute(file));
     const execution = ui
-      ? detector === undefined ? "no detector process will run" : "run installed impeccable in a private copy of this project"
+      ? (logical.url ?? serviceUrl) !== undefined
+        ? "launch an installed Chromium-based browser selected by Impeccable; the page can load external resources and follow redirects"
+        : "run installed impeccable in a private copy of this project"
       : logical.kind === "files" ? "inspect path names and types only"
       : artifactTarget === undefined
       ? "in a private verification copy of this project; absolute project references are rebased into that copy"

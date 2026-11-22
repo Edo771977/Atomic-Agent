@@ -492,3 +492,23 @@ it("attributes findings to the normalized rendered URL", async () => {
   await fake(2, [finding("low-contrast", { file: "http://localhost:8080/" })], "impeccable", url);
   expect(await runVerify({ kind: "ui", url }, { workingDir: root })).toMatchObject({ artifactStatus: "fail" });
 });
+
+it("discloses browser navigation and scans a standalone URL without a project copy", async () => {
+  const url = "http://localhost:8080/";
+  await fake(2, [finding("low-contrast", { file: url })], "impeccable", url);
+  const request = vi.fn(async () => ({ approved: true }));
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", url }], {
+    approvals: { request } as never, approvalRequired: true,
+  }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 });
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({ preview: expect.stringMatching(/browser.*external.*redirect/i) }), expect.anything());
+  const workspace = vi.fn(async () => { throw new Error("no project copy required"); });
+  expect(await executeVerify(spec!, { workingDir: root, workspace })).toMatchObject({ artifactStatus: "fail" });
+  expect(workspace).not.toHaveBeenCalled();
+});
+
+it("permits a rendered URL from a folder too broad to copy", async () => {
+  const { verifyCopyRoot } = await import("./verify-copy-root.js");
+  const { parseVerifyRunArgs } = await import("./verify-run-args.js");
+  const raw = { kind: "ui", url: "http://localhost:8123/" };
+  expect(verifyCopyRoot(raw, parseVerifyRunArgs(raw), root, root)).toMatchObject({ ok: true, root });
+});

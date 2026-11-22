@@ -7,7 +7,9 @@
  * `summary` with failures first. `ok` means the run itself went well
  * AND every check passed; a check that fails to parse fails the run.
  */
-import { resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
 import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
@@ -313,6 +315,19 @@ export async function runVerify(
     const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
     return failed(unavailable ?? ((args.url !== undefined || isImpeccableMarkup(args.path!)) ? "impeccable is not installed" :
       "impeccable scans markup: specify the file that uses this CSS or script"), undefined);
+  }
+  if (args.kind === "ui" && args.url !== undefined && ctx.inputIntegrity === undefined) {
+    try {
+      const scratch = await mkdtemp(join(tmpdir(), "atag-verify-rendered-ui-"));
+      try {
+        const result = await runInWorkspace({ ...args, cwd: undefined }, scratch, false, ctx, started, detector);
+        return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    } catch (error) {
+      return failed(error instanceof Error ? error.message : String(error), ctx.signal?.aborted ? "cancelled" : undefined);
+    }
   }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
