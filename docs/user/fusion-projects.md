@@ -70,8 +70,11 @@ In your paired Telegram chat, send `/backlog` to see open, promoted and dropped 
 - `/promote <id>` previews proposing the item for the next plan. You still approve that plan separately.
 - `/drop <id>` previews marking the item as dropped.
 - `/reopen <id>` previews taking back the recorded decision.
+- At the plan gate, `/defer <id>` makes a promoted item optional for this plan. `/activate <id>` makes plan coverage required again. Both commands preview the change and confirm against the displayed item and plan version.
 
-Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
+Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can promote, drop or reopen items between turns, including when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
+
+Clients using HTTP or the sidecar can tie a decision to the item shown on screen by sending the displayed `fingerprint` as `expectedFingerprint`. If the item or its recorded decision has changed, the client receives `stale-view` and the current view so it can ask you to review the item again.
 
 ## Take promoted backlog items into the plan
 
@@ -101,6 +104,10 @@ Not every deliverable is code. A check can read a local document or spreadsheet 
 - **Spreadsheets** (`.xlsx`, `.csv`): required sheets and columns, cells with errors such as `#REF!` or `#DIV/0!` (named by sheet and cell), and totals recalculated from the data within a stated tolerance.
 
 Macros and formulas are never run; workbook formulas need their saved results. Files over the size or time limits are reported as uncheckable with the reason. For the exact fields, see the [verification guide](../../src/tools/verify/README.md).
+
+## Check UI source files
+
+For a UI or polish milestone, the director can pair visual review with an Impeccable source check. Add a plan check such as `{ kind: "ui", path: "src/index.html", criteria: ["contrast"] }`, using the ID of an approved criterion. The check uses the locally installed CLI and reports the version, rule and file for each finding, and any inline suppression markers. A severe finding fails the linked criterion. A missing detector or a scan that cannot prove it covered a file is reported as `uncheckable`. [UI check options and verdicts](../../src/tools/verify/README.md#ui-source-checks)
 
 ## Verify signed receipts
 

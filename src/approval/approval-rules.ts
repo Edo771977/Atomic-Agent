@@ -340,9 +340,9 @@ export function ruleMatches(
     rule.category !== undefined &&
     rule.category !== request.category &&
     !(tightens && rule.category === "shell" && request.category === "shell_dangerous") &&
-    // A deny or ask on `shell` stands for a local page probe too: it was
-    // `shell` before it had its own category.
-    !(rule.decision !== "allow" && rule.category === "shell" && request.category === "verify_page_local") &&
+    // Dedicated verification categories still honor shell restrictions.
+    !(rule.decision !== "allow" && rule.category === "shell" &&
+      (request.category === "verify_page_local" || request.category === "verify_ui_detector")) &&
     // A deny or ask on `http` stands for a POST too; an allow does not
     // (ATO-1462): a saved "always" for a GET never silences a POST.
     !(rule.decision !== "allow" && rule.category === "http" && request.category === "http_write")

@@ -584,7 +584,12 @@ export async function createCandidateIntegration(
         // a task's earlier isolated gate or dependency release passed them.
         const runner: ContractCheckRunner | undefined = input.runChecks === undefined ? undefined : async (specs, ctx) => {
           const result = await input.runChecks!(specs, ctx);
-          return result.ok ? result : { ok: false, results: result.results.map(row => ({ ...row, ok: false })) };
+          // A UI check withheld from the runner has its own verdict.
+          // Retain the results of the other checks that actually ran.
+          const uiUnavailable = result.results.some((row, index) =>
+            row.artifactStatus === "uncheckable" && (specs[index]?.kind ?? specs[index]?.type) === "ui");
+          return result.ok || uiUnavailable
+            ? result : { ok: false, results: result.results.map(row => ({ ...row, ok: false })) };
         };
         let actualInputExecutions = 0;
         const inputIntegrity = protectedInputs.paths.length === 0 ? undefined : {

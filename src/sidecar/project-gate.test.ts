@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { fixtureBacklogRuntime } from "../runtime/composition/project-backlog-test-fixture.js";
 import * as bootstrap from "../runtime/bootstrap.js";
 import * as configuration from "../config/index.js";
 import type { AgentLoopEvent } from "../agent/agent-contract.js";
@@ -96,24 +97,12 @@ it("takes project_backlog_decision, the person's backlog call (issue #111 review
   const config = configuration.loadConfig();
   config.llm = { activeTextProvider: "cloud", activeEmbeddingProvider: "cloud", toolTransport: "auto", providers: [{ id: "cloud", kind: "openai-compatible", baseUrl: "https://paid.invalid" }] };
   vi.spyOn(configuration, "getConfig").mockReturnValue(config);
-  let view: ProjectGateView | undefined = fixtureProjectGateView({ kind: "plan" });
-  const decisions: Array<[string, ProjectDecision]> = [];
-  const backlogCalls: Array<[string, unknown]> = [];
+  const fixture = fixtureBacklogRuntime("chat");
   vi.spyOn(bootstrap, "createAgentRuntime").mockImplementation(async () => {
     return {
       createSession: () => ({ id: "chat" }),
       shutdown: async () => {},
-      projectState: (id: string) => (id === "chat" ? (view ?? null) : null),
-      projectBacklogDecision: (id: string, d: unknown) => {
-        backlogCalls.push([id, d]);
-        return { ok: true, project: { milestones: [], gate: { kind: "plan" as const } }, view: fixtureProjectGateView({ kind: "plan" }) };
-      },
-      projectDecision: (id: string, d: ProjectDecision) => {
-        decisions.push([id, d]);
-        if (d.version !== 3) return { ok: false, error: { code: "stale-version", message: "the plan changed" } };
-        view = fixtureProjectGateView({ kind: "none" }, { version: 4, expectation: { kind: "run_milestone", id: "m1" } });
-        return { ok: true, project: { milestones: [], gate: { kind: "none" as const } }, view };
-      },
+      ...fixture.runtime,
     } as unknown as bootstrap.AgentRuntime;
   });
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -135,9 +124,25 @@ it("takes project_backlog_decision, the person's backlog call (issue #111 review
   try {
     send("start", "start_session", { workingDir: process.cwd() });
     await response("start");
-    send("b-ok", "project_backlog_decision", { sessionId: "chat", item: "b2", state: "promoted" });
-    expect((await response("b-ok")).payload).toMatchObject({ ok: true, view: { version: 3 } });
-    expect(backlogCalls).toEqual([["chat", { id: "b2", state: "promoted" }]]);
+    send("view", "get_project", { sessionId: "chat" });
+    const shown = ((await response("view")).payload as { view: ProjectGateView }).view.backlog!.items[0]!;
+    expect(shown.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    const sendDecision = (id: string, state: string, expectedFingerprint?: unknown) =>
+      send(id, "project_backlog_decision", { sessionId: "chat", item: "b1", state, expectedFingerprint });
+    sendDecision("b-ok", "promoted", shown.fingerprint);
+    const promoted = (await response("b-ok")).payload as { ok: boolean; view: ProjectGateView };
+    expect(promoted.ok).toBe(true);
+    expect(promoted.view.backlog!.items[0]!.state).toBe("promoted");
+    fixture.renameItem("Light theme");
+    sendDecision("b-stale", "dropped", promoted.view.backlog!.items[0]!.fingerprint);
+    expect((await response("b-stale")).payload).toMatchObject({
+      ok: false, error: { code: "stale-view" },
+      view: { backlog: { items: [{ title: "Light theme", state: "open", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) }] } },
+    });
+    sendDecision("b-malformed", "dropped", null);
+    expect(await response("b-malformed")).toMatchObject({ ok: false });
+    sendDecision("b-legacy", "dropped");
+    expect((await response("b-legacy")).payload).toMatchObject({ ok: true, view: { backlog: { items: [{ state: "dropped" }] } } });
     send("b-bad", "project_backlog_decision", { sessionId: "chat", item: "b2", state: "kept" });
     expect((await response("b-bad")).ok).toBe(false);
     send("b-none", "project_backlog_decision", { sessionId: "nope", item: "b2", state: "dropped" });
@@ -148,6 +153,7 @@ it("takes project_backlog_decision, the person's backlog call (issue #111 review
         if (!kept[i]!.includes(listener)) streams[i]!.removeListener(names[i]!, listener as () => void);
       }
     }
+    fixture.cleanup();
     await sidecar.shutdown();
   }
 });

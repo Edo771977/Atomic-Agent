@@ -13,7 +13,7 @@ export type ArtifactKind = "document" | "spreadsheet";
 export function isArtifactKind(kind: unknown): kind is ArtifactKind {
   return kind === "document" || kind === "spreadsheet";
 }
-export type VerifyRunKind = "command" | "service" | "page" | ArtifactKind;
+export type VerifyRunKind = "command" | "service" | "page" | "ui" | ArtifactKind;
 
 export interface VerifyRequestSpec {
   readonly method?: string;
@@ -110,7 +110,7 @@ const MAX_SCRIPT_STEPS = 64;
 const MAX_PROBES = 16;
 const MAX_CHECKS = 32;
 
-const KINDS: ReadonlySet<string> = new Set(["command", "service", "page", "document", "spreadsheet"]);
+const KINDS: ReadonlySet<string> = new Set(["command", "service", "page", "document", "spreadsheet", "ui"]);
 const ACTIONS: ReadonlySet<string> = new Set(["click", "key", "type", "wait"]);
 
 function fail(message: string): never {
@@ -325,7 +325,7 @@ function parseScreenshot(raw: unknown, kind: string): VerifyScreenshotSpec | und
 
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind, "kind");
-  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet");
+  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet, ui");
   const base = {
     kind: kind as VerifyRunKind,
     cwd: optionalString(raw.cwd, "cwd"),
@@ -340,7 +340,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const stdin = parseStdin(raw.stdin, kind);
   const game = parseGame(raw.game, kind);
   const screenshot = parseScreenshot(raw.screenshot, kind);
-  if (isArtifactKind(kind)) {
+  if (isArtifactKind(kind) || kind === "ui") {
     const path = requiredString(raw.path, "path");
     if (isAbsolute(path) || win32.isAbsolute(path) || /[:\0]/.test(path) || path.split(/[\\/]/).includes("..")) {
       fail("artifact path must be relative to the project folder");
@@ -350,6 +350,7 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
         (Array.isArray(raw.args) && raw.args.length > 0) || Object.keys(base.env ?? {}).length) {
       fail("artifact checks read a local file and do not accept network, URLs, commands or environment overrides");
     }
+    if (kind === "ui") return { ...base, kind, path };
     const spec = kind === "document" ? parseDocumentSpec(raw) : parseSpreadsheetSpec(raw);
     return { ...base, ...spec, kind, path };
   }

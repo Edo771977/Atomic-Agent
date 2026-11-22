@@ -9,7 +9,7 @@
  */
 import { resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
-import { resolveVerifyCwd } from "./verify-authorization.js";
+import { resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
@@ -22,6 +22,8 @@ import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-servi
 import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-checks.js";
 import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
 import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
+import { OUTPUT_TAIL_CHARS } from "./spawn-verify-process.js";
+import { APPROVED_IMPECCABLE, isImpeccableMarkup, runImpeccableCheck, type ApprovedImpeccable } from "./impeccable-check.js";
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
@@ -33,6 +35,9 @@ export interface VerifyRunResult {
   readonly kind: VerifyRunKind;
   readonly isolated: boolean;
   readonly artifactStatus?: ArtifactOutcome["status"];
+  readonly impeccableVersion?: string;
+  readonly impeccableFindings?: readonly string[];
+  readonly impeccableSuppressions?: readonly string[];
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -126,7 +131,25 @@ function finish(
   return { ...withoutSummary, summary: renderVerifyRunSummary({ ...withoutSummary, summary: "" }) };
 }
 
-async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number): Promise<VerifyRunResult> {
+// Budget the serialized arrays, including escaping and UTF-8 byte width.
+function boundedDetectorDetails(lines: readonly string[], budget: number): string[] {
+  const shown: string[] = [];
+  let used = 2;
+  for (const [index, line] of lines.entries()) {
+    const after = lines.length - index - 1;
+    const next = Buffer.byteLength(JSON.stringify(line)) + Number(index > 0);
+    const reserve = after === 0 ? 0 : Buffer.byteLength(JSON.stringify(`+${after} more`)) + 1;
+    if (used + next + reserve > budget) {
+      shown.push(`+${after + 1} more`);
+      break;
+    }
+    shown.push(line);
+    used += next;
+  }
+  return shown;
+}
+
+async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
@@ -134,13 +157,17 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
-  if (isArtifactKind(args.kind)) {
-    const out = await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal);
+  const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
+  if (ui !== undefined || isArtifactKind(args.kind)) {
+    const out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal) : ui!;
     const ok = out.status === "pass";
     const text = `${out.status}: ${out.detail}`;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
-    return finish({ ...common, artifactStatus: out.status, stdoutTail: text, exitCode,
-      ...(out.status === "uncheckable" ? { error: text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
+    const findingsBudget = ui?.suppressions?.length ? 4094 : 8188;
+    const suppressionsBudget = ui?.findings?.length ? 4094 : 8188;
+    return finish({ ...common, artifactStatus: out.status, stdoutTail: ui === undefined ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, findingsBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, suppressionsBudget) }),
+      ...(out.status === "uncheckable" ? { error: ui === undefined ? text : text.split("\n", 1)[0] } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
   if (args.kind === "command") {
@@ -237,11 +264,17 @@ export async function runVerify(
 ): Promise<VerifyRunResult> {
   const started = Date.now();
   const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
+  const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
-    finish({ kind: args.kind, isolated, error, ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
+    finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
-  // A file check snapshots only the approved regular file into a disposable
-  // offline parser. No project command runs and no workspace tree is copied.
+  if (args.kind === "ui" && detector === undefined) {
+    const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
+    return failed(unavailable ?? (isImpeccableMarkup(args.path!) ? "impeccable is not installed" :
+      "impeccable scans markup: specify the file that uses this CSS or script"), undefined);
+  }
+  // File checks snapshot the approved regular file. An integrity-tracked
+  // contract check first observes the files in the private workspace copy.
   if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
     try {
       const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started);
@@ -266,7 +299,7 @@ export async function runVerify(
     } else {
       const completeIntegrity = await ctx.inputIntegrity?.begin(workspace.dir, ctx.signal ?? new AbortController().signal);
       const executionArgs = rebaseVerifyWorkspaceValue(args, ctx.workingDir, workspace.dir);
-      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started);
+      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector);
       executionResult = result;
       await completeIntegrity?.();
       // Executors may settle normally after an abort (a page can skip

@@ -57,6 +57,7 @@ const TAINT_SENSITIVE: Record<ApprovalCategory, boolean> = {
   // The probed page's own scripts run, and it may be what outside content
   // pointed at.
   verify_page_local: true,
+  verify_ui_detector: true,
   // A clarifying question is never auto-approved (it always reaches the
   // person), so there is nothing for the taint to hold back.
   user_question: false,

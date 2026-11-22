@@ -317,7 +317,9 @@ describe("an item stays taken in only while the plan still holds it (issue #146 
     const v2 = plan(v1, [row("t1", "m1"), row("t3", "m2")], 5);
     const shown = view(v2).backlog!.items.find((i) => i.id === "b1")!;
     expect(shown.plannedIn).toBeUndefined();
-    const expectedFingerprint = backlogDecisionFingerprint(shown, shown.state, shown.plannedIn);
+    const expectedFingerprint = shown.fingerprint;
+    expect(expectedFingerprint).toBe(backlogDecisionFingerprint(shown, shown.state, shown.plannedIn));
+    expect(expectedFingerprint).not.toBe(view(v1).backlog!.items.find((i) => i.id === "b1")!.fingerprint);
     expect(applyBacklogDecision(v2, { id: "b1", state: "dropped", expectedFingerprint }).ok).toBe(true);
   });
 

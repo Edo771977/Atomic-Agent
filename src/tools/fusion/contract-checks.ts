@@ -50,7 +50,14 @@ export interface ContractFinding {
  * One check's verdict as the wired runner reports it. The runner is
  * `verify`'s `runChecks`; this is the least it has to return.
  */
-export interface ContractCheckResult {
+interface ImpeccableCheckEvidence {
+  artifactStatus?: "pass" | "fail" | "uncheckable";
+  impeccableVersion?: string;
+  impeccableFindings?: readonly string[];
+  impeccableSuppressions?: readonly string[];
+}
+
+export interface ContractCheckResult extends ImpeccableCheckEvidence {
   ok: boolean;
   summary?: string;
   error?: string;
@@ -119,7 +126,7 @@ export class ContractChecksHeldError extends Error {
   override readonly name = "ContractChecksHeldError";
 }
 
-export interface ContractCheckOutcome {
+export interface ContractCheckOutcome extends ImpeccableCheckEvidence {
   /** The task the check was attributed to; absent for a call-level check. */
   task?: string;
   ok: boolean;
@@ -516,6 +523,7 @@ function maskResult(
   const games = result.games === undefined ? undefined : maskGames(result.games, known);
   return {
     ok: result.ok,
+    ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
     ...(summary === undefined ? {} : { summary }),
     ...(error === undefined ? {} : { error }),
     ...(stderrTail === undefined ? {} : { stderrTail }),
@@ -523,9 +531,30 @@ function maskResult(
     ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
     ...(result.commandLine === undefined ? {} : { commandLine: maskSecrets(result.commandLine, known) }),
     ...(games === undefined ? {} : { games }),
+    ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: maskSecrets(result.impeccableVersion, known) }),
+    ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings.map(e => maskSecrets(e, known)) }),
+    ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions.map(e => maskSecrets(e, known)) }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
     ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
   };
+}
+
+/** Keep whole evidence lines within the contract report budget. */
+function boundedImpeccableLines(lines: readonly string[], budget: number): string[] {
+  const shown: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const next = head(line, CHECK_DETAIL_CHARS);
+    const remaining = lines.length - shown.length - 1;
+    const suffix = remaining === 0 ? 0 : `\n+${remaining} more`.length;
+    if (used + next.length + suffix > budget) {
+      shown.push(`+${remaining + 1} more`);
+      break;
+    }
+    shown.push(next);
+    used += next.length + 1;
+  }
+  return shown;
 }
 
 /** The page-written texts of a game summary (errors, winners) masked. */
@@ -644,10 +673,16 @@ export async function runContractChecks(
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
+    const findingsBudget = result.impeccableSuppressions?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
+    const suppressionsBudget = result.impeccableFindings?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
     return {
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
+      ...((check.kind ?? check.type) !== "ui" || result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
+      ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
+      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
+      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

@@ -26,6 +26,7 @@ function statusFor(code: string): number {
     case "no-project":
     case "no-session":
       return 404;
+    case "stale-view":
     case "stale-version":
     case "wrong-gate":
     case "turn-running":
@@ -121,7 +122,7 @@ export function createProjectDecisionHandler(): HttpHandler {
 }
 
 /**
- * Issue #111 review: `POST /api/project/backlog` `{ session, item, state }`,
+ * Issue #111 review: `POST /api/project/backlog` `{ session, item, state, expectedFingerprint? }`,
  * the person's call on a backlog item (`promoted`, `dropped`, or `open` to
  * take one back), through `AgentRuntime.projectBacklogDecision` (between
  * turns only; it moves no gate). Answers `{ session_id, view }`.
