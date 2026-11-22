@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, seedHint } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, lessonCoverageLine, seedHint } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -178,9 +178,10 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     }
     if (brief.status === "draft" && view.gate.kind !== "brief") text("(brief still a draft)", "muted");
   }
+  if (view.lessonCoverage?.length) text("Lessons:", "muted");
   for (const lesson of view.lessonCoverage ?? []) {
     const missing = !lesson.deferred && lesson.missingFrom.length > 0;
-    text(`• Lesson ${lesson.id} ${lesson.title} · ${lesson.deferred ? "deferred" : "active"} · cited by ${lesson.citedBy.join(", ") || "none"}${missing ? ` · missing from ${lesson.missingFrom.join(", ")}` : ""}`, missing ? "warn" : "plain", 3);
+    text(`• ${lessonCoverageLine(lesson)}`, missing ? "warn" : "plain", 3);
   }
 
   // Issue #112: the brief's decisions, with the person's status and the tasks citing each.
