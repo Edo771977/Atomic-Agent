@@ -139,9 +139,10 @@ const buttons = (host) => host.findAll((e) => e.tagName === 'BUTTON');
 const byLabel = (host, label) => buttons(host).find((b) => b.getAttribute('aria-label') === label);
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function controller({backlog, decide, read}) {
+function controller({backlog, decide, read, turnRunning}) {
   const drawn = [];
   const card = C.createProjectCard({
+    ...(turnRunning ? {turnRunning} : {}),
     api: {read: async (sid) => (read ? read(sid) : {supported: true, ok: true, view: null}), decide: async (body) => decide(body), backlog: async (body) => backlog(body)},
     draw: (model, on) => drawn.push({model, on}),
     onContinue: () => true,
@@ -395,4 +396,42 @@ test('Hide puts a backlog card away until the chat is opened again', async () =>
   assert.equal(c.card.hiddenOpen(), true, 'the header offers Show Fusion project');
   c.card.show();
   assert.equal(c.last().model.kind, 'backlog');
+});
+
+/* ---------------- a turn running ---------------- */
+
+test('while a turn runs the backlog card stays away, and at a gate the backlog buttons wait for the turn', async () => {
+  let running = true;
+  const sent = [];
+  const c = controller({read: () => ({supported: true, ok: true, view: view(completed())}), decide: () => ({}),
+    backlog: (b) => { sent.push(b); return {supported: true, ok: true, view: view(completed())}; }, turnRunning: (sid) => running && sid === 'ses-1'});
+  c.card.follow('ses-1');
+  await tick();
+  assert.equal(c.last().model, null, 'no backlog card under a running turn');
+  assert.equal(c.card.hiddenOpen(), false, 'nor a Show Fusion project for it');
+  running = false;
+  c.card.follow('ses-1');   // the page's next paint
+  assert.equal(c.last().model.kind, 'backlog', 'the turn finished: the backlog is back');
+  // At a gate the card stays, with its backlog buttons disabled while a turn runs.
+  const g = controller({read: () => ({supported: true, ok: true, view: view(project())}), decide: () => ({}),
+    backlog: (b) => { sent.push(b); return {supported: true, ok: true, view: view(project())}; }, turnRunning: () => running});
+  running = true;
+  g.card.follow('ses-1');
+  await tick();
+  const model = g.last().model;
+  assert.equal(model.gate, 'plan');
+  assert.equal(model.backlog.waitTurn, 'Decide once the turn finishes');
+  const host = draw(model, g.last().on);
+  assert.match(host.findAll((e) => e.className === 'pc-backlog')[0].textContent, /Decide once the turn finishes/);
+  assert.equal(byLabel(host, 'Promote b3').disabled, true);
+  g.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick();
+  assert.deepEqual(sent, []);
+  assert.match(g.last().model.error, /turn finishes/);
+});
+
+test('the page tells the card whether a turn runs in the chat', () => {
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  const start = renderer.match(/function projectCardStart\(\) \{[\s\S]*?\n\}\n/)[0];
+  assert.match(start, /turnRunning: \(sid\) => \(sid === S\.agentSession && \(S\.busy \|\| !!S\.pending\)\) \|\| \[\.\.\.RUNNING\.values\(\)\]\.includes\(sid\)/);
 });

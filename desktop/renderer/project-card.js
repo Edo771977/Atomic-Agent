@@ -24,6 +24,8 @@
    through innerHTML (the page's CSP allows no inline handlers anyway). */
 
 const PC_NOTE_MAX = 2000;
+/* Issue #146: a backlog call waits for the chat's turn (the agent would answer turn-running). */
+const PC_WAIT_TURN = 'Decide once the turn finishes';
 /* How long "Confirm cancel" waits for the second press. */
 const PC_CONFIRM_MS = 4000;
 
@@ -562,10 +564,16 @@ function pcBacklogOnlyModel(state) {
   };
 }
 
-/** Everything the card draws, as plain data (no DOM). */
-function pcModel(state) {
+/**
+ * Everything the card draws, as plain data (no DOM). `env.turnRunning`: a
+ * turn runs in the chat, so a backlog call could only be refused
+ * (`turn-running`): the backlog card stays away, and at a gate the
+ * backlog's buttons wait for the turn.
+ */
+function pcModel(state, env) {
   const view = state.view;
-  if (pcBacklogOnly(view)) return pcBacklogOnlyModel(state);
+  const turnRunning = !!(env && env.turnRunning);
+  if (pcBacklogOnly(view)) return turnRunning ? null : pcBacklogOnlyModel(state);
   if (!pcOpen(view)) return null;
   const gate = view.gate.kind;
   const brief = view.brief && typeof view.brief === 'object' ? view.brief : null;
@@ -631,7 +639,7 @@ function pcModel(state) {
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
     hints: gate === 'plan' ? hints.filter((h) => !pcPlanCheck(h) && (!review || !/^(?:plan review\b|plan not reviewed\b|notes on an earlier version:)/i.test(h))) : hints,
     checks, review, decisions,
-    backlog: backlog && {summary: backlog.summary, items: backlog.items},
+    backlog: backlog && {summary: backlog.summary, items: backlog.items, waitTurn: turnRunning ? PC_WAIT_TURN : null},
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -787,6 +795,8 @@ function pcDrawBacklog(doc, body, model, on) {
   section.setAttribute('aria-label', 'Backlog');
   section.appendChild(pcEl(doc, 'h3', 'pc-section-title', 'Backlog'));
   section.appendChild(pcEl(doc, 'p', 'pc-meta', b.summary));
+  if (b.waitTurn) section.appendChild(pcEl(doc, 'p', 'pc-hint', b.waitTurn));
+  const off = model.busy || !!b.waitTurn;
   const list = pcEl(doc, 'ul', 'pc-rows');
   for (const item of b.items) {
     const li = pcEl(doc, 'li', 'pc-row pc-backlog-item is-' + item.state);
@@ -797,12 +807,12 @@ function pcDrawBacklog(doc, body, model, on) {
     if (item.cited) li.appendChild(pcEl(doc, 'div', 'pc-meta', item.cited));
     const acts = pcEl(doc, 'div', 'pc-item-actions');
     for (const [label, to] of item.actions) {
-      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog', id: item.id, state: to}), model.busy);
+      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog', id: item.id, state: to}), off, b.waitTurn);
       button.setAttribute('aria-label', label + ' ' + item.id);
       acts.appendChild(pcFocusKey(button, 'backlog:' + item.id + ':' + to));
     }
     for (const [label, status] of item.statusActions) {
-      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog-status', id: item.id, status}), model.busy);
+      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog-status', id: item.id, status}), off, b.waitTurn);
       button.setAttribute('aria-label', label + ' ' + item.id);
       acts.appendChild(pcFocusKey(button, 'backlog-status:' + item.id + ':' + status));
     }
@@ -1065,8 +1075,12 @@ function createProjectCard(opts) {
   };
   const changed = () => { if (opts.onChange) opts.onChange(); };
   const notify = changed;
+  // Issue #146: whether a turn runs in the chat on screen (the page's own state); read at each paint.
+  const turnRunning = () => !!(sid && opts.turnRunning && opts.turnRunning(sid));
+  let paintedRunning = false;
   function paint() {
-    let model = sid && !hidden.has(key()) ? pcModel(state) : null;
+    paintedRunning = turnRunning();
+    let model = sid && !hidden.has(key()) ? pcModel(state, {turnRunning: paintedRunning}) : null;
     if (!model && sid && !pcShown(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
     opts.draw(model, act);
   }
@@ -1087,8 +1101,10 @@ function createProjectCard(opts) {
         clearTimeout(cancelTimer);
         return decide(a.verdict);
       case 'decision-status': return decide('edit', a);
-      case 'backlog': return backlogCall(a.id, a.state);
-      case 'backlog-status': return decide('edit', {backlog: a.id, status: a.status});
+      case 'backlog':
+      case 'backlog-status':
+        if (turnRunning()) { state = pcReduce(state, {type: 'failed', error: 'A turn is running in this chat. ' + PC_WAIT_TURN + '.'}); return paint(); }
+        return a.type === 'backlog' ? backlogCall(a.id, a.state) : decide('edit', {backlog: a.id, status: a.status});
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
@@ -1162,7 +1178,8 @@ function createProjectCard(opts) {
     /** The chat on screen is `next` (null: none, or not saved yet). Reads its view once per change. */
     follow(next) {
       next = next || null;
-      if (next === sid) { flush(); return; }
+      // The page paints on every change of its own; a turn that started or finished redraws the card.
+      if (next === sid) { if (turnRunning() !== paintedRunning) { paint(); notify(); } flush(); return; }
       // Hide lasts while the chat stays on screen: opening it again shows its card.
       hidden.clear();
       sid = next; serial++;
@@ -1188,7 +1205,7 @@ function createProjectCard(opts) {
        the page shows now (null: none); left out, the one followed so far. */
     reset(next) { const keep = next === undefined ? sid : next; store.clear(); problems.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
-    hiddenOpen() { return !!sid && pcShown(state.view) && hidden.has(key()); },
+    hiddenOpen() { return !!sid && pcShown(state.view) && !(pcBacklogOnly(state.view) && turnRunning()) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */
     show() { if (hidden.delete(key())) { paint(); changed(); } },
     state: () => state,

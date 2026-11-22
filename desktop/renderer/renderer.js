@@ -2428,6 +2428,8 @@ function projectCardStart() {
     onContinue: projectCardContinue,
     onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
     onChange: () => renderToolbar(),
+    // Issue #146: a backlog call waits for the chat's turn (the card asks at each paint).
+    turnRunning: (sid) => (sid === S.agentSession && (S.busy || !!S.pending)) || [...RUNNING.values()].includes(sid),
   });
   BR.onProject((frame) => PCARD.onFrame(frame));
   PCWATCH = pcWatch(window, () => document.getElementById('projectcard'));
