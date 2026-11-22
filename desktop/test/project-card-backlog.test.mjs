@@ -462,3 +462,27 @@ test('an agent whose promoted entries carry no citedBy gets no Defer (it takes n
   assert.equal(buttons(host).some((b) => b.textContent === 'Defer'), false);
   assert.ok(C.pcDecision(C.pcInitial(old), 'ses-1', 'edit', {backlog: 'b3', status: 'deferred'}).error);
 });
+
+test('a backlog call in flight stays busy across A→B→A, and a second press sends nothing', async () => {
+  let release;
+  const sent = [];
+  const v = view(project());
+  const c = controller({read: () => ({supported: true, ok: true, view: v}), decide: () => ({}),
+    backlog: (body) => { sent.push(body); return new Promise((r) => { release = r; }); }});
+  c.card.follow('ses-1');
+  await tick();
+  c.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick();
+  c.card.follow('ses-2');
+  c.card.follow('ses-1');
+  await tick();
+  assert.equal(c.last().model.busy, true, 'its buttons stay disabled');
+  c.last().on({type: 'backlog', id: 'b1', state: 'dropped'});
+  c.last().on({type: 'verdict', verdict: 'approve'});
+  await tick();
+  assert.equal(sent.length, 1);
+  release({supported: true, ok: true, view: view(call(project(), 'b3', 'promoted'))});
+  await tick(); await tick();
+  assert.equal(c.last().model.busy, false);
+  assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'promoted');
+});

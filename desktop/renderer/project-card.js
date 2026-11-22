@@ -1070,6 +1070,7 @@ function createProjectCard(opts) {
   const frames = new Map();    // sid → frames seen, so a read answered after a frame does not overwrite it
   // Issue #74: the gates a decision is in flight for (sid, gate, version), so leaving the chat and coming back keeps them busy.
   const deciding = new Set();
+  const backlogDeciding = new Set();   // issue #146: the chats a backlog call is in flight for (it moves no gate, so by sid)
   const problems = new Map();  // issue #109: sid → why its project could not be opened (the last read's)
   let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
   const key = () => {
@@ -1118,7 +1119,7 @@ function createProjectCard(opts) {
   }
   async function decide(verdict, statusEdit) {
     const gate = key();
-    if (state.busy || deciding.has(gate)) return;
+    if (state.busy || deciding.has(gate) || backlogDeciding.has(sid)) return;
     const here = sid;
     const built = pcDecision(state, here, verdict, statusEdit);
     if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
@@ -1143,13 +1144,15 @@ function createProjectCard(opts) {
   /* Issue #146: the person's call on a backlog item. It moves no gate, so the
      card stays on the same gate; the agent answers with the view it leaves. */
   async function backlogCall(id, to) {
-    if (state.busy || deciding.has(key())) return;
+    if (state.busy || deciding.has(key()) || backlogDeciding.has(sid)) return;
     const here = sid;
     const built = pcBacklogCall(state, here, id, to);
     if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
+    backlogDeciding.add(here);
     state = pcReduce(state, {type: 'sending'}); paint();
     const call = opts.api.backlog ? () => opts.api.backlog(built.body) : () => ({supported: false});
     const res = await Promise.resolve().then(call).catch((e) => ({supported: true, ok: false, status: 0, code: null, error: String(e)}));
+    backlogDeciding.delete(here);
     const out = pcBacklogOutcome(res, id, to);
     if (out.closed) store.drop(here);
     else if (out.view) store.put(here, out.view);
@@ -1187,7 +1190,7 @@ function createProjectCard(opts) {
       hidden.clear();
       sid = next; serial++;
       state = pcInitial(sid ? store.get(sid) : null);
-      if (deciding.has(key())) state.busy = true;   // issue #74: its decision has not answered yet
+      if (deciding.has(key()) || backlogDeciding.has(sid)) state.busy = true;   // issue #74: its decision has not answered yet
       paint();
       notify();
       flush();
