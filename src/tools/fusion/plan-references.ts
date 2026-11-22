@@ -362,7 +362,7 @@ export function lessonTouchesTask(touches: readonly string[], files: readonly st
   const paths = files.map(normalizeCase);
   return touches.some((touch) => {
     const path = normalizeCase(posix.normalize(touch.replaceAll("\\", "/")).replace(/\/$/, ""));
-    return paths.some((file) => path === "." || file === path || file.startsWith(path + "/"));
+    return path === "." || paths.some((file) => file === path || file.startsWith(path + "/"));
   });
 }
 

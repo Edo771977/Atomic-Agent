@@ -1867,7 +1867,7 @@ export function backlogCheckOptions(project: BacklogCallsView, plan: Pick<Projec
 export function planCheckData(project: BacklogCallsView & LessonCallsView, plan: Pick<ProjectPlan, "referenceCheck" | "status" | "rows">): PlanCheckOptions {
   const scope = project[currentProjectLessons];
   const hasScopedLessons = scope?.active.some((lesson) =>
-    lesson.always && lesson.touches.length > 0 && project.lessonDeferred?.[lesson.id] !== lesson.hash);
+    lesson.always && lesson.touches.length > 0 && !scope.matches(lesson.touches, []) && project.lessonDeferred?.[lesson.id] !== lesson.hash);
   const started = new Set(project.milestones?.filter(milestoneStarted).map((m) => m.id));
   return {
     ...referenceOptions(plan),

@@ -109,6 +109,11 @@ describe("project store (issue #109)", () => {
     expect(decide(openedProject())).toMatchObject({ ok: false, error: { code: "review-open", message: expect.stringContaining("lesson-coverage") } });
     expect(view().hints).toContainEqual(expect.stringMatching(/stale.*the lessons changed/));
     expect(view().lessonCoverage).toEqual([expect.objectContaining({ id: "storage", citedBy: [], missingFrom: ["t1", "t2"], deferred: false })]);
+    const root = openedProject();
+    const scope = root[currentProjectLessons]!;
+    root[currentProjectLessons] = { ...scope, active: scope.active.map((lesson) => ({ ...lesson, touches: ["."] })) };
+    root.plan = { ...root.plan!, rows: root.plan!.rows.map(({ checks: _checks, ...row }) => row) };
+    expect(view(root).lessonCoverage?.[0]?.missingFrom).toEqual(["t1", "t2"]);
     const started = openedProject();
     started.milestones = [{ ...started.milestones[0]!, state: "reviewed", runIds: ["run-old"] }];
     expect(view(started).lessonCoverage?.[0]?.missingFrom).toEqual([]);
