@@ -20,6 +20,16 @@ import {
   type ProjectCardState,
 } from "./project-card-state.js";
 
+function evidenceVerifyHint(folder: string | undefined): string {
+  const command = "Run atomic-agent project verify";
+  if (folder === undefined) return command;
+  // Keep unusual paths as a quoted display value, away from shell syntax.
+  if (/[\x00-\x1f\x7f-\x9f"$%!`]/.test(folder) || folder.endsWith("\\")) {
+    return command + " for folder " + JSON.stringify(folder).replace(/[\x7f-\x9f]/g, char => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+  }
+  return command + ' "' + folder + '"';
+}
+
 export type ProjectLineTone = "title" | "muted" | "warn" | "error" | "ok" | "plain";
 
 export interface ProjectCardSegment {
@@ -232,7 +242,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       if (full || m.id === gateId) {
         const evidence = m.evidenceReceipts;
         if (evidence !== undefined) {
-          const { valid, unsigned, problems, partial, archiveUnavailable } = evidence;
+          const { folder, valid, unsigned, problems, partial, archiveUnavailable } = evidence;
           const details: string[] = [];
           if (valid) details.push(`${valid} signed`);
           if (unsigned) details.push(`${unsigned} unsigned (not verifiable; the signing key may have been unavailable)`);
@@ -241,7 +251,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
           if (archiveUnavailable) details.push("archive unavailable");
           const tone = problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok";
           text(`Evidence: ${details.join(", ")}`, tone, 4);
-          if (unsigned || problems || partial || archiveUnavailable) text("Run atomic-agent project verify", tone, 4);
+          if (unsigned || problems || partial || archiveUnavailable) text(evidenceVerifyHint(folder), tone, 4);
         }
         // Evidence of the result (issue #40): never a claim the view does not carry.
         for (const f of m.criteriaFacts ?? []) {

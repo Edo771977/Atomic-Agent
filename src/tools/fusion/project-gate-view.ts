@@ -89,7 +89,7 @@ export const CHANGED_OUTSIDE_HINT =
 function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilestone): MilestoneEvidenceReceipts | undefined {
   const source = input.receiptSource;
   if (source === undefined) return undefined;
-  const counts: MilestoneEvidenceReceipts = { valid: 0, unsigned: 0, problems: 0 };
+  const counts: MilestoneEvidenceReceipts = { folder: source.folder, valid: 0, unsigned: 0, problems: 0 };
   try {
     const { receipts, partial } = verifyProjectReceiptDetails(source.stateDir, source.folder, {
       projectId: source.projectId,

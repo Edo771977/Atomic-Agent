@@ -133,13 +133,13 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
 
       const { runtime } = harness({ session, receiptStateDir: dir });
       const summary = () => runtime.projectState("s1")?.milestones.find(m => m.id === "m1")?.evidenceReceipts;
-      expect(summary()).toEqual({ valid: 2, unsigned: 1, problems: 0 });
+      expect(summary()).toEqual({ folder: dir, valid: 2, unsigned: 1, problems: 0 });
       const card = reduceProjectCard(null, { type: "project_card_shown", sessionId: "s1", view: runtime.projectState("s1")! })!;
       expect(projectCardLines(card, 90).flatMap(line => line.segments).map(segment => segment.text.trim()).join(" "))
         .toContain("1 unsigned (not verifiable; the signing key may have been unavailable)");
       const archive = join(dir, "receipts", projectFolderKey(dir), "receipts.ndjson");
       writeFileSync(archive, readFileSync(archive, "utf8").replace('"before"', '"Before"'));
-      expect(summary()).toEqual({ valid: 1, unsigned: 1, problems: 1 });
+      expect(summary()).toEqual({ folder: dir, valid: 1, unsigned: 1, problems: 1 });
       expect(runtime.projectState("s1")?.milestones.find(m => m.id === "m2")?.evidenceReceipts).toBeUndefined();
       session.incognito = { owner: "test", since: NOW };
       expect(summary()).toBeUndefined();

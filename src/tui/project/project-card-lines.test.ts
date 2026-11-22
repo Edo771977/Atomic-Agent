@@ -135,6 +135,14 @@ describe("project card lines", () => {
     }
   });
 
+  it("names the project folder in the evidence verification hint", () => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    view.milestones = view.milestones.map(m => m.id === "m1" ? {
+      ...m, evidenceReceipts: { valid: 0, unsigned: 0, problems: 1, folder: "/work/My Project" },
+    } : m);
+    expect(text(card(view))).toContain('Run atomic-agent project verify "/work/My Project"');
+  });
+
   it("note mode shows the typed correction", () => {
     let c = card(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
     c = reduceProjectCard(c, { type: "project_card_mode_set", mode: "note" })!;

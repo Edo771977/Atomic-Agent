@@ -174,6 +174,8 @@ export interface ProjectGateRow extends AssignmentRow {
 }
 
 export interface MilestoneEvidenceReceipts {
+  /** Project folder to pass to the full receipt verifier. */
+  folder?: string;
   valid: number;
   unsigned: number;
   problems: number;
