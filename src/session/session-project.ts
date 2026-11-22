@@ -1024,7 +1024,7 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: ProjectBacklogItem[] = [];
   for (const b of raw) {
-    if (out.length >= PROJECT_LIMITS.backlog) break;
+    if (out.length >= PROJECT_LIMITS.backlogStored) break;
     if (!isObject(b)) continue;
     const id = normalizeCriterionId(b.id);
     const title = typeof b.title === "string" ? clip(b.title, PROJECT_LIMITS.title) : "";

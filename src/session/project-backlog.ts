@@ -148,8 +148,12 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
   }
   if (!isObject(raw)) return invalid("the backlog item is malformed");
   const backlog = project.backlog ?? [];
-  if (backlog.length >= PROJECT_LIMITS.backlog) {
-    return invalid(`the backlog holds ${PROJECT_LIMITS.backlog} items, its limit; ask the person to drop some`);
+  // Dropped items are kept (the person's call stands) but free their place.
+  if (backlog.filter((b) => backlogStateOf(project, b.id) !== "dropped").length >= PROJECT_LIMITS.backlog) {
+    return invalid(`the backlog holds ${PROJECT_LIMITS.backlog} open or promoted items, its limit; ask the person to drop some`);
+  }
+  if (backlog.length >= PROJECT_LIMITS.backlogStored) {
+    return invalid(`project.json keeps ${PROJECT_LIMITS.backlogStored} backlog items, dropped ones included; ask the person to remove dropped items from it`);
   }
   const id = normalizeCriterionId(raw.id);
   if (id === null) return invalid(`a backlog id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);

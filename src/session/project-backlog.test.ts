@@ -294,3 +294,20 @@ describe("backlog items: the person's call is bound to what they decided (review
     expect(staleBacklogCalls(p)).toEqual([{ id: "b2", state: "promoted", reason: "changed" }]);
   });
 });
+
+describe("backlog items: the cap counts live items (review)", () => {
+  it("dropped items do not fill the backlog; the cap names open and promoted items", () => {
+    let p = running();
+    for (let i = 1; i <= PROJECT_LIMITS.backlog; i++) p = added(p, { id: `b${i}`, title: `x${i}`, source: "director" });
+    const full = applyProjectUpdate(p, add({ id: nextBacklogId(p), title: "one more", source: "director" }), 1);
+    expect(!full.ok && full.error.message).toMatch(new RegExp(`${PROJECT_LIMITS.backlog} open or promoted items`));
+    for (let i = 1; i <= PROJECT_LIMITS.backlog; i++) {
+      const r = applyBacklogDecision(p, { id: `b${i}`, state: "dropped" });
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    const after = applyProjectUpdate(p, add({ id: nextBacklogId(p), title: "y", source: "director" }), 1);
+    expect(after.ok).toBe(true);
+    expect(after.ok && openBacklog(after.project).map((b) => b.id)).toEqual([`b${PROJECT_LIMITS.backlog + 1}`]);
+  });
+});
