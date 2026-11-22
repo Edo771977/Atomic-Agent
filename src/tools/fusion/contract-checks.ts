@@ -537,6 +537,24 @@ function maskResult(
   };
 }
 
+/** Keep whole evidence lines within the contract report budget. */
+function boundedImpeccableLines(lines: readonly string[], budget: number): string[] {
+  const shown: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const next = head(line, CHECK_DETAIL_CHARS);
+    const remaining = lines.length - shown.length - 1;
+    const suffix = remaining === 0 ? 0 : `\n+${remaining} more`.length;
+    if (used + next.length + suffix > budget) {
+      shown.push(`+${remaining + 1} more`);
+      break;
+    }
+    shown.push(next);
+    used += next.length + 1;
+  }
+  return shown;
+}
+
 /** The page-written texts of a game summary (errors, winners) masked. */
 function maskGames(games: VerifyGameSummary, known: readonly KnownSecret[]): VerifyGameSummary {
   const mask = (text: string): string => maskSecrets(text, known);
@@ -653,13 +671,15 @@ export async function runContractChecks(
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
+    const findingsBudget = result.impeccableSuppressions?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
+    const suppressionsBudget = result.impeccableFindings?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
     return {
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
-      ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: result.impeccableVersion }),
-      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings }),
-      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions }),
+      ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
+      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
+      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

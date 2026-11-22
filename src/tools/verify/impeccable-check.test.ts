@@ -268,3 +268,16 @@ it("reports suppression attributes and block markers and withholds a pass when t
     ],
   });
 });
+
+it("bounds both kinds of Fusion evidence and reports omitted entries", async () => {
+  const { CHECK_OUTPUT_CHARS, runContractChecks } = await import("../fusion/contract-checks.js");
+  const entries = Array.from({ length: 800 }, (_, index) => `finding ${index}`);
+  const { outcomes: [outcome] } = await runContractChecks([{ kind: "ui", path: "index.html" }], async () => ({
+    ok: true, results: [{ ok: true, impeccableFindings: entries, impeccableSuppressions: entries }],
+  }), { workingDir: root, signal: new AbortController().signal });
+  const findings = outcome?.impeccableFindings?.join("\n") ?? "";
+  const suppressions = outcome?.impeccableSuppressions?.join("\n") ?? "";
+  expect(findings.length + suppressions.length).toBeLessThanOrEqual(CHECK_OUTPUT_CHARS);
+  expect(findings).toMatch(/\+\d+ more$/);
+  expect(suppressions).toMatch(/\+\d+ more$/);
+});
