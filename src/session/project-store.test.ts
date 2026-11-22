@@ -166,6 +166,9 @@ describe("project store (issue #109)", () => {
     expect(options.records.write(folder, draft.stored.id, draft.decisionSeq, draft.project, undefined,
       { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
     expect(coverage(makePlan())).toEqual([expect.stringMatching(/fail.*storage.*build.*verify/)]);
+    const undeclared = makePlan(["storage"]);
+    delete undeclared.plan!.rows[0]!.files;
+    expect(coverage(undeclared)).toContainEqual(expect.stringMatching(/warn.*build.*no declared/));
     expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/pass/)]);
     writeFileSync(file, text.replace("Keep storage local", "Use SQLite"));
     expect(coverage(makePlan())).toEqual([expect.stringMatching(/warn.*storage.*changed or was removed/)]);

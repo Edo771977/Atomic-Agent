@@ -32,6 +32,7 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
+import { plannedLessonMismatch } from "./worker-project-lessons.js";
 import { checkProjectDispatch, planCoverageGap, plannedCheckMismatch } from "./project-dispatch.js";
 import { activeDecisionsOf, criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
@@ -619,6 +620,8 @@ export function buildFusionDelegateTool(
       if (projectVerdict.kind === "refuse") {
         return error(`fusion.delegate did not run: ${projectVerdict.message}`, { reason: "project-gate", gate: projectVerdict.reason });
       }
+      const lessonsMismatch = plannedLessonMismatch(ctx.project, parsed.tasks, parsed.contract, ctx.workingDir, ctx.projectRef?.folder);
+      if (lessonsMismatch !== null) return error(`fusion.delegate did not run: ${lessonsMismatch}`, { reason: "project-gate", gate: "plan-lessons-mismatch" });
       const checksMismatch = plannedCheckMismatch(ctx.project, parsed.tasks.map((t) => t.id), parsed.contract);
       if (checksMismatch !== null) return error(`fusion.delegate did not run: ${checksMismatch}`, { reason: "project-gate", gate: "plan-checks-mismatch" });
       if ((parsed.contract?.checkInputs?.length ?? 0) > 0 && mode.integration !== "candidate") {

@@ -1864,12 +1864,19 @@ export function backlogCheckOptions(project: BacklogCallsView, plan: Pick<Projec
 
 /** Stored references and live backlog and lesson coverage inputs for {@link evaluatePlanChecks}. */
 export function planCheckData(project: BacklogCallsView & LessonCallsView, plan: Pick<ProjectPlan, "referenceCheck" | "status" | "rows">): PlanCheckOptions {
+  const scope = project[currentProjectLessons];
+  const hasScopedLessons = scope?.active.some((lesson) =>
+    lesson.always && lesson.touches.length > 0 && project.lessonDeferred?.[lesson.id] !== lesson.hash);
+  const started = new Set(project.milestones?.filter(milestoneStarted).map((m) => m.id));
   return {
     ...referenceOptions(plan),
     ...backlogCheckOptions(project, plan),
     ...(plan.status !== "draft" ? {} : {
       lessons: planLessonsOf(project, plan.rows),
-      staleLessonIds: project[currentProjectLessons]?.stale ?? [],
+      staleLessonIds: scope?.stale ?? [],
+      undeclaredLessonTasks: scope !== undefined && hasScopedLessons
+        ? plan.rows.filter((row) => !started.has(row.milestoneId) && scope.taskPaths(row).length === 0).map((row) => row.taskId)
+        : [],
       activeLessonIds: project[currentProjectLessons]?.active.map((lesson) => lesson.id) ?? [],
     }),
   };

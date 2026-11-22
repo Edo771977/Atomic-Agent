@@ -23,6 +23,7 @@ export interface PlanCheckOptions {
   lessons?: PlanLessonCoverage[];
   activeLessonIds?: readonly string[];
   staleLessonIds?: readonly string[];
+  undeclaredLessonTasks?: readonly string[];
 }
 
 export interface PlanLessonCoverage {
@@ -48,6 +49,10 @@ function lessonCoverage(rows: readonly AssignmentRow[], options: PlanCheckOption
       detail: `Task ${row.taskId} cites inactive or unknown lessons: ${stray.join(", ")}.`,
     });
   }
+  for (const taskId of options.undeclaredLessonTasks ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [taskId],
+    detail: `Task ${taskId} has no declared file or check paths for scoped binding lessons.`,
+  });
   const lessons = options.lessons ?? [];
   const missing = lessons.filter((lesson) => !lesson.deferred && lesson.missingFrom.length > 0);
   if (missing.length > 0) {

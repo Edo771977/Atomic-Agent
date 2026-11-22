@@ -9,6 +9,7 @@ import {
   applyProjectDecision,
   applyProjectUpdate,
   gateVersion,
+  currentProjectLessons,
   type AssignmentRow,
   type ProjectState,
   type ProjectUpdate,
@@ -98,6 +99,20 @@ const running = () => approve(up(approve(up(undefined, brief)), plan));
 const task = (id: string) => ({ id, title: id, instructions: `Write ${join(REPO, "src", `${id}.js`)}` });
 
 describe("approved plan checks at dispatch", () => {
+  it("refuses delegated paths that require a lesson missing from the approved row", async () => {
+    const project = running();
+    project[currentProjectLessons] = {
+      active: [{ id: "storage", title: "Storage", source: "person", touches: ["src"], declaredStatus: "active", always: true,
+        approvedByPerson: false, hash: "hash", sections: { decided: "Keep local", triedAndRuledOut: "", watchOut: "" } }],
+      taskPaths: () => [],
+      matches: () => false,
+    };
+    const d = deps();
+    const result = await buildFusionDelegateTool(d).run({ tasks: [{ ...task("board"), files: ["src/board.js"] }] }, ctx(project));
+    expect(result.details).toMatchObject({ reason: "project-gate", gate: "plan-lessons-mismatch" });
+    expect(result.summary).toMatch(/board.*storage/);
+    expect(d.runTurn).not.toHaveBeenCalled();
+  });
   const check = { cmd: "node", args: ["board.cjs", "good"], checks: ["exit 0"], criteria: ["c1"], negative: { args: ["board.cjs", "bad"] } };
   function checkedProject() {
     return approve(up(approve(up(undefined, brief)), { ...plan, rows: [{ ...row("board", "m1"), checks: [check] }] }));
