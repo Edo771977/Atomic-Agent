@@ -99,9 +99,14 @@ export interface PlanReviewPersonCalls {
   backlogDeferred?: readonly string[];
 }
 
-/** What a review read: each task's id, title, milestone, worker, checks and cited decisions, and the milestone order. */
+/**
+ * What a review read: each task's id, title, milestone, worker, checks,
+ * cited decisions and (issue #146) cited backlog items, and the milestone
+ * order. A row with no backlog citation hashes as before, so a stored
+ * review of such a plan keeps its basis.
+ */
 export function planReviewBasis(rows: readonly AssignmentRow[], milestoneIds: readonly string[]): string {
-  const text = JSON.stringify([milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? []])]);
+  const text = JSON.stringify([milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? [], ...(r.backlog === undefined ? [] : [r.backlog])])]);
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 

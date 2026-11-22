@@ -625,3 +625,17 @@ describe("reviews recorded before the person-calls basis (issue #146 review)", (
     expect(viewOf(renamed).hints).toContainEqual(expect.stringMatching(/^plan review is stale: the tasks changed since review 1/));
   });
 });
+
+describe("the review basis covers the tasks' backlog citations (issue #146 review)", () => {
+  it("a citation edited outside Atomic Agent makes the review stale; a plan with none keeps its old basis", async () => {
+    const { planReviewBasis } = await import("./plan-review-record.js");
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const p = (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+    const viewOf = (project: ProjectState) => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+    expect(viewOf(p).planReview).toMatchObject({ stale: false });
+    const rows = p.plan!.rows;
+    const cited: ProjectState = { ...p, plan: { ...p.plan!, rows: rows.map((r) => ({ ...r, backlog: ["b1"] })) } };
+    expect(viewOf(cited).planReview).toMatchObject({ stale: true });
+    expect(planReviewBasis(rows, ["m1"])).not.toBe(planReviewBasis(cited.plan!.rows, ["m1"]));
+  });
+});
