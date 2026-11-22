@@ -477,7 +477,9 @@ test('a narrow window puts the card between the chat\'s top and the composer\'s 
 
 // node:vm: since the plan checks (#129), session-project.ts reaches the
 // contract-example validator through the check lint; nothing here runs it.
-const CORE = loadCore(new URL('../../src/session/session-project.ts', import.meta.url), ['node:vm']);
+// node:crypto: since the plan reviewer (#118), the review record hashes the
+// plan rows it reviewed (its basis); pure hashing, no keys or randomness here.
+const CORE = loadCore(new URL('../../src/session/session-project.ts', import.meta.url), ['node:vm', 'node:crypto']);
 
 /** The views a real project goes through (session-project.ts), shaped as projectGateView shapes them. */
 function coreSequence() {
