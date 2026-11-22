@@ -29918,12 +29918,13 @@ function llmCoreUpdateText(update) {
 function llmCoreUpdateWaitingHTML(update) {
   const disabled = update.stopping ? ' disabled' : '';
   const why = update.error || 'This reinstalls the active version. Stop local models before updating.';
-  return '<div class="dlc-top"><span class="dlc-name">Local engine</span>'
+  return '<div class="dlc-core-waiting"><div class="dlc-top"><span class="dlc-name">Local engine</span>'
+    + '<div class="dlc-core-actions">'
     + '<button class="btn btn-t xs" data-act="dlc:coreStop"' + disabled + '>'
     + (update.stopping ? 'Stopping models…' : 'Stop models and update') + '</button>'
-    + '<button class="btn btn-g xs" data-act="dlc:coreLater"' + disabled + '>Later</button></div>'
+    + '<button class="btn btn-g xs" data-act="dlc:coreLater"' + disabled + '>Later</button></div></div>'
     + '<p class="dlc-line">' + esc(why) + '</p>'
-    + '<p class="dlc-line">' + esc(llmCoreUpdateText(update)) + '</p>';
+    + '<p class="dlc-line">' + esc(llmCoreUpdateText(update)) + '</p></div>';
 }
 async function llmCoreUpdateAction(action) {
   const update = LLMP.coreUpdateWaiting;
