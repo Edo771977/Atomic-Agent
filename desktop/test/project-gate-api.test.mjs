@@ -6,10 +6,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { AgentClient } = require('../out/main/agent-client.js');
-const { parseProjectDecisionIpc, parseProjectSessionIpc, MAX_PROJECT_NOTE_CHARS } = require('../out/main/project-ipc.js');
+const { parseProjectDecisionIpc, parseProjectSessionIpc, parseProjectBacklogIpc, MAX_PROJECT_NOTE_CHARS } = require('../out/main/project-ipc.js');
 
 function view(over = {}) {
   return Object.assign({
@@ -227,4 +228,57 @@ test('desktop IPC preserves approved decision status edits and validates overrid
     {...override, edits: {}},
     {...override, edits: {note: '  '}},
   ]) assert.equal(parseProjectDecisionIpc(raw).ok, false);
+});
+
+/* ---------------- issue #146: the person's call on a backlog item ---------------- */
+
+test('projectBacklogDecision: POST /api/project/backlog, the view, and every refusal with its code and the current view', async () => {
+  const v = view({version: 4});
+  const answers = {
+    ok: [200, {session_id: 'ok', view: v}],
+    bad: [400, {error: {message: 'state must be promoted, dropped or open'}}],
+    gone: [404, {error: {message: 'no project on session gone'}}],
+    running: [409, {error: {message: 'a turn is running', code: 'turn-running'}, view: v}],
+    unknown: [400, {error: {message: 'no backlog item b9', code: 'invalid'}, view: v}],
+    old: [404, {error: {message: 'No route for POST /api/project/backlog'}}],
+    none: [501, {error: {message: 'this agent takes no project decisions'}}],
+  };
+  const s = await standIn((r, body) => answers[JSON.parse(body).session]);
+  const decide = (session) => s.client.projectBacklogDecision({session, item: 'b1', state: 'promoted'});
+  try {
+    assert.deepEqual(await decide('ok'), {supported: true, ok: true, view: v});
+    assert.deepEqual(await decide('bad'), {supported: true, ok: false, status: 400, code: null, error: 'state must be promoted, dropped or open', view: null});
+    assert.deepEqual(await decide('gone'), {supported: true, ok: false, status: 404, code: null, error: 'no project on session gone', view: null});
+    assert.deepEqual(await decide('running'), {supported: true, ok: false, status: 409, code: 'turn-running', error: 'a turn is running', view: v});
+    assert.equal((await decide('unknown')).code, 'invalid');
+    assert.deepEqual(await decide('old'), {supported: false});
+    assert.deepEqual(await decide('none'), {supported: false});
+    assert.deepEqual(JSON.parse(s.seen[0].body), {session: 'ok', item: 'b1', state: 'promoted'});
+    assert.equal(s.seen[0].method, 'POST');
+    assert.equal(s.seen[0].url, '/api/project/backlog');
+  } finally { await s.close(); }
+});
+
+test('the backlog IPC passes a session, an item id and one of the three states, rebuilt field by field', () => {
+  for (const state of ['promoted', 'dropped', 'open']) {
+    assert.deepEqual(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b1', state, extra: 1}), {ok: true, body: {session: 'ses-1', item: 'b1', state}});
+  }
+  const base = {sessionId: 'ses-1', item: 'b1', state: 'promoted'};
+  for (const raw of [
+    null, 'x', [], {},
+    {...base, sessionId: ''}, {...base, sessionId: 3}, {...base, sessionId: 'a\nb'}, {...base, sessionId: 'x'.repeat(201)},
+    {...base, item: ''}, {...base, item: 7}, {...base, item: 'b 1'}, {...base, item: ' b1'}, {...base, item: 'b1\n'}, {...base, item: 'b'.repeat(65)},
+    {...base, state: 'deferred'}, {...base, state: 'active'}, {...base, state: 'PROMOTED'}, {...base, state: undefined},
+  ]) {
+    const out = parseProjectBacklogIpc(raw);
+    assert.equal(out.ok, false, JSON.stringify(raw));
+    assert.equal(typeof out.error, 'string');
+  }
+});
+
+test('main and the preload bridge wire the backlog call like the project decision', () => {
+  const main = readFileSync(new URL('../main/main.ts', import.meta.url), 'utf8');
+  const preload = readFileSync(new URL('../preload/preload.ts', import.meta.url), 'utf8');
+  assert.match(main, /ipcMain\.handle\("agent:projectBacklog", async \(_event, raw: unknown\) => \{\s*const parsed = parseProjectBacklogIpc\(raw\);[\s\S]{0,200}client\.projectBacklogDecision\(parsed\.body\)/);
+  assert.match(preload, /projectBacklog: \(decision: unknown\) => ipcRenderer\.invoke\("agent:projectBacklog", decision\)/);
 });

@@ -6,6 +6,12 @@
  * (src/session/project-decision-parse.ts) is refused before it leaves the
  * app. Whether the gate takes it (its version, the allowed verdicts, hard
  * caps, a running turn) stays the agent's to say.
+ *
+ * Issue #146: `agent:projectBacklog`, the person's call on a backlog item
+ * (`POST /api/project/backlog`, the HTTP form of the sidecar's
+ * `project_backlog_decision`), checked the same way: a strict session and
+ * item id and only `promoted`, `dropped` or `open`. Between turns only,
+ * which the agent says (`turn-running`).
  */
 
 export const PROJECT_VERDICTS = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"] as const;
@@ -33,6 +39,30 @@ export interface ProjectDecisionBody {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_CHARS && !/[\r\n]/.test(v);
+
+export const PROJECT_BACKLOG_STATES = ["promoted", "dropped", "open"] as const;
+export type ProjectBacklogState = (typeof PROJECT_BACKLOG_STATES)[number];
+/** The core's `PROJECT_LIMITS.id`: a backlog item id is one word of at most this many characters. */
+const MAX_BACKLOG_ID_CHARS = 64;
+
+export interface ProjectBacklogBody {
+  session: string;
+  item: string;
+  state: ProjectBacklogState;
+}
+
+/** Issue #146: `{sessionId, item, state}` from the window, as the route's `{session, item, state}`, or why not. */
+export function parseProjectBacklogIpc(raw: unknown): { ok: true; body: ProjectBacklogBody } | { ok: false; error: string } {
+  if (!isObject(raw)) return { ok: false, error: "a backlog call must be an object" };
+  if (!isId(raw.sessionId)) return { ok: false, error: "session required" };
+  const item = raw.item;
+  if (typeof item !== "string" || item.length > MAX_BACKLOG_ID_CHARS || !/^\S+$/.test(item)) {
+    return { ok: false, error: "item must be a backlog item's id" };
+  }
+  const state = PROJECT_BACKLOG_STATES.find((s) => s === raw.state);
+  if (!state) return { ok: false, error: "state must be promoted, dropped or open" };
+  return { ok: true, body: { session: raw.sessionId, item, state } };
+}
 
 /** Issue #109: one absolute folder (POSIX or Windows) for the projects list's forget / resume, or null. */
 export function parseProjectFolderIpc(raw: unknown): string | null {

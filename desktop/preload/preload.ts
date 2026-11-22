@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld("atomic", {
   onProject: (cb: (payload: unknown) => void) => on("agent:project", cb),
   project: (sessionId: string) => ipcRenderer.invoke("agent:project", sessionId),
   projectDecision: (decision: unknown) => ipcRenderer.invoke("agent:projectDecision", decision),
+  /** Issue #146: the person's call on a backlog item, `{sessionId, item, state: promoted | dropped | open}`. */
+  projectBacklog: (decision: unknown) => ipcRenderer.invoke("agent:projectBacklog", decision),
   /** Issue #109: the Fusion projects this computer knows, forget one (files stay), resume one (its chat's id). */
   fusionProjects: () => ipcRenderer.invoke("agent:fusionProjects"),
   fusionProjectForget: (folder: string) => ipcRenderer.invoke("agent:fusionProjectForget", folder),
