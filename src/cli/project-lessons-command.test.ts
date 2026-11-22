@@ -124,6 +124,9 @@ describe("project lessons", () => {
     expect(await row()).toMatchObject({ effectiveStatus: "retired", approvedByPerson: false });
     expect(await projectCommand(["lessons", folder, "--reopen", "lesson"], io)).toBe(0);
     expect(await row()).toMatchObject({ effectiveStatus: "unapproved", stale: false });
+    const reopened = records.read(folder);
+    expect(await projectCommand(["lessons", folder, "--reopen", "lesson"], io)).toBe(0);
+    expect(records.read(folder)).toEqual(reopened);
   });
 
   it("projects only current active lessons into each prompt and honors folder provider constraints", async () => {

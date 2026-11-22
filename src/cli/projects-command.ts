@@ -533,11 +533,13 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
       if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
     }
     const call = state === null ? null : { state, hash: lesson!.hash };
-    const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
-    if (!written.ok) return refuse(written.problem.message);
-    if (call === null) delete calls[id];
-    else calls[id] = call;
-    if (!json) stdout(`${id} is ${state ?? "reopened"} now.\n`);
+    if (call !== null || Object.hasOwn(calls, id)) {
+      const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
+      if (!written.ok) return refuse(written.problem.message);
+      if (call === null) delete calls[id];
+      else calls[id] = call;
+      if (!json) stdout(`${id} is ${state ?? "reopened"} now.\n`);
+    }
   }
 
   const rows = lessons.map((lesson) => {
