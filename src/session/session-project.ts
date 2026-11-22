@@ -26,8 +26,9 @@ import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-
 import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, milestoneStarted, openBacklog, promotedForPlan, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
-import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanLessonCoverage, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
 import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewPersonCalls, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
+import type { ProjectLesson } from "./project-lessons.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -355,6 +356,9 @@ export interface AssignmentRow {
    * by the plan (`backlog-coverage`).
    */
   backlog?: string[];
+  /** Project lesson ids and declared paths for lesson coverage. */
+  lessons?: string[];
+  files?: string[];
   /** Same spec language as fusion.delegate; task ownership is implicit in this row. */
   checks?: ContractCheck[];
 }
@@ -444,9 +448,37 @@ export type ProjectGate =
 
 /** Current on-disk lesson coverage. Symbols stay out of project and session JSON. */
 export const currentProjectLessonsBasis = Symbol("currentProjectLessonsBasis");
+export const currentProjectLessons = Symbol("currentProjectLessons");
+
+interface ProjectLessonScope {
+  active: readonly ProjectLesson[];
+  taskPaths: (row: AssignmentRow) => readonly string[];
+  matches: (touches: readonly string[], paths: readonly string[]) => boolean;
+}
+
+type LessonCallsView = Pick<ProjectState, typeof currentProjectLessons | "lessonDeferred">;
+
+export function planLessonsOf(project: LessonCallsView, rows: readonly AssignmentRow[]): PlanLessonCoverage[] {
+  const scope = project[currentProjectLessons];
+  const binding = scope?.active.filter((lesson) => lesson.always) ?? [];
+  if (scope === undefined || binding.length === 0) return [];
+  const tasks = rows.map((row) => ({ row, paths: scope.taskPaths(row) }));
+  return binding.map(({ id, title, touches, hash }) => ({
+    id, title,
+    deferred: project.lessonDeferred?.[id] === hash,
+    citedBy: rows.filter((row) => row.lessons?.includes(id)).map((row) => row.taskId),
+    missingFrom: tasks.filter(({ row, paths }) =>
+      !row.lessons?.includes(id) && (touches.length === 0 || scope.matches(touches, paths))).map(({ row }) => row.taskId),
+  }));
+}
+
+export type PersonLessonStatus = "deferred" | "active";
 
 export interface ProjectState {
   [currentProjectLessonsBasis]?: string;
+  [currentProjectLessons]?: ProjectLessonScope;
+  /** Fingerprints of the binding lessons the person deferred for this plan. Record only. */
+  lessonDeferred?: Record<string, string>;
   brief?: ProjectBrief;
   plan?: ProjectPlan;
   /** In plan order; the order milestones are approved and run in. */
@@ -757,6 +789,7 @@ export interface ProjectEdits {
    * ({@link ProjectBacklogCall.deferred}), never in `project.json`.
    */
   backlogStatus?: Readonly<Record<string, PersonBacklogStatus>>;
+  lessonStatus?: Readonly<Record<string, PersonLessonStatus>>;
   /**
    * Milestone gate: what is wrong with the result. The milestone goes
    * back to `approved` for another run, the note recorded on it
@@ -888,7 +921,7 @@ export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[
  * text, which a file edit changes). A change of one at the gate makes the
  * review stale, like a row edit.
  */
-export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls" | typeof currentProjectLessonsBasis>): PlanReviewPersonCalls {
+export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls" | typeof currentProjectLessonsBasis | "lessonDeferred">): PlanReviewPersonCalls {
   // The record's own calls, whatever the items' text reads now: an edit of project.json (no person) never changes them.
   const deferred = Object.entries(project.backlogCalls ?? {})
     .filter(([id, call]) => call.deferred === true && project.backlogStates?.[id] === "promoted")
@@ -896,6 +929,7 @@ export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatu
   return {
     ...(project.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
     ...(deferred.length === 0 ? {} : { backlogDeferred: deferred }),
+    ...(project.lessonDeferred === undefined ? {} : { lessonDeferred: project.lessonDeferred }),
     ...(project[currentProjectLessonsBasis] === undefined ? {} : { lessonsBasis: project[currentProjectLessonsBasis] }),
   };
 }
@@ -1088,6 +1122,17 @@ function cleanDecisions(raw: unknown, mode: "strict" | "lenient"): ProjectBriefD
 
 const DELIVERABLES: ReadonlySet<string> = new Set(PROJECT_DELIVERABLES);
 
+export function parsePlanTaskLessons(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.lessonFiles || new Set(raw).size !== raw.length) return null;
+  return raw.every((id) => typeof id === "string" && id.length <= PROJECT_LIMITS.id && /^[a-z0-9-]+$/.test(id)) ? raw : null;
+}
+
+export function parsePlanTaskFiles(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.planTaskFiles) return null;
+  if (!raw.every((path) => typeof path === "string" && path.trim().length > 0 && path.length <= PROJECT_LIMITS.lessonTouchPath && !/[\x00-\x1f]/.test(path))) return null;
+  return [...new Set(raw.map((path: string) => path.trim()))];
+}
+
 /** A list of decision ids on a plan row: unique, each a criterion-shaped id; null when malformed. */
 function cleanRowDecisions(raw: unknown): string[] | null {
   if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.decisions) return null;
@@ -1169,8 +1214,11 @@ function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): R
 }
 
 /** The backlog and the person's calls on it and on the decisions: carried by every update. */
-function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogCalls"> {
+function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogCalls" | "lessonDeferred" | typeof currentProjectLessons | typeof currentProjectLessonsBasis> {
   return {
+    ...(project?.[currentProjectLessons] === undefined ? {} : { [currentProjectLessons]: project[currentProjectLessons] }),
+    ...(project?.[currentProjectLessonsBasis] === undefined ? {} : { [currentProjectLessonsBasis]: project[currentProjectLessonsBasis] }),
+    ...(!decisionsToo || project?.lessonDeferred === undefined ? {} : { lessonDeferred: project.lessonDeferred }),
     ...(project?.backlog === undefined ? {} : { backlog: project.backlog }),
     ...(project?.backlogStates === undefined ? {} : { backlogStates: project.backlogStates }),
     ...(project?.backlogCalls === undefined ? {} : { backlogCalls: project.backlogCalls }),
@@ -1241,6 +1289,9 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   if (decisions === null) return null;
   const backlog = raw.backlog === undefined ? undefined : cleanRowBacklog(raw.backlog);
   if (backlog === null) return null;
+  const lessons = raw.lessons === undefined ? undefined : parsePlanTaskLessons(raw.lessons);
+  const files = raw.files === undefined ? undefined : parsePlanTaskFiles(raw.files);
+  if (lessons === null || files === null) return null;
   const problems: string[] = [];
   const checks = parsePlanRowChecks(raw.checks, taskId, problems);
   if (problems.length > 0) return null;
@@ -1259,6 +1310,8 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
     ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
     ...(backlog === undefined || backlog.length === 0 ? {} : { backlog }),
+    ...(lessons === undefined || lessons.length === 0 ? {} : { lessons }),
+    ...(files === undefined || files.length === 0 ? {} : { files }),
     ...(raw.checks === undefined ? {} : { checks }),
   };
 }
@@ -1657,6 +1710,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   const approvedCriteria = Array.isArray(stored) ? stored : brief?.status === "approved" ? brief.successCriteria : undefined;
   const storedDecisions = cleanDecisions(raw.approvedDecisions, "lenient");
   const approvedDecisions = Array.isArray(storedDecisions) ? storedDecisions : undefined;
+  const lessonEntries = isObject(raw.lessonDeferred) ? Object.entries(raw.lessonDeferred) : [];
+  const lessonDeferred = Object.fromEntries(lessonEntries.filter(([id, hash]) =>
+    parsePlanTaskLessons([id]) !== null && typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, PROJECT_LIMITS.lessonFiles)) as Record<string, string>;
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
   const backlog = readBacklog(raw.backlog);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
@@ -1679,6 +1735,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(raw.versionFloor === undefined ? {} : { versionFloor: raw.versionFloor as number }),
     ...(backlog === undefined ? {} : { backlog }),
     ...(decisionStatus === undefined ? {} : { decisionStatus }),
+    ...(Object.keys(lessonDeferred).length === 0 ? {} : { lessonDeferred }),
     ...(backlogStates === undefined ? {} : { backlogStates }),
     ...(backlogCalls === undefined ? {} : { backlogCalls }),
   };
@@ -1756,6 +1813,8 @@ function briefUpdate(
           version: base.plan.version + 1,
           ...mergeResets(base.plan, freshResets(base.milestones, milestones), new Set(milestones.map((m) => m.id))),
         };
+  const calls = personCalls(project, base !== undefined);
+  if (base?.plan?.status === "approved") delete calls.lessonDeferred;
   return {
     ok: true,
     project: {
@@ -1768,7 +1827,7 @@ function briefUpdate(
       ...(base?.briefApprovals === undefined ? {} : { briefApprovals: base.briefApprovals }),
       ...floorOf(project),
       // The backlog is the folder's: it outlives a cancel; decision statuses belong to the project's decisions.
-      ...personCalls(project, base !== undefined),
+      ...calls,
     },
   };
 }
@@ -1801,9 +1860,16 @@ export function backlogCheckOptions(project: BacklogCallsView, plan: Pick<Projec
   };
 }
 
-/** The references record and the backlog's coverage inputs of `plan`, for {@link evaluatePlanChecks}. */
-export function planCheckData(project: BacklogCallsView, plan: Pick<ProjectPlan, "referenceCheck" | "status">): PlanCheckOptions {
-  return { ...referenceOptions(plan), ...backlogCheckOptions(project, plan) };
+/** Stored references and live backlog and lesson coverage inputs for {@link evaluatePlanChecks}. */
+export function planCheckData(project: BacklogCallsView & LessonCallsView, plan: Pick<ProjectPlan, "referenceCheck" | "status" | "rows">): PlanCheckOptions {
+  return {
+    ...referenceOptions(plan),
+    ...backlogCheckOptions(project, plan),
+    ...(plan.status !== "draft" ? {} : {
+      lessons: planLessonsOf(project, plan.rows),
+      activeLessonIds: project[currentProjectLessons]?.active.map((lesson) => lesson.id) ?? [],
+    }),
+  };
 }
 
 function withoutResets(plan: ProjectPlan): ProjectPlan {
@@ -2266,13 +2332,15 @@ function planUpdate(
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const referenceCheck = readPlanReferenceRecord(update.referenceCheck);
   const review = readPlanReviewRecord(update.planReview);
+  const calls = personCalls(project, true);
+  if (project.plan?.status === "approved") delete calls.lessonDeferred;
   // Issue #118: a draft the reviewer sent back stays with the director.
   const held = update.holdForReview === true && review?.sentBack === true;
   const plan: ProjectPlan = {
     rows,
     ...(referenceCheck === undefined ? {} : { referenceCheck }),
     ...(review === undefined ? {} : { review }),
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...backlogCheckOptions({ ...project, plan: { ...project.plan, rows } as ProjectPlan, milestones }, { status: "draft" }) }, planDecisionsOf(project), finishedCitationsOf(milestones)),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, planCheckData({ ...calls, plan: { ...project.plan, rows } as ProjectPlan, milestones }, { rows, status: "draft", ...(referenceCheck === undefined ? {} : { referenceCheck }) }), planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2292,7 +2360,7 @@ function planUpdate(
       ...(project.approvedDecisions === undefined ? {} : { approvedDecisions: project.approvedDecisions }),
       ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
       ...floorOf(project),
-      ...personCalls(project, true),
+      ...calls,
     },
   };
 }
@@ -2561,6 +2629,9 @@ function decideProject(
   if (decision.verdict === "edit" && decision.edits?.decisionStatus !== undefined && gate.kind !== "plan") {
     return refuse({ code: "invalid", message: "A decision's status is set at the plan gate." });
   }
+  if (decision.verdict === "edit" && decision.edits?.lessonStatus !== undefined && gate.kind !== "plan") {
+    return refuse({ code: "invalid", message: "Binding lessons are deferred at the plan gate." });
+  }
   if (decision.verdict === "edit" && decision.edits?.backlogStatus !== undefined && gate.kind !== "plan") {
     return refuse({ code: "invalid", message: "A promoted backlog item is deferred at the plan gate." });
   }
@@ -2770,7 +2841,22 @@ function decideProject(
       }
       backlogCalls = calls;
     }
-    if ((statusEdit !== undefined || backlogEdit !== undefined) && (decision.edits?.rows ?? []).length === 0) {
+    const lessonEdit = decision.verdict === "edit" ? decision.edits?.lessonStatus : undefined;
+    let lessonDeferred = project.lessonDeferred ?? {};
+    if (lessonEdit !== undefined) {
+      const binding = new Map(project[currentProjectLessons]?.active.filter((lesson) => lesson.always)
+        .map((lesson) => [lesson.id, lesson.hash]));
+      lessonDeferred = Object.fromEntries(Object.entries(lessonDeferred).filter(([id, hash]) => binding.get(id) === hash));
+      for (const [id, status] of Object.entries(lessonEdit)) {
+        const hash = binding.get(id);
+        if (hash === undefined || (status !== "active" && status !== "deferred")) {
+          return refuse({ code: "invalid", message: `Invalid status edit for binding lesson ${id}.` });
+        }
+        if (status === "active") delete lessonDeferred[id];
+        else lessonDeferred[id] = hash;
+      }
+    }
+    if ((statusEdit !== undefined || backlogEdit !== undefined || lessonEdit !== undefined) && (decision.edits?.rows ?? []).length === 0) {
       // Only the decisions' status changed: the rows stay as they are.
       rows = plan.rows.map((r) => ({ ...r }));
     } else if (decision.verdict === "edit") {
@@ -2789,8 +2875,8 @@ function decideProject(
       if (read === null) return refuse({ code: "invalid", message: "the re-estimated plan has a malformed task" });
       checked.push(read);
     }
-    const { decisionStatus: _status, backlogCalls: _calls, ...rest } = project;
-    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }), ...(backlogCalls === undefined ? {} : { backlogCalls }) };
+    const { decisionStatus: _status, backlogCalls: _calls, lessonDeferred: _lessons, ...rest } = project;
+    const next: ProjectState = { ...rest, ...(Object.keys(lessonDeferred).length === 0 ? {} : { lessonDeferred }), ...(decisionStatus === undefined ? {} : { decisionStatus }), ...(backlogCalls === undefined ? {} : { backlogCalls }) };
     return {
       ok: true,
       project: {
@@ -2799,7 +2885,7 @@ function decideProject(
           ...withoutApproval(plan),
           rows: checked,
           totals: planTotals(checked),
-          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, { ...referenceOptions(plan), ...backlogCheckOptions(next, { status: "draft" }) }, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, planCheckData(next, { ...plan, rows: checked, status: "draft" }), planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
           status: "draft",
           version: plan.version + 1,
         },

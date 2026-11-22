@@ -182,6 +182,11 @@ describe("project lessons", () => {
     const worker = (providerId: string, files = ["src/main.ts"]) => workerProjectLessonBlock(
       source, providerId, { id: "t1", title: "Work", instructions: "Work", files }, undefined, folder,
     );
+    const cited = workerProjectLessonBlock(
+      source, "cloud", { id: "t1", title: "Work", instructions: "Work", files: ["src/other.ts"] },
+      undefined, folder, ["private-active"],
+    );
+    expect(cited).toMatch(/EXTERNAL CONTENT[\s\S]*"id":"private-active"[\s\S]*"binding":true/);
     const reviewer = async (providerId: string) => {
       const complete = vi.fn(async ({ prompt: _prompt }: { prompt: string }) => ({ content: JSON.stringify({
         results: PLAN_REVIEW_DIMENSIONS.map((dimension) => ({ dimension, verdict: "pass", detail: "OK", taskIds: [] })),

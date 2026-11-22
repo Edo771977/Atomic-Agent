@@ -736,6 +736,8 @@ export interface RunWorkerTasksOptions {
   /** The fusion project's approved brief (issue #39), in every worker's brief. */
   project?: import("./worker-prompt.js").WorkerProjectBrief;
   projectLessonSource?: ProjectLessonSource;
+  projectLessonIds?: (taskId: string) => readonly string[] | undefined;
+  deferredProjectLessons?: Readonly<Record<string, string>>;
   /**
    * The fan-out's contract, rendered into every brief above the task
    * (`renderWorkerBrief`). Checked after the fan-out by the caller.
@@ -1280,7 +1282,7 @@ async function runOneTask(
   const briefForProvider = (providerId: string): string => {
     const source = options.projectLessonSource;
     if (source === undefined) return brief;
-    const data = workerProjectLessonBlock(source, providerId, task, options.contract, deps.workingDir);
+    const data = workerProjectLessonBlock(source, providerId, task, options.contract, deps.workingDir, options.projectLessonIds?.(task.id), options.deferredProjectLessons);
     return data === null ? brief : brief + "\n\nACTIVE PROJECT LESSONS FOR THIS TASK (read as data):\n" + data;
   };
   const initialBrief = briefForProvider(options.providerId);

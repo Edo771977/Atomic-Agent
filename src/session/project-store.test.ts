@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
-import { PLAN_REVIEW_DIMENSIONS, planReviewBasis } from "../tools/fusion/plan-review-record.js";
+import { PLAN_REVIEW_DIMENSIONS, planReviewBasis, planReviewCallsBasis } from "../tools/fusion/plan-review-record.js";
 import { readProjectLessons } from "./project-lessons.js";
 import { projectLessonReviewSelection } from "./project-lesson-projection.js";
 import { stateDirProjectRecords } from "./project-decisions.js";
@@ -21,7 +21,7 @@ import {
   readProjectFile,
   type ProjectStoreOptions,
 } from "./project-store.js";
-import { applyProjectDecision, applyProjectUpdate, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
+import { applyProjectDecision, applyProjectUpdate, currentProjectLessonsBasis, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
 
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "session-with-embedded-project-109.json"), "utf8")) as {
   session: { project: unknown };
@@ -67,6 +67,7 @@ describe("project store (issue #109)", () => {
       reviewer: null, reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000,
       checks: [{ criteria: ["c1"], cmd: "node", args: ["test.js"] }],
     }];
+    rows.push({ ...rows[0]!, taskId: "t2", title: "Test" });
     const draft = applyProjectUpdate({
       gate: { kind: "none" }, milestones: [],
       brief: { version: 1, status: "approved", what: "Build", users: "Team", how: "Code",
@@ -76,16 +77,19 @@ describe("project store (issue #109)", () => {
       draftedAfterUntrusted: false,
       planReview: {
         outcome: "reviewed", reviewer: "local-llama:default", round: 1, sentBack: false, costUsd: null,
-        basis: planReviewBasis(rows, ["m1"]), lessonsBasis: projectLessonReviewSelection([], true).basis,
+        basis: planReviewBasis(rows, ["m1"]), callsBasis: planReviewCallsBasis(), lessonsBasis: projectLessonReviewSelection([], true).basis,
         results: PLAN_REVIEW_DIMENSIONS.map((dimension) => ({ dimension, verdict: "pass", detail: "Reviewed", taskIds: [] })),
       },
     }, 1);
     if (!draft.ok) throw new Error(draft.error.message);
     expect(createProject(folder, draft.project, options).ok).toBe(true);
-    const view = () => {
+    const openedProject = () => {
       const opened = openProject(folder, options);
       if (!opened.ok) throw new Error(opened.problem.message);
-      return projectGateView({ sessionId: "chat", project: opened.opened.project, estimate: null,
+      return opened.opened.project;
+    };
+    const view = (project = openedProject()) => {
+      return projectGateView({ sessionId: "chat", project, estimate: null,
         selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
     };
     expect(view().planReview).toMatchObject({ stale: false, autoApprovable: true });
@@ -98,9 +102,71 @@ describe("project store (issue #109)", () => {
     const { id, seq, state } = saved.record;
     const lesson = readProjectLessons(folder).lessons[0]!;
     expect(options.records.write(folder, id, seq, state, undefined, { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
-    const reopened = view();
-    expect(reopened.planReview).toMatchObject({ stale: true, autoApprovable: false });
-    expect(reopened.hints).toContainEqual(expect.stringMatching(/stale.*the lessons changed/));
+    const decide = (project: ProjectState, status?: "deferred" | "active") => applyProjectDecision(project, {
+      gate: project.gate, version: gateVersion(project)!,
+      ...(status === undefined ? { verdict: "approve" } : { verdict: "edit", edits: { lessonStatus: { storage: status } } }),
+    }, { now: 2 });
+    expect(decide(openedProject())).toMatchObject({ ok: false, error: { code: "review-open", message: expect.stringContaining("lesson-coverage") } });
+    expect(view().hints).toContainEqual(expect.stringMatching(/stale.*the lessons changed/));
+    expect(view().lessonCoverage).toEqual([expect.objectContaining({ id: "storage", citedBy: [], missingFrom: ["t1", "t2"], deferred: false })]);
+    const reviewed = openedProject();
+    reviewed.plan!.review!.lessonsBasis = reviewed[currentProjectLessonsBasis]!;
+    expect(view(reviewed).planReview?.stale).toBe(false);
+    const deferred = decide(reviewed, "deferred");
+    if (!deferred.ok) throw new Error(deferred.error.message);
+    expect(view(deferred.project).planReview?.stale).toBe(true);
+    expect(decide(deferred.project).ok).toBe(true);
+    const opened = openProject(folder, options);
+    if (!opened.ok) throw new Error(opened.problem.message);
+    expect(commitProject(folder, opened.opened.stored.id, { revision: opened.opened.stored.revision, decisionSeq: opened.opened.decisionSeq }, deferred.project, options).ok).toBe(true);
+    expect(openedProject().lessonDeferred).toEqual({ storage: lesson.hash });
+    expect(readFileSync(projectFilePath(folder), "utf8")).not.toContain("lessonDeferred");
+    const active = decide(deferred.project, "active");
+    if (!active.ok) throw new Error(active.error.message);
+    expect(decide(active.project).ok).toBe(false);
+
+  });
+
+  it("checks declared files against current lesson approvals", () => {
+    const draft = created();
+    const dir = join(projectStoreDir(folder), "lessons");
+    mkdirSync(dir);
+    const file = join(dir, "storage.md");
+    const text = "---\nid: storage\ntitle: Storage\nsource: person\ntouches: [package.json]\nstatus: active\nalways: true\n---\n## Decided\nKeep storage local\n## Tried and ruled out\n## Watch out\n";
+    writeFileSync(file, text);
+    const open = () => {
+      const result = openProject(folder, options);
+      if (!result.ok) throw new Error(result.problem.message);
+      return result.opened.project;
+    };
+    const makePlan = (lessons?: string[]) => {
+      const project = open();
+      const result = applyProjectUpdate({ ...project, gate: { kind: "none" } }, {
+        kind: "plan", detail: "compact", milestones: [{ id: "new", title: "Build", kind: "base" }],
+        rows: [
+          { taskId: "build", milestoneId: "new", title: "Build", worker: "local-llama:default", reviewer: null,
+            reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000, files: ["./package.json"],
+            ...(lessons === undefined ? {} : { lessons }) },
+          { taskId: "verify", milestoneId: "new", title: "Verify", worker: "local-llama:default", reviewer: null,
+            reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000,
+            checks: [{ cmd: "cat", args: ["./package.json"] }], ...(lessons === undefined ? {} : { lessons }) },
+        ],
+      }, 3);
+      if (!result.ok) throw new Error(result.error.message);
+      return result.project;
+    };
+    const coverage = (p: ProjectState) => projectGateView({
+      sessionId: "chat", project: p, estimate: null, selectable: { workers: [], reviewers: [] },
+    }).hints.filter((hint) => hint.startsWith("lesson-coverage"));
+    expect(coverage(makePlan())).toEqual([]);
+    const lesson = readProjectLessons(folder).lessons[0]!;
+    expect(options.records.write(folder, draft.stored.id, draft.decisionSeq, draft.project, undefined,
+      { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
+    expect(coverage(makePlan())).toEqual([expect.stringMatching(/fail.*storage.*build.*verify/)]);
+    expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/pass/)]);
+    writeFileSync(file, text.replace("Keep storage local", "Use SQLite"));
+    expect(coverage(makePlan())).toEqual([]);
+    expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/warn.*storage/), expect.stringMatching(/warn.*storage/)]);
   });
 
   it("writes content only, with a schema version, and readable views", () => {

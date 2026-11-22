@@ -356,6 +356,16 @@ export function taskReferencePaths(files: readonly string[], checks: readonly Co
   return [...paths];
 }
 
+/** A task's declared files and check paths, matched with the worker's platform rules. */
+export function lessonTouchesTask(touches: readonly string[], files: readonly string[], platform: NodeJS.Platform): boolean {
+  const normalizeCase = (value: string) => platform === "win32" || platform === "darwin" ? value.toLowerCase() : value;
+  const paths = files.map(normalizeCase);
+  return touches.some((touch) => {
+    const path = normalizeCase(posix.normalize(touch.replaceAll("\\", "/")).replace(/\/$/, ""));
+    return paths.some((file) => path === "." || file === path || file.startsWith(path + "/"));
+  });
+}
+
 /** Every reference the plan's tasks cite, and what they declare they create. Pure. */
 export function extractPlanReferences(rows: readonly AssignmentRow[], root: string, platform: NodeJS.Platform = process.platform): PlanReferenceExtraction {
   const byKey = new Map<string, PlanReference>();

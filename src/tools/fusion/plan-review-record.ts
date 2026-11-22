@@ -102,6 +102,7 @@ const flat = (s: string, max: number): string => {
 export interface PlanReviewPersonCalls {
   decisionStatus?: Readonly<Record<string, string>>;
   backlogDeferred?: readonly string[];
+  lessonDeferred?: Readonly<Record<string, string>>;
   lessonsBasis?: string;
 }
 
@@ -112,7 +113,7 @@ export interface PlanReviewPersonCalls {
  * review of such a plan keeps its basis.
  */
 export function planReviewBasis(rows: readonly AssignmentRow[], milestoneIds: readonly string[]): string {
-  const text = JSON.stringify([milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? [], ...(r.backlog === undefined ? [] : [r.backlog])])]);
+  const text = JSON.stringify([milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? [], ...(r.backlog === undefined ? [] : [r.backlog]), ...(r.lessons === undefined && r.files === undefined ? [] : [{ lessons: r.lessons, files: r.files }])])]);
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
@@ -124,7 +125,8 @@ export function planReviewBasis(rows: readonly AssignmentRow[], milestoneIds: re
 export function planReviewCallsBasis(calls: PlanReviewPersonCalls = {}): string {
   const statuses = Object.entries(calls.decisionStatus ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const deferred = [...new Set(calls.backlogDeferred ?? [])].sort();
-  return createHash("sha256").update(JSON.stringify({ decisionStatus: statuses, backlogDeferred: deferred })).digest("hex").slice(0, 16);
+  const lessonDeferred = Object.entries(calls.lessonDeferred ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return createHash("sha256").update(JSON.stringify({ decisionStatus: statuses, backlogDeferred: deferred, ...(lessonDeferred.length === 0 ? {} : { lessonDeferred }) })).digest("hex").slice(0, 16);
 }
 
 function readResult(raw: unknown): PlanReviewResult | undefined {

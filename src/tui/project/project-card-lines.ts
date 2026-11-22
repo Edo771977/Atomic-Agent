@@ -178,6 +178,11 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     }
     if (brief.status === "draft" && view.gate.kind !== "brief") text("(brief still a draft)", "muted");
   }
+  for (const lesson of view.lessonCoverage ?? []) {
+    const missing = !lesson.deferred && lesson.missingFrom.length > 0;
+    text(`• Lesson ${lesson.id} ${lesson.title} · ${lesson.deferred ? "deferred" : "active"} · cited by ${lesson.citedBy.join(", ") || "none"}${missing ? ` · missing from ${lesson.missingFrom.join(", ")}` : ""}`, missing ? "warn" : "plain", 3);
+  }
+
   // Issue #112: the brief's decisions, with the person's status and the tasks citing each.
   if ((view.decisions ?? []).length > 0) {
     text("Decisions:", "muted");

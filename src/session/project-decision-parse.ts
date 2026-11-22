@@ -7,7 +7,7 @@
  */
 
 import { normalizeCriterionId } from "./project-criterion-id.js";
-import { PERSON_BACKLOG_STATUSES, PERSON_DECISION_STATUSES, type PersonBacklogStatus, type PersonDecisionStatus, type ProjectDecision, type ProjectEdits, type ProjectGate, type ProjectVerdict } from "./session-project.js";
+import { PROJECT_LIMITS, parsePlanTaskLessons, PERSON_BACKLOG_STATUSES, PERSON_DECISION_STATUSES, type PersonBacklogStatus, type PersonDecisionStatus, type ProjectDecision, type ProjectEdits, type ProjectGate, type ProjectVerdict } from "./session-project.js";
 
 export const PROJECT_VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"];
 export const MAX_PROJECT_NOTE_CHARS = 2000;
@@ -77,6 +77,19 @@ function parseEdits(raw: unknown): ProjectEdits | string {
       status[id] = value as PersonDecisionStatus;
     }
     out.decisionStatus = status;
+  }
+  if (raw.lessonStatus !== undefined) {
+    if (!isObject(raw.lessonStatus)) return "edits.lessonStatus must map lesson ids to statuses";
+    const entries = Object.entries(raw.lessonStatus);
+    if (entries.length > PROJECT_LIMITS.lessonFiles || parsePlanTaskLessons(Object.keys(raw.lessonStatus)) === null) {
+      return "edits.lessonStatus must contain valid lesson ids";
+    }
+    const statuses: Array<[string, "active" | "deferred"]> = [];
+    for (const [id, status] of entries) {
+      if (status !== "active" && status !== "deferred") return `edits.lessonStatus.${id} must be active or deferred`;
+      statuses.push([id, status]);
+    }
+    out.lessonStatus = Object.fromEntries(statuses);
   }
   if (raw.backlogStatus !== undefined) {
     // Issue #146: the person defers a promoted backlog item at the plan gate, or sets it active again.

@@ -894,6 +894,8 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
               decisions: { type: "array", maxItems: 20, items: stringSchema },
               // Issue #146: the backlog items the task takes in.
               backlog: { type: "array", maxItems: 32, items: stringSchema },
+              lessons: { type: "array", maxItems: 128, items: stringSchema },
+              files: { type: "array", maxItems: 32, items: stringSchema },
               // Same extensible verify.run specs as fusion.delegate, with implicit task ownership.
               checks: { type: "array", maxItems: 16, items: { type: "object", additionalProperties: true } },
               // null: no review for this task.
