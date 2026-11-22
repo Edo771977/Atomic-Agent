@@ -529,7 +529,8 @@ function pcBacklogModel(view, plan, canEdit) {
 
 /** A promoted item waiting for the plan: who cites it, and its status edit. */
 function pcBacklogWaiting(promoted, canEdit) {
-  if (!promoted) return {cited: null, statusActions: []};
+  // An agent before #146's coverage sends no citedBy and takes no backlogStatus edit (it would be an empty plan edit).
+  if (!promoted || !Array.isArray(promoted.citedBy)) return {cited: null, statusActions: []};
   const by = pcList(promoted.citedBy).map(pcStr).filter(Boolean);
   return {cited: by.length ? 'Cited by: ' + by.join(', ') : 'No citing tasks', statusActions: canEdit ? pcBacklogStatusActions(promoted) : []};
 }

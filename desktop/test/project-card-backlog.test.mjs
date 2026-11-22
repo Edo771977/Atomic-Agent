@@ -450,3 +450,15 @@ test('a seed alone does not keep the backlog card up between gates; it shows whe
   assert.equal(model.kind, 'backlog');
   assert.match(draw(model).textContent, /b2 · Online play[\s\S]*seed · When: the local game is stable/);
 });
+
+test('an agent whose promoted entries carry no citedBy gets no Defer (it takes no backlogStatus edit)', () => {
+  const v = view(call(project(), 'b3', 'promoted'));
+  const old = {...v, backlog: {...v.backlog, promoted: v.backlog.promoted.map(({citedBy: _c, ...rest}) => rest)}};
+  const item = C.pcModel(C.pcInitial(old)).backlog.items.find((i) => i.id === 'b3');
+  assert.deepEqual(item.statusActions, []);
+  assert.equal(item.cited, null);
+  const host = draw(C.pcModel(C.pcInitial(old)));
+  assert.equal(/Cited by|No citing tasks/.test(host.textContent), false);
+  assert.equal(buttons(host).some((b) => b.textContent === 'Defer'), false);
+  assert.ok(C.pcDecision(C.pcInitial(old), 'ses-1', 'edit', {backlog: 'b3', status: 'deferred'}).error);
+});
