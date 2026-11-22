@@ -26,7 +26,7 @@ import {
   type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
-import { openSeeds, promotedForPlan } from "../../session/project-backlog.js";
+import { openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
@@ -507,6 +507,14 @@ async function reviewDraft(
       rows: draft.rows,
       planChecks: draft.planChecks,
       ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
+      // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
+      ...(() => {
+        const backlog = [
+          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: "promoted" as const })),
+          ...openBacklog(project).map((b) => ({ id: b.id, title: b.title, state: "open" as const, ...(b.condition === undefined ? {} : { condition: b.condition }) })),
+        ];
+        return backlog.length === 0 ? {} : { backlog };
+      })(),
     },
     sessionId: ctx.sessionId,
     signal: ctx.signal,
