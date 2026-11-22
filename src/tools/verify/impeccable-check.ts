@@ -90,7 +90,7 @@ function parseReport(text: string, workspace: string, snapshot: string, source: 
   for (const row of rows) {
     if (row === null || typeof row !== "object" || !("antipattern" in row) || !("file" in row) ||
         typeof row.antipattern !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(row.antipattern) ||
-        typeof row.file !== "string" || (url === undefined ? relative(resolve(workspace, row.file), snapshot) !== "" : row.file !== url)) {
+        typeof row.file !== "string" || (url === undefined ? relative(resolve(workspace, row.file), snapshot) !== "" : new URL(row.file).href !== new URL(url).href)) {
       throw new Error("impeccable returned a finding without a valid rule or checked file");
     }
     const advisory = ("advisory" in row && row.advisory === true) || ("severity" in row && row.severity === "advisory");

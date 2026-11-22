@@ -486,3 +486,9 @@ it("matches a file exception in a session working copy", async () => {
   }, { workingDir: worktree, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
   expect(await executeVerify(spec!, { workingDir: worktree })).toMatchObject({ artifactStatus: "pass" });
 });
+
+it("attributes findings to the normalized rendered URL", async () => {
+  const url = "http://localhost:08080";
+  await fake(2, [finding("low-contrast", { file: "http://localhost:8080/" })], "impeccable", url);
+  expect(await runVerify({ kind: "ui", url }, { workingDir: root })).toMatchObject({ artifactStatus: "fail" });
+});
