@@ -11,7 +11,9 @@ import {
   applyProjectUpdate,
   finishedCitationsOf,
   normalizeCriterionId,
+  backlogCheckOptions,
   planDecisionsOf,
+  planReviewPersonCalls,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
@@ -41,7 +43,7 @@ import { parsePlanRowChecks } from "./contract-check-spec.js";
 import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
-import { planReviewBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
+import { planReviewBasis, planReviewCallsBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
 import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
@@ -224,6 +226,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 export interface ProjectPlanTaskArgs {
   checks?: ContractCheck[];
   decisions?: string[];
+  /** Issue #146: the backlog items this task takes in. */
+  backlog?: string[];
   id: string;
   title: string;
   milestone: string;
@@ -274,12 +278,14 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions", "backlog"], `task ${id}`));
       const checkProblems: string[] = [];
       const checks = parsePlanRowChecks(t.checks, id, checkProblems);
       problems.push(...checkProblems.map((p) => `task ${id}: ${p}`));
       const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
       if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
+      const backlog = Array.isArray(t.backlog) ? t.backlog.map(normalizeCriterionId) : [];
+      if (t.backlog !== undefined && (!Array.isArray(t.backlog) || backlog.length > PROJECT_LIMITS.backlog || backlog.includes(null) || new Set(backlog).size !== backlog.length)) problems.push(`task ${id}: backlog must be unique backlog item ids (at most ${PROJECT_LIMITS.backlog})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
       const milestone = typeof t.milestone === "string" ? t.milestone.trim() : "";
       if (!ids.has(milestone)) problems.push(`task ${id} names milestone ${JSON.stringify(t.milestone)}, which \`milestones\` does not list`);
@@ -292,6 +298,7 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         milestone,
         ...(t.checks === undefined ? {} : { checks }),
         ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
+        ...(t.backlog === undefined ? {} : { backlog: backlog as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
       });
@@ -366,6 +373,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
     rows.push(withReviewEstimate({
       ...(task.checks === undefined ? {} : { checks: task.checks }),
       ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
+      ...(task.backlog === undefined ? {} : { backlog: task.backlog }),
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,
@@ -521,7 +529,8 @@ async function reviewDraft(
       // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
       ...(() => {
         const backlog = [
-          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: "promoted" as const })),
+          // Issue #146: one the person deferred at the plan gate is not this plan's to take in.
+          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: project.backlogCalls?.[b.id]?.deferred === true ? "deferred" as const : "promoted" as const })),
           ...openBacklog(project).map((b) => ({ id: b.id, title: b.title, state: "open" as const, ...(b.condition === undefined ? {} : { condition: b.condition }) })),
         ];
         return backlog.length === 0 ? {} : { backlog };
@@ -535,7 +544,8 @@ async function reviewDraft(
   const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
   // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
   const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
-  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
+  // Issue #146: read under the person's calls as they stand; changing one at the gate makes it stale.
+  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)), callsBasis: planReviewCallsBasis(planReviewPersonCalls(project)) };
 }
 
 /** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */
@@ -549,7 +559,7 @@ function backlogLines(project: ProjectState | undefined): string[] {
   ]);
   if (block === null) return [];
   return [
-    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in as a milestone or task; they see it at the gate."]),
+    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in on a task that will run and cite its id in that task's backlog; the plan cannot be approved until each is cited (or the person defers it)."]),
     ...(seeds.length === 0 ? [] : ["Open seeds are shown to the person at the gate: tell them which conditions look met; only they promote one."]),
     block,
   ];
@@ -605,7 +615,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
       const criteria = ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []);
-      const planChecks = evaluatePlanChecks(rows, criteria, referenceCheck === undefined ? {} : { references: referenceCheck }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const planChecks = evaluatePlanChecks(rows, criteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...(ctx.project === undefined ? {} : backlogCheckOptions(folded !== null && folded.ok ? folded.project : ctx.project, { status: "draft" })) }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       // Issue #118: the plan reviewer, before the gate reaches the person.
       const review = await reviewDraft(deps, ctx, { update, rows, criteria, planChecks });
       if (review !== undefined) update = { ...update, planReview: review, ...(review.sentBack ? { holdForReview: true as const } : {}) };
@@ -620,7 +630,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
-        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
+        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks, ...(ctx.project === undefined ? {} : { personCalls: planReviewPersonCalls(ctx.project) }) }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,
       ];
       // Issue #77: say which results stop counting, so the reply can tell the person.

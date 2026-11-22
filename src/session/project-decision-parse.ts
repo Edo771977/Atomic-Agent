@@ -7,7 +7,7 @@
  */
 
 import { normalizeCriterionId } from "./project-criterion-id.js";
-import { PERSON_DECISION_STATUSES, type PersonDecisionStatus, type ProjectDecision, type ProjectEdits, type ProjectGate, type ProjectVerdict } from "./session-project.js";
+import { PERSON_BACKLOG_STATUSES, PERSON_DECISION_STATUSES, type PersonBacklogStatus, type PersonDecisionStatus, type ProjectDecision, type ProjectEdits, type ProjectGate, type ProjectVerdict } from "./session-project.js";
 
 export const PROJECT_VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"];
 export const MAX_PROJECT_NOTE_CHARS = 2000;
@@ -77,6 +77,19 @@ function parseEdits(raw: unknown): ProjectEdits | string {
       status[id] = value as PersonDecisionStatus;
     }
     out.decisionStatus = status;
+  }
+  if (raw.backlogStatus !== undefined) {
+    // Issue #146: the person defers a promoted backlog item at the plan gate, or sets it active again.
+    if (!isObject(raw.backlogStatus)) return "edits.backlogStatus must be an object of backlog item id to status";
+    const status: Record<string, PersonBacklogStatus> = {};
+    for (const [id, value] of Object.entries(raw.backlogStatus)) {
+      if (normalizeCriterionId(id) !== id) return `edits.backlogStatus: ${JSON.stringify(id)} is not a backlog item id`;
+      if (typeof value !== "string" || !(PERSON_BACKLOG_STATUSES as readonly string[]).includes(value)) {
+        return `edits.backlogStatus.${id} must be one of ${PERSON_BACKLOG_STATUSES.join(", ")}`;
+      }
+      status[id] = value as PersonBacklogStatus;
+    }
+    out.backlogStatus = status;
   }
   if (raw.note !== undefined) {
     if (typeof raw.note !== "string" || raw.note.trim().length === 0 || raw.note.length > MAX_PROJECT_NOTE_CHARS) {

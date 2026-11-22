@@ -232,7 +232,8 @@ describe("backlog items: the person's call", () => {
     const draft = applyProjectUpdate(before, {
       kind: "plan",
       milestones: [...before.milestones.map((m) => ({ id: m.id, title: m.title, kind: m.kind })), { id: "m4", title: "PDF export", kind: "other" }],
-      rows: [...rows, { ...rows[0]!, taskId: "t4", title: "PDF export", milestoneId: "m4" }],
+      // Issue #146: the task that takes the item in cites it, or the plan is not approved.
+      rows: [...rows, { ...rows[0]!, taskId: "t4", title: "PDF export", milestoneId: "m4", backlog: ["b1"] }],
       detail: "compact",
     }, 20);
     if (!draft.ok) throw new Error(draft.error.message);

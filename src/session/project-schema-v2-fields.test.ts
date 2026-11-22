@@ -262,6 +262,20 @@ describe("schema v2 fields: ownership and hashing", () => {
     const otherRowDecisions: ProjectState = { ...before, plan: { ...before.plan!, rows: before.plan!.rows.map((r) => ({ ...r, decisions: ["d2"] })) } };
     expect(gateContentHash(otherRowDecisions, { kind: "plan" })).not.toBe(gateContentHash(before, { kind: "plan" }));
   });
+
+  it("a plan row's backlog citations are author content in the plan's hash (issue #146)", () => {
+    const p = withFields();
+    const cited: ProjectState = { ...p, plan: { ...p.plan!, rows: p.plan!.rows.map((r, i) => (i === 0 ? { ...r, backlog: ["b2"] } : r)) } };
+    expect(normalizeProject(JSON.parse(JSON.stringify(cited)))).toEqual(cited);
+    expect(gateContentHash(cited, { kind: "plan" })).not.toBe(gateContentHash(p, { kind: "plan" }));
+    const raw = JSON.parse(JSON.stringify(cited));
+    raw.plan.rows[0].backlog = ["Not An Id"];
+    expect(normalizeProject(raw)).toBeUndefined();
+    raw.plan.rows[0].backlog = ["b2", "b2"];
+    expect(normalizeProject(raw)).toBeUndefined();
+    raw.plan.rows[0].backlog = [];
+    expect(normalizeProject(raw)?.plan?.rows[0]?.backlog).toBeUndefined();
+  });
 });
 
 describe("schema v2 fields: the person's brief edit", () => {

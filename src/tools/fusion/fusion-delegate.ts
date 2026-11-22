@@ -1433,7 +1433,22 @@ export function buildFusionDelegateTool(
         : (() => {
             // Issue #112: the active decisions go with the criteria to every worker and reviewer.
             const decisions = activeDecisionsOf(ctx.project!).map((d) => `${d.id}: ${d.text}`);
-            return { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text), ...(decisions.length === 0 ? {} : { decisions }) };
+            // Issue #146: each task's cited backlog items, by plan task id (the worker reads them framed as data).
+            const items = new Map((ctx.project!.backlog ?? []).map((b) => [b.id, b]));
+            const backlogByTask: Record<string, string[]> = {};
+            for (const r of ctx.project!.plan?.rows ?? []) {
+              const cited = (r.backlog ?? []).flatMap((id) => {
+                const b = items.get(id);
+                return b === undefined ? [] : [`${b.id}: ${b.title}${b.note === undefined ? "" : ` (${b.note})`}`];
+              });
+              if (cited.length > 0) backlogByTask[r.taskId] = cited;
+            }
+            return {
+              what: approvedBrief.what,
+              successCriteria: approvedBrief.successCriteria.map((c) => c.text),
+              ...(decisions.length === 0 ? {} : { decisions }),
+              ...(Object.keys(backlogByTask).length === 0 ? {} : { backlogByTask }),
+            };
           })();
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).

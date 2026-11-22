@@ -76,9 +76,22 @@ describe("the gate view's backlog (issue #111)", () => {
   it("at the plan gate, a promoted item is said to wait for this plan", () => {
     const p = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
     const v = view(p);
-    expect(v.backlog!.promoted).toEqual([{ id: "b2", title: "Idea b2" }]);
+    expect(v.backlog!.promoted).toEqual([{ id: "b2", title: "Idea b2", citedBy: [] }]);
     expect(v.hints).toContain('promoted from the backlog: b2 "Idea b2": check this plan takes it in before approving');
-    expect(view(approve(p)).backlog!.promoted).toEqual([]);
+    // Issue #146: approval needs a task that cites it; the director redrafts with one.
+    const cited = up(p, { ...plan, rows: [{ ...row("t1", "m1"), backlog: ["b2"] }, row("t2", "m2")] } as ProjectUpdate);
+    expect(view(approve(cited)).backlog!.promoted).toEqual([]);
+  });
+
+  it("keeps the backlog in view when its last item was removed outside Atomic Agent with a call on it", () => {
+    const promoted = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
+    const { backlog: _b, ...rest } = promoted;
+    const v = view(rest as ProjectState);
+    expect(v.backlog).toEqual({ open: 0, seeds: [], promoted: [], stale: [{ id: "b2", state: "promoted", reason: "removed" }], items: [] });
+    expect(v.hints).toContain("promoted item b2 was removed outside Atomic Agent");
+    // No call left on a removed item: no backlog in view.
+    const { backlogStates: _s, backlogCalls: _c, ...none } = rest as ProjectState;
+    expect(view(none).backlog).toBeUndefined();
   });
 
   it("a complete project with open items says so before calling it complete", () => {
@@ -104,7 +117,7 @@ describe("the director's view of the backlog (issue #111)", () => {
     const promoted = ok(applyBacklogDecision(p, { id: "b2", state: "promoted" }));
     const digest = renderProjectDigest(promoted)!;
     expect(digest).toContain("backlog: 1 open; only the person promotes or drops an item");
-    expect(digest).toContain("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate); seeds: tell the person when a condition looks met.");
+    expect(digest).toContain("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate) on a task that cites its id in `backlog`; seeds: tell the person when a condition looks met.");
     expect(digest).toContain("promoted: b2 Idea b2");
     expect(digest).toContain("seed: b1 Idea b1 (when: when the score screen exists)");
   });
@@ -154,5 +167,21 @@ describe("backlog text reaches the director as data (review)", () => {
     });
     const result = await planTool.run({ milestones: [{ id: "m1", title: "Base", kind: "base" }], tasks: [{ id: "t1", title: "Board", milestone: "m1" }] }, { workingDir: "/tmp/p", sessionId: "s", stepIndex: 0, project: p } as unknown as ToolContext);
     expect(result.summary.indexOf(evil)).toBeGreaterThan(result.summary.indexOf(frame));
+  });
+});
+
+describe("the close with promoted items never done (issue #146 review)", () => {
+  it("a complete project counts and names the promoted items no run took in, deferred or promoted late", () => {
+    let p = approve(atPlanGate());
+    for (const id of ["m1", "m2"]) {
+      p = up(p, { kind: "milestone_run", id, runId: `r-${id}` });
+      p = approve(up(p, { kind: "milestone", id, state: "done", summary: "ok" }));
+    }
+    // Promoted after every milestone ran: no plan took it in.
+    p = ok(applyBacklogDecision(ok(applyBacklogDecision(p, { id: "b1", state: "dropped" })), { id: "b2", state: "promoted" }));
+    expect(projectExpectation(p)).toEqual({ kind: "complete", promotedNotDone: 1 });
+    expect(describeExpectation(projectExpectation(p))).toBe("nothing: every milestone is reviewed; complete with 1 promoted backlog item not done");
+    expect(view(p).hints).toContain("complete with 1 promoted backlog item not done: b2 Idea b2");
+    expect(renderProjectDigest(p)).toMatch(/complete with 1 promoted backlog item not done \(listed in the backlog data\): say so in your final reply/);
   });
 });

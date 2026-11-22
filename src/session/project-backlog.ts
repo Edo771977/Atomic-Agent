@@ -6,6 +6,7 @@ import type {
   ProjectBacklogCall,
   ProjectBacklogItem,
   ProjectBacklogSource,
+  ProjectMilestone,
   ProjectDecisionResult,
   ProjectState,
   ProjectUpdateResult,
@@ -37,8 +38,11 @@ export function backlogSourceLabel(item: Pick<ProjectBacklogItem, "source" | "fr
  * workers and reviewers only suggest them in their replies. Only the
  * person promotes, drops or reopens one ({@link applyBacklogDecision},
  * never an automatic approval). A promoted item is a proposal for the
- * next plan: the director drafts it in, and the plan the person approves
- * next takes it in ({@link markPromotedPlanned}). An item with a
+ * next plan: the director drafts it in on a task that cites it
+ * (`rows[].backlog`, issue #146), the plan cannot be approved until each
+ * is cited or the person defers it at the plan gate, and the approved
+ * plan takes in the items it cites on milestones not started yet
+ * ({@link markPromotedPlanned}, {@link backlogTakenIn}). An item with a
  * `condition` is a seed: shown to the person at each plan and milestone
  * gate while open; nothing activates by itself.
  */
@@ -78,7 +82,35 @@ const cleanRef = (v: unknown): string | null =>
 
 const invalid = (message: string): ProjectUpdateResult => ({ ok: false, error: { code: "invalid", message } });
 
-type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls">;
+type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls"> & Partial<Pick<ProjectState, "plan" | "milestones">>;
+
+/**
+ * Issue #146: a milestone whose work was dispatched (running, a result,
+ * or a run recorded): a backlog citation added to its tasks since adds no
+ * work, so only what it was approved with (`backlogCited`) counts for it.
+ */
+export function milestoneStarted(m: Pick<ProjectMilestone, "state" | "runIds">): boolean {
+  return m.state === "in_progress" || m.state === "done" || m.state === "reviewed" || m.state === "failed" || m.runIds.length > 0;
+}
+
+/**
+ * Issue #146: the plan version that took a promoted item in, while that
+ * still stands: the current plan cites it on a task of a milestone not
+ * started ({@link milestoneStarted}), or a started milestone cited it in
+ * the plan it was approved under (`backlogCited`). A re-plan that drops the citation before
+ * the work ran puts the item back among those the next plan must take
+ * in. A call taken in by #111's rule (no `cited`) stands as recorded.
+ */
+export function backlogTakenIn(project: BacklogView, id: string): number | undefined {
+  const call = project.backlogCalls?.[id];
+  if (call?.plannedIn === undefined) return undefined;
+  if (call.cited !== true) return call.plannedIn;
+  const milestones = project.milestones ?? [];
+  const started = new Set(milestones.filter(milestoneStarted).map((m) => m.id));
+  const ran = milestones.some((m) => started.has(m.id) && (m.backlogCited ?? []).includes(id));
+  const planned = (project.plan?.rows ?? []).some((r) => !started.has(r.milestoneId) && (r.backlog ?? []).includes(id));
+  return ran || planned ? call.plannedIn : undefined;
+}
 
 /** What a person's call on an item is bound to: its title, note and condition (not its source, origin or time). */
 export function backlogItemHash(item: Pick<ProjectBacklogItem, "title" | "note" | "condition">): string {
@@ -121,7 +153,7 @@ export function openSeeds(project: BacklogView): ProjectBacklogItem[] {
 
 /** The items the person promoted that no plan they approved has taken in yet. */
 export function promotedForPlan(project: BacklogView): ProjectBacklogItem[] {
-  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && project.backlogCalls?.[b.id]?.plannedIn === undefined);
+  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && backlogTakenIn(project, b.id) === undefined);
 }
 
 /**
@@ -271,13 +303,34 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
   };
 }
 
-/** The person approved plan `version`: every promoted item waiting for a plan is recorded as taken in by it. */
+/**
+ * The person approved plan `version` (issue #146): each promoted item
+ * waiting for a plan that a task of a milestone still to run cites
+ * (`rows[].backlog`) is recorded as taken in by it, its deferral, if
+ * any, dropped. One the plan does not cite (the person deferred it)
+ * keeps waiting; a citation on a done or reviewed milestone's task
+ * takes nothing in.
+ */
 export function markPromotedPlanned(project: ProjectState, version: number): ProjectState {
-  const waiting = promotedForPlan(project);
-  if (waiting.length === 0) return project;
+  // A started milestone keeps what it was approved with; only those not started take this plan's citations.
+  const finished = new Set(project.milestones.filter(milestoneStarted).map((m) => m.id));
+  const rows = project.plan?.rows ?? [];
+  // Each milestone that will run records what its tasks cite in the plan approved (its snapshot).
+  const milestones = project.milestones.map((m) => {
+    if (finished.has(m.id)) return m;
+    const cited = [...new Set(rows.filter((r) => r.milestoneId === m.id).flatMap((r) => r.backlog ?? []))];
+    const { backlogCited: _old, ...rest } = m;
+    return cited.length === 0 ? (m.backlogCited === undefined ? m : rest) : { ...rest, backlogCited: cited };
+  });
+  const cited = new Set(rows.filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
+  const taken = promotedForPlan(project).filter((b) => cited.has(b.id));
+  if (taken.length === 0) return { ...project, milestones };
   const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
-  for (const b of waiting) calls[b.id] = { ...calls[b.id]!, plannedIn: version };
-  return { ...project, backlogCalls: calls };
+  for (const b of taken) {
+    const { deferred: _d, ...call } = calls[b.id]!;
+    calls[b.id] = { ...call, plannedIn: version, cited: true };
+  }
+  return { ...project, milestones, backlogCalls: calls };
 }
 
 /**
