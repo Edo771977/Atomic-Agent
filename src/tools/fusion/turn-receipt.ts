@@ -57,7 +57,10 @@ interface OpenTurn {
   /** Plan reviews before the plan gate (issue #118): strong-side spend outside the orchestrator's requests. */
   planReviews: number;
   planReviewCostUsd: number;
+  planReviewsPriced: boolean;
   planReviewsUnpriced: number;
+  planReviewsLocal: number;
+  planReviewsNotSent: number;
 }
 
 /** One finished fan-out, as the turn receipt counts it. */
@@ -117,7 +120,10 @@ export class FusionTurnLedger {
       escalationCostUsd: 0,
       planReviews: 0,
       planReviewCostUsd: 0,
+      planReviewsPriced: false,
       planReviewsUnpriced: 0,
+      planReviewsLocal: 0,
+      planReviewsNotSent: 0,
     });
   }
 
@@ -150,13 +156,22 @@ export class FusionTurnLedger {
     }
   }
 
-  /** One plan review of the open turn (issue #118, no-op otherwise); null: unpriced. */
-  notePlanReview(sessionId: string, costUsd: number | null): void {
+  /**
+   * One plan review of the open turn (issue #118, no-op otherwise):
+   * a call with no answer is "not sent", an unpriced local one "local".
+   */
+  notePlanReview(sessionId: string, spend: { costUsd: number | null; sent: boolean; local: boolean }): void {
     const turn = this.turns.get(sessionId);
     if (turn === undefined) return;
     turn.planReviews += 1;
-    if (costUsd === null || !Number.isFinite(costUsd)) turn.planReviewsUnpriced += 1;
-    else turn.planReviewCostUsd += Math.max(0, costUsd);
+    if (!spend.sent) turn.planReviewsNotSent += 1;
+    else if (spend.costUsd !== null && Number.isFinite(spend.costUsd)) {
+      turn.planReviewsPriced = true;
+      turn.planReviewCostUsd += Math.max(0, spend.costUsd);
+    } else if (spend.local) {
+      turn.planReviewsPriced = true;
+      turn.planReviewsLocal += 1;
+    } else turn.planReviewsUnpriced += 1;
   }
 
   /** One finished fan-out of the open turn (no-op otherwise). */
@@ -227,8 +242,10 @@ export class FusionTurnLedger {
         : {
             planReviews: {
               reviews: turn.planReviews,
-              costUsd: turn.planReviews === turn.planReviewsUnpriced ? null : roundUsd(turn.planReviewCostUsd),
+              costUsd: turn.planReviewsPriced ? roundUsd(turn.planReviewCostUsd) : null,
               unpriced: turn.planReviewsUnpriced,
+              local: turn.planReviewsLocal,
+              notSent: turn.planReviewsNotSent,
             },
           }),
     };
@@ -312,7 +329,7 @@ export function formatTurnReceipt(record: TurnOutcomeRecord): string {
   // Issue #118: the plan reviews are their own part, as the report shows them.
   const reviews = record.planReviews;
   if (reviews !== undefined && reviews.reviews > 0) {
-    parts.push(`${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)} plan review${reviews.reviews === 1 ? "" : `s (${reviews.reviews})`}${reviews.costUsd !== null && reviews.unpriced > 0 ? ` (+${reviews.unpriced} unpriced)` : ""}`);
+    parts.push(`${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)} plan review${reviews.reviews === 1 ? "" : `s (${reviews.reviews})`}${planReviewExtras(reviews)}`);
   }
   if (record.fanouts > 0) {
     const workerCost =
@@ -327,4 +344,14 @@ export function formatTurnReceipt(record: TurnOutcomeRecord): string {
     );
   }
   return parts.join(" · ");
+}
+
+/** " (+1 unpriced, 1 local, 1 not sent)" for the plan reviews (issue #118); empty with none of them. */
+export function planReviewExtras(r: { costUsd: number | null; unpriced: number; local?: number; notSent?: number }): string {
+  const parts = [
+    ...(r.costUsd !== null && r.unpriced > 0 ? [`+${r.unpriced} unpriced`] : []),
+    ...((r.local ?? 0) > 0 ? [`${r.local} local`] : []),
+    ...((r.notSent ?? 0) > 0 ? [`${r.notSent} not sent`] : []),
+  ];
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }

@@ -161,13 +161,15 @@ describe("plan reviews on the turn receipt (issue #118)", () => {
     const ledger = new FusionTurnLedger();
     ledger.begin("s1", { providerId: "api", model: "strong" });
     ledger.noteCompletion("s1", { providerId: "api", usage: usage(1000, 100), costUsd: 0.01 });
-    ledger.notePlanReview("s1", 0.03);
-    ledger.notePlanReview("s1", null);
-    ledger.notePlanReview("s2", 1);
+    ledger.notePlanReview("s1", { costUsd: 0.03, sent: true, local: false });
+    ledger.notePlanReview("s1", { costUsd: null, sent: true, local: false });
+    ledger.notePlanReview("s1", { costUsd: null, sent: true, local: true });
+    ledger.notePlanReview("s1", { costUsd: null, sent: false, local: false });
+    ledger.notePlanReview("s2", { costUsd: 1, sent: true, local: false });
     const receipt = ledger.finish("s1", new Date("2026-11-01T00:00:00Z"))!;
-    expect(receipt.record.planReviews).toEqual({ reviews: 2, costUsd: 0.03, unpriced: 1 });
+    expect(receipt.record.planReviews).toEqual({ reviews: 4, costUsd: 0.03, unpriced: 1, local: 1, notSent: 1 });
     expect(receipt.record.orchestrator.costUsd).toBeCloseTo(0.04);
-    expect(receipt.line).toContain("$0.03 plan review");
+    expect(receipt.line).toContain("$0.03 plan reviews (4) (+1 unpriced, 1 local, 1 not sent)");
   });
 
   it("a turn without a plan review records none", () => {

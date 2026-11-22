@@ -1310,9 +1310,13 @@ export function registerRuntimeFusionAndReadScope(input: {
       pinsModel: (providerId) => teamContextFromConfig(getConfig(), teamMemberReachable)?.pinsModel(providerId) ?? false,
       complete: escalationComplete,
       pricing: (member) => resolveModelPricingFor(resolveLlmConfig(getConfig()), member.model, member.providerId)?.pricing,
-      onSpend: (sessionId, costUsd) => {
-        if (costUsd !== null) turnBudget?.addWorkerSpend(sessionId, costUsd, true);
-        turnLedger?.notePlanReview(sessionId, costUsd);
+      isLocal: (member) => {
+        const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === member.providerId);
+        return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
+      },
+      onSpend: (sessionId, spend) => {
+        if (spend.costUsd !== null) turnBudget?.addWorkerSpend(sessionId, spend.costUsd, true);
+        turnLedger?.notePlanReview(sessionId, spend);
       },
     }),
     planReviewRounds: () => resolveLlmConfig(getConfig()).runMode?.fusion?.team?.planReviewRounds ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS,

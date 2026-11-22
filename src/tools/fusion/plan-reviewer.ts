@@ -188,9 +188,10 @@ export function pickPlanReviewer(
   return { kind: "member", member };
 }
 
+/** `answered`: how many answers came back (0: nothing was received, e.g. a call refused before it was sent). */
 export type PlanReviewRun =
-  | { outcome: "reviewed"; results: PlanReviewResult[]; costUsd: number | null }
-  | { outcome: "not-run"; reason: string; costUsd: number | null };
+  | { outcome: "reviewed"; results: PlanReviewResult[]; costUsd: number | null; answered: number }
+  | { outcome: "not-run"; reason: string; costUsd: number | null; answered: number };
 
 /** Run one review. Never throws for the reviewer's sake; an abort of the turn propagates. */
 export async function reviewPlan(args: {
@@ -206,6 +207,7 @@ export async function reviewPlan(args: {
   const taskIds = args.input.rows.map((r) => r.taskId);
   const base = renderPlanReviewPrompt(args.input);
   let costUsd: number | null = null;
+  let answered = 0;
   let error = "";
   // One automatic retry for an answer outside the schema (prose, a
   // missing dimension, an unknown task id, an over-long detail); a call
@@ -222,18 +224,19 @@ export async function reviewPlan(args: {
         sessionId: args.sessionId,
       });
       content = answer.content;
+      answered += 1;
       const cost = answer.usage === undefined ? undefined : completionCostUsd(answer.usage, args.pricing);
       if (cost !== undefined) costUsd = (costUsd ?? 0) + cost;
     } catch (err) {
       args.signal.throwIfAborted();
-      return { outcome: "not-run", reason: `the reviewer could not run: ${err instanceof Error ? err.message : String(err)}`, costUsd };
+      return { outcome: "not-run", reason: `the reviewer could not run: ${err instanceof Error ? err.message : String(err)}`, costUsd, answered };
     }
     const parsed = parsePlanReviewAnswer(content, taskIds);
     // The model's own verdicts only: the facts floor is applied when the review is used (`withPlanFacts`).
-    if (parsed.ok) return { outcome: "reviewed", results: parsed.results, costUsd };
+    if (parsed.ok) return { outcome: "reviewed", results: parsed.results, costUsd, answered };
     error = parsed.error;
   }
-  return { outcome: "not-run", reason: `the reviewer's answer could not be read twice (${error})`, costUsd };
+  return { outcome: "not-run", reason: `the reviewer's answer could not be read twice (${error})`, costUsd, answered };
 }
 
 const retryNote = (error: string): string =>
@@ -257,8 +260,20 @@ export interface PlanReviewDeps {
   pinsModel: (providerId: string) => boolean;
   complete: EscalationComplete;
   pricing: (member: TeamMember) => WorkerPricing | undefined;
-  /** The review's spend, for the turn's budget and the turn receipt. */
-  onSpend?: (sessionId: string, costUsd: number | null, reviewer: TeamMember) => void;
+  /** Whether the member runs on a local server (an unpriced local review is local, not unpriced). */
+  isLocal?: (member: TeamMember) => boolean;
+  /**
+   * The review's spend, for the turn's budget and the turn receipt:
+   * `sent` false when no answer came back (a call refused before it was
+   * sent); `local` for a local reviewer.
+   */
+  onSpend?: (sessionId: string, spend: PlanReviewSpend, reviewer: TeamMember) => void;
+}
+
+export interface PlanReviewSpend {
+  costUsd: number | null;
+  sent: boolean;
+  local: boolean;
 }
 
 /** The runtime's {@link PlanReviewFn}: pick the member (folder policy first), ask it once, count the spend. */
@@ -280,7 +295,7 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
       signal: signal ?? new AbortController().signal,
       sessionId,
     });
-    deps.onSpend?.(sessionId, run.costUsd, member);
+    deps.onSpend?.(sessionId, { costUsd: run.costUsd, sent: run.answered > 0, local: deps.isLocal?.(member) ?? false }, member);
     return run.outcome === "reviewed"
       ? { outcome: "reviewed", reviewer: member.ref, results: run.results, costUsd: run.costUsd }
       : { outcome: "not-run", reviewer: member.ref, results: [], reason: run.reason, costUsd: run.costUsd };

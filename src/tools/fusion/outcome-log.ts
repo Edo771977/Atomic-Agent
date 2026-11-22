@@ -257,11 +257,12 @@ export interface TurnOutcomeRecord {
   workerCostUsd: number | null;
   /**
    * Plan reviews before the plan gate (issue #118): how many, their
-   * priced spend (null when none was priced; also in
-   * `orchestrator.costUsd`) and how many were unpriced. Absent: none ran
+   * priced spend (null when none was priced or local; also in
+   * `orchestrator.costUsd`), how many were unpriced, local (unpriced, on
+   * a local server) and not sent (no answer came back). Absent: none ran
    * (or an older record).
    */
-  planReviews?: { reviews: number; costUsd: number | null; unpriced: number };
+  planReviews?: { reviews: number; costUsd: number | null; unpriced: number; local?: number; notSent?: number };
 }
 
 export type OutcomeRecord = TaskOutcomeRecord | TurnOutcomeRecord;

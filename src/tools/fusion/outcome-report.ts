@@ -17,6 +17,7 @@ import {
   formatDurationShort,
   formatTokenCount,
   formatUsdShort,
+  planReviewExtras,
 } from "./turn-receipt.js";
 import { taskCheckColumn } from "./outcome-evidence.js";
 import { candidateOutcomeEvidence, candidateWorkerRuns, hasCandidateOutcome } from "./candidate-outcomes.js";
@@ -180,13 +181,15 @@ export interface FusionReport {
   /** Some strong-side requests or orchestrator-target tasks were unpriced. */
   strongSpendPartial: boolean;
   /** Plan reviews before the plan gate (issue #118), over the turns that record them. */
-  planReviews: { reviews: number; costUsd: number | null; unpriced: number };
+  planReviews: { reviews: number; costUsd: number | null; unpriced: number; local: number; notSent: number };
 }
 
 /** The turns' plan reviews summed; malformed fields count as none. */
 function planReviewStats(turns: readonly TurnOutcomeRecord[]): FusionReport["planReviews"] {
   let reviews = 0;
   let unpriced = 0;
+  let local = 0;
+  let notSent = 0;
   let cost: number | null = null;
   const count = (v: unknown): number => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : 0);
   for (const t of turns) {
@@ -194,9 +197,11 @@ function planReviewStats(turns: readonly TurnOutcomeRecord[]): FusionReport["pla
     if (typeof p !== "object" || p === null) continue;
     reviews += count(p.reviews);
     unpriced += count(p.unpriced);
+    local += count(p.local);
+    notSent += count(p.notSent);
     if (typeof p.costUsd === "number" && Number.isFinite(p.costUsd) && p.costUsd >= 0) cost = (cost ?? 0) + p.costUsd;
   }
-  return { reviews, costUsd: cost === null ? null : Math.round(cost * 1e6) / 1e6, unpriced };
+  return { reviews, costUsd: cost === null ? null : Math.round(cost * 1e6) / 1e6, unpriced, local, notSent };
 }
 
 function isRecord(value: unknown): value is OutcomeRecord {
@@ -662,7 +667,7 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
   // Issue #118: the plan reviews' spend, its own line (it is also in the orchestrator's spend).
   const reviews = report.planReviews;
   if (reviews !== undefined && reviews.reviews > 0) {
-    lines.push("", `Plan reviews: ${reviews.reviews}, ${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)}${reviews.costUsd !== null && reviews.unpriced > 0 ? ` (+${reviews.unpriced} unpriced)` : ""}`);
+    lines.push("", `Plan reviews: ${reviews.reviews}, ${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)}${planReviewExtras(reviews)}`);
   }
   lines.push(
     "",

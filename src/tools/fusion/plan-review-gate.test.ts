@@ -164,12 +164,19 @@ describe("plan reviewer at project.plan (issue #118)", () => {
   });
 
   it("counts the review's spend", async () => {
-    const spent: Array<number | null> = [];
+    const spent: Array<{ costUsd: number | null; sent: boolean; local: boolean }> = [];
     const complete = vi.fn(async () => ({ content: passAll(), usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } }));
-    const { update } = await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete, { onSpend: (_s, usd) => spent.push(usd) })) });
-    expect(spent).toHaveLength(1);
-    expect(spent[0]).toBeGreaterThan(0);
-    expect(update.planReview?.costUsd).toBe(spent[0]);
+    const { update } = await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete, { onSpend: (_s, spend) => spent.push(spend) })) });
+    expect(spent).toEqual([{ costUsd: expect.any(Number), sent: true, local: false }]);
+    expect(spent[0]!.costUsd).toBeGreaterThan(0);
+    expect(update.planReview?.costUsd).toBe(spent[0]!.costUsd);
+    // A call refused before an answer came back is "not sent"; a local reviewer with no price is local.
+    const refused: typeof spent = [];
+    await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(vi.fn(async () => { throw new Error("cap"); }) as never, { onSpend: (_s, spend) => refused.push(spend) })) });
+    expect(refused).toEqual([{ costUsd: null, sent: false, local: false }]);
+    const local: typeof spent = [];
+    await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(vi.fn(async () => ({ content: passAll() })), { pricing: () => undefined, isLocal: () => true, onSpend: (_s, spend) => local.push(spend) })) });
+    expect(local).toEqual([{ costUsd: null, sent: true, local: true }]);
   });
 });
 
