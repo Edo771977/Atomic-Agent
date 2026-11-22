@@ -293,7 +293,9 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       }
       return valid === results.length ? 0 : 1;
     } catch {
-      stderr("Could not read the project's receipt archive.\n");
+      const error = "Could not read the project's receipt archive.";
+      if (json) stdout(JSON.stringify({ error }) + "\n");
+      stderr(error + "\n");
       return 1;
     }
   }

@@ -143,3 +143,14 @@ it("reports a future receipt kind distinctly for signed and unsigned rows", asyn
   expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout })).toBe(1);
   expect(stdout.mock.calls.flat().join("")).toContain("2 unknown-kind");
 });
+
+it("reports an unreadable receipt archive as JSON when requested", async () => {
+  const { dir } = setup();
+  writeFileSync(join(dir, "receipts"), "not an archive directory");
+  const stdout = vi.fn();
+  const stderr = vi.fn();
+  expect(await projectCommand(["verify", "--json", dir], { stateDir: () => dir, stdout, stderr })).toBe(1);
+  expect(stdout).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(stdout.mock.calls.flat().join(""))).toEqual({ error: "Could not read the project's receipt archive." });
+  expect(stderr).toHaveBeenCalledWith("Could not read the project's receipt archive.\n");
+});
