@@ -195,6 +195,10 @@ function tally(results: readonly PlanReviewResult[]): string {
   return `${n("pass")} pass, ${n("warn")} warn, ${n("fail")} fail`;
 }
 
+/** The plan gate's line when a plan reviewer is configured but the plan holds no review. */
+export const MISSING_REVIEW_HINT =
+  "plan not reviewed: no review is recorded for this plan (it changed outside Atomic Agent, or came from another machine); the director's next project.plan reviews it";
+
 /** What the plan gate says about the review, and whether an automatic approval may go ahead. */
 export interface PlanReviewGate {
   hints: string[];
@@ -214,7 +218,13 @@ export interface PlanReviewGate {
  */
 export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts, configured: boolean): PlanReviewGate {
   const review = plan?.review;
-  if (review === undefined) return { hints: [], autoApprovable: true };
+  if (review === undefined) {
+    // Issue #118: an outside edit of project.json, or the content alone from another machine:
+    // the next project.plan reviews it; nothing is reviewed on load.
+    return configured && plan !== undefined
+      ? { hints: [MISSING_REVIEW_HINT], autoApprovable: false }
+      : { hints: [], autoApprovable: true };
+  }
   const by = review.reviewer === null ? "" : ` by ${review.reviewer}`;
   if (review.outcome === "skipped") return { hints: [`plan not reviewed: the review was skipped: ${review.reason ?? "no plan reviewer could be used"}`], autoApprovable: !configured };
   if (review.outcome === "not-run") return { hints: [`plan not reviewed: ${review.reason ?? "no answer"}${by === "" ? "" : ` (asked${by})`}; this is not a pass`], autoApprovable: !configured };

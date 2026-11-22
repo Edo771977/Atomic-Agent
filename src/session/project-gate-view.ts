@@ -81,7 +81,8 @@ export interface ProjectGateView {
 
 /** The plan reviewer's notes as the card shows them (issue #118). */
 export interface ProjectGatePlanReview {
-  outcome: "reviewed" | "skipped" | "not-run";
+  /** `missing`: a plan reviewer is configured but no review is recorded for this plan (an outside edit, another machine). */
+  outcome: "reviewed" | "skipped" | "not-run" | "missing";
   reviewer: string | null;
   /** One per dimension, same shape as a plan check result; empty unless reviewed. */
   results: Array<{ dimension: string; verdict: "pass" | "warn" | "fail"; detail: string; taskIds: string[] }>;

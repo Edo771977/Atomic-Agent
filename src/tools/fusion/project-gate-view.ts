@@ -140,7 +140,9 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     citedBy: (plan?.rows ?? []).filter((r) => (r.decisions ?? []).includes(d.id)).map((r) => r.taskId),
   }));
   const review = project.gate.kind === "plan" ? plan?.review : undefined;
+  const missingReview = project.gate.kind === "plan" && plan !== undefined && review === undefined && input.planReviewerConfigured === true;
   return {
+    ...(missingReview ? { planReview: { outcome: "missing" as const, reviewer: null, results: [], round: 0, stale: false, autoApprovable: false } } : {}),
     ...(review === undefined
       ? {}
       : {

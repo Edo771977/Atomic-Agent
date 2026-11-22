@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
 import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { freshFromContent, resolveProject, type ProjectRecord } from "../../session/project-decisions.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { PLAN_REVIEW_DIMENSIONS, type PlanReviewResult } from "./plan-review-record.js";
@@ -310,5 +311,50 @@ describe("a plan that was not reviewed (review round, issue #118)", () => {
     const state = { project: (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)) })).project };
     expect(rt(state).projectState().planReview).toMatchObject({ autoApprovable: true });
     expect((await settleProjectGate(rt(state), "s1", "approve")).kind).toBe("approved");
+  });
+});
+
+describe("a plan with no review recorded (review round, issue #118)", () => {
+  const viewOf = (project: ProjectState, configured: boolean) =>
+    projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: configured });
+  const runtimeOf = (state: { project: ProjectState }) => ({
+    projectState: () => viewOf(state.project, true),
+    projectDecision: (_id: string, decision: Parameters<typeof applyProjectDecision>[1]) => {
+      const r = applyProjectDecision(state.project, decision, { now: NOW + 1 });
+      if (!r.ok) return r;
+      state.project = r.project;
+      return { ok: true as const, project: r.project, view: viewOf(r.project, true) };
+    },
+  });
+
+  it("an outside edit of a held draft opens the gate as not reviewed; automation stops, the person may approve", async () => {
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const held = (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)) })).project;
+    expect(held.gate).toEqual({ kind: "none" });
+    const file: ProjectState = { ...held, plan: { ...held.plan!, rows: held.plan!.rows.map((r) => ({ ...r, title: `${r.title} (edited)` })) } };
+    const record = { version: 1, folder: "/p", id: "p1", seq: 1, state: held, decisions: [] } as ProjectRecord;
+    const state = { project: resolveProject(file, record, NOW + 5) };
+    expect(state.project.gate).toEqual({ kind: "plan" });
+    const view = viewOf(state.project, true);
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan not reviewed: no review is recorded for this plan/));
+    expect(view.planReview).toMatchObject({ outcome: "missing", autoApprovable: false });
+    expect((await settleProjectGate(runtimeOf(state), "s1", "approve")).kind).toBe("stop");
+    expect(applyProjectDecision(state.project, { gate: state.project.gate, version: gateVersion(state.project)!, verdict: "approve" }, { now: NOW + 6 }).ok).toBe(true);
+  });
+
+  it("a project opened from its content alone (another machine) is not reviewed either", async () => {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const reviewed = (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)) })).project;
+    const fresh = freshFromContent(reviewed);
+    expect(fresh.plan?.review).toBeUndefined();
+    // The brief gate first: approve it, the plan draft then waits for the director, not the person.
+    expect(viewOf({ ...fresh, gate: { kind: "plan" } }, true).planReview).toMatchObject({ outcome: "missing", autoApprovable: false });
+  });
+
+  it("without a plan reviewer configured an unreviewed plan says nothing (unchanged)", async () => {
+    const { project } = await draft(approvedBrief(), coveredPlan, {});
+    const view = viewOf(project, false);
+    expect(view.planReview).toBeUndefined();
+    expect(view.hints.some((h) => /plan review|not reviewed/.test(h))).toBe(false);
   });
 });
