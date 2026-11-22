@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,14 +143,15 @@ describe("parseRipgrepJson", () => {
 
 describe("os.fs.grep", () => {
   it("returns structured error when ripgrep is missing", async () => {
-    const tool = buildOsFsGrepTool({
-      resolveRgPath: () => null,
-      runCommand: async () => makeCommandResult({}),
-    });
+    const resolveRgPath = vi.fn(() => null);
+    const runCommand = vi.fn(async () => makeCommandResult({}));
+    const tool = buildOsFsGrepTool({ resolveRgPath, runCommand });
     const result = await tool.run({ pattern: "foo" }, makeCtx());
     expect(result.status).toBe("error");
     expect(result.details.missing).toBe(true);
     expect(result.summary).toContain("ripgrep");
+    expect(resolveRgPath).toHaveBeenCalledWith(FIXTURE_ROOT);
+    expect(runCommand).not.toHaveBeenCalled();
   });
 
   it("formats content mode with line-number markers", async () => {

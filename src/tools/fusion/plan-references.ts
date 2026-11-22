@@ -74,7 +74,7 @@ export interface PlanReferenceDeps {
   realPath: (path: string) => Promise<string | null>;
   /** The file's text when at most `maxBytes`, else null. */
   readText: (path: string, maxBytes: number) => Promise<string | null>;
-  resolveRgPath: () => string | null;
+  resolveRgPath: (workingDir: string) => string | null;
   runCommand: (command: string, args: string[], options: CommandOptions) => Promise<CommandResult>;
 }
 
@@ -114,7 +114,7 @@ const defaultDeps = (): PlanReferenceDeps => ({
       return null;
     }
   },
-  resolveRgPath: () => resolveRipgrepPath(),
+  resolveRgPath: (workingDir) => resolveRipgrepPath({ workingDir }),
   runCommand: defaultRunCommand,
 });
 
@@ -471,7 +471,7 @@ export async function checkPlanReferences(rows: readonly AssignmentRow[], option
   };
 
   // The folder's files, listed once by ripgrep when a bare name or a symbol needs it.
-  const rgPath = work.some((r) => r.kind === "symbol" || (r.kind === "file" && !r.value.includes("/"))) ? deps.resolveRgPath() : null;
+  const rgPath = work.some((r) => r.kind === "symbol" || (r.kind === "file" && !r.value.includes("/"))) ? deps.resolveRgPath(root) : null;
   let listing: { files: string[] } | { why: string } | undefined;
   const listFiles = async (): Promise<{ files: string[] } | { why: string }> => {
     if (listing !== undefined) return listing;

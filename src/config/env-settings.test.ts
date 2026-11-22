@@ -80,7 +80,6 @@ describe("the env-variable scan", () => {
   it("sees variables read as process.env members and through *_ENV constants", () => {
     const read = namesReadByTheCode();
     for (const name of [
-      "ATOMIC_AGENT_RG_PATH",
       "ATOMIC_AGENT_TREE_SITTER_DIR",
       "ATOMIC_AGENT_STARTER_SKILLS_DIR",
       "ATOMIC_AGENT_OFFLINE",

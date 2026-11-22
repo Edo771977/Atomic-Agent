@@ -152,7 +152,7 @@ describe("what a fit-test task's child inherits", () => {
         expect(env[name], name).toBeUndefined();
       }
       expect(env.ATOMIC_AGENT_GRAMMARS_DIR).toBe("/opt/atag/grammars");
-      expect(env.ATOMIC_AGENT_RG_PATH).toBe("/opt/atag/rg");
+      expect(env.ATOMIC_AGENT_RG_PATH).toBeUndefined();
       // The replay is not the user's activity.
       expect(env.ATOMIC_AGENT_ANALYTICS).toBe("off");
     } finally {
