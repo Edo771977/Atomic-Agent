@@ -2162,6 +2162,7 @@ export function buildFusionDelegateTool(
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
+          ...(approvedBrief?.deliverable === undefined ? {} : { deliverable: approvedBrief.deliverable, projectBrief: approvedBrief }),
           ...(projectBrief?.decisions === undefined ? {} : { decisions: projectBrief.decisions }),
           ...(deps.knownSecrets === undefined
             ? {}
