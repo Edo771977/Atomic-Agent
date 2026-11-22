@@ -321,6 +321,6 @@ export function activeProjectLessons(source: ProjectLessonSource, stateDir: stri
   if (!result.ok || result.record?.id !== source.id || result.record.lessonCalls === undefined) return [];
   const calls = result.record.lessonCalls;
   return readProjectLessons(source.folder).lessons.filter(
-    (lesson) => projectLessonStatus(lesson, calls[lesson.id]).effectiveStatus === "active",
+    (lesson) => projectLessonStatus(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined).effectiveStatus === "active",
   );
 }

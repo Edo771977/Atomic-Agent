@@ -204,6 +204,14 @@ describe("project lessons", () => {
     expect(worker("cloud")).toBeNull();
   });
 
+  it("lists constructor with no stale inherited choice", async () => {
+    const dir = join(root, ".atomic", "project", "lessons");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "constructor.md"), "---\nid: constructor\ntitle: Test\nsource: person\ntouches: []\nstatus: active\nalways: false\n---\n## Decided\n## Tried and ruled out\n## Watch out\n");
+    expect(await projectCommand(["lessons", root, "--json"], { stdout, stderr, stateDir: () => join(root, "state") })).toBe(0);
+    expect(JSON.parse(stdout.mock.lastCall![0]).lessons[0]).toMatchObject({ stale: false, personState: null });
+  });
+
   it("cannot persist approvals for a project opened only in incognito", async () => {
     const folder = join(root, "private");
     const stateDir = join(root, "state");

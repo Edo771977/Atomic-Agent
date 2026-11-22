@@ -541,7 +541,7 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
 
   const rows = lessons.map((lesson) => {
     const { id, title, declaredStatus, always, touches } = lesson;
-    return { id, title, fingerprint: lesson.hash.slice(0, 12), declaredStatus, always, touches, ...projectLessonStatus(lesson, calls[id]) };
+    return { id, title, fingerprint: lesson.hash.slice(0, 12), declaredStatus, always, touches, ...projectLessonStatus(lesson, Object.hasOwn(calls, id) ? calls[id] : undefined) };
   });
   const staleChoices = Object.entries(calls).flatMap(([id, { state }]) => {
     const row = rows.find((row) => row.id === id);
