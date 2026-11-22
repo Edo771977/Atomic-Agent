@@ -1,6 +1,6 @@
 /** A check index is one-based within the run's contract. An output hash covers the retained output. */
 export type ProjectCriterionBasis =
-  | { kind: "check"; checks: Array<{ index: number; outputHash?: string }> }
+  | { kind: "check"; checks: Array<{ index: number; runId?: string; outputHash?: string }> }
   | { kind: "person" }
   | { kind: "vision"; model: string };
 
@@ -30,9 +30,9 @@ export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefi
   if (kind === "check" && Array.isArray(checks)) {
     const valid = checks.slice(0, 64).flatMap((check: unknown) => {
       if (typeof check !== "object" || check === null) return [];
-      const { index, outputHash } = check as Record<string, unknown>;
+      const { index, runId, outputHash } = check as Record<string, unknown>;
       if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 1) return [];
-      return [{ index, ...(typeof outputHash === "string" && /^[a-f0-9]{64}$/.test(outputHash) ? { outputHash } : {}) }];
+      return [{ index, ...(typeof runId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(runId) ? { runId } : {}), ...(typeof outputHash === "string" && /^[a-f0-9]{64}$/.test(outputHash) ? { outputHash } : {}) }];
     });
     if (valid.length > 0) return { kind, checks: valid };
   }

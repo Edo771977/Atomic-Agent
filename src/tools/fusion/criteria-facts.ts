@@ -80,6 +80,7 @@ export function criteriaFactsFor(
   contract: DelegateContract | undefined,
   outcomes: readonly (ContractCheckOutcome | undefined)[],
   vision: VisionJudgements | undefined,
+  runId?: string,
 ): ProjectCriterionFact[] {
   const reservations = checkReservations(contract);
   /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
@@ -125,9 +126,9 @@ export function criteriaFactsFor(
         note("unverified", `${label} uncheckable: ${outcome.detail}`);
         continue;
       }
-      const output = outcome.run?.output ?? outcome.output;
+      const output = outcome.run?.output;
       const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
-        ? { kind: "check", checks: [{ index: index + 1, ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
+        ? { kind: "check", checks: [{ index: index + 1, ...(runId === undefined ? {} : { runId }), ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
         : undefined;
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`, measured);
@@ -187,10 +188,11 @@ export function holdOnCriteria(
   criteria: readonly TaskCriterion[],
   contract: DelegateContract | undefined,
   outcomes: readonly (ContractCheckOutcome | undefined)[],
+  runId?: string,
 ): WorkerTaskResult {
   if (criteria.length === 0) return row;
   const judged = row.judge?.criteria;
-  const facts = judged ?? criteriaFactsFor(criteria, contract, outcomes, undefined);
+  const facts = judged ?? criteriaFactsFor(criteria, contract, outcomes, undefined, runId);
   const out: WorkerTaskResult = { ...row, criteria: facts };
   if (judged !== undefined || row.status !== "ok") return out;
   const open = facts.filter((fact) => fact.state !== "passed");

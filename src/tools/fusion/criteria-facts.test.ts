@@ -67,6 +67,15 @@ describe("criteria facts (issue #40)", () => {
     expect(unreliable?.basis).toBeUndefined();
   });
 
+  it("ties check references to their execution and fingerprints receipt output only", () => {
+    const criteria = [{ id: "c1", text: "", checkIndexes: [0] }];
+    const run = { command: "node cli.js", exitCode: 0, output: "receipt", tests: [] };
+    expect(criteriaFactsFor(criteria, contract, [green({ run, output: "tail" })], undefined, "fr-1")[0]?.basis)
+      .toEqual({ kind: "check", checks: [{ index: 1, runId: "fr-1", outputHash: receiptHash("receipt") }] });
+    expect(criteriaFactsFor(criteria, contract, [green({ output: "tail" })], undefined, "fr-1")[0]?.basis)
+      .toEqual({ kind: "check", checks: [{ index: 1, runId: "fr-1" }] });
+  });
+
   it("records a run check and omits the basis when no check ran", () => {
     const criteria = [{ id: "c1", text: "", checkIndexes: [0] }];
     const [passed] = criteriaFactsFor(criteria, contract, [green({ run: { command: "node cli.js", exitCode: 0, output: "result", tests: [] } })], undefined);

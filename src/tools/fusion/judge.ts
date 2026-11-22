@@ -651,6 +651,7 @@ export interface JudgeTarget {
  * answer leaves the task unverified, which is not green.
  */
 export async function judgeTask(input: {
+  runId?: string;
   task: DelegateTask;
   items: readonly AcceptanceItem[];
   facts: JudgeFacts;
@@ -692,7 +693,7 @@ export async function judgeTask(input: {
   const criterionItems = input.items.filter((item) => item.kind === "criterion" && item.criterion !== undefined);
   const criteria = criterionItems.length === 0
     ? undefined
-    : criteriaFactsFor(criterionItems.map((item) => item.criterion!), input.contract, input.facts.checkOutcomes, input.facts.vision);
+    : criteriaFactsFor(criterionItems.map((item) => item.criterion!), input.contract, input.facts.checkOutcomes, input.facts.vision, input.runId);
   const pending: ItemVerdict[] = [];
   const pendingLines: string[] = [];
   criterionItems.forEach((item, i) => {
