@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +18,8 @@ import { createEmptySessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
 import { createSessionProjectStore } from "../session/session-project-store.js";
 import { applyBacklogDecision } from "../session/project-backlog.js";
+import { readProjectLessons } from "../session/project-lessons.js";
+import { createProject, projectStoreDir } from "../session/project-store.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 
 /**
@@ -190,6 +192,43 @@ describe("run with stdin closed (issue #100)", () => {
     } finally {
       saved.close();
     }
+  }, 60_000);
+
+  it("defers and reactivates an approved binding lesson without starting a turn", async () => {
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    const id = "s-eof-lesson";
+    const brief = approve(up(undefined, {
+      kind: "brief", brief: { what: "CSV summary", users: "Ops", how: "Node", successCriteria: ["Sums"] },
+      draftedAfterUntrusted: false,
+    }));
+    const plan = up(brief, {
+      kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row("sales")], detail: "compact",
+    });
+    const records = stateDirProjectRecords(stateDir);
+    const result = createProject(workingDir, plan, { stateDir, records });
+    if (!result.ok) throw new Error(result.problem.message);
+    const { stored, decisionSeq } = result.opened;
+    const lessonDir = join(projectStoreDir(workingDir), "lessons");
+    mkdirSync(lessonDir);
+    writeFileSync(join(lessonDir, "storage.md"), "---\nid: storage\ntitle: Use SQLite\nsource: person\nstatus: active\nalways: true\n---\n## Decided\nKeep storage local\n## Tried and ruled out\n## Watch out\n");
+    const { hash } = readProjectLessons(workingDir).lessons[0]!;
+    const approved = records.write(workingDir, stored.id, decisionSeq, plan, undefined, { id: "storage", call: { state: "approved", hash } });
+    if (!approved.ok) throw new Error(approved.problem.message);
+    const store = new SessionStore();
+    const session = { ...createEmptySessionState({ id, workingDir }), turnCount: 1 };
+    store.save({ ...withProject(session, plan), projectRef: { folder: stored.folder, id: stored.id, revision: stored.revision, decisionSeq: approved.seq } });
+    store.close();
+    const run = (...args: string[]) => runCli(["--cwd", workingDir, "--session", id, ...args], env);
+    const deferred = await run("--defer-lesson", "storage");
+    expect(deferred.code, deferred.stderr).toBe(3);
+    expect(deferred.stderr).toContain("storage Use SQLite (deferred)");
+    expect(deferred.stderr).toContain(`--approve ${gateVersion(plan)! + 1}`);
+    expect(records.read(workingDir)).toMatchObject({ record: { state: { lessonDeferred: { storage: hash } } } });
+    const active = await run("--activate-lesson", "storage");
+    expect(active.code, active.stderr).toBe(3);
+    expect(active.stderr).toMatch(/lesson-coverage: fail:.*storage.*sales/);
+    expect(active.stderr).toContain(`--approve ${gateVersion(plan)! + 2}`);
   }, 60_000);
 
   it("defers and activates backlog coverage on the stored plan without approving or starting a turn", async () => {

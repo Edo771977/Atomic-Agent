@@ -214,6 +214,17 @@ describe("project card keys", () => {
     expect(h.state.projectCard?.scroll).toBeGreaterThan(0);
   });
 
+  it("uses the plan version when deferring or reactivating lessons by keyboard", () => {
+    const storage = { id: "storage", title: "Use SQLite", deferred: false, citedBy: ["t1"], missingFrom: ["t2"] };
+    for (const [key, deferred, status] of [["l", false, "deferred"], ["r", true, "active"]] as const) {
+      const h = harness(withCard(fixtureProjectGateView(plan, { lessonCoverage: [{ ...storage, deferred }] })));
+      h.press(key);
+      expect(h.callbacks.onProjectDecision).toHaveBeenCalledWith("s1", {
+        gate: plan, version: 3, verdict: "edit", edits: { lessonStatus: { storage: status } },
+      });
+    }
+  });
+
   it("defers the active decisions no task cites with `d` at the plan gate (issue #112)", () => {
     const decisions = [
       { id: "d1", text: "Use SQLite", status: "active" as const, citedBy: ["t1"] },

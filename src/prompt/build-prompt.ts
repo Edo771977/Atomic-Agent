@@ -1,7 +1,8 @@
 import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { isIncognitoSession } from "../session/incognito.js";
 import { readProjectRef } from "../session/session-project-store.js";
-import { projectLessonSelection, projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
+import { lessonsForCurrentPlan, projectLessonPlanningSelection } from "../session/project-lesson-projection.js";
+import { projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
 import { projectSessionConversation } from "../session/session-compaction.js";
 import { buildCloudPrompt } from "./build-cloud-prompt.js";
 import {
@@ -281,7 +282,9 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
 
   const lessonSource = input.session.project?.brief?.status === "approved" && input.session.project.cancelledAt === undefined &&
     !isIncognitoSession(input.session) ? readProjectRef(input.session) : null;
-  const projectLessons = projectLessonSelection(lessonSource === null ? [] : projectLessonsForProvider(lessonSource, input.modelMode?.providerId));
+  const activeLessons = lessonSource === null ? [] : projectLessonsForProvider(lessonSource, input.modelMode?.providerId);
+  const deferredLessons = input.session.project?.plan?.status === "draft" ? input.session.project.lessonDeferred : undefined;
+  const projectLessons = projectLessonPlanningSelection(lessonsForCurrentPlan(activeLessons, deferredLessons));
   const restrictedLessonData = projectLessons.data.length > 0 && lessonSource !== null &&
     resolveProjectConstraint(config, lessonSource.folder) !== undefined
     ? { restrictedProjectLessonData: true as const } : {};

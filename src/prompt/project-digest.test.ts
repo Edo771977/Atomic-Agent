@@ -1,4 +1,5 @@
 import { projectLessonDataBlock, projectLessonSelection } from "./project-lessons-data.js";
+import { projectLessonPlanningSelection, projectLessonReviewSelection } from "../session/project-lesson-projection.js";
 import { PROJECT_LIMITS } from "../session/project-limits.js";
 import { describe, expect, it } from "vitest";
 
@@ -113,4 +114,17 @@ it("bounds escaped lesson data and reports the number omitted", () => {
   const text = projectLessonDataBlock(selection.data, selection.omitted)!;
   expect(text.length).toBeLessThanOrEqual(8000);
   expect(text).toContain(`${selection.omitted} more lessons were not shown`);
+});
+
+it("keeps every binding lesson and its matching paths in planning and review", () => {
+  const lessons = Array.from({ length: 20 }, (_, i) => ({
+    id: `lesson-${i}`, title: "Storage", always: true, hash: String(i),
+    source: "person" as const, touches: ["src/storage"], declaredStatus: "active" as const, approvedByPerson: false as const,
+    sections: { decided: "Keep local", watchOut: "", triedAndRuledOut: "" },
+  }));
+  for (const selection of [projectLessonPlanningSelection(lessons), projectLessonReviewSelection(lessons, true)]) {
+    expect(selection.data).toHaveLength(20);
+    expect(selection.data).toEqual(lessons.map(({ id, touches }) => expect.objectContaining({ id, touches })));
+    expect(selection.omitted).toBe(0);
+  }
 });

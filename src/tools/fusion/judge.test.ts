@@ -341,6 +341,11 @@ describe("the structured review verdict (issue #38)", () => {
     const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "", successCriteria: ["Runs offline"], decisions: ["d1: Use SQLite, not Postgres"] });
     expect(prompt).toContain("## The project's decisions (how it must be done; work that violates one is a blocker)\n- d1: Use SQLite, not Postgres");
     expect(renderJudgePrompt({ task, items, facts: [], evidence: "" })).not.toContain("decisions");
+    const binding = renderJudgePrompt({ task, items, facts: [], evidence: "", bindingLessons: [{
+      id: "storage", title: "Storage", always: true, binding: true,
+      sections: { decided: "Use SQLite", triedAndRuledOut: "", watchOut: "" },
+    }] });
+    expect(binding).toMatch(/binding lesson is a blocker[\s\S]*EXTERNAL CONTENT[\s\S]*Use SQLite/);
   });
 
   it("keeps the task prompt byte-for-byte for code and game", () => {

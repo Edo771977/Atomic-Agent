@@ -92,6 +92,8 @@ export function renderPlanReviewPrompt(input: PlanReviewInput): string {
       checks: r.checks ?? [],
       decisions: r.decisions ?? [],
       ...(r.backlog === undefined ? {} : { backlog: r.backlog }),
+      ...(r.lessons === undefined ? {} : { lessons: r.lessons }),
+      ...(r.files === undefined ? {} : { files: r.files }),
     })),
     deterministicChecks: input.planChecks.map((c) => ({ dimension: c.dimension, verdict: c.verdict, detail: c.detail, taskIds: c.taskIds })),
     ...(input.previousNotes === undefined || input.previousNotes.length === 0
@@ -278,7 +280,7 @@ const retryNote = (error: string): string =>
 export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd" | "lessonsBasis" | "reviewerProviderId">;
 
 /** `project.plan`'s plan review: null when no plan reviewer is configured (today's behaviour). */
-export type PlanReviewFn = (args: { input: PlanReviewInput; lessonSource?: ProjectLessonSource; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
+export type PlanReviewFn = (args: { input: PlanReviewInput; lessonSource?: ProjectLessonSource; lessonDeferred?: Readonly<Record<string, string>>; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
 
 export interface PlanReviewDeps {
   /** The plan reviewer seat and the reviewers, from the live config; undefined without a team. */
@@ -310,7 +312,7 @@ export interface PlanReviewSpend {
 
 /** The runtime's {@link PlanReviewFn}: pick the member (folder policy first), ask it once, count the spend. */
 export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
-  return async ({ input, lessonSource, sessionId, signal }) => {
+  return async ({ input, lessonSource, lessonDeferred, sessionId, signal }) => {
     const team = deps.team();
     if (team === undefined) return null;
     const pick = pickPlanReviewer(team, { allows: deps.allows, restricted: deps.restricted(), reachable: deps.reachable });
@@ -318,7 +320,7 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
     if (pick.kind === "skip") return { outcome: "skipped", reviewer: null, results: [], reason: pick.reason, costUsd: null };
     const member = pick.member;
     const pin = deps.pinsModel(member.providerId) && member.model !== TEAM_MEMBER_PROVIDER_MODEL ? member.model : undefined;
-    const selection = lessonSource === undefined ? undefined : reviewerProjectLessons(lessonSource, member.providerId);
+    const selection = lessonSource === undefined ? undefined : reviewerProjectLessons(lessonSource, member.providerId, lessonDeferred);
     const run = await reviewPlan({
       input: { ...input, ...(selection === undefined ? {} : { lessons: selection.data, ...(selection.notice === undefined ? {} : { lessonOmission: selection.notice }) }) },
       member,

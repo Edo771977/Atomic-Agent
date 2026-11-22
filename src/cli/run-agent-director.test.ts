@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import { formatAgentEvent, parseRunArgs } from "./run-agent.js";
 
 /** Issue #37: `run --director <member>` / `--worker <member>` choose the session's fusion team members. */
+it("identifies duplicate lesson IDs in a status edit", () => {
+  expect(parseRunArgs(["--session", "s1", "--defer-lesson", "storage,storage"]))
+    .toEqual({ error: "--defer-lesson: duplicate lesson id storage" });
+});
+
 describe("run --director / --worker", () => {
   it("takes a member for each", () => {
     expect(parseRunArgs(["--director", "cloud:model-a", "--worker", "cli:model-w"]))

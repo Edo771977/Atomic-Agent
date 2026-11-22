@@ -20,6 +20,12 @@ const planWith = (plan: Partial<NonNullable<ProjectGateView["plan"]>>): ProjectG
 };
 
 describe("project card lines", () => {
+  it("labels the lesson coverage section", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, {
+      lessonCoverage: [{ id: "storage", title: "Keep local", deferred: false, citedBy: ["t1"], missingFrom: ["t2"] }],
+    });
+    expect(text(card(view))).toMatch(/Lessons:[\s\S]*storage.*t1.*missing from t2/);
+  });
   it("compact: brief line, totals with unpriced rows, buttons; no row table", () => {
     const out = text(card(fixtureProjectGateView({ kind: "plan" })));
     expect(out).toContain("PROJECT PLAN — YOUR APPROVAL");

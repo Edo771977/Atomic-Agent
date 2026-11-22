@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AssignmentRow, ProjectBriefDecision, ProjectCriterion, ProjectDecisionStatus, ProjectReviewBlock } from "../../session/session-project.js";
 import { lintContractCheck } from "./contract-check-lint.js";
 
-export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage" | "backlog-coverage" | "references";
+export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage" | "backlog-coverage" | "lesson-coverage" | "references";
 export interface PlanCheckResult {
   dimension: PlanCheckDimension;
   verdict: "pass" | "warn" | "fail";
@@ -20,6 +20,56 @@ export interface PlanCheckOptions {
    * (`backlogCheckOptions` in `session-project.ts`); absent: no such result.
    */
   backlog?: PlanBacklog;
+  lessons?: PlanLessonCoverage[];
+  activeLessonIds?: readonly string[];
+  staleLessonIds?: readonly string[];
+  undeclaredLessonTasks?: readonly string[];
+  blockedLessonWorkers?: readonly { taskId: string; lessonIds: string[] }[];
+}
+
+export interface PlanLessonCoverage {
+  id: string;
+  title: string;
+  deferred: boolean;
+  citedBy: string[];
+  missingFrom: string[];
+}
+
+function lessonCoverage(rows: readonly AssignmentRow[], options: PlanCheckOptions): PlanCheckResult[] {
+  if (options.activeLessonIds === undefined) return [];
+  const results: PlanCheckResult[] = [];
+  const active = new Set(options.activeLessonIds);
+  for (const id of options.staleLessonIds ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [],
+    detail: `Approved lesson ${id} changed or was removed. Approve it again or retire it.`,
+  });
+  for (const row of rows) {
+    const stray = (row.lessons ?? []).filter((id) => !active.has(id));
+    if (stray.length > 0) results.push({
+      dimension: "lesson-coverage", verdict: "warn", taskIds: [row.taskId],
+      detail: `Task ${row.taskId} cites inactive or unknown lessons: ${stray.join(", ")}.`,
+    });
+  }
+  for (const taskId of options.undeclaredLessonTasks ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [taskId],
+    detail: `Task ${taskId} has no declared file or check paths for scoped binding lessons.`,
+  });
+  for (const { taskId, lessonIds } of options.blockedLessonWorkers ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [taskId],
+    detail: `Folder policy means the worker of ${taskId} will not receive binding lessons: ${lessonIds.join(", ")}.`,
+  });
+  const lessons = options.lessons ?? [];
+  const missing = lessons.filter((lesson) => !lesson.deferred && lesson.missingFrom.length > 0);
+  if (missing.length > 0) {
+    results.push({
+      dimension: "lesson-coverage", verdict: "fail",
+      detail: `Cite binding lessons on each affected task: ${missing.map((lesson) => `${lesson.id} (${lesson.missingFrom.join(", ")})`).join(", ")}. The person can defer a lesson at the plan gate.`,
+      taskIds: [...new Set(missing.flatMap((lesson) => lesson.missingFrom))],
+    });
+  } else if (lessons.length > 0) {
+    results.push({ dimension: "lesson-coverage", verdict: "pass", detail: "Every required lesson is cited by each affected task.", taskIds: [] });
+  }
+  return results;
 }
 
 /** A backlog item the person promoted that no approved plan has taken in yet (issue #146). */
@@ -143,9 +193,10 @@ export function evaluatePlanChecks(
     { dimension: "criteria-coverage", verdict: missing.length === 0 ? "pass" : "warn", detail: missing.length === 0 ? "Every approved criterion is named by a plan check." : `No plan check names approved criteria: ${missing.map((c) => c.id).join(", ")}.`, taskIds: [] },
     { dimension: "verifiability", verdict: bare.length === 0 ? "pass" : "warn", detail: bare.length === 0 ? "No task is missing checks in a plan that uses them." : `Tasks without checks: ${bare.join(", ")}.`, taskIds: bare },
     ...decisionCoverage(rows, decisions, finished),
+    ...lessonCoverage(rows, options),
     ...(options.backlog === undefined ? [] : backlogCoverage(rows, options.backlog)),
   ];
-  const promoted = results.map((r): PlanCheckResult => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
+  const promoted = results.map((r): PlanCheckResult => r.verdict === "warn" && r.dimension !== "lesson-coverage" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
   // Issue #120: the person decides on what the plan cites; never promoted to a failure.
   return options.references === undefined ? promoted : [...promoted, referencesResult(rows, options.references)];
 }
