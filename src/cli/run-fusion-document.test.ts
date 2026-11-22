@@ -53,6 +53,12 @@ function directorScript(review: "on" | "off") {
     }),
     call("project.milestone", { id: "delivery", state: "done", summary: "Rapporto consegnato." }),
     reply,
+    call("project.lesson.propose", {
+      id: "italian-report", title: "Reports use the requested language", source: "director",
+      from: "milestone delivery", touches: ["report.md"], always: false,
+      decided: "Write the report in the language named in the brief.", triedAndRuledOut: "", watchOut: "",
+    }),
+    reply,
   ];
 }
 
@@ -70,6 +76,7 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
     })]],
     ["reviewer", review === "on" ? [JSON.stringify({ decision: "accept", issues: [] })] : []],
   ]);
+  const proposalRequests: boolean[] = [];
   const server = createServer(async (req, res) => {
     try {
       if (req.url === "/v1/models") {
@@ -82,8 +89,10 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
       const raw = Buffer.concat(chunks).toString("utf8");
       const body = JSON.parse(raw) as { model: string; stream?: boolean };
       const auxiliary = raw.includes("Name this work session.");
-      const content = auxiliary ? "Rapporto settimanale" : scripts.get(body.model)?.shift();
+      const recallRewrite = raw.includes("You rewrite a user's follow-up message into a self-contained search query.");
+      const content = auxiliary || recallRewrite ? "Rapporto settimanale" : scripts.get(body.model)?.shift();
       if (content === undefined) throw new Error(`Unexpected completion for ${body.model}: ${raw.slice(-600)}`);
+      if (content.includes("project.lesson.propose")) proposalRequests.push(raw.includes("Summarize any reusable candidate lessons from this project."));
       const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 };
       if (body.stream) {
         res.writeHead(200, { "content-type": "text/event-stream" });
@@ -176,6 +185,9 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
     expect(unexpected, result.stderr).toEqual([]);
     expect([...scripts].map(([model, queue]) => [model, queue.length]), result.stdout + result.stderr).toEqual([...scripts.keys()].map(model => [model, 0]));
     expect(readFileSync(join(cwd, "report.md"), "utf8")).toBe(report);
+    expect(proposalRequests).toEqual([true]);
+    expect(result.stderr, result.stderr).toMatch(/project\.lesson\.propose ok/);
+    expect(readFileSync(join(cwd, ".atomic", "project", "lessons", "italian-report.md"), "utf8")).toContain("status: proposed");
 
     const evidence = spawnSync(process.execPath, [
       join(root, "scripts", "e2e-artifacts.mjs"), "--cwd", cwd, "--fixture", "document", "--state-dir", stateDir,
