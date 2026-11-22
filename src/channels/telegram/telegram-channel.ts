@@ -471,6 +471,8 @@ export class TelegramChannel implements Channel {
             description: "Show or switch the provider and model",
           },
           { command: "plan", description: "The fusion project gate: /plan approve <version> or /plan cancel" },
+          { command: "defer", description: "Defer a brief decision at the plan gate" },
+          { command: "reactivate", description: "Reactivate a deferred decision at the plan gate" },
           { command: "cron", description: "List, add, pause or delete scheduled tasks" },
           { command: "cancel", description: "Cancel this chat's current turn" },
         ]);
