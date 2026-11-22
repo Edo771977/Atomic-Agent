@@ -502,7 +502,7 @@ function alwaysOrigin(request: ApprovalRequest): string | undefined {
  * `ApprovalGate.canGrantAlways`, which also needs a rules store installed.
  */
 export function canGrantAlways(request: ApprovalRequest): boolean {
-  if (!isGrantableCategory(request.category)) return false;
+  if (request.oneShot || !isGrantableCategory(request.category)) return false;
   if (request.workdir === undefined || request.workdir === "") return false;
   if (request.category === "shell") {
     return (request.commandArgv?.length ?? 0) > 0;

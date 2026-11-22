@@ -63,6 +63,8 @@ export interface ApprovalRequest {
    * the shell tool knows the guard verdict, and so on).
    */
   category: ApprovalCategory;
+  /** An explicit one-time decision cannot create a standing grant. */
+  oneShot?: true;
   reason: string;
   /** Human-readable preview of the action (command, diff snippet, URL, …). */
   preview?: string;
@@ -788,6 +790,7 @@ export class ApprovalGate {
     const request: ApprovalRequest = {
       ...params,
       approvalId,
+      ...(requireExplicitDecision ? { oneShot: true as const } : {}),
       ...(workdir !== undefined ? { workdir } : {}),
       ...(questionSources.length > 0 ? { riskNote: formatQuestionTaintNote(questionSources) } : {}),
     };
@@ -1388,7 +1391,7 @@ export class ApprovalGate {
     request: ApprovalRequest,
     scope: ApprovalGrantScope,
   ): void {
-    if (!isGrantableCategory(request.category)) return;
+    if (request.oneShot || !isGrantableCategory(request.category)) return;
     if (scope === "always") {
       this.saveAlwaysRule(request);
       return;
@@ -1557,7 +1560,7 @@ function scopedGrantId(category: ApprovalCategory, key: string): string {
  * is offered only when it names exactly one host.
  */
 export function canGrantCategory(request: ApprovalRequest): boolean {
-  if (!isGrantableCategory(request.category)) return false;
+  if (request.oneShot || !isGrantableCategory(request.category)) return false;
   if (isSiteScopedCategory(request.category)) return siteGrantHost(request) !== null;
   return true;
 }
@@ -1609,6 +1612,7 @@ function withSites(
  * so `[a]` is never offered where the binary name hides what runs.
  */
 export function canGrantShape(request: ApprovalRequest): boolean {
+  if (request.oneShot) return false;
   return request.category === "shell" && Boolean(request.commandShape);
 }
 
