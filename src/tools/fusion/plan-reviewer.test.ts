@@ -161,3 +161,17 @@ describe("plan review record", () => {
     expect(planReviewHints({ rows: changed, review: record }, ids, facts)).toEqual([expect.stringMatching(/stale/), expect.stringMatching(/^notes on an earlier version: plan review: size: fail/)]);
   });
 });
+
+/**
+ * Live Windows run (#118 follow-up): the reviewer flagged `estMs 319801`
+ * as a number the plan had not sourced. It is the runtime's estimate
+ * (median of measured runs), not the director's: the reviewer is told so.
+ */
+describe("the runtime's estimate is not the plan's number", () => {
+  it("renders the estimate as the runtime's, with its basis, and says not to judge it", () => {
+    const prompt = renderPlanReviewPrompt(input([row("t1", { estMs: 319801, basis: "measured", samples: 36 })]));
+    expect(prompt).not.toMatch(/"estMs"/);
+    expect(prompt).toMatch(/"runtimeEstimate": \{\s*"ms": 319801,\s*"basis": "measured",\s*"samples": 36\s*\}/);
+    expect(prompt).toMatch(/runtimeEstimate is computed by the runtime[^.]*not a number the plan wrote/);
+  });
+});

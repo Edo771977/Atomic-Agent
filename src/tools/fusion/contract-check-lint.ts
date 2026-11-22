@@ -351,10 +351,15 @@ export function fixedOutputOf(words: readonly string[], depth = 0): FixedOutput 
     case "exit":
       return rest.length === 0 || (rest.length === 1 && rest[0] === "0") ? { stdout: "" } : null;
     case "cmd": {
-      if (rest.length < 2 || !/^\/[ck]$/i.test(rest[0]!)) return null;
+      // cmd.exe's switches before /c (/d, /s, /q, /a, /u, /e:…, /f:…, /v:…, /t:…)
+      // change nothing the command prints.
+      let i = 0;
+      while (i < rest.length && /^\/(?:[dsqau]|[efvt]:\w*)$/i.test(rest[i]!)) i += 1;
+      const tail = rest.slice(i);
+      if (tail.length < 2 || !/^\/[ck]$/i.test(tail[0]!)) return null;
       // More than one word: cmd.exe re-joins them into a command line.
-      if (rest.length > 2 && hasWordMeta(rest.slice(1))) return null;
-      const inner = rest.length === 2 ? splitPlainCommand(rest[1]!) : rest.slice(1);
+      if (tail.length > 2 && hasWordMeta(tail.slice(1))) return null;
+      const inner = tail.length === 2 ? splitPlainCommand(tail[1]!) : tail.slice(1);
       return inner === null ? null : fixedOutputOf(inner, depth + 1);
     }
     case "sh":
