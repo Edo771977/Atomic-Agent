@@ -1,3 +1,4 @@
+import { receiptHash } from "../../session/receipt-signing.js";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -60,6 +61,7 @@ interface ImpeccableCheckEvidence {
 
 export interface ContractCheckResult extends ImpeccableCheckEvidence {
   ok: boolean;
+  warningCount?: number;
   summary?: string;
   error?: string;
   /**
@@ -129,6 +131,9 @@ export class ContractChecksHeldError extends Error {
 }
 
 export interface ContractCheckOutcome extends ImpeccableCheckEvidence {
+  warningCount?: number;
+  /** Canonical fingerprint of the retained, masked UI output. */
+  outputHash?: string;
   /** The task the check was attributed to; absent for a call-level check. */
   task?: string;
   ok: boolean;
@@ -525,6 +530,7 @@ function maskResult(
   const games = result.games === undefined ? undefined : maskGames(result.games, known);
   return {
     ok: result.ok,
+    ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
     ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
     ...(summary === undefined ? {} : { summary }),
     ...(error === undefined ? {} : { error }),
@@ -683,6 +689,8 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
+      ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
+      ...(check.kind === "ui" && result.stdoutTail !== undefined ? { outputHash: receiptHash(result.stdoutTail) } : {}),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),

@@ -1,4 +1,4 @@
-import { weakestCriterionBasis, type ProjectCriterionBasis } from "../../session/project-criterion-basis.js";
+import { weakestCriterionBasis, type ProjectCriterionBasis, type ProjectCriterionCheckReference } from "../../session/project-criterion-basis.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import { checkDidNotRun } from "./check-ran.js";
@@ -24,9 +24,8 @@ import type { WorkerTaskResult } from "./worker-result.js";
  * `failed` outranks `unverified`, which outranks `passed`: vision can
  * only add red or unverified, never turn a red check green.
  *
- * A `passed` criterion that only checks with a lint warning support
- * (`contract-check-lint.ts`: they may also pass on the wrong thing)
- * carries a `reservation` — "verified with reservations". No verdict
+ * A `passed` criterion supported only by checks with verification or
+ * lint warnings, or unavailable negative controls, carries a `reservation` — "verified with reservations". No verdict
  * reads it: it stays `passed`, and one clean passing check clears it.
  */
 
@@ -83,13 +82,29 @@ export function criteriaFactsFor(
   runId?: string,
 ): ProjectCriterionFact[] {
   const reservations = checkReservations(contract);
-  /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
   const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
-    if (outcome.negative !== undefined) return `its negative control did not run (${outcome.negative})`;
-    // Its negative control ran and failed as it should (an unreliable one
-    // never gets here): the check has shown it can fail, whatever the lint read.
-    if (contract?.checks?.[index]?.negative !== undefined) return undefined;
-    return reservations.get(index);
+    const reasons: string[] = [];
+    const { warningCount = 0, impeccableExceptions = [], negative } = outcome;
+    if (warningCount > 0) {
+      reasons.push(`${warningCount} warning${warningCount === 1 ? "" : "s"}`);
+      for (const exception of impeccableExceptions) {
+        const line = exception.replace(/\s+/g, " ").trim();
+        const approved = /^([a-z0-9-]+)(?::.*?)? — approved by the operator: (.+)$/u.exec(line);
+        if (approved === null) {
+          reasons.push(line.slice(0, 180));
+          continue;
+        }
+        const reason = approved[2]!;
+        reasons.push(`${approved[1]} (approved by the operator: ${reason.length > 100 ? `${reason.slice(0, 100)}…` : reason})`);
+      }
+    }
+    if (negative !== undefined) reasons.push(`its negative control did not run (${negative})`);
+    else if (contract?.checks?.[index]?.negative === undefined) {
+      // A successful negative control resolves lint warnings about check strength.
+      const lint = reservations.get(index);
+      if (lint !== undefined) reasons.push(lint);
+    }
+    return reasons.length === 0 ? undefined : reasons.join("; ");
   };
   return criteria.map((criterion) => {
     let state: CriterionFactState = "passed";
@@ -126,9 +141,20 @@ export function criteriaFactsFor(
         note("unverified", `${label} uncheckable: ${outcome.detail}`);
         continue;
       }
-      const output = outcome.run?.output;
+      const spec = contract?.checks?.[index];
+      const outputHash = outcome.run === undefined ? outcome.outputHash : receiptHash(outcome.run.output);
+      const reference: ProjectCriterionCheckReference = {
+        index: index + 1,
+        ...(runId === undefined ? {} : { runId }),
+        ...(outputHash === undefined ? {} : { outputHash }),
+      };
+      if (spec?.kind === "ui") {
+        reference.kind = "ui";
+        reference.mode = spec.path === undefined ? "rendered" : "file";
+        if (outcome.impeccableVersion !== undefined) reference.impeccableVersion = outcome.impeccableVersion;
+      }
       const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
-        ? { kind: "check", checks: [{ index: index + 1, ...(runId === undefined ? {} : { runId }), ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
+        ? { kind: "check", checks: [reference] }
         : undefined;
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`, measured);

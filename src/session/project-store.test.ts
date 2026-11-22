@@ -28,8 +28,16 @@ it("labels the director report and warns about unsupported claims in STATUS.md",
   const project = normalizeProject(fixture.session.project)!;
   const milestone = project.milestones[0]!;
   milestone.summary = "The timer works.";
+  milestone.criteriaFacts = [
+    { id: "c1", state: "passed", basis: { kind: "check", checks: [{ index: 1 }] } },
+    { id: "c2", state: "passed", reservation: "1 warning", basis: { kind: "check", checks: [
+      { index: 2, kind: "ui", mode: "file", impeccableVersion: "4.10.0" },
+    ] } },
+  ];
   const status = renderProjectViews({ name: "Demo", updatedAt: 1 }, project)["STATUS.md"];
   expect(status).toContain("Director report");
+  expect(status).toContain("2 criteria: 1 measured, 1 measured with reservations");
+  expect(status).toContain("measured (UI · 4.10.0 · file)");
   expect(status).toContain("Warning: no matching passed criterion fact for director claim: The timer works.");
 });
 

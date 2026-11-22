@@ -32,6 +32,17 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(out.uncovered).toEqual(["c3"]);
   });
 
+  it("round-trips reserved UI evidence through the milestone fold", () => {
+    const state = stateDir();
+    const fact = { id: "c1", state: "passed", reservation: "check 1: 1 warning", basis: {
+      kind: "check", checks: [{ index: 1, runId: "fr-1", kind: "ui", impeccableVersion: "4.10.0", mode: "file", outputHash: "a".repeat(64) }],
+    } } as const;
+    writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [
+      { taskId: "board", facts: [{ ...fact, basis: { ...fact.basis, checks: [...fact.basis.checks] } }] },
+    ]);
+    expect(readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1"], criteriaOrder: ORDER }).facts).toEqual([fact]);
+  });
+
   it("keeps the weakest basis across tasks without changing the criterion verdict", () => {
     const state = stateDir();
     writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [

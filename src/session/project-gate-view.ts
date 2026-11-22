@@ -185,6 +185,8 @@ export interface ProjectCriterionBasisSummary {
   vision: number;
   person: number;
   unrecorded: number;
+  /** Subset of each basis count whose verdict is passed with reservations. */
+  withReservations?: Partial<Record<"check" | "vision" | "person" | "unrecorded", number>>;
 }
 
 export interface MilestoneEvidenceReceipts {

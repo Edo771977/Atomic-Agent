@@ -70,7 +70,7 @@ it("fails on a severe rule and records its source file, CLI version and suppress
 
 it("retains warning-only findings on a pass", async () => {
   await fake(2, [finding("bounce-easing")]);
-  expect(await check()).toMatchObject({ ok: true, artifactStatus: "pass", stdoutTail: expect.stringContaining("bounce-easing — index.html") });
+  expect(await check()).toMatchObject({ ok: true, artifactStatus: "pass", warningCount: 1, stdoutTail: expect.stringContaining("bounce-easing — index.html") });
 });
 
 it.each([[1, undefined, "exit 1"], [0, { filesScanned: 1, findings: [] }, "invalid findings"],
@@ -99,7 +99,7 @@ it.each([["broken-image", {}], ["script-error", { severity: "error" }]])("fails 
 
 it("treats an explicit advisory as a warning even when its rule is severe", async () => {
   await fake(2, [finding("broken-image", { severity: "error", advisory: true }), finding("bounce-easing")]);
-  expect(await check()).toMatchObject({ artifactStatus: "pass", impeccableFindings: expect.arrayContaining(["warning: broken-image — index.html"]) });
+  expect(await check()).toMatchObject({ artifactStatus: "pass", warningCount: 2, impeccableFindings: expect.arrayContaining(["warning: broken-image — index.html"]) });
 });
 
 it("uses severe IDs from the pinned upstream catalog", async () => {
@@ -429,6 +429,7 @@ it("downgrades a file-scoped severe finding only until the operator revokes it",
   };
   expect(await scan("index.html")).toMatchObject({
     artifactStatus: "pass",
+    warningCount: 1,
     impeccableFindings: ["warning: low-contrast — index.html"],
     impeccableExceptions: ["low-contrast:index.html — approved by the operator: Brand logo"],
   });

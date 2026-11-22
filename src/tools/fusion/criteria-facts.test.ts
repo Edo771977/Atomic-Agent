@@ -76,6 +76,32 @@ describe("criteria facts (issue #40)", () => {
       .toEqual({ kind: "check", checks: [{ index: 1, runId: "fr-1" }] });
   });
 
+  it.each(["file", "rendered"] as const)("keeps UI provenance and judge outcomes in %s mode", async (mode) => {
+    const ui: DelegateContract = { checks: [{ kind: "ui", task: "ui", criteria: ["c1"],
+      ...(mode === "file" ? { path: "index.html" } : { url: "http://localhost:4173/" }) }] };
+    const criteria = taskCriteria("ui", ui, CRITERIA);
+    const result = green({ impeccableVersion: "4.10.0", outputHash: receiptHash("detector output") });
+    const [clean] = criteriaFactsFor(criteria, ui, [result], undefined, "fr-1");
+    expect(clean).toMatchObject({ state: "passed", basis: { kind: "check", checks: [
+      { index: 1, runId: "fr-1", kind: "ui", impeccableVersion: "4.10.0", mode, outputHash: receiptHash("detector output") },
+    ] } });
+    expect(clean?.reservation).toBeUndefined();
+    const warnings = { ...result, warningCount: 2 };
+    expect(criteriaFactsFor(criteria, ui, [warnings], undefined)[0]).toMatchObject({ state: "passed", reservation: "check 1: 2 warnings" });
+    const { verdict } = await judge([{ ...warnings, impeccableExceptions: ["low-contrast — approved by the operator: Brand logo"] }], undefined, ui);
+    expect(verdict.green).toBe(true);
+    expect(verdict.criteria?.[0]).toMatchObject({ state: "passed", reservation: expect.stringMatching(/2 warnings.*low-contrast.*Brand logo/) });
+    expect(criteriaFactsFor(criteria, ui, [{ ...warnings, ok: false }], undefined)[0]).toMatchObject({ state: "failed" });
+    expect(criteriaFactsFor(criteria, ui, [{ ...warnings, ok: false, artifactStatus: "uncheckable" }], undefined)[0]).toMatchObject({ state: "unverified" });
+  });
+
+  it("keeps a passing command with a reported warning green in the judge", async () => {
+    const command: DelegateContract = { checks: [{ kind: "command", task: "ui", criteria: ["c1"], cmd: "node", args: ["--version"] }] };
+    const { verdict } = await judge([green({ warningCount: 1 })], undefined, command);
+    expect(verdict.green).toBe(true);
+    expect(verdict.criteria?.[0]).toMatchObject({ state: "passed", reservation: expect.stringContaining("1 warning") });
+  });
+
   it("records a run check and omits the basis when no check ran", () => {
     const criteria = [{ id: "c1", text: "", checkIndexes: [0] }];
     const [passed] = criteriaFactsFor(criteria, contract, [green({ run: { command: "node cli.js", exitCode: 0, output: "result", tests: [] } })], undefined);

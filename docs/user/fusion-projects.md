@@ -53,6 +53,7 @@ A plan can list checks for each task before work starts. Check that the tasks co
 
 - A clearly ineffective check can block the plan. For example, a command that prints `passed` and then checks for that same word proves little. An assertion that would also match `0 passed` can trigger a warning.
 - A **negative control** runs the same check with input that should fail. For a CSV validator, try a file with a required column missing. If the negative input passes, the check is unreliable and its criterion remains unverified. If the control could not run, an otherwise passing result may read **verified with reservations**.
+- A UI check records the Impeccable version and whether it scanned a file or a rendered page. A criterion can pass **with reservations** when only checks with warnings or other reservations support it. The criterion shows the warning count and the rule and shortened reason for any operator exception used by the UI check. Milestone summaries show a separate count, such as “5 measured, 1 measured with reservations”.
 - A **references** warning may identify a missing file, package script or code symbol the plan expects to find. Ask the director to fix the reference or say that the task will create it. A references warning alone allows approval.
 
 ## Defer a binding lesson for a plan

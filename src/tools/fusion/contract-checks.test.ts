@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { receiptHash } from "../../session/receipt-signing.js";
 
 import {
   applyCheckOutcomes,
@@ -221,6 +222,18 @@ describe("runContractChecks", () => {
     const out = await runContractChecks([{ kind: "command", cmd: "x" }], undefined, ctx);
     expect(out.outcomes).toEqual([]);
     expect(out.checksSkipped).toBe("1 check not run — no check runner is wired");
+  });
+
+  it("fingerprints retained UI output and carries warnings across the runner boundary", async () => {
+    const runner: ContractCheckRunner = async () => ({ ok: true, results: [
+      { ok: true, stdoutTail: "pass: report", warningCount: 2, impeccableVersion: "4.10.0" },
+      { ok: true, warningCount: 1 },
+    ] });
+    const { outcomes } = await runContractChecks([
+      { kind: "ui", path: "index.html" }, { kind: "document", path: "report.md" },
+    ], runner, ctx);
+    expect(outcomes[0]).toMatchObject({ ok: true, outputHash: receiptHash("pass: report"), warningCount: 2, impeccableVersion: "4.10.0" });
+    expect(outcomes[1]).toMatchObject({ ok: true, warningCount: 1 });
   });
 
   it("does nothing for an empty list", async () => {
