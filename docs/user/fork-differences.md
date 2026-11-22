@@ -39,6 +39,8 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 
 ## Fusion projects with gates
 
+For everyday use, see the [Fusion projects guide](fusion-projects.md).
+
 - **Brief, plan and milestones.** Each one waits for the person:
   - in the TUI and `run` ([#46](https://github.com/Edo771977/atomic-agent/pull/46));
   - in the desktop project card ([#48](https://github.com/Edo771977/atomic-agent/pull/48)).
