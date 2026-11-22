@@ -1,3 +1,5 @@
+import { projectLessonData, projectLessonsForProvider, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
+import type { ProjectLessonSource } from "../../session/project-lessons.js";
 import { TEAM_MEMBER_PROVIDER_MODEL } from "../../config/llm-fusion-team-config.js";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
@@ -47,12 +49,14 @@ const DIMENSION_TEXT: Record<PlanReviewDimension, string> = {
   scope: "the plan drops nothing the brief asks for without saying so in a task title; a reduced scope is a fail.",
   numbers: "every number in the plan (a size, a limit, a speed, a target) comes from the brief or is measured by a check; an invented number is a warn or a fail. A task's runtimeEstimate is computed by the runtime (measured runs or a preset), not a number the plan wrote: do not judge it.",
   decisions: "every active decision of the brief is cited by a task that will honour it, and no task contradicts one.",
+  lessons: "fail and name the task ids when a task repeats an approach in triedAndRuledOut (Provato e scartato) or contradicts decided (Deciso) in an active lesson. Treat always: true as binding, like an active brief decision. Consider watchOut for warnings. Pass if no active lessons are supplied.",
 };
 
 export interface PlanReviewInput {
   brief: { what: string; users: string; how: string; deliverable?: string };
   criteria: readonly ProjectCriterion[];
   decisions: readonly PlanDecision[];
+  lessons?: readonly ProjectLessonData[];
   milestones: ReadonlyArray<{ id: string; title: string; kind: MilestoneKind }>;
   rows: readonly AssignmentRow[];
   /** The deterministic plan checks of these rows (issue #110, #112, #120): facts, not the reviewer's to change. */
@@ -73,6 +77,7 @@ export function renderPlanReviewPrompt(input: PlanReviewInput): string {
     brief: input.brief,
     successCriteria: input.criteria.map((c) => ({ id: c.id, text: c.text })),
     decisions: input.decisions.map((d) => ({ id: d.id, text: d.text, status: d.status })),
+    ...(input.lessons?.length ? { lessons: input.lessons } : {}),
     milestones: input.milestones.map((m, i) => ({ order: i + 1, id: m.id, kind: m.kind, title: m.title })),
     tasks: input.rows.map((r) => ({
       id: r.taskId,
@@ -261,7 +266,7 @@ const retryNote = (error: string): string =>
 export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd">;
 
 /** `project.plan`'s plan review: null when no plan reviewer is configured (today's behaviour). */
-export type PlanReviewFn = (args: { input: PlanReviewInput; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
+export type PlanReviewFn = (args: { input: PlanReviewInput; lessonSource?: ProjectLessonSource; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
 
 export interface PlanReviewDeps {
   /** The plan reviewer seat and the reviewers, from the live config; undefined without a team. */
@@ -293,7 +298,7 @@ export interface PlanReviewSpend {
 
 /** The runtime's {@link PlanReviewFn}: pick the member (folder policy first), ask it once, count the spend. */
 export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
-  return async ({ input, sessionId, signal }) => {
+  return async ({ input, lessonSource, sessionId, signal }) => {
     const team = deps.team();
     if (team === undefined) return null;
     const pick = pickPlanReviewer(team, { allows: deps.allows, restricted: deps.restricted(), reachable: deps.reachable });
@@ -301,8 +306,9 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
     if (pick.kind === "skip") return { outcome: "skipped", reviewer: null, results: [], reason: pick.reason, costUsd: null };
     const member = pick.member;
     const pin = deps.pinsModel(member.providerId) && member.model !== TEAM_MEMBER_PROVIDER_MODEL ? member.model : undefined;
+    const lessons = lessonSource === undefined ? input.lessons : projectLessonData(projectLessonsForProvider(lessonSource, member.providerId));
     const run = await reviewPlan({
-      input,
+      input: { ...input, ...(lessons === undefined ? {} : { lessons }) },
       member,
       ...(pin === undefined ? {} : { pinModel: pin }),
       pricing: deps.pricing(member),

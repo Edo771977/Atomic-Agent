@@ -1,3 +1,4 @@
+import { readProjectRef } from "../session/session-project-store.js";
 export type { ApprovalBarrierReport } from "./step/step-batch-policy.js";
 export { approvalBarrierSegments, emptyApprovalBarrierReport, formatApprovalBarrierNotice } from "./step/step-batch-policy.js";
 import { chatLinesOf, groundingTextsOf } from "../memory/name-grounding.js";
@@ -266,6 +267,7 @@ async function executeStepInner(
     deps.profileWindowApplies === false
       ? deps.contextWindow
       : (deps.profile.contextWindow ?? deps.contextWindow);
+  const projectLessonSource = ctx.session.project === undefined || isIncognitoSession(ctx.session) ? null : readProjectRef(ctx.session);
   const batchOutcome = await runBatch(inputs, deps.registry, {
     ...(ctx.workspace ? { workspaceSkills: ctx.workspace.skills } : {}),
     ...(typeof stepWindow === "number" && stepWindow > 0 ? { contextWindowTokens: stepWindow } : {}),
@@ -283,6 +285,7 @@ async function executeStepInner(
     ...(deps.providerId !== undefined ? { providerId: deps.providerId } : {}),
     // The fusion project's gate is enforced at dispatch (issue #39).
     ...(ctx.session.project !== undefined ? { project: ctx.session.project } : {}),
+    ...(projectLessonSource === null ? {} : { projectLessonSource }),
     ...(deps.tracker ? { tracker: deps.tracker } : {}),
     ...(ctx.terminalOnly ? { terminalOnly: true } : {}),
     ...(ctx.toolSet !== undefined ? { toolSet: ctx.toolSet } : {}),

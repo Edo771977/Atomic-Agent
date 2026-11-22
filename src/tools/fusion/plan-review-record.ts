@@ -27,6 +27,7 @@ export const PLAN_REVIEW_DIMENSIONS = [
   "scope",
   "numbers",
   "decisions",
+  "lessons",
 ] as const;
 export type PlanReviewDimension = (typeof PLAN_REVIEW_DIMENSIONS)[number];
 
@@ -147,7 +148,11 @@ export function readPlanReviewRecord(raw: unknown): PlanReviewRecord | undefined
     if (read === undefined || results.some((x) => x.dimension === read.dimension)) return undefined;
     results.push(read);
   }
-  if (raw.outcome === "reviewed" && results.length !== PLAN_REVIEW_DIMENSIONS.length) return undefined;
+  // Reviews saved before project lessons covered the original eight dimensions.
+  if (raw.outcome === "reviewed" &&
+      results.length !== PLAN_REVIEW_DIMENSIONS.length &&
+      !(results.length === PLAN_REVIEW_DIMENSIONS.length - 1 &&
+        PLAN_REVIEW_DIMENSIONS.slice(0, -1).every((dimension) => results.some((result) => result.dimension === dimension)))) return undefined;
   if (raw.outcome !== "reviewed" && results.length > 0) return undefined;
   if (raw.reason !== undefined && typeof raw.reason !== "string") return undefined;
   return {
@@ -239,6 +244,13 @@ export function openPlanReviewFails(plan: ReviewedPlan | undefined, milestoneIds
 
 export const planReviewLine = (r: PlanReviewResult): string =>
   `plan review: ${r.dimension}: ${r.verdict}: ${r.detail}${r.taskIds.length === 0 ? "" : ` (${r.taskIds.join(", ")})`}`;
+
+/** Review notes may quote lessons. Keep that prose at the human gate. */
+export function planReviewPromptLine(result: PlanReviewResult): string {
+  return planReviewLine(result.dimension === "lessons"
+    ? { ...result, detail: "Recheck these tasks against the current active project lessons." }
+    : result);
+}
 
 /** The open failures as review blocks (the `review-open` refusal and the person's override record). */
 export function planReviewBlocks(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): ProjectReviewBlock[] {

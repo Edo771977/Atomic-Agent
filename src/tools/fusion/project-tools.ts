@@ -44,7 +44,7 @@ import { parsePlanRowChecks } from "./contract-check-spec.js";
 import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
-import { planReviewBasis, planReviewCallsBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
+import { planReviewBasis, planReviewCallsBasis, planReviewHints, planReviewPromptLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
 import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
@@ -526,7 +526,7 @@ function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], m
       : fails.length > 0
         ? `The plan reviewer still fails ${fails.map((r) => r.dimension).join(", ")} after ${review.round - 1} round${review.round - 1 === 1 ? "" : "s"}: the person sees its open notes at the gate and decides.`
         : head!,
-    ...(notes.length === 0 ? [] : [frameUntrustedText(results.filter((r) => r.verdict !== "pass").map(planReviewLine).join("\n"), PLAN_REVIEWER_SOURCE)]),
+    ...(notes.length === 0 ? [] : [frameUntrustedText(results.filter((r) => r.verdict !== "pass").map(planReviewPromptLine).join("\n"), PLAN_REVIEWER_SOURCE)]),
   ];
 }
 
@@ -547,6 +547,7 @@ async function reviewDraft(
   // Rounds count per plan cycle: on from the last review until a person decides (issue #118).
   const continues = previous !== undefined && previous.decided !== true;
   const answer = await deps.planReview({
+    ...(ctx.incognito || ctx.projectLessonSource === undefined ? {} : { lessonSource: ctx.projectLessonSource }),
     input: {
       brief: { what: project.brief.what, users: project.brief.users, how: project.brief.how, ...(project.brief.deliverable === undefined ? {} : { deliverable: project.brief.deliverable }) },
       criteria: draft.criteria,
@@ -554,7 +555,7 @@ async function reviewDraft(
       milestones: draft.update.milestones,
       rows: draft.rows,
       planChecks: draft.planChecks,
-      ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
+      ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass" && r.dimension !== "lessons") } : {}),
       // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
       ...(() => {
         const backlog = [

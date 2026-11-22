@@ -1,6 +1,7 @@
+import { DIRECTOR_LESSONS_GUIDANCE, projectLessonDataBlock, type ProjectLessonData } from "./project-lessons-data.js";
 import { decisionStatusOf, projectExpectation, type ProjectState } from "../session/session-project.js";
 import { openBacklog, openSeeds, promotedForPlan } from "../session/project-backlog.js";
-import { planReviewLine } from "../tools/fusion/plan-review-record.js";
+import { planReviewPromptLine } from "../tools/fusion/plan-review-record.js";
 import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
 
 /** The backlog's text is written by models or by hand: framed as data wherever the director reads it (issue #111 review). */
@@ -29,7 +30,7 @@ const clip = (text: string, max: number): string => {
  * the milestones, the gate, and what to do next — including, while a
  * gate is open, not to delegate.
  */
-export function renderProjectDigest(project: ProjectState | undefined): string | null {
+export function renderProjectDigest(project: ProjectState | undefined, lessons: readonly ProjectLessonData[] = []): string | null {
   if (project === undefined) return null;
   const lines: string[] = [];
   if (project.cancelledAt !== undefined) {
@@ -87,7 +88,7 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       if (plan?.status === "draft" && plan.review?.sentBack === true) {
         // Issue #118: the plan reviewer sent the draft back; it is not at the person's gate yet.
         lines.push("next: revise the plan with project.plan to address the plan reviewer's notes; it reaches the person when the reviewer passes it or the rounds run out. Do not delegate.");
-        const notes = plan.review.results.filter((r) => r.verdict !== "pass").map(planReviewLine);
+        const notes = plan.review.results.filter((r) => r.verdict !== "pass").map(planReviewPromptLine);
         if (notes.length > 0) lines.push("plan reviewer's notes:", frameUntrustedText(notes.join("\n"), "the plan reviewer's answer (a model)"));
       } else lines.push("next: draft the plan with project.plan, then reply.");
       break;
@@ -112,6 +113,10 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       break;
     default:
       break;
+  }
+  const lessonBlock = projectLessonDataBlock(lessons);
+  if (lessonBlock !== null) {
+    lines.push(DIRECTOR_LESSONS_GUIDANCE, lessonBlock);
   }
   return lines.join("\n");
 }

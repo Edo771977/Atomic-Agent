@@ -1,3 +1,5 @@
+import { resolveProjectConstraint } from "../../config/project-constraint-match.js";
+import { readProjectRef } from "../../session/session-project-store.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
@@ -935,6 +937,10 @@ export function createRuntimeTurnService(
         if (deps.projectStore !== undefined && readFusionWorkerMeta(session.metadata) === null) {
           session = deps.projectStore.prepareTurn(session, projectGates);
         }
+        // A restricted project's lesson content can be paraphrased in later replies.
+        // Keep its transcript out of personal memory, including later turns.
+        const projectRef = readProjectRef(session);
+        const privateProject = projectRef !== null && resolveProjectConstraint(getConfig(), projectRef.folder) !== undefined;
         const toolFilter = withProjectToolVisibility(
           withAskUserVisibility(runOptions.toolFilter, showsQuestions),
           projectGates,
@@ -972,6 +978,7 @@ export function createRuntimeTurnService(
           ...(answerChannel !== undefined ? { answerChannel } : {}),
           ...buildLoopTurnBudget({
             ...runOptions,
+            ...(privateProject ? { memoryReadOnly: true } : {}),
             ...(toolFilter !== undefined ? { toolFilter } : {}),
           }),
           onStepCheckpoint: (state, step) =>

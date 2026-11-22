@@ -97,7 +97,7 @@ describe("plan reviewer at project.plan (issue #118)", () => {
     expect(update.holdForReview).toBeUndefined();
     expect(project.gate).toEqual({ kind: "plan" });
     expect(project.plan?.review).toMatchObject({ outcome: "reviewed", round: 1, sentBack: false });
-    expect(result.summary).toMatch(/plan review 1 by cloud:model-r: 8 pass/);
+    expect(result.summary).toMatch(/plan review 1 by cloud:model-r: 9 pass/);
     expect(result.summary).toMatch(/Now reply to the person/);
   });
 
@@ -192,7 +192,7 @@ describe("plan reviewer at the plan gate (issue #118)", () => {
   it("shows the per-dimension notes, offers approve over review, and refuses a plain approve", async () => {
     const project = await atGate();
     const view = projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] } });
-    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review 1 by cloud:model-r: 7 pass, 0 warn, 1 fail; open notes/));
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review 1 by cloud:model-r: 8 pass, 0 warn, 1 fail; open notes/));
     expect(view.hints).toContainEqual(expect.stringMatching(/^plan review: criteria-coverage: fail: No task check names approved criteria: c2/));
     expect(view.planReview).toMatchObject({ outcome: "reviewed", stale: false, round: 1, results: expect.arrayContaining([expect.objectContaining({ dimension: "criteria-coverage", verdict: "fail" })]) });
     expect(view.allowedVerdicts).toContain("approveOverReview");

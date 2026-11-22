@@ -339,6 +339,21 @@ function scanCheck(check: ContractCheck, taskId: string, root: string, platform:
   if (typeof check.path === "string" && pathLike(check.path, true)) addPath(check.path, taskId, root, platform, out, false, base, true);
 }
 
+/** Literal project-relative task files and check paths, without reading the workspace. */
+export function taskReferencePaths(files: readonly string[], checks: readonly ContractCheck[], root: string): string[] {
+  const platform = process.platform;
+  const paths = new Set<string>();
+  const out: Collector = {
+    add(kind, value, _task, details) {
+      if (kind === "file" && details?.reason === undefined) paths.add(value);
+    },
+    create() {},
+  };
+  for (const file of files) addPath(file, "", root, platform, out, false);
+  for (const check of checks) scanCheck(check, "", root, platform, out);
+  return [...paths];
+}
+
 /** Every reference the plan's tasks cite, and what they declare they create. Pure. */
 export function extractPlanReferences(rows: readonly AssignmentRow[], root: string, platform: NodeJS.Platform = process.platform): PlanReferenceExtraction {
   const byKey = new Map<string, PlanReference>();

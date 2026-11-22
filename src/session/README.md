@@ -120,4 +120,6 @@ Use the three level-two Markdown headings once each. Their English equivalents a
 
 Invalid files are skipped whole and reported. All files with the same parsed ID are skipped. Symbolic links in the lesson path and symbolic-link lesson entries are refused. An absent lesson directory gives an empty list. A directory over the entry limit gives one directory-level problem and an empty list.
 
-The Markdown is author content. Phase 1 always returns `approvedByPerson: false`, even for `status: active`. Approval belongs in the person's protected project decision record in a later phase. For now the reader supports local inspection and neither supplies prompts nor affects plan gates. It reads and writes no personal memory, including for folders with `projects.constraints`.
+The Markdown is author content. The person's choices are kept as `lessonCalls` in the folder's protected decision record under `<stateDir>/project-decisions/`. Approve or retire a lesson to bind the choice to the SHA-256 fingerprint of its current Markdown, including the front matter and section text. An edit makes the choice stale. A missing or invalid lesson also leaves a stale choice that can be cleared by reopening it. Copying the folder starts with fresh choices.
+
+A lesson enters prompts only when the file declares `status: active` and the current fingerprint has the person's approval. These lessons are project data, stored and read separately from personal memory. Incognito chats have no persisted lesson choices.

@@ -83,6 +83,7 @@ export interface ToolContext {
    * dispatch. Absent: the session has none.
    */
   project?: import("../session/session-project.js").ProjectState;
+  projectLessonSource?: import("../session/project-lessons.js").ProjectLessonSource;
 }
 
 export interface ToolDefinition {

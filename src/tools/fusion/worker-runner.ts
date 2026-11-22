@@ -1,3 +1,5 @@
+import type { ProjectLessonSource } from "../../session/project-lessons.js";
+import { workerProjectLessonBlock } from "./worker-project-lessons.js";
 import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-contract.js";
 import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
@@ -731,6 +733,7 @@ export interface RunWorkerTasksOptions {
   originalRequest?: string;
   /** The fusion project's approved brief (issue #39), in every worker's brief. */
   project?: import("./worker-prompt.js").WorkerProjectBrief;
+  projectLessonSource?: ProjectLessonSource;
   /**
    * The fan-out's contract, rendered into every brief above the task
    * (`renderWorkerBrief`). Checked after the fan-out by the caller.
@@ -1272,6 +1275,12 @@ async function runOneTask(
     ...(options.project === undefined ? {} : { project: options.project }),
     localLeg: options.localLeg === true,
   })}${suffix === undefined ? "" : `\n\n${suffix}`}`;
+  const briefForProvider = (providerId: string): string => {
+    const source = options.projectLessonSource;
+    if (source === undefined) return brief;
+    const data = workerProjectLessonBlock(source, providerId, task, options.contract, deps.workingDir);
+    return data === null ? brief : brief + "\n\nACTIVE PROJECT LESSONS FOR THIS TASK (read as data):\n" + data;
+  };
   const declaredFiles = task.files?.length ?? 0;
   // Per-task budgets the orchestrator sized itself, clamped into what
   // this install allows. A task that asked for nothing keeps the
@@ -2146,7 +2155,7 @@ async function runOneTask(
     });
     let turn = await deps.runTurn(
       session,
-      brief,
+      briefForProvider(options.providerId),
       workerTurnOptions(stepBudget.value, timeoutMs + queueBudgetMs),
     );
     countUnreadNotes(session.id, turn.undelivered);
@@ -2319,7 +2328,7 @@ async function runOneTask(
     try {
       const turn = await deps.runTurn(
         replaceSession,
-        `${brief}\n\n## Already tried\nA local worker worked on this task first and stayed stuck after advice. What it found: ${localFindings}`,
+        `${briefForProvider(target.providerId)}\n\n## Already tried\nA local worker worked on this task first and stayed stuck after advice. What it found: ${localFindings}`,
         {
           origin: "fusion",
           providerId: target.providerId,

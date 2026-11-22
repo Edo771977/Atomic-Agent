@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
-import { getConfig } from "../config/index.js";
-import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { getConfig, resolveStateDir } from "../config/index.js";
+import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
-import { readProjectLessons } from "../session/project-lessons.js";
+import { projectLessonStatus, readProjectLessons } from "../session/project-lessons.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
@@ -38,7 +38,7 @@ const PROJECTS_HELP = [
   "",
 ].join("\n");
 
-const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json]\n";
+const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json] [--approve <id> | --retire <id> | --reopen <id>]\n";
 
 const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
@@ -48,7 +48,8 @@ const PROJECT_HELP = [
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
-  "  lessons [folder] [--json]  List and validate project lessons (default: current folder)",
+  "  lessons [folder] [--json] [--approve <id> | --retire <id> | --reopen <id>]",
+  "      List and decide project lessons (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -299,16 +300,16 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
-  if (sub === "lessons") return lessonsCommand(args.slice(1), stdout, stderr);
-  if (sub === "backlog") {
-    return backlogCommand(args.slice(1), {
+  if (sub === "backlog" || sub === "lessons") {
+    const run = sub === "backlog" ? backlogCommand : lessonsCommand;
+    return run(args.slice(1), {
       stdout,
       stderr,
-      stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
+      stateDir: () => deps.stateDir?.() ?? (sub === "lessons" ? resolveStateDir() : getConfig().paths.stateDir),
       liveTurn: (folder, id) => {
         const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
         try {
-          return liveTurnOnProject(store, folder, id);
+          return sub === "lessons" ? store.liveProjectTurn(folder, id) : liveTurnOnProject(store, folder, id);
         } finally {
           if (deps.sessionStore === undefined) store.close();
         }
@@ -389,9 +390,11 @@ export function liveTurnOnProject(store: SessionStore, folder: string, id: strin
   return null;
 }
 
+type ProjectCommandIO = { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null };
+
 async function backlogCommand(
   args: string[],
-  io: { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null },
+  io: ProjectCommandIO,
 ): Promise<number> {
   const usage = () => {
     io.stderr("Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n");
@@ -474,28 +477,75 @@ async function backlogCommand(
   return 0;
 }
 
-function lessonsCommand(args: string[], stdout: (text: string) => void, stderr: (text: string) => void): number {
+function lessonsCommand(args: string[], io: ProjectCommandIO): number {
+  const { stdout, stderr } = io;
   if (args.includes("--help") || args.includes("-h")) {
-    stdout(LESSONS_USAGE + "List and validate the project's Markdown lessons. Defaults to the current folder.\n");
+    stdout(LESSONS_USAGE + "List and decide the project's Markdown lessons. Defaults to the current folder. Decide between turns.\n");
     return 0;
   }
-  const positional = args.filter((arg) => arg !== "--json");
-  if (positional.length > 1 || positional[0]?.startsWith("-")) {
+  const usage = () => {
     stderr(LESSONS_USAGE);
     return 2;
+  };
+  const refuse = (message: string) => {
+    stderr("project lessons: " + message + "\n");
+    return 1;
+  };
+  const actions = { "--approve": "approved", "--retire": "retired", "--reopen": null } as const;
+  let json = false;
+  let decision: { id: string; state: "approved" | "retired" | null } | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--json") json = true;
+    else if (arg === "--approve" || arg === "--retire" || arg === "--reopen") {
+      const id = args[++i];
+      if (decision !== undefined || id === undefined || !validProjectLessonId(id)) return usage();
+      decision = { id, state: actions[arg] };
+    } else if (arg.startsWith("-")) return usage();
+    else positional.push(arg);
+  }
+  if (positional.length > 1) return usage();
+
+  const folder = resolve(positional[0] ?? ".");
+  const records = stateDirProjectRecords(io.stateDir());
+  const found = records.read(folder);
+  if (!found.ok) return refuse(found.problem.message);
+  const record = found.record;
+  const { lessons, problems } = readProjectLessons(folder);
+  const calls = { ...record?.lessonCalls };
+  if (decision !== undefined) {
+    if (record === null) return refuse("Open the project in a regular chat before deciding a lesson.");
+    const live = io.liveTurn(folder, record.id);
+    if (live !== null) return refuse(`A turn is running on ${live}, a chat on this project. Wait for it to finish, then decide.`);
+    const { id, state } = decision;
+    const lesson = lessons.find((item) => item.id === id);
+    if (lesson === undefined && (state !== null || !Object.hasOwn(calls, id))) {
+      return refuse(`No valid lesson named ${id}.`);
+    }
+    const call = state === null ? null : { state, hash: lesson!.hash };
+    const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
+    if (!written.ok) return refuse(written.problem.message);
+    if (call === null) delete calls[id];
+    else calls[id] = call;
+    if (!json) stdout(`${id} is ${state ?? "reopened"} now.\n`);
   }
 
-  const { lessons, problems } = readProjectLessons(resolve(positional[0] ?? "."));
-  const rows = lessons.map(({ id, title, declaredStatus, approvedByPerson, always, touches }) => ({
-    id, title, declaredStatus, approvedByPerson, always, touches,
-  }));
-  if (args.includes("--json")) {
-    stdout(JSON.stringify({ lessons: rows, problems }, null, 2) + "\n");
+  const rows = lessons.map((lesson) => {
+    const { id, title, declaredStatus, always, touches } = lesson;
+    return { id, title, declaredStatus, always, touches, ...projectLessonStatus(lesson, calls[id]) };
+  });
+  const staleChoices = Object.entries(calls).flatMap(([id, { state }]) => {
+    const row = rows.find((row) => row.id === id);
+    return row !== undefined && !row.stale ? [] : [{ id, state, reason: row === undefined ? "missing-or-invalid" : "changed" }];
+  });
+  if (json) {
+    stdout(JSON.stringify({ lessons: rows, problems, ...(staleChoices.length === 0 ? {} : { staleChoices }) }, null, 2) + "\n");
   } else {
-    const lines = rows.map(({ id, title, declaredStatus, always, touches }) =>
-      id + "  " + title + " (declared: " + declaredStatus + ", not approved by the person, always: " +
-      String(always) + ", touches: " + JSON.stringify(touches) + ")",
+    const lines = rows.map(({ id, title, declaredStatus, effectiveStatus, personState, always, touches }) =>
+      `${id}  ${title} (${effectiveStatus}, declared: ${declaredStatus}, person: ${personState ?? "no current choice"}, always: ${always}, touches: ${JSON.stringify(touches)})`,
     );
+    lines.push(...staleChoices.map(({ id, state, reason }) => `Stale choice for ${id} (${state}): ${reason}.`));
     lines.push(...problems.map(({ file, reason }) => "Skipped " + JSON.stringify(file) + ": " + reason));
     stdout(lines.length === 0 ? "No project lessons found.\n" : lines.join("\n") + "\n");
   }

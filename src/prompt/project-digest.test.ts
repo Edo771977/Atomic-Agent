@@ -32,6 +32,12 @@ const plan: ProjectUpdate = {
 };
 
 describe("renderProjectDigest (issue #39)", () => {
+  it("frames always lessons as project data for the director", () => {
+    const project = decide(up(undefined, brief), "approve");
+    const lessons = [{ id: "storage", title: "Storage", always: true, sections: { triedAndRuledOut: "Use X", decided: "Use Y", watchOut: "" } }];
+    expect(renderProjectDigest(project, lessons)).toMatch(/project\.plan[\s\S]*EXTERNAL CONTENT[\s\S]*"always":true[\s\S]*Use X/);
+  });
+
   it("no project: nothing", () => {
     expect(renderProjectDigest(undefined)).toBeNull();
   });
@@ -79,8 +85,8 @@ describe("renderProjectDigest (issue #39)", () => {
 describe("renderProjectDigest and a plan held for the plan reviewer (issue #118)", () => {
   it("says to revise the plan, not to reply, and lists the reviewer's notes as data", () => {
     const approved = decide(up(undefined, brief), "approve");
-    const results = ["criteria-coverage", "task-completeness", "dependencies", "size", "verifiability", "scope", "numbers", "decisions"].map((dimension) => ({
-      dimension, verdict: dimension === "scope" ? "fail" as const : "pass" as const, detail: dimension === "scope" ? "drops the level editor" : "ok", taskIds: [],
+    const results = ["criteria-coverage", "task-completeness", "dependencies", "size", "verifiability", "scope", "numbers", "decisions", "lessons"].map((dimension) => ({
+      dimension, verdict: dimension === "scope" || dimension === "lessons" ? "fail" as const : "pass" as const, detail: dimension === "scope" ? "drops the level editor" : dimension === "lessons" ? "quotes previously active lesson text" : "ok", taskIds: [],
     }));
     const held = up(approved, { ...plan, planReview: { outcome: "reviewed", reviewer: "c:r", results: results as never, round: 1, sentBack: true, basis: "0123456789abcdef", costUsd: null }, holdForReview: true } as ProjectUpdate);
     const text = renderProjectDigest(held)!;
@@ -88,5 +94,7 @@ describe("renderProjectDigest and a plan held for the plan reviewer (issue #118)
     expect(text).not.toMatch(/next: draft the plan with project\.plan, then reply/);
     expect(text).toContain("plan review: scope: fail: drops the level editor");
     expect(text).toContain("EXTERNAL CONTENT");
+    expect(text).toContain("plan review: lessons: fail");
+    expect(text).not.toContain("quotes previously active lesson text");
   });
 });
