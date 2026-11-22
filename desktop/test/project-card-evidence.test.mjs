@@ -156,3 +156,26 @@ test('the director report is shown apart from the runtime\'s notes, with a warni
   const old = draw(view({summary: 'The board renders.'}));
   assert.deepEqual([texts(old, 'pc-report-note'), texts(old, 'pc-claim-warning')], [[], []]);
 });
+
+/* ---------------- issue #160: milestone kinds for non-code work ---------------- */
+
+test('a milestone line names its kind as the TUI card: Draft, Review and Final read as words, the others as they are', async () => {
+  const {readFileSync} = await import('node:fs');
+  const src = readFileSync(new URL('../../src/tui/project/project-card-lines.ts', import.meta.url), 'utf8');
+  const map = src.match(/const MILESTONE_KIND_LABEL[^=]*= \{([^}]*)\}/)[1];
+  assert.deepEqual(Object.fromEntries([...map.matchAll(/(\w+): "([^"]*)"/g)].map((x) => [x[1], x[2]])), C.PC_MILESTONE_KIND_LABEL);
+  const v = view({kind: 'draft', title: 'First draft'}, {});
+  v.milestones = v.milestones.concat([
+    {id: 'm3', title: 'Editor pass', kind: 'review', state: 'planned', runIds: [], updatedAt: 1, estCostUsd: null, estMs: null},
+    {id: 'm4', title: 'Final copy', kind: 'final', state: 'planned', runIds: [], updatedAt: 1, estCostUsd: null, estMs: null},
+  ]);
+  const tui = tuiLines(v);
+  const lines = draw(v).findAll((e) => /\bpc-milestone\b/.test(e.className)).map((e) => e._text);
+  assert.equal(lines.length, 4);
+  // The desktop line is the TUI's, then the milestone's estimate when it has one.
+  lines.forEach((l) => assert.ok(tui.some((t) => l === t || l.startsWith(t + ' · ')), l + '\n' + tui.join('\n')));
+  assert.match(lines[0], /^✓ First draft \(Draft\) — done/);
+  assert.match(lines[1], /^▸ Logic \(logic\) — approved$/);
+  assert.match(lines[2], /^· Editor pass \(Review\) — planned$/);
+  assert.match(lines[3], /^· Final copy \(Final\) — planned$/);
+});

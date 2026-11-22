@@ -45,6 +45,10 @@ const PC_PROBLEM_HEADLINE = 'This chat’s Fusion project could not be opened';
 const PC_PROBLEM_TODO = 'Fix or restore the Fusion project file (.atomic/project/project.json in the chat’s folder), or put the folder back, then open this chat again. Nothing is approved or run while it cannot be opened.';
 
 const PC_MARK = {planned: '·', approved: '▸', in_progress: '◐', done: '✓', failed: '✕', reviewed: '✔'};
+/* Issue #160: the kinds of non-code work read as words, as the TUI card's MILESTONE_KIND_LABEL
+   (src/tui/project/project-card-lines.ts; test/project-card-evidence.test.mjs keeps them equal).
+   Any other kind (base, ui, logic, polish, other) is shown as it is, as there. */
+const PC_MILESTONE_KIND_LABEL = {draft: 'Draft', review: 'Review', final: 'Final'};
 /* A criterion fact's mark (project-gate-text.ts FACT_MARK; the test keeps them equal). */
 const PC_FACT_MARK = {passed: '✓', failed: '✕', unverified: '?'};
 
@@ -714,6 +718,7 @@ function pcModel(state, env) {
   const gateId = gate === 'milestone' ? view.gate.id : null;
   const milestones = gate === 'brief' ? [] : pcList(view.milestones).map((m) => ({ m, facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object') })).map(({m, facts}) => ({
     id: pcStr(m.id), title: pcStr(m.title), state: pcStr(m.state), mark: PC_MARK[m.state] || '·',
+    kind: Object.prototype.hasOwnProperty.call(PC_MILESTONE_KIND_LABEL, m.kind) ? PC_MILESTONE_KIND_LABEL[m.kind] : pcStr(m.kind),
     current: m.id === gateId,
     estimate: pcNum(m.estCostUsd) === null && pcNum(m.estMs) === null ? '' : pcUsd(pcNum(m.estCostUsd)) + ' · ' + pcDuration(pcNum(m.estMs)),
     // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
@@ -1013,7 +1018,7 @@ function pcDraw(doc, host, model, on) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
     for (const m of model.milestones) {
       const li = pcEl(doc, 'li', 'pc-milestone is-' + m.state.replace(/[^a-z_]/g, '') + (m.current ? ' is-current' : ''),
-        m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+        m.mark + ' ' + m.title + (m.kind ? ' (' + m.kind + ')' : '') + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
       if (m.evidence) {
         // Issue #119: the receipts summary, then where to verify it in full.
         li.appendChild(pcEl(doc, 'p', 'pc-evidence is-' + m.evidence.tone, m.evidence.line));
@@ -1334,7 +1339,7 @@ function createProjectCard(opts) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
+    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_MILESTONE_KIND_LABEL, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
     pcBacklogModel, pcBacklogCall, pcBacklogOutcome, pcBacklogOnly, pcCompletion,

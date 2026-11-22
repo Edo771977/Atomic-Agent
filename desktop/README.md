@@ -58,7 +58,8 @@ the warning when it was drafted after outside content), the plan rows
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
 one stands), the view's `hints` (`ℹ` lines, the TUI card's prefix), the
-milestones, and under every milestone that has them (the card lists all
+milestones (each with its kind as the TUI card names it: Draft, Review and
+Final for non-code work, issue #160; other kinds as they are), and under every milestone that has them (the card lists all
 milestones, as the TUI's full `/plan` view does; its compact card shows only
 the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` / `~` lines in the
 core's `criterionFactLine` words, each ending with its basis (measured,
