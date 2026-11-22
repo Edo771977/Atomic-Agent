@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
-import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { allowedProjectVerdicts, applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import { freshFromContent, resolveProject, type ProjectRecord } from "../../session/project-decisions.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
@@ -211,7 +211,10 @@ describe("plan reviewer at the plan gate (issue #118)", () => {
     const project = await atGate({ ...uncoveredPlan, tasks: [{ ...uncoveredPlan.tasks[0]!, checks: [{ cmd: "echo ok", criteria: ["c1"] }] }] });
     expect(project.plan?.checkResults?.some((r) => r.dimension === "check-lint" && r.verdict === "fail")).toBe(true);
     const over = decide(project, "approveOverReview", "fine");
-    expect(!over.ok && over.error.code).toBe("review-open");
+    expect(!over.ok && over.error.code).toBe("verdict-not-allowed");
+    // Not offered: it could only be refused while the plan check fails.
+    expect(allowedProjectVerdicts(project.gate, project)).not.toContain("approveOverReview");
+    expect(!decide(project, "approve").ok).toBe(true);
   });
 
   it("a review the rows no longer match is shown stale and does not block", async () => {

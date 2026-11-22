@@ -781,7 +781,8 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
       return ["approve", "edit", "cancel"];
     case "plan":
       // Issue #118: the plan reviewer's open fails are the person's to approve over.
-      return project !== undefined && openPlanReviewBlocks(project).length > 0
+      // Not while a deterministic plan check fails: that is never overridden, so the button could only be refused.
+      return project !== undefined && openPlanReviewBlocks(project).length > 0 && !planReviewFactsOf(project).planChecks.some((r) => r.verdict === "fail")
         ? ["approve", "edit", "cheaper", "quality", "approveOverReview", "cancel"]
         : ["approve", "edit", "cheaper", "quality", "cancel"];
     case "milestone": {
