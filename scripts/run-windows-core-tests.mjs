@@ -19,6 +19,7 @@ export const criticalFiles = [
   'src/tools/fusion/plan-checks.test.ts',
   'src/tools/fusion/plan-references.test.ts',
   'src/tools/fusion/plan-references-gate.test.ts',
+  'src/tools/fusion/plan-reviewer.test.ts',
   'src/tools/verify/run-verify.test.ts',
   'src/tools/fusion/branch-merge.test.ts',
   'src/tools/fusion/contract.test.ts',
