@@ -27,6 +27,7 @@ import {
   type ProjectUpdate,
 } from "../../session/session-project.js";
 import { openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
+import { backlogDataBlock } from "../../prompt/project-digest.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
@@ -532,9 +533,15 @@ function backlogLines(project: ProjectState | undefined): string[] {
   if (project === undefined) return [];
   const promoted = promotedForPlan(project);
   const seeds = openSeeds(project);
+  const block = backlogDataBlock([
+    ...promoted.map((b) => `promoted: ${b.id} ${b.title}`),
+    ...seeds.map((b) => `seed: ${b.id} ${b.title} (when: ${b.condition})`),
+  ]);
+  if (block === null) return [];
   return [
-    ...(promoted.length === 0 ? [] : [`Promoted by the person, for this plan: ${promoted.map((b) => `${b.id} ${b.title}`).join("; ")}. Take each in as a milestone or task; they see it at the gate.`]),
-    ...(seeds.length === 0 ? [] : [`Open seeds, shown to the person at the gate: ${seeds.map((b) => `${b.id} ${b.title} (when: ${b.condition})`).join("; ")}. Tell them which conditions look met; only they promote one.`]),
+    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in as a milestone or task; they see it at the gate."]),
+    ...(seeds.length === 0 ? [] : ["Open seeds are shown to the person at the gate: tell them which conditions look met; only they promote one."]),
+    block,
   ];
 }
 
