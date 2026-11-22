@@ -1,10 +1,10 @@
-import { readProjectRef } from "../session/session-project-store.js";
 export type { ApprovalBarrierReport } from "./step/step-batch-policy.js";
 export { approvalBarrierSegments, emptyApprovalBarrierReport, formatApprovalBarrierNotice } from "./step/step-batch-policy.js";
 import { chatLinesOf, groundingTextsOf } from "../memory/name-grounding.js";
 import { restrictedProjectLessonsExposed } from "../session/project-lesson-exposure.js";
 import { memoryReadOnlyToolFilter } from "./tool-resource-class.js";
 import { isIncognitoSession } from "../session/incognito.js";
+import { readProjectRef } from "../session/session-project-store.js";
 import { createStepBatchPolicy, executeCallsInOrder, emptyApprovalBarrierReport, executeWithApprovalBarriers, formatApprovalBarrierNotice } from "./step/step-batch-policy.js";
 import { parseStepBatch, finishStepBatchRepair } from "./step/step-batch-parsing.js";
 import { prepareStepDispatch } from "./step/step-evidence.js";
