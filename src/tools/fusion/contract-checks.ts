@@ -681,7 +681,7 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
-      ...((["ui", "files", "research"].includes(String(check.kind ?? check.type))) && result.artifactStatus !== undefined ? { artifactStatus: result.artifactStatus } : {}),
+      ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
       ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),

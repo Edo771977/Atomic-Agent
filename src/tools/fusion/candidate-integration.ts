@@ -588,7 +588,7 @@ export async function createCandidateIntegration(
           // An uncheckable artifact has its own verdict.
           // Retain the results of the other checks that actually ran.
           const artifactUnavailable = result.results.some((row, index) =>
-            row.artifactStatus === "uncheckable" && ["ui", "files", "research"].includes(String(specs[index]?.kind ?? specs[index]?.type)));
+            row.artifactStatus === "uncheckable" && ["ui", "files", "research", "document", "spreadsheet"].includes(String(specs[index]?.kind ?? specs[index]?.type)));
           return result.ok || artifactUnavailable
             ? result : { ok: false, results: result.results.map(row => ({ ...row, ok: false })) };
         };
