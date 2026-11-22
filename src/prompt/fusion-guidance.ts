@@ -74,7 +74,7 @@ function fusionGuidanceLines(sizing: string, sees: string): string {
     // Adapted from Leonxlnx/unlazy (MIT), "Author gates that can fail" and
     // "Lint the ledger before working it":
     // https://github.com/Leonxlnx/unlazy/blob/16671491f6679ad9378f52604d3bc2415b4120c7/references/gates.md#author-gates-that-can-fail
-    'Review checks before work. Observe the actual result. Measure numbers from source. Print and assert a success-only marker after validation. For absence, a known positive command `negative` must fail. For "Tests: 1 passed", combine `exit 0`, `stdout contains "passed"`, `stdout not contains "Tests: 0 passed"`.',
+    'Review checks before work. Observe the actual result. Measure numbers from source. Print and assert a success-only marker after validation. For absence, `negative` runs the same command on a known positive that must fail. For "Tests: 1 passed", pair `exit 0` and `stdout contains "passed"` with `stdout not contains "Tests: 0 passed"`.',
     "Re-delegate `failed`, `cancelled`, `needs_orchestrator` or weak work with a corrected brief. `needs_input`: answer it, re-send.",
     "Hard parts, or one that failed twice, go to `model: \"orchestrator\"` (a worker turn on your model); keep the bulk on workers.",
     // F43: the status table now says `replaced the user's file sales.csv

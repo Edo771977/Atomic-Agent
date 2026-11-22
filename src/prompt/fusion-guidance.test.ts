@@ -148,7 +148,7 @@ describe("the ### fusion prefix section", () => {
     expect(guidance).toMatch(/observe the actual result/i);
     expect(guidance).toMatch(/measure numbers from source/i);
     expect(guidance).toMatch(/print and assert a success-only marker/i);
-    expect(guidance).toMatch(/absence.*known positive.*`negative`.*must fail/i);
+    expect(guidance).toMatch(/absence.*`negative`.*same command.*known positive.*must fail/i);
     expect(guidance).toContain("Review checks before work");
     const checks = [...guidance.matchAll(/`(exit 0|stdout (?:not )?contains "[^"]+")`/g)].map((match) => match[1]!);
     expect(checks).toEqual(["exit 0", 'stdout contains "passed"', 'stdout not contains "Tests: 0 passed"']);
