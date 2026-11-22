@@ -24,7 +24,7 @@ export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefi
   const { kind, model, checks } = raw as Record<string, unknown>;
   if (kind === "person") return { kind };
   if (kind === "vision" && typeof model === "string") {
-    const ref = model.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "").trim().slice(0, 200);
+    const ref = model.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "").slice(0, 200).replace(/[\uD800-\uDBFF]$/u, "").trim();
     return ref.length === 0 ? undefined : { kind, model: ref };
   }
   if (kind === "check" && Array.isArray(checks)) {

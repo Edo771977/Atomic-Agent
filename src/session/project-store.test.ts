@@ -23,6 +23,13 @@ import {
 } from "./project-store.js";
 import { applyProjectDecision, applyProjectUpdate, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
 
+it("normalizes a clipped vision model reference idempotently without broken surrogate pairs", async () => {
+  const { readCriterionBasis } = await import("./project-criterion-basis.js");
+  const basis = readCriterionBasis({ kind: "vision", model: `${"x".repeat(198)} 😀extra` });
+  expect(basis).toEqual({ kind: "vision", model: "x".repeat(198) });
+  expect(readCriterionBasis(basis)).toEqual(basis);
+});
+
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "session-with-embedded-project-109.json"), "utf8")) as {
   session: { project: unknown };
 };
