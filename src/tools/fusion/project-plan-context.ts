@@ -66,6 +66,17 @@ export function projectPlanContextFrom(input: ProjectPlanContextInput): ProjectP
   const ok = (m: TeamMember): boolean => input.allows(m.providerId) && (input.team?.reachable(m) ?? true);
   const reviewers = input.team === undefined ? [] : teamMembers(input.team.team, "reviewers")
     .filter((m) => ok(m) && !(input.restricted === true && input.cliToolsStayOn?.(m.providerId) === true));
+  const reviewOn = reviewers.length > 0 && routing?.reviewOff !== true &&
+    (routing?.reviewChosen === true || reviewEnabled(input.team?.team, input.judge));
+  const reviewOffReason = reviewOn
+    ? undefined
+    : reviewers.length === 0
+      ? "no team reviewer this folder can use"
+      : routing?.reviewOff === true
+        ? "this chat chose no review"
+        : input.team?.team.review === "off"
+          ? "team.review is off"
+          : "no review is enabled for this team";
   return {
     workers,
     reviewers,
@@ -74,8 +85,8 @@ export function projectPlanContextFrom(input: ProjectPlanContextInput): ProjectP
     // The chat's "none" (issue #71) turns the rows' review off, its chosen
     // reviewer turns it on; the person can still give a row a reviewer
     // from `reviewers` at the gate.
-    reviewOn: reviewers.length > 0 && routing?.reviewOff !== true &&
-      (routing?.reviewChosen === true || reviewEnabled(input.team?.team, input.judge)),
+    reviewOn,
+    ...(reviewOffReason === undefined ? {} : { reviewOffReason }),
     records: input.records,
     pricing: (member) => input.pricing(member.providerId, member.model),
     tokensPerSecond: (member) => (input.isLocal(member.providerId) ? input.tokensPerSecond() : null),

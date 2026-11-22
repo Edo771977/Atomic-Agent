@@ -156,6 +156,18 @@ describe("project resume line", () => {
     expect(out).toContain("d3 Formal tone (deferred)");
     expect(out).toContain(" d defer d2 ");
   });
+
+  it("lists the promoted backlog items at the plan gate with the tasks citing each (issue #146)", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { backlog: { open: 0, seeds: [], stale: [], items: [], promoted: [
+      { id: "b1", title: "Export PDF", citedBy: ["t2"] },
+      { id: "b2", title: "Sounds", citedBy: [] },
+      { id: "b3", title: "Dark mode", deferred: true, citedBy: [] },
+    ] } });
+    const out = text(card(view));
+    expect(out).toContain("promoted b1 Export PDF (cited by t2)");
+    expect(out).toContain("promoted b2 Sounds (cited by no task)");
+    expect(out).toContain("promoted b3 Dark mode (deferred)");
+  });
 });
 
 describe("the project card's backlog (issue #111)", () => {
