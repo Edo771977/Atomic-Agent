@@ -199,7 +199,14 @@ export function formatProjectGateText(view: ProjectGateView): string {
       for (const note of milestone?.reportNotes ?? []) out.push(`  ${note}`);
       for (const warning of milestone?.directorReportWarnings ?? []) out.push(`  ${directorReportWarningLine(warning)}`);
       const facts = milestone?.criteriaFacts ?? [];
-      if (facts.length > 0) out.push(`  ${criterionBasisSummaryLine(milestone?.criteriaBasisSummary ?? summarizeCriterionBases(facts))}`, ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
+      if (facts.length > 0) {
+        const summary = milestone?.criteriaBasisSummary ?? summarizeCriterionBases(facts);
+        out.push(
+          "  Criteria:",
+          `    ${criterionBasisSummaryLine(summary)}`,
+          ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`),
+        );
+      }
       for (const a of milestone?.attachments ?? []) out.push(`  Picture: ${attachmentLabel(a)} — ${a.path}`);
     }
   }
