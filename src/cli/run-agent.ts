@@ -120,6 +120,9 @@ const HELP =
     "                       --approve or --auto-approve-project.",
     "  --defer-lesson <id>[,<id>]       Defer binding lessons for this plan",
     "  --activate-lesson <id>[,<id>]    Require binding lessons again",
+    "                       Needs --session at the plan gate. Prints the new plan version",
+    "                       and exits 3 for separate approval. Cannot be combined with",
+    "                       --approve or --auto-approve-project.",
     "  --defer-backlog <id>[,<id>]       Make promoted backlog items optional in the plan",
     "  --activate-backlog <id>[,<id>]    Require coverage of promoted backlog items again",
     "                       Needs --session at the plan gate. Edit first, then approve",
@@ -239,7 +242,13 @@ export function parseRunArgs(
       }
       case "--defer-lesson":
       case "--activate-lesson": {
-        const ids = parsePlanTaskLessons(args[++i]?.split(",").map((id) => id.trim()));
+        const values = args[++i]?.split(",").map((id) => id.trim());
+        const seen = new Set<string>();
+        for (const id of values ?? []) {
+          if (seen.has(id)) return { error: `${flag}: duplicate lesson id ${id}` };
+          seen.add(id);
+        }
+        const ids = parsePlanTaskLessons(values);
         if (ids === null) return { error: `${flag} expects a comma-separated list of lesson ids` };
         const status = flag === "--defer-lesson" ? "deferred" : "active";
         for (const id of ids) {
