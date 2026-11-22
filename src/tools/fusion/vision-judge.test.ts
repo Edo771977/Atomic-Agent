@@ -90,6 +90,17 @@ describe("judgeTaskVision (issue #40)", () => {
   ];
   const base = { taskId: "ui", criteria, contract, outcomes, workingDir: dir, pinsModel: () => true, signal: new AbortController().signal, admit: () => undefined, price: () => 0.002 };
 
+  it("does not borrow a model for an unanswered visual check", async () => {
+    const visualContract = { checks: [contract.checks![1]!, contract.checks![1]!] };
+    const named = taskCriteria("ui", visualContract, new Map());
+    const describe = vi.fn<VisionDescribe>()
+      .mockResolvedValueOnce({ text: '[{"criterion":"c2","met":true,"why":"looks right"}]' })
+      .mockResolvedValueOnce({ text: "unreadable" });
+    const out = await judgeTaskVision({ ...base, criteria: named, contract: visualContract, outcomes: [outcomes[1], outcomes[1]], judge: B, describe });
+    expect(out.judgements.get("c2")?.state).toBe("unverified");
+    expect(out.judgements.get("c2")?.model).toBeUndefined();
+  });
+
   it("asks the picked judge on its own model with the screenshots, and prices the call", async () => {
     const describe = vi.fn<VisionDescribe>(async () => ({ text: '[{"criterion":"c2","met":true,"why":"an 8x8 board"}]', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } }));
     const out = await judgeTaskVision({ ...base, judge: B, describe });

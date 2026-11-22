@@ -53,6 +53,20 @@ describe("criteria facts (issue #40)", () => {
     expect(buildAcceptanceChecklist(task, contract).some((i) => i.kind === "criterion")).toBe(false);
   });
 
+  it("attributes non-passed results only to the decisive evidence", () => {
+    const criteria = taskCriteria("ui", contract, CRITERIA);
+    const visual = green({ judge: "vision", screenshots: [shot] });
+    const vision = new Map([["c1", { state: "passed" as const, why: "ok", model: "cloud:vision" }]]);
+    expect(criteriaFactsFor(criteria, contract, [green(), visual], undefined)[0]).toMatchObject({ state: "unverified" });
+    expect(criteriaFactsFor(criteria, contract, [green(), visual], undefined)[0]?.basis).toBeUndefined();
+    expect(criteriaFactsFor(criteria, contract, [green({ ok: false, detail: "exit 1" }), visual], vision)[0]).toMatchObject({
+      state: "failed", why: "check 1 failed: exit 1", basis: { kind: "check", checks: [{ index: 1 }] },
+    });
+    const [unreliable] = criteriaFactsFor(criteria, contract, [green({ unreliable: "negative passed" }), visual], vision);
+    expect(unreliable?.state).toBe("unverified");
+    expect(unreliable?.basis).toBeUndefined();
+  });
+
   it("records a run check and omits the basis when no check ran", () => {
     const criteria = [{ id: "c1", text: "", checkIndexes: [0] }];
     const [passed] = criteriaFactsFor(criteria, contract, [green({ run: { command: "node cli.js", exitCode: 0, output: "result", tests: [] } })], undefined);

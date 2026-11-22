@@ -207,13 +207,9 @@ export async function judgeTaskVision(input: {
   // A criterion named by several visual checks takes the worst verdict.
   const note = (id: string, verdict: VisionCriterionVerdict): void => {
     const before = judgements.get(id);
-    if (before === undefined) {
+    if (before === undefined || VERDICT_RANK[verdict.state] > VERDICT_RANK[before.state]) {
       judgements.set(id, verdict);
-      return;
     }
-    const worst = VERDICT_RANK[verdict.state] > VERDICT_RANK[before.state] ? verdict : before;
-    const model = worst.model ?? before.model ?? verdict.model;
-    judgements.set(id, model === undefined ? worst : { ...worst, model });
   };
   const allJudged = [...new Map(calls.flatMap((c) => c.criteria).map((c) => [c.id, c])).values()];
   if (input.judge === null || input.describe === undefined) {

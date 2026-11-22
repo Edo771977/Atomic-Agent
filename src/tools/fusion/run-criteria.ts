@@ -373,6 +373,10 @@ export function readMilestoneEvidence(input: {
         const winner = RANK[fact.state] > RANK[known.state] ||
           (fact.state === "passed" && known.state === "passed" && known.reservation !== undefined && fact.reservation === undefined)
           ? fact : known;
+        if (winner.state !== "passed") {
+          inRun.set(fact.id, winner);
+          continue;
+        }
         const other = winner === fact ? known : fact;
         const { basis: winningBasis, ...result } = winner;
         const basis = winningBasis === undefined || other.basis === undefined

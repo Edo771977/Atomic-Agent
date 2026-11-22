@@ -102,10 +102,12 @@ export function criteriaFactsFor(
       if (reason === undefined) clean = true;
       else held.set(index, reason);
     };
-    const note = (next: CriterionFactState, line: string): void => {
+    let decisiveBasis: ProjectCriterionBasis | undefined;
+    const note = (next: CriterionFactState, line: string, source?: ProjectCriterionBasis): void => {
       if (RANK[next] > RANK[state]) {
         state = next;
         why = line;
+        decisiveBasis = source;
       }
     };
     let basis: ProjectCriterionBasis | undefined;
@@ -123,12 +125,12 @@ export function criteriaFactsFor(
         note("unverified", `${label} uncheckable: ${outcome.detail}`);
         continue;
       }
-      if (outcome.ok || !checkDidNotRun(outcome.detail)) {
-        const output = outcome.run?.output ?? outcome.output;
-        addBasis({ kind: "check", checks: [{ index: index + 1, ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] });
-      }
+      const output = outcome.run?.output ?? outcome.output;
+      const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
+        ? { kind: "check", checks: [{ index: index + 1, ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
+        : undefined;
       if (!outcome.ok) {
-        note("failed", `${label} failed: ${outcome.detail}`);
+        note("failed", `${label} failed: ${outcome.detail}`, measured);
         continue;
       }
       // Issue #110: green on the input it must fail on too, so its green proves nothing.
@@ -136,6 +138,7 @@ export function criteriaFactsFor(
         note("unverified", `${label} is unreliable: ${outcome.unreliable}`);
         continue;
       }
+      if (measured !== undefined) addBasis(measured);
       if (contract?.checks?.[index]?.judge !== "vision") {
         settle(index, outcome);
         continue;
@@ -153,11 +156,15 @@ export function criteriaFactsFor(
         note("unverified", `${label} is visual and has no vision judgement`);
         continue;
       }
-      if (judged.model !== undefined) addBasis({ kind: "vision", model: judged.model });
-      if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
-      else settle(index, outcome);
+      const visual: ProjectCriterionBasis | undefined = judged.model === undefined ? undefined : { kind: "vision", model: judged.model };
+      if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`, visual);
+      else {
+        if (visual !== undefined) addBasis(visual);
+        settle(index, outcome);
+      }
     }
-    const fact = { id: criterion.id, state, why, ...(basis === undefined ? {} : { basis }) };
+    const source = (state as CriterionFactState) === "passed" ? basis : decisiveBasis;
+    const fact = { id: criterion.id, state, why, ...(source === undefined ? {} : { basis: source }) };
     if (state !== "passed" || clean) return fact;
     const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
     return reservation.length === 0 ? fact : { ...fact, reservation };
