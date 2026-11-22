@@ -339,7 +339,7 @@ export function ruleMatches(
   if (
     rule.category !== undefined &&
     rule.category !== request.category &&
-    !(tightens && rule.category === "shell" && request.category === "shell_dangerous") &&
+    !(tightens && rule.category === "shell" && (request.category === "shell_dangerous" || request.category === "verify_ui_detector")) &&
     // A deny or ask on `shell` stands for a local page probe too: it was
     // `shell` before it had its own category.
     !(rule.decision !== "allow" && rule.category === "shell" && request.category === "verify_page_local") &&

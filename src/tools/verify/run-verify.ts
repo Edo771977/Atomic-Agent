@@ -23,7 +23,7 @@ import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-c
 import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
 import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
 import { OUTPUT_TAIL_CHARS } from "./spawn-verify-process.js";
-import { runImpeccableCheck } from "./impeccable-check.js";
+import { APPROVED_IMPECCABLE, runImpeccableCheck, type ApprovedImpeccable } from "./impeccable-check.js";
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
@@ -131,7 +131,7 @@ function finish(
   return { ...withoutSummary, summary: renderVerifyRunSummary({ ...withoutSummary, summary: "" }) };
 }
 
-async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number): Promise<VerifyRunResult> {
+async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
@@ -139,7 +139,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
-  const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, ctx.workingDir, ctx.signal) : undefined;
+  const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
   if (ui !== undefined || isArtifactKind(args.kind)) {
     const out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal) : ui!;
     const ok = out.status === "pass";
@@ -244,6 +244,7 @@ export async function runVerify(
 ): Promise<VerifyRunResult> {
   const started = Date.now();
   const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
+  const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
     finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode === "workspace-unavailable" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
@@ -273,7 +274,7 @@ export async function runVerify(
     } else {
       const completeIntegrity = await ctx.inputIntegrity?.begin(workspace.dir, ctx.signal ?? new AbortController().signal);
       const executionArgs = rebaseVerifyWorkspaceValue(args, ctx.workingDir, workspace.dir);
-      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started);
+      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector);
       executionResult = result;
       await completeIntegrity?.();
       // Executors may settle normally after an abort (a page can skip

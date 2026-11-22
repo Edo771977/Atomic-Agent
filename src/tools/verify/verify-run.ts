@@ -88,9 +88,10 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       // model can widen it with `cwd`.
       const copyNote = copyRoot.root === ctx.workingDir ? undefined : `copied ${copyRoot.root} only; pass cwd to widen`;
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
+      let approvedArgs: Record<string, unknown>;
       try {
         const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
-        args = parseVerifyRunArgs(approved[0]!);
+        approvedArgs = approved[0]!;
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard
         // policy refusals remain ordinary tool results and never reach IO.
@@ -98,7 +99,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
         const message = maskVerificationSecrets(error instanceof Error ? error.message : String(error), knownSecrets);
         return { tool: VERIFY_RUN_TOOL, status: "error", summary: message, details: { error: message, description: maskVerificationSecrets(description, knownSecrets), ...(error instanceof VerifyGuardRefusal ? { guardVerdict: "block", guardRule: error.guardRule, guardReason: maskVerificationSecrets(error.guardReason, knownSecrets) } : {}) }, truncated: false };
       }
-      const result = await runVerify(args, {
+      const result = await runVerify(approvedArgs, {
         workingDir: ctx.workingDir,
         config: options.config,
         signal: ctx.signal,

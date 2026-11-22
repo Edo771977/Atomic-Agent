@@ -6,6 +6,8 @@ import { buildDirectInvocation, buildSubshellInvocation } from "../../sandbox/sh
 import type { ArtifactOutcome } from "./artifact-process.js";
 import { readArtifactSnapshot } from "./artifact-snapshot.js";
 import { spawnVerifyProcess } from "./spawn-verify-process.js";
+import { guardVerifyCommand } from "./verify-run-guard.js";
+import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { VerifyRunArgs } from "./verify-run-args.js";
 
 // Accessibility and visibly broken assets block delivery. Other detector rules
@@ -20,24 +22,56 @@ interface ImpeccableOutcome extends ArtifactOutcome {
   suppressions?: readonly string[];
 }
 
-async function findImpeccable(project: string, signal?: AbortSignal): Promise<string | undefined> {
+export function impeccableArgs(file: string): string[] {
+  return ["detect", "--json", "--no-config", file];
+}
+
+export function isImpeccableMarkup(path: string): boolean {
+  return SOURCE_EXTENSIONS.has(extname(path).toLowerCase());
+}
+
+export const APPROVED_IMPECCABLE = Symbol("approved impeccable executable");
+
+export interface ApprovedImpeccable {
+  readonly candidate: string;
+  readonly file: string;
+  readonly identity: string;
+  readonly path?: string;
+}
+
+async function fileIdentity(file: string): Promise<string> {
+  const entry = await stat(file, { bigint: true });
+  if (!entry.isFile()) throw new Error("impeccable executable is not a regular file");
+  return [entry.dev, entry.ino, entry.mode, entry.size, entry.mtimeNs, entry.ctimeNs].join(":");
+}
+
+export async function resolveImpeccable(project: string, cwd: string, signal?: AbortSignal): Promise<ApprovedImpeccable | undefined> {
   const path = process.env.PATH ?? "";
   const names = process.platform === "win32" ? ["impeccable.exe", "impeccable.cmd"] : ["impeccable"];
-  const dirs = [resolve(project, "node_modules", ".bin"), ...path.split(delimiter).filter(dir => isAbsolute(dir))];
+  const dirs = new Set([resolve(cwd, "node_modules", ".bin"), resolve(project, "node_modules", ".bin"), ...path.split(delimiter).filter(dir => isAbsolute(dir))]);
   for (const dir of dirs) {
     for (const name of names) {
       signal?.throwIfAborted();
       const candidate = join(dir, name);
       try {
-        if (!(await stat(candidate)).isFile()) continue;
-        await access(candidate, constants.X_OK);
-        return candidate;
+        const file = await realpath(candidate);
+        await access(file, constants.X_OK);
+        return { candidate, file, identity: await fileIdentity(file) };
       } catch {
         // Search the next installed location.
       }
     }
   }
   return undefined;
+}
+
+async function assertImpeccableIdentity(approved: ApprovedImpeccable): Promise<void> {
+  try {
+    if (await realpath(approved.candidate) === approved.file && await fileIdentity(approved.file) === approved.identity) return;
+  } catch {
+    // Missing or unreadable after approval is also a change.
+  }
+  throw new Error("impeccable executable changed after approval");
 }
 
 function parseReport(text: string, workspace: string, snapshot: string, source: string) {
@@ -83,7 +117,7 @@ function suppressionLines(source: string, bytes: Buffer): string[] {
 }
 
 export async function runImpeccableCheck(
-  args: VerifyRunArgs, root: string, cwd: string, project: string, signal?: AbortSignal,
+  args: VerifyRunArgs, root: string, cwd: string, approved: ApprovedImpeccable | undefined, policy?: ShellGuardPolicy, signal?: AbortSignal,
 ): Promise<ImpeccableOutcome> {
   const timeoutMs = Math.max(1, Math.min(15_000, Math.floor(args.timeoutMs)));
   const deadline = performance.now() + timeoutMs;
@@ -102,22 +136,27 @@ export async function runImpeccableCheck(
   try {
     const source = relative(root, resolve(cwd, args.path!));
     const target = resolve(cwd, args.path!);
-    const extension = extname(source).toLowerCase();
-    if (!SOURCE_EXTENSIONS.has(extension)) {
+    if (!isImpeccableMarkup(source)) {
       return complete("uncheckable", "impeccable scans markup: specify the file that uses this CSS or script");
     }
-    const executable = await findImpeccable(project, signal);
-    if (executable === undefined) return complete("uncheckable", "impeccable is not installed");
+    if (approved === undefined) return complete("uncheckable", "impeccable is not installed");
+    const executable = approved.file;
     const bytes = await readArtifactSnapshot(root, relative(root, cwd), args.path!);
     suppressions = suppressionLines(source, bytes);
     const scanCwd = await realpath(cwd);
     const scanTarget = await realpath(target);
 
     const run = async (argv: string[]) => {
+      await assertImpeccableIdentity(approved);
+      const verdict = guardVerifyCommand(executable, argv, scanCwd, policy, false);
+      if (verdict.action === "block") throw new Error(`impeccable blocked by shell guard: ${verdict.rule} - ${verdict.reason}`);
       signal?.throwIfAborted();
       const remaining = deadline - performance.now();
       if (remaining <= 0) return undefined;
       const batch = process.platform === "win32" && executable.endsWith(".cmd");
+      if (batch && /[%!^&|<>()\r\n]/.test(scanTarget)) {
+        throw new Error("impeccable cannot pass this markup path safely to a Windows command shim");
+      }
       const invocation = batch
         ? buildSubshellInvocation(`"%ATOMIC_IMPECCABLE_EXECUTABLE%" ${argv[0] === "detect" ? 'detect --json --no-config "%ATOMIC_IMPECCABLE_TARGET%"' : "--version"}`)
         : buildDirectInvocation(executable, argv);
@@ -131,6 +170,7 @@ export async function runImpeccableCheck(
           // engine. Give that fallback an unsupported URL scheme.
           IMPECCABLE_DOWNLOAD_BASE: "atomic-offline:",
           IMPECCABLE_BIN: "",
+          ...(approved.path === undefined ? {} : { PATH: approved.path }),
           DO_NOT_TRACK: "1",
           IMPECCABLE_SAMPLE_CACHE: join(root, ".impeccable-sample-cache"),
           npm_config_offline: "true",
@@ -150,7 +190,7 @@ export async function runImpeccableCheck(
     }
     version = reportedVersion;
 
-    const scan = await run(["detect", "--json", "--no-config", scanTarget]);
+    const scan = await run(impeccableArgs(scanTarget));
     if (scan === undefined || scan.timedOut) return timeout();
     if (scan.exitCode === 127 || scan.exitCode === 9009) return complete("uncheckable", "impeccable is not installed");
     if (scan.exitCode === 1) return complete("uncheckable", "impeccable could not complete the scan (exit 1)");

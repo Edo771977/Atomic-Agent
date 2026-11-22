@@ -2,7 +2,8 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { runVerify } from "./run-verify.js";
+import { runVerify as executeVerify } from "./run-verify.js";
+import { authorizeVerifyBatch } from "./verify-authorization.js";
 
 let root: string;
 let bin: string;
@@ -44,6 +45,15 @@ async function fake(exit: number, payload: unknown, name = "impeccable") {
   const launcher = windows ? `@"${process.execPath}" "${script}" %*\r\n`
     : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`;
   await writeFile(join(bin, windows ? `${name}.cmd` : name), launcher, { mode: 0o700 });
+}
+
+async function approve(spec: Record<string, unknown>, workingDir: string, signal = new AbortController().signal) {
+  return (await authorizeVerifyBatch([spec], { approvals: {} as never, approvalRequired: false },
+    { workingDir, signal, sessionId: "test", stepIndex: 0 }))[0]!;
+}
+
+async function runVerify(spec: Record<string, unknown>, ctx: Parameters<typeof executeVerify>[1]) {
+  return executeVerify(await approve(spec, ctx.workingDir, ctx.signal), ctx);
 }
 
 const check = () => runVerify({ kind: "ui", path: "index.html" }, { workingDir: root });
@@ -114,7 +124,8 @@ it("runs through Fusion, preserving the evidence and failing the linked criterio
   await fake(2, [finding("low-contrast")]);
   const contract = { checks: [{ task: "design", kind: "ui", path: "index.html", criteria: ["contrast"] }] };
   const brief = new Map([["contrast", { id: "contrast", text: "Readable text contrast" }]]);
-  const { outcomes } = await runContractChecks(contract.checks, runChecks, { workingDir: root, signal: new AbortController().signal });
+  const { outcomes } = await runContractChecks(contract.checks, async (specs, ctx) =>
+    runChecks(await Promise.all(specs.map(spec => approve(spec, ctx.workingDir, ctx.signal))), ctx), { workingDir: root, signal: new AbortController().signal });
   expect(outcomes).toEqual([expect.objectContaining({
     task: "design",
     ok: false,
@@ -164,4 +175,78 @@ it("cancels a blocked detector process", async () => {
     controller.abort();
   }
   expect(await result).toMatchObject({ ok: false, artifactStatus: "uncheckable", errorCode: "cancelled" });
+});
+
+it("pins the authorized executable and refuses a higher-priority launcher planted during approval", async () => {
+  const { buildVerifyRunTool } = await import("./verify-run.js");
+  const spawn = await import("./spawn-verify-process.js");
+  const spawnSpy = vi.spyOn(spawn, "spawnVerifyProcess");
+  const spec = { kind: "ui", path: "index.html" };
+  const executable = join(bin, windows ? "impeccable.cmd" : "impeccable");
+  await fake(0, []);
+  const request = vi.fn(async () => {
+    const local = join(root, "node_modules", ".bin");
+    await mkdir(local, { recursive: true });
+    await writeFile(join(local, windows ? "impeccable.cmd" : "impeccable"), "inert fixture", { mode: 0o700 });
+    return { approved: true, reason: "test" };
+  });
+  const checkCommandReads = vi.fn(async () => null);
+  try {
+    const tool = buildVerifyRunTool({ approvals: { request } as never, approvalRequired: true, config: {} as never, checkCommandReads });
+    const result = await tool.run(spec, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 });
+    expect(result.status).toBe("ok");
+    expect(spawnSpy.mock.calls.map(call => call[0])).toEqual([executable, executable]);
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      category: "verify_ui_detector", preview: expect.stringContaining("impeccable"), reason: expect.stringContaining("impeccable"),
+      commandArgv: [executable, "detect", "--json", "--no-config", join(root, "index.html")],
+      commandSegments: [[executable, "detect", "--json", "--no-config", join(root, "index.html")]],
+    }), expect.anything());
+    expect(checkCommandReads).toHaveBeenCalled();
+  } finally {
+    spawnSpy.mockRestore();
+  }
+});
+
+it("blocks a saved shell deny and does not reuse a document allow", async () => {
+  const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+  const { matchRules } = await import("../../approval/approval-rules.js");
+  const spec = { kind: "ui", path: "index.html" };
+  const ctx = { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 };
+  await fake(0, []);
+  const executable = join(bin, windows ? "impeccable.cmd" : "impeccable");
+  const allow = { id: "doc", decision: "allow", tool: "verify.run", category: "shell" } as const;
+  const deny = { id: "deny", decision: "deny", tool: "os.shell.run", category: "shell", commandPrefix: [executable] } as const;
+  const ruleDecisionFor = vi.fn((req: Parameters<typeof matchRules>[1]) => matchRules([allow, deny] as never, req)?.decision ?? null);
+  const request = vi.fn(async () => ({ approved: false, reason: "blocked by a saved command rule", automatic: true }));
+  await expect(authorizeVerifyBatch([spec], { approvals: { request, ruleDecisionFor } as never, approvalRequired: true }, ctx))
+    .rejects.toThrow("blocked by a saved command rule");
+  const prompt = ruleDecisionFor.mock.calls[0]![0];
+  expect(matchRules([allow] as never, prompt)).toBeNull();
+  expect(matchRules([deny] as never, prompt)?.decision).toBe("deny");
+});
+
+it("never spawns a replaced approved launcher, including under a nested cwd", async () => {
+  const { buildVerifyRunTool } = await import("./verify-run.js");
+  const spawn = await import("./spawn-verify-process.js");
+  const spy = vi.spyOn(spawn, "spawnVerifyProcess");
+  const local = join(root, "app", "node_modules", ".bin");
+  await mkdir(local, { recursive: true });
+  const executable = join(local, windows ? "impeccable.cmd" : "impeccable");
+  await writeFile(executable, "inert original", { mode: 0o700 });
+  await writeFile(join(root, "app", "index.html"), "<p>Hello</p>");
+  const request = vi.fn(async () => {
+    await writeFile(executable, "inert replacement contents", { mode: 0o700 });
+    return { approved: true, reason: "test" };
+  });
+  try {
+    const tool = buildVerifyRunTool({ approvals: { request } as never, approvalRequired: true, config: {} as never });
+    const result = await tool.run({ kind: "ui", cwd: "app", path: "index.html" }, {
+      workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0,
+    });
+    expect(result.details).toMatchObject({ artifactStatus: "uncheckable", error: expect.stringContaining("changed after approval") });
+    expect(spy).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ preview: expect.stringContaining("project executable:") }), expect.anything());
+  } finally {
+    spy.mockRestore();
+  }
 });

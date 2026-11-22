@@ -1,3 +1,4 @@
+import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ApprovalDeniedError, requireApproval, type DangerousToolOptions } from "../../approval/dangerous-tool.js";
 import { knownSecretsFromEnv, maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
@@ -8,7 +9,7 @@ import { formatShellPreview, needsShellInterpretation, shellGrantShape } from ".
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
-import { guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
+import { guardVerifyCommand, guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
 import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
@@ -125,7 +126,8 @@ export async function authorizeVerifyBatch(
   for (const spec of snapshot) assertDeclaredVerificationSchema(spec, options.approvalRequired);
   const project = ctx.ruleWorkdir ?? ctx.workingDir;
   const known = [...knownSecretsFromEnv(), ...(options.knownSecrets ?? [])];
-  const plans = snapshot.flatMap(spec => {
+  const plans = [];
+  for (const spec of snapshot) {
     // The injected runner API historically accepts non-process fixture/check
     // specs too. A trusted embedder explicitly opting out of approvals may
     // keep those; production cannot authorize an undisclosed executor.
@@ -133,7 +135,7 @@ export async function authorizeVerifyBatch(
     const namedCommand = typeof spec.cmd === "string" || typeof spec.command === "string" ||
       typeof spec.start === "object" && spec.start !== null;
     if (kind === "command" && !namedCommand) {
-      if (!options.approvalRequired) return [];
+      if (!options.approvalRequired) continue;
       throw new Error("verification check has no disclosed command; cannot authorize its executor");
     }
     const policySpec = spec.cmd === undefined && kind === "command" && typeof spec.command === "string" ? { ...spec, kind, cmd: spec.command } : { ...spec, kind };
@@ -144,16 +146,26 @@ export async function authorizeVerifyBatch(
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
     const cwd = resolveVerifyCwd(project, logical.cwd);
     const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
-    const commands = verifyRunCommands(logical);
-    const commandSegments = commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
+    const ui = logical.kind === "ui";
+    const detector = ui && artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
+      ? await resolveImpeccable(ctx.workingDir, actualCwd, ctx.signal) : undefined;
+    const detectorArgs = detector === undefined ? undefined : impeccableArgs(artifactTarget!);
+    const uiVerdicts = detector === undefined ? [] : [
+      guardVerifyCommand(detector.file, detectorArgs!, cwd, options.shellPolicy, false),
+      guardVerifyCommand(detector.file, ["--version"], cwd, options.shellPolicy, false),
+    ];
+    const refused = uiVerdicts.find(verdict => verdict.action === "block");
+    if (refused !== undefined) throw new VerifyGuardRefusal(refused.rule, refused.reason);
+    const commands = detector === undefined ? verifyRunCommands(logical) : [{ cmd: detector.file, args: detectorArgs! }];
+    const commandSegments = commands.flatMap(c => ui ? [[c.cmd, ...c.args]] : shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
     const stdinScript = verifyRunStdinScript(logical);
-    const commandUnreadable = stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
-    const targetPaths = commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
-    const dangerous = guard.dangerous.length > 0;
+    const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args))));
+    const targetPaths = ui ? [] : commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
+    const dangerous = guard.dangerous.length > 0 || uiVerdicts.some(verdict => verdict.action === "approval_required" && verdict.rule.startsWith("dangerous."));
     // A script fed on stdin is not what a grant for the program approved.
     const first = commands.length === 1 && stdinScript === null ? commands[0] : undefined;
     const shape = first === undefined || dangerous ? undefined : shellGrantShape(first.cmd, [first.cmd, ...first.args].join(" "), needsShellInterpretation(first.cmd, first.args));
-    const commandArgv = first === undefined ? undefined : shellCommandArgv(first.cmd, first.args, needsShellInterpretation(first.cmd, first.args), shape);
+    const commandArgv = first === undefined ? undefined : ui ? [first.cmd, ...first.args] : shellCommandArgv(first.cmd, first.args, needsShellInterpretation(first.cmd, first.args), shape);
     const env = Object.fromEntries(Object.entries(logical.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => [name, isSecretEnvName(name) ? `[redacted:env:${name}]` : value]));
     const metadata = JSON.stringify({ commandArgv, commandSegments, targetPaths });
     const metadataWords = [...(commandArgv ?? []), ...commandSegments.flat(), ...targetPaths];
@@ -163,37 +175,42 @@ export async function authorizeVerifyBatch(
       throw new Error("verification command credentials cannot be safely represented in approval metadata; pass credentials through the explicit environment instead");
     }
     const previewKnown = [...known, ...knownSecretsFromEnv(logical.env)];
-    const execution = artifactTarget === undefined
+    const localExecutable = detector === undefined ? undefined : [detector.candidate, detector.file].map(file =>
+      relative(ctx.workingDir, file)).find(file => file && file !== ".." && !/^[.][.][\\/]/.test(file) && !isAbsolute(file));
+    const execution = ui
+      ? detector === undefined ? "no detector process will run" : "run installed impeccable in a private copy of this project"
+      : artifactTarget === undefined
       ? "in a private verification copy of this project; absolute project references are rebased into that copy"
-      : logical.kind === "ui" ? "run installed impeccable detect on a bounded local file snapshot"
       : "read a bounded file snapshot with an offline parser";
     const preview = [
-      ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)), previewKnown)),
+      ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, !ui && needsShellInterpretation(c.cmd, c.args)), previewKnown)),
+      ...(localExecutable === undefined ? [] : [`project executable: ${maskVerificationSecrets(localExecutable, previewKnown)}`]),
       JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution }, previewKnown), null, 2),
       ...(options.copyNote === undefined ? [] : [options.copyNote]),
     ].join("\n");
     if (Buffer.byteLength(preview) > MAX_AUTHORIZATION_BYTES) throw new Error("verification authorization preview exceeds the size limit");
     const prompt = {
       sessionId: ctx.sessionId, tool: "verify.run",
-      category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
+      category: dangerous ? "shell_dangerous" as const : ui ? "verify_ui_detector" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
       reason: artifactTarget === undefined
         ? `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`
         : logical.kind === "ui"
-          ? `verify UI with installed impeccable on ${maskVerificationSecrets(artifactTarget, previewKnown)}`
+          ? `verify UI with ${maskVerificationSecrets(detector?.file ?? "impeccable (unavailable)", previewKnown)} on ${maskVerificationSecrets(artifactTarget, previewKnown)}`
           : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
-      preview, affectedResources: [artifactTarget ?? cwd], targetPaths, commandSegments,
+      preview, affectedResources: detector === undefined ? [artifactTarget ?? cwd] : [cwd, artifactTarget!, detector.file], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
       // Issue #95: one direct exec (no shell reads it) with no env, no
       // stdin at all (script or data: either is input its words do not
       // show) and no file it would write, so its argv is all that runs.
+      ...(detector !== undefined && !(process.platform === "win32" && detector.file.endsWith(".cmd")) ? { verifyPlainCommand: true as const } : {}),
       ...(logical.kind === "command" && first !== undefined && !needsShellInterpretation(first.cmd, first.args) &&
         targetPaths.length === 0 && Object.keys(logical.env ?? {}).length === 0 &&
         (logical.stdin === undefined || logical.stdin === "")
         ? { verifyPlainCommand: true as const } : {}),
     };
-    return [{ prompt, logical, cwd, spec }];
-  });
+    plans.push({ prompt, logical, cwd, spec, commands, detector });
+  }
   // A deny for a later command wins before asking about an earlier command.
   for (const { prompt } of plans) {
     if (options.approvalRequired && options.approvals.ruleDecisionFor?.(prompt) === "deny") {
@@ -201,7 +218,7 @@ export async function authorizeVerifyBatch(
       throw new ApprovalDeniedError("verify.run", "blocked by a saved rule", { byUser: false });
     }
   }
-  for (const { logical, cwd } of plans) {
+  for (const { logical, cwd, commands } of plans) {
     const readContext = { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] };
     const paths = (logical.kind === "page" || logical.kind === "ui" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
     const urls = [logical.url, logical.ready?.url, ...(logical.requests ?? []).flatMap(request => [request.url, request.path])];
@@ -217,13 +234,13 @@ export async function authorizeVerifyBatch(
       const refusal = await options.checkReadTargets?.("verify.run", { path }, readContext, "os.fs.read");
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
-    for (const command of verifyRunCommands(logical)) {
+    for (const command of commands) {
       ctx.signal.throwIfAborted();
       const refusal = await options.checkCommandReads?.("verify.run", { cmd: command.cmd, args: command.args, env: logical.env }, { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] });
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd, logical, spec } of plans) {
+  for (const { prompt, cwd, logical, spec, detector } of plans) {
     ctx.signal.throwIfAborted();
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
@@ -249,7 +266,14 @@ export async function authorizeVerifyBatch(
       // Issue #95: a host's pin (`run --allow-command`) is what runs: the
       // real program file with the approved argv, never a name the copy's
       // PATH could resolve to something else. The private copy stays the cwd.
-      if (outcome.pinnedExec !== undefined) {
+      if (logical.kind === "ui") {
+        if (outcome.pinnedExec !== undefined && outcome.pinnedExec.file !== detector?.file) {
+          throw new Error("verify.run: the pinned file differs from the approved impeccable executable");
+        }
+        Object.defineProperty(spec, APPROVED_IMPECCABLE, {
+          value: detector === undefined || outcome.pinnedExec === undefined ? detector : { ...detector, path: outcome.pinnedExec.path },
+        });
+      } else if (outcome.pinnedExec !== undefined) {
         // requireApproval checked the pin's argv against this check's
         // logical (project) argv; the spec keeps its own args, which name
         // the private copy, and only the program is swapped.

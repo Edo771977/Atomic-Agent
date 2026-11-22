@@ -42,6 +42,7 @@ const ALL_CATEGORIES: readonly ApprovalCategory[] = [
   "local_model_restart",
   "hook_ask",
   "verify_page_local",
+  "verify_ui_detector",
   "user_question",
   "session_cross",
   "other",
@@ -61,6 +62,7 @@ describe("session-grant eligibility", () => {
     for (const category of ALL_CATEGORIES) {
       expect(isGrantableCategory(category)).toBe(
         category !== "shell_dangerous" &&
+        category !== "verify_ui_detector" &&
           category !== "fusion_fanout" &&
           category !== "trust_config" &&
           category !== "state_secret" &&
@@ -148,6 +150,7 @@ describe("approval ladder", () => {
       hook_ask: 5,
       // A local verify.run page probe: the auto rung beside workspace writes.
       verify_page_local: 2,
+      verify_ui_detector: 5,
       // A question only the person can answer (ATO-489).
       user_question: null,
       // Another chat's messages, read or written (ATO-570).
