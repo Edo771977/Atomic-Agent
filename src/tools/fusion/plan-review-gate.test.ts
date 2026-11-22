@@ -570,3 +570,34 @@ describe("a review the person's decision or backlog call at the gate made stale 
     expect(viewOf(p).planReview).toMatchObject({ stale: false });
   });
 });
+
+describe("a review's person calls come from the record, not the item text (issue #146 review)", () => {
+  it("an outside edit of a deferred item's text does not make a fresh failing review stale", async () => {
+    const { applyBacklogDecision } = await import("../../session/project-backlog.js");
+    let p = approvedBrief(["Runs offline"]);
+    for (const u of [{ kind: "backlog_add", item: { title: "Export PDF", source: "director" } }, { kind: "backlog_add", item: { title: "Sounds", source: "director" } }] as ProjectUpdate[]) {
+      const r = applyProjectUpdate(p, u, NOW);
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    for (const id of ["b1", "b2"]) {
+      const r = applyBacklogDecision(p, { id, state: "promoted" });
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "bad scope" } }) }));
+    const deps = { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 };
+    const plan1 = { milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build in `game.js`", milestone: "m1", checks: [check(["c1"])], backlog: ["b1", "b2"] }] };
+    p = (await draft(p, plan1, deps)).project;
+    const deferred = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: { backlogStatus: { b2: "deferred" } } }, { now: NOW + 1 });
+    if (!deferred.ok) throw new Error(deferred.error.message);
+    // The director redrafts under the deferral; the reviewer fails it: fresh, it blocks.
+    p = (await draft(deferred.project, { ...plan1, tasks: [{ ...plan1.tasks[0]!, backlog: ["b1"] }] }, deps)).project;
+    const viewOf = (project: ProjectState) => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+    expect(viewOf(p).planReview).toMatchObject({ stale: false });
+    // A shell edit of b2's title (no person): the review stays fresh and plain approval stays refused.
+    const outside: ProjectState = { ...p, backlog: p.backlog!.map((b) => (b.id === "b2" ? { ...b, title: "Sounds!" } : b)) };
+    expect(viewOf(outside).planReview).toMatchObject({ stale: false });
+    expect(applyProjectDecision(outside, { gate: outside.gate, version: gateVersion(outside)!, verdict: "approve" }, { now: NOW + 2 })).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+});

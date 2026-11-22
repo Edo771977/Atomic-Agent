@@ -861,11 +861,15 @@ export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[
 /**
  * Issue #146: the person's calls a plan review is read under (its
  * basis): the decisions' statuses and the promoted backlog items
- * deferred. A change of one at the gate makes the review stale, like a
- * row edit.
+ * deferred, read from the record's calls only (never from the items'
+ * text, which a file edit changes). A change of one at the gate makes the
+ * review stale, like a row edit.
  */
-export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlog" | "backlogStates" | "backlogCalls">): PlanReviewPersonCalls {
-  const deferred = promotedForPlan(project).filter((b) => project.backlogCalls?.[b.id]?.deferred === true).map((b) => b.id);
+export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls">): PlanReviewPersonCalls {
+  // The record's own calls, whatever the items' text reads now: an edit of project.json (no person) never changes them.
+  const deferred = Object.entries(project.backlogCalls ?? {})
+    .filter(([id, call]) => call.deferred === true && call.plannedIn === undefined && project.backlogStates?.[id] === "promoted")
+    .map(([id]) => id);
   return {
     ...(project.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
     ...(deferred.length === 0 ? {} : { backlogDeferred: deferred }),
