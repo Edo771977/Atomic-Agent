@@ -2295,6 +2295,18 @@ export function applyProjectDecision(
   decision: ProjectDecision,
   options: ProjectDecisionOptions,
 ): ProjectDecisionResult {
+  const result = decideProject(project, decision, options);
+  // Issue #118: a person decided; the director's next plan draft starts a new cycle of review rounds.
+  const review = result.ok ? result.project.plan?.review : undefined;
+  if (!result.ok || review === undefined || review.decided === true) return result;
+  return { ok: true, project: { ...result.project, plan: { ...result.project.plan!, review: { ...review, decided: true } } } };
+}
+
+function decideProject(
+  project: ProjectState | undefined,
+  decision: ProjectDecision,
+  options: ProjectDecisionOptions,
+): ProjectDecisionResult {
   if (project === undefined || project.cancelledAt !== undefined) {
     return refuse({ code: "no-project", message: "There is no open project to decide on." });
   }

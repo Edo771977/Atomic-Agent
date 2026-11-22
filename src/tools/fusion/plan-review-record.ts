@@ -61,6 +61,12 @@ export interface PlanReviewRecord {
   basis: string;
   /** The review call's priced cost; null when unpriced or no call was made. */
   costUsd: number | null;
+  /**
+   * A person decided at a gate since this review: the director's next
+   * draft starts a new cycle of rounds. Until then every draft counts on
+   * from {@link round}, so drafting again never restarts the rounds.
+   */
+  decided?: true;
 }
 
 export const PLAN_REVIEW_DETAIL_MAX = 400;
@@ -118,6 +124,7 @@ export function readPlanReviewRecord(raw: unknown): PlanReviewRecord | undefined
     sentBack: raw.sentBack,
     basis: raw.basis,
     costUsd: raw.costUsd as number | null,
+    ...(raw.decided === true ? { decided: true as const } : {}),
   };
 }
 

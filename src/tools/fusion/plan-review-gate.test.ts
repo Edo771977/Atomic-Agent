@@ -382,3 +382,22 @@ describe("a review the person's own edit made stale (review round, issue #118)",
     expect(applyProjectDecision(state.project, { gate: state.project.gate, version: gateVersion(state.project)!, verdict: "approve" }, { now: NOW + 3 }).ok).toBe(true);
   });
 });
+
+describe("plan review rounds per plan cycle (review round, issue #118)", () => {
+  it("the director cannot restart the rounds by drafting again; a person's decision starts a new cycle", async () => {
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const deps = { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 1 };
+    let project = (await draft(approvedBrief(), coveredPlan, deps)).project;
+    expect(project.gate).toEqual({ kind: "none" });
+    project = (await draft(project, coveredPlan, deps)).project;
+    expect(project.gate).toEqual({ kind: "plan" });
+    project = (await draft(project, coveredPlan, deps)).project;
+    expect(project.gate).toEqual({ kind: "plan" });
+    expect(project.plan?.review).toMatchObject({ round: 3, sentBack: false });
+    // The person corrects a row: their decision; the director's next draft is a new cycle.
+    const edited = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "edit", edits: { rows: [{ taskId: "t1", reviewer: null }] } }, { now: NOW + 1 });
+    if (!edited.ok) throw new Error(edited.error.message);
+    const next = (await draft(edited.project, coveredPlan, deps)).project;
+    expect(next.plan?.review).toMatchObject({ round: 1, sentBack: true });
+  });
+});

@@ -480,8 +480,9 @@ function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], m
 
 /**
  * Issue #118: ask the plan reviewer about this draft. The round counts
- * the drafts sent back since the plan last reached the person; a fail
- * sends the draft back while rounds are left. Undefined: no review.
+ * the reviews since a person last decided at a gate (the director
+ * drafting again never restarts it); a fail sends the draft back while
+ * rounds are left. Undefined: no review.
  */
 async function reviewDraft(
   deps: ProjectToolDeps,
@@ -491,7 +492,8 @@ async function reviewDraft(
   const project = ctx.project;
   if (deps.planReview === undefined || project?.brief?.status !== "approved") return undefined;
   const previous = project.plan?.review;
-  const continues = previous?.sentBack === true;
+  // Rounds count per plan cycle: on from the last review until a person decides (issue #118).
+  const continues = previous !== undefined && previous.decided !== true;
   const answer = await deps.planReview({
     input: {
       brief: { what: project.brief.what, users: project.brief.users, how: project.brief.how, ...(project.brief.deliverable === undefined ? {} : { deliverable: project.brief.deliverable }) },
