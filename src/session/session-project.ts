@@ -1253,6 +1253,16 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   };
 }
 
+/**
+ * A drafted plan row as the store will keep it (titles and reasons
+ * clipped and flattened, empty citation lists dropped), or null when the
+ * fold would refuse it. `project.plan` reviews, reference-checks and
+ * plan-checks this, so their bases match the stored rows.
+ */
+export function storedPlanRow(raw: AssignmentRow, milestoneIds: ReadonlySet<string>): AssignmentRow | null {
+  return readRow(raw, milestoneIds);
+}
+
 // ------------------------------------------------------------ attachments
 
 /** `<stateDir>/fusion-runs`: the run checkpoints' folder (`FUSION_RUNS_DIR_NAME`). */

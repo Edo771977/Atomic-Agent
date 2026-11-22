@@ -639,3 +639,67 @@ describe("the review basis covers the tasks' backlog citations (issue #146 revie
     expect(planReviewBasis(rows, ["m1"])).not.toBe(planReviewBasis(cited.plan!.rows, ["m1"]));
   });
 });
+
+describe("what is reviewed is what the plan keeps (a long or loosely spaced task title)", () => {
+  const long = `Write the report in \`report.md\`: ${"a section on each source, its claims and how they were checked; ".repeat(4)}`.trim();
+  const longPlan = {
+    milestones: [{ id: "m1", title: "Write", kind: "base" }],
+    tasks: [{ id: "t1", title: long, milestone: "m1", checks: [check(["c1", "c2"])], backlog: [] }],
+  };
+  const references = async (rows: readonly import("../../session/session-project.js").AssignmentRow[]) => {
+    const { planReferenceBasis } = await import("./plan-checks.js");
+    return { verdict: "pass" as const, detail: "References checked.", taskIds: [], basis: planReferenceBasis(rows) };
+  };
+  const viewOf = (project: ProjectState) => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+
+  it("a title over the limit is reviewed, reference-checked and plan-checked as stored: fresh, unblocked, auto-approved", async () => {
+    expect(long.length).toBeGreaterThan(160);
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const state = { project: (await draft(approvedBrief(), longPlan, { planReview: createPlanReview(reviewDeps(complete)), planReferences: references })).project };
+    const stored = state.project.plan!.rows[0]!;
+    expect(stored.title.length).toBe(160);
+    // The reviewer read the title the plan keeps, not the one it drops.
+    const prompt = String((complete.mock.calls[0] as unknown as [{ prompt: string }])[0].prompt);
+    expect(prompt).toContain(JSON.stringify(stored.title).slice(1, -1));
+    expect(prompt).not.toContain(long);
+    expect(state.project.plan?.checkResults?.find((r) => r.dimension === "references")).toMatchObject({ verdict: "pass" });
+    const view = viewOf(state.project);
+    expect(view.planReview).toMatchObject({ outcome: "reviewed", stale: false, autoApprovable: true });
+    expect(view.hints.some((h) => /stale|Not re-checked/.test(h))).toBe(false);
+    expect(applyProjectDecision(state.project, { gate: state.project.gate, version: gateVersion(state.project)!, verdict: "approve" }, { now: NOW + 1 }).ok).toBe(true);
+    const rt = {
+      projectState: () => viewOf(state.project),
+      projectDecision: (_id: string, decision: Parameters<typeof applyProjectDecision>[1]) => {
+        const r = applyProjectDecision(state.project, decision, { now: NOW + 1 });
+        if (!r.ok) return r;
+        state.project = r.project;
+        return { ok: true as const, project: r.project, view: viewOf(r.project) };
+      },
+    };
+    expect((await settleProjectGate(rt, "s1", "approve")).kind).toBe("approved");
+  });
+
+  it("tells the director the title was shortened", async () => {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const { result } = await draft(approvedBrief(), longPlan, { planReview: createPlanReview(reviewDeps(complete)) });
+    expect(result.summary).toContain("task t1: title shortened to 160 characters; put the details in its checks");
+  });
+
+  it("a title with line breaks or runs of spaces is reviewed as the plan keeps it, with no shortening note", async () => {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const spaced = { ...longPlan, tasks: [{ ...longPlan.tasks[0]!, title: "Write  the report\nin `report.md`" }] };
+    const { project, result } = await draft(approvedBrief(), spaced, { planReview: createPlanReview(reviewDeps(complete)), planReferences: references });
+    expect(project.plan!.rows[0]!.title).toBe("Write the report in `report.md`");
+    expect(viewOf(project).planReview).toMatchObject({ stale: false, autoApprovable: true });
+    expect(project.plan?.checkResults?.find((r) => r.dimension === "references")).toMatchObject({ verdict: "pass" });
+    expect(result.summary).not.toContain("shortened");
+  });
+
+  it("checks, decisions and backlog citations as the store normalizes them keep the review and references fresh", async () => {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const loose = { ...longPlan, tasks: [{ id: "t1", title: "Write `report.md`", milestone: "m1", decisions: [], backlog: [], checks: [{ cmd: "node", args: ["check.js", "good.md"], task: " t1 ", criteria: ["C1", "c2"], negative: { args: ["check.js", "bad.md"] } }] }] };
+    const { project } = await draft(approvedBrief(), loose, { planReview: createPlanReview(reviewDeps(complete)), planReferences: references });
+    expect(viewOf(project).planReview).toMatchObject({ stale: false, autoApprovable: true });
+    expect(project.plan?.checkResults?.find((r) => r.dimension === "references")).toMatchObject({ verdict: "pass" });
+  });
+});

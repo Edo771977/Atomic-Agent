@@ -16,6 +16,7 @@ import {
   planReviewPersonCalls,
   planTotals,
   projectVerdictResets,
+  storedPlanRow,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
@@ -390,6 +391,25 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
   return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
 }
 
+/**
+ * The enriched rows as the store keeps them, with a note for each title
+ * it shortens. A row the store would refuse stays as drafted: the fold
+ * refuses it as before.
+ */
+function storedRows(rows: readonly AssignmentRow[], milestoneIds: readonly string[]): { rows: AssignmentRow[]; notes: string[] } {
+  const ids = new Set(milestoneIds);
+  const notes: string[] = [];
+  const kept = rows.map((row) => {
+    const stored = storedPlanRow(row, ids);
+    if (stored === null) return row;
+    if (stored.title !== row.title.replace(/\s+/g, " ").trim()) {
+      notes.push(`task ${row.taskId}: title shortened to ${PROJECT_LIMITS.title} characters; put the details in its checks.`);
+    }
+    return stored;
+  });
+  return { rows: kept, notes };
+}
+
 // -------------------------------------------------------------- milestone
 
 export function parseProjectMilestoneArgs(raw: Record<string, unknown>): Parsed<{ report: Extract<ProjectUpdate, { kind: "milestone" }> }> {
@@ -595,7 +615,9 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const context = deps.planContext();
       const enriched = enrichPlanRows(parsed.plan, context);
       if (!enriched.ok) return refuse(PROJECT_PLAN_TOOL, enriched.problems);
-      const rows = enriched.rows;
+      // Reviewed, reference-checked and plan-checked as the store keeps them, so no basis is stale on arrival.
+      const kept = storedRows(enriched.rows, parsed.plan.milestones.map((m) => m.id));
+      const rows = kept.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
       const referenceCheck = deps.planReferences === undefined ? undefined : await deps.planReferences(rows, ctx.workingDir, ctx.signal).catch((err: unknown): PlanReferenceRecord => {
@@ -627,6 +649,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .filter((r) => r.milestoneId === m.id)
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
+        ...kept.notes,
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
