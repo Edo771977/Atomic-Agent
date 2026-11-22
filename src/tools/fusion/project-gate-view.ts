@@ -13,6 +13,7 @@ import { describeViolation, type PlanEstimate, type PlanViolation } from "./proj
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
+import { seedHint } from "../../session/project-gate-text.js";
 import { backlogStateOf, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
@@ -69,8 +70,7 @@ export const evidenceRetiredHint = (title: string): string => `evidence retired:
 /** The milestone gate's hint for a criterion verified with reservations (issue #110). */
 export const verifiedWithReservationsHint = (id: string, reservation: string): string => `verified with reservations: ${id} (${reservation})`;
 
-/** A seed shown at a plan or milestone gate (issue #111): the person decides; nothing activates by itself. */
-export const seedHint = (id: string, title: string, condition: string): string => `seed ${id} "${title}" (when: ${condition}): yours to promote if it is met`;
+export { seedHint };
 
 /** The plan gate's hint for an item the person promoted (issue #111). */
 export const promotedHint = (id: string, title: string): string => `promoted from the backlog: ${id} "${title}": check this plan takes it in before approving`;

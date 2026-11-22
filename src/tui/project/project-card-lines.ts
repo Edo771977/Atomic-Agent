@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, seedHint } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -181,8 +181,9 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       for (const s of backlog.seeds) text(`seed ${s.id} ${s.title} — ${s.condition}`, "plain", 3);
     }
   }
-  // Seed hints are drawn above with the backlog.
-  for (const hint of view.hints ?? []) if (!hint.startsWith("seed ")) text(`ℹ ${hint}`, "muted");
+  // The seeds' own hints are drawn above from the structured backlog; every other hint stays.
+  const seedHints = new Set((backlog?.seeds ?? []).map((s) => seedHint(s.id, s.title, s.condition)));
+  for (const hint of view.hints ?? []) if (!seedHints.has(hint)) text(`ℹ ${hint}`, "muted");
 
   if (view.milestones.length > 0 && view.gate.kind !== "brief") {
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;

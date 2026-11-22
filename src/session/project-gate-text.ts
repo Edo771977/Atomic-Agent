@@ -38,6 +38,9 @@ export function decisionLine(decision: ProjectGateDecision): string {
   return `${decision.id} ${decision.text} (${decision.status}${cited})`;
 }
 
+/** A seed's hint at a plan or milestone gate (issue #111): the person decides; nothing activates by itself. */
+export const seedHint = (id: string, title: string, condition: string): string => `seed ${id} "${title}" (when: ${condition}): yours to promote if it is met`;
+
 /** The backlog in one line (issue #111), e.g. "Backlog: 2 open (1 seed), 1 promoted for the next plan". */
 export function backlogSummary(backlog: ProjectGateBacklog): string {
   const seeds = backlog.seeds.length === 0 ? "" : ` (${backlog.seeds.length} seed${backlog.seeds.length === 1 ? "" : "s"})`;

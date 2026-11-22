@@ -182,3 +182,14 @@ describe("the project card's backlog (issue #111)", () => {
     expect(projectResumeLine(view)).toContain(" · backlog: 2 open");
   });
 });
+
+describe("the project card's seeds come from the view's backlog, not a hint prefix (review)", () => {
+  it("drops only the hints that repeat a listed seed", () => {
+    const backlog = { open: 1, seeds: [{ id: "b1", title: "Sounds", condition: "when the UI exists" }], promoted: [], stale: [], items: [] };
+    const hints = ['seed b1 "Sounds" (when: when the UI exists): yours to promote if it is met', "seed data missing for t2"];
+    const out = text(card({ ...fixtureProjectGateView({ kind: "plan" }), backlog, hints }));
+    expect(out).toContain("seed b1 Sounds — when the UI exists");
+    expect(out).not.toContain('seed b1 "Sounds"');
+    expect(out).toContain("ℹ seed data missing for t2");
+  });
+});
