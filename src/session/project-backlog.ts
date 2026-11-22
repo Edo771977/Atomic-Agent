@@ -13,6 +13,13 @@ import type {
 
 /** Who proposed a backlog item; re-exported by `session-project.ts`. */
 export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person", "director", "worker", "reviewer"];
+/** The sources a director update may name: `person` is not provable from a model's call (review of #111). */
+export const DIRECTOR_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["director", "worker", "reviewer"];
+
+/** How an item's source reads on every surface: a relayed request is the director's, from the person's message. */
+export function backlogSourceLabel(item: Pick<ProjectBacklogItem, "source" | "fromPerson">): string {
+  return item.fromPerson === true ? "director (from your message)" : item.source;
+}
 
 /**
  * The project backlog (issue #111): work not ready for the plan, kept in
@@ -44,6 +51,8 @@ export interface ProjectBacklogDraft {
   note?: string;
   condition?: string;
   source: ProjectBacklogSource;
+  /** With `source: "director"`: recorded from the person's message. */
+  fromPerson?: true;
   origin?: { milestoneId?: string; taskId?: string };
 }
 
@@ -161,9 +170,10 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
   if (reservedIds(project).has(id)) return invalid(`backlog id ${id} is used already (by an item or by the person's call on one); take ${nextBacklogId(project)}`);
   const title = typeof raw.title === "string" ? clip(raw.title, PROJECT_LIMITS.title) : "";
   if (title.length === 0) return invalid("a backlog item needs a title");
-  if (typeof raw.source !== "string" || !(PROJECT_BACKLOG_SOURCES as readonly string[]).includes(raw.source)) {
-    return invalid(`source must be one of ${PROJECT_BACKLOG_SOURCES.join(", ")}`);
+  if (typeof raw.source !== "string" || !(DIRECTOR_BACKLOG_SOURCES as readonly string[]).includes(raw.source)) {
+    return invalid(`source must be one of ${DIRECTOR_BACKLOG_SOURCES.join(", ")} (an item the person asked for: director with fromPerson)`);
   }
+  if (raw.fromPerson !== undefined && (raw.fromPerson !== true || raw.source !== "director")) return invalid("fromPerson goes with source director");
   const source = raw.source as ProjectBacklogSource;
   const origin = isObject(raw.origin) ? raw.origin : undefined;
   if (raw.origin !== undefined && origin === undefined) return invalid("origin must be { milestoneId?, taskId? }");
@@ -192,6 +202,7 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
     ...(note.length === 0 ? {} : { note }),
     ...(condition.length === 0 ? {} : { condition }),
     source,
+    ...(raw.fromPerson === true ? { fromPerson: true as const } : {}),
     createdAt: now,
     ...(milestoneId === null && taskId === null ? {} : { origin: { ...(milestoneId === null ? {} : { milestoneId }), ...(taskId === null ? {} : { taskId }) } }),
   };

@@ -102,6 +102,12 @@ export interface ProjectBacklogItem {
   /** A seed's activation condition, free text. */
   condition?: string;
   source: ProjectBacklogSource;
+  /**
+   * Review of #111: the director recorded it from the person's message
+   * (`source: "director"`); shown as "director (from your message)". A
+   * director cannot set `source: "person"`, which nothing proves.
+   */
+  fromPerson?: true;
   createdAt: number;
   /** The milestone or task it came from. */
   origin?: { milestoneId?: string; taskId?: string };
@@ -1040,6 +1046,7 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
       ...(note.length === 0 ? {} : { note }),
       ...(condition.length === 0 ? {} : { condition }),
       source: b.source as ProjectBacklogSource,
+      ...(b.fromPerson === true && b.source === "director" ? { fromPerson: true as const } : {}),
       createdAt: b.createdAt,
       ...(milestoneId === null && taskId === null ? {} : { origin: { ...(milestoneId === null ? {} : { milestoneId }), ...(taskId === null ? {} : { taskId }) } }),
     });

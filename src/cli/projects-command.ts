@@ -7,7 +7,7 @@ import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
-import { applyBacklogDecision, backlogStateOf, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
+import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
 import { projectAttentionZone, type ProjectAttentionZone } from "../session/project-attention.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
@@ -387,7 +387,7 @@ async function backlogCommand(args: string[], io: { stdout: (t: string) => void;
     return 0;
   }
   for (const b of items) {
-    const from = [`from ${b.source}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
+    const from = [`from ${backlogSourceLabel(b)}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
     io.stdout(`${b.id} ${b.state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
     if (b.note !== undefined) io.stdout(`    ${b.note}\n`);
   }

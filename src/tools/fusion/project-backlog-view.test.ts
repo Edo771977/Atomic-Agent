@@ -43,7 +43,7 @@ const view = (project: ProjectState) => projectGateView({ sessionId: "s", projec
 function atPlanGate(): ProjectState {
   let p = up(approve(up(undefined, brief)), plan);
   p = add(p, "b1", { condition: "when the score screen exists" });
-  p = add(p, "b2", { source: "person" });
+  p = add(p, "b2", { fromPerson: true });
   p = add(p, "b3");
   return ok(applyBacklogDecision(p, { id: "b3", state: "dropped" }));
 }
@@ -57,7 +57,7 @@ describe("the gate view's backlog (issue #111)", () => {
       seeds: [{ id: "b1", title: "Idea b1", condition: "when the score screen exists" }],
       promoted: [],
     });
-    expect(v.backlog!.items.map((b) => `${b.id}:${b.state}:${b.source}`)).toEqual(["b1:open:director", "b2:open:person", "b3:dropped:director"]);
+    expect(v.backlog!.items.map((b) => `${b.id}:${b.state}:${b.source}`)).toEqual(["b1:open:director", "b2:open:director", "b3:dropped:director"]);
   });
 
   it("shows seeds with their condition at the plan gate and at each milestone gate; none is promoted by itself", () => {

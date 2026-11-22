@@ -17,6 +17,7 @@ import {
   nextBacklogId,
   openBacklog,
   openSeeds,
+  backlogSourceLabel,
   promotedForPlan,
   staleBacklogCalls,
 } from "./project-backlog.js";
@@ -75,14 +76,15 @@ describe("backlog items: adding", () => {
     const created = createProject(folder, running(), options);
     if (!created.ok) throw new Error(created.problem.message);
     const before = created.opened.project;
-    const next = added(before, { id: nextBacklogId(before), title: "Export to PDF", note: "asked while m2 ran", source: "person", origin: { milestoneId: "m2" } }, 42);
+    const next = added(before, { id: nextBacklogId(before), title: "Export to PDF", note: "asked while m2 ran", source: "director", fromPerson: true, origin: { milestoneId: "m2" } }, 42);
     const w = commitProject(folder, created.opened.stored.id, { revision: created.opened.stored.revision, decisionSeq: created.opened.decisionSeq }, next, options);
     if (!w.ok) throw new Error(w.problem.message);
     // A new process: nothing but the folder and the state dir.
     const reopened = openProject(folder, { stateDir, records: stateDirProjectRecords(stateDir) });
     if (!reopened.ok) throw new Error(reopened.problem.message);
     const p = reopened.opened.project;
-    expect(p.backlog).toEqual([{ id: "b1", title: "Export to PDF", note: "asked while m2 ran", source: "person", createdAt: 42, origin: { milestoneId: "m2" } }]);
+    expect(p.backlog).toEqual([{ id: "b1", title: "Export to PDF", note: "asked while m2 ran", source: "director", fromPerson: true, createdAt: 42, origin: { milestoneId: "m2" } }]);
+    expect(backlogSourceLabel(p.backlog![0]!)).toBe("director (from your message)");
     expect(backlogStateOf(p, "b1")).toBe("open");
     // No gate moved: nothing reopens, nothing is flagged.
     expect(p.gate).toEqual(before.gate);
@@ -124,6 +126,9 @@ describe("backlog items: adding", () => {
     expect(refused({ id: "b1", title: "", source: "director" })).toBe("invalid");
     expect(refused({ id: "Not An Id", title: "x", source: "director" })).toBe("invalid");
     expect(refused({ id: "b1", title: "x", source: "martian" })).toBe("invalid");
+    // Review: a director update cannot claim the person wrote it; it relays with fromPerson.
+    expect(refused({ id: "b1", title: "x", source: "person" })).toBe("invalid");
+    expect(refused({ id: "b1", title: "x", source: "worker", fromPerson: true, origin: { taskId: "t2" } })).toBe("invalid");
     expect(refused({ id: "b1", title: "x", source: "director", origin: { milestoneId: "m9" } })).toBe("invalid");
     expect(refused({ id: "b1", title: "x", source: "director", origin: { taskId: "t9" } })).toBe("invalid");
     expect(refused({ id: "b1", title: "x", source: "director", origin: { milestoneId: "m1", taskId: "t2" } })).toBe("invalid");
@@ -142,7 +147,7 @@ describe("backlog items: adding", () => {
 
   it("a seed is an open item with a condition", () => {
     let p = added(running(), { id: "b1", title: "PDF styles", condition: "when PDF export exists", source: "director" });
-    p = added(p, { id: "b2", title: "Dark mode", source: "person" });
+    p = added(p, { id: "b2", title: "Dark mode", source: "director", fromPerson: true });
     expect(openSeeds(p).map((b) => b.id)).toEqual(["b1"]);
     expect(openBacklog(p).map((b) => b.id)).toEqual(["b1", "b2"]);
   });

@@ -462,7 +462,7 @@ describe("plan gate refusal wording (review round, issue #118)", () => {
 
 describe("plan reviewer at project.plan: the backlog (issue #111)", () => {
   it("is asked with the promoted and open backlog as data", async () => {
-    let p = applyProjectUpdate(approvedBrief(), { kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "person" } }, NOW);
+    let p = applyProjectUpdate(approvedBrief(), { kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director", fromPerson: true } }, NOW);
     if (!p.ok) throw new Error(p.error.message);
     p = applyProjectUpdate(p.project, { kind: "backlog_add", item: { id: "b2", title: "Sounds", source: "director", condition: "when the UI exists" } }, NOW);
     if (!p.ok) throw new Error(p.error.message);

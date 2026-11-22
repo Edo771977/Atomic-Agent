@@ -928,7 +928,9 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     obj(
       {
         title: stringSchema,
-        source: { type: "string", enum: ["person", "director", "worker", "reviewer"] },
+        source: { type: "string", enum: ["director", "worker", "reviewer"] },
+        // The person asked for it in their message (with source director).
+        fromPerson: { type: "boolean" },
         note: stringSchema,
         condition: stringSchema,
         // Where it came from: the plan's ids (flat, so the strict path keeps it closed).

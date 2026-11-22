@@ -1,5 +1,5 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
-import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, type ProjectBacklogDraft } from "../../session/project-backlog.js";
+import { DIRECTOR_BACKLOG_SOURCES as DIRECTOR_SOURCES, applyBacklogAdd, type ProjectBacklogDraft } from "../../session/project-backlog.js";
 import type { ProjectBacklogSource, ProjectUpdate } from "../../session/session-project.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import { PROJECT_BACKLOG_ADD_TOOL, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
@@ -25,14 +25,17 @@ const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim().
 
 export function parseProjectBacklogArgs(raw: Record<string, unknown>): Parsed {
   const problems: string[] = Object.keys(raw)
-    .filter((k) => !["title", "note", "condition", "source", "milestoneId", "taskId"].includes(k))
+    .filter((k) => !["title", "note", "condition", "source", "fromPerson", "milestoneId", "taskId"].includes(k))
     .map((k) => `unknown key \`${k}\` (an item starts open; only the person decides on it)`);
   if (!nonEmpty(raw.title)) problems.push("`title` must say what the later work is");
   for (const f of ["note", "condition"] as const) {
     if (raw[f] !== undefined && typeof raw[f] !== "string") problems.push(`\`${f}\` must be text`);
   }
-  if (typeof raw.source !== "string" || !(PROJECT_BACKLOG_SOURCES as readonly string[]).includes(raw.source)) {
-    problems.push(`\`source\` must be one of ${PROJECT_BACKLOG_SOURCES.join(", ")}: who proposed it`);
+  if (typeof raw.source !== "string" || !(DIRECTOR_SOURCES as readonly string[]).includes(raw.source)) {
+    problems.push(`\`source\` must be one of ${DIRECTOR_SOURCES.join(", ")}: who proposed it (for the person's "add to backlog", director with fromPerson: true)`);
+  }
+  if (raw.fromPerson !== undefined && (raw.fromPerson !== true || raw.source !== "director")) {
+    problems.push("`fromPerson` is true, with source director, for an item the person asked for in their message");
   }
   for (const f of ["milestoneId", "taskId"] as const) {
     if (raw[f] !== undefined && !nonEmpty(raw[f])) problems.push(`\`${f}\` must name the plan's ${f === "taskId" ? "task" : "milestone"}`);
@@ -49,6 +52,7 @@ export function parseProjectBacklogArgs(raw: Record<string, unknown>): Parsed {
     item: {
       title: raw.title as string,
       source: raw.source as ProjectBacklogSource,
+      ...(raw.fromPerson === true ? { fromPerson: true as const } : {}),
       ...(nonEmpty(raw.note) ? { note: raw.note } : {}),
       ...(nonEmpty(raw.condition) ? { condition: raw.condition } : {}),
       ...(origin === undefined ? {} : { origin }),

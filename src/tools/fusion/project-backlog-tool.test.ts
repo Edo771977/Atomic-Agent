@@ -38,15 +38,19 @@ function project(): ProjectState {
 
 describe("project.backlog.add: arguments", () => {
   it("takes a title, source, note, condition and origin; nothing that decides", () => {
-    expect(parseProjectBacklogArgs({ title: "Dark mode", source: "person", note: "asked during m1", condition: "when themes exist", milestoneId: "m1" })).toEqual({
+    expect(parseProjectBacklogArgs({ title: "Dark mode", source: "director", fromPerson: true, note: "asked during m1", condition: "when themes exist", milestoneId: "m1" })).toEqual({
       ok: true,
-      item: { title: "Dark mode", source: "person", note: "asked during m1", condition: "when themes exist", origin: { milestoneId: "m1" } },
+      item: { title: "Dark mode", source: "director", fromPerson: true, note: "asked during m1", condition: "when themes exist", origin: { milestoneId: "m1" } },
     });
     for (const bad of [
       { source: "director" },
       { title: "  ", source: "director" },
       { title: "x" },
       { title: "x", source: "martian" },
+      // Review: the director cannot label an item as the person's own.
+      { title: "x", source: "person" },
+      { title: "x", source: "worker", fromPerson: true },
+      { title: "x", source: "director", fromPerson: "yes" },
       { title: "x", source: "director", state: "promoted" },
       { title: "x", source: "director", id: "b7" },
       { title: "x", source: "director", origin: { milestoneId: "m1" } },
@@ -91,10 +95,10 @@ describe("project.backlog.add: the tool", () => {
 
   it("folds only from its own tool, and a person's item outlives the turn on the session", async () => {
     const session: SessionState = { ...createEmptySessionState({ id: "s", workingDir: "/tmp/p" }), project: project() };
-    const result = await tool.run({ title: "Add sound", source: "person", milestoneId: "m1" }, { ...ctx, project: session.project });
+    const result = await tool.run({ title: "Add sound", source: "director", fromPerson: true, milestoneId: "m1" }, { ...ctx, project: session.project });
     const folded = foldProjectUpdate(session, result, NOW + 5);
     expect(folded.result.status).toBe("ok");
-    expect(folded.session.project?.backlog).toEqual([{ id: "b1", title: "Add sound", source: "person", createdAt: NOW + 5, origin: { milestoneId: "m1" } }]);
+    expect(folded.session.project?.backlog).toEqual([{ id: "b1", title: "Add sound", source: "director", fromPerson: true, createdAt: NOW + 5, origin: { milestoneId: "m1" } }]);
     expect(folded.session.project?.gate).toEqual(session.project!.gate);
     expect(folded.session.project?.backlogStates).toBeUndefined();
     // The same update from another tool is ignored.
