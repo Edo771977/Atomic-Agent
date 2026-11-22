@@ -32,7 +32,9 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
-import { plannedLessonMismatch } from "./worker-project-lessons.js";
+import { lessonSourceIsRestricted } from "../../prompt/project-lessons-data.js";
+import { recordRestrictedProjectLessonExposure } from "../../session/project-lesson-exposure.js";
+import { plannedLessonMismatch, reviewerTaskLessons } from "./worker-project-lessons.js";
 import { checkProjectDispatch, planCoverageGap, plannedCheckMismatch } from "./project-dispatch.js";
 import { activeDecisionsOf, criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
@@ -2165,9 +2167,14 @@ export function buildFusionDelegateTool(
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
         const vision = red ? undefined : await visionFor(input, target);
         const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items, input.reply);
+        const lessonSource = ctx.incognito ? undefined : ctx.projectRef;
+        const bindingLessons = lessonSource === undefined ? [] : reviewerTaskLessons(
+          lessonSource, target.providerId, approvedRows.get(input.task.id)?.lessons ?? [], ctx.project?.lessonDeferred,
+        );
         const judged = await judgeTask({
           ...input,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
+          bindingLessons,
           ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
@@ -2180,7 +2187,12 @@ export function buildFusionDelegateTool(
           target,
           pricing: judgePricingFor(target),
           // Named for the folder's provider-policy refusal (issue #33).
-          complete: (call) => runWithProviderRole("the fusion judge", () => sideComplete!(call)),
+          complete: (call) => {
+            if (bindingLessons.length > 0 && lessonSource !== undefined && lessonSourceIsRestricted(lessonSource)) {
+              recordRestrictedProjectLessonExposure();
+            }
+            return runWithProviderRole("the fusion judge", () => sideComplete!(call));
+          },
           signal: runSignal,
         });
         if (judged.costUsd !== null && judged.costUsd > 0) {

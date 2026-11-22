@@ -44,6 +44,20 @@ export function plannedLessonMismatch(
   return null;
 }
 
+function citedBindingLessons(active: readonly ProjectLesson[], cited: readonly string[], deferred: Readonly<Record<string, string>>) {
+  return active.filter((lesson) => lesson.always && cited.includes(lesson.id) && deferred[lesson.id] !== lesson.hash);
+}
+
+export function reviewerTaskLessons(
+  source: ProjectLessonSource,
+  providerId: string,
+  cited: readonly string[],
+  deferred: Readonly<Record<string, string>> = {},
+) {
+  if (cited.length === 0) return [];
+  return bindingProjectLessonData(citedBindingLessons(projectLessonsForProvider(source, providerId), cited, deferred));
+}
+
 export function workerProjectLessonBlock(
   source: ProjectLessonSource,
   providerId: string,
@@ -55,7 +69,7 @@ export function workerProjectLessonBlock(
 ): string | null {
   const active = projectLessonsForProvider(source, providerId);
   if (active.length === 0) return null;
-  const binding = active.filter((lesson) => lesson.always && cited.includes(lesson.id) && deferred[lesson.id] !== lesson.hash);
+  const binding = citedBindingLessons(active, cited, deferred);
   const selection = projectLessonSelection(projectLessonsForTask(
     active.filter((lesson) => !binding.includes(lesson)), task, contract, workingDir, source.folder,
   ));
