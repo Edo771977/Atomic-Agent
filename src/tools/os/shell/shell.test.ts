@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApprovalGate } from "../../../approval/approval-gate.js";
@@ -208,9 +208,13 @@ describe("os.shell.run says when it ran with no arguments (F40)", () => {
   it("notes a bare invocation when args is absent", async () => {
     // The live case was `python3` with its script under an unknown key:
     // exit 0, nothing done, and nothing in the output said so.
-    const result = await tool().run({ cmd: process.execPath }, makeCtx());
+    // Exercise a Windows application installed in a path containing spaces even
+    // on hosts where the Node installation happens to have no spaces.
+    const cmd = process.platform === "win32" ? join(dir, "host name.exe") : process.execPath;
+    if (process.platform === "win32") await copyFile(join(process.env.SystemRoot!, "System32", "hostname.exe"), cmd);
+    const result = await tool().run({ cmd }, makeCtx());
     expect(result.status).toBe("ok");
-    expect(result.summary).toContain(`$ ${process.execPath} (ran with no arguments)\nexit: 0`);
+    expect(result.summary).toContain(`$ ${cmd} (ran with no arguments)\nexit: 0`);
   });
 
   it("notes a bare invocation when args is empty", async () => {
