@@ -92,4 +92,3 @@ export async function serveArtifactCheck(): Promise<number> {
   process.disconnect();
   return 0;
 }
-

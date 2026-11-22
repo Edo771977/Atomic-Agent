@@ -93,4 +93,3 @@ it("refuses to parse an artifact when the offline process restrictions are missi
   });
   expect(outcome).toMatchObject({ status: "uncheckable", detail: "offline artifact reader restrictions are unavailable" });
 });
-
