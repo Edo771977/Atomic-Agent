@@ -118,6 +118,10 @@ describe("project store (issue #109)", () => {
     started.milestones = [{ ...started.milestones[0]!, state: "reviewed", runIds: ["run-old"] }];
     expect(view(started).lessonCoverage?.[0]?.missingFrom).toEqual([]);
     const reviewed = openedProject();
+    for (const edits of [{ lessonStatus: {} }, { decisionStatus: {} }]) {
+      expect(applyProjectDecision(reviewed, { gate: reviewed.gate, version: gateVersion(reviewed)!, verdict: "edit", edits }, { now: 2 }))
+        .toMatchObject({ ok: false, error: { code: "invalid", message: "No plan changes were supplied." } });
+    }
     reviewed.plan!.review!.lessonsBasis = reviewed[currentProjectLessonsBasis]!;
     expect(view(reviewed).planReview?.stale).toBe(false);
     const deferred = decide(reviewed, "deferred");

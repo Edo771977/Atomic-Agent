@@ -2827,12 +2827,19 @@ function decideProject(
   if (gate.kind === "plan") {
     const plan = project.plan!;
     let rows: AssignmentRow[] | string;
-    const statusEdit = decision.verdict === "edit" ? decision.edits?.decisionStatus : undefined;
+    const edits = decision.verdict === "edit" ? decision.edits : undefined;
+    const statusEntries = Object.entries(edits?.decisionStatus ?? {});
+    const lessonEntries = Object.entries(edits?.lessonStatus ?? {});
+    if ((edits?.lessonStatus !== undefined || edits?.decisionStatus !== undefined) &&
+        statusEntries.length === 0 && lessonEntries.length === 0 &&
+        Object.keys(edits.backlogStatus ?? {}).length === 0 && (edits.rows?.length ?? 0) === 0) {
+      return refuse({ code: "invalid", message: "No plan changes were supplied." });
+    }
     let decisionStatus = project.decisionStatus;
-    if (statusEdit !== undefined) {
+    if (statusEntries.length > 0) {
       const known = new Set(approvedDecisionsOf(project).map((d) => d.id));
       const next: Record<string, ProjectDecisionStatus> = { ...(project.decisionStatus ?? {}) };
-      for (const [id, status] of Object.entries(statusEdit)) {
+      for (const [id, status] of statusEntries) {
         if (!known.has(id)) return refuse({ code: "invalid", message: `the approved brief has no decision ${id}` });
         if (!(PERSON_DECISION_STATUSES as readonly string[]).includes(status)) {
           return refuse({ code: "invalid", message: `decision ${id}: status must be one of ${PERSON_DECISION_STATUSES.join(", ")}` });
@@ -2858,13 +2865,12 @@ function decideProject(
       }
       backlogCalls = calls;
     }
-    const lessonEdit = decision.verdict === "edit" ? decision.edits?.lessonStatus : undefined;
     let lessonDeferred = project.lessonDeferred ?? {};
-    if (lessonEdit !== undefined) {
+    if (lessonEntries.length > 0) {
       const binding = new Map(project[currentProjectLessons]?.active.filter((lesson) => lesson.always)
         .map((lesson) => [lesson.id, lesson.hash]));
       lessonDeferred = Object.fromEntries(Object.entries(lessonDeferred).filter(([id, hash]) => binding.get(id) === hash));
-      for (const [id, status] of Object.entries(lessonEdit)) {
+      for (const [id, status] of lessonEntries) {
         const hash = binding.get(id);
         if (hash === undefined || (status !== "active" && status !== "deferred")) {
           return refuse({ code: "invalid", message: `Invalid status edit for binding lesson ${id}.` });
@@ -2873,7 +2879,7 @@ function decideProject(
         else lessonDeferred[id] = hash;
       }
     }
-    if ((statusEdit !== undefined || backlogEdit !== undefined || lessonEdit !== undefined) && (decision.edits?.rows ?? []).length === 0) {
+    if ((statusEntries.length > 0 || backlogEdit !== undefined || lessonEntries.length > 0) && (decision.edits?.rows ?? []).length === 0) {
       // Only the decisions' status changed: the rows stay as they are.
       rows = plan.rows.map((r) => ({ ...r }));
     } else if (decision.verdict === "edit") {
