@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { access, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,6 +185,7 @@ it("pins the authorized executable and refuses a higher-priority launcher plante
   const spec = { kind: "ui", path: "index.html" };
   const executable = join(bin, windows ? "impeccable.cmd" : "impeccable");
   await fake(0, []);
+  const resolvedExecutable = realpathSync.native(executable);
   const request = vi.fn(async () => {
     const local = join(root, "node_modules", ".bin");
     await mkdir(local, { recursive: true });
@@ -195,11 +197,11 @@ it("pins the authorized executable and refuses a higher-priority launcher plante
     const tool = buildVerifyRunTool({ approvals: { request } as never, approvalRequired: true, config: {} as never, checkCommandReads });
     const result = await tool.run(spec, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 });
     expect(result.status).toBe("ok");
-    expect(spawnSpy.mock.calls.map(call => call[0])).toEqual([executable, executable]);
+    expect(spawnSpy.mock.calls.map(call => call[0])).toEqual([resolvedExecutable, resolvedExecutable]);
     expect(request).toHaveBeenCalledWith(expect.objectContaining({
       category: "verify_ui_detector", preview: expect.stringContaining("impeccable"), reason: expect.stringContaining("impeccable"),
-      commandArgv: [executable, "detect", "--json", "--no-config", join(root, "index.html")],
-      commandSegments: expect.arrayContaining([[executable, "detect", "--json", "--no-config", join(root, "index.html")]]),
+      commandArgv: [resolvedExecutable, "detect", "--json", "--no-config", join(root, "index.html")],
+      commandSegments: expect.arrayContaining([[resolvedExecutable, "detect", "--json", "--no-config", join(root, "index.html")]]),
     }), expect.anything());
     expect(checkCommandReads).toHaveBeenCalled();
   } finally {
