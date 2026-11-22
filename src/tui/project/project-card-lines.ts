@@ -84,6 +84,12 @@ function fileLink(path: string): string | undefined {
   }
 }
 
+const MILESTONE_KIND_LABEL: Partial<Record<ProjectMilestone["kind"], string>> = {
+  draft: "Draft",
+  review: "Review",
+  final: "Final",
+};
+
 const MILESTONE_MARK: Record<ProjectMilestone["state"], string> = {
   planned: "·", approved: "▸", in_progress: "◐", done: "✓", failed: "✕", reviewed: "✔",
 };
@@ -221,7 +227,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;
     const shown = full ? view.milestones : view.milestones.filter((m) => m.id === gateId);
     for (const m of shown) {
-      text(`${MILESTONE_MARK[m.state]} ${m.title} (${m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
+      text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
       if (full || m.id === gateId) {
         // Evidence of the result (issue #40): never a claim the view does not carry.

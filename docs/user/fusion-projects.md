@@ -5,6 +5,8 @@ Owner: src/session/
 
 A Fusion project takes a task from brief to plan to delivery. You approve the brief, the plan and each milestone result at a gate. Read the gate before deciding. It shows what changed, which checks matter and what will happen next.
 
+Fusion can use Draft, Review and Final milestones for non-code work, and task review follows the delivery type in your approved brief.
+
 ## Find or resume a project
 
 In the desktop sidebar, open **Fusion projects** under **Projects**. The list groups projects by **Needs you**, **Problem**, **In progress**, **Idle** and **Done**. Select **Resume** to open the project's newest chat or start one if needed.

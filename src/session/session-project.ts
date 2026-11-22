@@ -135,8 +135,8 @@ export interface ProjectBrief {
   draftedAfterUntrusted: boolean;
 }
 
-export type MilestoneKind = "base" | "ui" | "logic" | "polish" | "other";
-export const MILESTONE_KINDS: readonly MilestoneKind[] = ["base", "ui", "logic", "polish", "other"];
+export const MILESTONE_KINDS = ["base", "ui", "logic", "polish", "other", "draft", "review", "final"] as const;
+export type MilestoneKind = (typeof MILESTONE_KINDS)[number];
 
 /**
  * `planned` → (plan or previous milestone approved) `approved` → (a run
