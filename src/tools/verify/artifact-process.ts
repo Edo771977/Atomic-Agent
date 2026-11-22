@@ -5,6 +5,8 @@ import { isSea } from "node:sea";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ArtifactKind, VerifyRunArgs } from "./verify-run-args.js";
 
+export const ARTIFACT_NODE_OPTIONS = "--permission --allow-fs-read=* --max-old-space-size=256";
+
 export interface ArtifactOutcome {
   status: "pass" | "fail" | "uncheckable";
   detail: string;
@@ -49,7 +51,7 @@ export async function runArtifactCheck(kind: ArtifactKind, args: VerifyRunArgs, 
     cwd: tmpdir(), windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
     // Load the installed parsers and read the authorized file. The child has
     // no network, subprocess or filesystem write permission, nor runtime credentials.
-    env: { SystemRoot: process.env.SystemRoot, NODE_OPTIONS: "--permission --allow-fs-read=* --max-old-space-size=256" },
+    env: { SystemRoot: process.env.SystemRoot, NODE_OPTIONS: ARTIFACT_NODE_OPTIONS },
   });
   return new Promise<ArtifactOutcome>((done) => {
     let settled = false;

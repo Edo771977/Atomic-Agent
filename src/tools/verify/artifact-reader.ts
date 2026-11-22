@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { evaluateDocument, parseDocumentSpec } from "./document-check.js";
 import { evaluateSpreadsheet, parseSpreadsheetSpec } from "./spreadsheet-check.js";
-import type { ArtifactJob, ArtifactOutcome } from "./artifact-process.js";
+import { ARTIFACT_NODE_OPTIONS, type ArtifactJob, type ArtifactOutcome } from "./artifact-process.js";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 32 * 1024 * 1024;
@@ -75,7 +75,9 @@ export async function serveArtifactCheck(): Promise<number> {
   let outcome: ArtifactOutcome;
   try {
     const permission = process.permission;
-    if (!permission?.has("fs.read") ||
+    // Audit mode reports denials through has() but still permits operations.
+    // The launcher supplies the exact enforcing options as well as the IPC.
+    if (process.env.NODE_OPTIONS !== ARTIFACT_NODE_OPTIONS || !permission?.has("fs.read") ||
         ["fs.write", "net", "child", "worker", "addon", "wasi", "ffi", "inspector"].some((scope) => permission.has(scope))) {
       throw new Error("offline artifact reader restrictions are unavailable");
     }
