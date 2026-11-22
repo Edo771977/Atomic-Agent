@@ -60,7 +60,7 @@ describe("ToolOutputSpill (ATO-663)", () => {
     expect(path as string).toContain(join(base, "s-1"));
   });
 
-  it("keeps the folder and the file owner-only", async () => {
+  it.skipIf(process.platform === "win32")("keeps the folder and the file owner-only on POSIX", async () => {
     const spilled = await spill.spill("os.shell.run", "s-1", shellResult(longLog(50)));
     const path = spilled.details[FULL_OUTPUT_PATH_DETAIL] as string;
     expect(statSync(path).mode & 0o777).toBe(0o600);
