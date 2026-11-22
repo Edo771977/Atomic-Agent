@@ -66,6 +66,13 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
       "",
       ...(brief.successCriteria.length === 0 ? ["(no criteria)"] : brief.successCriteria.map((c) => `- \`${c.id}\` ${c.text}`)),
     );
+    if (brief.deliverable !== undefined) briefLines.push("", `Deliverable: ${brief.deliverable}`);
+    if ((brief.decisions ?? []).length > 0) {
+      briefLines.push("", "## Decisions", "", ...brief.decisions!.map((d) => `- \`${d.id}\` ${d.text} (${project.decisionStatus?.[d.id] ?? "active"})`));
+    }
+  }
+  if ((project.backlog ?? []).length > 0) {
+    briefLines.push("", "## Backlog", "", ...project.backlog!.map((b) => `- \`${b.id}\` ${b.title}${b.condition === undefined ? "" : ` (when: ${b.condition})`}: ${project.backlogStates?.[b.id] ?? "open"}, from ${b.source}`));
   }
 
   const plan = project.plan;

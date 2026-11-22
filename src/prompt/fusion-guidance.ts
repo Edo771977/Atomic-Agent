@@ -260,12 +260,12 @@ export function isProjectActive(descriptors: readonly ToolDescriptor[]): boolean
  * is the step-mutable `### fusion project`, never here.
  */
 export const PROJECT_FLOW_GUIDANCE = [
-  "Every job is a project with three gates the person decides between turns; after each step, reply and stop:",
-  "1. `project.brief`: what, for whom, how, checkable success criteria.",
-  "2. Once approved, `project.plan`: milestones in run order, tasks with the ids you will delegate.",
-  "3. Once approved, delegate the approved milestone's tasks (same ids and workers), review them, report with `project.milestone`.",
-  "Never delegate while a gate waits; `### fusion project` says where it stands and what the person corrected.",
-  "Map each success criterion to contract checks naming it (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`).",
+  "Three gates; after each, reply and stop:",
+  "1. `project.brief`: what, for whom, how, success criteria, decisions.",
+  "2. Once approved, `project.plan`: ordered milestones, task ids, checks; cite each decision in a task's `decisions`.",
+  "3. Delegate approved tasks (same ids/workers/checks, including negative); report with `project.milestone`.",
+  "Never delegate while a gate waits; `### fusion project` shows it. To change checks, update the plan and obtain approval.",
+  "Map each criterion to plan checks (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`). Resolve fail results before approval; warn results need attention.",
 ].join("\n");
 
 /**

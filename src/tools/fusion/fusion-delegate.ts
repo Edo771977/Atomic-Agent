@@ -32,8 +32,8 @@ import {
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
-import { checkProjectDispatch, planCoverageGap } from "./project-dispatch.js";
-import { criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
+import { checkProjectDispatch, planCoverageGap, plannedCheckMismatch } from "./project-dispatch.js";
+import { activeDecisionsOf, criteriaById, type AssignmentRow, type ProjectUpdate } from "../../session/session-project.js";
 import {
   describeOversizedLocalTasks,
   localTaskSizeWarnings,
@@ -203,7 +203,9 @@ import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
+import type { ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { receiptHash } from "../../session/receipt-signing.js";
+import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 
@@ -216,6 +218,7 @@ export const FUSION_DELEGATE_TOOL = "fusion.delegate";
 export const ORCHESTRATOR_TASK_MAX_WIDTH = 2;
 
 export interface FusionDelegateDeps extends WorkerRunnerDeps {
+  writeProjectReceipt?: ProjectReceiptWriter;
   /**
    * Whether the fan-out asks the operator before it runs. Same seam as
    * every other dangerous tool: production passes `true`, tests pass
@@ -584,7 +587,10 @@ export function buildFusionDelegateTool(
       const delegateArgs = resumedFrom?.args ?? rawArgs;
       // A resume re-reads its approved contract: lint findings warn, never refuse (issue #110).
       const parsed = parseDelegateArgs(delegateArgs, resumedFrom === null ? {} : { storedContract: true });
-      if (!parsed.ok) return error(parsed.error, { field: "tasks" });
+      const plannedChecksHint = ctx.project?.plan?.rows.some((r) => (r.checks?.length ?? 0) > 0)
+        ? " Keep planned checks exactly; update the plan with project.plan and obtain approval before changing them."
+        : "";
+      if (!parsed.ok) return error(`${parsed.error}${plannedChecksHint}`, { field: "tasks" });
       // A check's criteria are the approved brief's (issue #40): an id it
       // does not have could never be shown to the person as a fact.
       if (ctx.project?.brief?.status === "approved") {
@@ -592,7 +598,7 @@ export function buildFusionDelegateTool(
         const unknown = [...new Set((parsed.contract?.checks ?? []).flatMap((c) => (c.criteria ?? []).filter((id) => !known.has(id))))];
         if (unknown.length > 0) {
           return error(
-            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}`,
+            `fusion.delegate did not run: contract.checks name criteria the approved brief does not have: ${unknown.join(", ")}; the brief's are ${[...known.keys()].join(", ") || "none"}${plannedChecksHint}`,
             { field: "contract" },
           );
         }
@@ -612,6 +618,8 @@ export function buildFusionDelegateTool(
       if (projectVerdict.kind === "refuse") {
         return error(`fusion.delegate did not run: ${projectVerdict.message}`, { reason: "project-gate", gate: projectVerdict.reason });
       }
+      const checksMismatch = plannedCheckMismatch(ctx.project, parsed.tasks.map((t) => t.id), parsed.contract);
+      if (checksMismatch !== null) return error(`fusion.delegate did not run: ${checksMismatch}`, { reason: "project-gate", gate: "plan-checks-mismatch" });
       if ((parsed.contract?.checkInputs?.length ?? 0) > 0 && mode.integration !== "candidate") {
         return error("contract.checkInputs requires candidate integration so the original check files can be frozen before workers", { reason: "check-inputs-require-candidate" });
       }
@@ -1330,6 +1338,24 @@ export function buildFusionDelegateTool(
       }
 
       const candidateOriginalDir = ctx.workingDir;
+      const writeProjectReceipt = ctx.incognito ? undefined : deps.writeProjectReceipt;
+      const recordCheckRun: CheckRunRecorder | undefined = writeProjectReceipt === undefined
+        ? undefined
+        : (check, record, ok) => {
+            try {
+              writeProjectReceipt(candidateOriginalDir, "check-run-record", {
+                kind: check.kind ?? "command",
+                ...(check.task === undefined ? {} : { task: check.task }),
+                definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
+                recordHash: receiptHash(record),
+                outputHash: receiptHash(record.output),
+                exitCode: record.exitCode,
+                ok,
+              });
+            } catch {
+              deps.logger.warn("Could not record the Fusion check receipt");
+            }
+          };
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();
       const candidateWorkerRuns = new Map<string, number>();
@@ -1404,7 +1430,11 @@ export function buildFusionDelegateTool(
       const approvedBrief = ctx.project?.brief?.status === "approved" ? ctx.project.brief : undefined;
       const projectBrief = approvedBrief === undefined
         ? undefined
-        : { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text) };
+        : (() => {
+            // Issue #112: the active decisions go with the criteria to every worker and reviewer.
+            const decisions = activeDecisionsOf(ctx.project!).map((d) => `${d.id}: ${d.text}`);
+            return { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text), ...(decisions.length === 0 ? {} : { decisions }) };
+          })();
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).
       const briefCriteria = approvedBrief === undefined ? undefined : criteriaById(approvedBrief);
@@ -1590,6 +1620,7 @@ export function buildFusionDelegateTool(
       const workerDeps: FusionDelegateDeps = {
         ...deps,
         ...(heldRunChecks === undefined ? {} : { runChecks: heldRunChecks }),
+        recordCheckRun,
         ...(deps.knownSecrets === undefined ? {} : { knownSecrets: () => collectKnownSecrets() ?? [] }),
         ...(candidate === undefined ? {} : { ruleWorkdir: candidateOriginalDir }),
         ...(deps.resolveRoutingIdentity === undefined ? {} : { runTurn: (session, message, options) => {
@@ -2116,6 +2147,7 @@ export function buildFusionDelegateTool(
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
+          ...(projectBrief?.decisions === undefined ? {} : { decisions: projectBrief.decisions }),
           ...(deps.knownSecrets === undefined
             ? {}
             : { knownSecrets: collectKnownSecrets() }),
@@ -2308,6 +2340,7 @@ export function buildFusionDelegateTool(
             tasks: parsed.tasks,
             concurrent: tasks.map((t) => t.id),
             runChecks: heldRunChecks,
+            recordCheckRun,
             ...(deps.knownSecrets === undefined
               ? {}
               : { knownSecrets: collectKnownSecrets() }),
@@ -2565,7 +2598,7 @@ export function buildFusionDelegateTool(
                   heldRunChecks,
                   {
                     workingDir: ctx.workingDir,
-                    signal: runSignal, filesOf: declaredFilesOf,
+                    signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
                     ...(deps.knownSecrets === undefined
                       ? {}
                       : { knownSecrets: collectKnownSecrets() }),
@@ -2743,7 +2776,7 @@ export function buildFusionDelegateTool(
                   ? [{ check, index }] : [],
               );
               const checks = await runContractChecks(own.map((c) => c.check), heldRunChecks, {
-                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
+                workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
                 ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
               });
               const previous = own.flatMap((c) => {
@@ -2956,7 +2989,7 @@ export function buildFusionDelegateTool(
             heldRunChecks,
             {
               workingDir: ctx.workingDir,
-              signal: runSignal, filesOf: declaredFilesOf,
+              signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
               ...(deps.knownSecrets === undefined
                 ? {}
                 : { knownSecrets: collectKnownSecrets() }),
@@ -3257,7 +3290,7 @@ export function buildFusionDelegateTool(
             ? regressionChecks
             : rebaseVerifyWorkspaceValue(regressionChecks, candidateOriginalDir, candidate.dir)) as ContractCheck[];
           const rerun = await runContractChecks(toRun, heldRunChecks, {
-            workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf,
+            workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
             ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
           });
           // Held, refused, cancelled or not run: say so on each changed row (issue #106 review).
@@ -3385,7 +3418,11 @@ export function buildFusionDelegateTool(
           verifiedNoChangesProviders,
         });
         for (const row of results) {
-          if (row.artifactManifest !== undefined) run?.recordArtifactManifest(row.id, row.artifactManifest);
+          if (row.artifactManifest === undefined) continue;
+          run?.recordArtifactManifest(row.id, row.artifactManifest);
+          if (candidate === undefined && row.status === "ok" && !carriedIds.has(row.id)) {
+            writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", row.artifactManifest);
+          }
         }
         // Automatic replanning (ATO-941): what did not close, from the
         // facts above, with the attempts it has left. The planner's next
@@ -3585,8 +3622,21 @@ export function buildFusionDelegateTool(
         // reading only the status merged nothing as if it were something.
         // Workers that were never served or timed out before a single step
         // count as nothing delivered too (ATO-234).
-        const candidateReport = candidate === undefined ? undefined : await candidate.finish({ rows: results, tasks: parsed.tasks, ...(parsed.contract === undefined ? {} : { contract: parsed.contract }), ...(deps.runChecks === undefined ? {} : { runChecks: withContractCheckEgress(deps.runChecks, checkEgress)!, holdChecks: (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)) }), signal: runSignal });
+        const candidateReport = candidate === undefined ? undefined : await candidate.finish({
+          rows: results,
+          tasks: parsed.tasks,
+          contract: parsed.contract,
+          runChecks: withContractCheckEgress(deps.runChecks, checkEgress),
+          holdChecks: deps.runChecks === undefined
+            ? undefined
+            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)),
+          signal: runSignal,
+          recordCheckRun,
+        });
         completedCandidateReport = candidateReport;
+        if (candidateReport?.status === "promoted" && candidateReport.artifactManifest !== undefined) {
+          writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", candidateReport.artifactManifest);
+        }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.
         if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {

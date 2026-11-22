@@ -474,6 +474,8 @@ export function renderJudgePrompt(input: {
   evidence: string;
   /** The fusion project's success criteria (issue #39): context for the ruling, not items. */
   successCriteria?: readonly string[];
+  /** The project's active decisions (issue #112), each `<id>: <text>`: a violation is a blocker. */
+  decisions?: readonly string[];
   /** The task's attempts and the version under review (issue #95, `renderAttemptEvidence`). */
   attemptEvidence?: string;
 }): string {
@@ -490,6 +492,9 @@ export function renderJudgePrompt(input: {
     ...(input.successCriteria === undefined || input.successCriteria.length === 0
       ? []
       : ["## The project's success criteria (the task serves these; rule on the items)", ...input.successCriteria.map((c) => `- ${c}`), ""]),
+    ...(input.decisions === undefined || input.decisions.length === 0
+      ? []
+      : ["## The project's decisions (how it must be done; work that violates one is a blocker)", ...input.decisions.map((d) => `- ${d}`), ""]),
     "## Items to rule on",
     ...judged.map((item) => `- ${item.id}: ${item.text}`),
     "",
@@ -638,6 +643,8 @@ export async function judgeTask(input: {
   signal: AbortSignal;
   /** The fusion project's success criteria (issue #39), for the judge brief. */
   successCriteria?: readonly string[];
+  /** The project's active decisions (issue #112), for the judge brief. */
+  decisions?: readonly string[];
   /** The task's attempts and the version under review (issue #95). */
   attemptEvidence?: string;
   /** The approved plan row's reviewer ref, recorded when it names a different member (issue #98). */
@@ -725,6 +732,7 @@ export async function judgeTask(input: {
         facts: factVerdicts,
         evidence,
         ...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
+        ...(input.decisions === undefined ? {} : { decisions: input.decisions }),
         ...(input.attemptEvidence === undefined ? {} : { attemptEvidence: input.attemptEvidence }),
       }),
       maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,

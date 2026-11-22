@@ -197,6 +197,13 @@ async function reviewAfterTimeout(opts: { criteria?: string[]; project?: Project
 describe("the evidence the reviewer receives (issue #104)", () => {
   afterEach(() => { vi.useRealTimers(); });
 
+  it("the reviewer's request carries the project's active decisions (issue #112)", async () => {
+    const brief: ProjectUpdate = { kind: "brief", brief: { what: "CSV sales report", users: "ops", how: "node", successCriteria: CRITERIA, decisions: [{ id: "d1", text: "No new dependencies" }] }, draftedAfterUntrusted: false };
+    const plan: ProjectUpdate = { kind: "plan", milestones: [{ id: "m1", title: "CLI", kind: "base" }], rows: [{ ...planRow("sales-tests"), decisions: ["d1"] }], detail: "compact" };
+    const { prompt } = await reviewAfterTimeout({ project: approve(up(approve(up(undefined, brief)), plan)) });
+    expect(prompt).toContain("## The project's decisions (how it must be done; work that violates one is a blocker)\n- d1: No new dependencies");
+  });
+
   it("the worker spelled the task's check as one command line: it is still its own check, so the timeout is reviewed", async () => {
     const { row, asked, prompt } = await reviewAfterTimeout();
     expect(asked).toEqual([]);

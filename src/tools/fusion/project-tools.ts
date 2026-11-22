@@ -5,11 +5,19 @@ import {
   CRITERION_ID_PATTERN,
   MILESTONE_KINDS,
   PROJECT_LIMITS,
+  PROJECT_DELIVERABLES,
+  activeDecisionsOf,
+  applyProjectUpdate,
+  finishedCitationsOf,
+  normalizeCriterionId,
+  planDecisionsOf,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
+  type ProjectDeliverable,
+  type ProjectBriefDecision,
   type ProjectCriterion,
   type ProjectCriterionInput,
   type ProjectMilestone,
@@ -24,6 +32,9 @@ import { verdictResetHint } from "./project-gate-view.js";
 import { isTooBroadScope, tooBroadWorkdirMessage } from "./scope-path.js";
 import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
+import type { ContractCheck } from "./contract.js";
+import { parsePlanRowChecks } from "./contract-check-spec.js";
+import { evaluatePlanChecks, planCheckHint } from "./plan-checks.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -138,7 +149,15 @@ function criteriaProblems(criteria: readonly unknown[]): string[] {
 }
 
 export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ brief: ProjectBriefDraft }> {
-  const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria"], "project.brief");
+  const problems: string[] = unknownKeys(raw, ["what", "users", "how", "game", "successCriteria", "deliverable", "decisions"], "project.brief");
+  if (raw.deliverable !== undefined && !PROJECT_DELIVERABLES.includes(raw.deliverable as ProjectDeliverable)) problems.push("`deliverable` must be code, document, spreadsheet, research, files or game");
+  if (raw.decisions !== undefined) {
+    if (!Array.isArray(raw.decisions) || raw.decisions.length > PROJECT_LIMITS.decisions) problems.push(`decisions must list at most ${PROJECT_LIMITS.decisions} { id, text } entries`);
+    else {
+      if (raw.decisions.some((d) => !isObject(d))) problems.push("decisions must contain { id, text } objects");
+      problems.push(...criteriaProblems(raw.decisions).map((p) => p.replaceAll("successCriteria", "decisions")));
+    }
+  }
   if (!nonEmpty(raw.what)) problems.push("`what` must say what is being built");
   for (const f of ["users", "how"] as const) {
     if (typeof raw[f] !== "string") problems.push(`\`${f}\` must be text`);
@@ -169,6 +188,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
       users: raw.users as string,
       how: raw.how as string,
       ...(game === undefined ? {} : { game }),
+      ...(raw.deliverable === undefined ? {} : { deliverable: raw.deliverable as ProjectDeliverable }),
+      ...(raw.decisions === undefined ? {} : { decisions: raw.decisions as ProjectBriefDecision[] }),
       successCriteria: criteria as ProjectCriterionInput[],
     },
   };
@@ -177,6 +198,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 // ------------------------------------------------------------------- plan
 
 export interface ProjectPlanTaskArgs {
+  checks?: ContractCheck[];
+  decisions?: string[];
   id: string;
   title: string;
   milestone: string;
@@ -227,7 +250,12 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions"], `task ${id}`));
+      const checkProblems: string[] = [];
+      const checks = parsePlanRowChecks(t.checks, id, checkProblems);
+      problems.push(...checkProblems.map((p) => `task ${id}: ${p}`));
+      const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
+      if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
       const milestone = typeof t.milestone === "string" ? t.milestone.trim() : "";
       if (!ids.has(milestone)) problems.push(`task ${id} names milestone ${JSON.stringify(t.milestone)}, which \`milestones\` does not list`);
@@ -238,6 +266,8 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         id,
         title: String(t.title ?? ""),
         milestone,
+        ...(t.checks === undefined ? {} : { checks }),
+        ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
       });
@@ -301,6 +331,8 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       local: context.isLocal?.(reviewer) ?? false,
     });
     rows.push(withReviewEstimate({
+      ...(task.checks === undefined ? {} : { checks: task.checks }),
+      ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,
@@ -438,6 +470,17 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
+      const update: ProjectUpdate = {
+        kind: "plan",
+        milestones: parsed.plan.milestones,
+        rows,
+        detail,
+        draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
+      };
+      // The milestones as this draft would leave them (issue #112): a finished one counts only for what it ran under.
+      const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
+      const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
+      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), {}, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [
@@ -447,21 +490,16 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
+        ...planChecks.map(planCheckHint),
         AWAIT_PERSON,
       ];
-      const update: ProjectUpdate = {
-        kind: "plan",
-        milestones: parsed.plan.milestones,
-        rows,
-        detail,
-        draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
-      };
       // Issue #77: say which results stop counting, so the reply can tell the person.
       const resets = projectVerdictResets(ctx.project, update);
       if (resets.length > 0) {
         lines.splice(lines.length - 1, 0, ...resets.map(verdictResetHint), "Their earlier results moved to history; tell the person these run again.");
       }
-      return accepted(PROJECT_PLAN_TOOL, lines.join("\n"), update);
+      const result = accepted(PROJECT_PLAN_TOOL, lines.join("\n"), update);
+      return { ...result, details: { ...result.details, planChecks } };
     },
   };
   const milestone: ToolDefinition = {
@@ -565,6 +603,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
+      }
+      // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
+      const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
+      const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));
+      if (decisions.length > 0) {
+        const line = `Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): ${decisions.map((d) => `${d.id} (${d.text})`).join(", ")}.`;
+        report = { ...report, summary: `${report.summary}\n${line}` };
+        lines.push(line);
       }
       return accepted(
         PROJECT_MILESTONE_TOOL,

@@ -692,11 +692,6 @@ if (invokedDirectly) {
   void bootstrapSidecar();
 }
 
-/**
- * The `sessionId` of a request, refused when it could name a path
- * (issue #74, `session/session-id.ts`): checked before anything else so a
- * bad id is named as such, whatever state the sidecar is in.
- */
 /** A project folder from a host: an absolute path, one line. */
 function requireProjectFolder(value: unknown): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || /[\r\n\0]/.test(value) || !isAbsolute(value)) {
@@ -705,6 +700,11 @@ function requireProjectFolder(value: unknown): string {
   return resolve(value);
 }
 
+/**
+ * The `sessionId` of a request, refused when it could name a path
+ * (issue #74, `session/session-id.ts`): checked before anything else so a
+ * bad id is named as such, whatever state the sidecar is in.
+ */
 function requireSessionId(value: unknown): string {
   if (typeof value !== "string" || !value) throw new Error("sessionId is required");
   const problem = sessionIdError(value);

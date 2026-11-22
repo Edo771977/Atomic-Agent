@@ -1,6 +1,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { vi } from "vitest";
+
+// Integration fixtures may boot the production runtime. Only injected test keyrings are usable.
+vi.mock("./native/load-keyring.js", () => ({ loadKeyring: () => null }));
 
 /**
  * Vitest global setup: point every test at an isolated `STATE_DIR` so

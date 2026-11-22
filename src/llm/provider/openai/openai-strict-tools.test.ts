@@ -490,8 +490,11 @@ describe("strict-tool conformance over every registered tool", () => {
     // unable to write a check at all. `parseDelegateArgs` validates the
     // shape at run time, as it always did. `browser.extract` takes the
     // caller's own JSON Schema as `schema`; `browser.site_tools` passes
-    // `arguments` shaped by the site's own declared tool (ATO-521). Each
-    // is the tool's actual payload, so none can be closed.
+    // `arguments` shaped by the site's own declared tool (ATO-521).
+    // `project.plan` joined them when plan rows began to carry their
+    // `checks` (the same `verify.run` specs), so a plan can be approved
+    // with the checks its tasks will run; `planUpdate` validates them.
+    // Each is the tool's actual payload, so none can be closed.
     expect(refused).toEqual([
       "browser__extract",
       "browser__site_tools",
@@ -499,6 +502,7 @@ describe("strict-tool conformance over every registered tool", () => {
       "mcp__prompt__get",
       "verify__run",
       "fusion__delegate",
+      "project__plan",
     ]);
   });
 

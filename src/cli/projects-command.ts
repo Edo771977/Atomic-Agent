@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { openProject, projectFilePath } from "../session/project-store.js";
@@ -37,6 +38,7 @@ const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
   "",
   "Subcommands:",
+  "  verify [folder]      Verify the archived evidence receipts (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -79,11 +81,15 @@ function projectSpend(project: ProjectState, stateDir: string): number | null {
 }
 
 /** One row per known folder; a missing or damaged folder is a row, never an error. */
-export function listProjectRows(stateDir: string, now: number = Date.now()): { rows: ProjectRow[]; registryProblem?: string } {
+export function listProjectRows(
+  stateDir: string,
+  now: number = Date.now(),
+  includeFolder: (folder: string) => boolean = () => true,
+): { rows: ProjectRow[]; registryProblem?: string } {
   const registry = readProjectRegistry(stateDir);
   if (!registry.ok) return { rows: [], registryProblem: registry.message };
   const records = stateDirProjectRecords(stateDir);
-  const rows = registry.folders.map((folder): ProjectRow => {
+  const rows = registry.folders.filter(includeFolder).map((folder): ProjectRow => {
     const opened = openProject(folder, { stateDir, records });
     if (!opened.ok) {
       const code = opened.problem.code;
@@ -122,7 +128,7 @@ function formatRows(rows: readonly ProjectRow[]): string {
   const out: string[] = [];
   for (const r of rows) {
     if (r.status !== "ok") {
-      out.push(`${r.folder}`, `  ${r.status}: ${r.problem ?? ""}`, "");
+      out.push(`${r.folder}`, `  ${r.status}: ${r.problem ?? ""}`, `  attention: ${r.zone}`, "");
       continue;
     }
     out.push(
@@ -246,6 +252,23 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
   if (sub === undefined || sub === "-h" || sub === "--help") {
     stdout(PROJECT_HELP);
     return 0;
+  }
+  if (sub === "verify") {
+    if (args.length > 2 || args[1]?.startsWith("-")) {
+      stderr("Usage: atomic-agent project verify [folder]\n");
+      return 2;
+    }
+    try {
+      const results = verifyProjectReceipts(deps.stateDir?.() ?? getConfig().paths.stateDir, resolve(args[1] ?? "."));
+      for (const [index, status] of results.entries()) stdout(`Receipt ${index + 1}: ${status}\n`);
+      const valid = results.filter(result => result === "valid").length;
+      stdout(`${results.length} receipts, ${valid} valid, ${results.length - valid} problems.\n`);
+      stdout("A process running as the same user with keychain access can sign replacement evidence.\n");
+      return valid === results.length ? 0 : 1;
+    } catch {
+      stderr("Could not read the project's receipt archive.\n");
+      return 1;
+    }
   }
   if (sub !== "resume") {
     stderr(`unknown subcommand: ${sub}\n${PROJECT_HELP}`);

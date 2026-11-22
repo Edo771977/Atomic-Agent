@@ -6,7 +6,8 @@
  * runtime's `projectDecision`.
  */
 
-import type { ProjectDecision, ProjectEdits, ProjectGate, ProjectVerdict } from "./session-project.js";
+import { normalizeCriterionId } from "./project-criterion-id.js";
+import { PERSON_DECISION_STATUSES, type PersonDecisionStatus, type ProjectDecision, type ProjectEdits, type ProjectGate, type ProjectVerdict } from "./session-project.js";
 
 export const PROJECT_VERDICTS: readonly ProjectVerdict[] = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"];
 export const MAX_PROJECT_NOTE_CHARS = 2000;
@@ -63,6 +64,19 @@ function parseEdits(raw: unknown): ProjectEdits | string {
       brief.successCriteria = c;
     }
     out.brief = brief as ProjectEdits["brief"];
+  }
+  if (raw.decisionStatus !== undefined) {
+    // Issue #112: the person's status for the approved brief's decisions, at the plan gate.
+    if (!isObject(raw.decisionStatus)) return "edits.decisionStatus must be an object of decision id to status";
+    const status: Record<string, PersonDecisionStatus> = {};
+    for (const [id, value] of Object.entries(raw.decisionStatus)) {
+      if (normalizeCriterionId(id) !== id) return `edits.decisionStatus: ${JSON.stringify(id)} is not a decision id`;
+      if (typeof value !== "string" || !(PERSON_DECISION_STATUSES as readonly string[]).includes(value)) {
+        return `edits.decisionStatus.${id} must be one of ${PERSON_DECISION_STATUSES.join(", ")}`;
+      }
+      status[id] = value as PersonDecisionStatus;
+    }
+    out.decisionStatus = status;
   }
   if (raw.note !== undefined) {
     if (typeof raw.note !== "string" || raw.note.trim().length === 0 || raw.note.length > MAX_PROJECT_NOTE_CHARS) {

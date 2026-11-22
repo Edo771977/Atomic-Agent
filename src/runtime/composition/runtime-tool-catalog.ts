@@ -910,6 +910,7 @@ export function registerRuntimeFusionAndReadScope(input: {
   outcomeLog?: FusionDelegateDeps["outcomeLog"];
   /** Upstream's past-runs journal (ATO-949, `outcome-journal.ts`). */
   outcomeJournal?: FusionDelegateDeps["outcomeJournal"];
+  writeProjectReceipt?: FusionDelegateDeps["writeProjectReceipt"];
   turnLedger?: FusionDelegateDeps["turnLedger"];
   /**
    * What the local legs' format check sends with (`fusion-format-check.ts`):
@@ -1166,6 +1167,7 @@ export function registerRuntimeFusionAndReadScope(input: {
       // The outcome log and the turn receipt's tally (counts only).
       ...(outcomeLog === undefined ? {} : { outcomeLog }),
       ...(outcomeJournal === undefined ? {} : { outcomeJournal }),
+      writeProjectReceipt: input.writeProjectReceipt,
       ...(turnLedger === undefined ? {} : { turnLedger }),
       approvals,
       approvalRequired: dangerous.approvalRequired,

@@ -26,13 +26,12 @@ describe("/api/projects", () => {
   let harness: Harness;
   let root: string;
 
-  beforeEach(async () => {
-    harness = await startTestHarness();
+  beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "aa-http-projects-"));
   });
 
   afterEach(async () => {
-    await harness.cleanup();
+    await harness?.cleanup();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -51,7 +50,9 @@ describe("/api/projects", () => {
   };
 
   it("lists healthy, damaged and missing folders, resumes one, forgets one", async () => {
+    harness = await startTestHarness();
     const game = folderWithProject("game");
+    expect(JSON.parse(readFileSync(projectFilePath(game), "utf8"))).toMatchObject({ schemaVersion: 2 });
     const gone = folderWithProject("gone");
     const broken = folderWithProject("broken");
     rmSync(gone, { recursive: true, force: true });
@@ -62,7 +63,11 @@ describe("/api/projects", () => {
     const list = (await res.json()) as { schema: number; projects: Array<Record<string, unknown>>; registry_problem: string | null };
     expect(list.schema).toBe(1);
     expect(list.registry_problem).toBeNull();
-    expect(list.projects.map((r) => [r.folder, r.status])).toEqual([[game, "ok"], [gone, "missing"], [broken, "damaged"]]);
+    expect(list.projects.map((row) => [row.folder, row.status, row.zone])).toEqual([
+      [game, "ok", "needs-you"],
+      [gone, "missing", "problem"],
+      [broken, "damaged", "problem"],
+    ]);
     expect(list.projects[0]).toMatchObject({ name: "game", gate: "milestone m2", next: "you review milestone m2" });
 
     const resumed = await post("/api/projects/resume", { folder: game });
@@ -99,5 +104,42 @@ describe("/api/projects", () => {
     expect((await post("/api/projects/forget", { folder: gone })).json).toEqual({ schema: 1, folder: gone, forgotten: false });
     expect((await post("/api/projects/forget", { folder: 7 })).status).toBe(400);
     expect(readProjectRegistry(harness.stateDir)).toEqual({ ok: true, folders: [game, broken] });
+  });
+
+  it("withholds restricted projects and chats from network clients", async () => {
+    const restricted = join(root, "restricted");
+    harness = await startTestHarness({
+      host: "0.0.0.0",
+      constraints: { [restricted]: { allowedProviders: ["local-llama"] } },
+    });
+    folderWithProject("restricted");
+    const game = folderWithProject("game");
+    const resumed = await post("/api/projects/resume", { folder: game });
+    expect(resumed.status).toBe(200);
+    const session = harness.runtime.sessionStore.load(resumed.json.session_id as string)!;
+    harness.runtime.sessionStore.save({
+      ...session,
+      metadata: {
+        ...session.metadata,
+        providerReadTaint: {
+          key: restricted, matchedDir: restricted, readFrom: [restricted],
+          allowedProviders: ["local-llama"], allowedEgress: [],
+        },
+      },
+    });
+
+    const res = await fetch(`${harness.baseUrl}/api/projects`);
+    expect(await res.json()).toMatchObject({ projects: [{ folder: game }] });
+    for (const [path, folder] of [
+      ["/api/projects/resume", restricted],
+      ["/api/projects/forget", restricted],
+      ["/api/projects/resume", game],
+    ] as const) {
+      expect(await post(path, { folder })).toMatchObject({
+        status: 403,
+        json: { error: { code: "folder_restricted" } },
+      });
+    }
+    expect(readProjectRegistry(harness.stateDir)).toEqual({ ok: true, folders: [restricted, game] });
   });
 });

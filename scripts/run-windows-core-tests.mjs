@@ -16,6 +16,7 @@ export const coreDirectories = ['src/tools/fusion', 'src/tools/verify'];
 export const externalCriticalFiles = ['src/runtime/composition/runtime-tool-catalog.test.ts'];
 /** Whole files the native Windows gate runs. */
 export const criticalFiles = [
+  'src/tools/fusion/plan-checks.test.ts',
   'src/tools/verify/run-verify.test.ts',
   'src/tools/fusion/branch-merge.test.ts',
   'src/tools/fusion/contract.test.ts',
@@ -111,6 +112,7 @@ export const criticalFiles = [
 ];
 /** Additional whole-file regressions outside the exhaustively classified core directories. */
 export const supplementalFiles = [
+  'src/session/project-receipts.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
   'src/runtime/daily-budget-fallback.test.ts',

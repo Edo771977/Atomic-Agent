@@ -31,6 +31,20 @@ describe("run at a project gate", () => {
     expect(rt.projectDecision).not.toHaveBeenCalled();
   });
 
+  it("auto-approval refused by a plan check stops naming the plan, not a milestone review (issue #112)", async () => {
+    const message = "The plan stays open: decision-coverage: fail: No plan task that will run cites active decisions: d2 (No new dependencies). Update the plan before approval.";
+    const rt = {
+      projectState: vi.fn(() => fixtureProjectGateView({ kind: "plan" })),
+      projectDecision: vi.fn(() => ({ ok: false as const, error: { code: "review-open" as const, message, blocks: [{ taskId: "plan", reason: "decision-coverage: fail: …" }] } })),
+    };
+    const step = await settleProjectGate(rt, "sess-1", "approve");
+    expect(step.kind).toBe("stop");
+    if (step.kind !== "stop") return;
+    expect(step.text).toContain(`A plan check still blocks the plan: this needs a person, so it is not approved automatically. ${message}`);
+    expect(step.text).not.toContain("milestone");
+    expect(step.text).toContain("atomic-agent run --session sess-1");
+  });
+
   it("prints a local row as $0.00 (local), not unpriced (issue #54)", async () => {
     const base = fixtureProjectGateView({ kind: "plan" });
     const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);

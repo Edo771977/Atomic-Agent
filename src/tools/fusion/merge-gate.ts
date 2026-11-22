@@ -33,6 +33,7 @@ import {
   applyCheckOutcomes,
   inspectContractProvides,
   runContractChecks,
+  type CheckRunRecorder,
   type ContractCheckOutcome,
   type ContractCheckRunner,
   type ContractFinding,
@@ -135,6 +136,7 @@ export interface MergeGateInput {
   /** Every task id of this run of tasks (a wave, a retry). */
   concurrent: readonly string[];
   runChecks: ContractCheckRunner | undefined;
+  recordCheckRun?: CheckRunRecorder;
   knownSecrets?: readonly KnownSecret[];
   signal: AbortSignal;
   state: MergeGateState;
@@ -195,6 +197,7 @@ export function buildMergeGate(input: MergeGateInput): MergeGate {
           workingDir: workspace.dir,
           signal: input.signal,
           ...(input.knownSecrets === undefined ? {} : { knownSecrets: input.knownSecrets }),
+          recordCheckRun: input.recordCheckRun,
           filesOf: (taskId) => input.tasks.find((t) => t.id === taskId)?.files ?? [],
         },
       );
