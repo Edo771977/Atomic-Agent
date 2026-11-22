@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,9 @@ import { PLAN_REVIEW_DIMENSIONS } from "../tools/fusion/plan-review-record.js";
 import { parseTeamMember } from "../llm/run-mode/fusion-team.js";
 import { workerProjectLessonBlock } from "../tools/fusion/worker-project-lessons.js";
 import { projectCommand } from "./projects-command.js";
+
+const fingerprint = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
+const approval = (dir: string, id: string) => id + "@" + fingerprint(join(dir, id + ".md"));
 
 describe("project lessons", () => {
   let root: string;
@@ -58,7 +62,7 @@ describe("project lessons", () => {
     expect(await projectCommand(["lessons", folder, "--json"], { stdout, stderr })).toBe(0);
     expect(JSON.parse(stdout.mock.calls[0]![0])).toEqual({
       lessons: [{
-        id: "private-lesson", title: "Project decision", declaredStatus: "active",
+        id: "private-lesson", fingerprint: expect.stringMatching(/^[a-f0-9]{12}$/), title: "Project decision", declaredStatus: "active",
         approvedByPerson: false, effectiveStatus: "unapproved", personState: null, stale: false, always: false, touches: ["src/file.ts"],
       }],
       problems: [{ file: "broken.md", reason: expect.stringMatching(/front matter/i) }],
@@ -93,7 +97,14 @@ describe("project lessons", () => {
       expect(await projectCommand(["lessons", folder, "--approve", "lesson"], { ...io, sessionStore: sessions })).toBe(1);
       expect(records.read(folder)).toMatchObject({ record: expect.not.objectContaining({ lessonCalls: expect.anything() }) });
       sessions.releaseTurn(session.id, { status: "completed" });
-      expect(await projectCommand(["lessons", folder, "--approve", "lesson"], { ...io, sessionStore: sessions })).toBe(0);
+      expect(await projectCommand(["lessons", folder, "--approve", "lesson"], io)).toBe(1);
+      expect(stderr).toHaveBeenLastCalledWith(expect.stringContaining(approval(dir, "lesson")));
+      const seen = approval(dir, "lesson");
+      writeFileSync(file, original + EOL);
+      expect(await projectCommand(["lessons", folder, "--approve", seen], io)).toBe(1);
+      expect(stderr).toHaveBeenLastCalledWith(expect.stringMatching(/lesson has changed.*read/i));
+      writeFileSync(file, original);
+      expect(await projectCommand(["lessons", folder, "--approve", seen], { ...io, sessionStore: sessions })).toBe(0);
     } finally {
       sessions.close();
     }
@@ -139,7 +150,7 @@ describe("project lessons", () => {
       writeLesson(id, id === "private-proposed" ? "proposed" : "active");
     }
     for (const [action, id] of [["approve", "private-active"], ["approve", "private-stale"], ["retire", "private-retired"], ["approve", "private-proposed"]]) {
-      expect(await projectCommand(["lessons", folder, "--" + action, id!], { stdout, stderr, stateDir: () => stateDir })).toBe(0);
+      expect(await projectCommand(["lessons", folder, "--" + action, action === "approve" ? approval(dir, id!) : id!], { stdout, stderr, stateDir: () => stateDir })).toBe(0);
     }
     writeLesson("private-stale", "active", "changed");
 

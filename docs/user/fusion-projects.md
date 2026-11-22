@@ -34,12 +34,12 @@ Save lessons as Markdown files in `.atomic/project/lessons/` so they travel with
 Open the project in a regular chat. Between turns, use these commands from your terminal.
 
 ~~~sh
-atomic-agent project lessons ./my-project --approve local-storage
+atomic-agent project lessons ./my-project --approve local-storage@0123456789ab
 atomic-agent project lessons ./my-project --retire local-storage
 atomic-agent project lessons ./my-project --reopen local-storage
 ~~~
 
-Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
+Replace the example fingerprint with the one displayed for the lesson. Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
 
 The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to flag a binding choice for planning and review. Folder provider restrictions also apply to lessons, and chats bound to restricted projects keep their conversation out of personal memory. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 

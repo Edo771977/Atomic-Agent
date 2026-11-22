@@ -38,7 +38,7 @@ const PROJECTS_HELP = [
   "",
 ].join("\n");
 
-const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json] [--approve <id> | --retire <id> | --reopen <id>]\n";
+const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json] [--approve <id>@<fingerprint> | --retire <id> | --reopen <id>]\n";
 
 const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
@@ -48,7 +48,7 @@ const PROJECT_HELP = [
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
-  "  lessons [folder] [--json] [--approve <id> | --retire <id> | --reopen <id>]",
+  "  lessons [folder] [--json] [--approve <id>@<fingerprint> | --retire <id> | --reopen <id>]",
   "      List and decide project lessons (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
@@ -493,15 +493,18 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
   };
   const actions = { "--approve": "approved", "--retire": "retired", "--reopen": null } as const;
   let json = false;
-  let decision: { id: string; state: "approved" | "retired" | null } | undefined;
+  let decision: { id: string; state: "approved" | "retired" | null; fingerprint?: string } | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--json") json = true;
     else if (arg === "--approve" || arg === "--retire" || arg === "--reopen") {
-      const id = args[++i];
-      if (decision !== undefined || id === undefined || !validProjectLessonId(id)) return usage();
-      decision = { id, state: actions[arg] };
+      const target = args[++i];
+      if (decision !== undefined || target === undefined) return usage();
+      const [id, fingerprint, extra] = arg === "--approve" ? target.split("@") : [target];
+      if (id === undefined || !validProjectLessonId(id) || extra !== undefined ||
+          (fingerprint !== undefined && !/^[a-f0-9]{12}$/.test(fingerprint))) return usage();
+      decision = { id, state: actions[arg], ...(fingerprint === undefined ? {} : { fingerprint }) };
     } else if (arg.startsWith("-")) return usage();
     else positional.push(arg);
   }
@@ -523,6 +526,11 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
     if (lesson === undefined && (state !== null || !Object.hasOwn(calls, id))) {
       return refuse(`No valid lesson named ${id}.`);
     }
+    if (state === "approved" && lesson !== undefined) {
+      const fingerprint = lesson.hash.slice(0, 12);
+      if (decision.fingerprint === undefined) return refuse(`Current fingerprint: ${fingerprint}. Review the lesson and use --approve ${id}@${fingerprint}.`);
+      if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
+    }
     const call = state === null ? null : { state, hash: lesson!.hash };
     const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
     if (!written.ok) return refuse(written.problem.message);
@@ -533,7 +541,7 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
 
   const rows = lessons.map((lesson) => {
     const { id, title, declaredStatus, always, touches } = lesson;
-    return { id, title, declaredStatus, always, touches, ...projectLessonStatus(lesson, calls[id]) };
+    return { id, title, fingerprint: lesson.hash.slice(0, 12), declaredStatus, always, touches, ...projectLessonStatus(lesson, calls[id]) };
   });
   const staleChoices = Object.entries(calls).flatMap(([id, { state }]) => {
     const row = rows.find((row) => row.id === id);
@@ -542,8 +550,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
   if (json) {
     stdout(JSON.stringify({ lessons: rows, problems, ...(staleChoices.length === 0 ? {} : { staleChoices }) }, null, 2) + "\n");
   } else {
-    const lines = rows.map(({ id, title, declaredStatus, effectiveStatus, personState, always, touches }) =>
-      `${id}  ${title} (${effectiveStatus}, declared: ${declaredStatus}, person: ${personState ?? "no current choice"}, always: ${always}, touches: ${JSON.stringify(touches)})`,
+    const lines = rows.map(({ id, title, declaredStatus, effectiveStatus, personState, always, touches, fingerprint }) =>
+      `${id}@${fingerprint}  ${title} (${effectiveStatus}, declared: ${declaredStatus}, person: ${personState ?? "no current choice"}, always: ${always}, touches: ${JSON.stringify(touches)})`,
     );
     lines.push(...staleChoices.map(({ id, state, reason }) => `Stale choice for ${id} (${state}): ${reason}.`));
     lines.push(...problems.map(({ file, reason }) => "Skipped " + JSON.stringify(file) + ": " + reason));
