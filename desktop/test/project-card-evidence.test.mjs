@@ -179,3 +179,58 @@ test('a milestone line names its kind as the TUI card: Draft, Review and Final r
   assert.match(lines[2], /^· Editor pass \(Review\) — planned$/);
   assert.match(lines[3], /^· Final copy \(Final\) — planned$/);
 });
+
+test('opening a chat requests evidence only for a visible milestone gate', async () => {
+  for (const kind of ['brief', 'plan', 'milestone']) {
+    const v = view({}, {gate: {kind, id: 'm1'}});
+    const calls = [];
+    const card = C.createProjectCard({
+      api: {read: (sid, evidence) => { calls.push([sid, evidence === true]); return {ok: true, view: v}; }},
+      draw() {}, onContinue() {},
+    });
+    card.follow('ses-1');
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, kind === 'milestone' ? [['ses-1', false], ['ses-1', true]] : [['ses-1', false]]);
+  }
+});
+
+test('a milestone frame and its duplicate request evidence once, including with an older agent', async () => {
+  const receipts = {valid: 1, unsigned: 0, problems: 0};
+  for (const evidenceReceipts of [receipts, undefined]) {
+    const doc = fakeDoc(), host = doc.createElement('div');
+    const calls = [];
+    let finish;
+    const card = C.createProjectCard({
+      api: {read: (sid, evidence) => {
+        calls.push([sid, evidence === true]);
+        if (evidence) return new Promise((resolve) => { finish = resolve; });
+        return {ok: true, view: view({}, {gate: {kind: 'plan'}})};
+      }},
+      draw: (model, act) => C.pcDraw(doc, host, model, act),
+      onContinue() {},
+    });
+    card.follow('ses-1');
+    await new Promise(setImmediate);
+    for (const kind of ['brief', 'plan']) {
+      card.onFrame({sessionId: 'ses-1', view: view({}, {gate: {kind}})});
+    }
+    card.onFrame({sessionId: 'other', view: view()});
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, [['ses-1', false]]);
+    const frame = {sessionId: 'ses-1', view: view()};
+    card.onFrame(frame);
+    card.onFrame(structuredClone(frame));
+    card.follow('ses-1');
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, [['ses-1', false], ['ses-1', true]]);
+    assert.deepEqual(texts(host, 'pc-evidence'), []);
+    finish({ok: true, view: view({evidenceReceipts})});
+    await new Promise(setImmediate);
+    card.onFrame(structuredClone(frame));
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, [['ses-1', false], ['ses-1', true]]);
+    const lines = texts(host, 'pc-evidence');
+    if (evidenceReceipts) assert.match(lines[0], /^Evidence: /);
+    else assert.deepEqual(lines, []);
+  }
+});

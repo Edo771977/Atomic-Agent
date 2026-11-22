@@ -314,3 +314,23 @@ test('the decision IPC takes a backlog defer or reactivate at the plan gate only
     {...edit, gate: {kind: 'milestone', id: 'm1'}},
   ]) assert.equal(parseProjectDecisionIpc(raw).ok, false, JSON.stringify(raw));
 });
+
+test('getProject opts into evidence only after confirming the session is not incognito', async () => {
+  const milestone = view({gate: {kind: 'milestone', id: 'm1'}});
+  const s = await standIn((r) => {
+    if (r.url === '/api/sessions/private') return [200, {id: 'private', incognito: {since: 1, owner: 'test'}}];
+    if (r.url === '/api/sessions/ses%2F1') return [200, {id: 'ses/1'}];
+    if (r.url.startsWith('/api/project?')) return [200, {view: milestone}];
+    return [404, {}];
+  });
+  try {
+    await s.client.getProject('ses/1');
+    assert.deepEqual(await s.client.getProject('ses/1', true), {supported: true, ok: true, view: milestone});
+    await s.client.getProject('private', true);
+    await s.client.getProject('unknown', true);
+    assert.deepEqual(s.seen.map((r) => r.url), [
+      '/api/project?session=ses%2F1', '/api/sessions/ses%2F1',
+      '/api/project?session=ses%2F1&evidence=1', '/api/sessions/private', '/api/sessions/unknown',
+    ]);
+  } finally { await s.close(); }
+});

@@ -1226,7 +1226,7 @@ function pcCanContinue(env) {
 /* ---------- the controller: one card for the chat on screen ---------- */
 
 /**
- * `api.read(sid)` → AgentClient.getProject's answer; `api.decide(body)` →
+ * `api.read(sid, evidence?)` → AgentClient.getProject's answer; `api.decide(body)` →
  * projectDecision's. `onContinue(sid, text)` sends the next message and
  * answers whether it went (false: kept until that chat is on screen).
  * `onRevise()` puts the caret in the composer. `draw(model)` paints.
@@ -1241,6 +1241,7 @@ function createProjectCard(opts) {
   const backlogDeciding = new Set();   // issue #146: the chats a backlog call is in flight for (it moves no gate, so by sid)
   const problems = new Map();  // issue #109: sid → why its project could not be opened (the last read's)
   let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
+  let evidenceFor = null, evidenceReceipts;
   const key = () => {
     const v = state.view;
     return v ? JSON.stringify([sid, v.gate.kind, v.gate.id || '', v.version]) : '';
@@ -1252,9 +1253,34 @@ function createProjectCard(opts) {
   let paintedRunning = false;
   function paint() {
     paintedRunning = turnRunning();
-    let model = sid && !hidden.has(key()) ? pcModel(state, {turnRunning: paintedRunning}) : null;
+    let cardState = state;
+    if (evidenceFor === state.view && evidenceReceipts) {
+      const view = state.view;
+      const milestones = pcList(view.milestones).map((m) => m.id === view.gate.id ? {...m, evidenceReceipts} : m);
+      cardState = {...state, view: {...view, milestones}};
+    }
+    let model = sid && !hidden.has(key()) ? pcModel(cardState, {turnRunning: paintedRunning}) : null;
     if (!model && sid && !pcShown(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
     opts.draw(model, act);
+  }
+  async function readEvidence() {
+    const source = state.view;
+    if (!sid || !pcOpen(source) || source.gate.kind !== 'milestone' || hidden.has(key()) || evidenceFor === source) return;
+    const asked = sid, mine = serial;
+    // The same view can arrive on both the chat and the global event stream.
+    // Keep the optional reply separate so it cannot replace that view.
+    evidenceFor = source;
+    evidenceReceipts = undefined;
+    try {
+      const res = await opts.api.read(asked, true);
+      const view = res?.ok && res.view;
+      if (mine !== serial || source !== state.view || evidenceFor !== source ||
+          view?.gate?.kind !== 'milestone' || view.gate.id !== source.gate.id || view.version !== source.version) return;
+      evidenceReceipts = pcList(view.milestones).find((m) => m.id === view.gate.id)?.evidenceReceipts;
+      if (evidenceReceipts) paint();
+    } catch {
+      // The card already has its ordinary view.
+    }
   }
   function setView(view, notice) {
     state = pcReduce(state, {type: 'view', view, notice});
@@ -1349,10 +1375,12 @@ function createProjectCard(opts) {
       if (!frame || typeof frame !== 'object') return;
       frames.set(frame.sessionId, (frames.get(frame.sessionId) || 0) + 1);
       const changed = store.put(frame.sessionId, frame.view);
-      if (changed && frame.sessionId === sid) {
+      if (frame.sessionId !== sid) return;
+      if (changed) {
         state = pcReduce(state, {type: 'view', view: store.get(sid), inFlight: state.busy});
         paint(); notify();
       }
+      void readEvidence();
     },
     /** The chat on screen is `next` (null: none, or not saved yet). Reads its view once per change. */
     follow(next) {
@@ -1362,6 +1390,8 @@ function createProjectCard(opts) {
       // Hide lasts while the chat stays on screen: opening it again shows its card.
       hidden.clear();
       sid = next; serial++;
+      evidenceFor = null;
+      evidenceReceipts = undefined;
       state = pcInitial(sid ? store.get(sid) : null);
       if (deciding.has(key()) || backlogDeciding.has(sid)) state.busy = true;   // issue #74: its decision has not answered yet
       paint();
@@ -1376,6 +1406,7 @@ function createProjectCard(opts) {
         if (!res.view && typeof res.problem === 'string' && res.problem) problems.set(asked, res.problem); else problems.delete(asked);
         const changed = (res.view ? store.put(asked, res.view) : store.drop(asked)) || problems.get(asked) !== was;
         if (changed) { state = pcReduce(state, {type: 'view', view: store.get(asked), inFlight: state.busy}); paint(); notify(); }
+        void readEvidence();
       }).catch(() => undefined);
     },
     /* Another agent is on the wire (a restart, a remote one): what the last
@@ -1386,7 +1417,7 @@ function createProjectCard(opts) {
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcShown(state.view) && !(pcBacklogOnly(state.view) && turnRunning()) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */
-    show() { if (hidden.delete(key())) { paint(); changed(); } },
+    show() { if (hidden.delete(key())) { paint(); changed(); void readEvidence(); } },
     state: () => state,
     store,
   };

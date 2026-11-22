@@ -1881,12 +1881,12 @@ function wireIpc(client: AgentClient): void {
   });
 
   /* Issue #39: the fusion project card (renderer/project-card.js). The read
-     takes a session id only; a decision is rebuilt field by field
-     (project-ipc.ts) and the agent decides whether the gate takes it. */
-  ipcMain.handle("agent:project", async (_event, sessionId: unknown) => {
+     takes a session id and an optional evidence flag. Decisions are rebuilt
+     field by field (project-ipc.ts) for the agent to validate against the gate. */
+  ipcMain.handle("agent:project", async (_event, sessionId: unknown, evidence: unknown) => {
     const sid = parseProjectSessionIpc(sessionId);
     if (!sid) return { supported: true, ok: false, status: 0, error: "session required" };
-    return client.getProject(sid);
+    return client.getProject(sid, evidence === true);
   });
   /* Issue #109: the Fusion projects list (renderer/fusion-projects.js). A
      folder is checked to be one absolute path; which folders the list

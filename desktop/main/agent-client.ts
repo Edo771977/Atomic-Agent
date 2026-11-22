@@ -2585,14 +2585,33 @@ export class AgentClient extends EventEmitter {
    * draws. `view: null` is a chat without a project; `supported: false` an
    * agent without the route.
    */
-  async getProject(sessionId: string): Promise<
+  async getProject(sessionId: string, evidence = false): Promise<
     | { supported: false }
     | { supported: true; ok: true; view: unknown; problem?: string }
     | { supported: true; ok: false; status: number; error: string }
   > {
     try {
-      const res = await fetch(`${this.base()}/api/project?session=${encodeURIComponent(sessionId)}`, {
-        headers: this.headers(),
+      const base = this.base();
+      const headers = this.headers();
+      const id = encodeURIComponent(sessionId);
+      if (evidence) {
+        // The session detail exposes the privacy mark. Skip this optional read
+        // if the session is incognito or its privacy status could not be checked.
+        const session = await fetch(`${base}/api/sessions/${id}`, {
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!session.ok) {
+          await session.body?.cancel();
+          return { supported: true, ok: true, view: null };
+        }
+        const state = await session.json() as { id?: unknown; incognito?: unknown } | null;
+        if (state?.id !== sessionId || state.incognito != null) {
+          return { supported: true, ok: true, view: null };
+        }
+      }
+      const res = await fetch(`${base}/api/project?session=${id}${evidence ? "&evidence=1" : ""}`, {
+        headers,
         signal: AbortSignal.timeout(10_000),
       });
       const text = await res.text();
