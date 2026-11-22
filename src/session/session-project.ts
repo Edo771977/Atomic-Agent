@@ -790,6 +790,18 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
   }
 }
 
+/**
+ * Issue #118: at a turn's end, a draft still held for the plan reviewer
+ * (sent back, no gate) opens the plan gate with its open notes, as if the
+ * rounds had run out: the person never loses a plan to a turn that
+ * stopped (a reply, a step limit, a budget). Undefined: nothing held.
+ */
+export function releaseHeldPlan(project: ProjectState | undefined): ProjectState | undefined {
+  const review = project?.plan?.review;
+  if (project === undefined || project.cancelledAt !== undefined || project.gate.kind !== "none" || project.plan?.status !== "draft" || review?.sentBack !== true) return undefined;
+  return { ...project, plan: { ...project.plan, review: { ...review, sentBack: false, heldAtTurnEnd: true } }, gate: { kind: "plan" } };
+}
+
 /** The plan reviewer's fails still standing on the project's plan (issue #118), as review blocks; none for a stale review. */
 export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[] {
   return planReviewBlocks(project.plan, project.milestones.map((m) => m.id), planReviewFactsOf(project));

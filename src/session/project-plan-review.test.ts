@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PLAN_REVIEW_DIMENSIONS, planReviewBasis, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import { projectContent, stateDirProjectRecords } from "./project-decisions.js";
 import { createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
-import { applyProjectDecision, applyProjectUpdate, gateVersion, normalizeProject, type AssignmentRow, type ProjectState, type ProjectUpdate } from "./session-project.js";
+import { applyProjectDecision, applyProjectUpdate, gateVersion, normalizeProject, releaseHeldPlan, type AssignmentRow, type ProjectState, type ProjectUpdate } from "./session-project.js";
 
 const NOW = 1_700_000_000_000;
 const row: AssignmentRow = { taskId: "t1", title: "Build it", milestoneId: "m1", worker: "local:small", reviewer: null, reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000 };
@@ -110,5 +110,19 @@ describe("plan review and project.json (issue #118, #109)", () => {
     expect(opened.opened.project.plan?.review).toEqual(review());
     expect(opened.opened.project.plan?.reviewOverride).toBeUndefined();
     expect(opened.opened.stored.project.plan?.review).toBeUndefined();
+  });
+});
+
+describe("a held plan when the turn ends (review round, issue #118)", () => {
+  it("opens the plan gate with the open notes, as if the rounds had run out", () => {
+    const held = fold(approvedBrief(), planUpdate({ planReview: review({ sentBack: true }), holdForReview: true }));
+    const released = releaseHeldPlan(held);
+    expect(released?.gate).toEqual({ kind: "plan" });
+    expect(released?.plan?.review).toMatchObject({ sentBack: false, heldAtTurnEnd: true });
+    expect(normalizeProject(JSON.parse(JSON.stringify(released)))).toEqual(released);
+  });
+  it("leaves any other project alone", () => {
+    expect(releaseHeldPlan(fold(approvedBrief(), planUpdate({ planReview: review() })))).toBeUndefined();
+    expect(releaseHeldPlan(undefined)).toBeUndefined();
   });
 });

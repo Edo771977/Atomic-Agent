@@ -67,6 +67,8 @@ export interface PlanReviewRecord {
    * from {@link round}, so drafting again never restarts the rounds.
    */
   decided?: true;
+  /** The turn ended while this draft was sent back: the gate opened with its notes still open. */
+  heldAtTurnEnd?: true;
 }
 
 export const PLAN_REVIEW_DETAIL_MAX = 400;
@@ -125,6 +127,7 @@ export function readPlanReviewRecord(raw: unknown): PlanReviewRecord | undefined
     basis: raw.basis,
     costUsd: raw.costUsd as number | null,
     ...(raw.decided === true ? { decided: true as const } : {}),
+    ...(raw.heldAtTurnEnd === true ? { heldAtTurnEnd: true as const } : {}),
   };
 }
 
@@ -248,7 +251,8 @@ export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: rea
   }
   const fails = results.some((r) => r.verdict === "fail");
   const head = `plan review ${review.round}${by}: ${tally(results)}${fails ? "; open notes below: approve over them only with a note (approveOverReview)" : ""}`;
-  return { hints: [head, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)], autoApprovable: !fails };
+  const held = review.heldAtTurnEnd === true ? ["the turn ended while the director was revising the plan for these notes: it reaches you as it stood"] : [];
+  return { hints: [head, ...held, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)], autoApprovable: !fails };
 }
 
 /** {@link planReviewGate}'s lines alone. */

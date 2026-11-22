@@ -19,7 +19,7 @@ import { renderRouteChangeNote } from "../../prompt/route-change-note.js";
 import { applySessionProject, type SessionProject } from "../../session/session-project.js";
 import { previousReplyText, workerRequestRecord } from "../../prompt/request-section.js";
 import { pickOriginalRequest, surfaceShowsProjectGates, withProjectToolVisibility } from "../../tools/fusion/index.js";
-import { PROJECT_GATES_METADATA_KEY, readProjectGatesCapability } from "../../session/session-project.js";
+import { PROJECT_GATES_METADATA_KEY, readProjectGatesCapability, releaseHeldPlan, withProject } from "../../session/session-project.js";
 import type { ToolRole } from "../../tools/tool-roles.js";
 import { currentBrowserScope, endBrowserWorker, isAttendedTurn, runInBrowserScope } from "../../tools/browser/browser-run-scope.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
@@ -984,8 +984,10 @@ export function createRuntimeTurnService(
         const usage = traces.readContextUsage(session.id);
         const spend = sessionUsage?.get(session.id);
         const servedRoute = director === undefined ? turnRoute : directorFallover(session.id, director, turnRoute, llmResolved);
+        // Issue #118: a plan still held for the plan reviewer reaches the person now.
+        const ended = releaseHeldPlanAtTurnEnd(result.session, deps.projectStore);
         const finished: SessionState = withLiveReadTaint({
-          ...result.session,
+          ...ended,
           ...(usage === undefined ? {} : { contextUsage: usage }),
           ...(spend === undefined ? {} : { sessionUsage: spend }),
           metadata: {
@@ -1358,3 +1360,17 @@ export function resolveTurnLocalEngine(config: AtomicAgentConfig, providerId: st
   return config.localModels.managed.engine === "llama-server" ? "llama-server" : "atomic-core";
 }
 
+/**
+ * Issue #118: open the plan gate on a draft the turn left held for the
+ * plan reviewer (`releaseHeldPlan`), through the folder's store when the
+ * project lives there; a store that refuses leaves the session as it was.
+ */
+function releaseHeldPlanAtTurnEnd(session: SessionState, store: RuntimeTurnDependencies["projectStore"]): SessionState {
+  if (releaseHeldPlan(session.project) === undefined) return session;
+  if (store === undefined) return withProject(session, releaseHeldPlan(session.project)!);
+  const base = store.load(session);
+  const released = releaseHeldPlan(base.project);
+  if (released === undefined) return base;
+  const written = store.commit(base, released);
+  return written.ok ? written.session : base;
+}
