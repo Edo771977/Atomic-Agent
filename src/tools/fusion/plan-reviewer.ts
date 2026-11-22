@@ -153,32 +153,6 @@ export function parsePlanReviewAnswer(content: string, taskIds: readonly string[
   return { ok: true, results: out };
 }
 
-/**
- * Facts the reviewer cannot pass over (the judge's rule: a model only
- * adds red): an approved criterion no task check names fails
- * `criteria-coverage`; a task with no check fails `verifiability`; a
- * deterministic `decision-coverage` failure fails `decisions`. The
- * reviewer's own notes stay beside the fact's.
- */
-export function withPlanFacts(results: readonly PlanReviewResult[], input: Pick<PlanReviewInput, "rows" | "criteria" | "planChecks">): PlanReviewResult[] {
-  const named = new Set(input.rows.flatMap((r) => (r.checks ?? []).flatMap((c) => c.criteria ?? [])));
-  const uncovered = input.criteria.filter((c) => !named.has(c.id)).map((c) => c.id);
-  const bare = input.rows.filter((r) => (r.checks?.length ?? 0) === 0).map((r) => r.taskId);
-  const decisionFail = input.planChecks.find((c) => c.dimension === "decision-coverage" && c.verdict === "fail");
-  const floor = (r: PlanReviewResult, fact: string, taskIds: readonly string[]): PlanReviewResult => ({
-    ...r,
-    verdict: "fail",
-    detail: (r.verdict === "fail" ? `${fact} ${r.detail}` : fact).slice(0, PLAN_REVIEW_DETAIL_MAX),
-    taskIds: [...new Set([...taskIds, ...(r.verdict === "fail" ? r.taskIds : [])])].slice(0, PLAN_REVIEW_TASK_IDS_MAX),
-  });
-  return results.map((r) => {
-    if (r.dimension === "criteria-coverage" && uncovered.length > 0) return floor(r, `No task check names approved criteria: ${uncovered.join(", ")}.`, []);
-    if (r.dimension === "verifiability" && bare.length > 0) return floor(r, `Tasks without an executable check: ${bare.join(", ")}.`, bare);
-    if (r.dimension === "decisions" && decisionFail !== undefined) return floor(r, decisionFail.detail, decisionFail.taskIds);
-    return r;
-  });
-}
-
 /** Where the plan review goes: a member, a reason it is skipped, or none configured (today's behaviour). */
 export type PlanReviewerPick = { kind: "member"; member: TeamMember } | { kind: "skip"; reason: string } | { kind: "none" };
 
@@ -248,7 +222,8 @@ export async function reviewPlan(args: {
   }
   const parsed = parsePlanReviewAnswer(content, args.input.rows.map((r) => r.taskId));
   if (!parsed.ok) return { outcome: "not-run", reason: `the reviewer's answer could not be read (${parsed.error})`, costUsd };
-  return { outcome: "reviewed", results: withPlanFacts(parsed.results, args.input), costUsd };
+  // The model's own verdicts only: the facts floor is applied when the review is used (`withPlanFacts`).
+  return { outcome: "reviewed", results: parsed.results, costUsd };
 }
 
 /** What a plan review produced, before `project.plan` adds its round, basis and whether it sends the draft back. */

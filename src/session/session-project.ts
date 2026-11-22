@@ -26,7 +26,7 @@ import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
-import { planReviewBlocks, readPlanReviewRecord, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
+import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -791,8 +791,18 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
 }
 
 /** The plan reviewer's fails still standing on the project's plan (issue #118), as review blocks; none for a stale review. */
-export function openPlanReviewBlocks(project: Pick<ProjectState, "plan" | "milestones">): ProjectReviewBlock[] {
-  return planReviewBlocks(project.plan, project.milestones.map((m) => m.id));
+export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[] {
+  return planReviewBlocks(project.plan, project.milestones.map((m) => m.id), planReviewFactsOf(project));
+}
+
+/** The plan review's facts as they stand now (issue #118): the approved criteria and the deterministic plan checks. */
+export function planReviewFactsOf(project: ProjectState, options: PlanCheckOptions = {}): PlanReviewFacts {
+  const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
+  const plan = project.plan;
+  return {
+    criteria,
+    planChecks: plan === undefined ? [] : evaluatePlanChecks(plan.rows, criteria, { ...options, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)),
+  };
 }
 
 /** Row totals by plain sums ({@link ProjectPlanTotals}). */

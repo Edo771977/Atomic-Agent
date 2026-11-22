@@ -7,6 +7,7 @@ import {
   PLAN_REVIEW_DIMENSIONS,
   openPlanReviewFails,
   planReviewBasis,
+  withPlanFacts,
   planReviewBlocks,
   planReviewHints,
   readPlanReviewRecord,
@@ -83,17 +84,15 @@ describe("plan reviewer answer", () => {
 
 describe("reviewPlan", () => {
   const member = m("cloud:model-r");
-  it("fails criteria coverage when no task check names a criterion, whatever the reviewer says", async () => {
-    const run = await reviewPlan({ input: input([row("t1")]), member, pricing: undefined, complete: fakeReviewer(answer()), signal, sessionId: "s" });
-    expect(run.outcome).toBe("reviewed");
+  it("stores the model's own verdicts; the facts floor fails criteria coverage and verifiability when used", async () => {
+    const rows = [checked("t1"), row("t2")];
+    const run = await reviewPlan({ input: input(rows, { criteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Keys" }] }), member, pricing: undefined, complete: fakeReviewer(answer()), signal, sessionId: "s" });
     const results = run.outcome === "reviewed" ? run.results : [];
-    expect(results.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "fail", detail: expect.stringContaining("c1") });
-  });
-  it("fails verifiability for a task without an executable check", async () => {
-    const run = await reviewPlan({ input: input([checked("t1"), row("t2")]), member, pricing: undefined, complete: fakeReviewer(answer()), signal, sessionId: "s" });
-    const results = run.outcome === "reviewed" ? run.results : [];
-    expect(results.find((r) => r.dimension === "verifiability")).toMatchObject({ verdict: "fail", taskIds: ["t2"] });
-    expect(results.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "pass" });
+    expect(results.every((r) => r.verdict === "pass")).toBe(true);
+    const floored = withPlanFacts(results, rows, { criteria: [{ id: "c1" }, { id: "c2" }], planChecks: [] });
+    expect(floored.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "fail", detail: expect.stringContaining("c2") });
+    expect(floored.find((r) => r.dimension === "verifiability")).toMatchObject({ verdict: "fail", taskIds: ["t2"] });
+    expect(withPlanFacts(results, [checked("t1", ["c1", "c2"])], { criteria: [{ id: "c1" }, { id: "c2" }], planChecks: [] }).every((r) => r.verdict === "pass")).toBe(true);
   });
   it("keeps the reviewer's own fail and prices the call", async () => {
     const complete = fakeReviewer(answer({ dependencies: { verdict: "fail", detail: "t2 needs t1's output in the same milestone", taskIds: ["t2"] } }), { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 });
@@ -127,8 +126,9 @@ describe("pickPlanReviewer", () => {
 });
 
 describe("plan review record", () => {
-  const rows = [checked("t1"), row("t2")];
+  const rows = [checked("t1"), checked("t2")];
   const ids = ["m1"];
+  const facts = { criteria: [{ id: "c1" }], planChecks: [] };
   const results = PLAN_REVIEW_DIMENSIONS.map((dimension): PlanReviewResult => ({ dimension, verdict: dimension === "size" ? "fail" : "pass", detail: "d", taskIds: dimension === "size" ? ["t2"] : [] }));
   const record: PlanReviewRecord = { outcome: "reviewed", reviewer: "cloud:r", results, round: 3, sentBack: false, basis: planReviewBasis(rows, ids), costUsd: 0.01 };
   it("reads back what it wrote and refuses a malformed one", () => {
@@ -138,11 +138,11 @@ describe("plan review record", () => {
     expect(readPlanReviewRecord({ ...record, outcome: "skipped" })).toBeUndefined();
   });
   it("names open fails while fresh, and reads as stale once the rows change", () => {
-    expect(openPlanReviewFails({ rows, review: record }, ids).map((r) => r.dimension)).toEqual(["size"]);
-    expect(planReviewBlocks({ rows, review: record }, ids)).toEqual([{ taskId: "t2", reason: expect.stringContaining("plan review: size: fail") }]);
-    expect(planReviewHints({ rows, review: record }, ids)[0]).toMatch(/plan review 3 by cloud:r: 7 pass, 0 warn, 1 fail; open notes/);
-    const changed = [checked("t1"), row("t2", { title: "Build a smaller t2" })];
-    expect(openPlanReviewFails({ rows: changed, review: record }, ids)).toEqual([]);
-    expect(planReviewHints({ rows: changed, review: record }, ids)).toEqual([expect.stringMatching(/stale/)]);
+    expect(openPlanReviewFails({ rows, review: record }, ids, facts).map((r) => r.dimension)).toEqual(["size"]);
+    expect(planReviewBlocks({ rows, review: record }, ids, facts)).toEqual([{ taskId: "t2", reason: expect.stringContaining("plan review: size: fail") }]);
+    expect(planReviewHints({ rows, review: record }, ids, facts)[0]).toMatch(/plan review 3 by cloud:r: 7 pass, 0 warn, 1 fail; open notes/);
+    const changed = [checked("t1"), { ...checked("t2"), title: "Build a smaller t2" }];
+    expect(openPlanReviewFails({ rows: changed, review: record }, ids, facts)).toEqual([]);
+    expect(planReviewHints({ rows: changed, review: record }, ids, facts)).toEqual([expect.stringMatching(/stale/)]);
   });
 });

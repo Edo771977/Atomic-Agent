@@ -80,7 +80,9 @@ describe("plan reviewer at project.plan (issue #118)", () => {
     expect(complete).toHaveBeenCalledTimes(1);
     expect(update.holdForReview).toBe(true);
     expect(update.planReview).toMatchObject({ outcome: "reviewed", round: 1, sentBack: true, reviewer: "cloud:model-r" });
-    expect(update.planReview?.results.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "fail", detail: expect.stringContaining("c2") });
+    // The record keeps the model's verdict; the fact (c2 named by no check) fails it when used.
+    expect(update.planReview?.results.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "pass" });
+    expect(result.summary).toMatch(/criteria-coverage: fail: No task check names approved criteria: c2/);
     expect(project.gate).toEqual({ kind: "none" });
     expect(result.summary).toMatch(/not shown to the person/i);
     expect(result.summary).toContain("criteria-coverage: fail");
@@ -239,5 +241,22 @@ describe("plan reviewer at the plan gate (issue #118)", () => {
     expect(step.kind === "stop" && step.text).toMatch(/plan reviewer's open notes/);
     expect(decisions).toEqual(["approve"]);
     expect(project.plan?.status).toBe("draft");
+  });
+});
+
+describe("plan review facts are recomputed, never stored (review round, issue #118)", () => {
+  it("deferring the uncited decision at the gate lets the plan be approved; the record keeps only the model's verdicts", async () => {
+    const p0 = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "Snake", users: "Kids", how: "One page", successCriteria: [{ id: "c1", text: "Runs" }], decisions: [{ id: "d1", text: "Use canvas" }] }, draftedAfterUntrusted: false }, NOW);
+    if (!p0.ok) throw new Error(p0.error.message);
+    const a = applyProjectDecision(p0.project, { gate: p0.project.gate, version: gateVersion(p0.project)!, verdict: "approve" }, { now: NOW });
+    if (!a.ok) throw new Error(a.error.message);
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const plan = { milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build in `game.js`", milestone: "m1", checks: [check(["c1"])] }] };
+    const { project } = await draft(a.project, plan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 });
+    expect(project.plan?.review?.results.find((r) => r.dimension === "decisions")?.verdict).toBe("pass");
+    const deferred = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "edit", edits: { decisionStatus: { d1: "deferred" } } }, { now: NOW + 1 });
+    if (!deferred.ok) throw new Error(deferred.error.message);
+    const approved = applyProjectDecision(deferred.project, { gate: deferred.project.gate, version: gateVersion(deferred.project)!, verdict: "approve" }, { now: NOW + 2 });
+    expect(approved.ok).toBe(true);
   });
 });

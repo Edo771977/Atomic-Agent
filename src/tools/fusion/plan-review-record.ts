@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { AssignmentRow, ProjectReviewBlock } from "../../session/session-project.js";
+import type { PlanCheckResult } from "./plan-checks.js";
 
 /**
  * The plan reviewer's record (issue #118): what a model said about a
@@ -126,23 +127,65 @@ export interface ReviewedPlan {
   review?: PlanReviewRecord;
 }
 
+/**
+ * What the facts floor reads, recomputed whenever a review is used (the
+ * gate, a decision, `project.plan`), never stored with it: the approved
+ * criteria and the deterministic plan checks as they stand now (a
+ * decision the person deferred since no longer fails `decisions`).
+ */
+export interface PlanReviewFacts {
+  criteria: readonly { id: string }[];
+  planChecks: readonly PlanCheckResult[];
+}
+
+/**
+ * Facts the reviewer cannot pass over (the judge's rule: a model only
+ * adds red): an approved criterion no task check names fails
+ * `criteria-coverage`; a task with no check fails `verifiability`; a
+ * deterministic `decision-coverage` failure fails `decisions`. The
+ * reviewer's own notes stay beside the fact's.
+ */
+export function withPlanFacts(results: readonly PlanReviewResult[], rows: readonly AssignmentRow[], facts: PlanReviewFacts): PlanReviewResult[] {
+  const named = new Set(rows.flatMap((r) => (r.checks ?? []).flatMap((c) => c.criteria ?? [])));
+  const uncovered = facts.criteria.filter((c) => !named.has(c.id)).map((c) => c.id);
+  const bare = rows.filter((r) => (r.checks?.length ?? 0) === 0).map((r) => r.taskId);
+  const decisionFail = facts.planChecks.find((c) => c.dimension === "decision-coverage" && c.verdict === "fail");
+  const floor = (r: PlanReviewResult, fact: string, taskIds: readonly string[]): PlanReviewResult => ({
+    ...r,
+    verdict: "fail",
+    detail: (r.verdict === "fail" ? `${fact} ${r.detail}` : fact).slice(0, PLAN_REVIEW_DETAIL_MAX),
+    taskIds: [...new Set([...taskIds, ...(r.verdict === "fail" ? r.taskIds : [])])].slice(0, PLAN_REVIEW_TASK_IDS_MAX),
+  });
+  return results.map((r) => {
+    if (r.dimension === "criteria-coverage" && uncovered.length > 0) return floor(r, `No task check names approved criteria: ${uncovered.join(", ")}.`, []);
+    if (r.dimension === "verifiability" && bare.length > 0) return floor(r, `Tasks without an executable check: ${bare.join(", ")}.`, bare);
+    if (r.dimension === "decisions" && decisionFail !== undefined) return floor(r, decisionFail.detail, decisionFail.taskIds);
+    return r;
+  });
+}
+
 /** Whether the stored review read these rows (and milestone order). */
 export function planReviewFresh(plan: ReviewedPlan, milestoneIds: readonly string[]): boolean {
   return plan.review !== undefined && plan.review.basis === planReviewBasis(plan.rows, milestoneIds);
 }
 
-/** The reviewer's failures still standing on the plan: a fresh review's `fail` results; none for a stale or absent one. */
-export function openPlanReviewFails(plan: ReviewedPlan | undefined, milestoneIds: readonly string[]): PlanReviewResult[] {
-  if (plan?.review === undefined || plan.review.outcome !== "reviewed" || !planReviewFresh(plan, milestoneIds)) return [];
-  return plan.review.results.filter((r) => r.verdict === "fail");
+/** A fresh review's results with the facts floor applied now; undefined for a stale, absent or unanswered one. */
+export function effectivePlanReview(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): PlanReviewResult[] | undefined {
+  if (plan?.review === undefined || plan.review.outcome !== "reviewed" || !planReviewFresh(plan, milestoneIds)) return undefined;
+  return withPlanFacts(plan.review.results, plan.rows, facts);
+}
+
+/** The reviewer's failures still standing on the plan: a fresh review's `fail` results (facts floor included); none for a stale or absent one. */
+export function openPlanReviewFails(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): PlanReviewResult[] {
+  return (effectivePlanReview(plan, milestoneIds, facts) ?? []).filter((r) => r.verdict === "fail");
 }
 
 export const planReviewLine = (r: PlanReviewResult): string =>
   `plan review: ${r.dimension}: ${r.verdict}: ${r.detail}${r.taskIds.length === 0 ? "" : ` (${r.taskIds.join(", ")})`}`;
 
 /** The open failures as review blocks (the `review-open` refusal and the person's override record). */
-export function planReviewBlocks(plan: ReviewedPlan | undefined, milestoneIds: readonly string[]): ProjectReviewBlock[] {
-  return openPlanReviewFails(plan, milestoneIds).flatMap((r) =>
+export function planReviewBlocks(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): ProjectReviewBlock[] {
+  return openPlanReviewFails(plan, milestoneIds, facts).flatMap((r) =>
     (r.taskIds.length === 0 ? ["plan"] : r.taskIds).map((taskId) => ({ taskId, reason: flat(planReviewLine(r), PLAN_REVIEW_DETAIL_MAX) })));
 }
 
@@ -157,16 +200,17 @@ function tally(results: readonly PlanReviewResult[]): string {
  * that is not a pass. A stale review says so instead of its results; a
  * skipped or failed one says why. Nothing without a record.
  */
-export function planReviewHints(plan: ReviewedPlan | undefined, milestoneIds: readonly string[]): string[] {
+export function planReviewHints(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): string[] {
   const review = plan?.review;
   if (review === undefined) return [];
   const by = review.reviewer === null ? "" : ` by ${review.reviewer}`;
   if (review.outcome === "skipped") return [`plan review skipped: ${review.reason ?? "no plan reviewer could be used"}`];
   if (review.outcome === "not-run") return [`plan review did not run${by}: ${review.reason ?? "no answer"}; this is not a pass`];
-  if (!planReviewFresh(plan!, milestoneIds)) {
+  const results = effectivePlanReview(plan, milestoneIds, facts);
+  if (results === undefined) {
     return [`plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`];
   }
-  const fails = review.results.some((r) => r.verdict === "fail");
-  const head = `plan review ${review.round}${by}: ${tally(review.results)}${fails ? "; open notes below: approve over them only with a note (approveOverReview)" : ""}`;
-  return [head, ...review.results.filter((r) => r.verdict !== "pass").map(planReviewLine)];
+  const fails = results.some((r) => r.verdict === "fail");
+  const head = `plan review ${review.round}${by}: ${tally(results)}${fails ? "; open notes below: approve over them only with a note (approveOverReview)" : ""}`;
+  return [head, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)];
 }

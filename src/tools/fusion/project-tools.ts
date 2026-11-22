@@ -37,7 +37,7 @@ import { parsePlanRowChecks } from "./contract-check-spec.js";
 import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
-import { planReviewBasis, planReviewHints, planReviewLine, type PlanReviewRecord } from "./plan-review-record.js";
+import { planReviewBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
 import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
@@ -461,11 +461,12 @@ const REVISE_FOR_REVIEW =
 /** The reviewer's notes are a model's answer: framed as data in the director's result. */
 const PLAN_REVIEWER_SOURCE = "the plan reviewer's answer (a model)";
 
-function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], milestoneIds: readonly string[], deps: ProjectToolDeps): string[] {
-  const hints = planReviewHints({ rows, review }, milestoneIds);
+function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], milestoneIds: readonly string[], facts: PlanReviewFacts, deps: ProjectToolDeps): string[] {
+  const hints = planReviewHints({ rows, review }, milestoneIds, facts);
   if (review.outcome !== "reviewed") return hints;
   const [head, ...notes] = hints;
-  const fails = review.results.filter((r) => r.verdict === "fail");
+  const results = withPlanFacts(review.results, rows, facts);
+  const fails = results.filter((r) => r.verdict === "fail");
   const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
   return [
     review.sentBack
@@ -473,7 +474,7 @@ function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], m
       : fails.length > 0
         ? `The plan reviewer still fails ${fails.map((r) => r.dimension).join(", ")} after ${review.round - 1} round${review.round - 1 === 1 ? "" : "s"}: the person sees its open notes at the gate and decides.`
         : head!,
-    ...(notes.length === 0 ? [] : [frameUntrustedText(review.results.filter((r) => r.verdict !== "pass").map(planReviewLine).join("\n"), PLAN_REVIEWER_SOURCE)]),
+    ...(notes.length === 0 ? [] : [frameUntrustedText(results.filter((r) => r.verdict !== "pass").map(planReviewLine).join("\n"), PLAN_REVIEWER_SOURCE)]),
   ];
 }
 
@@ -499,7 +500,7 @@ async function reviewDraft(
       milestones: draft.update.milestones,
       rows: draft.rows,
       planChecks: draft.planChecks,
-      ...(continues ? { previousNotes: previous.results.filter((r) => r.verdict !== "pass") } : {}),
+      ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
     },
     sessionId: ctx.sessionId,
     signal: ctx.signal,
@@ -507,7 +508,8 @@ async function reviewDraft(
   if (answer === null) return undefined;
   const round = continues ? previous.round + 1 : 1;
   const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
-  const sentBack = answer.outcome === "reviewed" && answer.results.some((r) => r.verdict === "fail") && round <= rounds;
+  // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
+  const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
   return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
 }
 
@@ -575,7 +577,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...planChecks.map(planCheckHint),
-        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), deps)),
+        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,
       ];
       // Issue #77: say which results stop counting, so the reply can tell the person.
