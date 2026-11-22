@@ -111,6 +111,7 @@ import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
 import { projectResumeLine } from "./project/project-card-lines.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { withProject, type ProjectDecision } from "../session/session-project.js";
+import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";
 import { teamMemberByRef } from "../runtime/session-director.js";
@@ -719,6 +720,29 @@ export class ChatOrchestrator {
     this.notify(role === "director"
       ? `fusion director: ${member}`
       : member === null ? "fusion worker: each task's own pick" : `fusion worker: ${member}`);
+  }
+
+  /** A backlog decision changes the stored project, without opening a director turn. */
+  decideProjectBacklog(sessionId: string, decision: ProjectBacklogDecision): void {
+    if (this.session?.id !== sessionId) return;
+    const fail = (error: string) => this.bus.emit({ type: "project_card_failed", error });
+    if (this.currentController || this.runtime.turnController?.busySessionIds?.().includes(sessionId)) {
+      fail("A turn is running. Wait for it to finish, then decide.");
+      return;
+    }
+    if (!this.runtime.projectBacklogDecision) {
+      fail("This runtime cannot take backlog decisions.");
+      return;
+    }
+    try {
+      const result = this.runtime.projectBacklogDecision(sessionId, decision);
+      if (!result.ok) { fail(result.error.message); return; }
+      this.session = withProject(this.session, result.project);
+      const verb = decision.state === "open" ? "Reopened" : decision.state === "promoted" ? "Promoted" : "Dropped";
+      this.bus.emit({ type: "project_card_backlog_answer", sessionId, view: result.view, notice: `${verb} ${decision.id}.` });
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** `/plan` (issue #39): the open chat's fusion project in full, at any gate. */
