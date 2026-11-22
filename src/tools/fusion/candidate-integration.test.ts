@@ -742,3 +742,27 @@ it.each([join("pkg", ".atomic-agent"), join("pkg", "deep", ".ATOMIC-AGENT."), jo
     await expect(stat(join(root, "pkg"))).rejects.toThrow();
   } finally { await candidate.cleanup(); }
 });
+
+it("preserves passing final checks alongside an uncheckable UI check", async () => {
+  const root = await project();
+  const candidate = await createCandidateIntegration(root);
+  try {
+    await writeFile(join(candidate.dir, "api.json"), '{"name":"after"}');
+    const checks = [...contract.checks, { kind: "ui", path: "index.html" }];
+    const runChecks = vi.fn(async () => ({
+      ok: false,
+      results: [
+        { ok: true, summary: "command passed" },
+        { ok: false, artifactStatus: "uncheckable" as const, error: "UI approval refused" },
+      ],
+    }));
+    const report = await candidate.finish({ rows, contract: { checks }, signal, runChecks });
+    expect(report).toMatchObject({ status: "rejected", contract: {
+      checks: [{ ok: true }, { ok: false, artifactStatus: "uncheckable" }],
+    } });
+    expect(runChecks).toHaveBeenCalledOnce();
+    expect(await readFile(join(root, "api.json"), "utf8")).toBe('{"name":"before"}');
+  } finally {
+    await candidate.cleanup();
+  }
+});

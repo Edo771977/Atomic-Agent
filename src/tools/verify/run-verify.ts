@@ -9,7 +9,7 @@
  */
 import { resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
-import { resolveVerifyCwd } from "./verify-authorization.js";
+import { resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
@@ -269,8 +269,9 @@ export async function runVerify(
     finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
   if (args.kind === "ui" && detector === undefined) {
-    return failed(isImpeccableMarkup(args.path!) ? "impeccable is not installed" :
-      "impeccable scans markup: specify the file that uses this CSS or script", undefined);
+    const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
+    return failed(unavailable ?? (isImpeccableMarkup(args.path!) ? "impeccable is not installed" :
+      "impeccable scans markup: specify the file that uses this CSS or script"), undefined);
   }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.

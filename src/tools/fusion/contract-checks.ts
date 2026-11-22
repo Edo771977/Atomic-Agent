@@ -51,6 +51,7 @@ export interface ContractFinding {
  * `verify`'s `runChecks`; this is the least it has to return.
  */
 interface ImpeccableCheckEvidence {
+  artifactStatus?: "pass" | "fail" | "uncheckable";
   impeccableVersion?: string;
   impeccableFindings?: readonly string[];
   impeccableSuppressions?: readonly string[];
@@ -522,6 +523,7 @@ function maskResult(
   const games = result.games === undefined ? undefined : maskGames(result.games, known);
   return {
     ok: result.ok,
+    ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
     ...(summary === undefined ? {} : { summary }),
     ...(error === undefined ? {} : { error }),
     ...(stderrTail === undefined ? {} : { stderrTail }),
@@ -677,6 +679,7 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
+      ...((check.kind ?? check.type) !== "ui" || result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
       ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),

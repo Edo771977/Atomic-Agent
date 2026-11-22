@@ -301,9 +301,11 @@ it.skipIf(windows)("honors a saved deny on the npm launcher name when its real f
       approved: ruleDecisionFor(req) !== "deny", reason: "blocked by saved impeccable rule", automatic: true,
     }));
     const tool = buildVerifyRunTool({ approvals: { request, ruleDecisionFor } as never, approvalRequired: true, config: {} as never });
-    await expect(tool.run({ kind: "ui", path: "index.html" }, {
+    const result = await tool.run({ kind: "ui", path: "index.html" }, {
       workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0,
-    })).rejects.toThrow("blocked by saved impeccable rule");
+    });
+    expect(result.details).toMatchObject({ artifactStatus: "uncheckable", error: expect.stringContaining("saved approval rule") });
+    expect(request).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();
   } finally {
     spy.mockRestore();
@@ -340,4 +342,43 @@ it("bounds verify.run Impeccable details and counts omitted entries", async () =
   expect(Buffer.byteLength(JSON.stringify([result.impeccableFindings, result.impeccableSuppressions]))).toBeLessThanOrEqual(8192);
   expect(findings).toMatch(/\+\d+ more$/);
   expect(suppressions).toMatch(/\+\d+ more$/);
+});
+
+it.each(["denied", "unavailable", "saved deny"] as const)("continues the Fusion batch when UI approval is %s", async mode => {
+  const { createContractCheckHold } = await import("../fusion/contract-check-hold.js");
+  const { runContractChecks } = await import("../fusion/contract-checks.js");
+  const ui = { kind: "ui", path: "index.html" };
+  const command = { kind: "command", cmd: "node", args: ["check.js"] };
+  const checks = [command, ui, command];
+  const signal = new AbortController().signal;
+  await fake(0, []);
+  const approvals = {
+    ruleDecisionFor: vi.fn((prompt: { category: string }) => mode === "saved deny" && prompt.category === "verify_ui_detector" ? "deny" as const : null),
+    request: vi.fn(async (prompt: { category: string }) => prompt.category === "verify_ui_detector"
+      ? { approved: false, reason: mode, automatic: mode !== "denied", approvalId: "denial" }
+      : { approved: true, reason: "test", approvalId: "allowed" }),
+  };
+  const runner = vi.fn(async (specs: readonly Record<string, unknown>[]) => ({ ok: true, results: specs.map(() => ({ ok: true })) }));
+  const hold = createContractCheckHold({ runner, approvals, approvalRequired: true, sessionId: "test", workingDir: root,
+    tool: "fusion.delegate", checks, signal });
+  expect(await hold.decide(signal)).toBeUndefined();
+  for (const run of [hold.runner, hold.finalRunner]) {
+    const result = await runContractChecks(checks, run, { workingDir: root, signal });
+    expect(result.outcomes).toMatchObject([{ ok: true }, { ok: false, artifactStatus: "uncheckable" }, { ok: true }]);
+    expect(result.checksSkipped).toBeUndefined();
+    expect(runner.mock.lastCall?.[0]).toEqual([command, command]);
+  }
+});
+
+it("returns an uncheckable standalone result on UI approval denial", async () => {
+  const { buildVerifyRunTool } = await import("./verify-run.js");
+  await fake(0, []);
+  const request = vi.fn(async () => ({ approved: false, reason: "denied", approvalId: "denied" }));
+  const workspace = vi.fn(async () => { throw new Error("a denied check must not copy the project"); });
+  const tool = buildVerifyRunTool({ approvals: { request } as never, approvalRequired: true, config: {} as never, workspace });
+  const result = await tool.run({ kind: "ui", path: "index.html" }, {
+    workingDir: root, sessionId: "test", stepIndex: 0, signal: new AbortController().signal,
+  });
+  expect(result.details).toMatchObject({ artifactStatus: "uncheckable", error: expect.stringContaining("denied") });
+  expect(workspace).not.toHaveBeenCalled();
 });

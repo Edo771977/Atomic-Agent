@@ -34,7 +34,17 @@ function maskedVerificationValue(value: unknown, known: readonly KnownSecret[]):
   if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [maskVerificationSecrets(key, known), maskedVerificationValue(item, known)]));
   return value;
 }
+const UI_UNCHECKABLE = Symbol("UI verification did not run");
+export function uiVerificationUnavailable(spec: Record<string, unknown>): string | undefined {
+  return (spec as { readonly [UI_UNCHECKABLE]?: string })[UI_UNCHECKABLE];
+}
+function markUiUnavailable(spec: Record<string, unknown>, reason: string): void {
+  Object.defineProperty(spec, UI_UNCHECKABLE, { value: reason });
+}
+
 export interface VerifyAuthorizationOptions extends DangerousToolOptions {
+  /** Return a verdict for a refused UI check without holding its siblings. */
+  continueOnUiApprovalDenial?: boolean;
   shellPolicy?: ShellGuardPolicy;
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
@@ -149,7 +159,11 @@ export async function authorizeVerifyBatch(
     const ui = logical.kind === "ui";
     const detector = ui && artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
       ? await resolveImpeccable(ctx.workingDir, actualCwd, ctx.signal) : undefined;
-    if (ui && detector === undefined) continue;
+    if (ui && detector === undefined) {
+      markUiUnavailable(spec, artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
+        ? "impeccable is not installed" : "impeccable scans markup: specify the file that uses this CSS or script");
+      continue;
+    }
     const detectorArgs = detector === undefined ? undefined : impeccableArgs(artifactTarget!);
     const uiVerdicts = detector === undefined ? [] : [
       guardVerifyCommand(detector.file, detectorArgs!, cwd, options.shellPolicy, false),
@@ -218,13 +232,23 @@ export async function authorizeVerifyBatch(
     plans.push({ prompt, logical, cwd, spec, commands, detector });
   }
   // A deny for a later command wins before asking about an earlier command.
-  for (const { prompt } of plans) {
+  for (const { prompt, logical, spec } of plans) {
     if (options.approvalRequired && options.approvals.ruleDecisionFor?.(prompt) === "deny") {
+      if (logical.kind === "ui" && options.continueOnUiApprovalDenial === true) {
+        markUiUnavailable(spec, "impeccable blocked by a saved approval rule");
+        continue;
+      }
       await requireApproval(options, prompt, ctx.signal);
       throw new ApprovalDeniedError("verify.run", "blocked by a saved rule", { byUser: false });
     }
   }
-  for (const { logical, cwd, commands } of plans) {
+  const deferUiDenial = (kind: string, spec: Record<string, unknown>, error: unknown): boolean => {
+    if (kind !== "ui" || !options.continueOnUiApprovalDenial || !(error instanceof ApprovalDeniedError) || ctx.signal.aborted) return false;
+    markUiUnavailable(spec, maskVerificationSecrets(error.message, known));
+    return true;
+  };
+  for (const { logical, cwd, commands, spec } of plans) {
+    if (uiVerificationUnavailable(spec) !== undefined) continue;
     const readContext = { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] };
     const paths = (logical.kind === "page" || logical.kind === "ui" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
     const urls = [logical.url, logical.ready?.url, ...(logical.requests ?? []).flatMap(request => [request.url, request.path])];
@@ -237,17 +261,32 @@ export async function authorizeVerifyBatch(
     }
     for (const path of new Set(paths)) {
       ctx.signal.throwIfAborted();
-      const refusal = await options.checkReadTargets?.("verify.run", { path }, readContext, "os.fs.read");
+      const refusal = await options.checkReadTargets?.("verify.run", { path }, readContext, "os.fs.read").catch(error => {
+        if (!deferUiDenial(logical.kind, spec, error)) throw error;
+        return null;
+      });
+      if (uiVerificationUnavailable(spec) !== undefined) break;
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
+    if (uiVerificationUnavailable(spec) !== undefined) continue;
     for (const command of commands) {
       ctx.signal.throwIfAborted();
-      const refusal = await options.checkCommandReads?.("verify.run", { cmd: command.cmd, args: command.args, env: logical.env }, { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] });
+      const refusal = await options.checkCommandReads?.("verify.run", { cmd: command.cmd, args: command.args, env: logical.env }, readContext).catch(error => {
+        if (!deferUiDenial(logical.kind, spec, error)) throw error;
+        return null;
+      });
+      if (uiVerificationUnavailable(spec) !== undefined) break;
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
   for (const { prompt, cwd, logical, spec, detector } of plans) {
     ctx.signal.throwIfAborted();
+    if (uiVerificationUnavailable(spec) !== undefined) continue;
+    if (logical.kind === "ui" && options.continueOnUiApprovalDenial && options.approvalRequired &&
+        typeof options.approvals.request !== "function") {
+      markUiUnavailable(spec, "impeccable approval gate is unavailable");
+      continue;
+    }
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
@@ -290,6 +329,8 @@ export async function authorizeVerifyBatch(
         // Only the pin's filtered PATH: see `PinnedExec.path`.
         spec.env = { PATH: outcome.pinnedExec.path };
       }
+    } catch (error) {
+      if (!deferUiDenial(logical.kind, spec, error)) throw error;
     } finally {
       withdraw?.();
     }

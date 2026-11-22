@@ -90,7 +90,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       let approvedArgs: Record<string, unknown>;
       try {
-        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, continueOnUiApprovalDenial: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
         approvedArgs = approved[0]!;
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard

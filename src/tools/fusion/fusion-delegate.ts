@@ -3626,10 +3626,10 @@ export function buildFusionDelegateTool(
           rows: results,
           tasks: parsed.tasks,
           contract: parsed.contract,
-          runChecks: withContractCheckEgress(deps.runChecks, checkEgress),
+          runChecks: withContractCheckEgress(checkHold.finalRunner, checkEgress),
           holdChecks: deps.runChecks === undefined
             ? undefined
-            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)),
+            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress((parsed.contract?.checks ?? []).filter(check => (check.kind ?? check.type) !== "ui"), checkEgress)),
           signal: runSignal,
           recordCheckRun,
         });
