@@ -203,28 +203,41 @@ export async function reviewPlan(args: {
   signal: AbortSignal;
   sessionId: string;
 }): Promise<PlanReviewRun> {
-  let content: string;
+  const taskIds = args.input.rows.map((r) => r.taskId);
+  const base = renderPlanReviewPrompt(args.input);
   let costUsd: number | null = null;
-  try {
-    const answer = await args.complete({
-      providerId: args.member.providerId,
-      ...(args.pinModel === undefined ? {} : { model: args.pinModel }),
-      prompt: renderPlanReviewPrompt(args.input),
-      maxOutputTokens: PLAN_REVIEW_MAX_OUTPUT_TOKENS,
-      signal: args.signal,
-      sessionId: args.sessionId,
-    });
-    content = answer.content;
-    if (answer.usage !== undefined) costUsd = completionCostUsd(answer.usage, args.pricing) ?? null;
-  } catch (err) {
-    args.signal.throwIfAborted();
-    return { outcome: "not-run", reason: `the reviewer could not run: ${err instanceof Error ? err.message : String(err)}`, costUsd };
+  let error = "";
+  // One automatic retry for an answer outside the schema (prose, a
+  // missing dimension, an unknown task id, an over-long detail); a call
+  // that fails (a refused budget, a provider down) is not retried.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let content: string;
+    try {
+      const answer = await args.complete({
+        providerId: args.member.providerId,
+        ...(args.pinModel === undefined ? {} : { model: args.pinModel }),
+        prompt: attempt === 0 ? base : `${base}\n\n${retryNote(error)}`,
+        maxOutputTokens: PLAN_REVIEW_MAX_OUTPUT_TOKENS,
+        signal: args.signal,
+        sessionId: args.sessionId,
+      });
+      content = answer.content;
+      const cost = answer.usage === undefined ? undefined : completionCostUsd(answer.usage, args.pricing);
+      if (cost !== undefined) costUsd = (costUsd ?? 0) + cost;
+    } catch (err) {
+      args.signal.throwIfAborted();
+      return { outcome: "not-run", reason: `the reviewer could not run: ${err instanceof Error ? err.message : String(err)}`, costUsd };
+    }
+    const parsed = parsePlanReviewAnswer(content, taskIds);
+    // The model's own verdicts only: the facts floor is applied when the review is used (`withPlanFacts`).
+    if (parsed.ok) return { outcome: "reviewed", results: parsed.results, costUsd };
+    error = parsed.error;
   }
-  const parsed = parsePlanReviewAnswer(content, args.input.rows.map((r) => r.taskId));
-  if (!parsed.ok) return { outcome: "not-run", reason: `the reviewer's answer could not be read (${parsed.error})`, costUsd };
-  // The model's own verdicts only: the facts floor is applied when the review is used (`withPlanFacts`).
-  return { outcome: "reviewed", results: parsed.results, costUsd };
+  return { outcome: "not-run", reason: `the reviewer's answer could not be read twice (${error})`, costUsd };
 }
+
+const retryNote = (error: string): string =>
+  `Your previous answer could not be read (${error}). Answer again with the JSON object only, exactly in the shape above, one result per dimension in order.`;
 
 /** What a plan review produced, before `project.plan` adds its round, basis and whether it sends the draft back. */
 export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd">;

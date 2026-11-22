@@ -68,6 +68,8 @@ export interface LiveProjectInputs {
   reviewersConfigured?: boolean;
   /** Whether the team names more than one worker or any reviewer (the gate's hint wording). */
   otherMembersConfigured?: boolean;
+  /** Whether a plan reviewer is configured (`team.planReviewer` or any `team.reviewers`, issue #118). */
+  planReviewerConfigured?: boolean;
 }
 
 export interface LiveProjectInputsSource {
@@ -140,6 +142,7 @@ export function liveProjectInputsFrom(source: LiveProjectInputsSource): LiveProj
     reviewersConfigured: team !== undefined && teamMembers(team.team, "reviewers").length > 0,
     otherMembersConfigured: team !== undefined &&
       (teamMembers(team.team, "workers").length > 1 || teamMembers(team.team, "reviewers").length > 0),
+    planReviewerConfigured: team !== undefined && (team.team.planReviewer !== undefined || teamMembers(team.team, "reviewers").length > 0),
   };
 }
 
@@ -244,6 +247,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       },
       ...(inputs.reviewersConfigured === undefined ? {} : { reviewersConfigured: inputs.reviewersConfigured }),
       ...(inputs.otherMembersConfigured === undefined ? {} : { otherMembersConfigured: inputs.otherMembersConfigured }),
+      ...(inputs.planReviewerConfigured === undefined ? {} : { planReviewerConfigured: inputs.planReviewerConfigured }),
     });
   };
   return {

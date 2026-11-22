@@ -140,7 +140,7 @@ describe("plan reviewer at project.plan (issue #118)", () => {
     expect(complete).not.toHaveBeenCalled();
     expect(update.planReview).toMatchObject({ outcome: "skipped", reviewer: null, reason: expect.stringContaining("projects.constraints") });
     expect(project.gate).toEqual({ kind: "plan" });
-    expect(result.summary).toMatch(/plan review skipped/);
+    expect(result.summary).toMatch(/plan not reviewed: the review was skipped/);
   });
 
   it("in a local-only folder a local reviewer reviews", async () => {
@@ -159,7 +159,7 @@ describe("plan reviewer at project.plan (issue #118)", () => {
     const { update, project, result } = await draft(approvedBrief(), uncoveredPlan, { planReview: createPlanReview(reviewDeps(complete)) });
     expect(update.planReview).toMatchObject({ outcome: "not-run", sentBack: false });
     expect(project.gate).toEqual({ kind: "plan" });
-    expect(result.summary).toMatch(/plan review did not run/);
+    expect(result.summary).toMatch(/plan not reviewed: /);
   });
 
   it("counts the review's spend", async () => {
@@ -239,7 +239,7 @@ describe("plan reviewer at the plan gate (issue #118)", () => {
     const step = await settleProjectGate(rt, "s1", "approve");
     expect(step.kind).toBe("stop");
     expect(step.kind === "stop" && step.text).toMatch(/plan reviewer's open notes/);
-    expect(decisions).toEqual(["approve"]);
+    expect(decisions).toEqual([]);
     expect(project.plan?.status).toBe("draft");
   });
 });
@@ -258,5 +258,57 @@ describe("plan review facts are recomputed, never stored (review round, issue #1
     if (!deferred.ok) throw new Error(deferred.error.message);
     const approved = applyProjectDecision(deferred.project, { gate: deferred.project.gate, version: gateVersion(deferred.project)!, verdict: "approve" }, { now: NOW + 2 });
     expect(approved.ok).toBe(true);
+  });
+});
+
+describe("a plan that was not reviewed (review round, issue #118)", () => {
+  const rt = (state: { project: ProjectState }) => ({
+    projectState: () => projectGateView({ sessionId: "s1", project: state.project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true }),
+    projectDecision: (_id: string, decision: Parameters<typeof applyProjectDecision>[1]) => {
+      const r = applyProjectDecision(state.project, decision, { now: NOW + 1 });
+      if (!r.ok) return r;
+      state.project = r.project;
+      return { ok: true as const, project: r.project, view: rt(state).projectState() };
+    },
+  });
+
+  it("retries a malformed answer once", async () => {
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: "sure, looks fine", usage: { promptTokens: 1000, completionTokens: 10, totalTokens: 1010 } })
+      .mockResolvedValueOnce({ content: passAll(), usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } });
+    const { update } = await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete as never)) });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(String((complete.mock.calls[1] as unknown as [{ prompt: string }])[0].prompt)).toMatch(/previous answer could not be read/);
+    expect(update.planReview).toMatchObject({ outcome: "reviewed" });
+    expect(update.planReview?.costUsd).toBeCloseTo(((2000 + 2 * 110) / 1e6), 6);
+  });
+
+  it("a review that did not run says the plan was not reviewed; automation stops, the person may approve", async () => {
+    const complete = vi.fn(async () => ({ content: JSON.stringify({ results: [] }) }));
+    const state = { project: (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)) })).project };
+    expect(complete).toHaveBeenCalledTimes(2);
+    const view = rt(state).projectState();
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan not reviewed: the reviewer's answer could not be read/));
+    expect(view.planReview).toMatchObject({ outcome: "not-run", autoApprovable: false });
+    const step = await settleProjectGate(rt(state), "s1", "approve");
+    expect(step.kind).toBe("stop");
+    expect(step.kind === "stop" && step.text).toMatch(/not reviewed/);
+    expect(state.project.plan?.status).toBe("draft");
+    expect(applyProjectDecision(state.project, { gate: state.project.gate, version: gateVersion(state.project)!, verdict: "approve" }, { now: NOW + 2 }).ok).toBe(true);
+  });
+
+  it("a call refused before an answer (the budget) is not retried and stops automation", async () => {
+    const complete = vi.fn(async () => { throw new Error("the spend cap for this turn is reached"); });
+    const state = { project: (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete as never)) })).project };
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(rt(state).projectState().hints).toContainEqual(expect.stringMatching(/^plan not reviewed: the reviewer could not run: the spend cap/));
+    expect((await settleProjectGate(rt(state), "s1", "approve")).kind).toBe("stop");
+  });
+
+  it("a review that passes lets automation approve", async () => {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    const state = { project: (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)) })).project };
+    expect(rt(state).projectState().planReview).toMatchObject({ autoApprovable: true });
+    expect((await settleProjectGate(rt(state), "s1", "approve")).kind).toBe("approved");
   });
 });

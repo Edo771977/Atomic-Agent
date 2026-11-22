@@ -12,7 +12,7 @@ import {
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
-import { effectivePlanReview, planReviewFresh, planReviewHints } from "./plan-review-record.js";
+import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -45,6 +45,11 @@ export interface ProjectGateViewInput {
    * to choose.
    */
   otherMembersConfigured?: boolean;
+  /**
+   * Issue #118: whether a plan reviewer is configured now (`team.planReviewer`
+   * or any `team.reviewers`); absent: whether the plan holds a review.
+   */
+  planReviewerConfigured?: boolean;
 }
 
 /** The plan gate's hint when the team names no reviewers (issue #54). */
@@ -107,7 +112,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
     hints.push(...planChecks.map(planCheckHint));
     // Issue #118: the plan reviewer's summary and every dimension that is not a pass (facts recomputed now).
-    hints.push(...planReviewHints(plan, project.milestones.map((m) => m.id), { criteria, planChecks }));
+    hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
@@ -146,6 +151,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             ...(review.reason === undefined ? {} : { reason: review.reason }),
             round: review.round,
             stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id)),
+            autoApprovable: planReviewGate(plan, project.milestones.map((m) => m.id), planReviewFactsOf(project, input.planChecks), input.planReviewerConfigured ?? true).autoApprovable,
           },
         }),
     ...(changedOutside ? { changedOutside: true as const } : {}),

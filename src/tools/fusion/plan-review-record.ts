@@ -195,22 +195,39 @@ function tally(results: readonly PlanReviewResult[]): string {
   return `${n("pass")} pass, ${n("warn")} warn, ${n("fail")} fail`;
 }
 
+/** What the plan gate says about the review, and whether an automatic approval may go ahead. */
+export interface PlanReviewGate {
+  hints: string[];
+  /**
+   * False when automation (`--auto-approve-project`) must stop for a
+   * person: open fails, or (with a plan reviewer configured) a plan that
+   * was not reviewed. The person may still approve with what they see.
+   */
+  autoApprovable: boolean;
+}
+
 /**
  * The plan gate's lines for the review: a summary, then every dimension
  * that is not a pass. A stale review says so instead of its results; a
- * skipped or failed one says why. Nothing without a record.
+ * skipped review or one that did not run says the plan was not reviewed,
+ * and why. `configured`: whether a plan reviewer is configured now.
  */
-export function planReviewHints(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): string[] {
+export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts, configured: boolean): PlanReviewGate {
   const review = plan?.review;
-  if (review === undefined) return [];
+  if (review === undefined) return { hints: [], autoApprovable: true };
   const by = review.reviewer === null ? "" : ` by ${review.reviewer}`;
-  if (review.outcome === "skipped") return [`plan review skipped: ${review.reason ?? "no plan reviewer could be used"}`];
-  if (review.outcome === "not-run") return [`plan review did not run${by}: ${review.reason ?? "no answer"}; this is not a pass`];
+  if (review.outcome === "skipped") return { hints: [`plan not reviewed: the review was skipped: ${review.reason ?? "no plan reviewer could be used"}`], autoApprovable: !configured };
+  if (review.outcome === "not-run") return { hints: [`plan not reviewed: ${review.reason ?? "no answer"}${by === "" ? "" : ` (asked${by})`}; this is not a pass`], autoApprovable: !configured };
   const results = effectivePlanReview(plan, milestoneIds, facts);
   if (results === undefined) {
-    return [`plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`];
+    return { hints: [`plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`], autoApprovable: true };
   }
   const fails = results.some((r) => r.verdict === "fail");
   const head = `plan review ${review.round}${by}: ${tally(results)}${fails ? "; open notes below: approve over them only with a note (approveOverReview)" : ""}`;
-  return [head, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)];
+  return { hints: [head, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)], autoApprovable: !fails };
+}
+
+/** {@link planReviewGate}'s lines alone. */
+export function planReviewHints(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts, configured = true): string[] {
+  return planReviewGate(plan, milestoneIds, facts, configured).hints;
 }

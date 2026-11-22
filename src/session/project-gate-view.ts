@@ -88,6 +88,12 @@ export interface ProjectGatePlanReview {
   reason?: string;
   round: number;
   stale: boolean;
+  /**
+   * False when an automatic approval (`--auto-approve-project`) must stop
+   * here for a person: open fails, or a plan reviewer is configured and
+   * this plan was not reviewed. A person may still approve.
+   */
+  autoApprovable: boolean;
 }
 
 /**
