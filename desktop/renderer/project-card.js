@@ -372,7 +372,7 @@ function pcDecisionStatusActions(decision) {
 }
 
 function pcPlanCheck(hint) {
-  const match = /^(check-lint|criteria-coverage|verifiability|decision-coverage|references): (pass|warn|fail): ([\s\S]*)$/.exec(hint);
+  const match = /^(check-lint|criteria-coverage|verifiability|decision-coverage|backlog-coverage|references): (pass|warn|fail): ([\s\S]*)$/.exec(hint);
   return match ? {dimension: match[1], verdict: match[2], detail: match[3], taskIds: []} : null;
 }
 
