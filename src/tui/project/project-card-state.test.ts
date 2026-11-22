@@ -18,6 +18,21 @@ function shown(view = plan, full?: boolean): ProjectCardState {
 }
 
 describe("project card reducer", () => {
+  it("keeps the selected backlog id on refresh and never silently targets its replacement", () => {
+    const item = (id: string) => ({ id, title: id, createdAt: 1, source: "director" as const, state: "open" as const });
+    const backlog = { open: 2, promoted: [], seeds: [], stale: [], items: [item("b1"), item("b2")] };
+    const view = { ...plan, backlog };
+    let c = reduceProjectCard(shown(view), { type: "project_card_mode_set", mode: "backlog" })!;
+    c = reduceProjectCard(c, { type: "project_card_backlog_moved", delta: 1 })!;
+    const reordered = { ...view, backlog: { ...backlog, items: [...backlog.items].reverse() } };
+    c = reduceProjectCard(c, { type: "project_card_shown", sessionId: "s1", view: reordered })!;
+    expect(c.backlogId).toBe("b2");
+    const removed = { ...view, backlog: { ...backlog, items: [item("b1")] } };
+    c = reduceProjectCard(c, { type: "project_card_shown", sessionId: "s1", view: removed })!;
+    expect(c.backlogId).not.toBe("b1");
+    expect(reduceProjectCard(c, { type: "project_card_backlog_moved", delta: 1 })?.backlogId).toBe("b1");
+  });
+
   it("draws buttons only for the verdicts the gate allows, edit named per gate", () => {
     expect(projectCardActions(plan).map((a) => a.label)).toEqual(["approve", "edit rows", "cheaper", "quality", "cancel project"]);
     const ms = fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] });

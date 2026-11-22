@@ -15,7 +15,27 @@ import { uncitedDecisions } from "../../session/project-gate-text.js";
 import type { ProjectGateRow, ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectVerdict } from "../../session/session-project.js";
 
-export type ProjectCardMode = "actions" | "edit" | "note";
+export type ProjectCardMode = "actions" | "edit" | "note" | "backlog";
+
+export function backlogIds(view: ProjectGateView): string[] {
+  const backlog = view.backlog;
+  if (!backlog) return [];
+  return [...backlog.items.map(item => item.id),
+    ...backlog.stale.filter(call => call.reason === "removed").map(call => call.id)];
+}
+const backlogActions = [
+  { key: "p", label: "Promote", state: "promoted" },
+  { key: "d", label: "Drop", state: "dropped" },
+  { key: "r", label: "Reopen", state: "open" },
+] as const;
+
+export function projectBacklogActions(card: ProjectCardState) {
+  const backlog = card.view.backlog;
+  const item = backlog?.items.find(entry => entry.id === card.backlogId);
+  const stale = backlog?.stale.some(call => call.id === card.backlogId);
+  return backlogActions.filter(action => item ? stale || item.state !== action.state : stale && action.state === "open");
+}
+
 export type ProjectCardField = "worker" | "reviewer";
 
 /** A pending per-row change in edit mode; `reviewer: null` is "no review". */
@@ -31,6 +51,8 @@ export interface ProjectCardState {
   /** `/plan` asked for the full view whatever `view.plan.detail` says. */
   full: boolean;
   mode: ProjectCardMode;
+  backlogId?: string;
+  backlogNotice?: string;
   /** Index into {@link projectCardActions} in `actions` mode. */
   cursor: number;
   /** Index into `view.plan.rows` in `edit` mode. */
@@ -158,6 +180,8 @@ export type ProjectCardAction =
   /** A view from the runtime: a `project_gate` event, `/plan`, a decision's answer or a chat open. */
   | { type: "project_card_shown"; sessionId: string; view: ProjectGateView; full?: boolean }
   | { type: "project_card_closed" }
+  | { type: "project_card_backlog_moved"; delta: number }
+  | { type: "project_card_backlog_answer"; sessionId: string; view: ProjectGateView; notice: string }
   | { type: "project_card_cursor_moved"; delta: number }
   | { type: "project_card_mode_set"; mode: ProjectCardMode; noteFor?: "edit" | "approveOverReview" }
   | { type: "project_card_row_moved"; delta: number }
@@ -188,6 +212,9 @@ export function reduceProjectCard(
   switch (action.type) {
     case "project_card_shown": {
       const full = action.full ?? (card !== null && card.sessionId === action.sessionId && card.full);
+      if (card?.sessionId === action.sessionId && card.mode === "backlog") {
+        return { ...card, full, view: action.view };
+      }
       // Nothing waits on the person: the card goes, unless `/plan` asked to look.
       if (action.view.gate.kind === "none" && !full) return null;
       // The same gate at the same version (a repeated event): keep the person's place.
@@ -209,9 +236,23 @@ export function reduceProjectCard(
   }
   if (card === null) return null;
   switch (action.type) {
+    case "project_card_backlog_answer":
+      if (card.sessionId !== action.sessionId) return card;
+      return { ...card, view: action.view, pending: false, error: null, backlogNotice: action.notice };
+    case "project_card_backlog_moved": {
+      const ids = backlogIds(card.view);
+      if (!ids.length) return card;
+      const index = card.backlogId ? ids.indexOf(card.backlogId) : -1;
+      const id = ids[index === -1 ? 0 : wrap(index + action.delta, ids.length)]!;
+      return { ...card, backlogId: id, scroll: 0, error: null, backlogNotice: "" };
+    }
     case "project_card_cursor_moved":
       return { ...card, cursor: wrap(card.cursor + action.delta, projectCardActions(card.view).length) };
     case "project_card_mode_set":
+      if (action.mode === "backlog") {
+        const first = backlogIds(card.view)[0];
+        return first ? { ...card, mode: "backlog", backlogId: first, backlogNotice: "", scroll: 0, error: null } : card;
+      }
       if (action.mode === "edit" && projectRows(card.view).length === 0) return card;
       return {
         ...card,
