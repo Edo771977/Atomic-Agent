@@ -24,6 +24,9 @@ export default defineConfig({
       "eval/promptfoo/**/*.test.ts",
     ],
     environment: "node",
+    // Concurrent Git for Windows worktree fixtures contend on the same temp volume.
+    // Keep their real command deadlines meaningful even on many-core developer machines.
+    ...(process.platform === "win32" ? { maxWorkers: 2 } : {}),
     testTimeout: 15_000,
     reporters: ["default"],
     setupFiles: ["src/test-setup.ts"],
