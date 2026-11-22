@@ -7,7 +7,7 @@
  * shown as zero.
  */
 
-import type { ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
+import type { ProjectGateBacklog, ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
 import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, ProjectMilestoneAttachment } from "./session-project.js";
 
 const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
@@ -36,6 +36,16 @@ export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly
 export function decisionLine(decision: ProjectGateDecision): string {
   const cited = decision.status !== "active" ? "" : `; cited by ${decision.citedBy.length === 0 ? "no task" : decision.citedBy.join(", ")}`;
   return `${decision.id} ${decision.text} (${decision.status}${cited})`;
+}
+
+/** A seed's hint at a plan or milestone gate (issue #111): the person decides; nothing activates by itself. */
+export const seedHint = (id: string, title: string, condition: string): string => `seed ${id} "${title}" (when: ${condition}): yours to promote if it is met`;
+
+/** The backlog in one line (issue #111), e.g. "Backlog: 2 open (1 seed), 1 promoted for the next plan". */
+export function backlogSummary(backlog: ProjectGateBacklog): string {
+  const seeds = backlog.seeds.length === 0 ? "" : ` (${backlog.seeds.length} seed${backlog.seeds.length === 1 ? "" : "s"})`;
+  const promoted = backlog.promoted.length === 0 ? "" : `, ${backlog.promoted.length} promoted for the next plan`;
+  return `Backlog: ${backlog.open} open${seeds}${promoted}; atomic-agent project backlog lists it`;
 }
 
 /** The active decisions no plan task cites (issue #112): what blocks the plan, and what the person may defer. */
@@ -137,6 +147,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
       for (const a of milestone?.attachments ?? []) out.push(`  Picture: ${attachmentLabel(a)} — ${a.path}`);
     }
   }
+  if (view.backlog !== undefined) out.push(`  ${backlogSummary(view.backlog)}`);
   for (const v of view.violations) out.push(`  ${v.severity === "hard" ? "✕ over a hard cap:" : "! note:"} ${v.message}`);
   for (const hint of view.hints ?? []) out.push(`  hint: ${hint}`);
   out.push(`  Allowed: ${view.allowedVerdicts.join(", ")}`);

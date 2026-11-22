@@ -196,3 +196,22 @@ describe("run at a plan the plan reviewer still fails (issue #118)", () => {
     expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
   });
 });
+
+describe("run at a plan gate with promoted backlog items (issue #111 review)", () => {
+  const backlog = { open: 0, seeds: [], promoted: [{ id: "b2", title: "PDF export" }], stale: [], items: [] };
+
+  it("--auto-approve-project stops while an item the person promoted waits for a plan", async () => {
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog }, fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "sess-1", "approve");
+    expect(step.kind).toBe("stop");
+    expect(step.kind === "stop" && step.text).toContain("The person promoted backlog items for this plan (b2 PDF export): a person checks the plan takes them in, so it is not approved automatically.");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("a person's --approve <version> still approves it (a warning, not a block)", async () => {
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog }, fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(step.kind).not.toBe("stop");
+    expect(rt.projectDecision).toHaveBeenCalledTimes(1);
+  });
+});

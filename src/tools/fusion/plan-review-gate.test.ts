@@ -459,3 +459,22 @@ describe("plan gate refusal wording (review round, issue #118)", () => {
     expect(!review.ok && review.error.message).not.toMatch(/\.\./);
   });
 });
+
+describe("plan reviewer at project.plan: the backlog (issue #111)", () => {
+  it("is asked with the promoted and open backlog as data", async () => {
+    let p = applyProjectUpdate(approvedBrief(), { kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director", fromPerson: true } }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    p = applyProjectUpdate(p.project, { kind: "backlog_add", item: { id: "b2", title: "Sounds", source: "director", condition: "when the UI exists" } }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const { applyBacklogDecision } = await import("../../session/project-backlog.js");
+    const promoted = applyBacklogDecision(p.project, { id: "b1", state: "promoted" });
+    if (!promoted.ok) throw new Error(promoted.error.message);
+    const planReview = vi.fn(async () => null);
+    await draft(promoted.project, coveredPlan, { planReview });
+    expect(planReview).toHaveBeenCalledTimes(1);
+    expect((planReview.mock.calls[0] as unknown as [{ input: { backlog?: unknown } }])[0].input.backlog).toEqual([
+      { id: "b1", title: "Export PDF", state: "promoted" },
+      { id: "b2", title: "Sounds", state: "open", condition: "when the UI exists" },
+    ]);
+  });
+});

@@ -17,7 +17,9 @@
  *  - `decisions` 20 (schema v2): the brief's decisions, each `shortText`,
  *    and a plan row's decision ids.
  *  - `checks` 16 per row, shared with the contract-check parser.
- *  - `backlog` 32 (schema v2): items, `title` long, note and condition `shortText`.
+ *  - `backlog` 32 (schema v2): open or promoted items, `title` long, note
+ *    and condition `shortText`; `backlogStored` 128: every item the file
+ *    keeps, dropped ones included (a stored list is cut there).
  */
 export const PROJECT_LIMITS = {
   checks: 16,
@@ -38,4 +40,5 @@ export const PROJECT_LIMITS = {
   history: 4,
   decisions: 20,
   backlog: 32,
+  backlogStored: 128,
 } as const;

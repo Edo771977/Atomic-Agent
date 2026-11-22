@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, seedHint } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -172,7 +172,18 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   }
 
   for (const v of view.violations) text(`${v.severity === "hard" ? "✕" : "!"} ${v.message}`, v.severity === "hard" ? "error" : "warn");
-  for (const hint of view.hints ?? []) text(`ℹ ${hint}`, "muted");
+  // Issue #111: the backlog's count; its seeds with their condition where a plan or milestone waits.
+  const backlog = view.backlog;
+  if (backlog !== undefined) {
+    const parts = [`${backlog.open} open`, ...(backlog.seeds.length === 0 ? [] : [`${backlog.seeds.length} seed${backlog.seeds.length === 1 ? "" : "s"}`]), ...(backlog.promoted.length === 0 ? [] : [`${backlog.promoted.length} promoted`])];
+    text(`Backlog: ${parts.join(" · ")}`, "muted");
+    if (view.gate.kind === "plan" || view.gate.kind === "milestone") {
+      for (const s of backlog.seeds) text(`seed ${s.id} ${s.title} — ${s.condition}`, "plain", 3);
+    }
+  }
+  // The seeds' own hints are drawn above from the structured backlog; every other hint stays.
+  const seedHints = new Set((backlog?.seeds ?? []).map((s) => seedHint(s.id, s.title, s.condition)));
+  for (const hint of view.hints ?? []) if (!seedHints.has(hint)) text(`ℹ ${hint}`, "muted");
 
   if (view.milestones.length > 0 && view.gate.kind !== "brief") {
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;
@@ -249,5 +260,6 @@ export function projectResumeLine(view: ProjectGateView): string | null {
   }
   const running = view.milestones.find((m) => m.state === "in_progress");
   const resume = running !== undefined ? ` · ${running.title} was cut off mid-run: /fusion resume continues it` : "";
-  return `Project — last done: ${done?.title ?? "nothing yet"} · next: ${next}${resume}`;
+  const open = view.backlog?.open ?? 0;
+  return `Project — last done: ${done?.title ?? "nothing yet"} · next: ${next}${resume}${open === 0 ? "" : ` · backlog: ${open} open`}`;
 }

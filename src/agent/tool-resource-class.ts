@@ -261,6 +261,7 @@ const TOOL_RESOURCE_CLASS: Record<string, ResourceClass> = {
   "project.brief": "pure_read",
   "project.plan": "pure_read",
   "project.milestone": "pure_read",
+  "project.backlog.add": "pure_read",
 
   // verify.* — read-only checks. `verify.syntax` spawns nothing that
   // writes (node --check, tsc --noEmit, python compile(), bash -n), so
