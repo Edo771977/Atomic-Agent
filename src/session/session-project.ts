@@ -456,13 +456,14 @@ interface ProjectLessonScope {
   matches: (touches: readonly string[], paths: readonly string[]) => boolean;
 }
 
-type LessonCallsView = Pick<ProjectState, typeof currentProjectLessons | "lessonDeferred">;
+type LessonCallsView = Pick<ProjectState, typeof currentProjectLessons | "lessonDeferred"> & Partial<Pick<ProjectState, "milestones">>;
 
 export function planLessonsOf(project: LessonCallsView, rows: readonly AssignmentRow[]): PlanLessonCoverage[] {
   const scope = project[currentProjectLessons];
   const binding = scope?.active.filter((lesson) => lesson.always) ?? [];
   if (scope === undefined || binding.length === 0) return [];
-  const tasks = rows.map((row) => ({ row, paths: scope.taskPaths(row) }));
+  const started = new Set(project.milestones?.filter(milestoneStarted).map((m) => m.id));
+  const tasks = rows.filter((row) => !started.has(row.milestoneId)).map((row) => ({ row, paths: scope.taskPaths(row) }));
   return binding.map(({ id, title, touches, hash }) => ({
     id, title,
     deferred: project.lessonDeferred?.[id] === hash,

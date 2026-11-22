@@ -109,6 +109,9 @@ describe("project store (issue #109)", () => {
     expect(decide(openedProject())).toMatchObject({ ok: false, error: { code: "review-open", message: expect.stringContaining("lesson-coverage") } });
     expect(view().hints).toContainEqual(expect.stringMatching(/stale.*the lessons changed/));
     expect(view().lessonCoverage).toEqual([expect.objectContaining({ id: "storage", citedBy: [], missingFrom: ["t1", "t2"], deferred: false })]);
+    const started = openedProject();
+    started.milestones = [{ ...started.milestones[0]!, state: "reviewed", runIds: ["run-old"] }];
+    expect(view(started).lessonCoverage?.[0]?.missingFrom).toEqual([]);
     const reviewed = openedProject();
     reviewed.plan!.review!.lessonsBasis = reviewed[currentProjectLessonsBasis]!;
     expect(view(reviewed).planReview?.stale).toBe(false);
