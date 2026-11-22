@@ -338,6 +338,12 @@ export interface AssignmentRow {
   local?: true;
   /** Schema v2 (issue #112): ids of the brief's decisions this task honours. */
   decisions?: string[];
+  /**
+   * Issue #146: ids of the backlog items this task takes in. Author
+   * content, in the plan's hash; what a promoted item needs to be covered
+   * by the plan (`backlog-coverage`).
+   */
+  backlog?: string[];
   /** Same spec language as fusion.delegate; task ownership is implicit in this row. */
   checks?: ContractCheck[];
 }
@@ -1025,6 +1031,18 @@ function cleanRowDecisions(raw: unknown): string[] | null {
   return out;
 }
 
+/** A list of backlog item ids on a plan row (issue #146): unique, each a criterion-shaped id; null when malformed. */
+function cleanRowBacklog(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.backlog) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    const id = normalizeCriterionId(item);
+    if (id === null || out.includes(id)) return null;
+    out.push(id);
+  }
+  return out;
+}
+
 /** A stored backlog read leniently: malformed or repeated items dropped, the list cut. */
 function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -1148,6 +1166,8 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   if (title.length === 0) return null;
   const decisions = raw.decisions === undefined ? undefined : cleanRowDecisions(raw.decisions);
   if (decisions === null) return null;
+  const backlog = raw.backlog === undefined ? undefined : cleanRowBacklog(raw.backlog);
+  if (backlog === null) return null;
   const problems: string[] = [];
   const checks = parsePlanRowChecks(raw.checks, taskId, problems);
   if (problems.length > 0) return null;
@@ -1165,6 +1185,7 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
     ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
     ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
+    ...(backlog === undefined || backlog.length === 0 ? {} : { backlog }),
     ...(raw.checks === undefined ? {} : { checks }),
   };
 }

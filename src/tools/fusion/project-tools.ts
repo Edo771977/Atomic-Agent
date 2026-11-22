@@ -224,6 +224,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 export interface ProjectPlanTaskArgs {
   checks?: ContractCheck[];
   decisions?: string[];
+  /** Issue #146: the backlog items this task takes in. */
+  backlog?: string[];
   id: string;
   title: string;
   milestone: string;
@@ -274,12 +276,14 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions", "backlog"], `task ${id}`));
       const checkProblems: string[] = [];
       const checks = parsePlanRowChecks(t.checks, id, checkProblems);
       problems.push(...checkProblems.map((p) => `task ${id}: ${p}`));
       const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
       if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
+      const backlog = Array.isArray(t.backlog) ? t.backlog.map(normalizeCriterionId) : [];
+      if (t.backlog !== undefined && (!Array.isArray(t.backlog) || backlog.length > PROJECT_LIMITS.backlog || backlog.includes(null) || new Set(backlog).size !== backlog.length)) problems.push(`task ${id}: backlog must be unique backlog item ids (at most ${PROJECT_LIMITS.backlog})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
       const milestone = typeof t.milestone === "string" ? t.milestone.trim() : "";
       if (!ids.has(milestone)) problems.push(`task ${id} names milestone ${JSON.stringify(t.milestone)}, which \`milestones\` does not list`);
@@ -292,6 +296,7 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         milestone,
         ...(t.checks === undefined ? {} : { checks }),
         ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
+        ...(t.backlog === undefined ? {} : { backlog: backlog as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
       });
@@ -366,6 +371,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
     rows.push(withReviewEstimate({
       ...(task.checks === undefined ? {} : { checks: task.checks }),
       ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
+      ...(task.backlog === undefined ? {} : { backlog: task.backlog }),
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,
