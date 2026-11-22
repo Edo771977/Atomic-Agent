@@ -101,9 +101,13 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       break;
     }
     case "complete":
-      if (next.openBacklog === undefined) lines.push("next: every milestone is reviewed; the project is complete.");
+      if (next.openBacklog === undefined && next.promotedNotDone === undefined) lines.push("next: every milestone is reviewed; the project is complete.");
       else {
-        lines.push(`next: every milestone is reviewed; the project is complete with ${next.openBacklog} backlog item${next.openBacklog === 1 ? "" : "s"} still open (listed in the backlog data): say so in your final reply.`);
+        const left = [
+          ...(next.openBacklog === undefined ? [] : [`${next.openBacklog} backlog item${next.openBacklog === 1 ? "" : "s"} still open`]),
+          ...(next.promotedNotDone === undefined ? [] : [`${next.promotedNotDone} promoted backlog item${next.promotedNotDone === 1 ? "" : "s"} not done`]),
+        ];
+        lines.push(`next: every milestone is reviewed; the project is complete with ${left.join(" and ")} (listed in the backlog data): say so in your final reply.`);
       }
       break;
     default:

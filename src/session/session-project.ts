@@ -924,8 +924,13 @@ export type ProjectExpectation =
   | { kind: "draft_plan" }
   | { kind: "run_milestone"; id: string }
   | { kind: "await_person"; gate: Exclude<ProjectGate, { kind: "none" }> }
-  /** `openBacklog` (issue #111): backlog items still open, said before calling the project complete; absent when none. */
-  | { kind: "complete"; openBacklog?: number }
+  /**
+   * `openBacklog` (issue #111): backlog items still open, said before
+   * calling the project complete; `promotedNotDone` (issue #146): items
+   * the person promoted that no run took in (deferred, or promoted late).
+   * Each absent when none.
+   */
+  | { kind: "complete"; openBacklog?: number; promotedNotDone?: number }
   | { kind: "cancelled" };
 
 /**
@@ -943,7 +948,8 @@ export function projectExpectation(project: ProjectState | undefined): ProjectEx
   if (open !== undefined) return { kind: "run_milestone", id: open.id };
   if (!project.milestones.every((m) => m.state === "reviewed")) return { kind: "draft_plan" };
   const openItems = openBacklog(project).length;
-  return openItems === 0 ? { kind: "complete" } : { kind: "complete", openBacklog: openItems };
+  const notDone = promotedForPlan(project).length;
+  return { kind: "complete", ...(openItems === 0 ? {} : { openBacklog: openItems }), ...(notDone === 0 ? {} : { promotedNotDone: notDone }) };
 }
 
 // ---------------------------------------------------------------- session

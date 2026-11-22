@@ -169,3 +169,19 @@ describe("backlog text reaches the director as data (review)", () => {
     expect(result.summary.indexOf(evil)).toBeGreaterThan(result.summary.indexOf(frame));
   });
 });
+
+describe("the close with promoted items never done (issue #146 review)", () => {
+  it("a complete project counts and names the promoted items no run took in, deferred or promoted late", () => {
+    let p = approve(atPlanGate());
+    for (const id of ["m1", "m2"]) {
+      p = up(p, { kind: "milestone_run", id, runId: `r-${id}` });
+      p = approve(up(p, { kind: "milestone", id, state: "done", summary: "ok" }));
+    }
+    // Promoted after every milestone ran: no plan took it in.
+    p = ok(applyBacklogDecision(ok(applyBacklogDecision(p, { id: "b1", state: "dropped" })), { id: "b2", state: "promoted" }));
+    expect(projectExpectation(p)).toEqual({ kind: "complete", promotedNotDone: 1 });
+    expect(describeExpectation(projectExpectation(p))).toBe("nothing: every milestone is reviewed; complete with 1 promoted backlog item not done");
+    expect(view(p).hints).toContain("complete with 1 promoted backlog item not done: b2 Idea b2");
+    expect(renderProjectDigest(p)).toMatch(/complete with 1 promoted backlog item not done \(listed in the backlog data\): say so in your final reply/);
+  });
+});

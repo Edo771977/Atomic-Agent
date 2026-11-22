@@ -157,6 +157,11 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     const n = expectation.openBacklog;
     hints.push(`complete with ${n} backlog item${n === 1 ? "" : "s"} open: ${openBacklog(project).map((b) => `${b.id} ${b.title}`).join(", ")}`);
   }
+  // Issue #146: promoted items no run took in are said too, never counted as done.
+  if (expectation.kind === "complete" && expectation.promotedNotDone !== undefined) {
+    const n = expectation.promotedNotDone;
+    hints.push(`complete with ${n} promoted backlog item${n === 1 ? "" : "s"} not done: ${promotedForPlan(project).map((b) => `${b.id} ${b.title}`).join(", ")}`);
+  }
   // A call on an item removed outside Atomic Agent keeps the backlog in view, so the card can say so
   // even when project.json holds no item any more.
   const backlog = (project.backlog ?? []).length === 0 && staleBacklogCalls(project).length === 0
