@@ -276,7 +276,7 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
   }
   if (decision.expectedFingerprint !== undefined) {
     const state = item === undefined ? undefined : backlogStateOf(project, decision.id);
-    const plannedIn = state === "promoted" ? project.backlogCalls?.[decision.id]?.plannedIn : undefined;
+    const plannedIn = state === "promoted" ? backlogTakenIn(project, decision.id) : undefined;
     const stale = staleBacklogCalls(project).find(({ id }) => id === decision.id);
     if (decision.expectedFingerprint !== backlogDecisionFingerprint(item, state, plannedIn, stale)) {
       return { ok: false, error: { code: "invalid", message: `Backlog item ${decision.id} changed since it was shown. Preview the decision again.` } };

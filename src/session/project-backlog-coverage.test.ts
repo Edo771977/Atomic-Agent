@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyBacklogDecision, promotedForPlan } from "./project-backlog.js";
+import { applyBacklogDecision, backlogDecisionFingerprint, promotedForPlan } from "./project-backlog.js";
 import { stateDirProjectRecords } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
@@ -309,6 +309,16 @@ describe("an item stays taken in only while the plan still holds it (issue #146 
     expect(promotedForPlan(kept)).toEqual([]);
     const again = ok(approve(kept));
     expect(again.backlogCalls?.b1?.plannedIn).toBe(v1.plan!.version);
+  });
+
+  it("a preview fingerprint built from the gate view is accepted after a re-plan dropped the citation", () => {
+    // Telegram (#150) previews from the view and the runtime rechecks the record.
+    const v1 = ok(approve(plan(withBacklog(["b1"]), [row("t1", "m1"), row("t2", "m2", ["b1"])])));
+    const v2 = plan(v1, [row("t1", "m1"), row("t3", "m2")], 5);
+    const shown = view(v2).backlog!.items.find((i) => i.id === "b1")!;
+    expect(shown.plannedIn).toBeUndefined();
+    const expectedFingerprint = backlogDecisionFingerprint(shown, shown.state, shown.plannedIn);
+    expect(applyBacklogDecision(v2, { id: "b1", state: "dropped", expectedFingerprint }).ok).toBe(true);
   });
 
   it("an item whose citing milestone ran stays taken in when a later plan no longer cites it", () => {
