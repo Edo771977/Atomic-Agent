@@ -149,6 +149,9 @@ function pcReduce(state, action) {
     case 'correct':
       if (!s.view || s.view.gate.kind !== 'milestone' || !pcList(s.view.allowedVerdicts).includes('edit')) return s;
       return Object.assign(s, {mode: 'correct', error: null, notice: null});
+    case 'override':
+      if (!s.view || !pcList(s.view.allowedVerdicts).includes('approveOverReview')) return s;
+      return Object.assign(s, {mode: 'override', note: '', error: null, notice: null});
     case 'back':
       return Object.assign(s, {mode: 'view', picks: {}, note: '', error: null});
     case 'worker': {
@@ -208,12 +211,27 @@ function pcEditRows(state) {
  * changed rows at the plan and the note at a milestone; the brief's edit is
  * not sent from the card (the person says what to change in the chat).
  */
-function pcDecision(state, sid, verdict) {
+function pcDecision(state, sid, verdict, statusEdit) {
   const view = state.view;
   if (!pcOpen(view)) return {error: 'Nothing in the Fusion project waits for you'};
   if (!pcList(view.allowedVerdicts).includes(verdict)) return {error: 'This gate does not take that'};
   const body = {session: sid, gate: view.gate.kind === 'milestone' ? {kind: 'milestone', id: view.gate.id} : {kind: view.gate.kind}, version: view.version, verdict};
-  if (verdict === 'approve' && pcHardViolations(view).length) return {error: 'Approve waits until the plan is within its hard limits'};
+  if ((verdict === 'approve' || verdict === 'approveOverReview') && pcHardViolations(view).length) return {error: 'Approve waits until the plan is within its hard limits'};
+  if (verdict === 'approveOverReview') {
+    const note = state.note.trim();
+    if (state.mode !== 'override' || !note) return {error: 'Write a reason for approving over review'};
+    if (note.length > PC_NOTE_MAX) return {error: 'The reason is longer than ' + PC_NOTE_MAX + ' characters'};
+    body.edits = {note};
+  }
+  if (verdict === 'edit' && statusEdit) {
+    const decision = pcList(view.decisions).find((d) => d && d.id === statusEdit.id);
+    if (view.gate.kind !== 'plan' || state.mode !== 'view' || !decision ||
+        !pcDecisionStatusActions(decision).some(([, status]) => status === statusEdit.status)) {
+      return {error: 'This decision status change is unavailable'};
+    }
+    body.edits = {decisionStatus: {[decision.id]: statusEdit.status}};
+    return {body};
+  }
   if (verdict === 'edit') {
     if (view.gate.kind === 'plan') {
       const rows = pcEditRows(state);
@@ -336,6 +354,7 @@ function pcActions(view, state) {
         return view.gate.kind === 'milestone' ? {verdict, label: 'Correct…', open: 'correct', disabled: state.busy}
           : view.gate.kind === 'brief' ? {verdict, label: 'Revise in chat', revise: true, disabled: state.busy}
           : {verdict, label: 'Edit rows…', open: 'edit', disabled: state.busy};
+      case 'approveOverReview': return {verdict, label: 'Approve over review…', open: 'override', disabled: hard || state.busy};
       case 'cheaper': return {verdict, label: 'Cheaper', disabled: state.busy};
       case 'quality': return {verdict, label: 'Better quality', disabled: state.busy};
       case 'cancel': return state.confirmCancel
@@ -344,6 +363,34 @@ function pcActions(view, state) {
       default: return null;
     }
   }).filter(Boolean);
+}
+
+function pcDecisionStatusActions(decision) {
+  if (decision.status === 'active' && pcList(decision.citedBy).length === 0) return [['Defer', 'deferred'], ['Informational', 'informational']];
+  if (decision.status === 'deferred') return [['Reactivate', 'active']];
+  return [];
+}
+
+function pcPlanCheck(hint) {
+  const match = /^(check-lint|criteria-coverage|verifiability|decision-coverage|references): (pass|warn|fail): ([\s\S]*)$/.exec(hint);
+  return match ? {dimension: match[1], verdict: match[2], detail: match[3], taskIds: []} : null;
+}
+
+function pcPlanReview(view) {
+  const review = view.planReview;
+  if (!review || typeof review !== 'object') return null;
+  const results = pcList(review.results).filter((r) => r && typeof r.dimension === 'string' && ['pass', 'warn', 'fail'].includes(r.verdict));
+  let warning = null;
+  if (review.stale) warning = 'Notes on an earlier version';
+  else if (['missing', 'skipped', 'not-run'].includes(review.outcome)) {
+    warning = 'Plan not reviewed' + (review.reason ? ' — ' + pcStr(review.reason) : '');
+  }
+  const summary = [
+    pcStr(review.reviewer),
+    Number.isInteger(review.round) && review.round > 0 ? 'Round ' + review.round : '',
+    review.autoApprovable === false ? 'Automatic approval paused' : '',
+  ].filter(Boolean).join(' · ');
+  return {results, warning, summary};
 }
 
 /** Everything the card draws, as plain data (no DOM). */
@@ -397,13 +444,22 @@ function pcModel(state) {
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
+  const hints = pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT));
+  const checks = gate === 'plan' ? hints.map(pcPlanCheck).filter(Boolean) : [];
+  const review = gate === 'plan' ? pcPlanReview(view) : null;
+  const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
+  const decisions = pcList(view.decisions).filter((d) => d && typeof d.id === 'string').map((d) => ({
+    id: d.id, text: pcStr(d.text), status: pcStr(d.status), citedBy: pcList(d.citedBy).map(pcStr).filter(Boolean),
+    actions: canEditStatus ? pcDecisionStatusActions(d) : [],
+  }));
   return {
     kind: 'gate', changedOutside,
     gate, version: view.version, headline: pcHeadline(view),
     warnings, brief: briefLines, criteria, rows, totals,
     scopeNote: gate === 'plan' && rows.length ? PC_WRITE_SCOPE_NOTE : null,
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
-    hints: pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT)),
+    hints: gate === 'plan' ? hints.filter((h) => !pcPlanCheck(h) && (!review || !/^(?:plan review\b|plan not reviewed\b|notes on an earlier version:)/i.test(h))) : hints,
+    checks, review, decisions,
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -517,6 +573,40 @@ function pcSelect(doc, options, value, label, onChange, disabled) {
  * acts: {type: 'verdict', verdict} | {type: 'edit'|'correct'|'back'|'hide'|'revise'}
  * | {type: 'worker'|'reviewer', taskId, value} | {type: 'note', note}.
  */
+function pcDrawAssessment(doc, body, title, results, summary) {
+  if (!results.length && !summary) return;
+  const section = pcEl(doc, 'section', 'pc-assessment');
+  section.appendChild(pcEl(doc, 'h3', 'pc-section-title', title));
+  if (summary) section.appendChild(pcEl(doc, 'p', 'pc-hint', summary));
+  for (const r of results) {
+    const details = pcEl(doc, 'details', 'pc-assessment-item');
+    details.appendChild(pcEl(doc, 'summary', 'pc-result is-' + r.verdict, r.dimension + ' · ' + r.verdict));
+    if (r.detail) details.appendChild(pcEl(doc, 'p', 'pc-assessment-detail', pcStr(r.detail)));
+    const ids = pcList(r.taskIds).map(pcStr).filter(Boolean);
+    if (ids.length) details.appendChild(pcEl(doc, 'p', 'pc-meta', 'Tasks: ' + ids.join(', ')));
+    section.appendChild(details);
+  }
+  body.appendChild(section);
+}
+
+function pcDrawDecisions(doc, body, model, on) {
+  if (!model.decisions.length) return;
+  body.appendChild(pcEl(doc, 'h3', 'pc-section-title', 'Brief decisions'));
+  const list = pcEl(doc, 'ul', 'pc-rows');
+  for (const d of model.decisions) {
+    const item = pcEl(doc, 'li', 'pc-row');
+    item.appendChild(pcEl(doc, 'div', 'pc-row-title', d.id + ' · ' + d.text));
+    item.appendChild(pcEl(doc, 'div', 'pc-meta', d.status + ' · ' + (d.citedBy.length ? 'Cited by: ' + d.citedBy.join(', ') : 'No citing tasks')));
+    for (const [label, status] of d.actions) {
+      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'decision-status', id: d.id, status}), model.busy);
+      button.setAttribute('aria-label', label + ' ' + d.id);
+      item.appendChild(pcFocusKey(button, 'decision:' + d.id + ':' + status));
+    }
+    list.appendChild(item);
+  }
+  body.appendChild(list);
+}
+
 function pcDraw(doc, host, model, on) {
   /* Accessibility: what had the focus is found again after the paint, by
      what it does; a correction box being typed in is kept as it is (the
@@ -556,6 +646,9 @@ function pcDraw(doc, host, model, on) {
     }
     body.appendChild(b);
   }
+  pcDrawDecisions(doc, body, model, on);
+  pcDrawAssessment(doc, body, 'Plan checks', model.checks);
+  if (model.review) pcDrawAssessment(doc, body, 'Plan review', model.review.results, model.review.summary);
   if (model.rows.length) {
     const list = pcEl(doc, 'ol', 'pc-rows');
     for (const r of model.rows) {
@@ -623,13 +716,16 @@ function pcDraw(doc, host, model, on) {
   }
   if (model.error) body.appendChild(pcEl(doc, 'p', 'pc-error', model.error)).setAttribute('role', 'alert');
   const bar = pcEl(doc, 'div', 'pc-actions');
-  if (model.mode === 'correct') {
+  if (model.review?.warning) bar.appendChild(pcEl(doc, 'p', 'pc-warn pc-review-warning', model.review.warning));
+  if (model.mode === 'correct' || model.mode === 'override') {
+    const override = model.mode === 'override';
     let ta = keepNote;
     if (!ta) {
       ta = pcFocusKey(pcEl(doc, 'textarea', 'pc-note'), 'note');
       ta.maxLength = model.noteMax;
-      ta.placeholder = 'What should the milestone do differently?';
-      ta.setAttribute('aria-label', 'Your correction');
+      ta.placeholder = override ? 'Why are you approving over review?' : 'What should the milestone do differently?';
+      ta.setAttribute('aria-label', override ? 'Reason for approving over review (required)' : 'Your correction');
+      if (override) ta.required = true;
       ta.value = model.note;
       // The text stays in its own box between paints; only the counter follows it.
       ta.addEventListener('input', () => { if (ta._pcCount) ta._pcCount.textContent = ta.value.length + ' / ' + model.noteMax; on({type: 'note', note: ta.value}); });
@@ -639,7 +735,7 @@ function pcDraw(doc, host, model, on) {
     ta._pcCount = count;
     body.appendChild(ta);
     body.appendChild(count);
-    bar.appendChild(pcFocusKey(pcButton(doc, 'Send correction', 'btn btn-p sm', () => on({type: 'verdict', verdict: 'edit'}), model.busy), 'send-correction'));
+    bar.appendChild(pcFocusKey(pcButton(doc, override ? 'Approve over review' : 'Send correction', 'btn btn-p sm', () => on({type: 'verdict', verdict: override ? 'approveOverReview' : 'edit'}), model.busy), override ? 'send-override' : 'send-correction'));
     bar.appendChild(pcFocusKey(pcButton(doc, 'Back', 'btn btn-g sm', () => on({type: 'back'}), model.busy), 'back'));
   } else if (model.mode === 'edit') {
     bar.appendChild(pcFocusKey(pcButton(doc, model.changedRows ? 'Re-estimate ' + model.changedRows + ' change' + (model.changedRows === 1 ? '' : 's') : 'Re-estimate',
@@ -661,6 +757,9 @@ function pcDraw(doc, host, model, on) {
   } else if (focusKey) {
     const next = pcFind(card, (e) => e.getAttribute && e.getAttribute('data-pc-focus') === focusKey);
     if (next) next.focus();
+    else if (focusKey === 'verdict:approveOverReview' && model.mode === 'override') {
+      pcFind(card, (e) => e.getAttribute && e.getAttribute('data-pc-focus') === 'note')?.focus();
+    }
   }
 }
 
@@ -753,6 +852,7 @@ function createProjectCard(opts) {
         }
         clearTimeout(cancelTimer);
         return decide(a.verdict);
+      case 'decision-status': return decide('edit', a);
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
@@ -761,11 +861,11 @@ function createProjectCard(opts) {
       default: state = pcReduce(state, {type: a.type}); return paint();
     }
   }
-  async function decide(verdict) {
+  async function decide(verdict, statusEdit) {
     const gate = key();
     if (state.busy || deciding.has(gate)) return;
     const here = sid;
-    const built = pcDecision(state, here, verdict);
+    const built = pcDecision(state, here, verdict, statusEdit);
     if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
     deciding.add(gate);
     state = pcReduce(state, {type: 'sending'}); paint();

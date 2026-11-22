@@ -8,12 +8,14 @@
  * caps, a running turn) stays the agent's to say.
  */
 
-export const PROJECT_VERDICTS = ["approve", "edit", "cheaper", "quality", "cancel"] as const;
+export const PROJECT_VERDICTS = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"] as const;
 export type ProjectVerdict = (typeof PROJECT_VERDICTS)[number];
 /** The milestone correction's bound, as the agent's `MAX_PROJECT_NOTE_CHARS`. */
 export const MAX_PROJECT_NOTE_CHARS = 2000;
 const MAX_ID_CHARS = 200;
 const MAX_ROWS = 500;
+const PROJECT_DECISION_STATUSES = ["active", "deferred", "informational"] as const;
+type ProjectDecisionStatus = (typeof PROJECT_DECISION_STATUSES)[number];
 
 export type ProjectGateRef = { kind: "brief" } | { kind: "plan" } | { kind: "none" } | { kind: "milestone"; id: string };
 
@@ -25,6 +27,7 @@ export interface ProjectDecisionBody {
   edits?: {
     rows?: Array<{ taskId: string; worker?: string; reviewer?: string | null }>;
     note?: string;
+    decisionStatus?: Record<string, ProjectDecisionStatus>;
   };
 }
 
@@ -78,6 +81,21 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       }
       edits.rows = rows;
     }
+    if (raw.edits.decisionStatus !== undefined) {
+      if (gate.kind !== "plan" || verdict !== "edit" || !isObject(raw.edits.decisionStatus)) {
+        return { ok: false, error: "decision statuses can only be edited at the plan gate" };
+      }
+      const statuses: Array<[string, ProjectDecisionStatus]> = [];
+      for (const [id, value] of Object.entries(raw.edits.decisionStatus)) {
+        const status = PROJECT_DECISION_STATUSES.find((candidate) => candidate === value);
+        if (!/^[a-z0-9-]{1,32}$/.test(id) || status === undefined) {
+          return { ok: false, error: "decision statuses require a valid id and active, deferred or informational status" };
+        }
+        statuses.push([id, status]);
+      }
+      if (statuses.length === 0) return { ok: false, error: "name at least one decision" };
+      edits.decisionStatus = Object.fromEntries(statuses);
+    }
     if (raw.edits.note !== undefined) {
       const note = raw.edits.note;
       if (typeof note !== "string" || note.trim().length === 0 || note.length > MAX_PROJECT_NOTE_CHARS) {
@@ -86,6 +104,9 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       edits.note = note;
     }
     body.edits = edits;
+  }
+  if (verdict === "approveOverReview" && !body.edits?.note) {
+    return { ok: false, error: "a reason is required to approve over review" };
   }
   return { ok: true, body };
 }
