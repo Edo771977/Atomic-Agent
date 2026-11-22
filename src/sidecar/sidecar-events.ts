@@ -483,6 +483,7 @@ export interface ProjectGateEventPayload {
 /** `get_project`: the session's current gate view (`view: null` without a project). */
 export interface GetProjectPayload {
   sessionId: string;
+  evidence?: boolean;
 }
 
 /**
