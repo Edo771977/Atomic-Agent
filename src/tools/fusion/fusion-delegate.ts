@@ -219,6 +219,7 @@ export const ORCHESTRATOR_TASK_MAX_WIDTH = 2;
 
 export interface FusionDelegateDeps extends WorkerRunnerDeps {
   writeProjectReceipt?: ProjectReceiptWriter;
+  receiptProjectFolder?: () => string | undefined;
   /**
    * Whether the fan-out asks the operator before it runs. Same seam as
    * every other dangerous tool: production passes `true`, tests pass
@@ -1339,11 +1340,12 @@ export function buildFusionDelegateTool(
 
       const candidateOriginalDir = ctx.workingDir;
       const writeProjectReceipt = ctx.incognito ? undefined : deps.writeProjectReceipt;
+      const receiptFolder = (writeProjectReceipt && deps.receiptProjectFolder?.()) ?? candidateOriginalDir;
       const recordCheckRun: CheckRunRecorder | undefined = writeProjectReceipt === undefined
         ? undefined
         : (check, record, ok) => {
             try {
-              writeProjectReceipt(candidateOriginalDir, "check-run-record", {
+              writeProjectReceipt(receiptFolder, "check-run-record", {
                 kind: check.kind ?? "command",
                 ...(check.task === undefined ? {} : { task: check.task }),
                 definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
@@ -1433,7 +1435,22 @@ export function buildFusionDelegateTool(
         : (() => {
             // Issue #112: the active decisions go with the criteria to every worker and reviewer.
             const decisions = activeDecisionsOf(ctx.project!).map((d) => `${d.id}: ${d.text}`);
-            return { what: approvedBrief.what, successCriteria: approvedBrief.successCriteria.map((c) => c.text), ...(decisions.length === 0 ? {} : { decisions }) };
+            // Issue #146: each task's cited backlog items, by plan task id (the worker reads them framed as data).
+            const items = new Map((ctx.project!.backlog ?? []).map((b) => [b.id, b]));
+            const backlogByTask: Record<string, string[]> = {};
+            for (const r of ctx.project!.plan?.rows ?? []) {
+              const cited = (r.backlog ?? []).flatMap((id) => {
+                const b = items.get(id);
+                return b === undefined ? [] : [`${b.id}: ${b.title}${b.note === undefined ? "" : ` (${b.note})`}`];
+              });
+              if (cited.length > 0) backlogByTask[r.taskId] = cited;
+            }
+            return {
+              what: approvedBrief.what,
+              successCriteria: approvedBrief.successCriteria.map((c) => c.text),
+              ...(decisions.length === 0 ? {} : { decisions }),
+              ...(Object.keys(backlogByTask).length === 0 ? {} : { backlogByTask }),
+            };
           })();
       // The criteria a task's checks name are acceptance items, ruled by
       // facts and the vision judge (issue #40).
@@ -2147,6 +2164,7 @@ export function buildFusionDelegateTool(
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
+          ...(approvedBrief?.deliverable === undefined ? {} : { deliverable: approvedBrief.deliverable, projectBrief: approvedBrief }),
           ...(projectBrief?.decisions === undefined ? {} : { decisions: projectBrief.decisions }),
           ...(deps.knownSecrets === undefined
             ? {}
@@ -3421,7 +3439,7 @@ export function buildFusionDelegateTool(
           if (row.artifactManifest === undefined) continue;
           run?.recordArtifactManifest(row.id, row.artifactManifest);
           if (candidate === undefined && row.status === "ok" && !carriedIds.has(row.id)) {
-            writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", row.artifactManifest);
+            writeProjectReceipt?.(receiptFolder, "artifact-manifest", row.artifactManifest);
           }
         }
         // Automatic replanning (ATO-941): what did not close, from the
@@ -3635,7 +3653,7 @@ export function buildFusionDelegateTool(
         });
         completedCandidateReport = candidateReport;
         if (candidateReport?.status === "promoted" && candidateReport.artifactManifest !== undefined) {
-          writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", candidateReport.artifactManifest);
+          writeProjectReceipt?.(receiptFolder, "artifact-manifest", candidateReport.artifactManifest);
         }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.

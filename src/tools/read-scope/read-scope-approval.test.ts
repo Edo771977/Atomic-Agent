@@ -83,7 +83,8 @@ describe("local URL validation at read dispatch", () => {
   it("preserves valid native, network and non-file targets and ignores unused tab URLs", async () => {
     install("unrestricted");
     const urls = [pathToFileURL(join(work, "page.html")).href, "https://example.com", "about:blank", "data:text/plain,hello"];
-    if (process.platform === "win32") urls.push("file://server/share/page.html");
+    // Keep UNC coverage local: resolving a fictitious SMB host can block on DNS retries.
+    if (process.platform === "win32") urls.push("file://127.0.0.1/atomic-test-missing-share/page.html");
     for (const url of urls) {
       for (const name of ["browser.navigate", "browser.tabs"]) {
         const before = innerCalls;

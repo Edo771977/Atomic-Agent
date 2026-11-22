@@ -146,12 +146,18 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
   // snapshot updates from multiple results collapse to last writer
   // by index.
   let nextSession: SessionState = workSession;
+  const embeddedReports: Array<[SessionState, string]> = [];
+  const writeReport = deps.writeMilestoneReport;
+  const onMilestoneReport = writeReport === undefined ? undefined : (session: SessionState, id: string): void => {
+    if (session.projectRef !== undefined) writeReport(session, id);
+    else embeddedReports.push([session, id]);
+  };
   for (let i = 0; i < stepResults.length; i += 1) {
     // A director tool's project update (issue #39) is folded first: a
     // refused one becomes this call's error everywhere below (the
     // transcript, the latest result, the loop). The live
     // `tool_call_executed` event already went out with the tool's own row.
-    const folded = foldProjectUpdate(nextSession, stepResults[i]!, Date.now(), { stateDir: getConfig().paths.stateDir }, deps.projectStore);
+    const folded = foldProjectUpdate(nextSession, stepResults[i]!, Date.now(), { stateDir: getConfig().paths.stateDir }, deps.projectStore, onMilestoneReport);
     nextSession = folded.session;
     stepResults[i] = folded.result;
     const result = folded.result;
@@ -240,8 +246,18 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
   }
 
   void stepDurationMs; // captured for future cross-call observability hooks
+  // Folder projects were saved by the fold. Persist embedded projects
+  // before emitting their receipts. Only cloud steps checkpoint a cancelled batch.
+  if (batchOutcome.cancelled && modelMode !== "cloud") {
+    throw new CancelledError("batch cancelled mid-execution");
+  }
+  if (embeddedReports.length > 0 && deps.commitSession && writeReport) {
+    deps.commitSession(nextSession);
+    for (const [session, id] of embeddedReports) writeReport(session, id);
+  } else if (batchOutcome.cancelled) {
+    deps.commitSession?.(nextSession);
+  }
   if (batchOutcome.cancelled) {
-    if (modelMode === "cloud") deps.commitSession?.(nextSession);
     throw new CancelledError("batch cancelled mid-execution");
   }
   return {

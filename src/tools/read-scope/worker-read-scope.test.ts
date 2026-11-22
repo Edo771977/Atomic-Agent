@@ -187,7 +187,7 @@ describe("worker read scope", () => {
   it("accepts a path that is inside only by its canonical form", () => {
     // `/tmp` vs `/private/tmp`, or a symlinked checkout: really inside.
     const link = join(root, "link-to-work");
-    symlinkSync(work, link);
+    symlinkSync(work, link, process.platform === "win32" ? "junction" : "dir");
     expect(
       checkWorkerRead(
         "os.fs.read",

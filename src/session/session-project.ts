@@ -23,11 +23,11 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
-import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, openBacklog, type ProjectBacklogDraft } from "./project-backlog.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, milestoneStarted, openBacklog, promotedForPlan, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
-import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
+import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewPersonCalls, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -135,8 +135,8 @@ export interface ProjectBrief {
   draftedAfterUntrusted: boolean;
 }
 
-export type MilestoneKind = "base" | "ui" | "logic" | "polish" | "other";
-export const MILESTONE_KINDS: readonly MilestoneKind[] = ["base", "ui", "logic", "polish", "other"];
+export const MILESTONE_KINDS = ["base", "ui", "logic", "polish", "other", "draft", "review", "final"] as const;
+export type MilestoneKind = (typeof MILESTONE_KINDS)[number];
 
 /**
  * `planned` → (plan or previous milestone approved) `approved` → (a run
@@ -252,6 +252,13 @@ export interface ProjectMilestone {
    * for the plan's decision coverage only through it.
    */
   decisionsCited?: ProjectBriefDecision[];
+  /**
+   * Issue #146: the backlog ids this milestone's tasks cited in the
+   * approved plan, set when a plan is approved (for every milestone not
+   * done or reviewed). The runtime's, record only: once the milestone
+   * ran, the item it cited stays taken in whatever a later plan says.
+   */
+  backlogCited?: string[];
   updatedAt: number;
 }
 
@@ -338,6 +345,12 @@ export interface AssignmentRow {
   local?: true;
   /** Schema v2 (issue #112): ids of the brief's decisions this task honours. */
   decisions?: string[];
+  /**
+   * Issue #146: ids of the backlog items this task takes in. Author
+   * content, in the plan's hash; what a promoted item needs to be covered
+   * by the plan (`backlog-coverage`).
+   */
+  backlog?: string[];
   /** Same spec language as fusion.delegate; task ownership is implicit in this row. */
   checks?: ContractCheck[];
 }
@@ -494,7 +507,25 @@ export interface ProjectState {
 export interface ProjectBacklogCall {
   hash: string;
   plannedIn?: number;
+  /**
+   * Issue #146: the person deferred this promoted item at the plan gate
+   * (`ProjectEdits.backlogStatus`): it stays promoted but no plan has to
+   * cite it until they set it active again. A new call on the item (a
+   * promotion given again, a drop, a reopen) clears it. Record only.
+   */
+  deferred?: true;
+  /**
+   * Issue #146: `plannedIn` was recorded because the approved plan cited
+   * the item. It then stands only while the plan still cites it on a task
+   * that will run, or a milestone that cited it ran. Absent with
+   * `plannedIn`: taken in by #111's rule (any approval), trusted as is.
+   */
+  cited?: true;
 }
+
+/** What the person may set for a promoted backlog item at the plan gate (issue #146). */
+export type PersonBacklogStatus = "active" | "deferred";
+export const PERSON_BACKLOG_STATUSES: readonly PersonBacklogStatus[] = ["active", "deferred"];
 
 /**
  * `metadata.projectGates`: whether this session runs the project flow
@@ -710,6 +741,15 @@ export interface ProjectEdits {
    */
   decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
   /**
+   * Plan gate (issue #146): the person's status for backlog items they
+   * promoted that no approved plan took in, by id. `deferred` takes one
+   * out of the plan's backlog coverage (it stays promoted); `active` puts
+   * it back. Only the person sets these (no director update and no
+   * automatic approval carries them); recorded in the project's record
+   * ({@link ProjectBacklogCall.deferred}), never in `project.json`.
+   */
+  backlogStatus?: Readonly<Record<string, PersonBacklogStatus>>;
+  /**
    * Milestone gate: what is wrong with the result. The milestone goes
    * back to `approved` for another run, the note recorded on it
    * (`corrections`) and shown to the director.
@@ -832,13 +872,32 @@ export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[
   return planReviewBlocks(project.plan, project.milestones.map((m) => m.id), planReviewFactsOf(project));
 }
 
-/** The plan review's facts as they stand now (issue #118): the approved criteria and the deterministic plan checks. */
+/**
+ * Issue #146: the person's calls a plan review is read under (its
+ * basis): the decisions' statuses and the promoted backlog items
+ * deferred, read from the record's calls only (never from the items'
+ * text, which a file edit changes). A change of one at the gate makes the
+ * review stale, like a row edit.
+ */
+export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls">): PlanReviewPersonCalls {
+  // The record's own calls, whatever the items' text reads now: an edit of project.json (no person) never changes them.
+  const deferred = Object.entries(project.backlogCalls ?? {})
+    .filter(([id, call]) => call.deferred === true && project.backlogStates?.[id] === "promoted")
+    .map(([id]) => id);
+  return {
+    ...(project.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
+    ...(deferred.length === 0 ? {} : { backlogDeferred: deferred }),
+  };
+}
+
+/** The plan review's facts as they stand now (issue #118): the approved criteria, the deterministic plan checks and the person's calls. */
 export function planReviewFactsOf(project: ProjectState, options: PlanCheckOptions = {}): PlanReviewFacts {
   const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
   const plan = project.plan;
   return {
     criteria,
-    planChecks: plan === undefined ? [] : evaluatePlanChecks(plan.rows, criteria, { ...options, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)),
+    personCalls: planReviewPersonCalls(project),
+    planChecks: plan === undefined ? [] : evaluatePlanChecks(plan.rows, criteria, { ...options, ...planCheckData(project, plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)),
   };
 }
 
@@ -865,8 +924,13 @@ export type ProjectExpectation =
   | { kind: "draft_plan" }
   | { kind: "run_milestone"; id: string }
   | { kind: "await_person"; gate: Exclude<ProjectGate, { kind: "none" }> }
-  /** `openBacklog` (issue #111): backlog items still open, said before calling the project complete; absent when none. */
-  | { kind: "complete"; openBacklog?: number }
+  /**
+   * `openBacklog` (issue #111): backlog items still open, said before
+   * calling the project complete; `promotedNotDone` (issue #146): items
+   * the person promoted that no run took in (deferred, or promoted late).
+   * Each absent when none.
+   */
+  | { kind: "complete"; openBacklog?: number; promotedNotDone?: number }
   | { kind: "cancelled" };
 
 /**
@@ -884,7 +948,8 @@ export function projectExpectation(project: ProjectState | undefined): ProjectEx
   if (open !== undefined) return { kind: "run_milestone", id: open.id };
   if (!project.milestones.every((m) => m.state === "reviewed")) return { kind: "draft_plan" };
   const openItems = openBacklog(project).length;
-  return openItems === 0 ? { kind: "complete" } : { kind: "complete", openBacklog: openItems };
+  const notDone = promotedForPlan(project).length;
+  return { kind: "complete", ...(openItems === 0 ? {} : { openBacklog: openItems }), ...(notDone === 0 ? {} : { promotedNotDone: notDone }) };
 }
 
 // ---------------------------------------------------------------- session
@@ -1025,6 +1090,18 @@ function cleanRowDecisions(raw: unknown): string[] | null {
   return out;
 }
 
+/** A list of backlog item ids on a plan row (issue #146): unique, each a criterion-shaped id; null when malformed. */
+function cleanRowBacklog(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length > PROJECT_LIMITS.backlog) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    const id = normalizeCriterionId(item);
+    if (id === null || out.includes(id)) return null;
+    out.push(id);
+  }
+  return out;
+}
+
 /** A stored backlog read leniently: malformed or repeated items dropped, the list cut. */
 function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -1060,7 +1137,11 @@ function readBacklogCalls(raw: unknown, states: Record<string, ProjectBacklogSta
   const out: Record<string, ProjectBacklogCall> = {};
   for (const [id, value] of Object.entries(raw)) {
     if (states[id] === undefined || !isObject(value) || typeof value.hash !== "string" || !/^[0-9a-f]{16}$/.test(value.hash)) continue;
-    out[id] = { hash: value.hash, ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number } : {}) };
+    out[id] = {
+      hash: value.hash,
+      ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number, ...(value.cited === true ? { cited: true as const } : {}) } : {}),
+      ...(value.deferred === true && states[id] === "promoted" ? { deferred: true as const } : {}),
+    };
   }
   return Object.keys(out).length === 0 ? undefined : out;
 }
@@ -1148,6 +1229,8 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
   if (title.length === 0) return null;
   const decisions = raw.decisions === undefined ? undefined : cleanRowDecisions(raw.decisions);
   if (decisions === null) return null;
+  const backlog = raw.backlog === undefined ? undefined : cleanRowBacklog(raw.backlog);
+  if (backlog === null) return null;
   const problems: string[] = [];
   const checks = parsePlanRowChecks(raw.checks, taskId, problems);
   if (problems.length > 0) return null;
@@ -1165,8 +1248,19 @@ function readRow(raw: unknown, milestoneIds: ReadonlySet<string>): AssignmentRow
     ...(raw.reviewerByPerson === true ? { reviewerByPerson: true as const } : {}),
     ...(raw.local === true && raw.estCostUsd === 0 ? { local: true as const } : {}),
     ...(decisions === undefined || decisions.length === 0 ? {} : { decisions }),
+    ...(backlog === undefined || backlog.length === 0 ? {} : { backlog }),
     ...(raw.checks === undefined ? {} : { checks }),
   };
+}
+
+/**
+ * A drafted plan row as the store will keep it (titles and reasons
+ * clipped and flattened, empty citation lists dropped), or null when the
+ * fold would refuse it. `project.plan` reviews, reference-checks and
+ * plan-checks this, so their bases match the stored rows.
+ */
+export function storedPlanRow(raw: AssignmentRow, milestoneIds: ReadonlySet<string>): AssignmentRow | null {
+  return readRow(raw, milestoneIds);
 }
 
 // ------------------------------------------------------------ attachments
@@ -1368,6 +1462,10 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
       const cited = cleanDecisions(raw.decisionsCited, "lenient");
       return Array.isArray(cited) ? { decisionsCited: cited } : {};
     })(),
+    ...(() => {
+      const cited = raw.backlogCited === undefined ? null : cleanRowBacklog(raw.backlogCited);
+      return cited === null || cited.length === 0 ? {} : { backlogCited: cited };
+    })(),
     updatedAt: raw.updatedAt,
   };
 }
@@ -1546,14 +1644,15 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   const storedDecisions = cleanDecisions(raw.approvedDecisions, "lenient");
   const approvedDecisions = Array.isArray(storedDecisions) ? storedDecisions : undefined;
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
-  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
-    const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
-    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], referenceOptions(plan), decisions, finishedCitationsOf(milestones));
-  }
-  if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
   const backlogCalls = readBacklogCalls(raw.backlogCalls, backlogStates);
+  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
+    const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
+    const calls = { plan, milestones, ...(backlog === undefined ? {} : { backlog }), ...(backlogStates === undefined ? {} : { backlogStates }), ...(backlogCalls === undefined ? {} : { backlogCalls }) };
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], planCheckData(calls, plan), decisions, finishedCitationsOf(milestones));
+  }
+  if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -1663,6 +1762,34 @@ function briefUpdate(
 /** The plan's stored references record as plan-check options (issue #120). */
 export function referenceOptions(plan: Pick<ProjectPlan, "referenceCheck">): PlanCheckOptions {
   return plan.referenceCheck === undefined ? {} : { references: plan.referenceCheck };
+}
+
+/** The backlog, the person's calls on it, and the plan and milestones that say what took an item in (issue #146). */
+type BacklogCallsView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls"> & Partial<Pick<ProjectState, "plan" | "milestones">>;
+
+/**
+ * Issue #146: what the plan's `backlog-coverage` reads, from the record
+ * (the person's calls), never from the plan or `project.json`: the items
+ * the person promoted that no approved plan took in, each with whether
+ * they deferred it, and every backlog item's id. None for an approved
+ * plan: an item promoted while a plan runs (or waiting in a store from
+ * before the check) is the next draft's to take in, so a running plan
+ * is never wedged by it.
+ */
+export function backlogCheckOptions(project: BacklogCallsView, plan: Pick<ProjectPlan, "status">): PlanCheckOptions {
+  if (plan.status === "approved") return {};
+  return {
+    backlog: {
+      items: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, deferred: project.backlogCalls?.[b.id]?.deferred === true })),
+      known: (project.backlog ?? []).map((b) => b.id),
+      started: (project.milestones ?? []).filter(milestoneStarted).map((m) => m.id),
+    },
+  };
+}
+
+/** The references record and the backlog's coverage inputs of `plan`, for {@link evaluatePlanChecks}. */
+export function planCheckData(project: BacklogCallsView, plan: Pick<ProjectPlan, "referenceCheck" | "status">): PlanCheckOptions {
+  return { ...referenceOptions(plan), ...backlogCheckOptions(project, plan) };
 }
 
 function withoutResets(plan: ProjectPlan): ProjectPlan {
@@ -1866,7 +1993,7 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
   });
   const decisionStatus = kept.length === 0 ? undefined : Object.fromEntries(kept) as Record<string, ProjectDecisionStatus>;
   if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, referenceOptions(plan), planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, planCheckData(project, plan), planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
   }
   const { approvedDecisions: _before, decisionStatus: _status, ...rest } = project;
   return {
@@ -2065,6 +2192,7 @@ function replannedMilestone(
     ...(keep && old.criteriaFacts !== undefined ? { criteriaFacts: old.criteriaFacts } : {}),
     ...(old.history === undefined ? {} : { history: old.history }),
     ...(old.decisionsCited === undefined ? {} : { decisionsCited: old.decisionsCited }),
+    ...(old.backlogCited === undefined ? {} : { backlogCited: old.backlogCited }),
     updatedAt: now,
   };
 }
@@ -2128,7 +2256,7 @@ function planUpdate(
     rows,
     ...(referenceCheck === undefined ? {} : { referenceCheck }),
     ...(review === undefined ? {} : { review }),
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, referenceCheck === undefined ? {} : { references: referenceCheck }, planDecisionsOf(project), finishedCitationsOf(milestones)),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...backlogCheckOptions({ ...project, plan: { ...project.plan, rows } as ProjectPlan, milestones }, { status: "draft" }) }, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2407,6 +2535,9 @@ function decideProject(
   if (decision.verdict === "edit" && decision.edits?.decisionStatus !== undefined && gate.kind !== "plan") {
     return refuse({ code: "invalid", message: "A decision's status is set at the plan gate." });
   }
+  if (decision.verdict === "edit" && decision.edits?.backlogStatus !== undefined && gate.kind !== "plan") {
+    return refuse({ code: "invalid", message: "A promoted backlog item is deferred at the plan gate." });
+  }
 
   if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
     // The person's call over open reviews (issue #98): with a note, the
@@ -2458,7 +2589,8 @@ function decideProject(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
-      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...referenceOptions(project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
+      // Issue #146: the backlog's coverage from the record's calls now, like the decisions'.
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...planCheckData(project, project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${reasonList(blocks)}. Update the plan before approval.`, blocks });
       // Issue #118: the plan reviewer's open fails, unless the person approved over them (never an automatic path).
@@ -2594,7 +2726,23 @@ function decideProject(
       }
       decisionStatus = Object.keys(next).length === 0 ? undefined : next;
     }
-    if (statusEdit !== undefined && (decision.edits?.rows ?? []).length === 0) {
+    // Issue #146: the person defers a promoted item waiting for a plan, or sets it active again.
+    const backlogEdit = decision.verdict === "edit" ? decision.edits?.backlogStatus : undefined;
+    let backlogCalls = project.backlogCalls;
+    if (backlogEdit !== undefined) {
+      const waiting = new Set(promotedForPlan(project).map((b) => b.id));
+      const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
+      for (const [id, status] of Object.entries(backlogEdit)) {
+        if (!waiting.has(id)) return refuse({ code: "invalid", message: `backlog item ${id} is no item you promoted that waits for a plan` });
+        if (!(PERSON_BACKLOG_STATUSES as readonly string[]).includes(status)) {
+          return refuse({ code: "invalid", message: `backlog item ${id}: status must be one of ${PERSON_BACKLOG_STATUSES.join(", ")}` });
+        }
+        const { deferred: _d, ...call } = calls[id]!;
+        calls[id] = status === "deferred" ? { ...call, deferred: true } : call;
+      }
+      backlogCalls = calls;
+    }
+    if ((statusEdit !== undefined || backlogEdit !== undefined) && (decision.edits?.rows ?? []).length === 0) {
       // Only the decisions' status changed: the rows stay as they are.
       rows = plan.rows.map((r) => ({ ...r }));
     } else if (decision.verdict === "edit") {
@@ -2613,8 +2761,8 @@ function decideProject(
       if (read === null) return refuse({ code: "invalid", message: "the re-estimated plan has a malformed task" });
       checked.push(read);
     }
-    const { decisionStatus: _status, ...rest } = project;
-    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }) };
+    const { decisionStatus: _status, backlogCalls: _calls, ...rest } = project;
+    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }), ...(backlogCalls === undefined ? {} : { backlogCalls }) };
     return {
       ok: true,
       project: {
@@ -2623,7 +2771,7 @@ function decideProject(
           ...withoutApproval(plan),
           rows: checked,
           totals: planTotals(checked),
-          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, referenceOptions(plan), planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, { ...referenceOptions(plan), ...backlogCheckOptions(next, { status: "draft" }) }, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
           status: "draft",
           version: plan.version + 1,
         },

@@ -5,8 +5,9 @@ import {
   gateVersion,
   planDecisionsOf,
   projectExpectation,
+  planCheckData,
   planReviewFactsOf,
-  referenceOptions,
+  planReviewPersonCalls,
   type ProjectState,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
@@ -14,7 +15,7 @@ import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } 
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
 import { seedHint } from "../../session/project-gate-text.js";
-import { backlogStateOf, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
+import { backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -74,6 +75,8 @@ export { seedHint };
 
 /** The plan gate's hint for an item the person promoted (issue #111). */
 export const promotedHint = (id: string, title: string): string => `promoted from the backlog: ${id} "${title}": check this plan takes it in before approving`;
+/** The plan gate's hint for a promoted item the person deferred (issue #146). */
+export const deferredHint = (id: string, title: string): string => `promoted from the backlog, deferred by you: ${id} "${title}": this plan need not take it in; set it active again to require it`;
 
 /** The gate card's payload. Pure. */
 /** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
@@ -116,10 +119,10 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
     const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
-    const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
+    const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...planCheckData(project, plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
     hints.push(...planChecks.map(planCheckHint));
     // Issue #118: the plan reviewer's summary and every dimension that is not a pass (facts recomputed now).
-    hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
+    hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks, personCalls: planReviewPersonCalls(project) }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
@@ -141,7 +144,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
   }
   if (project.gate.kind === "plan") {
-    for (const b of promotedForPlan(project)) hints.push(promotedHint(b.id, b.title));
+    for (const b of promotedForPlan(project)) hints.push(project.backlogCalls?.[b.id]?.deferred === true ? deferredHint(b.id, b.title) : promotedHint(b.id, b.title));
     // Review of #111: a call bound to text that changed, or to an item removed, outside Atomic Agent.
     for (const s of staleBacklogCalls(project)) {
       hints.push(s.reason === "removed"
@@ -154,16 +157,30 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     const n = expectation.openBacklog;
     hints.push(`complete with ${n} backlog item${n === 1 ? "" : "s"} open: ${openBacklog(project).map((b) => `${b.id} ${b.title}`).join(", ")}`);
   }
-  const backlog = (project.backlog ?? []).length === 0
+  // Issue #146: promoted items no run took in are said too, never counted as done.
+  if (expectation.kind === "complete" && expectation.promotedNotDone !== undefined) {
+    const n = expectation.promotedNotDone;
+    hints.push(`complete with ${n} promoted backlog item${n === 1 ? "" : "s"} not done: ${promotedForPlan(project).map((b) => `${b.id} ${b.title}`).join(", ")}`);
+  }
+  // A call on an item removed outside Atomic Agent keeps the backlog in view, so the card can say so
+  // even when project.json holds no item any more.
+  const backlog = (project.backlog ?? []).length === 0 && staleBacklogCalls(project).length === 0
     ? undefined
     : {
         open: openBacklog(project).length,
         seeds: openSeeds(project).map((b) => ({ id: b.id, title: b.title, condition: b.condition! })),
-        promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title })),
+        promoted: promotedForPlan(project).map((b) => ({
+          id: b.id,
+          title: b.title,
+          ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}),
+          citedBy: (plan?.rows ?? []).filter((r) => (r.backlog ?? []).includes(b.id)).map((r) => r.taskId),
+        })),
         stale: staleBacklogCalls(project),
-        items: project.backlog!.map((b) => {
-          const plannedIn = backlogStateOf(project, b.id) === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
-          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }) };
+        items: (project.backlog ?? []).map((b) => {
+          const promoted = backlogStateOf(project, b.id) === "promoted";
+          const plannedIn = promoted ? backlogTakenIn(project, b.id) : undefined;
+          const deferred = promoted && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
+          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
         }),
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
@@ -189,7 +206,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             results: (effectivePlanReview(plan, project.milestones.map((m) => m.id), planReviewFactsOf(project, input.planChecks)) ?? review.results).map((r) => ({ ...r, taskIds: [...r.taskIds] })),
             ...(review.reason === undefined ? {} : { reason: review.reason }),
             round: review.round,
-            stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id)),
+            stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id), planReviewPersonCalls(project)),
             autoApprovable: planReviewGate(plan, project.milestones.map((m) => m.id), planReviewFactsOf(project, input.planChecks), input.planReviewerConfigured ?? true).autoApprovable,
           },
         }),

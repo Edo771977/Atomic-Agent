@@ -70,6 +70,18 @@ function tools(options: { tainted?: boolean; context?: ProjectPlanContext; evide
   return { brief: brief!, plan: plan!, milestone: milestone! };
 }
 
+it.each(["draft", "review", "final", "unknown"])("validates milestone kind %s in project.plan", (kind) => {
+  const parsed = parseProjectPlanArgs({
+    milestones: [{ id: "m1", title: "Report", kind }],
+    tasks: [{ id: "t1", title: "Work on the report", milestone: "m1" }],
+  });
+  if (kind === "unknown") {
+    expect(parsed).toMatchObject({ ok: false, problems: [expect.stringContaining("kind")] });
+  } else {
+    expect(parsed).toMatchObject({ ok: true, plan: { milestones: [{ kind }] } });
+  }
+});
+
 const briefArgs = {
   what: "A snake game",
   users: "Kids",
@@ -99,6 +111,23 @@ describe("schema v2 project tool fields", () => {
     expect(update).toMatchObject({ rows: [{ checks, decisions: ["d1"] }] });
     const folded = applyProjectUpdate(approved.project, update, NOW);
     expect(folded.ok && folded.project.plan?.checkResults).toEqual(result.details.planChecks);
+  });
+  it("a plan task may cite backlog items by id (issue #146)", () => {
+    const plan = (backlog: unknown) => parseProjectPlanArgs({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", backlog }] });
+    expect(plan(["b1", "b2"])).toMatchObject({ ok: true, plan: { tasks: [{ backlog: ["b1", "b2"] }] } });
+    for (const bad of ["b1", ["Not An Id"], ["b1", "b1"], [7]]) expect(plan(bad), JSON.stringify(bad)).toMatchObject({ ok: false });
+  });
+  it("carries a task's backlog citations to its plan row (issue #146)", async () => {
+    const p = applyProjectUpdate(undefined, { kind: "brief", brief: briefArgs, draftedAfterUntrusted: false }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const approved = applyProjectDecision(p.project, { gate: p.project.gate, version: gateVersion(p.project)!, verdict: "approve" }, { now: NOW });
+    if (!approved.ok) throw new Error(approved.error.message);
+    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", backlog: ["b1"] }] }, { ...ctx, project: approved.project });
+    expect(result.status).toBe("ok");
+    const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
+    expect(update).toMatchObject({ rows: [{ backlog: ["b1"] }] });
+    const folded = applyProjectUpdate(approved.project, update, NOW);
+    expect(folded.ok && folded.project.plan?.rows[0]?.backlog).toEqual(["b1"]);
   });
 });
 

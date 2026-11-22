@@ -5,6 +5,8 @@ Owner: src/session/
 
 A Fusion project takes a task from brief to plan to delivery. You approve the brief, the plan and each milestone result at a gate. Read the gate before deciding. It shows what changed, which checks matter and what will happen next.
 
+Fusion can use Draft, Review and Final milestones for non-code work, and task review follows the delivery type in your approved brief.
+
 ## Find or resume a project
 
 In the desktop sidebar, open **Fusion projects** under **Projects**. The list groups projects by **Needs you**, **Problem**, **In progress**, **Idle** and **Done**. Select **Resume** to open the project's newest chat or start one if needed.
@@ -24,6 +26,12 @@ Use `forget` to remove a folder from the list. It keeps the files and the projec
 Open `.atomic/project/BRIEF.md`, `PLAN.md` or `STATUS.md` for a readable snapshot. Atomic Agent generates these files from the project. It reads editable brief, plan and milestone content from `.atomic/project/project.json`.
 
 Approvals, decision status, milestone progress and evidence are kept in the Atomic Agent data directory. Editing the saved brief or plan outside Atomic Agent reopens the affected gate for your approval. Copying the folder gives you the project content with fresh gates and no carried approvals. Deleting a chat leaves its folder's project available to resume.
+
+## List project lessons
+
+Save lessons as Markdown files in `.atomic/project/lessons/` so they travel with the project folder. Run `atomic-agent project lessons ./my-project` to see the lessons and validation problems. Omit the folder to use your current directory, or add `--json` for structured output.
+
+The command only reads the chosen project's lesson files. Even a file marked `active` has no approval from you in this phase. Lessons are currently for inspection and have no effect on prompts or plans. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
 ## Read the plan checks
 
@@ -55,12 +63,18 @@ In your paired Telegram chat, send `/backlog` to see open, promoted and dropped 
 
 Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
 
+## Take promoted backlog items into the plan
+
+The backlog holds work that is not ready for the plan yet. Only you promote, drop or reopen an item (`atomic-agent project backlog --promote <id>`, or the project card). A promoted item is for the next plan: the director cites its id on a task that will run, and the plan gate checks this (**backlog-coverage**). A plan that cites no task for a promoted item cannot be approved, and the gate names the missing item. A citation added to a task of a milestone that already started does not count. If a later plan drops the citation before that work runs, the item is required again.
+
+If the item can wait, defer it from the plan gate. It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft. The gate and `PLAN.md` show which tasks cite each item, and the worker of such a task is given the item's text. When every milestone is reviewed, the project says which promoted items were never done.
+
 ## Read the plan review
 
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.
 
 - **Plan not reviewed** means you should check the plan yourself. A skipped or unavailable review can leave the plan in this state.
-- **Notes on an earlier version** means the rows or milestone order changed after the review. Read those notes alongside the current plan.
+- **Notes on an earlier version** means the rows or milestone order changed after the review, or you changed a decision's status or deferred a backlog item at the gate. Those notes no longer block your plain approval; read them alongside the current plan. Automatic approval still stops there.
 - **Approve over review** is available when the current review blocks approval and the gate allows an override. Write why you are proceeding. The reason is saved with the approval. Failed plan checks still block approval.
 
 For a CLI run, `--auto-approve-project` approves eligible gates as they open. It stops for open plan review failures, or when a required review is missing, skipped or stale. It also stops for changes made outside Atomic Agent, failed plan checks and milestone results that need your decision. Review the gate and the version it prints. To approve an eligible version yourself, use:
@@ -88,7 +102,7 @@ For a UI or polish milestone, the director can pair visual review with an Impecc
 atomic-agent project verify ./my-project
 ~~~
 
-This command checks saved delivery and check-execution receipts. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. Receipts may be unsigned when the signing key is unavailable.
+This command checks saved delivery, check-execution, gate-decision and milestone-report receipts. Use `atomic-agent project verify ./my-project --json` for machine-readable results. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. Receipts may be unsigned when the signing key is unavailable.
 
 Verification covers the receipts present. It cannot tell whether a receipt was removed or whether current project files match the old delivery. A process running as your user with access to the signing key can sign replacement receipts.
 

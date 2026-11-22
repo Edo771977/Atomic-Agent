@@ -229,16 +229,12 @@ describe("plan references (issue #120)", () => {
     expect(winRefs.find((r) => r.value === "C:foo")).toMatchObject({ kind: "file", reason: "outside the project folder (not read)" });
   });
 
-  it("never reads or stats through a symlink that leads outside the project folder (review #5)", async (t) => {
+  it("never reads or stats through a symlink that leads outside the project folder (review #5)", async () => {
     const outside = project({ "secret.txt": "x", "package.json": JSON.stringify({ scripts: { deploy: "x" } }), "node_modules/.bin/outtool": "" });
     const root = project({ "package.json": JSON.stringify({ scripts: {} }) });
-    try {
-      symlinkSync(outside, join(root, "link"), "dir");
-      symlinkSync(join(outside, "node_modules"), join(root, "node_modules"), "dir");
-    } catch {
-      t.skip();
-      return;
-    }
+    const directoryLink = process.platform === "win32" ? "junction" : "dir";
+    symlinkSync(outside, join(root, "link"), directoryLink);
+    symlinkSync(join(outside, "node_modules"), join(root, "node_modules"), directoryLink);
     const reads: string[] = [];
     const rows = [
       row("t1", "Touch link/secret.txt and link/nothere.txt"),

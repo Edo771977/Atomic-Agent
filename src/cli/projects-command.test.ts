@@ -215,6 +215,22 @@ describe("project backlog (issue #111)", () => {
     expect(JSON.parse(j.out()).items[0]).toMatchObject({ id: "b1", state: "promoted", plannedIn: 4 });
   });
 
+  it("says when the person deferred a promoted item at the plan gate (issue #146)", async () => {
+    const folder = folderWithBacklog();
+    expect(await projectCommand(["backlog", folder, "--promote", "b1"], io())).toBe(0);
+    const record = stateDirProjectRecords(stateDir).read(folder);
+    if (!record.ok || record.record === null) throw new Error("no record");
+    const state = record.record.state;
+    const w = stateDirProjectRecords(stateDir).write(folder, record.record.id, record.record.seq, { ...state, backlogCalls: { b1: { ...state.backlogCalls!.b1!, deferred: true } } });
+    expect(w.ok).toBe(true);
+    const t = io();
+    expect(await projectCommand(["backlog", folder], t)).toBe(0);
+    expect(t.out()).toContain("b1 promoted, deferred at the plan gate, not in any plan  Export PDF");
+    const j = io();
+    expect(await projectCommand(["backlog", folder, "--json"], j)).toBe(0);
+    expect(JSON.parse(j.out()).items[0]).toMatchObject({ id: "b1", state: "promoted", deferred: true });
+  });
+
   it("refuses a call while a turn runs on a chat bound to the project (review)", async () => {
     const folder = folderWithBacklog();
     const store = new SessionStore({ dbFile: join(stateDir, "sessions.sqlite"), projectStore: projects });

@@ -2,6 +2,7 @@ import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { requireSymlinks } from "../../test-symlink-support.js";
 
 import { DEFAULT_VERIFY_MAX_COPY_BYTES } from "../../config/tool-config.js";
 import {
@@ -68,7 +69,8 @@ describe("VERIFY_COPY_MAX_BYTES", () => {
 });
 
 describe("createVerifyWorkspace", () => {
-  it("copies the tree, symlinks the excluded directories, keeps modes and symlinks", async () => {
+  it("copies the tree, symlinks the excluded directories, keeps modes and symlinks", async (context) => {
+    requireSymlinks(context);
     await symlink("src/app.js", join(work, "link.js"));
     const ws = await createVerifyWorkspace(work, { platform: "linux", tmpRoot });
     try {
@@ -105,7 +107,8 @@ describe("createVerifyWorkspace", () => {
     expect(await readdir(work)).toContain("index.html");
   });
 
-  it("falls back to a junction on Windows when a directory symlink is refused (EPERM)", async () => {
+  it("falls back to a junction on Windows when a directory symlink is refused (EPERM)", async (context) => {
+    requireSymlinks(context);
     await symlink("src/app.js", join(work, "link.js"));
     const calls: { target: string; path: string; type: string | undefined }[] = [];
     const ws = await createVerifyWorkspace(work, {
@@ -132,7 +135,8 @@ describe("createVerifyWorkspace", () => {
     }
   });
 
-  it("recreates an in-tree link with the type of what it points at", async () => {
+  it("recreates an in-tree link with the type of what it points at", async (context) => {
+    requireSymlinks(context);
     // Windows guesses an untyped link's type from its target, which may not
     // be copied yet: a directory link would become a broken file link.
     await mkdir(join(work, "src", "a"));
@@ -155,7 +159,8 @@ describe("createVerifyWorkspace", () => {
     }
   });
 
-  it("junctions a refused in-tree directory symlink to the copy, never to the original", async () => {
+  it("junctions a refused in-tree directory symlink to the copy, never to the original", async (context) => {
+    requireSymlinks(context);
     await mkdir(join(work, "src", "a"));
     await writeFile(join(work, "src", "a", "kept.txt"), "k");
     await symlink("a", join(work, "src", "link"), "dir");
@@ -185,7 +190,8 @@ describe("createVerifyWorkspace", () => {
     await symlink(target, path, "dir");
   };
 
-  it("charges a refused file link's copied target against the copy limit", async () => {
+  it("charges a refused file link's copied target against the copy limit", async (context) => {
+    requireSymlinks(context);
     await writeFile(join(work, "big.bin"), "b".repeat(100));
     await symlink("big.bin", join(work, "big-link.bin"));
     // The measured tree (41 + 100 bytes) fits; the copied link target does not.
@@ -198,7 +204,8 @@ describe("createVerifyWorkspace", () => {
     expect(await readdir(tmpRoot)).toEqual([]);
   });
 
-  it("refuses a refused file link whose target is outside the workspace", async () => {
+  it("refuses a refused file link whose target is outside the workspace", async (context) => {
+    requireSymlinks(context);
     await writeFile(join(root, "outside.txt"), "secret");
     await symlink("../outside.txt", join(work, "out-link.txt"));
     const ws = await createVerifyWorkspace(work, { platform: "win32", tmpRoot, symlink: refuseFileSymlinks });

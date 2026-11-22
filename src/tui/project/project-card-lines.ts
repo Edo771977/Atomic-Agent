@@ -84,6 +84,12 @@ function fileLink(path: string): string | undefined {
   }
 }
 
+const MILESTONE_KIND_LABEL: Partial<Record<ProjectMilestone["kind"], string>> = {
+  draft: "Draft",
+  review: "Review",
+  final: "Final",
+};
+
 const MILESTONE_MARK: Record<ProjectMilestone["state"], string> = {
   planned: "·", approved: "▸", in_progress: "◐", done: "✓", failed: "✕", reviewed: "✔",
 };
@@ -204,6 +210,14 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     if (view.gate.kind === "plan" || view.gate.kind === "milestone") {
       for (const s of backlog.seeds) text(`seed ${s.id} ${s.title} — ${s.condition}`, "plain", 3);
     }
+    // Issue #146: at the plan gate, each promoted item with the tasks that take it in.
+    if (view.gate.kind === "plan") {
+      for (const b of backlog.promoted) {
+        const cited = b.citedBy ?? [];
+        const state = b.deferred === true ? "deferred" : `cited by ${cited.length === 0 ? "no task" : cited.join(", ")}`;
+        text(`promoted ${b.id} ${b.title} (${state})`, b.deferred !== true && cited.length === 0 ? "warn" : "plain", 3);
+      }
+    }
   }
   // The seeds' own hints are drawn above from the structured backlog; every other hint stays.
   const seedHints = new Set((backlog?.seeds ?? []).map((s) => seedHint(s.id, s.title, s.condition)));
@@ -213,7 +227,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;
     const shown = full ? view.milestones : view.milestones.filter((m) => m.id === gateId);
     for (const m of shown) {
-      text(`${MILESTONE_MARK[m.state]} ${m.title} (${m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
+      text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
       if (full || m.id === gateId) {
         // Evidence of the result (issue #40): never a claim the view does not carry.

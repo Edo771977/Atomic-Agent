@@ -3,8 +3,11 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFi
 import { join } from "node:path";
 
 import type { SecretKeychain } from "../config/secret-store.js";
+import { projectFolderOf } from "./project-folder.js";
+import { projectFilePath } from "./project-store.js";
+import type { SessionState } from "./session-state.js";
 import { projectFolderKey } from "./project-decisions.js";
-import { makeReceipt, publicKeyId, verifyReceipt, type ReceiptKind, type ReceiptStatus } from "./receipt-signing.js";
+import { isReceiptKind, makeReceipt, publicKeyId, verifyReceipt, type ReceiptKind, type ReceiptStatus } from "./receipt-signing.js";
 
 type ReceiptKeychain = Pick<SecretKeychain, "read" | "write">;
 export type ProjectReceiptWriter = (folder: string, kind: ReceiptKind, payload: unknown) => void;
@@ -80,19 +83,53 @@ export function createProjectReceiptWriter(stateDir: string, keychain: ReceiptKe
   };
 }
 
-export function verifyProjectReceipts(stateDir: string, folder: string): ReceiptStatus[] {
+/** Keep post-commit receipt errors independent from the saved state. */
+export function writeEvidenceReceipt(
+  writer: ProjectReceiptWriter,
+  warn: ((message: string) => void) | undefined,
+  session: SessionState,
+  kind: "gate-verdict" | "milestone-report",
+  payload: () => Record<string, unknown>,
+): void {
+  try {
+    const folder = session.projectRef?.folder ?? projectFolderOf(session);
+    if (session.projectRef === undefined && lstatSync(projectFilePath(folder), { throwIfNoEntry: false })) return;
+    writer(folder, kind, { ...payload(), projectId: session.projectRef?.id ?? null });
+  } catch {
+    warn?.("Could not save an evidence receipt. The project archive may be incomplete.");
+  }
+}
+
+export interface ProjectReceiptVerification {
+  kind: ReceiptKind | null;
+  projectId: string | null;
+  status: ReceiptStatus;
+}
+
+export function verifyProjectReceiptDetails(stateDir: string, folder: string): ProjectReceiptVerification[] {
   const projectKey = projectFolderKey(folder);
   const path = archive(stateDir, projectKey, false);
   if (!existsSync(path)) return [];
-  const lines = readFileSync(path, "utf8").split("\n");
+  const lines = readFileSync(path, "utf8").split(/\r?\n/);
   if (lines.at(-1) === "") lines.pop();
   return lines.map(line => {
+    let kind: ReceiptKind | null = null;
     try {
-      return verifyReceipt(JSON.parse(line), projectKey, id => {
+      const row = JSON.parse(line);
+      if (isReceiptKind(row?.kind)) kind = row.kind;
+      const status = verifyReceipt(row, projectKey, id => {
         const path = join(childDir(stateDir, "signing", false), id + ".pem");
         checkFile(path);
         return existsSync(path) ? createPublicKey(readFileSync(path)) : null;
       });
-    } catch { return "bad-signature"; }
+      const id: unknown = row.payload?.projectId;
+      const projectId = (kind === "gate-verdict" || kind === "milestone-report") &&
+        (status === "valid" || status === "unsigned") && typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
+      return { kind, status, projectId };
+    } catch { return { kind, status: "bad-signature", projectId: null }; }
   });
+}
+
+export function verifyProjectReceipts(stateDir: string, folder: string): ReceiptStatus[] {
+  return verifyProjectReceiptDetails(stateDir, folder).map(({ status }) => status);
 }

@@ -13,7 +13,7 @@ import type { EscalationComplete } from "./escalation.js";
 import type { WorkerPricing, WorkerTaskResult } from "./worker-result.js";
 import type { WorkspaceChange } from "./branch-diff.js";
 import { outcomeLabel } from "./outcome-log.js";
-import type { ProjectCriterionFact } from "../../session/session-project.js";
+import type { ProjectBrief, ProjectCriterionFact, ProjectDeliverable } from "../../session/session-project.js";
 import {
   criteriaFactsFor,
   criterionLabel,
@@ -467,6 +467,13 @@ async function rawEvidence(
   return parts.join("\n\n");
 }
 
+const DELIVERABLE_REVIEW_CRITERIA: Record<Exclude<ProjectDeliverable, "code" | "game">, string> = {
+  document: "Check that the task's document is complete against the brief and coherent, that data matches the brief, and that the requested tone and language are used. Flag invented content.",
+  spreadsheet: "Check the expected sheets and columns, and confirm that totals are derived from the data. Where the brief requires calculations, check for formulas and flag pasted values used in their place.",
+  research: "Check that every important claim has a citation. Flag undated or unverifiable sources and any apparent invented links. Do not visit the links.",
+  files: "Check that the expected files exist with the right name and location. Flag any files written outside the declared folder.",
+};
+
 export function renderJudgePrompt(input: {
   task: DelegateTask;
   items: readonly AcceptanceItem[];
@@ -474,11 +481,17 @@ export function renderJudgePrompt(input: {
   evidence: string;
   /** The fusion project's success criteria (issue #39): context for the ruling, not items. */
   successCriteria?: readonly string[];
+  deliverable?: ProjectDeliverable;
+  projectBrief?: Pick<ProjectBrief, "what" | "users" | "how">;
   /** The project's active decisions (issue #112), each `<id>: <text>`: a violation is a blocker. */
   decisions?: readonly string[];
   /** The task's attempts and the version under review (issue #95, `renderAttemptEvidence`). */
   attemptEvidence?: string;
 }): string {
+  const { deliverable, projectBrief } = input;
+  const criteria = deliverable === undefined || deliverable === "code" || deliverable === "game"
+    ? undefined
+    : DELIVERABLE_REVIEW_CRITERIA[deliverable];
   const judged = input.items.filter(
     (item) => item.kind !== "criterion" && !input.facts.some((fact) => fact.id === item.id),
   );
@@ -495,6 +508,17 @@ export function renderJudgePrompt(input: {
     ...(input.decisions === undefined || input.decisions.length === 0
       ? []
       : ["## The project's decisions (how it must be done; work that violates one is a blocker)", ...input.decisions.map((d) => `- ${d}`), ""]),
+    ...(criteria === undefined
+      ? []
+      : [
+        ...(projectBrief === undefined
+          ? []
+          : ["## Approved brief", `- What: ${projectBrief.what}`, `- For whom: ${projectBrief.users}`, `- How: ${projectBrief.how}`, ""]),
+        `## Review criteria for ${deliverable}`,
+        criteria,
+        "Apply these criteria to the work this task was assigned, using only the evidence shown.",
+        "",
+      ]),
     "## Items to rule on",
     ...judged.map((item) => `- ${item.id}: ${item.text}`),
     "",
@@ -643,6 +667,8 @@ export async function judgeTask(input: {
   signal: AbortSignal;
   /** The fusion project's success criteria (issue #39), for the judge brief. */
   successCriteria?: readonly string[];
+  deliverable?: ProjectDeliverable;
+  projectBrief?: Pick<ProjectBrief, "what" | "users" | "how">;
   /** The project's active decisions (issue #112), for the judge brief. */
   decisions?: readonly string[];
   /** The task's attempts and the version under review (issue #95). */
@@ -732,6 +758,8 @@ export async function judgeTask(input: {
         facts: factVerdicts,
         evidence,
         ...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
+        ...(input.deliverable === undefined ? {} : { deliverable: input.deliverable }),
+        ...(input.projectBrief === undefined ? {} : { projectBrief: input.projectBrief }),
         ...(input.decisions === undefined ? {} : { decisions: input.decisions }),
         ...(input.attemptEvidence === undefined ? {} : { attemptEvidence: input.attemptEvidence }),
       }),

@@ -607,6 +607,7 @@ export class AgentLoop {
             compactPromptLatch: this.compactPromptLatch,
             personaLatch: this.personaLatch,
             ...(this.deps.projectStore ? { projectStore: this.deps.projectStore } : {}),
+            ...(!options.ephemeral && this.deps.writeMilestoneReport ? { writeMilestoneReport: this.deps.writeMilestoneReport } : {}),
             commitSession: (next) => {
               state = next;
               stepContext.session = next;

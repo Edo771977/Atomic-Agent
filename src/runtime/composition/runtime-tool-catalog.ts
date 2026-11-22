@@ -918,6 +918,7 @@ export function registerRuntimeFusionAndReadScope(input: {
   /** Upstream's past-runs journal (ATO-949, `outcome-journal.ts`). */
   outcomeJournal?: FusionDelegateDeps["outcomeJournal"];
   writeProjectReceipt?: FusionDelegateDeps["writeProjectReceipt"];
+  receiptProjectFolder?: FusionDelegateDeps["receiptProjectFolder"];
   /** The fan-outs' receipts and the plan reviews' spend (issue #118). */
   turnLedger?: Pick<FusionTurnLedger, "noteFanout" | "notePlanReview">;
   /**
@@ -1181,6 +1182,7 @@ export function registerRuntimeFusionAndReadScope(input: {
       ...(outcomeLog === undefined ? {} : { outcomeLog }),
       ...(outcomeJournal === undefined ? {} : { outcomeJournal }),
       writeProjectReceipt: input.writeProjectReceipt,
+      receiptProjectFolder: input.receiptProjectFolder,
       ...(turnLedger === undefined ? {} : { turnLedger }),
       approvals,
       approvalRequired: dangerous.approvalRequired,

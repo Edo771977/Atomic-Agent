@@ -127,6 +127,31 @@ describe("the plan row's reviewer reviews the task (issue #74)", () => {
     expect(picked.prompts).toEqual([]);
   });
 
+  it("uses the approved project's delivery type and brief in the task review", async () => {
+    const brief: ProjectUpdate = {
+      kind: "brief",
+      brief: { what: "A report", users: "Accountants", how: "In Italian", deliverable: "document", successCriteria: ["Cover all quarters"] },
+      draftedAfterUntrusted: false,
+    };
+    const plan: ProjectUpdate = {
+      kind: "plan",
+      milestones: [{ id: "m1", title: "Report", kind: "draft" }],
+      rows: [row("cli-b:model-r")],
+      detail: "compact",
+    };
+    const p = approve(up(approve(up(undefined, brief)), plan));
+    const judgePrompts: string[] = [];
+    await run(p, {
+      escalationComplete: async ({ prompt }) => {
+        judgePrompts.push(prompt);
+        return { content: ACCEPT };
+      },
+    });
+    expect(judgePrompts).toHaveLength(1);
+    expect(judgePrompts[0]).toContain("## Review criteria for document");
+    expect(judgePrompts[0]).toContain("## Approved brief\n- What: A report\n- For whom: Accountants\n- How: In Italian");
+  });
+
   it("the person's \"no review\" reviews nothing, not even on judgeProvider", async () => {
     const none = await run(project(null, true), { resolveRunMode: () => ({ ...mode(), judge: { providerId: "api-a", model: "judge" } }) });
     expect(none.calls).toEqual([]);

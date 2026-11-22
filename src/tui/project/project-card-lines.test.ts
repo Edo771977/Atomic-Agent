@@ -41,6 +41,16 @@ describe("project card lines", () => {
     expect(text(card(planWith({ detail: "full" })))).toContain("t2 Level screen");
   });
 
+  it.each([
+    ["draft", "Draft"],
+    ["review", "Review"],
+    ["final", "Final"],
+  ] as const)("shows a readable label for a %s milestone", (kind, label) => {
+    const view = fixtureProjectGateView({ kind: "plan" });
+    const milestones = view.milestones.map((m) => ({ ...m, kind }));
+    expect(text(card({ ...view, milestones }, true))).toContain(`(${label})`);
+  });
+
   it("shows a local row as $0.00 (local), not unpriced (issue #54)", () => {
     const base = fixtureProjectGateView({ kind: "plan" });
     const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);
@@ -155,6 +165,18 @@ describe("project resume line", () => {
     expect(out).toContain("d2 No new dependencies (active; cited by no task)");
     expect(out).toContain("d3 Formal tone (deferred)");
     expect(out).toContain(" d defer d2 ");
+  });
+
+  it("lists the promoted backlog items at the plan gate with the tasks citing each (issue #146)", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { backlog: { open: 0, seeds: [], stale: [], items: [], promoted: [
+      { id: "b1", title: "Export PDF", citedBy: ["t2"] },
+      { id: "b2", title: "Sounds", citedBy: [] },
+      { id: "b3", title: "Dark mode", deferred: true, citedBy: [] },
+    ] } });
+    const out = text(card(view));
+    expect(out).toContain("promoted b1 Export PDF (cited by t2)");
+    expect(out).toContain("promoted b2 Sounds (cited by no task)");
+    expect(out).toContain("promoted b3 Dark mode (deferred)");
   });
 });
 

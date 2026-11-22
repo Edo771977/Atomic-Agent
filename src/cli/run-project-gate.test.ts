@@ -106,7 +106,7 @@ describe("run at a project gate", () => {
   it("--auto-approve-project approves the current version", async () => {
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }), fixtureProjectGateView({ kind: "none" }));
     expect((await settleProjectGate(rt, "s", "approve")).kind).toBe("approved");
-    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
+    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" }, "auto-approve");
   });
 
   it("auto approval stops at a failed milestone: only a person decides a retry", async () => {
@@ -193,7 +193,7 @@ describe("run at a plan the plan reviewer still fails (issue #118)", () => {
     if (step.kind !== "stop") return;
     expect(step.text).toContain(`The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${message}`);
     expect(rt.projectDecision).toHaveBeenCalledTimes(1);
-    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }), "auto-approve");
   });
 });
 
@@ -206,6 +206,15 @@ describe("run at a plan gate with promoted backlog items (issue #111 review)", (
     expect(step.kind).toBe("stop");
     expect(step.kind === "stop" && step.text).toContain("The person promoted backlog items for this plan (b2 PDF export): a person checks the plan takes them in, so it is not approved automatically.");
     expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("an automatic approval never defers an item: it stops, and an explicit approval sends no edits (issue #146)", async () => {
+    const deferred = { ...backlog, promoted: [{ id: "b2", title: "PDF export", deferred: true as const }] };
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog: deferred }, fixtureProjectGateView({ kind: "none" }));
+    expect((await settleProjectGate(rt, "sess-1", "approve")).kind).toBe("stop");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
   });
 
   it("a person's --approve <version> still approves it (a warning, not a block)", async () => {

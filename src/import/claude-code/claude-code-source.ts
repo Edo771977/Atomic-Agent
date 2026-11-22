@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, posix, win32 } from "node:path";
 
 /**
  * Read-only access to a `~/.claude` state directory (Claude Code). This
@@ -339,14 +339,17 @@ export class ClaudeCodeSource {
   }
 }
 
-/** See `ClaudeCodeSource.projectCwdOf`. POSIX paths only (a Windows slug starts with a drive letter). */
+/** See `ClaudeCodeSource.projectCwdOf`. A Windows drive slug begins with e.g. `C--`. */
 export function decodeProjectSlug(
   slug: string,
   isDir: (path: string) => boolean = isDirectory,
+  platform: NodeJS.Platform = process.platform,
 ): string | null {
-  if (!slug.startsWith("-")) return null;
-  const tokens = slug.slice(1).split("-");
-  let dir = "";
+  const drive = platform === "win32" ? /^([A-Za-z])--/.exec(slug) : null;
+  if (!drive && !slug.startsWith("-")) return null;
+  const tokens = slug.slice(drive?.[0].length ?? 1).split("-");
+  const path = drive ? win32 : posix;
+  let dir = drive ? `${drive[1]}:\\` : "/";
   let i = 0;
   while (i < tokens.length) {
     let found: string | null = null;
@@ -355,7 +358,7 @@ export function decodeProjectSlug(
     for (let j = tokens.length; j > i; j--) {
       const words = tokens.slice(i, j);
       for (const joiner of ["-", ".", "_", " "]) {
-        const candidate = `${dir}/${words.join(joiner)}`;
+        const candidate = path.join(dir, words.join(joiner));
         if (isDir(candidate)) {
           found = candidate;
           next = j;
@@ -366,7 +369,7 @@ export function decodeProjectSlug(
       if (found) break;
       // A dot-folder (".config") encodes as an empty token before its name.
       if (tokens[i] === "" && j === i + 2) {
-        const dotted = `${dir}/.${tokens[i + 1] ?? ""}`;
+        const dotted = path.join(dir, `.${tokens[i + 1] ?? ""}`);
         if (isDir(dotted)) {
           found = dotted;
           next = j;
@@ -378,7 +381,7 @@ export function decodeProjectSlug(
     dir = found;
     i = next;
   }
-  return dir || null;
+  return dir;
 }
 
 function isDirectory(path: string): boolean {

@@ -25,6 +25,8 @@ afterEach(() => {
 
 const ctx = (): ToolContext => ({ workingDir: work, sessionId: "s1", stepIndex: 0, signal: new AbortController().signal });
 const MODEL = () => join(data, "whisper", "ggml-base.bin");
+const FFMPEG = join("/bin", "ffmpeg");
+const WHISPER = join("/bin", "whisper-cli");
 
 /**
  * A fake network: `download` writes a placeholder file and records the
@@ -63,7 +65,7 @@ function tool(over: {
   platform?: NodeJS.Platform;
   install?: InstallDeps;
 } = {}) {
-  const binaries = over.binaries ?? ["/bin/whisper-cli", "/bin/ffmpeg"];
+  const binaries = over.binaries ?? [WHISPER, FFMPEG];
   const platform = over.platform ?? "darwin";
   const request = vi.fn(async () => ({ approved: true }));
   const progress: Array<{ fraction: number; label: string }> = [];
@@ -96,27 +98,27 @@ describe("audio.transcribe (ATO-702)", () => {
     const result = await built.run({ path: "voice.ogg", language: "ru" }, ctx());
     expect(result.status).toBe("ok");
     expect(result.summary).toContain("Привет, это тест.");
-    expect(calls.map((c) => c.cmd)).toEqual(["/bin/ffmpeg", "/bin/whisper-cli"]);
+    expect(calls.map((c) => c.cmd)).toEqual([FFMPEG, WHISPER]);
     expect(calls[0]!.args).toContain(join(work, "voice.ogg"));
     expect(calls[1]!.args).toEqual(expect.arrayContaining(["-m", MODEL(), "-l", "ru", "-nt"]));
     expect(request).not.toHaveBeenCalled();
   });
 
   it("says how to install whisper.cpp when it is missing", async () => {
-    const { built } = tool({ binaries: ["/bin/ffmpeg"] });
+    const { built } = tool({ binaries: [FFMPEG] });
     const result = await built.run({ path: "voice.ogg" }, ctx());
     expect(result.status).toBe("error");
     expect(result.summary).toContain("brew install whisper-cpp");
   });
 
   it("needs ffmpeg for a voice message, not for a WAV", async () => {
-    const { built, calls } = tool({ binaries: ["/bin/whisper-cli"] });
+    const { built, calls } = tool({ binaries: [WHISPER] });
     const ogg = await built.run({ path: "voice.ogg" }, ctx());
     expect(ogg.status).toBe("error");
     expect(ogg.summary).toContain("brew install ffmpeg");
     const wav = await built.run({ path: "clip.wav" }, ctx());
     expect(wav.status).toBe("ok");
-    expect(calls.map((c) => c.cmd)).toEqual(["/bin/whisper-cli"]);
+    expect(calls.map((c) => c.cmd)).toEqual([WHISPER]);
   });
 
   it("downloads a missing model on first use after one approval, with progress, then runs", async () => {
@@ -136,7 +138,7 @@ describe("audio.transcribe (ATO-702)", () => {
   });
 
   it("on Linux with nothing installed fetches the upstream whisper.cpp build and the model, then runs", async () => {
-    const { built, request, urls, progress, calls } = tool({ platform: "linux", binaries: ["/bin/ffmpeg"], modelOnDisk: false });
+    const { built, request, urls, progress, calls } = tool({ platform: "linux", binaries: [FFMPEG], modelOnDisk: false });
     const result = await built.run({ path: "voice.ogg" }, ctx());
     expect(result.status).toBe("ok");
     expect(request).toHaveBeenCalledTimes(1);
@@ -186,7 +188,7 @@ describe("audio.transcribe (ATO-702)", () => {
   });
 
   it("on macOS a missing whisper.cpp is the brew line, nothing is downloaded", async () => {
-    const { built, request, urls } = tool({ binaries: ["/bin/ffmpeg"], modelOnDisk: false });
+    const { built, request, urls } = tool({ binaries: [FFMPEG], modelOnDisk: false });
     const result = await built.run({ path: "voice.ogg" }, ctx());
     expect(result.status).toBe("error");
     expect(result.summary).toContain("brew install whisper-cpp");
