@@ -455,3 +455,17 @@ it("scans the address of a named service while it is ready in the same batch", a
   });
   expect(await hold.finalRunner!(specs, { workingDir: root, signal: controller.signal })).toMatchObject({ ok: false, results: [{ kind: "service", ready: true }, { kind: "ui", artifactStatus: "uncheckable" }] });
 });
+
+it("isolates an invalid service readiness URL from sibling checks", async () => {
+  const signal = new AbortController().signal;
+  const [service, ui, command] = await authorizeVerifyBatch([
+    { kind: "service", id: "preview", start: { cmd: "node" }, ready: { url: "https://example.com/" } },
+    { kind: "ui", service: "preview" },
+    { kind: "command", cmd: "node", args: ["--version"] },
+  ], { approvals: {} as never, approvalRequired: false }, { workingDir: root, sessionId: "test", stepIndex: 0, signal });
+  expect(service?.kind).toBe("service");
+  expect(command?.kind).toBe("command");
+  expect(await executeVerify(ui!, { workingDir: root })).toMatchObject({
+    artifactStatus: "uncheckable", error: expect.stringContaining("loopback"),
+  });
+});

@@ -185,7 +185,15 @@ export async function authorizeVerifyBatch(
       markUiUnavailable(spec, "UI verification requires an earlier named service in the same batch");
       continue;
     }
-    const serviceUrl = ready === undefined ? undefined : uiServiceUrl(ready);
+    let serviceUrl: string | undefined;
+    if (ready !== undefined) {
+      try {
+        serviceUrl = uiServiceUrl(ready);
+      } catch (error) {
+        markUiUnavailable(spec, error instanceof Error ? error.message : String(error));
+        continue;
+      }
+    }
     const uiTarget = logical.url ?? serviceUrl ?? artifactTarget;
     const supportedUi = logical.url !== undefined || serviceUrl !== undefined || (artifactTarget !== undefined && isImpeccableMarkup(artifactTarget));
     const detector = ui && supportedUi
