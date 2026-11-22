@@ -223,6 +223,13 @@ function pcDecision(state, sid, verdict, statusEdit) {
     if (note.length > PC_NOTE_MAX) return {error: 'The reason is longer than ' + PC_NOTE_MAX + ' characters'};
     body.edits = {note};
   }
+  if (verdict === 'edit' && statusEdit && statusEdit.backlog !== undefined) {
+    const backlog = view.gate.kind === 'plan' && state.mode === 'view' ? pcBacklogModel(view, true, true) : null;
+    const item = backlog && backlog.items.find((i) => i.id === statusEdit.backlog);
+    if (!item || !item.statusActions.some(([, status]) => status === statusEdit.status)) return {error: 'This backlog status change is unavailable'};
+    body.edits = {backlogStatus: {[item.id]: statusEdit.status}};
+    return {body};
+  }
   if (verdict === 'edit' && statusEdit) {
     const decision = pcList(view.decisions).find((d) => d && d.id === statusEdit.id);
     if (view.gate.kind !== 'plan' || state.mode !== 'view' || !decision ||
@@ -439,8 +446,18 @@ function pcBacklogHints(backlog) {
   return out;
 }
 
-/** The view's backlog as plain data, or null without one. Author text stays text. */
-function pcBacklogModel(view) {
+/** A promoted item's status edit at the plan gate, as [label, status]: the core's `edits.backlogStatus` (PERSON_BACKLOG_STATUSES). */
+function pcBacklogStatusActions(promoted) {
+  if (!/^[a-z0-9-]{1,32}$/.test(promoted.id)) return [];
+  return promoted.deferred === true ? [['Reactivate', 'active']] : [['Defer', 'deferred']];
+}
+
+/**
+ * The view's backlog as plain data, or null without one. Author text stays
+ * text. At the plan gate (`plan`) a promoted item no approved plan took in
+ * says which tasks cite it; `canEdit` adds its Defer / Reactivate.
+ */
+function pcBacklogModel(view, plan, canEdit) {
   const b = view && view.backlog;
   if (!b || typeof b !== 'object') return null;
   const backlog = {
@@ -461,12 +478,20 @@ function pcBacklogModel(view) {
       ? 'removed outside Atomic Agent since you ' + stale.state + ' it'
       : 'changed outside Atomic Agent since you ' + stale.state + ' it: it reads open again',
     actions: pcBacklogActions(item, stale),
+    ...pcBacklogWaiting(item && plan ? backlog.promoted.find((x) => x.id === item.id) : null, canEdit),
   });
   const items = backlog.items.map((item) => entry(item, staleOf(item.id)))
     .concat(backlog.stale.filter((s) => s.reason === 'removed' && !backlog.items.some((i) => i.id === s.id)).map((s) => entry(null, s)));
   const summary = [backlog.open + ' open'].concat(backlog.seeds.length ? [backlog.seeds.length + ' seed' + (backlog.seeds.length === 1 ? '' : 's')] : [],
     backlog.promoted.length ? [backlog.promoted.length + ' promoted'] : []).join(' · ');
   return {summary, items, hints: pcBacklogHints(backlog)};
+}
+
+/** A promoted item waiting for the plan: who cites it, and its status edit. */
+function pcBacklogWaiting(promoted, canEdit) {
+  if (!promoted) return {cited: null, statusActions: []};
+  const by = pcList(promoted.citedBy).map(pcStr).filter(Boolean);
+  return {cited: by.length ? 'Cited by: ' + by.join(', ') : 'No citing tasks', statusActions: canEdit ? pcBacklogStatusActions(promoted) : []};
 }
 
 /** The backlog call `{sessionId, item, state}` for main (agent:projectBacklog), or {error} when the view offers no such call. */
@@ -538,11 +563,11 @@ function pcModel(state) {
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
-  const backlog = pcBacklogModel(view);
+  const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
+  const backlog = pcBacklogModel(view, gate === 'plan', canEditStatus);
   const hints = pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT) && !(backlog && backlog.hints.has(h)));
   const checks = gate === 'plan' ? hints.map(pcPlanCheck).filter(Boolean) : [];
   const review = gate === 'plan' ? pcPlanReview(view) : null;
-  const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
   const decisions = pcList(view.decisions).filter((d) => d && typeof d.id === 'string').map((d) => ({
     id: d.id, text: pcStr(d.text), status: pcStr(d.status), citedBy: pcList(d.citedBy).map(pcStr).filter(Boolean),
     actions: canEditStatus ? pcDecisionStatusActions(d) : [],
@@ -718,11 +743,17 @@ function pcDrawBacklog(doc, body, model, on) {
     if (item.note) li.appendChild(pcEl(doc, 'div', 'pc-reason', item.note));
     if (item.meta) li.appendChild(pcEl(doc, 'div', 'pc-meta', item.meta));
     if (item.stale) li.appendChild(pcEl(doc, 'p', 'pc-warn-item', '⚠ ' + item.stale));
+    if (item.cited) li.appendChild(pcEl(doc, 'div', 'pc-meta', item.cited));
     const acts = pcEl(doc, 'div', 'pc-item-actions');
     for (const [label, to] of item.actions) {
       const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog', id: item.id, state: to}), model.busy);
       button.setAttribute('aria-label', label + ' ' + item.id);
       acts.appendChild(pcFocusKey(button, 'backlog:' + item.id + ':' + to));
+    }
+    for (const [label, status] of item.statusActions) {
+      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog-status', id: item.id, status}), model.busy);
+      button.setAttribute('aria-label', label + ' ' + item.id);
+      acts.appendChild(pcFocusKey(button, 'backlog-status:' + item.id + ':' + status));
     }
     if (acts.children.length) li.appendChild(acts);
     list.appendChild(li);
@@ -979,6 +1010,7 @@ function createProjectCard(opts) {
         return decide(a.verdict);
       case 'decision-status': return decide('edit', a);
       case 'backlog': return backlogCall(a.id, a.state);
+      case 'backlog-status': return decide('edit', {backlog: a.id, status: a.status});
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text

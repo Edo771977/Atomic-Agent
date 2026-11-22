@@ -165,7 +165,7 @@ test('the backlog section lists every item with its call, author text as text, a
   assert.match(section.textContent, /promoted, not in any plan/);
   assert.match(section.textContent, /b4 · Sound[\s\S]*dropped/);
   assert.deepEqual(['b1', 'b2', 'b3', 'b4'].map((id) => buttons(section).filter((b) => / b\d$/.test(b.getAttribute('aria-label') || '') && b.getAttribute('aria-label').endsWith(' ' + id)).map((b) => b.textContent)),
-    [['Promote', 'Drop'], ['Promote', 'Drop'], ['Reopen'], ['Reopen']]);
+    [['Promote', 'Drop'], ['Promote', 'Drop'], ['Reopen', 'Defer'], ['Reopen']], 'at the plan gate a promoted item waiting for it can be deferred too');
   // The seed's own hint is drawn by the section, not again as a loose line.
   assert.equal(host.findAll((e) => e.className === 'pc-hint' && /^ℹ seed /.test(e.textContent)).length, 0);
 });
@@ -264,4 +264,63 @@ test('the backlog hints the section says itself are the core\'s own sentences', 
 test('the page hands the card the bridge\'s backlog call', () => {
   const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(renderer, /createProjectCard\(\{\s*api: \{[^\n]*backlog: \(body\) => BR\.projectBacklog\(body\)/);
+});
+
+/* ---------------- the plan gate: cited by, defer, reactivate ---------------- */
+
+test('at the plan gate a promoted item not taken in says which tasks cite it, with Defer or Reactivate', () => {
+  const p = call(call(project(), 'b3', 'promoted'), 'b1', 'promoted');
+  const cited = call(call(project({cite: true}), 'b3', 'promoted'), 'b1', 'promoted');
+  const section = (v) => draw(C.pcModel(C.pcInitial(v))).findAll((e) => e.className === 'pc-backlog')[0];
+  const s = section(view(p));
+  assert.match(s.textContent, /b3 · Dark <b>theme<\/b>[\s\S]*No citing tasks/);
+  assert.deepEqual(buttons(s).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Reopen', 'Defer']);
+  assert.match(section(view(cited)).textContent, /Cited by: t1/);
+  // Deferred by the person at the plan gate (the core's own edit).
+  const r = CORE.applyProjectDecision(p, {gate: p.gate, version: CORE.gateVersion(p), verdict: 'edit', edits: {backlogStatus: {b3: 'deferred'}}}, {now: 5000});
+  assert.ok(r.ok, JSON.stringify(r.error));
+  const d = section(view(r.project));
+  assert.match(d.textContent, /promoted, deferred at the plan gate, not in any plan/);
+  assert.deepEqual(buttons(d).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Reopen', 'Reactivate']);
+  // Elsewhere than the plan gate there is no plan to cite it.
+  const m = section(view(p, {gate: {kind: 'milestone', id: 'm1'}, allowedVerdicts: ['approve', 'edit', 'cancel']}));
+  assert.equal(/Cited by|No citing tasks/.test(m.textContent), false);
+  assert.equal(buttons(m).some((b) => b.textContent === 'Defer'), false);
+});
+
+test('Defer sends the plan gate\'s edit with backlogStatus at the view\'s version, and the core takes it', async () => {
+  const sent = [];
+  let p = call(project(), 'b3', 'promoted');
+  const c = controller({
+    read: () => ({supported: true, ok: true, view: view(p)}),
+    decide: (body) => {
+      sent.push(body);
+      const r = CORE.applyProjectDecision(p, {gate: body.gate, version: body.version, verdict: body.verdict, edits: body.edits}, {now: 6000});
+      assert.ok(r.ok, JSON.stringify(r.error));
+      p = r.project;
+      return {supported: true, ok: true, view: view(p), continueMessage: null};
+    },
+    backlog: () => { throw new Error('a defer is a plan gate edit, not a backlog call'); },
+  });
+  c.card.follow('ses-1');
+  await tick();
+  const version = c.last().model.version;
+  byLabel(draw(c.last().model, c.last().on), 'Defer b3').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent, [{session: 'ses-1', gate: {kind: 'plan'}, version, verdict: 'edit', edits: {backlogStatus: {b3: 'deferred'}}}]);
+  const after = c.last().model;
+  assert.equal(after.checks.find((x) => x.dimension === 'backlog-coverage')?.verdict, 'pass', 'a deferred item no longer blocks the plan');
+  byLabel(draw(after, c.last().on), 'Reactivate b3').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent.at(-1).edits, {backlogStatus: {b3: 'active'}});
+  assert.equal(c.last().model.checks.find((x) => x.dimension === 'backlog-coverage')?.verdict, 'fail');
+});
+
+test('a backlog status edit the view does not offer is not sent', () => {
+  const st = C.pcInitial(view(call(project(), 'b3', 'promoted')));
+  assert.ok(C.pcDecision(st, 'ses-1', 'edit', {backlog: 'b3', status: 'deferred'}).body);
+  for (const edit of [{backlog: 'b3', status: 'active'}, {backlog: 'b1', status: 'deferred'}, {backlog: 'b9', status: 'deferred'}, {backlog: 'b3', status: 'informational'}]) {
+    assert.ok(C.pcDecision(st, 'ses-1', 'edit', edit).error, JSON.stringify(edit));
+  }
+  assert.ok(C.pcDecision(Object.assign({}, st, {mode: 'edit'}), 'ses-1', 'edit', {backlog: 'b3', status: 'deferred'}).error, 'not while editing rows');
 });
