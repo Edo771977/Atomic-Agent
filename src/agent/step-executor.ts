@@ -283,6 +283,7 @@ async function executeStepInner(
     ...(deps.providerId !== undefined ? { providerId: deps.providerId } : {}),
     // The fusion project's gate is enforced at dispatch (issue #39).
     ...(ctx.session.project !== undefined ? { project: ctx.session.project } : {}),
+    ...(ctx.session.projectRef !== undefined ? { projectRef: ctx.session.projectRef } : {}),
     ...(deps.tracker ? { tracker: deps.tracker } : {}),
     ...(ctx.terminalOnly ? { terminalOnly: true } : {}),
     ...(ctx.toolSet !== undefined ? { toolSet: ctx.toolSet } : {}),

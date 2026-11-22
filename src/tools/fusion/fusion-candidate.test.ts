@@ -1,4 +1,5 @@
 import { projectCommand } from "../../cli/projects-command.js";
+import { projectFilePath } from "../../session/project-store.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -95,17 +96,34 @@ it.each([true, false])("archives check-run records and only delivered candidate 
   const output = "some check output that stays out of the archive";
   const exitCode = passing ? 0 : 1;
   f.deps.runChecks = async () => ({ ok: passing, results: [{ ok: passing, exitCode, stdoutTail: output }] });
-  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, f.ctx);
+  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, { ...f.ctx, projectRef: { id: "bound", folder: f.root } });
   expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", {
-    kind: "command", ok: passing, exitCode,
+    projectId: "bound", kind: "command", ok: passing, exitCode,
     definitionHash: receiptHash(contract.checks[0]),
     outputHash: receiptHash(output),
     recordHash: receiptHash({ command: "integration", exitCode, output, tests: [] }),
   });
   const manifests = writeProjectReceipt.mock.calls.filter(([, kind]) => kind === "artifact-manifest");
   expect(manifests).toHaveLength(passing ? 1 : 0);
-  if (passing) expect(manifests[0]).toEqual([f.root, "artifact-manifest", expect.objectContaining({ binding: expect.objectContaining({ scope: "candidate-snapshot" }) })]);
+  if (passing) expect(manifests[0]).toEqual([f.root, "artifact-manifest", expect.objectContaining({ projectId: "bound", binding: expect.objectContaining({ scope: "candidate-snapshot" }) })]);
   expect(result.status).toBe(passing ? "ok" : "error");
+});
+
+it("skips phase-one receipts when an embedded chat shares an archived project's folder", async () => {
+  const writer = vi.fn();
+  const f = await fixture({ writeProjectReceipt: writer }, false);
+  await mkdir(join(f.root, ".atomic", "project"), { recursive: true });
+  await writeFile(projectFilePath(f.root), "{}");
+  f.deps.runTurn = async session => {
+    await writeFile(join(session.workingDir, "api.json"), '{"name":"after"}');
+    return { session, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const result = await buildFusionDelegateTool(f.deps).run({
+    tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
+  }, f.ctx);
+  expect(result.status).toBe("ok");
+  expect(writer).not.toHaveBeenCalled();
 });
 
 it.each([true, false])("archives direct task manifests outside incognito (incognito=%s)", async incognito => {
@@ -161,13 +179,18 @@ it.each([true, false])("verifies every worktree receipt from the original projec
   f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
   const result = await buildFusionDelegateTool(f.deps).run({
     tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
-  }, f.ctx);
+  }, { ...f.ctx, projectRef: { id: "bound", folder: original } });
   expect(result.status).toBe("ok");
   const stdout = vi.fn();
   expect(await projectCommand(["verify", original, "--json"], { stateDir: () => stateDir, stdout })).toBe(0);
-  const rows = JSON.parse(stdout.mock.calls.flat().join("")) as Array<{ kind: string; status: string }>;
+  const rows = JSON.parse(stdout.mock.calls.flat().join("")) as Array<{ kind: string; status: string; projectId: string | null }>;
   expect(new Set(rows.map(row => row.kind))).toEqual(new Set(["gate-verdict", "milestone-report", "artifact-manifest", "check-run-record"]));
   expect(rows.every(row => row.status === "valid")).toBe(true);
+  expect(rows.filter(row => row.kind === "artifact-manifest" || row.kind === "check-run-record"))
+    .toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "artifact-manifest", projectId: "bound" }),
+      expect.objectContaining({ kind: "check-run-record", projectId: "bound" }),
+    ]));
   expect(verifyProjectReceipts(stateDir, f.root)).toEqual([]);
 });
 

@@ -87,14 +87,21 @@ export function createProjectReceiptWriter(stateDir: string, keychain: ReceiptKe
 export function writeEvidenceReceipt(
   writer: ProjectReceiptWriter,
   warn: ((message: string) => void) | undefined,
-  session: SessionState,
-  kind: "gate-verdict" | "milestone-report",
+  session: Pick<SessionState, "id" | "workingDir" | "worktree"> & {
+    projectRef?: Pick<NonNullable<SessionState["projectRef"]>, "folder" | "id">;
+  },
+  kind: ReceiptKind,
   payload: () => Record<string, unknown>,
 ): void {
   try {
     const folder = session.projectRef?.folder ?? projectFolderOf(session);
     if (session.projectRef === undefined && lstatSync(projectFilePath(folder), { throwIfNoEntry: false })) return;
-    writer(folder, kind, { ...payload(), projectId: session.projectRef?.id ?? null });
+    const evidence = payload();
+    writer(folder, kind, {
+      ...evidence,
+      projectId: session.projectRef?.id ?? null,
+      ...(session.projectRef === undefined && typeof evidence.milestoneId === "string" ? { sessionId: session.id } : {}),
+    });
   } catch {
     warn?.("Could not save an evidence receipt. The project archive may be incomplete.");
   }
@@ -123,7 +130,7 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string): P
         return existsSync(path) ? createPublicKey(readFileSync(path)) : null;
       });
       const id: unknown = row.payload?.projectId;
-      const projectId = (kind === "gate-verdict" || kind === "milestone-report") &&
+      const projectId = kind !== null &&
         (status === "valid" || status === "unsigned") && typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
       return { kind, status, projectId };
     } catch { return { kind, status: "bad-signature", projectId: null }; }

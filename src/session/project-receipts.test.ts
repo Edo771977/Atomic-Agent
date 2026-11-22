@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { writeMilestoneReportReceipt } from "./project-milestone-receipt.js";
 import { createEmptySessionState } from "./session-state.js";
 import { canonicalJson, receiptHash } from "./receipt-signing.js";
-import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts } from "./project-receipts.js";
+import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceiptDetails, verifyProjectReceipts } from "./project-receipts.js";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -164,4 +164,12 @@ it("warns without exposing the requested ID when a saved milestone is missing", 
   writeMilestoneReportReceipt(dir, writer, warn, session, "private model text");
   expect(writer).not.toHaveBeenCalled();
   expect(warn).toHaveBeenCalledExactlyOnceWith("Could not save a milestone evidence receipt because the saved milestone was missing.");
+});
+
+it("keeps phase-one receipts without project IDs verifiable", () => {
+  const { dir, append } = setup();
+  append();
+  expect(verifyProjectReceiptDetails(dir, dir)).toEqual([
+    { kind: "check-run-record", projectId: null, status: "valid" },
+  ]);
 });

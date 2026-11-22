@@ -83,6 +83,8 @@ export interface ToolContext {
    * dispatch. Absent: the session has none.
    */
   project?: import("../session/session-project.js").ProjectState;
+  /** The folder project bound to this session, for attributing evidence. */
+  projectRef?: Pick<import("../session/session-project-store.js").SessionProjectRef, "folder" | "id">;
 }
 
 export interface ToolDefinition {

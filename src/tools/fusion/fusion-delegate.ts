@@ -203,7 +203,7 @@ import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
@@ -1339,25 +1339,29 @@ export function buildFusionDelegateTool(
       }
 
       const candidateOriginalDir = ctx.workingDir;
-      const writeProjectReceipt = ctx.incognito ? undefined : deps.writeProjectReceipt;
-      const receiptFolder = (writeProjectReceipt && deps.receiptProjectFolder?.()) ?? candidateOriginalDir;
-      const recordCheckRun: CheckRunRecorder | undefined = writeProjectReceipt === undefined
+      const receiptWriter = ctx.incognito ? undefined : deps.writeProjectReceipt;
+      const writeReceipt = (kind: "check-run-record" | "artifact-manifest", payload: () => Record<string, unknown>): void => {
+        if (receiptWriter === undefined) return;
+        writeEvidenceReceipt(receiptWriter, message => deps.logger.warn(message), {
+          id: ctx.sessionId,
+          workingDir: deps.receiptProjectFolder?.() ?? candidateOriginalDir,
+          ...(ctx.projectRef === undefined ? {} : { projectRef: ctx.projectRef }),
+        }, kind, () => ({
+          ...payload(),
+          ...(admitted.milestoneId === null ? {} : { milestoneId: admitted.milestoneId }),
+        }));
+      };
+      const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined
         ? undefined
-        : (check, record, ok) => {
-            try {
-              writeProjectReceipt(receiptFolder, "check-run-record", {
-                kind: check.kind ?? "command",
-                ...(check.task === undefined ? {} : { task: check.task }),
-                definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
-                recordHash: receiptHash(record),
-                outputHash: receiptHash(record.output),
-                exitCode: record.exitCode,
-                ok,
-              });
-            } catch {
-              deps.logger.warn("Could not record the Fusion check receipt");
-            }
-          };
+        : (check, record, ok) => writeReceipt("check-run-record", () => ({
+            kind: check.kind ?? "command",
+            ...(check.task === undefined ? {} : { task: check.task }),
+            definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
+            recordHash: receiptHash(record),
+            outputHash: receiptHash(record.output),
+            exitCode: record.exitCode,
+            ok,
+          }));
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();
       const candidateWorkerRuns = new Map<string, number>();
@@ -3439,7 +3443,8 @@ export function buildFusionDelegateTool(
           if (row.artifactManifest === undefined) continue;
           run?.recordArtifactManifest(row.id, row.artifactManifest);
           if (candidate === undefined && row.status === "ok" && !carriedIds.has(row.id)) {
-            writeProjectReceipt?.(receiptFolder, "artifact-manifest", row.artifactManifest);
+            const manifest = row.artifactManifest;
+            writeReceipt("artifact-manifest", () => ({ ...manifest }));
           }
         }
         // Automatic replanning (ATO-941): what did not close, from the
@@ -3653,7 +3658,8 @@ export function buildFusionDelegateTool(
         });
         completedCandidateReport = candidateReport;
         if (candidateReport?.status === "promoted" && candidateReport.artifactManifest !== undefined) {
-          writeProjectReceipt?.(receiptFolder, "artifact-manifest", candidateReport.artifactManifest);
+          const manifest = candidateReport.artifactManifest;
+          writeReceipt("artifact-manifest", () => ({ ...manifest }));
         }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.
