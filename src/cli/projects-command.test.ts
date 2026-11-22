@@ -145,3 +145,64 @@ describe("project resume (issue #109)", () => {
     expect(await projectCommand(["resume"], io())).toBe(2);
   });
 });
+
+describe("project backlog (issue #111)", () => {
+  /** The fixture folder with two items added by a chat's director. */
+  function folderWithBacklog(): string {
+    const folder = join(root, "game");
+    mkdirSync(folder);
+    let project = normalizeProject(fixture.session.project) as ProjectState;
+    project = { ...project, backlog: [
+      { id: "b1", title: "Export PDF", condition: "when the report exists", source: "director", createdAt: 1 },
+      { id: "b2", title: "Dark mode", source: "person", createdAt: 2, origin: { milestoneId: "m2" } },
+    ] };
+    const r = projects.commit(createEmptySessionState({ id: "chat-game", workingDir: folder }), project);
+    if (!r.ok) throw new Error(r.problem.message);
+    return folder;
+  }
+
+  it("lists the items with their state, source and seed condition", async () => {
+    const folder = folderWithBacklog();
+    const t = io();
+    expect(await projectCommand(["backlog", folder], t)).toBe(0);
+    expect(t.out()).toContain("b1 open  Export PDF  (seed: when the report exists; from director)");
+    expect(t.out()).toContain("b2 open  Dark mode  (from person, milestone m2)");
+    expect(t.out()).toContain("2 open");
+    const j = io();
+    expect(await projectCommand(["backlog", folder, "--json"], j)).toBe(0);
+    expect(JSON.parse(j.out()).items.map((b: { id: string; state: string }) => `${b.id}:${b.state}`)).toEqual(["b1:open", "b2:open"]);
+  });
+
+  it("--promote and --drop are the person's calls, kept in the record and never in project.json", async () => {
+    const folder = folderWithBacklog();
+    const before = readFileSync(projectFilePath(folder), "utf8");
+    expect(await projectCommand(["backlog", folder, "--promote", "b1"], io())).toBe(0);
+    expect(await projectCommand(["backlog", folder, "--drop", "b2"], io())).toBe(0);
+    const t = io();
+    expect(await projectCommand(["backlog", folder], t)).toBe(0);
+    expect(t.out()).toContain("b1 promoted");
+    expect(t.out()).toContain("b2 dropped");
+    const raw = readFileSync(projectFilePath(folder), "utf8");
+    expect(raw).not.toMatch(/promoted|dropped/);
+    expect(JSON.parse(raw).project.backlog).toEqual(JSON.parse(before).project.backlog);
+    const record = stateDirProjectRecords(stateDir).read(folder);
+    expect(record.ok && record.record?.state.backlogStates).toEqual({ b1: "promoted", b2: "dropped" });
+    // The gate the project waited at did not move.
+    expect(record.ok && record.record?.state.gate).toEqual({ kind: "milestone", id: "m2" });
+    expect(await projectCommand(["backlog", folder, "--reopen", "b2"], io())).toBe(0);
+    const again = stateDirProjectRecords(stateDir).read(folder);
+    expect(again.ok && again.record?.state.backlogStates).toEqual({ b1: "promoted" });
+  });
+
+  it("refuses an unknown item, two calls at once and a folder without a project", async () => {
+    const folder = folderWithBacklog();
+    const u = io();
+    expect(await projectCommand(["backlog", folder, "--drop", "b9"], u)).toBe(1);
+    expect(u.err()).toMatch(/no item b9/);
+    expect(await projectCommand(["backlog", folder, "--drop", "b1", "--promote", "b2"], io())).toBe(2);
+    expect(await projectCommand(["backlog", folder, "--drop"], io())).toBe(2);
+    const empty = join(root, "empty");
+    mkdirSync(empty);
+    expect(await projectCommand(["backlog", empty], io())).toBe(1);
+  });
+});
