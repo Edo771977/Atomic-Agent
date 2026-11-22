@@ -336,7 +336,7 @@ function relativeEntry(path: string, field: string): string {
 }
 
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
-  const kind = requiredString(raw.kind, "kind");
+  const kind = requiredString(raw.kind ?? raw.type, "kind");
   if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet, ui, files, research");
   const base = {
     kind: kind as VerifyRunKind,

@@ -234,7 +234,7 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * (the folder's egress rule) turns that check red with its message
    * and it never runs (`contract-check-egress.ts`). Absent: no rule.
    */
-  contractCheckEgress?: (spec: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Error | null;
+  contractCheckEgress?: (spec: Record<string, unknown>, ctx: ToolContext) => Error | null;
   /**
    * The vision judge of visual contract checks (issue #40,
    * `vision-judge.ts`): whether a member's provider and model can take
@@ -1596,7 +1596,7 @@ export function buildFusionDelegateTool(
       // prompt and before the runner, as dispatch does for verify.run.
       const checkEgress: ContractCheckEgressRule | undefined = deps.contractCheckEgress === undefined
         ? undefined
-        : (spec) => deps.contractCheckEgress!(spec, { sessionId: ctx.sessionId, workingDir: ctx.workingDir });
+        : (spec) => deps.contractCheckEgress!(spec, ctx);
       const checkHold = createContractCheckHold({
         runner: deps.runChecks,
         approvals: deps.approvals,

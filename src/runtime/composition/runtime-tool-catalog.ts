@@ -1234,14 +1234,17 @@ export function registerRuntimeFusionAndReadScope(input: {
           shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
           ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }),
           ...(ctx.changedPaths === undefined ? {} : { changedPaths: ctx.changedPaths }),
-          ...(specs.some(spec => spec.kind === "files" || spec.kind === "research") ? { knownSecrets: runtimeKnownSecrets(getConfig()) } : {}),
+          ...(specs.some(spec => (spec.kind ?? spec.type) === "files" || (spec.kind ?? spec.type) === "research") ? { knownSecrets: runtimeKnownSecrets(getConfig()) } : {}),
         }), { supportsInputIntegrity: true as const }),
       shellPolicy: { isGitRemoteSyncEnabled: () => getConfig().git.remoteSync },
       // The same dispatch guard as a verify.run call of the delegating
       // session: a check the folder's egress rule refuses never runs.
-      contractCheckEgress: (spec, ctx) => spec.kind === "research" && spec.network === true
-        ? toolRegistry.dispatchRefusal("os.http.request", {}, ctx)
-        : toolRegistry.dispatchRefusal("verify.run", spec, ctx),
+      contractCheckEgress: (spec, ctx) => {
+        const research = (spec.kind ?? spec.type) === "research";
+        if (research) toolRegistry.observeDispatch("verify.run", spec, ctx);
+        return toolRegistry.dispatchRefusal("verify.run", spec, ctx) ??
+          (research && spec.network === true ? toolRegistry.dispatchRefusal("os.http.request", {}, ctx) : null);
+      },
       // Visual contract checks judged by a vision-capable team member
       // (issue #40); off with `vision.enabled: false`, when every visual
       // criterion stays unverified.

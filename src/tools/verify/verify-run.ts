@@ -38,7 +38,7 @@ export interface VerifyRunToolOptions extends VerifyAuthorizationOptions {
    * tests, which then get the static rule set.
    */
   shellPolicy?: ShellGuardPolicy;
-  researchEgress?: (ctx: ToolContext) => Error | null;
+  researchEgress?: (spec: Record<string, unknown>, ctx: ToolContext) => Error | null;
   /** Test seam: replaces the real browser launch. */
   launchBrowser?: BrowserLauncher;
   /** Test/embedder seam; unavailable copies are refused by runVerify. */
@@ -92,7 +92,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       let approvedArgs: Record<string, unknown>;
       try {
-        const refusal = args.kind === "research" && args.network ? options.researchEgress?.(ctx) : undefined;
+        const refusal = args.kind === "research" && args.network ? options.researchEgress?.(copyRoot.args, ctx) : undefined;
         const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, ...(refusal ? { researchNetworkRefusal: refusal.message } : {}), allowFanoutScope: true, continueOnUiApprovalDenial: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
         approvedArgs = approved[0]!;
       } catch (error) {

@@ -1,3 +1,4 @@
+import { EgressNotAllowedError, isNetworkedResearch } from "../tool-egress.js";
 import type { ContractCheckResult, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 
 /**
@@ -25,7 +26,7 @@ function guardedShape(spec: Record<string, unknown>): Record<string, unknown> {
 }
 
 function offlineResearch<T extends Record<string, unknown>>(spec: T, refusal: Error | null): T {
-  return refusal !== null && (spec.kind ?? spec.type) === "research" && spec.network === true
+  return refusal instanceof EgressNotAllowedError && refusal.egressClass === "http" && isNetworkedResearch("verify.run", spec)
     ? { ...spec, network: false } : spec;
 }
 
