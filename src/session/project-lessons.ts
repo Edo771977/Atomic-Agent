@@ -5,8 +5,7 @@ import {
 import { join, posix, resolve, win32 } from "node:path";
 
 import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
-import { PROJECT_LIMITS } from "./project-limits.js";
-import { PROJECT_STORE_DIR_PARTS } from "./project-store.js";
+import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
 const STATUSES = ["proposed", "active", "retired"] as const;
@@ -318,9 +317,13 @@ export interface ProjectLessonSource {
 /** Only a bound, persisted project may contribute lessons. Read files anew for each request. */
 export function activeProjectLessons(source: ProjectLessonSource, stateDir: string): ProjectLesson[] {
   const result = stateDirProjectRecords(stateDir).read(source.folder);
-  if (!result.ok || result.record?.id !== source.id || result.record.lessonCalls === undefined) return [];
-  const calls = result.record.lessonCalls;
-  return readProjectLessons(source.folder).lessons.filter(
+  if (!result.ok || result.record?.id !== source.id) return [];
+  return approvedProjectLessons(source.folder, result.record.lessonCalls);
+}
+
+export function approvedProjectLessons(folder: string, calls: Readonly<Record<string, ProjectLessonCall>> | undefined): ProjectLesson[] {
+  if (calls === undefined) return [];
+  return readProjectLessons(folder).lessons.filter(
     (lesson) => projectLessonStatus(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined).effectiveStatus === "active",
   );
 }

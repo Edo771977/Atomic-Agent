@@ -66,6 +66,8 @@ export interface PlanReviewRecord {
    * on a review recorded before: only its rows are compared.
    */
   callsBasis?: string;
+  /** Digest of the active lesson ids and content fingerprints sent for review. */
+  lessonsBasis?: string;
   /** The review call's priced cost; null when unpriced or no call was made. */
   costUsd: number | null;
   /**
@@ -98,6 +100,7 @@ const flat = (s: string, max: number): string => {
 export interface PlanReviewPersonCalls {
   decisionStatus?: Readonly<Record<string, string>>;
   backlogDeferred?: readonly string[];
+  lessonsBasis?: string;
 }
 
 /**
@@ -163,6 +166,7 @@ export function readPlanReviewRecord(raw: unknown): PlanReviewRecord | undefined
     round: raw.round as number,
     sentBack: raw.sentBack,
     basis: raw.basis,
+    ...(typeof raw.lessonsBasis === "string" && /^[0-9a-f]{16}$/.test(raw.lessonsBasis) ? { lessonsBasis: raw.lessonsBasis } : {}),
     ...(typeof raw.callsBasis === "string" && /^[0-9a-f]{16}$/.test(raw.callsBasis) ? { callsBasis: raw.callsBasis } : {}),
     costUsd: raw.costUsd as number | null,
     ...(raw.decided === true ? { decided: true as const } : {}),
@@ -216,11 +220,12 @@ export function withPlanFacts(results: readonly PlanReviewResult[], rows: readon
 }
 
 /** What changed since the stored review: its rows (and milestone order), the person's calls, both or nothing. */
-function reviewChanges(plan: ReviewedPlan, milestoneIds: readonly string[], calls: PlanReviewPersonCalls = {}): { rows: boolean; calls: boolean } {
+function reviewChanges(plan: ReviewedPlan, milestoneIds: readonly string[], calls: PlanReviewPersonCalls = {}): { rows: boolean; calls: boolean; lessons: boolean } {
   const review = plan.review;
-  if (review === undefined) return { rows: true, calls: false };
+  if (review === undefined) return { rows: true, calls: false, lessons: false };
   return {
     rows: review.basis !== planReviewBasis(plan.rows, milestoneIds),
+    lessons: review.lessonsBasis !== undefined && calls.lessonsBasis !== undefined && review.lessonsBasis !== calls.lessonsBasis,
     calls: review.callsBasis !== undefined && review.callsBasis !== planReviewCallsBasis(calls),
   };
 }
@@ -228,7 +233,7 @@ function reviewChanges(plan: ReviewedPlan, milestoneIds: readonly string[], call
 /** Whether the stored review read these rows (and milestone order), under the person's calls as they stand. */
 export function planReviewFresh(plan: ReviewedPlan, milestoneIds: readonly string[], calls: PlanReviewPersonCalls = {}): boolean {
   const changed = reviewChanges(plan, milestoneIds, calls);
-  return plan.review !== undefined && !changed.rows && !changed.calls;
+  return plan.review !== undefined && !changed.rows && !changed.calls && !changed.lessons;
 }
 
 /** A fresh review's results with the facts floor applied now; undefined for a stale, absent or unanswered one. */
@@ -306,7 +311,7 @@ export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: rea
         `plan review is stale: ${staleWhat(reviewChanges(plan!, milestoneIds, facts.personCalls))} since review ${review.round}${by}; it was not run again (draft the plan again to review it)`,
         ...review.results.filter((r) => r.verdict !== "pass").map((r) => `notes on an earlier version: ${planReviewLine(r)}`),
       ],
-      autoApprovable: !configured,
+      autoApprovable: !configured && !reviewChanges(plan!, milestoneIds, facts.personCalls).lessons,
     };
   }
   const fails = results.some((r) => r.verdict === "fail");
@@ -315,7 +320,11 @@ export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: rea
   return { hints: [head, ...held, ...results.filter((r) => r.verdict !== "pass").map(planReviewLine)], autoApprovable: !fails };
 }
 
-function staleWhat(changed: { rows: boolean; calls: boolean }): string {
+function staleWhat(changed: { rows: boolean; calls: boolean; lessons: boolean }): string {
+  if (changed.lessons) {
+    const other = changed.rows || changed.calls ? `; ${staleWhat({ ...changed, lessons: false })} too` : "";
+    return "the lessons changed" + other;
+  }
   if (changed.rows && changed.calls) return "the tasks and your calls on decisions or backlog items changed";
   return changed.calls ? "your calls on decisions or backlog items changed" : "the tasks changed";
 }

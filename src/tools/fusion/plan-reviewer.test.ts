@@ -193,6 +193,19 @@ describe("plan review record", () => {
   const facts = { criteria: [{ id: "c1" }], planChecks: [] };
   const results = PLAN_REVIEW_DIMENSIONS.map((dimension): PlanReviewResult => ({ dimension, verdict: dimension === "size" ? "fail" : "pass", detail: "d", taskIds: dimension === "size" ? ["t2"] : [] }));
   const record: PlanReviewRecord = { outcome: "reviewed", reviewer: "cloud:r", results, round: 3, sentBack: false, basis: planReviewBasis(rows, ids), costUsd: 0.01 };
+  it("makes a passing review stale when a lesson is activated", () => {
+    const review = { ...record, results: record.results.map((result) => ({ ...result, verdict: "pass" as const })), lessonsBasis: "0000000000000000" };
+    expect(readPlanReviewRecord(review)).toMatchObject({ lessonsBasis: review.lessonsBasis });
+    expect(planReviewHints({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: "1111111111111111" } })[0]).toMatch(/stale.*the lessons changed/);
+  });
+  it("clears a lesson review block when the rejected approach's lesson is retired", () => {
+    const review = {
+      ...record, lessonsBasis: "1111111111111111",
+      results: record.results.map((result): PlanReviewResult => ({ ...result, verdict: result.dimension === "lessons" ? "fail" : "pass" })),
+    };
+    expect(openPlanReviewFails({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: review.lessonsBasis } }).map((r) => r.dimension)).toEqual(["lessons"]);
+    expect(openPlanReviewFails({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: "0000000000000000" } })).toEqual([]);
+  });
   it("reads back what it wrote and refuses a malformed one", () => {
     expect(readPlanReviewRecord(JSON.parse(JSON.stringify(record)))).toEqual(record);
     expect(readPlanReviewRecord({ ...record, results: results.slice(1) })).toBeUndefined();

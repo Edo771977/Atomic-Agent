@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ProjectLesson } from "./project-lessons.js";
 import { PROJECT_LIMITS } from "./project-limits.js";
 
@@ -34,4 +36,18 @@ export function projectLessonSelection(lessons: readonly ProjectLesson[]) {
     chars += size;
   }
   return { data, included, omitted: lessons.length - data.length };
+}
+
+export function projectLessonOmissionNotice(omitted: number): string {
+  return `${omitted} more lessons were not shown.`;
+}
+
+export function projectLessonReviewSelection(active: readonly ProjectLesson[], allowed: boolean) {
+  const selection = projectLessonSelection(allowed ? active : []);
+  const notice = !allowed && active.length > 0
+    ? "Active lessons were not supplied by the folder policy."
+    : selection.omitted > 0 ? projectLessonOmissionNotice(selection.omitted) : undefined;
+  const sorted = [...selection.included].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const basis = createHash("sha256").update(JSON.stringify([sorted, notice ?? null])).digest("hex").slice(0, 16);
+  return { ...selection, notice, basis };
 }

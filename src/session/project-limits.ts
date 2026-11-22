@@ -1,3 +1,5 @@
+export const PROJECT_STORE_DIR_PARTS = [".atomic", "project"] as const;
+
 /**
  * Bounds on a stored or updated project. Text is clipped with an
  * ellipsis; a model update over an array cap is refused (the tool turns
