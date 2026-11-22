@@ -88,6 +88,8 @@ export interface ProjectPlanContext {
   reviewerFor: (worker: TeamMember) => TeamMember | null;
   /** Whether tasks get a review at all (`reviewEnabled`). */
   reviewOn: boolean;
+  /** Why review is off for this run, for the director; absent while it is on. */
+  reviewOffReason?: string;
   /** The outcome log's rows (`readRoutingHistory`). */
   records: readonly OutcomeRecord[];
   pricing: (member: TeamMember) => WorkerPricing | undefined;
@@ -327,9 +329,11 @@ function findMember(members: readonly TeamMember[], name: string): TeamMember | 
 }
 
 /** The plan's rows with workers, reviewers and estimates, or the problems. */
-export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContext): { ok: true; rows: AssignmentRow[] } | { ok: false; problems: string[] } {
+export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContext): { ok: true; rows: AssignmentRow[]; notes: string[] } | { ok: false; problems: string[] } {
   const problems: string[] = [];
   const rows: AssignmentRow[] = [];
+  // A reviewer named while review is off is accepted with no review, never silently: the director must not promise one.
+  const notes: string[] = [];
   const listed = (list: readonly TeamMember[]) => list.map((m) => `\`${m.ref}\``).join(", ") || "none";
   for (const task of plan.tasks) {
     let worker: TeamMember | null | undefined;
@@ -347,7 +351,12 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       }
     }
     let reviewer: TeamMember | null;
-    if (!context.reviewOn) reviewer = null;
+    if (!context.reviewOn) {
+      reviewer = null;
+      if (typeof task.reviewer === "string") {
+        notes.push(`task ${task.id}: review is off for this run (${context.reviewOffReason ?? "no review is enabled"}), so ${task.reviewer} will not review it; do not tell the person it will.`);
+      }
+    }
     else if (task.reviewer === null) reviewer = null;
     else if (task.reviewer !== undefined) {
       const found = findMember(context.reviewers, task.reviewer);
@@ -388,7 +397,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       ...(est.local === true ? { local: true as const } : {}),
     }, reviewEst));
   }
-  return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, rows, notes };
 }
 
 /**
@@ -649,6 +658,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .filter((r) => r.milestoneId === m.id)
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
+        ...enriched.notes,
         ...kept.notes,
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...backlogLines(ctx.project),

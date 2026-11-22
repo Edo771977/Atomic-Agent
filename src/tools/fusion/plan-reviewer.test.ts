@@ -62,6 +62,16 @@ describe("plan reviewer prompt", () => {
   });
 });
 
+describe("plan reviewer prompt: each task's reviewer", () => {
+  it("shows each row's reviewer, null for a row with no review, so a criterion that needs a review can be flagged", () => {
+    const prompt = renderPlanReviewPrompt(input([row("t1", { reviewer: "cloud:model-r" }), row("t2")]));
+    const data = prompt.slice(prompt.indexOf("## Plan"));
+    expect(data).toContain("\"reviewer\": \"cloud:model-r\"");
+    expect(data).toContain("\"reviewer\": null");
+    expect(prompt).toContain("a criterion or decision that asks for a review or a second reading is not served by a task whose reviewer is null");
+  });
+});
+
 describe("plan reviewer prompt: the backlog (issue #111)", () => {
   it("carries the open and promoted backlog as data, and nothing without one", () => {
     const backlog = [
