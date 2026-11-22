@@ -64,10 +64,10 @@ export function isFusionActive(
  */
 function fusionGuidanceLines(sizing: string, sees: string): string {
   return [
+    "Keep the design and review each reply against its brief. Your writes are blocked.",
     `Share the plan and delegate this turn: list the independent parts, ${sizing}`,
     `One task per part in \`fusion.delegate\`. Declare \`files\` for write approval. Each task's \`instructions\` must stand alone: ${sees}`,
     "You choose `maxWorkers` per call; every part that changes something is a worker's.",
-    "Keep the design and review each reply against its brief. Your writes are blocked.",
     // The delegate runs the contract checks and syntax-checks every green
     // row's changed files itself (`syntax-pass.ts`); its rows say so.
     "Checks and syntax run for you. Use `verify.run` for uncovered criteria.",
