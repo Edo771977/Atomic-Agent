@@ -338,3 +338,12 @@ it("redacts percent-encoded known secrets in research evidence", async () => {
   expect(JSON.stringify(result)).not.toContain("fixture%2D");
   expect(researchProbe).not.toHaveBeenCalled();
 });
+
+it.each(["document", "spreadsheet"])("marks unavailable %s setup as uncheckable", async kind => {
+  const result = await runVerify({ kind, path: "fixture.txt" }, {
+    workingDir,
+    inputIntegrity: { begin: async () => async () => {} },
+    workspace: async () => ({ dir: workingDir, isolated: false, method: "unavailable", cleanup: async () => {} }),
+  });
+  expect(result).toMatchObject({ ok: false, artifactStatus: "uncheckable" });
+});

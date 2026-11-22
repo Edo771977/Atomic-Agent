@@ -293,7 +293,7 @@ export async function runVerify(
   const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
   const approveResearch = args.network ? (rawArgs as { readonly [APPROVE_RESEARCH_LINKS]?: ResearchApproval })[APPROVE_RESEARCH_LINKS] : undefined;
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
-    finish({ kind: args.kind, isolated, error, ...((args.kind === "ui" || args.kind === "files" || args.kind === "research") && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
+    finish({ kind: args.kind, isolated, error, ...((args.kind === "ui" || isArtifactKind(args.kind)) && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
   if (args.kind === "ui" && detector === undefined) {
     const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
