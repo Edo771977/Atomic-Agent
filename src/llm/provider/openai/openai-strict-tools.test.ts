@@ -506,6 +506,14 @@ describe("strict-tool conformance over every registered tool", () => {
     ]);
   });
 
+  it("advertises UI and its path in verify.run under strict-tool negotiation", () => {
+    const verify = strictTools.find((tool) => (tool.function as Schema).name === "verify__run");
+    expect(verify?.function).toMatchObject({
+      strict: false, // The existing free-form env map still needs its original wire schema.
+      parameters: { required: ["kind"], properties: { kind: { enum: expect.arrayContaining(["ui"]) }, path: { type: "string" } } },
+    });
+  });
+
   it("carries all milestone kinds in the project.plan schema sent in strict tool mode", () => {
     const plan = strictTools.map((tool) => tool.function as Schema).find((fn) => fn.name === "project__plan");
     expect(plan?.parameters).toMatchObject({

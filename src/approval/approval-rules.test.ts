@@ -417,3 +417,8 @@ describe("a local page probe and shell rules", () => {
     expect(matchRules([rule({ decision: "allow", category: "shell" })], probe)).toBeNull();
   });
 });
+
+it.each(["deny", "ask"] as const)("applies a shell %s without a command prefix to a UI detector check", decision => {
+  const rule = { id: "shell-policy", decision, tool: "verify.run", category: "shell", source: "user", createdAt: "2026-11-22" } as const;
+  expect(matchRules([rule], { tool: "verify.run", category: "verify_ui_detector" })?.decision).toBe(decision);
+});

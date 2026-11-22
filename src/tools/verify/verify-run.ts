@@ -52,6 +52,7 @@ export function describeVerifyRun(args: VerifyRunArgs): string {
     return `start \`${start}\`, then ${args.requests?.length ?? 0} request(s)`;
   }
   if (args.kind === "document" || args.kind === "spreadsheet") return `verify ${args.kind} ${args.path}`;
+  if (args.kind === "ui") return `verify UI with impeccable: ${args.path}`;
   const open = `open ${args.url ?? args.path} headless for ${args.seconds}s`;
   if (args.start === undefined) return open;
   return `start \`${[args.start.cmd, ...(args.start.args ?? [])].join(" ")}\`, then ${open}`;
@@ -61,7 +62,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
   const definition: ToolDefinition = {
     name: VERIFY_RUN_TOOL,
     description:
-      "Verify a delivery (may require approval). Command, service and page runs use a throwaway copy of the working directory and refuse execution if the copy is unavailable. Shared dependency directories and user symlinks retain their targets; the copy does not confine process writes. kind 'command': any test runner, compiler or script ({cmd, args}). kind 'service': {start:{cmd,args}, ready:{port|url}, requests:[{method,path|url,body,expectStatus,expectBody}]}. kind 'page': a local HTML file ({path}) or {url} in a headless browser (with {start, url} the server is started first and the page opens once `ready` passes, by default when the url answers 2xx): {script:[{action:click|key|type|wait,…}]}, then `seconds` of runtime with `probes:[{name, expr}]` sampled every 250 ms; collects uncaught errors, console errors, failed getElementById/querySelector lookups. Document (docx/md/pdf/txt) and spreadsheet (xlsx/csv) runs read a bounded file snapshot offline at `path`. Documents check titles, word range, language and placeholders. Spreadsheets check sheets, column headers, formula errors and recalculated totals. kind 'command' takes `stdin` (at most 64 KB). A page takes `game:{games 1..20, maxMsPerGame, maxMoves}` (plays the page's window.__game {start, step, state} in the page) and `screenshot:{fullPage}` (JPEG at the end or after each game, at most 4). `checks`: `exit 0`, `exit != 0`, `stdout contains \"x\"`, `stderr not contains \"x\"`, `stdout [not] matches /re/flags`, `status 200`, `no errors`, `missing selectors 0`, `probe <name> decreases|increases|equals <v>|reaches <v>|stays <v>`, `games finish`, `game errors 0`, `game duration < <ms>`, `game moves < <n>`, `game winner in [a, b]`, `game winners vary`. `network` defaults to false (a proxy-based soft block, not a sandbox). Results are capped: output tails of 8,000 chars, summary of 4,000.",
+      "Verify a delivery (may require approval). Command, service and page runs use a throwaway copy of the working directory and refuse execution if the copy is unavailable. Shared dependency directories and user symlinks retain their targets; the copy does not confine process writes. kind 'command': any test runner, compiler or script ({cmd, args}). kind 'service': {start:{cmd,args}, ready:{port|url}, requests:[{method,path|url,body,expectStatus,expectBody}]}. kind 'page': a local HTML file ({path}) or {url} in a headless browser (with {start, url} the server is started first and the page opens once `ready` passes, by default when the url answers 2xx): {script:[{action:click|key|type|wait,…}]}, then `seconds` of runtime with `probes:[{name, expr}]` sampled every 250 ms; collects uncaught errors, console errors, failed getElementById/querySelector lookups. Document (docx/md/pdf/txt) and spreadsheet (xlsx/csv) runs read a bounded file snapshot offline at `path`. Documents check titles, word range, language and placeholders. Spreadsheets check sheets, column headers, formula errors and recalculated totals. UI runs use installed Impeccable to check a local source file at `path`. kind 'command' takes `stdin` (at most 64 KB). A page takes `game:{games 1..20, maxMsPerGame, maxMoves}` (plays the page's window.__game {start, step, state} in the page) and `screenshot:{fullPage}` (JPEG at the end or after each game, at most 4). `checks`: `exit 0`, `exit != 0`, `stdout contains \"x\"`, `stderr not contains \"x\"`, `stdout [not] matches /re/flags`, `status 200`, `no errors`, `missing selectors 0`, `probe <name> decreases|increases|equals <v>|reaches <v>|stays <v>`, `games finish`, `game errors 0`, `game duration < <ms>`, `game moves < <n>`, `game winner in [a, b]`, `game winners vary`. `network` defaults to false (a proxy-based soft block, not a sandbox). Results are capped: output tails of 8,000 chars, summary of 4,000.",
     readonly: true,
     async run(rawArgs, ctx): Promise<CompressedToolResult> {
       let args: VerifyRunArgs;
@@ -87,9 +88,10 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       // model can widen it with `cwd`.
       const copyNote = copyRoot.root === ctx.workingDir ? undefined : `copied ${copyRoot.root} only; pass cwd to widen`;
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
+      let approvedArgs: Record<string, unknown>;
       try {
-        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
-        args = parseVerifyRunArgs(approved[0]!);
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, continueOnUiApprovalDenial: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
+        approvedArgs = approved[0]!;
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard
         // policy refusals remain ordinary tool results and never reach IO.
@@ -97,7 +99,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
         const message = maskVerificationSecrets(error instanceof Error ? error.message : String(error), knownSecrets);
         return { tool: VERIFY_RUN_TOOL, status: "error", summary: message, details: { error: message, description: maskVerificationSecrets(description, knownSecrets), ...(error instanceof VerifyGuardRefusal ? { guardVerdict: "block", guardRule: error.guardRule, guardReason: maskVerificationSecrets(error.guardReason, knownSecrets) } : {}) }, truncated: false };
       }
-      const result = await runVerify(args, {
+      const result = await runVerify(approvedArgs, {
         workingDir: ctx.workingDir,
         config: options.config,
         signal: ctx.signal,

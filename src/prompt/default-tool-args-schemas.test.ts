@@ -21,7 +21,7 @@ describe("default tool argsJsonSchema map", () => {
       required: ["kind"],
       additionalProperties: false,
       properties: {
-        kind: { enum: ["command", "service", "page", "document", "spreadsheet"] },
+        kind: { enum: ["command", "service", "page", "document", "spreadsheet", "ui"] },
         path: { type: "string" },
         requiredSections: { type: "array", items: { type: "string" } },
         wordRange: { required: ["min", "max"], additionalProperties: false },
@@ -264,4 +264,8 @@ describe("default tool argsJsonSchema map", () => {
     });
     expect(result.argsJsonSchema).toBeUndefined();
   });
+});
+
+it("describes the optional Impeccable markup check in the verify.run descriptor", () => {
+  expect(DEFAULT_TOOL_DESCRIPTORS.find(tool => tool.name === "verify.run")?.summary).toMatch(/kind 'ui'[^.]*Impeccable/);
 });
