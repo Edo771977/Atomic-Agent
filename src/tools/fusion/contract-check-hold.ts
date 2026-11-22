@@ -46,6 +46,7 @@ export function createContractCheckHold(options: {
   turnGrantFolder?: string;
 }): ContractCheckHold {
   const isUi = (spec: Record<string, unknown>) => (spec.kind ?? spec.type) === "ui";
+  const needsFinalAuthorization = (spec: Record<string, unknown>) => isUi(spec) || (spec.kind ?? spec.type) === "research" && spec.network === true;
   let tail = Promise.resolve();
   const authorize = (batch: readonly Record<string, unknown>[], workingDir: string, signal: AbortSignal, checkInputs?: readonly string[]) => {
     const combined = AbortSignal.any([options.signal, signal]);
@@ -85,7 +86,7 @@ export function createContractCheckHold(options: {
     async (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) => {
       // The final preflight already covers ordinary checks. Authorize UI
       // against the frozen workspace so its exact executable reaches the runner.
-      const batch = final ? specs.filter(isUi) : specs;
+      const batch = final ? specs.filter(needsFinalAuthorization) : specs;
       const { onHold, ...rest } = ctx;
       if (final && batch.length === 0) return inner(specs, rest);
       let checked: readonly Record<string, unknown>[];
@@ -94,7 +95,7 @@ export function createContractCheckHold(options: {
       catch (err) { throw new ContractChecksHeldError(note(err, ctx.signal)); }
       finally { onHold?.end(); }
       let next = 0;
-      const approved = final ? specs.map(spec => isUi(spec) ? checked[next++]! : spec) : checked;
+      const approved = final ? specs.map(spec => needsFinalAuthorization(spec) ? checked[next++]! : spec) : checked;
       const unavailable = approved.map(uiVerificationUnavailable);
       if (unavailable.every(reason => reason === undefined)) return inner(approved, rest);
       const runnable = approved.filter((_, index) => unavailable[index] === undefined);

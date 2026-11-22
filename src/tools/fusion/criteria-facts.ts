@@ -110,6 +110,10 @@ export function criteriaFactsFor(
         note("failed", `${label} did not run`);
         continue;
       }
+      if (outcome.artifactStatus === "uncheckable") {
+        note("unverified", `${label} uncheckable: ${outcome.detail}`);
+        continue;
+      }
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`);
         continue;

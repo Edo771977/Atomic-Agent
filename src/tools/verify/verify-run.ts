@@ -20,7 +20,7 @@ import { markToolReadPolicy } from "../read-scope/confine-reads.js";
 import type { KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
-import type { ToolDefinition } from "../tool-registry.js";
+import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import type { BrowserLauncher } from "./run-page-kind.js";
 import { runVerify, type VerifyRunConfig, type VerifyRunContext } from "./run-verify.js";
 import { parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
@@ -38,6 +38,7 @@ export interface VerifyRunToolOptions extends VerifyAuthorizationOptions {
    * tests, which then get the static rule set.
    */
   shellPolicy?: ShellGuardPolicy;
+  researchEgress?: (ctx: ToolContext) => Error | null;
   /** Test seam: replaces the real browser launch. */
   launchBrowser?: BrowserLauncher;
   /** Test/embedder seam; unavailable copies are refused by runVerify. */
@@ -51,7 +52,8 @@ export function describeVerifyRun(args: VerifyRunArgs): string {
     const start = [args.start?.cmd, ...(args.start?.args ?? [])].join(" ");
     return `start \`${start}\`, then ${args.requests?.length ?? 0} request(s)`;
   }
-  if (args.kind === "document" || args.kind === "spreadsheet") return `verify ${args.kind} ${args.path}`;
+  if (args.kind === "document" || args.kind === "spreadsheet" || args.kind === "research") return `verify ${args.kind} ${args.path}`;
+  if (args.kind === "files") return `verify ${args.expected?.length ?? 0} expected entries`;
   if (args.kind === "ui") return `verify UI with impeccable: ${args.path}`;
   const open = `open ${args.url ?? args.path} headless for ${args.seconds}s`;
   if (args.start === undefined) return open;
@@ -62,7 +64,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
   const definition: ToolDefinition = {
     name: VERIFY_RUN_TOOL,
     description:
-      "Verify a delivery (may require approval). Command, service and page runs use a throwaway copy of the working directory and refuse execution if the copy is unavailable. Shared dependency directories and user symlinks retain their targets; the copy does not confine process writes. kind 'command': any test runner, compiler or script ({cmd, args}). kind 'service': {start:{cmd,args}, ready:{port|url}, requests:[{method,path|url,body,expectStatus,expectBody}]}. kind 'page': a local HTML file ({path}) or {url} in a headless browser (with {start, url} the server is started first and the page opens once `ready` passes, by default when the url answers 2xx): {script:[{action:click|key|type|wait,…}]}, then `seconds` of runtime with `probes:[{name, expr}]` sampled every 250 ms; collects uncaught errors, console errors, failed getElementById/querySelector lookups. Document (docx/md/pdf/txt) and spreadsheet (xlsx/csv) runs read a bounded file snapshot offline at `path`. Documents check titles, word range, language and placeholders. Spreadsheets check sheets, column headers, formula errors and recalculated totals. UI runs use installed Impeccable to check a local source file at `path`. kind 'command' takes `stdin` (at most 64 KB). A page takes `game:{games 1..20, maxMsPerGame, maxMoves}` (plays the page's window.__game {start, step, state} in the page) and `screenshot:{fullPage}` (JPEG at the end or after each game, at most 4). `checks`: `exit 0`, `exit != 0`, `stdout contains \"x\"`, `stderr not contains \"x\"`, `stdout [not] matches /re/flags`, `status 200`, `no errors`, `missing selectors 0`, `probe <name> decreases|increases|equals <v>|reaches <v>|stays <v>`, `games finish`, `game errors 0`, `game duration < <ms>`, `game moves < <n>`, `game winner in [a, b]`, `game winners vary`. `network` defaults to false (a proxy-based soft block, not a sandbox). Results are capped: output tails of 8,000 chars, summary of 4,000.",
+      "Verify a delivery (may require approval). Command, service and page runs use a throwaway copy of the working directory and refuse execution if the copy is unavailable. Shared dependency directories and user symlinks retain their targets; the copy does not confine process writes. kind 'command': any test runner, compiler or script ({cmd, args}). kind 'service': {start:{cmd,args}, ready:{port|url}, requests:[{method,path|url,body,expectStatus,expectBody}]}. kind 'page': a local HTML file ({path}) or {url} in a headless browser (with {start, url} the server is started first and the page opens once `ready` passes, by default when the url answers 2xx): {script:[{action:click|key|type|wait,…}]}, then `seconds` of runtime with `probes:[{name, expr}]` sampled every 250 ms; collects uncaught errors, console errors, failed getElementById/querySelector lookups. Document (docx/md/pdf/txt) and spreadsheet (xlsx/csv) runs read a bounded file snapshot offline at `path`. Documents check titles, word range, language and placeholders. Spreadsheets check sheets, column headers, formula errors and recalculated totals. Files check expected paths and optional containment. Research checks numbered citations, source dates and optional approved URL reachability. UI runs use installed Impeccable to check a local source file at `path`. kind 'command' takes `stdin` (at most 64 KB). A page takes `game:{games 1..20, maxMsPerGame, maxMoves}` (plays the page's window.__game {start, step, state} in the page) and `screenshot:{fullPage}` (JPEG at the end or after each game, at most 4). `checks`: `exit 0`, `exit != 0`, `stdout contains \"x\"`, `stderr not contains \"x\"`, `stdout [not] matches /re/flags`, `status 200`, `no errors`, `missing selectors 0`, `probe <name> decreases|increases|equals <v>|reaches <v>|stays <v>`, `games finish`, `game errors 0`, `game duration < <ms>`, `game moves < <n>`, `game winner in [a, b]`, `game winners vary`. `network` defaults to false (a proxy-based soft block, not a sandbox). Results are capped: output tails of 8,000 chars, summary of 4,000.",
     readonly: true,
     async run(rawArgs, ctx): Promise<CompressedToolResult> {
       let args: VerifyRunArgs;
@@ -90,7 +92,8 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       if (copyRoot.root !== ctx.workingDir) ctx = { ...ctx, workingDir: copyRoot.root };
       let approvedArgs: Record<string, unknown>;
       try {
-        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, allowFanoutScope: true, continueOnUiApprovalDenial: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
+        const refusal = args.kind === "research" && args.network ? options.researchEgress?.(ctx) : undefined;
+        const approved = await authorizeVerifyBatch([copyRoot.args], { ...options, knownSecrets, ...(refusal ? { researchNetworkRefusal: refusal.message } : {}), allowFanoutScope: true, continueOnUiApprovalDenial: true, ...(turnGrantFolder === undefined ? {} : { turnGrantFolder }), ...(copyNote === undefined ? {} : { copyNote }) }, ctx);
         approvedArgs = approved[0]!;
       } catch (error) {
         // Approval denials retain their existing dispatch semantics. Hard
@@ -102,6 +105,7 @@ export function buildVerifyRunTool(options: VerifyRunToolOptions): ToolDefinitio
       const result = await runVerify(approvedArgs, {
         workingDir: ctx.workingDir,
         config: options.config,
+        knownSecrets,
         signal: ctx.signal,
         ...(options.shellPolicy === undefined ? {} : { shellPolicy: options.shellPolicy }),
         ...(options.launchBrowser === undefined ? {} : { launchBrowser: options.launchBrowser }),

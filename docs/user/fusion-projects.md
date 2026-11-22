@@ -88,10 +88,13 @@ atomic-agent run --session <session-id> --approve <version>
 
 ## Check documents and spreadsheets
 
-Not every deliverable is code. A check can read a local document or spreadsheet without running anything:
+Not every deliverable is code. A check can verify local documents, spreadsheets, file deliveries and research:
 
 - **Documents** (`.docx`, `.md`, `.pdf`, `.txt`): required section headings, a word range, leftover placeholders such as `TODO`, `lorem ipsum` or `[insert]`, and the expected language. When the language cannot be told from the text, the result is **uncheckable**, never a pass.
 - **Spreadsheets** (`.xlsx`, `.csv`): required sheets and columns, cells with errors such as `#REF!` or `#DIV/0!` (named by sheet and cell), and totals recalculated from the data within a stated tolerance.
+
+- **Files**: expected names and paths, optional entry types, and containment of known changes inside a delivery folder. Without a change list, containment is uncheckable.
+- **Research**: numbered citations, matching sources and source dates. URLs are verified only with permitted HTTP egress and explicit approval. In a restricted or offline folder, URLs are shown as unverified and cannot pass a linked criterion.
 
 Macros and formulas are never run; workbook formulas need their saved results. Files over the size or time limits are reported as uncheckable with the reason. For the exact fields, see the [verification guide](../../src/tools/verify/README.md).
 

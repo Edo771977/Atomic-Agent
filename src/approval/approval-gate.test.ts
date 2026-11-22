@@ -133,6 +133,15 @@ describe("ApprovalGate", () => {
     expect(decision.reason).toBe("auto-approved (level 5)");
   });
 
+  it("can require an explicit HTTP decision at an automatic approval level", async () => {
+    const emitted: string[] = [];
+    const gate = new ApprovalGate({ level: 5, emit: req => { emitted.push(req.approvalId); } });
+    const decision = gate.request({ sessionId: "research", category: "http", tool: "verify.run", reason: "probe sources" }, { requireExplicitDecision: true });
+    expect(emitted).toHaveLength(1);
+    gate.resolve({ approvalId: emitted[0]!, approved: false });
+    expect(await decision).toMatchObject({ approved: false });
+  });
+
   it("at a mid-ladder level, silences covered categories and prompts the rest", async () => {
     let emitted = 0;
     const gate = new ApprovalGate({

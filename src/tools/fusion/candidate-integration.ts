@@ -562,7 +562,8 @@ export async function createCandidateIntegration(
         await verifyProtectedInputs(workspace.dir, input.signal);
         // One private final source supplies every check and every delivered byte.
         // Its actual copies spend the original candidate's remaining budget.
-        const beforeChecks = await snapshot(workspace.dir, input.signal);
+        const beforeDropped: Dropped = new Map();
+        const beforeChecks = await snapshot(workspace.dir, input.signal, beforeDropped);
         const freezeSignal = AbortSignal.any([input.signal, AbortSignal.timeout(120_000)]);
         let checkedRefusal: string | undefined;
         checkedSet = await checkedPlan.create({ ...options, signal: freezeSignal,
@@ -584,11 +585,11 @@ export async function createCandidateIntegration(
         // a task's earlier isolated gate or dependency release passed them.
         const runner: ContractCheckRunner | undefined = input.runChecks === undefined ? undefined : async (specs, ctx) => {
           const result = await input.runChecks!(specs, ctx);
-          // A UI check withheld from the runner has its own verdict.
+          // An uncheckable artifact has its own verdict.
           // Retain the results of the other checks that actually ran.
-          const uiUnavailable = result.results.some((row, index) =>
-            row.artifactStatus === "uncheckable" && (specs[index]?.kind ?? specs[index]?.type) === "ui");
-          return result.ok || uiUnavailable
+          const artifactUnavailable = result.results.some((row, index) =>
+            row.artifactStatus === "uncheckable" && ["ui", "files", "research"].includes(String(specs[index]?.kind ?? specs[index]?.type)));
+          return result.ok || artifactUnavailable
             ? result : { ok: false, results: result.results.map(row => ({ ...row, ok: false })) };
         };
         let actualInputExecutions = 0;
@@ -610,6 +611,10 @@ export async function createCandidateIntegration(
           workingDir: checkedDir,
           signal: input.signal,
           recordCheckRun: input.recordCheckRun,
+          changedPaths: [
+            ...differences(base, beforeChecks).filter(path => beforeChecks.has(path) && beforeChecks.get(path)?.kind !== "directory"),
+            ...droppedChanges(baseDropped, beforeDropped).filter(path => beforeDropped.get(path)?.kind !== "directory"),
+          ],
           inputIntegrity,
         });
         receiptEvidence = { findings: [], checks: checked.outcomes, ...(checked.checksSkipped === undefined ? {} : { checksSkipped: checked.checksSkipped }) };

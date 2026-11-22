@@ -478,6 +478,7 @@ export interface GateWorkspace {
   roots: readonly string[];
   /** What the task changed against the snapshot its workspace started from. */
   changes: () => Promise<WorkspaceChange[]>;
+  changedPaths?: (signal: AbortSignal) => Promise<readonly string[]>;
 }
 
 /**
@@ -711,6 +712,19 @@ export async function runIsolatedWave(
               realDir: input.realDir,
               roots,
               changes: () => workspaceChanges(branch.set, ws),
+              changedPaths: async signal => {
+                const paths = await workspaceTouches(ws, signal);
+                const existing: string[] = [];
+                for (const path of [...paths.touched, ...paths.ignored]) {
+                  signal.throwIfAborted();
+                  try {
+                    if (!(await lstat(join(ws.dir, path))).isDirectory()) existing.push(path);
+                  } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+                  }
+                }
+                return existing;
+              },
             });
           } catch (err) {
             verdict = {

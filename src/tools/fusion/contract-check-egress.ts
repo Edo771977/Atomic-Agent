@@ -5,12 +5,13 @@ import type { ContractCheckResult, ContractCheckRun, ContractCheckRunner } from 
  *
  * A contract check is a `verify.run` spec, but the fan-out runs it
  * through the verify family directly, not through the tool registry, so
- * the registry's dispatch guard (`tool-egress.ts`: a page run is class
- * `browser`, a networked command is refused best effort) never saw it.
+ * the registry's dispatch guard (`tool-egress.ts`) never saw it. A page
+ * is browser egress, and research link probes use HTTP egress.
  * `refuse` is that same guard, asked for `verify.run` with the spec, as
  * the delegating session: a spec it refuses never reaches the runner
- * (nor the operator's approval prompt) and comes back as a red result
- * carrying the guard's message. The rest of the batch runs as before.
+ * (nor the operator's approval prompt) and comes back with the guard's
+ * message. For research, only the network portion is withheld, so local
+ * citation evidence and the unverified links can still be reported.
  *
  * `kind`/`type` and `cmd`/`command` are read both ways before the guard
  * sees the spec, so an alternative spelling cannot slip past it.
@@ -21,6 +22,11 @@ function guardedShape(spec: Record<string, unknown>): Record<string, unknown> {
   const kind = spec.kind ?? spec.type;
   const cmd = spec.cmd ?? spec.command;
   return { ...spec, ...(kind === undefined ? {} : { kind }), ...(cmd === undefined ? {} : { cmd }) };
+}
+
+function offlineResearch<T extends Record<string, unknown>>(spec: T, refusal: Error | null): T {
+  return refusal !== null && (spec.kind ?? spec.type) === "research" && spec.network === true
+    ? { ...spec, network: false } : spec;
 }
 
 function refusedResult(spec: Record<string, unknown>, error: Error): ContractCheckResult {
@@ -38,9 +44,11 @@ export function withContractCheckEgress(
     specs: Parameters<ContractCheckRunner>[0],
     ctx: Parameters<ContractCheckRunner>[1],
   ): ReturnType<ContractCheckRunner> => {
-    const refusals = specs.map((spec) => refuse(guardedShape(spec)));
-    if (refusals.every((r) => r === null)) return runner(specs, ctx);
-    const allowed = specs.filter((_, i) => refusals[i] === null);
+    const egress = specs.map(spec => refuse(guardedShape(spec)));
+    if (egress.every(refusal => refusal === null)) return runner(specs, ctx);
+    const effective = specs.map((spec, index) => offlineResearch(spec, egress[index]!));
+    const refusals = egress.map((refusal, index) => effective[index] === specs[index] ? refusal : null);
+    const allowed = effective.filter((_, i) => refusals[i] === null);
     const checkTasks = ctx.checkTasks?.filter((_, i) => refusals[i] === null);
     const ran = allowed.length === 0
       ? { ok: true, results: [] as readonly ContractCheckResult[] }
@@ -49,11 +57,16 @@ export function withContractCheckEgress(
     const results = specs.map((spec, i): ContractCheckResult => {
       const refusal = refusals[i];
       if (refusal !== null && refusal !== undefined) return refusedResult(spec, refusal);
-      const result = ran.results[next];
-      next += 1;
-      return result ?? { ok: false, error: "the runner returned no result" };
+      const result = ran.results[next++];
+      if (result === undefined) return { ok: false, error: "the runner returned no result" };
+      const networkRefusal = egress[i];
+      if (!result.ok && networkRefusal != null && spec !== effective[i]) {
+        const reason = `Research link probes skipped: ${networkRefusal.message}`;
+        return { ...result, error: [reason, result.error].filter(Boolean).join("\n"), summary: [result.summary, reason].filter(Boolean).join("\n") };
+      }
+      return result;
     });
-    return { ok: false, results };
+    return { ok: ran.ok && results.every(result => result.ok), results };
   };
   return Object.assign(wrapped, runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {});
 }
@@ -63,7 +76,12 @@ export function contractChecksAllowedByEgress<T extends Record<string, unknown>>
   specs: readonly T[],
   refuse: ContractCheckEgressRule | undefined,
 ): T[] {
-  return refuse === undefined ? [...specs] : specs.filter((spec) => refuse(guardedShape(spec)) === null);
+  if (refuse === undefined) return [...specs];
+  return specs.flatMap(spec => {
+    const refusal = refuse(guardedShape(spec));
+    const effective = offlineResearch(spec, refusal);
+    return refusal === null || effective !== spec ? [effective] : [];
+  });
 }
 
 /**
