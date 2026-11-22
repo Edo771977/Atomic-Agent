@@ -320,6 +320,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         return result;
       }
       let saved: SessionState;
+      let committedToFolder = false;
       if (deps.projectStore === undefined || project === undefined) saved = withProject(session, result.project);
       else {
         const written = deps.projectStore.commit(session, result.project, { input: decision, decidedOn: project });
@@ -328,8 +329,11 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
           return { ok: false, error: { code, message: written.problem.message } };
         }
         saved = written.session;
+        committedToFolder = saved.projectRef !== undefined;
       }
-      deps.saveSession(saved);
+      // A bound project commit is already durable. An embedded decision
+      // becomes durable only when the session is saved.
+      if (!committedToFolder) deps.saveSession(saved);
       const decided = saved.project ?? result.project;
       if (deps.writeProjectReceipt && project && !isIncognitoSession(saved)) {
         const { gate, version, verdict } = decision;
@@ -351,6 +355,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
           };
         });
       }
+      if (committedToFolder) deps.saveSession(saved);
       const next = view(saved, decided);
       deps.emit(sessionId, { type: "project_gate", view: next });
       return { ok: true, project: decided, view: next };

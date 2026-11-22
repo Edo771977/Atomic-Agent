@@ -428,6 +428,28 @@ describe("gate verdict receipts", () => {
     expect(gateContentHash(result.project, gate)).not.toBe(gateContentHash(draft, gate));
   });
 
+  it("archives a committed folder decision even if the session save fails", () => {
+    const folder = mkdtempSync(join(tmpdir(), "receipt-session-save-fails-"));
+    try {
+      const projectStore = createSessionProjectStore({ stateDir: folder, records: stateDirProjectRecords(folder) });
+      const created = projectStore.commit(createEmptySessionState({ id: "s1", workingDir: folder }), up(undefined, brief));
+      if (!created.ok) throw new Error(created.problem.message);
+      const statusAtWrite: Array<string | undefined> = [];
+      const writeProjectReceipt = vi.fn(() => {
+        statusAtWrite.push(projectStore.load(created.session).project?.brief?.status);
+      });
+      const h = harness({ session: created.session, projectStore, writeProjectReceipt });
+      h.save.mockImplementationOnce(() => { throw new Error("session save failed"); });
+      expect(() => h.runtime.projectDecision("s1", decision)).toThrow("session save failed");
+      expect(projectStore.load(created.session).project?.brief?.status).toBe("approved");
+      expect(writeProjectReceipt).toHaveBeenCalledExactlyOnceWith(folder, "gate-verdict", expect.objectContaining({ projectId: created.session.projectRef?.id }));
+      expect(statusAtWrite).toEqual(["approved"]);
+      expect(h.events).toHaveLength(0);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
   it("logs write failures without leaking errors or undoing the decision", () => {
     const warnReceipt = vi.fn();
     const h = harness({
