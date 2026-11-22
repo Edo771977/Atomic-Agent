@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { ProjectLesson } from "./project-lessons.js";
 import { PROJECT_LIMITS } from "./project-limits.js";
 
-export type ProjectLessonData = Pick<ProjectLesson, "id" | "title" | "always" | "sections"> & { binding?: true };
+export type ProjectLessonData = Pick<ProjectLesson, "id" | "title" | "always" | "sections"> & { binding?: true; touches?: string[]; omittedTouches?: number };
 
 const MAX_LESSONS = 12;
 const MAX_SECTION_CHARS = 300;
@@ -45,19 +45,38 @@ export function projectLessonSelection(lessons: readonly ProjectLesson[]) {
   return { data, included, omitted: lessons.length - data.length };
 }
 
-export function bindingProjectLessonData(lessons: readonly ProjectLesson[]): ProjectLessonData[] {
-  const share = Math.floor(MAX_BINDING_JSON_CHARS / lessons.length) - 1;
+export function bindingProjectLessonData(lessons: readonly ProjectLesson[], includeTouches = false): ProjectLessonData[] {
+  const budget = includeTouches ? 2 * MAX_BINDING_JSON_CHARS : MAX_BINDING_JSON_CHARS;
+  const share = Math.floor(budget / lessons.length) - 1;
   return lessons.map((lesson) => {
+    const touches = includeTouches ? [...lesson.touches] : undefined;
     let limit = MAX_SECTION_CHARS;
     while (true) {
       const entry: ProjectLessonData = {
         ...projectLessonData(lesson, Math.min(limit, PROJECT_LIMITS.title), limit),
         binding: true,
+        ...(touches === undefined ? {} : { touches }),
+        ...(touches === undefined || touches.length === lesson.touches.length ? {} : {
+          omittedTouches: lesson.touches.length - touches.length,
+        }),
       };
-      if (JSON.stringify(entry).length <= share || limit <= 1) return entry;
-      limit = Math.floor(limit / 2);
+      if (JSON.stringify(entry).length <= share) return entry;
+      if (limit > 16) limit = Math.floor(limit / 2);
+      else if (touches?.length) touches.pop();
+      else if (limit > 1) limit = Math.floor(limit / 2);
+      else return entry;
     }
   });
+}
+
+export function projectLessonPlanningSelection(lessons: readonly ProjectLesson[]) {
+  const binding = lessons.filter((lesson) => lesson.always);
+  const advisory = projectLessonSelection(lessons.filter((lesson) => !lesson.always));
+  return {
+    data: [...bindingProjectLessonData(binding, true), ...advisory.data],
+    included: [...binding.map(({ id, hash }) => ({ id, hash })), ...advisory.included],
+    omitted: advisory.omitted,
+  };
 }
 
 export function lessonsForCurrentPlan(lessons: readonly ProjectLesson[], deferred: Readonly<Record<string, string>> = {}): ProjectLesson[] {
@@ -69,11 +88,11 @@ export function projectLessonOmissionNotice(omitted: number): string {
 }
 
 export function projectLessonReviewSelection(active: readonly ProjectLesson[], allowed: boolean) {
-  const selection = projectLessonSelection(allowed ? active : []);
+  const selection = projectLessonPlanningSelection(allowed ? active : []);
   const notice = !allowed && active.length > 0
     ? "Active lessons were not supplied by the folder policy."
     : selection.omitted > 0 ? projectLessonOmissionNotice(selection.omitted) : undefined;
   const sorted = [...selection.included].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const basis = createHash("sha256").update(JSON.stringify([sorted, notice ?? null])).digest("hex").slice(0, 16);
+  const basis = createHash("sha256").update(JSON.stringify([sorted, notice ?? null, ...(selection.data.some((lesson) => lesson.binding) ? ["binding-touches"] : [])])).digest("hex").slice(0, 16);
   return { ...selection, notice, basis };
 }
