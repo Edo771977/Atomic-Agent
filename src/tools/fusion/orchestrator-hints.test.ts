@@ -53,7 +53,7 @@ describe("orchestrator hints agree with the fusion gate", () => {
       }),
     ]) {
       expect(block).not.toMatch(/yourself/i);
-      expect(block).toContain("; tell the person what only they can approve.");
+      expect(block).toContain("Surface decisions the person must approve.");
     }
   });
 });
