@@ -1,3 +1,4 @@
+import { TEAM_MEMBER_PROVIDER_MODEL } from "../../config/llm-fusion-team-config.js";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import type { AssignmentRow, MilestoneKind, ProjectCriterion } from "../../session/session-project.js";
@@ -9,6 +10,7 @@ import {
   PLAN_REVIEW_DIMENSIONS,
   PLAN_REVIEW_TASK_IDS_MAX,
   type PlanReviewDimension,
+  type PlanReviewRecord,
   type PlanReviewResult,
 } from "./plan-review-record.js";
 import type { WorkerPricing } from "./worker-result.js";
@@ -247,4 +249,52 @@ export async function reviewPlan(args: {
   const parsed = parsePlanReviewAnswer(content, args.input.rows.map((r) => r.taskId));
   if (!parsed.ok) return { outcome: "not-run", reason: `the reviewer's answer could not be read (${parsed.error})`, costUsd };
   return { outcome: "reviewed", results: withPlanFacts(parsed.results, args.input), costUsd };
+}
+
+/** What a plan review produced, before `project.plan` adds its round, basis and whether it sends the draft back. */
+export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd">;
+
+/** `project.plan`'s plan review: null when no plan reviewer is configured (today's behaviour). */
+export type PlanReviewFn = (args: { input: PlanReviewInput; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
+
+export interface PlanReviewDeps {
+  /** The plan reviewer seat and the reviewers, from the live config; undefined without a team. */
+  team: () => PlanReviewerTeam | undefined;
+  /** The folder's provider policy for the session (`projects.constraints`). */
+  allows: (providerId: string) => boolean;
+  /** Whether that policy restricts providers at all. */
+  restricted: () => boolean;
+  reachable: (member: TeamMember) => boolean;
+  /** Whether a completion on the provider asks for the member's own model (not a local server). */
+  pinsModel: (providerId: string) => boolean;
+  complete: EscalationComplete;
+  pricing: (member: TeamMember) => WorkerPricing | undefined;
+  /** The review's spend, for the turn's budget and the turn receipt. */
+  onSpend?: (sessionId: string, costUsd: number | null, reviewer: TeamMember) => void;
+}
+
+/** The runtime's {@link PlanReviewFn}: pick the member (folder policy first), ask it once, count the spend. */
+export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
+  return async ({ input, sessionId, signal }) => {
+    const team = deps.team();
+    if (team === undefined) return null;
+    const pick = pickPlanReviewer(team, { allows: deps.allows, restricted: deps.restricted(), reachable: deps.reachable });
+    if (pick.kind === "none") return null;
+    if (pick.kind === "skip") return { outcome: "skipped", reviewer: null, results: [], reason: pick.reason, costUsd: null };
+    const member = pick.member;
+    const pin = deps.pinsModel(member.providerId) && member.model !== TEAM_MEMBER_PROVIDER_MODEL ? member.model : undefined;
+    const run = await reviewPlan({
+      input,
+      member,
+      ...(pin === undefined ? {} : { pinModel: pin }),
+      pricing: deps.pricing(member),
+      complete: deps.complete,
+      signal: signal ?? new AbortController().signal,
+      sessionId,
+    });
+    deps.onSpend?.(sessionId, run.costUsd, member);
+    return run.outcome === "reviewed"
+      ? { outcome: "reviewed", reviewer: member.ref, results: run.results, costUsd: run.costUsd }
+      : { outcome: "not-run", reviewer: member.ref, results: [], reason: run.reason, costUsd: run.costUsd };
+  };
 }
