@@ -120,7 +120,7 @@ async function extractDocument(bytes: Buffer, extension: string): Promise<Extrac
   const input = { data: bytes, sourcePath: extension };
   let text: string;
   if (extension === ".docx") {
-    const doc = await docxExtractor(input);
+    const doc = await docxExtractor(input, { includeEmbeddedStyleMap: false, externalFileAccess: false });
     if (doc.warnings.some((warning) => warning.startsWith("error:"))) {
       return uncheckable("DOCX text extraction reported an error");
     }

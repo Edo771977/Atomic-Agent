@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import JSZip from "jszip";
 import PDFDocument from "pdfkit";
 import { describe, expect, it } from "vitest";
 
@@ -11,6 +12,7 @@ import { evaluateDocument, parseDocumentSpec } from "./document-check.js";
 import { buildVerifyRunTool } from "./verify-run.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../docs/testing/fixtures/document/", import.meta.url));
+const mediaFixtures = fileURLToPath(new URL("../os/test-fixtures/", import.meta.url));
 const criteria = {
   requiredSections: [" summary  ", "NEXT  Steps"],
   wordRange: { min: 55, max: 85 },
@@ -74,11 +76,10 @@ describe("document checks", () => {
   });
 
   it("reads Word title styles and PDF text without an external service", async () => {
-    const sourceDir = fileURLToPath(new URL("../os/test-fixtures/", import.meta.url));
-    await expect(evaluateDocument(await readFile(join(sourceDir, "sample.docx")), ".docx", parseDocumentSpec({
+    await expect(evaluateDocument(await readFile(join(mediaFixtures, "sample.docx")), ".docx", parseDocumentSpec({
       requiredSections: ["Document Title", "Introduction"],
     }))).resolves.toMatchObject({ status: "pass" });
-    await expect(evaluateDocument(await readFile(join(sourceDir, "sample.pdf")), ".pdf", parseDocumentSpec({})))
+    await expect(evaluateDocument(await readFile(join(mediaFixtures, "sample.pdf")), ".pdf", parseDocumentSpec({})))
       .resolves.toMatchObject({ status: "pass" });
   });
 
@@ -95,6 +96,14 @@ describe("document checks", () => {
     pdf.end();
     await expect(evaluateDocument(await bytes, ".pdf", parseDocumentSpec({})))
       .resolves.toMatchObject({ status: "uncheckable", detail: expect.stringContaining("unavailable text") });
+  });
+
+  it("uses the normal Word styles instead of a document-provided Mammoth style map", async () => {
+    const zip = await JSZip.loadAsync(await readFile(join(mediaFixtures, "sample.docx")));
+    zip.file("mammoth/style-map", "p => !");
+    await expect(evaluateDocument(await zip.generateAsync({ type: "nodebuffer" }), ".docx", parseDocumentSpec({
+      requiredSections: ["Document Title"],
+    }))).resolves.toMatchObject({ status: "pass" });
   });
 
   it("marks the requested language uncheckable even with a known criterion failure", async () => {
@@ -132,5 +141,16 @@ describe("document delivery fixture through verify.run", () => {
     );
     expect(outcome.status).toBe(status);
     expect(outcome.summary).toContain(detail);
+  });
+
+  it.each([
+    ["sample.docx", ["Document Title", "Introduction"]],
+    ["sample.pdf", ["Sample PDF", "Second Page Heading"]],
+  ])("processes %s through the offline parser", async (path, requiredSections) => {
+    const outcome = await tool.run(
+      { kind: "document", path, requiredSections },
+      { workingDir: mediaFixtures, sessionId: "document-e2e", stepIndex: 0, signal: new AbortController().signal },
+    );
+    expect(outcome.status, outcome.summary).toBe("ok");
   });
 });

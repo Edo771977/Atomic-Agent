@@ -31,8 +31,8 @@ The tool's working folder is `docs/testing/fixtures`. The reference run uses:
 }
 ```
 
-Markdown section titles must be headings. Word titles use styles that Mammoth
-maps to headings. PDF and plain text use standalone lines. Titles are compared
+Markdown section titles must be headings. Word titles use the standard Mammoth
+heading styles. PDF and plain text use standalone lines. Titles are compared
 after Unicode normalization, lowercasing and whitespace collapse. The inclusive
 word range counts letter or number sequences and keeps internal apostrophes
 and hyphens within a word. Markdown links contribute their labels. The default
