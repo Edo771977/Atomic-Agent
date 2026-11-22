@@ -201,14 +201,17 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
   };
   const receipts: ProjectReceiptVerification[] = [];
   let oldestTimestamp: number | undefined;
-  for (const line of lines) {
+  for (const line of scope === undefined ? lines : lines.reverse()) {
     let kind: ReceiptKind | null = null;
-    let matched = scope === undefined;
+    // Read from newest to oldest. A broken row can belong to this scope
+    // unless the next dated row already predates the current work.
+    let matched = scope?.since === undefined || oldestTimestamp === undefined || oldestTimestamp >= scope.since;
     try {
       const row = JSON.parse(line);
+      if (row === null || typeof row !== "object" || !Object.hasOwn(row, "payload")) throw new Error("Invalid receipt row");
       if (scope?.since !== undefined) {
         const timestamp = Date.parse(row?.signedAt);
-        if (Number.isFinite(timestamp)) oldestTimestamp ??= timestamp;
+        if (Number.isFinite(timestamp)) oldestTimestamp = timestamp;
         if (timestamp < scope.since) continue;
       }
       if (isReceiptKind(row?.kind)) kind = row.kind;
@@ -243,7 +246,7 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
   }
   if (scope === undefined) return receipts;
   const reachedStart = scope.since !== undefined && oldestTimestamp !== undefined && oldestTimestamp < scope.since;
-  const result = { receipts, partial: partial && !reachedStart };
+  const result = { receipts: receipts.reverse(), partial: partial && !reachedStart };
   if (cacheKey !== undefined && cache !== undefined) {
     cache.delete(cacheKey);
     cache.set(cacheKey, { archive: revision, signingDir: signingRevision, rows: scanned, result });

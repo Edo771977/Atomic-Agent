@@ -222,3 +222,23 @@ it("marks a bounded scan partial only before reaching the current work", () => {
     vi.useRealTimers();
   }
 });
+
+it("counts unreadable lines that may belong to the current work", () => {
+  const { dir } = setup();
+  const scope = { projectId: "p", sessionId: "chat", milestoneId: "m1", runIds: ["current"], version: 2, since: 20_000 };
+  const noKey = { read: () => ({ ok: false as const }), write: () => false };
+  vi.useFakeTimers({ now: 10_000 });
+  try {
+    appendProjectReceipt(dir, dir, "artifact-manifest", { ...scope, runId: "old" }, noKey);
+    const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+    const old = readFileSync(path, "utf8");
+    vi.setSystemTime(21_000);
+    appendProjectReceipt(dir, dir, "artifact-manifest", { ...scope, runId: "current" }, noKey);
+    const current = readFileSync(path, "utf8").slice(old.length);
+    writeFileSync(path, "{broken\n" + old + current + '{"kind":"check-run');
+    expect(verifyProjectReceiptDetails(dir, dir, scope).receipts.map(row => row.status))
+      .toEqual(["unsigned", "bad-signature"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
