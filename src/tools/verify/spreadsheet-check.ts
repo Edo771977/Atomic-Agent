@@ -70,7 +70,7 @@ function coordinate(value: string, field: string): { row: number; column: number
   const match = /^([A-Z]{1,3})([1-9]\d{0,6})$/.exec(value);
   if (match) {
     const row = Number(match[2]);
-    const column = columnNumber(match[1]);
+    const column = columnNumber(match[1]!);
     if (row <= MAX_ROW && column <= MAX_COLUMN) return { row, column };
   }
   return invalid(field, "must be an A1 cell address within Excel's grid");
@@ -82,7 +82,7 @@ function area(range: string, field: string): Area {
     if (col > MAX_COLUMN) invalid(field, "must be a column within Excel's grid");
     return { minColumn: col, maxColumn: col, minRow: 2, maxRow: MAX_ROW, entireColumn: true };
   }
-  const [first, last = first, extra] = range.split(":");
+  const [first = "", last = first, extra] = range.split(":");
   if (extra !== undefined) invalid(field, "must be a column letter, A1 cell, or A1 range");
   const start = coordinate(first, field);
   const end = coordinate(last, field);
