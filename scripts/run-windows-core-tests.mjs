@@ -135,6 +135,7 @@ export const supplementalFiles = [
   'src/agent/progress/test-command-key.test.ts',
   'src/import/handoff/handoff-source.test.ts',
   'scripts/run-windows-core-tests.test.ts',
+  'scripts/e2e-artifacts.test.ts',
   'src/tasks/task-store-open-failure.test.ts',
   'src/tasks/task-store.test.ts',
   'src/import/atomic-desktop/atomic-desktop-importer.test.ts',
