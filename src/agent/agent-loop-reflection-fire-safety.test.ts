@@ -105,6 +105,7 @@ function makeLoop(deps: {
   profileFactsProvider?: () => readonly ProfileFact[];
   logger?: StructuredLogger;
   llmComplete?: AgentLoopDependencies["llmComplete"];
+  reflectionSegmentation?: AgentLoopDependencies["reflectionSegmentation"];
 }): AgentLoop {
   return new AgentLoop({
     registry: buildDefaultToolRegistry(),
@@ -117,6 +118,7 @@ function makeLoop(deps: {
     skillCatalog: SKILLS,
     memoryContextProvider: NOOP_PROVIDER,
     reflectionRunner: deps.reflectionRunner,
+    ...(deps.reflectionSegmentation === undefined ? {} : { reflectionSegmentation: deps.reflectionSegmentation }),
     ...(deps.profileFactsProvider
       ? { profileFactsProvider: deps.profileFactsProvider }
       : {}),
@@ -199,6 +201,7 @@ describe("AgentLoop reflection is background work, never a turn hazard", () => {
       const prefixes: string[] = [];
       const loop = makeLoop({
         reflectionRunner: { reflect, abortPending() {} },
+        reflectionSegmentation: { enabled: true, triggerEveryTurns: 1, windowTurns: 2 },
         llmComplete: async (args) => {
           sent.push(args.prompt);
           prefixes.push(args.messages?.system ?? "");
@@ -219,11 +222,20 @@ describe("AgentLoop reflection is background work, never a turn hazard", () => {
       const { id, seq, state } = record.record;
       const lesson = readProjectLessons(workingDir).lessons[0]!;
       expect(records.write(workingDir, id, seq, state, undefined, { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
-      await loop.runTurn(created.session, options);
+      const exposed = await loop.runTurn(created.session, options);
       expect(sent[0]).not.toContain("Restricted lesson");
       expect(sent[1]).toContain("Restricted lesson");
       expect(prefixes[0]).toBe(prefixes[1]);
       expect(reflect).toHaveBeenCalledTimes(1);
+      const after = records.read(workingDir);
+      if (!after.ok || after.record === null) throw new Error("Need project record");
+      expect(records.write(workingDir, id, after.record.seq, after.record.state, undefined, { id: lesson.id, call: null }).ok).toBe(true);
+      const reloaded = JSON.parse(JSON.stringify(exposed.session));
+      const following = await loop.runTurn(reloaded, options);
+      expect(sent[2]).not.toContain("Restricted lesson");
+      expect(reflect).toHaveBeenCalledTimes(1);
+      await loop.runTurn(following.session, options);
+      expect(reflect).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllEnvs();
       resetConfigCache();
