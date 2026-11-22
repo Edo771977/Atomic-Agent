@@ -81,7 +81,8 @@ const FILES = {
 };
 
 async function apply(patchFile: string, cwd: string): Promise<void> {
-  const result = await runCommand("git", ["apply", "--whitespace=nowarn", patchFile], { cwd });
+  // Compare the patched bytes with the LF fixture, independently of the user's checkout policy.
+  const result = await runCommand("git", ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", patchFile], { cwd });
   expect(result.stderr).toBe("");
   expect(result.exitCode).toBe(0);
 }
