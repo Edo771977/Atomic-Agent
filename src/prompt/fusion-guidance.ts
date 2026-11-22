@@ -266,7 +266,6 @@ export const PROJECT_FLOW_GUIDANCE = [
   "3. Delegate approved tasks (same ids/workers/checks, including negative); report with `project.milestone`.",
   "Never delegate while a gate waits; `### fusion project` shows it. To change checks, update the plan and obtain approval.",
   "Map each criterion to plan checks (`criteria: [ids]`): e2e (command with stdin), page, game (page with `game`), visual (page `screenshot`, `judge: \"vision\"`). Resolve fail results before approval; warn results need attention.",
-  "ui/polish: ui opt.",
 ].join("\n");
 
 /**
