@@ -151,7 +151,10 @@ function reviewIdentity(task) {
   if (r.source === 'facts') {
     return { planned, reviewedBy: 'facts', configured: r.provider ?? r.reviewer ?? null, mismatch: false };
   }
-  const recorded = r.reviewer ?? (r.provider && r.model ? `${r.provider}:${r.model}` : null);
+  // Runtime records can carry a model-only label alongside a fuller identity.
+  const recorded = typeof r.reviewer === 'string' && r.reviewer.includes(':')
+    ? r.reviewer
+    : r.provider && r.model ? `${r.provider}:${r.model}` : r.reviewer ?? null;
   return {
     planned,
     reviewedBy: 'reviewer',
@@ -281,6 +284,9 @@ export function outcomeSummary(lines, sessionId) {
     try { rec = JSON.parse(line); } catch { continue; }
     if (!rec || rec.session !== tag) continue;
     if (rec.type === 'task') {
+      const provider = rec.review?.reviewerProvider ?? rec.review?.provider;
+      const model = rec.review?.reviewerModel ?? rec.review?.model;
+      const planRef = rec.review?.reviewerPlanRef ?? rec.review?.planRef;
       tasks.push({
         ts: rec.ts ?? null,
         leg: rec.leg ?? null,
@@ -296,9 +302,9 @@ export function outcomeSummary(lines, sessionId) {
           ? { decision: rec.review.decision ?? null, reviewer: rec.review.reviewer ?? null, passes: rec.review.passes ?? null,
             blockers: rec.review.blockers ?? 0, majors: rec.review.majors ?? 0, minors: rec.review.minors ?? 0,
             // Issue #98: who reviewed, when the row says (provider, effective model, the ref the plan named).
-            ...(typeof rec.review.provider === 'string' ? { provider: rec.review.provider } : {}),
-            ...(typeof rec.review.model === 'string' ? { model: rec.review.model } : {}),
-            ...(typeof rec.review.planRef === 'string' ? { planRef: rec.review.planRef } : {}),
+            ...(typeof provider === 'string' ? { provider } : {}),
+            ...(typeof model === 'string' ? { model } : {}),
+            ...(typeof planRef === 'string' ? { planRef } : {}),
             // Issue #100: "facts" when the task's own scripted checks decided it and no reviewer saw it.
             source: rec.reviewerSource === 'facts' || rec.review.source === 'facts' || rec.review.reviewerSource === 'facts' ? 'facts' : 'reviewer' }
           : null,
