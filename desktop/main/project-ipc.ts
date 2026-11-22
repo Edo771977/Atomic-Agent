@@ -53,9 +53,13 @@ export interface ProjectBacklogBody {
   session: string;
   item: string;
   state: ProjectBacklogState;
+  /** Issue #162: the view's fingerprint of the item the card showed; the agent refuses `stale-view` when it moved. */
+  expectedFingerprint?: string;
 }
+/** The core's `backlogDecisionFingerprint` as the view carries it: a SHA-256 in lowercase hex. */
+const BACKLOG_FINGERPRINT = /^[0-9a-f]{64}$/;
 
-/** Issue #146: `{sessionId, item, state}` from the window, as the route's `{session, item, state}`, or why not. */
+/** Issue #146: `{sessionId, item, state, expectedFingerprint?}` from the window, as the route's `{session, item, state, expectedFingerprint?}`, or why not. */
 export function parseProjectBacklogIpc(raw: unknown): { ok: true; body: ProjectBacklogBody } | { ok: false; error: string } {
   if (!isObject(raw)) return { ok: false, error: "a backlog call must be an object" };
   if (!isId(raw.sessionId)) return { ok: false, error: "session required" };
@@ -65,7 +69,12 @@ export function parseProjectBacklogIpc(raw: unknown): { ok: true; body: ProjectB
   }
   const state = PROJECT_BACKLOG_STATES.find((s) => s === raw.state);
   if (!state) return { ok: false, error: "state must be promoted, dropped or open" };
-  return { ok: true, body: { session: raw.sessionId, item, state } };
+  const fingerprint = raw.expectedFingerprint;
+  if (fingerprint === undefined) return { ok: true, body: { session: raw.sessionId, item, state } };
+  if (typeof fingerprint !== "string" || !BACKLOG_FINGERPRINT.test(fingerprint)) {
+    return { ok: false, error: "expectedFingerprint must be the view's 64-character fingerprint" };
+  }
+  return { ok: true, body: { session: raw.sessionId, item, state, expectedFingerprint: fingerprint } };
 }
 
 /** Issue #109: one absolute folder (POSIX or Windows) for the projects list's forget / resume, or null. */

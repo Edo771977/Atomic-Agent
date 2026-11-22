@@ -26,6 +26,8 @@
 const PC_NOTE_MAX = 2000;
 /* Issue #146: a backlog call waits for the chat's turn (the agent would answer turn-running). */
 const PC_WAIT_TURN = 'Decide once the turn finishes';
+/* Issue #162: a backlog call refused as `stale-view` (the item changed since the card showed it). */
+const PC_STALE_VIEW = 'This item changed \u2014 read it again';
 /* How long "Confirm cancel" waits for the second press. */
 const PC_CONFIRM_MS = 4000;
 
@@ -43,6 +45,10 @@ const PC_PROBLEM_HEADLINE = 'This chat’s Fusion project could not be opened';
 const PC_PROBLEM_TODO = 'Fix or restore the Fusion project file (.atomic/project/project.json in the chat’s folder), or put the folder back, then open this chat again. Nothing is approved or run while it cannot be opened.';
 
 const PC_MARK = {planned: '·', approved: '▸', in_progress: '◐', done: '✓', failed: '✕', reviewed: '✔'};
+/* Issue #160: the kinds of non-code work read as words, as the TUI card's MILESTONE_KIND_LABEL
+   (src/tui/project/project-card-lines.ts; test/project-card-evidence.test.mjs keeps them equal).
+   Any other kind (base, ui, logic, polish, other) is shown as it is, as there. */
+const PC_MILESTONE_KIND_LABEL = {draft: 'Draft', review: 'Review', final: 'Final'};
 /* A criterion fact's mark (project-gate-text.ts FACT_MARK; the test keeps them equal). */
 const PC_FACT_MARK = {passed: '✓', failed: '✕', unverified: '?'};
 
@@ -338,17 +344,98 @@ function pcPictureLine(a) {
   return pcStr(a.caption) + (ids.length ? ' [' + ids.join(', ') + ']' : '') + (name ? ' · ' + name : '');
 }
 
+/** Issue #126: what a fact rests on, as the core's criterionBasisLabel (project-gate-text.ts). */
+function pcBasisLabel(basis) {
+  switch (basis && basis.kind) {
+    case 'check': return 'measured';
+    case 'person': return 'declared by you';
+    case 'vision': return 'judged by ' + pcStr(basis.model);
+    default: return 'basis not recorded';
+  }
+}
+
+/** A fact passed only on checks that may pass on the wrong thing (issue #110): never plain green. */
+const pcReserved = (fact) => !!fact && fact.state === 'passed' && typeof fact.reservation === 'string';
+
 /**
  * One criterion fact as a line, as the core's criterionFactLine words it
- * (issue #40): "✓ c1 passed: Runs offline", "? c2 unverified: Looks right
- * (no vision-capable reviewer)". The text is the brief's when it names the id.
+ * (issues #40, #110, #126): "✓ c1 passed: Runs offline · measured", "? c2
+ * unverified: Looks right (no vision-capable reviewer) · basis not recorded",
+ * "~ c3 passed with reservations: … (reservations: …) · measured". The text
+ * is the brief's when it names the id.
  */
 function pcFactLine(fact, criteria) {
   const id = pcStr(fact && fact.id), state = pcStr(fact && fact.state);
   const c = pcList(criteria).find((x) => x && x.id === id);
   const text = c ? pcStr(c.text) : '';
+  const reserved = pcReserved(fact);
   const why = pcStr(fact && fact.why);
-  return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
+  const notes = (why ? [why] : []).concat(reserved ? ['reservations: ' + fact.reservation] : []);
+  return (reserved ? '~' : PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + (reserved ? 'passed with reservations' : state)
+    + (c ? ': ' + text : '') + (notes.length ? ' (' + notes.join('; ') + ')' : '') + ' · ' + pcBasisLabel(fact && fact.basis);
+}
+
+/**
+ * Issue #126: the facts counted by basis in one line, as the core's
+ * criterionBasisSummaryLine: the view's `criteriaBasisSummary`, else
+ * counted from the facts (summarizeCriterionBases), as the TUI card does.
+ */
+function pcBasisSummary(summary, facts) {
+  let counts = summary && typeof summary === 'object' ? summary : null;
+  if (!counts || ['check', 'vision', 'person', 'unrecorded'].some((k) => pcNum(counts[k]) === null)) {
+    counts = {check: 0, vision: 0, person: 0, unrecorded: 0};
+    for (const f of facts) {
+      const kind = f && f.basis && f.basis.kind;
+      counts[kind === 'check' || kind === 'vision' || kind === 'person' ? kind : 'unrecorded'] += 1;
+    }
+  }
+  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
+  const labels = [
+    counts.check > 0 ? counts.check + ' measured' : '',
+    counts.vision > 0 ? counts.vision + ' judged by a model' : '',
+    counts.person > 0 ? counts.person + ' declared by you' : '',
+    counts.unrecorded > 0 ? counts.unrecorded + ' basis not recorded' : '',
+  ];
+  return total + ' ' + (total === 1 ? 'criterion' : 'criteria') + ': ' + labels.filter(Boolean).join(', ');
+}
+
+/** Issue #126: a director claim no passed fact supports, as the core's directorReportWarningLine. */
+const pcClaimWarning = (sentence) => 'Warning: no matching passed criterion fact for director claim: ' + sentence;
+
+/**
+ * Issue #119: the `project verify` hint, as the TUI card's evidenceVerifyHint
+ * (src/tui/project/project-card-lines.ts): the folder quoted, or as a JSON
+ * string when it holds characters a shell or a terminal would read.
+ */
+function pcVerifyHint(folder) {
+  const command = 'Run atomic-agent project verify';
+  if (typeof folder !== 'string') return command;
+  if (/[\x00-\x1f\x7f-\x9f"$%!`]/.test(folder) || folder.endsWith('\\')) {
+    return command + ' for folder ' + JSON.stringify(folder).replace(/[\x7f-\x9f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  }
+  return command + ' "' + folder + '"';
+}
+
+/**
+ * Issue #119: a milestone's receipts (`evidenceReceipts`: valid, unsigned,
+ * problems, partial, archiveUnavailable) as the TUI card's one "Evidence:"
+ * line, its tone, and the verify hint when anything is not plainly signed;
+ * null without receipts (an incognito chat writes none, an older agent sends none).
+ */
+function pcEvidence(receipts) {
+  if (!receipts || typeof receipts !== 'object') return null;
+  const valid = pcNum(receipts.valid) || 0, unsigned = pcNum(receipts.unsigned) || 0, problems = pcNum(receipts.problems) || 0;
+  const partial = receipts.partial === true, unavailable = receipts.archiveUnavailable === true;
+  if (pcNum(receipts.valid) === null && pcNum(receipts.unsigned) === null && pcNum(receipts.problems) === null && !partial && !unavailable) return null;
+  const details = [];
+  if (valid) details.push(valid + ' signed');
+  if (unsigned) details.push(unsigned + ' unsigned (not verifiable; the signing key may have been unavailable)');
+  if (problems) details.push(problems + ' problem' + (problems === 1 ? '' : 's'));
+  if (partial) details.push('partial scan');
+  if (unavailable) details.push('archive unavailable');
+  const tone = problems || unavailable ? 'error' : unsigned || partial ? 'warn' : 'ok';
+  return {line: 'Evidence: ' + details.join(', '), tone,
+    hint: unsigned || problems || partial || unavailable ? pcVerifyHint(receipts.folder) : null};
 }
 
 /** The warning at a gate changed outside Atomic Agent, naming that gate. */
@@ -511,6 +598,8 @@ function pcBacklogModel(view, plan, canEdit) {
   const staleOf = (id) => backlog.stale.find((x) => x.id === id) || null;
   const entry = (item, stale) => ({
     id: item ? item.id : stale.id,
+    // Issue #162: what the person saw, sent back as expectedFingerprint (an older agent sends none).
+    fingerprint: pcFingerprint(item && item.fingerprint) || pcFingerprint(stale && stale.fingerprint),
     title: item ? pcStr(item.title) : '',
     note: item ? pcStr(item.note) : '',
     state: item ? item.state : 'removed',
@@ -528,6 +617,11 @@ function pcBacklogModel(view, plan, canEdit) {
   return {summary, items, hints: pcBacklogHints(backlog)};
 }
 
+/** A view's decision fingerprint (backlogDecisionFingerprint: 64 lowercase hex), or null. */
+function pcFingerprint(v) {
+  return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v) ? v : null;
+}
+
 /** A promoted item waiting for the plan: who cites it, and its status edit. */
 function pcBacklogWaiting(promoted, canEdit) {
   // An agent before #146's coverage sends no citedBy and takes no backlogStatus edit (it would be an empty plan edit).
@@ -536,12 +630,16 @@ function pcBacklogWaiting(promoted, canEdit) {
   return {cited: by.length ? 'Cited by: ' + by.join(', ') : 'No citing tasks', statusActions: canEdit ? pcBacklogStatusActions(promoted) : []};
 }
 
-/** The backlog call `{sessionId, item, state}` for main (agent:projectBacklog), or {error} when the view offers no such call. */
+/**
+ * The backlog call `{sessionId, item, state, expectedFingerprint?}` for main
+ * (agent:projectBacklog), or {error} when the view offers no such call.
+ * Issue #162: the fingerprint binds the call to the item as the card showed it.
+ */
 function pcBacklogCall(state, sid, id, to) {
   const backlog = pcBacklogModel(state.view);
   const item = backlog && backlog.items.find((i) => i.id === id);
   if (!item || !item.actions.some(([, s]) => s === to)) return {error: 'This backlog call is unavailable'};
-  return {body: {sessionId: sid, item: id, state: to}};
+  return {body: {sessionId: sid, item: id, state: to, ...(item.fingerprint ? {expectedFingerprint: item.fingerprint} : {})}};
 }
 
 /** What the window does with main's answer to a backlog call: the view to draw, and a notice or an error. */
@@ -550,6 +648,8 @@ function pcBacklogOutcome(res, id, to) {
   if (res.ok) return {view: res.view || null, notice: id + (to === 'promoted' ? ' promoted for the next plan.' : to === 'dropped' ? ' dropped.' : ' is open again.')};
   const view = res.view || null;
   if (res.code === 'turn-running') return {view, error: 'A turn is running in this chat. Decide once it has finished.'};
+  // Issue #162: the item or its call changed since the card drew it; the answer's view is drawn instead.
+  if (res.code === 'stale-view') return {view, error: PC_STALE_VIEW};
   if (res.status === 404 && !view) return {closed: true, notice: 'This chat has no Fusion project any more.'};
   return {view, error: res.error || 'The backlog call did not go through'};
 }
@@ -616,14 +716,17 @@ function pcModel(state, env) {
     totals = rows.length + ' task' + (rows.length === 1 ? '' : 's') + ' · ' + pcUsd(pcNum(t.costUsd)) + unpriced + ' · ' + pcDuration(pcNum(t.ms));
   }
   const gateId = gate === 'milestone' ? view.gate.id : null;
-  const milestones = gate === 'brief' ? [] : pcList(view.milestones).map((m) => ({
+  const milestones = gate === 'brief' ? [] : pcList(view.milestones).map((m) => ({ m, facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object') })).map(({m, facts}) => ({
     id: pcStr(m.id), title: pcStr(m.title), state: pcStr(m.state), mark: PC_MARK[m.state] || '·',
+    kind: Object.prototype.hasOwnProperty.call(PC_MILESTONE_KIND_LABEL, m.kind) ? PC_MILESTONE_KIND_LABEL[m.kind] : pcStr(m.kind),
     current: m.id === gateId,
     estimate: pcNum(m.estCostUsd) === null && pcNum(m.estMs) === null ? '' : pcUsd(pcNum(m.estCostUsd)) + ' · ' + pcDuration(pcNum(m.estMs)),
     // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
-    facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
-      .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    facts: facts.map((f) => ({state: pcReserved(f) ? 'reserved' : PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    // Issue #126: how the facts were established, counted by basis.
+    basis: facts.length ? pcBasisSummary(m.criteriaBasisSummary, facts) : null,
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
+    evidence: pcEvidence(m.evidenceReceipts),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
@@ -646,6 +749,9 @@ function pcModel(state, env) {
     backlog: backlog && {summary: backlog.summary, items: backlog.items, waitTurn: turnRunning ? PC_WAIT_TURN : null},
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
+    // Issue #126: the runtime's notes, apart from the director's report, and the report's unsupported claims.
+    reportNotes: current ? pcList(current.reportNotes).map(pcStr).filter(Boolean) : [],
+    claimWarnings: current ? pcList(current.directorReportWarnings).map(pcStr).filter(Boolean).map(pcClaimWarning) : [],
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
     actions: pcActions(view, state),
     mode: state.mode, note: state.note, noteMax: PC_NOTE_MAX,
@@ -912,7 +1018,13 @@ function pcDraw(doc, host, model, on) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
     for (const m of model.milestones) {
       const li = pcEl(doc, 'li', 'pc-milestone is-' + m.state.replace(/[^a-z_]/g, '') + (m.current ? ' is-current' : ''),
-        m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+        m.mark + ' ' + m.title + (m.kind ? ' (' + m.kind + ')' : '') + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+      if (m.evidence) {
+        // Issue #119: the receipts summary, then where to verify it in full.
+        li.appendChild(pcEl(doc, 'p', 'pc-evidence is-' + m.evidence.tone, m.evidence.line));
+        if (m.evidence.hint) li.appendChild(pcEl(doc, 'p', 'pc-evidence pc-evidence-hint is-' + m.evidence.tone, m.evidence.hint));
+      }
+      if (m.basis) li.appendChild(pcEl(doc, 'p', 'pc-basis', m.basis));
       if (m.facts.length) {
         const facts = pcEl(doc, 'ul', 'pc-facts');
         facts.setAttribute('aria-label', 'Success criteria');
@@ -930,7 +1042,9 @@ function pcDraw(doc, host, model, on) {
     }
     body.appendChild(ul);
   }
-  if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', model.summary));
+  if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', 'Director report: ' + model.summary));
+  for (const n of model.reportNotes) body.appendChild(pcEl(doc, 'p', 'pc-report-note', n));
+  for (const w of model.claimWarnings) body.appendChild(pcEl(doc, 'p', 'pc-warn-item pc-claim-warning', w));
   for (const c of model.corrections) body.appendChild(pcEl(doc, 'p', 'pc-correction', 'Earlier correction: ' + c));
   if (model.notice) {
     const n = body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
@@ -1225,7 +1339,7 @@ function createProjectCard(opts) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
+    PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_MILESTONE_KIND_LABEL, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
     pcBacklogModel, pcBacklogCall, pcBacklogOutcome, pcBacklogOnly, pcCompletion,

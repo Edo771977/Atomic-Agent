@@ -6,14 +6,15 @@
  */
 
 import { isAbsolute, win32 } from "node:path";
+import { MAX_EXPECTED_FILES } from "./files-check.js";
 import { parseDocumentSpec, type DocumentSpec } from "./document-check.js";
 import { parseSpreadsheetSpec, type SpreadsheetSpec } from "./spreadsheet-check.js";
 
-export type ArtifactKind = "document" | "spreadsheet";
+export type ArtifactKind = "document" | "spreadsheet" | "files" | "research";
 export function isArtifactKind(kind: unknown): kind is ArtifactKind {
-  return kind === "document" || kind === "spreadsheet";
+  return kind === "document" || kind === "spreadsheet" || kind === "files" || kind === "research";
 }
-export type VerifyRunKind = "command" | "service" | "page" | ArtifactKind;
+export type VerifyRunKind = "command" | "service" | "page" | "ui" | ArtifactKind;
 
 export interface VerifyRequestSpec {
   readonly method?: string;
@@ -83,6 +84,9 @@ export interface VerifyRunArgs extends Partial<DocumentSpec>, Partial<Spreadshee
     readonly timeoutMs: number;
   };
   readonly requests?: readonly VerifyRequestSpec[];
+  readonly expected?: readonly string[];
+  readonly within?: string;
+  readonly requireDates?: boolean;
   // page
   readonly path?: string;
   readonly url?: string;
@@ -110,7 +114,7 @@ const MAX_SCRIPT_STEPS = 64;
 const MAX_PROBES = 16;
 const MAX_CHECKS = 32;
 
-const KINDS: ReadonlySet<string> = new Set(["command", "service", "page", "document", "spreadsheet"]);
+const KINDS: ReadonlySet<string> = new Set(["command", "service", "page", "document", "spreadsheet", "ui", "files", "research"]);
 const ACTIONS: ReadonlySet<string> = new Set(["click", "key", "type", "wait"]);
 
 function fail(message: string): never {
@@ -323,9 +327,17 @@ function parseScreenshot(raw: unknown, kind: string): VerifyScreenshotSpec | und
   return { fullPage: fullPage === true };
 }
 
+function relativeEntry(path: string, field: string): string {
+  if (!path.trim() || path.length > 256 || isAbsolute(path) || win32.isAbsolute(path) ||
+      /[:\p{Cc}\p{Cf}]/u.test(path) || path.split(/[\\/]/).some(part => part === ".." || /[. ]$/.test(part) && part !== ".")) {
+    fail(`${field} must be a relative path inside cwd (at most 256 characters)`);
+  }
+  return path;
+}
+
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
-  const kind = requiredString(raw.kind, "kind");
-  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet");
+  const kind = requiredString(raw.kind ?? raw.type, "kind");
+  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet, ui, files, research");
   const base = {
     kind: kind as VerifyRunKind,
     cwd: optionalString(raw.cwd, "cwd"),
@@ -340,16 +352,31 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const stdin = parseStdin(raw.stdin, kind);
   const game = parseGame(raw.game, kind);
   const screenshot = parseScreenshot(raw.screenshot, kind);
-  if (isArtifactKind(kind)) {
-    const path = requiredString(raw.path, "path");
-    if (isAbsolute(path) || win32.isAbsolute(path) || /[:\0]/.test(path) || path.split(/[\\/]/).includes("..")) {
+  if (isArtifactKind(kind) || kind === "ui") {
+    const path = kind === "files" ? undefined : requiredString(raw.path, "path");
+    if (path !== undefined && (isAbsolute(path) || win32.isAbsolute(path) || /[:\0]/.test(path) || path.split(/[\\/]/).includes(".."))) {
       fail("artifact path must be relative to the project folder");
     }
-    if (base.network || optionalNonEmptyString(raw.url, "url") || startGiven(raw.start) ||
+    if ((base.network && kind !== "research") || optionalNonEmptyString(raw.url, "url") || startGiven(raw.start) ||
         [raw.cmd, raw.command].some(value => typeof value === "string" && value.trim()) ||
         (Array.isArray(raw.args) && raw.args.length > 0) || Object.keys(base.env ?? {}).length) {
       fail("artifact checks read a local file and do not accept network, URLs, commands or environment overrides");
     }
+    if (kind === "files") {
+      const expected = list(raw.expected, "expected", MAX_EXPECTED_FILES).map((item, i) => {
+        const entry = requiredString(item, `expected[${i}]`);
+        const prefix = /^(?:file|dir):/.exec(entry)?.[0] ?? "";
+        return prefix + relativeEntry(entry.slice(prefix.length), `expected[${i}]`);
+      });
+      if (expected.length === 0) fail("expected must contain at least one entry");
+      const within = optionalNonEmptyString(raw.within, "within");
+      return { ...base, kind, expected, ...(within === undefined ? {} : { within: relativeEntry(within, "within") }) };
+    }
+    if (kind === "research") {
+      if (raw.requireDates != null && typeof raw.requireDates !== "boolean") fail("requireDates must be a boolean");
+      return { ...base, kind, path, requireDates: raw.requireDates === true };
+    }
+    if (kind === "ui") return { ...base, kind, path };
     const spec = kind === "document" ? parseDocumentSpec(raw) : parseSpreadsheetSpec(raw);
     return { ...base, ...spec, kind, path };
   }

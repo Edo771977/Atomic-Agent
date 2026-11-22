@@ -33,7 +33,7 @@ describe("criteria verified with reservations (issue #110)", () => {
   it("one clean passing check keeps it plainly green", () => {
     const contract: DelegateContract = { checks: [WEAK, CLEAN] };
     const [fact] = criteriaFactsFor(taskCriteria("t", contract, BRIEF), contract, green(2), undefined);
-    expect(fact).toEqual({ id: "c1", state: "passed", why: "every check naming it passed" });
+    expect(fact).toEqual({ id: "c1", state: "passed", why: "every check naming it passed", basis: { kind: "check", checks: [{ index: 1 }, { index: 2 }] } });
   });
 
   it("a reservation does not change any verdict: the task closes", () => {
@@ -46,8 +46,8 @@ describe("criteria verified with reservations (issue #110)", () => {
 
   it("is said on the fact line, not as plain green", () => {
     expect(criterionFactLine({ id: "c1", state: "passed", why: "every check naming it passed", reservation: "only asserts absences" }, [{ id: "c1", text: "Runs" }]))
-      .toBe("~ c1 passed with reservations: Runs (every check naming it passed; reservations: only asserts absences)");
-    expect(criterionFactLine({ id: "c1", state: "passed" }, [{ id: "c1", text: "Runs" }])).toBe("✓ c1 passed: Runs");
+      .toBe("~ c1 passed with reservations: Runs (every check naming it passed; reservations: only asserts absences) · basis not recorded");
+    expect(criterionFactLine({ id: "c1", state: "passed" }, [{ id: "c1", text: "Runs" }])).toBe("✓ c1 passed: Runs · basis not recorded");
   });
 
   it("travels with the run's facts to the milestone, where a clean task's pass outranks a reserved one", () => {
@@ -93,9 +93,9 @@ describe("criteria verified with reservations (issue #110)", () => {
       detail: "compact",
     }));
     project = up(project, { kind: "milestone_run", id: "m1", runId: "run-1" });
-    project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "s", criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed", reservation: "only asserts absences" }] });
+    project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "s", criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed", reservation: "only asserts absences", basis: { kind: "check", checks: [{ index: 1 }] } }] });
     const reread = normalizeProject(JSON.parse(JSON.stringify(project)))!;
-    expect(reread.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed", why: "every check naming it passed", reservation: "only asserts absences" }]);
+    expect(reread.milestones[0]!.criteriaFacts).toEqual([{ id: "c1", state: "passed", why: "every check naming it passed", reservation: "only asserts absences", basis: { kind: "check", checks: [{ index: 1 }] } }]);
     const view = projectGateView({ sessionId: "s", project: reread, estimate: null, selectable: { workers: [], reviewers: [] } });
     expect(view.hints).toContain("verified with reservations: c1 (only asserts absences)");
   });
@@ -106,6 +106,6 @@ describe("a negative control that failed as it should clears a lint reservation 
     const controlled: ContractCheck = { ...WEAK, negative: { args: ["--test", "broken.test.cjs"] } };
     const contract: DelegateContract = { checks: [controlled] };
     const [fact] = criteriaFactsFor(taskCriteria("t", contract, BRIEF), contract, green(1), undefined);
-    expect(fact).toEqual({ id: "c1", state: "passed", why: "every check naming it passed" });
+    expect(fact).toEqual({ id: "c1", state: "passed", why: "every check naming it passed", basis: { kind: "check", checks: [{ index: 1 }] } });
   });
 });

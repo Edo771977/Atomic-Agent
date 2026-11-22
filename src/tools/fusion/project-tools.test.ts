@@ -70,6 +70,18 @@ function tools(options: { tainted?: boolean; context?: ProjectPlanContext; evide
   return { brief: brief!, plan: plan!, milestone: milestone! };
 }
 
+it.each(["draft", "review", "final", "unknown"])("validates milestone kind %s in project.plan", (kind) => {
+  const parsed = parseProjectPlanArgs({
+    milestones: [{ id: "m1", title: "Report", kind }],
+    tasks: [{ id: "t1", title: "Work on the report", milestone: "m1" }],
+  });
+  if (kind === "unknown") {
+    expect(parsed).toMatchObject({ ok: false, problems: [expect.stringContaining("kind")] });
+  } else {
+    expect(parsed).toMatchObject({ ok: true, plan: { milestones: [{ kind }] } });
+  }
+});
+
 const briefArgs = {
   what: "A snake game",
   users: "Kids",
@@ -326,7 +338,7 @@ describe("project.milestone", () => {
       criteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Arrow keys steer" }],
     });
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({
-      kind: "milestone", id: "base", state: "done", summary: "Board drawn\nWarning: not covered by a check: c2.",
+      kind: "milestone", id: "base", state: "done", summary: "Board drawn", reportNotes: ["Warning: not covered by a check: c2."],
       criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed" }], attachments: shots,
     });
     expect(result.summary).toContain("c1 passed");
@@ -371,8 +383,10 @@ describe("project.milestone", () => {
     }, NOW);
     if (!planned.ok) throw new Error(planned.error.message);
     const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project: planned.project });
-    const report = result.details[PROJECT_UPDATE_DETAIL] as { summary: string };
-    expect(report.summary).toBe("Board drawn\nDecisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): d1 (Use SQLite).");
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toMatchObject({
+      summary: "Board drawn",
+      reportNotes: ["Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): d1 (Use SQLite)."],
+    });
     expect(result.summary).toContain("d1 (Use SQLite)");
     expect(result.summary).not.toContain("No new dependencies");
     // A milestone citing no decision adds nothing.

@@ -41,6 +41,16 @@ describe("project card lines", () => {
     expect(text(card(planWith({ detail: "full" })))).toContain("t2 Level screen");
   });
 
+  it.each([
+    ["draft", "Draft"],
+    ["review", "Review"],
+    ["final", "Final"],
+  ] as const)("shows a readable label for a %s milestone", (kind, label) => {
+    const view = fixtureProjectGateView({ kind: "plan" });
+    const milestones = view.milestones.map((m) => ({ ...m, kind }));
+    expect(text(card({ ...view, milestones }, true))).toContain(`(${label})`);
+  });
+
   it("shows a local row as $0.00 (local), not unpriced (issue #54)", () => {
     const base = fixtureProjectGateView({ kind: "plan" });
     const rows = base.plan!.rows.map((r) => r.taskId === "t2" ? { ...r, estCostUsd: 0, local: true as const } : r);
@@ -92,14 +102,16 @@ describe("project card lines", () => {
   it("milestone gate: the milestone's summary and the correct button", () => {
     const out = text(card(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] })));
     expect(out).toContain("MILESTONE Base DONE — YOUR REVIEW");
-    expect(out).toContain("Board renders");
+    expect(out).toContain("Director report: Board renders");
     expect(out).toContain("e correct");
   });
 
   it("milestone gate: criteria facts by tone and each picture's caption with its path as a file link (issue #40)", () => {
     const c = card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] })));
     const out = text(c);
-    expect(out).toContain("✓ c1 passed: Runs in a browser");
+    expect(out).toContain("2 criteria: 1 measured, 1 basis not recorded");
+    expect(out).toContain("Warning: no matching passed criterion fact for director claim: The timer works.");
+    expect(out).toContain("✓ c1 passed: Runs in a browser · measured");
     expect(out).toContain("? c2 unverified: Ten levels (no vision-capable reviewer)");
     expect(out).toContain("The board at start [c1]");
     const lines = projectCardLines(c, 90);
@@ -109,6 +121,28 @@ describe("project card lines", () => {
     expect(unverified?.tone).toBe("warn");
     // Not on the plan gate's compact card.
     expect(text(card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "plan" }))))).not.toContain("The board at start");
+  });
+
+  it.each([
+    [{ valid: 4, unsigned: 0, problems: 0 }, "Evidence: 4 signed", "ok"],
+    [{ valid: 2, unsigned: 1, problems: 0 }, "Evidence: 2 signed, 1 unsigned (not verifiable; the signing key may have been unavailable)", "warn"],
+    [{ valid: 0, unsigned: 0, problems: 1 }, "Evidence: 1 problem", "error"],
+  ] as const)("shows evidence status and verification guidance as text", (evidenceReceipts, expected, tone) => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    view.milestones = view.milestones.map(m => m.id === "m1" ? { ...m, evidenceReceipts } : m);
+    const segments = projectCardLines(card(view), 90).flatMap(line => line.segments);
+    expect(segments.filter(s => s.tone === tone).map(s => s.text.trim()).join(" ")).toContain(expected);
+    if (evidenceReceipts.unsigned || evidenceReceipts.problems) {
+      expect(segments.map(s => s.text.trim()).join(" ")).toContain("Run atomic-agent project verify");
+    }
+  });
+
+  it("names the project folder in the evidence verification hint", () => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    view.milestones = view.milestones.map(m => m.id === "m1" ? {
+      ...m, evidenceReceipts: { valid: 0, unsigned: 0, problems: 1, folder: "/work/My Project" },
+    } : m);
+    expect(text(card(view))).toContain('Run atomic-agent project verify "/work/My Project"');
   });
 
   it("note mode shows the typed correction", () => {

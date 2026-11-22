@@ -1,3 +1,4 @@
+import { rememberRestrictedProjectLessonExposure, restrictedProjectLessonExposureInSpan, restrictedProjectLessonsExposed } from "../../session/project-lesson-exposure.js";
 import { chatLinesOf, groundingTextsOf } from "../../memory/name-grounding.js";
 import type {
   AgentLoopDependencies,
@@ -28,6 +29,7 @@ export type TurnFinalizationDependencies = Pick<
 interface TurnCompletionState {
   state: SessionState;
   options: RunTurnOptions;
+  turnTranscriptStart?: number;
   stepsTaken: number;
   turnIndex: number;
   turnStartedAt: number;
@@ -197,7 +199,7 @@ export function finalizeAgentTurn(
     deps.onEvent?.({ type: "loop_completed", reason });
   }
 
-  state = incrementTurnCount(state);
+  state = incrementTurnCount(context.turnTranscriptStart === undefined ? state : rememberRestrictedProjectLessonExposure(state, context.turnTranscriptStart));
   const durationMs = Date.now() - turnStartedAt;
   deps.onEvent?.({
     type: "turn_finished",
@@ -267,14 +269,16 @@ export function finalizeAgentTurn(
       const userMessage = segmentationActive
         ? (trailingPair?.user ?? options.userMessage ?? null)
         : (options.userMessage ?? null);
-      const assistantReply = segmentationActive
-        ? (trailingPair?.assistant ?? findLastAssistantReply(state))
-        : findLastAssistantReply(state);
+      const lastReply = findLastAssistantReply(state);
+      const assistantReply = trailingPair?.assistant ?? lastReply?.text ?? null;
       // Skip when we genuinely have nothing to extract from
       // (e.g. a `finish`-only session without a user/assistant
       // pair). The runner contract requires non-null
       // `userMessage` / `assistantReply`.
-      if (userMessage !== null && assistantReply !== null) {
+      const firstReflectedRecord = transcript[0]?.from ?? lastReply?.index ?? -1;
+      const restrictedWindow = segmentationActive && firstReflectedRecord >= 0 &&
+        restrictedProjectLessonExposureInSpan(state, firstReflectedRecord, state.turns.length);
+      if (userMessage !== null && assistantReply !== null && !restrictedWindow) {
         // Memory-v2 phase 7a. The allowlist for the vote-runner
         // is the union of (notes recalled this turn) ∪ (lessons
         // recalled across all steps of this turn) ∪ (profile
@@ -349,7 +353,7 @@ export function finalizeAgentTurn(
             // otherwise the runner falls back to the byte-stable
             // single-pair prompt.
             ...(segmentationActive && transcript.length > 0
-              ? { transcript }
+              ? { transcript: transcript.map(({ user, assistant }) => ({ user, assistant })) }
               : {}),
             groundingTexts: groundingTextsOf(chatLinesOf(state.turns)),
           })
@@ -391,7 +395,7 @@ export function finalizeFailedAgentTurn(
     state = recordStopMarker(state, options);
     state = { ...state, status: "cancelled" };
     deps.onEvent?.({ type: "loop_completed", reason: "cancelled" });
-    state = incrementTurnCount(state);
+    state = incrementTurnCount(context.turnTranscriptStart === undefined ? state : rememberRestrictedProjectLessonExposure(state, context.turnTranscriptStart));
     const durationMs = Date.now() - turnStartedAt;
     deps.onEvent?.({
       type: "turn_finished",
@@ -441,7 +445,7 @@ export function finalizeFailedAgentTurn(
   );
   state = { ...state, status: "failed", lastError: runError.message };
   deps.onEvent?.({ type: "loop_completed", reason: "failed" });
-  state = incrementTurnCount(state);
+  state = incrementTurnCount(context.turnTranscriptStart === undefined ? state : rememberRestrictedProjectLessonExposure(state, context.turnTranscriptStart));
   const durationMs = Date.now() - turnStartedAt;
   deps.onEvent?.({
     type: "turn_finished",
@@ -479,7 +483,7 @@ export function finalizeFailedAgentTurn(
  * (`ephemeral`) and not a `memoryReadOnly` turn (a `skill eval` run).
  */
 function writesMemory(options: Pick<RunTurnOptions, "ephemeral" | "memoryReadOnly">): boolean {
-  return options.ephemeral !== true && options.memoryReadOnly !== true;
+  return options.ephemeral !== true && options.memoryReadOnly !== true && !restrictedProjectLessonsExposed();
 }
 
 /**
@@ -540,11 +544,11 @@ function recordStopMarker(
   return recordTurn(state, stoppedTurnMarker());
 }
 
-function findLastAssistantReply(state: SessionState): string | null {
+function findLastAssistantReply(state: SessionState): { index: number; text: string } | null {
   for (let i = state.turns.length - 1; i >= 0; i -= 1) {
     const turn = state.turns[i];
     if (isStoppedTurnMarker(turn)) continue;
-    if (isFinalReplyTurn(turn)) return turn.text;
+    if (isFinalReplyTurn(turn)) return { index: i, text: turn.text };
   }
   return null;
 }
@@ -566,19 +570,21 @@ function findLastAssistantReply(state: SessionState): string | null {
 function collectLastUserAssistantPairs(
   state: SessionState,
   windowTurns: number,
-): { user: string; assistant: string }[] {
+): { user: string; assistant: string; from: number }[] {
   if (windowTurns <= 0) return [];
   // Walk forward to produce stable pair boundaries: each `user` row
   // owns the *next* `assistant_reply` row that follows it (if any).
-  const pairs: { user: string; assistant: string }[] = [];
+  const pairs: { user: string; assistant: string; from: number }[] = [];
+  let from = 0;
   let pendingUser: string | null = null;
-  for (const turn of state.turns) {
+  for (const [index, turn] of state.turns.entries()) {
     if (!turn) continue;
     if (turn.kind === "user") {
       // Consecutive user rows exist since mid-turn steering: the steer
       // must not REPLACE the founding message in the reflection pair —
       // memory extraction would then attribute the whole turn to the
       // correction alone. Join them in order instead.
+      if (pendingUser === null) from = index;
       pendingUser =
         pendingUser === null ? turn.text : `${pendingUser}\n\n${turn.text}`;
     } else if (isStoppedTurnMarker(turn)) {
@@ -589,7 +595,7 @@ function collectLastUserAssistantPairs(
       // asked for then.
       pendingUser = null;
     } else if (isFinalReplyTurn(turn) && pendingUser !== null) {
-      pairs.push({ user: pendingUser, assistant: turn.text });
+      pairs.push({ user: pendingUser, assistant: turn.text, from });
       pendingUser = null;
     }
   }

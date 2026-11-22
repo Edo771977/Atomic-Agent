@@ -20,7 +20,8 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  *   again per step (`webFetchStepEgress`): rendering in the agent's
  *   browser is `browser`, sending the URL to Jina Reader or Firecrawl is
  *   `http` (a third-party API request); a refused step is skipped;
- * - `http`: `os.http.request` (curl underneath; loopback stays local);
+ * - `http`: `os.http.request` (curl underneath; loopback stays local) and
+ *   `verify.run` research link probes when `network: true`;
  * - `browser`: every `browser.*` tool. The page a click or a read acts
  *   on may be remote whatever this call's arguments say, so the whole
  *   browser is one class. A `verify.run` page probe (`kind: "page"`)
@@ -93,6 +94,10 @@ function isLocalUrl(raw: unknown): boolean {
 }
 
 /** The egress class `tool` called with `args` falls in, or `null` when it stays on this machine. */
+export function isNetworkedResearch(tool: string, args: Record<string, unknown>): boolean {
+  return tool === VERIFY_TOOL && (args.kind ?? args.type) === "research" && args.network === true;
+}
+
 export function egressTargetOf(
   tool: string,
   args: Record<string, unknown>,
@@ -100,6 +105,7 @@ export function egressTargetOf(
 ): EgressTarget | null {
   if (tool === "os.web.search") return { cls: "web" };
   if (tool === "os.web.fetch" || tool === "os.web.crawl") return isLocalUrl(args.url) ? null : { cls: "web" };
+  if (isNetworkedResearch(tool, args)) return { cls: "http" };
   if (tool === "os.http.request") return isLocalUrl(args.url) ? null : { cls: "http" };
   if (tool.startsWith("browser.")) return { cls: "browser" };
   if (tool === VERIFY_TOOL && args.kind === "page") return { cls: "browser" };

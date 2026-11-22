@@ -58,13 +58,27 @@ the warning when it was drafted after outside content), the plan rows
 a local worker's row reads `$0.00 (local)`),
 the totals, the limits the plan breaks (hard ones marked; Approve waits while
 one stands), the view's `hints` (`ℹ` lines, the TUI card's prefix), the
-milestones, and under every milestone that has them (the card lists all
+milestones (each with its kind as the TUI card names it: Draft, Review and
+Final for non-code work, issue #160; other kinds as they are), and under every milestone that has them (the card lists all
 milestones, as the TUI's full `/plan` view does; its compact card shows only
-the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` lines in the
-core's `criterionFactLine` words and its `attachments` as text only: an
+the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` / `~` lines in the
+core's `criterionFactLine` words, each ending with its basis (measured,
+judged by <model>, declared by you, basis not recorded; issue #126) under
+the per-basis count line (`criteriaBasisSummary`, else counted from the
+facts), and its `attachments` as text only: an
 "N pictures" line, then each caption with its criteria (the core's
 `attachmentLabel`) and the file's name, where the TUI shows the full path as
-a file link; no file is read and no image or file link is drawn. Under the
+a file link; no file is read and no image or file link is drawn. A
+milestone whose view carries `evidenceReceipts` (issue #119) shows the TUI
+card's one "Evidence:" line (signed, unsigned, problems, partial scan,
+archive unavailable) and, unless every receipt is signed, the TUI's
+"Run atomic-agent project verify" hint with the folder; text only, as
+`test/project-card-evidence.test.mjs` checks against the TUI's own lines.
+Below the milestones, the gate milestone's report reads "Director report:
+…"; the runtime's `reportNotes` follow as lines of their own, never inside
+the report, then a warning for each sentence in `directorReportWarnings`
+(a claim of verified or working work no passed criterion supports), in the
+core's `directorReportWarningLine` words. Under the
 plan comes the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per
@@ -120,17 +134,20 @@ backlog (`b` in `/plan`) and `atomic-agent project backlog
 --promote|--drop|--reopen`. A call made stale outside Atomic Agent is flagged
 "changed outside Atomic Agent since you promoted it" with **Promote again**,
 **Drop** and **Keep open**; a promoted item removed outside offers **Clear**.
-A call goes through `agent:projectBacklog` (`{sessionId, item, state}`,
-checked in `main/project-ipc.ts`: a strict session id, the core's backlog id
-pattern, only `promoted`, `dropped` or `open`) to `POST /api/project/backlog`,
+A call goes through `agent:projectBacklog` (`{sessionId, item, state,
+expectedFingerprint}`, checked in `main/project-ipc.ts`: a strict session id,
+the core's backlog id pattern, only `promoted`, `dropped` or `open`, and the
+view's 64-hex fingerprint when one is sent) to `POST /api/project/backlog`,
 the HTTP form of the sidecar's `project_backlog_decision`. It moves no gate:
 the card keeps its gate and draws the view the agent answers (unless a newer
 frame came meanwhile), or why it refused. Calls wait for the chat's turn: the
 page says whether one runs (`turnRunning`), and the section's buttons are
 disabled with "Decide once the turn finishes". A call in flight keeps the
-card busy across a chat switch. The card does not yet bind a call to the item
-text it showed (the route takes no `expectedFingerprint`; a core follow-up
-adds it), so an item edited outside in the meantime is decided as it is now.
+card busy across a chat switch. Each call carries the `fingerprint` of the
+item (or stale call) the card drew as `expectedFingerprint` (issue #162); an
+agent whose view has none gets the call without it. When the item or its call
+changed in the meantime, the agent refuses `stale-view` and the card says
+"This item changed — read it again" over the view the refusal carries.
 At the plan gate a promoted item no approved plan took in says
 "Cited by: t…" or "No citing tasks" and offers **Defer**, or **Reactivate**
 once deferred: the gate's `edit` with `edits.backlogStatus`, which main lets

@@ -2,7 +2,7 @@ import type { ApprovalGate } from "../../approval/approval-gate.js";
 import { maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
-import { authorizeVerifyBatch } from "../verify/verify-authorization.js";
+import { attachResearchNetworkApproval, authorizeVerifyBatch, uiVerificationUnavailable } from "../verify/verify-authorization.js";
 import type { ContractCheck } from "./contract.js";
 import { CONTRACT_CHECKS_HELD, ContractChecksHeldError, type ContractCheckRunner } from "./contract-checks.js";
 import { withNegativeControls } from "./contract-check-negative.js";
@@ -14,6 +14,7 @@ export type ContractCheckHoldGate = Partial<Pick<ApprovalGate,
 export interface ContractCheckHold {
   decide(signal: AbortSignal, batch?: readonly Record<string, unknown>[]): Promise<string | undefined>;
   runner: ContractCheckRunner | undefined;
+  finalRunner: ContractCheckRunner | undefined;
 }
 
 /**
@@ -44,14 +45,16 @@ export function createContractCheckHold(options: {
   /** The approved project plan's folder: a local page check approved there stands for the turn. */
   turnGrantFolder?: string;
 }): ContractCheckHold {
+  const isUi = (spec: Record<string, unknown>) => (spec.kind ?? spec.type) === "ui";
+
   let tail = Promise.resolve();
   const authorize = (batch: readonly Record<string, unknown>[], workingDir: string, signal: AbortSignal, checkInputs?: readonly string[]) => {
     const combined = AbortSignal.any([options.signal, signal]);
     const result = tail.then(async () => {
       combined.throwIfAborted();
-      if (options.approvalRequired && options.approvals.request === undefined) throw new Error("verification approval gate is unavailable");
+      if (options.approvalRequired && options.approvals.request === undefined && batch.some(spec => !isUi(spec))) throw new Error("verification approval gate is unavailable");
       return authorizeVerifyBatch(batch, {
-        approvals: options.approvals as ApprovalGate, approvalRequired: options.approvalRequired,
+        approvals: options.approvals as ApprovalGate, approvalRequired: options.approvalRequired, continueOnUiApprovalDenial: true,
         ...(options.shellPolicy === undefined ? {} : { shellPolicy: options.shellPolicy }),
         ...(options.checkCommandReads === undefined ? {} : { checkCommandReads: options.checkCommandReads }),
         ...(options.checkReadTargets === undefined ? {} : { checkReadTargets: options.checkReadTargets }),
@@ -79,19 +82,37 @@ export function createContractCheckHold(options: {
     catch (err) { return note(err, signal); }
   };
   const inner = options.runner;
-  const runner: ContractCheckRunner | undefined = inner === undefined ? undefined : Object.assign(
+  const wrap = (final: boolean): ContractCheckRunner | undefined => inner === undefined ? undefined : Object.assign(
     async (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) => {
-      let approved: readonly Record<string, unknown>[];
-      ctx.onHold?.start();
-      try { approved = await authorize(specs, ctx.workingDir, ctx.signal, ctx.inputIntegrity?.paths); }
+      // The final preflight already covers ordinary checks. Authorize UI
+      // against the frozen workspace so its exact executable reaches the runner.
+      const batch = final ? specs.filter(isUi) : specs;
+      const { onHold, ...rest } = ctx;
+      const attachNetwork = (spec: Record<string, unknown>) => attachResearchNetworkApproval(spec, {
+        approvals: options.approvals as ApprovalGate,
+        ...(options.knownSecrets === undefined ? {} : { knownSecrets: options.knownSecrets }),
+      }, { workingDir: options.workingDir, sessionId: options.sessionId, signal: AbortSignal.any([options.signal, ctx.signal]) });
+      if (final && batch.length === 0) return inner(specs.map(attachNetwork), rest);
+      let checked: readonly Record<string, unknown>[];
+      onHold?.start();
+      try { checked = await authorize(batch, ctx.workingDir, ctx.signal, ctx.inputIntegrity?.paths); }
       catch (err) { throw new ContractChecksHeldError(note(err, ctx.signal)); }
-      finally { ctx.onHold?.end(); }
-      const { onHold: _onHold, ...rest } = ctx;
-      return inner(approved, rest);
+      finally { onHold?.end(); }
+      let next = 0;
+      const approved = final ? specs.map(spec => isUi(spec) ? checked[next++]! : attachNetwork(spec)) : checked;
+      const unavailable = approved.map(uiVerificationUnavailable);
+      if (unavailable.every(reason => reason === undefined)) return inner(approved, rest);
+      const runnable = approved.filter((_, index) => unavailable[index] === undefined);
+      const checkTasks = rest.checkTasks?.filter((_, index) => unavailable[index] === undefined);
+      const results = runnable.length === 0 ? [] : (await inner(runnable, { ...rest, ...(checkTasks === undefined ? {} : { checkTasks }) })).results;
+      next = 0;
+      return { ok: false, results: unavailable.map(reason => reason === undefined
+        ? results[next++] ?? { ok: false, error: "the runner returned no result" }
+        : { ok: false, artifactStatus: "uncheckable" as const, error: reason }) };
     },
     inner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {},
   );
-  return { decide, runner };
+  return { decide, runner: wrap(false), finalRunner: wrap(true) };
 }
 
 /** Cancel a queued waiter promptly too; its queued body later observes abort. */

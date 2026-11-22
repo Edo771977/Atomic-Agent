@@ -279,6 +279,17 @@ test('the backlog IPC passes a session, an item id and one of the three states, 
   }
 });
 
+test('issue #162: the backlog IPC passes the fingerprint the card showed as expectedFingerprint, or refuses a malformed one', () => {
+  const fp = 'ab'.repeat(32);
+  assert.deepEqual(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b1', state: 'promoted', expectedFingerprint: fp}),
+    {ok: true, body: {session: 'ses-1', item: 'b1', state: 'promoted', expectedFingerprint: fp}});
+  assert.deepEqual(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b1', state: 'open'}), {ok: true, body: {session: 'ses-1', item: 'b1', state: 'open'}}, 'without one, as before');
+  for (const bad of ['', 'ab'.repeat(31), 'ab'.repeat(33), 'AB'.repeat(32), 'g'.repeat(64), 7, null, ['x']]) {
+    const out = parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b1', state: 'promoted', expectedFingerprint: bad});
+    assert.equal(out.ok, false, JSON.stringify(bad));
+  }
+});
+
 test('main and the preload bridge wire the backlog call like the project decision', () => {
   const main = readFileSync(new URL('../main/main.ts', import.meta.url), 'utf8');
   const preload = readFileSync(new URL('../preload/preload.ts', import.meta.url), 'utf8');

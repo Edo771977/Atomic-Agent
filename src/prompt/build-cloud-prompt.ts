@@ -1,3 +1,4 @@
+import { DIRECTOR_LESSONS_GUIDANCE } from "./project-lessons-data.js";
 import { getConfig } from "../config/index.js";
 import { getReasoningTurnFraming } from "../llm/model-profile.js";
 import { thinkingDisabledOnBuiltPrompt } from "../llm/server-template-policy.js";
@@ -11,16 +12,23 @@ import { cloudContextSections } from "./cloud-context-sections.js";
 import { defaultBudget, estimateTokens } from "./token-budget.js";
 
 /** Separate cloud projection: local allocation/rendering is deliberately untouched. */
-export function buildCloudPrompt(input: BuildPromptInput, stablePrefix: string): BuiltPrompt {
+export function buildCloudPrompt(input: BuildPromptInput, stablePrefix: string, projectLessons: string | null = null): BuiltPrompt {
   const config = getConfig();
   const sections = cloudContextSections(input);
   const cloudContext = extendCloudContext(input.session.cloudContext, input.session.turns, sections);
   const projection = projectSessionConversation(input.session);
   const entries = cloudContextEntries(cloudContext, projection.offset);
   const conversation = entries.map((entry) => renderCloudTurn(entry.turn)).join("\n");
+  // The current lessons are project data, never part of the append-only conversation journal.
+  const projectTail = projectLessons === null ? "" : [
+    "### fusion project lessons",
+    DIRECTOR_LESSONS_GUIDANCE,
+    projectLessons,
+  ].join("\n");
   const parts = [
     ...(projection.summary ? ["### context-summary", projection.summary, ""] : []),
     "### conversation", conversation, "",
+    ...(projectTail === "" ? [] : [projectTail, ""]),
   ];
   const suppressPrefill = input.suppressReasoningPrefill === true;
   const framing = input.profile && !suppressPrefill ? getReasoningTurnFraming(input.profile) : undefined;
@@ -37,7 +45,7 @@ export function buildCloudPrompt(input: BuildPromptInput, stablePrefix: string):
   const schemaTokens = input.toolSchemaTokens ?? 0;
   const historyTokens = estimateTokens(conversation) + entries.length * 12;
   const summaryTokens = projection.summary ? estimateTokens(projection.summary) + 12 : 0;
-  const fixedTokens = estimateTokens(stablePrefix) + schemaTokens + 32;
+  const fixedTokens = estimateTokens(stablePrefix) + estimateTokens(projectTail) + schemaTokens + 32;
   const cap = window === null ? Number.MAX_SAFE_INTEGER : Math.max(0, window - fixedTokens - replyReserve - 1024);
   const boundaries = macroTurnBoundaries(input.session.turns, input.session.macroTurnStarts).filter((i) => i >= projection.offset);
   const costs = new Array<number>(Math.max(1, boundaries.length)).fill(0);
@@ -51,7 +59,7 @@ export function buildCloudPrompt(input: BuildPromptInput, stablePrefix: string):
   const total = estimateTokens(text) + schemaTokens + entries.length * 12 + 32;
   return {
     text, stablePrefix, tail, cloudContext, modelMode: input.modelMode,
-    messages: { system: stablePrefix, turns: withCurrentReasoning(entries, input.session.turns), tail: "", droppedSummary: null,
+    messages: { system: stablePrefix, turns: withCurrentReasoning(entries, input.session.turns), tail: projectTail, droppedSummary: null,
       ...(projection.summary ? { contextSummary: projection.summary } : {}) },
     tokens: { stablePrefix: estimateTokens(stablePrefix), loadedSkills: prefixTokens("skill:"),
       loadedTools: prefixTokens("tool:"), sessionFacts: sectionTokens("session-facts"),

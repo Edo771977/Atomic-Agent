@@ -32,7 +32,7 @@ export type VisionDescribe = (call: {
   imagePaths: readonly string[];
   maxTokens: number;
   signal: AbortSignal;
-}) => Promise<{ text: string; usage?: CompletionUsage }>;
+}) => Promise<{ text: string; usage?: CompletionUsage; modelRef?: string }>;
 
 /** At most this many screenshots per call (a run takes at most four). */
 export const VISION_MAX_IMAGES = 4;
@@ -207,7 +207,9 @@ export async function judgeTaskVision(input: {
   // A criterion named by several visual checks takes the worst verdict.
   const note = (id: string, verdict: VisionCriterionVerdict): void => {
     const before = judgements.get(id);
-    if (before === undefined || VERDICT_RANK[verdict.state] > VERDICT_RANK[before.state]) judgements.set(id, verdict);
+    if (before === undefined || VERDICT_RANK[verdict.state] > VERDICT_RANK[before.state]) {
+      judgements.set(id, verdict);
+    }
   };
   const allJudged = [...new Map(calls.flatMap((c) => c.criteria).map((c) => [c.id, c])).values()];
   if (input.judge === null || input.describe === undefined) {
@@ -259,7 +261,8 @@ export async function judgeTaskVision(input: {
       continue;
     }
     for (const c of call.criteria) {
-      note(c.id, parsed.verdicts.get(c.id) ?? { state: "unverified", why: "the vision judge gave no verdict for it" });
+      const verdict = parsed.verdicts.get(c.id);
+      note(c.id, verdict === undefined ? { state: "unverified", why: "the vision judge gave no verdict for it" } : { ...verdict, model: answer.modelRef ?? label });
     }
   }
   return { judgements, costUsd, judge: asked ? label : null, ...(firstNote === undefined ? {} : { note: firstNote }) };

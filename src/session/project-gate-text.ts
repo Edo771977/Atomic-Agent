@@ -7,10 +7,64 @@
  * shown as zero.
  */
 
-import type { ProjectGateBacklog, ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
+import type { ProjectCriterionBasisSummary, ProjectGateBacklog, ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
 import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, ProjectMilestoneAttachment } from "./session-project.js";
 
 const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
+
+export function summarizeCriterionBases(facts: readonly ProjectCriterionFact[]): ProjectCriterionBasisSummary {
+  const counts = { check: 0, vision: 0, person: 0, unrecorded: 0 };
+  for (const fact of facts) counts[fact.basis?.kind ?? "unrecorded"] += 1;
+  return counts;
+}
+
+export function criterionBasisSummaryLine(counts: ProjectCriterionBasisSummary): string {
+  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
+  const labels = [
+    counts.check > 0 ? `${counts.check} measured` : "",
+    counts.vision > 0 ? `${counts.vision} judged by a model` : "",
+    counts.person > 0 ? `${counts.person} declared by you` : "",
+    counts.unrecorded > 0 ? `${counts.unrecorded} basis not recorded` : "",
+  ];
+  return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.filter(Boolean).join(", ")}`;
+}
+
+const CLAIM = /\b(?:verificat[oaie]|verified|funziona(?:no|nte)?|works|tested|working|passes)\b/gu;
+const NEGATED = /\b(?:not|non)(?:\s+(?:yet|still|fully|ancora|del tutto|è|sono))*\s*$/u;
+
+/** An affirmative claim needs a passed criterion cited by exact ID or full text in the same sentence. */
+export function directorReportWarnings(
+  report: string,
+  facts: readonly ProjectCriterionFact[],
+  criteria: readonly ProjectCriterion[],
+): string[] {
+  const passedIds = new Set(facts.filter((fact) => fact.state === "passed").map((fact) => fact.id));
+  const passed = criteria.filter(({ id }) => passedIds.has(id));
+  return report
+    .split(/\r?\n/u)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/u))
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => {
+      const text = sentence.toLowerCase().replace(/\s+/gu, " ");
+      if (![...text.matchAll(CLAIM)].some(({ index }) => !NEGATED.test(text.slice(0, index)))) return false;
+      const tokens = new Set(text.match(/[a-z0-9-]+/gu));
+      return !passed.some(({ id, text: criterion }) =>
+        tokens.has(id) || (criterion.length > 0 && text.includes(criterion.toLowerCase().replace(/\s+/gu, " "))),
+      );
+    });
+}
+
+export const directorReportWarningLine = (sentence: string): string =>
+  `Warning: no matching passed criterion fact for director claim: ${sentence}`;
+
+export function criterionBasisLabel(basis: ProjectCriterionFact["basis"]): string {
+  switch (basis?.kind) {
+    case "check": return "measured";
+    case "person": return "declared by you";
+    case "vision": return `judged by ${basis.model}`;
+    default: return "basis not recorded";
+  }
+}
 
 /**
  * One criterion fact as a line (issue #40), e.g. "✓ c1 passed: Runs
@@ -25,7 +79,7 @@ export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly
   const mark = reserved ? "~" : (FACT_MARK[fact.state] ?? "?");
   const state = reserved ? "passed with reservations" : fact.state;
   const notes = [...(fact.why ? [fact.why] : []), ...(reserved ? [`reservations: ${fact.reservation}`] : [])];
-  return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`}`;
+  return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`} · ${criterionBasisLabel(fact.basis)}`;
 }
 
 /**
@@ -141,9 +195,18 @@ export function formatProjectGateText(view: ProjectGateView): string {
     if (view.gate.kind === "milestone") {
       const id = view.gate.id;
       const milestone = view.milestones.find((m) => m.id === id);
-      if (milestone?.summary) out.push(`  Summary: ${milestone.summary}`);
+      if (milestone?.summary) out.push(`  Director report: ${milestone.summary}`);
+      for (const note of milestone?.reportNotes ?? []) out.push(`  ${note}`);
+      for (const warning of milestone?.directorReportWarnings ?? []) out.push(`  ${directorReportWarningLine(warning)}`);
       const facts = milestone?.criteriaFacts ?? [];
-      if (facts.length > 0) out.push("  Criteria:", ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
+      if (facts.length > 0) {
+        const summary = milestone?.criteriaBasisSummary ?? summarizeCriterionBases(facts);
+        out.push(
+          "  Criteria:",
+          `    ${criterionBasisSummaryLine(summary)}`,
+          ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`),
+        );
+      }
       for (const a of milestone?.attachments ?? []) out.push(`  Picture: ${attachmentLabel(a)} — ${a.path}`);
     }
   }

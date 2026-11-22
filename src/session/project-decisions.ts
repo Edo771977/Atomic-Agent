@@ -15,6 +15,7 @@ import {
   type ProjectState,
   type ProjectVerdict,
 } from "./session-project.js";
+import { PROJECT_LIMITS } from "./project-limits.js";
 import { withFileLock } from "./project-lock.js";
 
 /**
@@ -52,6 +53,16 @@ export interface ProjectDecisionRecord extends ProjectDecisionInput {
   hash: string;
 }
 
+export interface ProjectLessonCall {
+  state: "approved" | "retired";
+  hash: string;
+}
+
+export interface ProjectLessonDecision {
+  id: string;
+  call: ProjectLessonCall | null;
+}
+
 /** One project's record file. */
 export interface ProjectRecord {
   version: 1;
@@ -63,6 +74,7 @@ export interface ProjectRecord {
   /** The project as Atomic Agent last wrote it, `changedOutside` included. */
   state: ProjectState;
   decisions: ProjectDecisionRecord[];
+  lessonCalls?: Record<string, ProjectLessonCall>;
 }
 
 const MAX_DECISIONS = 200;
@@ -286,7 +298,7 @@ export interface ProjectRecordStore {
    * the folder's project id: the record's own once it exists (another is
    * `conflict`), the file's when the first record is written.
    */
-  write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
+  write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }, lessonDecision?: ProjectLessonDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
 }
 
 /** Whether `decisions` hold one for this gate at this version (any content). */
@@ -385,19 +397,25 @@ function readDecision(raw: unknown): ProjectDecisionRecord | null {
   };
 }
 
-function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number): ProjectRecord {
+function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number, lessonDecision?: ProjectLessonDecision): ProjectRecord {
   const seq = (current?.seq ?? 0) + 1;
   // The labels are the record's: only the person's decision at a gate
   // clears it; every other write (a director's redraft) carries them.
   const kept = [...(current?.state.changedOutside ?? []), ...(next.changedOutside ?? [])]
     .filter((l) => decision === undefined || l !== gateLabelOf(decision.gate));
   const decisions = current?.decisions ?? [];
+  const lessonCalls = { ...current?.lessonCalls };
+  if (lessonDecision !== undefined) {
+    if (lessonDecision.call === null) delete lessonCalls[lessonDecision.id];
+    else lessonCalls[lessonDecision.id] = lessonDecision.call;
+  }
   return {
     version: 1,
     folder,
     id,
     seq,
     state: withChanged(next, kept),
+    ...(Object.keys(lessonCalls).length === 0 ? {} : { lessonCalls }),
     decisions: decision === undefined ? decisions : [...decisions, { seq, at, ...decision }].slice(-MAX_DECISIONS),
   };
 }
@@ -408,6 +426,23 @@ function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (P
   }
   if ((current?.seq ?? 0) !== baseSeq) return { code: "conflict", message: "The project's record changed since it was read; reload it." };
   return null;
+}
+
+export function validProjectLessonId(id: string): boolean {
+  return id.length <= PROJECT_LIMITS.id && /^[a-z0-9-]+$/.test(id);
+}
+
+function readLessonCalls(raw: unknown): Record<string, ProjectLessonCall> | null {
+  if (raw === undefined) return {};
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const calls: Record<string, ProjectLessonCall> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (!validProjectLessonId(id) || typeof value !== "object" || value === null) return null;
+    const { state, hash } = value as Partial<ProjectLessonCall>;
+    if ((state !== "approved" && state !== "retired") || typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) return null;
+    calls[id] = { state, hash };
+  }
+  return calls;
 }
 
 /** One record file read and checked; `null` record for a missing file. */
@@ -434,11 +469,12 @@ function readRecordFile(file: string, stateDir: string): { ok: true; record: Pro
     return { ok: false, problem: { code: "unsupported", message: `the record ${file} has version ${JSON.stringify(raw.version)}; this Atomic Agent reads version 1` } };
   }
   const state = readState(raw.state, stateDir);
+  const lessonCalls = readLessonCalls(raw.lessonCalls);
   const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
-  if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || typeof raw.folder !== "string" || typeof raw.id !== "string" || !SAFE_ID.test(raw.id) || state === null || decisions === null || decisions.some((d) => d === null)) {
+  if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || typeof raw.folder !== "string" || typeof raw.id !== "string" || !SAFE_ID.test(raw.id) || state === null || lessonCalls === null || decisions === null || decisions.some((d) => d === null)) {
     return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };
   }
-  return { ok: true, record: { version: 1, folder: raw.folder, id: raw.id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[] } };
+  return { ok: true, record: { version: 1, folder: raw.folder, id: raw.id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[], ...(Object.keys(lessonCalls).length === 0 ? {} : { lessonCalls }) } };
 }
 
 /** The record store under the state dir; `now` for tests. */
@@ -477,18 +513,18 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       if (!r.ok) return r;
       return { ok: true, record: r.record, ...(r.ignored === undefined ? {} : { ignored: r.ignored }) };
     },
-    write(rawFolder, id, baseSeq, next, decision) {
+    write(rawFolder, id, baseSeq, next, decision, lessonDecision) {
       if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
       const folder = canonicalProjectFolder(rawFolder, platform);
       mkdirSync(dir, { recursive: true });
       // Read, compare and write under a lock beside the record, in the
       // trust-config dir: the folder's own lock serialises the folder's
       // files only, and a command in the folder can remove it.
-      const locked = withFileLock(`${fileOf(folder)}.lock`, () => writeLocked(folder, id, baseSeq, next, decision), { now });
+      const locked = withFileLock(`${fileOf(folder)}.lock`, () => writeLocked(folder, id, baseSeq, next, decision, lessonDecision), { now });
       return locked.ok ? locked.value : { ok: false, problem: { code: "locked", message: "Another Atomic Agent is writing this project's record; try again." } };
     },
   };
-  function writeLocked(folder: string, id: string, baseSeq: number, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem } {
+  function writeLocked(folder: string, id: string, baseSeq: number, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, lessonDecision?: ProjectLessonDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem } {
     {
       const current = readAt(folder);
       if (!current.ok) return current;
@@ -500,7 +536,7 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       }
       const refused = checkWrite(current.record, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current.record, folder, id, next, decision, now());
+      const out = nextRecord(current.record, folder, id, next, decision, now(), lessonDecision);
       const file = fileOf(folder);
       const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
@@ -522,12 +558,12 @@ export function memoryProjectRecords(now: () => number = Date.now): ProjectRecor
   return {
     records,
     read: (folder) => ({ ok: true, record: records.get(key(folder)) ?? null }),
-    write(folder, id, baseSeq, next, decision) {
+    write(folder, id, baseSeq, next, decision, lessonDecision) {
       const current = records.get(key(folder)) ?? null;
       if (current !== null && current.id !== id) return { ok: false, problem: { code: "conflict", message: `This folder's project is ${current.id}, not ${id}; reload it.` } };
       const refused = checkWrite(current, baseSeq, decision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now());
+      const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now(), lessonDecision);
       records.set(key(folder), out);
       return { ok: true, seq: out.seq };
     },

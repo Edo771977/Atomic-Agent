@@ -92,7 +92,7 @@ export const APPROVAL_CATEGORIES = [
   "git_remote", "fusion_fanout", "browser_nonweb", "browser_commit", "browser_secret", "browser_offsite",
   "trust_config", "state_secret", "email", "fs_read_outside", "paid_generation", "screen_control", "screen_capture",
   "local_model_restart", "hook_ask", "http_write", "browser_site_tool", "user_question",
-    "session_cross", "verify_page_local", "other",
+    "session_cross", "verify_page_local", "verify_ui_detector", "other",
 ] as const;
 export const SETTINGS_PANES = [
   "general", "models", "mcp", "telegram", "composio", "memory", "tasks", "webhooks", "skills", "privacy", "import", "diagnostics",

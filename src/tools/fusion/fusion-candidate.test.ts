@@ -1,3 +1,7 @@
+import { projectCommand } from "../../cli/projects-command.js";
+import { projectFilePath } from "../../session/project-store.js";
+import type { ProjectState } from "../../session/session-project.js";
+import { projectFolderOf } from "../../session/project-folder.js";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +15,7 @@ import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { receiptHash } from "../../session/receipt-signing.js";
-import { createProjectReceiptWriter, verifyProjectReceipts } from "../../session/project-receipts.js";
+import { createProjectReceiptWriter, verifyProjectReceiptDetails, verifyProjectReceipts } from "../../session/project-receipts.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
@@ -93,17 +97,34 @@ it.each([true, false])("archives check-run records and only delivered candidate 
   const output = "some check output that stays out of the archive";
   const exitCode = passing ? 0 : 1;
   f.deps.runChecks = async () => ({ ok: passing, results: [{ ok: passing, exitCode, stdoutTail: output }] });
-  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, f.ctx);
+  const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, { ...f.ctx, projectRef: { id: "bound", folder: f.root } });
   expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", {
-    kind: "command", ok: passing, exitCode,
+    projectId: "bound", runId: expect.any(String), kind: "command", ok: passing, exitCode,
     definitionHash: receiptHash(contract.checks[0]),
     outputHash: receiptHash(output),
     recordHash: receiptHash({ command: "integration", exitCode, output, tests: [] }),
   });
   const manifests = writeProjectReceipt.mock.calls.filter(([, kind]) => kind === "artifact-manifest");
   expect(manifests).toHaveLength(passing ? 1 : 0);
-  if (passing) expect(manifests[0]).toEqual([f.root, "artifact-manifest", expect.objectContaining({ binding: expect.objectContaining({ scope: "candidate-snapshot" }) })]);
+  if (passing) expect(manifests[0]).toEqual([f.root, "artifact-manifest", expect.objectContaining({ projectId: "bound", binding: expect.objectContaining({ scope: "candidate-snapshot" }) })]);
   expect(result.status).toBe(passing ? "ok" : "error");
+});
+
+it("skips phase-one receipts when an embedded chat shares an archived project's folder", async () => {
+  const writer = vi.fn();
+  const f = await fixture({ writeProjectReceipt: writer }, false);
+  await mkdir(join(f.root, ".atomic", "project"), { recursive: true });
+  await writeFile(projectFilePath(f.root), "{}");
+  f.deps.runTurn = async session => {
+    await writeFile(join(session.workingDir, "api.json"), '{"name":"after"}');
+    return { session, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const result = await buildFusionDelegateTool(f.deps).run({
+    tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
+  }, f.ctx);
+  expect(result.status).toBe("ok");
+  expect(writer).not.toHaveBeenCalled();
 });
 
 it.each([true, false])("archives direct task manifests outside incognito (incognito=%s)", async incognito => {
@@ -135,6 +156,58 @@ it.each([true, false])("archives direct task manifests outside incognito (incogn
     expect(warn).not.toHaveBeenCalled();
     expect(verifyProjectReceipts(stateDir, f.root)).toEqual(writeProjectReceipt.mock.calls.map(() => "valid"));
   }
+});
+
+it.each([true, false])("verifies every worktree receipt from the original project (candidate=%s)", async candidate => {
+  const stateDir = await mkdtemp(join(tmpdir(), "worktree-receipts-"));
+  const original = await mkdtemp(join(tmpdir(), "worktree-original-"));
+  roots.push(stateDir, original);
+  const credentials = new Map<string, string>();
+  const writeProjectReceipt = createProjectReceiptWriter(stateDir, {
+    read: key => ({ ok: true, value: credentials.get(key) ?? null }),
+    write: (key, value) => { credentials.set(key, value); return true; },
+  }, () => {});
+  const f = await fixture({ writeProjectReceipt }, candidate);
+  const session = createEmptySessionState({ id: f.ctx.sessionId, workingDir: f.root });
+  session.worktree = { repoRoot: original, originalWorkingDir: original, path: f.root, branch: "work", baseBranch: "main", baseCommit: "test", createdAt: 0 };
+  f.deps.receiptProjectFolder = () => projectFolderOf(session);
+  writeProjectReceipt(original, "gate-verdict", { version: 1 });
+  writeProjectReceipt(original, "milestone-report", { state: "done" });
+  f.deps.runTurn = async worker => {
+    await writeFile(join(worker.workingDir, "api.json"), '{"name":"after"}');
+    return { session: worker, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const project: ProjectState = {
+    gate: { kind: "none" },
+    brief: { version: 1, what: "API", users: "Clients", how: "JSON", status: "approved", successCriteria: [], draftedAfterUntrusted: false },
+    milestones: [{ id: "m1", title: "API", kind: "base", state: "approved", runIds: [], updatedAt: 1 }],
+    plan: {
+      version: 1, status: "approved", detail: "compact", draftedAfterUntrusted: false,
+      totals: { costUsd: 0, ms: 0, unknownCostRows: 0 },
+      rows: [{
+        taskId: "api", milestoneId: "m1", title: "Change API", worker: "worker:small", reviewer: null,
+        reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 0,
+      }],
+    },
+  };
+  const result = await buildFusionDelegateTool(f.deps).run({
+    tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
+  }, { ...f.ctx, project, projectRef: { id: "bound", folder: original } });
+  expect(result.status).toBe("ok");
+  const stdout = vi.fn();
+  expect(await projectCommand(["verify", original, "--json"], { stateDir: () => stateDir, stdout })).toBe(0);
+  const rows = JSON.parse(stdout.mock.calls.flat().join("")) as Array<{ kind: string; status: string; projectId: string | null }>;
+  expect(new Set(rows.map(row => row.kind))).toEqual(new Set(["gate-verdict", "milestone-report", "artifact-manifest", "check-run-record"]));
+  expect(rows.every(row => row.status === "valid")).toBe(true);
+  expect(rows.filter(row => row.kind === "artifact-manifest" || row.kind === "check-run-record"))
+    .toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "artifact-manifest", projectId: "bound" }),
+      expect.objectContaining({ kind: "check-run-record", projectId: "bound" }),
+    ]));
+  const { receipts } = verifyProjectReceiptDetails(stateDir, original, { projectId: "bound", sessionId: f.ctx.sessionId, milestoneId: "m1" });
+  expect(new Set(receipts.map(receipt => receipt.kind))).toEqual(new Set(["artifact-manifest", "check-run-record"]));
+  expect(verifyProjectReceipts(stateDir, f.root)).toEqual([]);
 });
 
 it("keeps rejected no-check output as a patch and refuses resume without dispatch", async () => {

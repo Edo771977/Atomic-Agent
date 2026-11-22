@@ -506,6 +506,29 @@ describe("strict-tool conformance over every registered tool", () => {
     ]);
   });
 
+  it("advertises UI, files and research in verify.run under strict-tool negotiation", () => {
+    const verify = strictTools.find((tool) => (tool.function as Schema).name === "verify__run");
+    expect(verify?.function).toMatchObject({
+      strict: false, // The existing free-form env map still needs its original wire schema.
+      parameters: { required: ["kind"], properties: { kind: { enum: expect.arrayContaining(["ui", "files", "research"]) }, path: { type: "string" }, expected: { type: "array" }, within: { type: "string" }, requireDates: { type: "boolean" } } },
+    });
+  });
+
+  it("carries all milestone kinds in the project.plan schema sent in strict tool mode", () => {
+    const plan = strictTools.map((tool) => tool.function as Schema).find((fn) => fn.name === "project__plan");
+    expect(plan?.parameters).toMatchObject({
+      properties: {
+        milestones: {
+          items: {
+            properties: {
+              kind: { enum: ["base", "ui", "logic", "polish", "other", "draft", "review", "final"] },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("is idempotent across the whole catalog", () => {
     expect(toStrictOpenAiTools(strictTools)).toEqual(strictTools);
   });

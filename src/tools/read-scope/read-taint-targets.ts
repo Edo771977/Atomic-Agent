@@ -39,6 +39,10 @@ export function readTaintTargets(
   }
   const targetsOf = READ_TOOL_TARGETS.get(tool) ?? TAINT_ONLY_TARGETS.get(tool);
   if (targetsOf !== undefined) raw.push(...targetsOf(args));
+  if (tool === VERIFY_TOOL && (args.kind ?? args.type) === "research" && typeof args.path === "string") {
+    const cwd = typeof args.cwd === "string" ? resolve(workingDir, args.cwd) : workingDir;
+    raw.push(resolve(cwd, args.path));
+  }
   const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
   for (const call of calls) {
     const given = typeof call.cwd === "string" && call.cwd.length > 0 ? resolveUserPath(call.cwd, workingDir) : undefined;

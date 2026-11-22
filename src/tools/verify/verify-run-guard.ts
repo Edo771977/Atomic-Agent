@@ -75,8 +75,8 @@ export function guardVerifyCommand(
   args: readonly string[],
   cwd: string,
   policy?: ShellGuardPolicy,
+  useShell = needsShellInterpretation(cmd, args),
 ): GuardVerdict {
-  const useShell = needsShellInterpretation(cmd, args);
   // No glob expansion: `verify.run` spawns argv as given.
   const execArgs = [...args];
   const commandLine = [cmd, ...execArgs].join(" ");

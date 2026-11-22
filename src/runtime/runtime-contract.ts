@@ -43,7 +43,7 @@ import type { GoalSpec, GoalState } from "../agent/goal/index.js";
 import type { ProjectDecision } from "../session/session-project.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
-import type { RuntimeProjectDecisionResult } from "./project-decision-contract.js";
+import type { ProjectDecisionActor, RuntimeProjectDecisionResult } from "./project-decision-contract.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
 import type { SessionProject } from "../session/session-project.js";
 import type { TaskRunner, TaskStore } from "../tasks/index.js";
@@ -699,6 +699,7 @@ export interface AgentRuntime {
   projectDecision?(
     sessionId: string,
     decision: ProjectDecision,
+    actor?: ProjectDecisionActor,
   ): RuntimeProjectDecisionResult;
   /**
    * Issue #111: the person's call on a project backlog item (promote,

@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the structured review verdict (issue #38) > keeps the task prompt byte-for-byte for code and game 1`] = `
+"You are a strict acceptance judge. A worker says it finished the task below. Do not trust it: find where the work does NOT meet each item. Rule only from the evidence shown. If the evidence does not show an item is met, it is not met.
+A worker summary is not evidence and is not required: rule from the files, the facts established by scripts and the runtime's record of what ran (issue #106).
+
+## Task
+write a.txt
+
+## The project's success criteria (the task serves these; rule on the items)
+- Runs offline
+
+## The project's decisions (how it must be done; work that violates one is a blocker)
+- d1: Use SQLite
+
+## Items to rule on
+- a1: a.txt exists and is not empty
+- a2: the task is done as instructed: write a.txt
+
+## Already established by scripts (for context; not yours to change)
+(none)
+
+Attempt 1
+
+## Evidence
+The evidence
+
+Answer with JSON only, exactly this shape and no other keys: {"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}
+- decision: "accept" when every item to rule on is met; "needs-changes" names at least one issue.
+- issues: what is wrong, at most 20 issues. item: the item id it breaks, or null for the work as a whole. file: the file it is in, or null. item and file at most 200 characters each.
+- severity: "blocker" (an item is not met), "major" (met only in part, or wrong behaviour), "minor" (style or a nit; does not block acceptance).
+- why: one line, at most 200 characters, naming what is wrong.
+- List an issue for every item that is not met (a blocker naming its id), even when you also list others. An item no issue names counts as met."
+`;

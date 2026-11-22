@@ -133,6 +133,7 @@ export interface AgentLoopDependencies {
   persistContext?: (state: SessionState) => void;
   /** Issue #109: the fusion project's folder store; director updates are written there. */
   projectStore?: import("../session/session-project-store.js").SessionProjectStore;
+  writeMilestoneReport?: import("../session/project-milestone-receipt.js").SavedMilestoneReport;
   compaction?: ContextCompactionControl;
   registry: ToolRegistry;
   /**

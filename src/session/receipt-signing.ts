@@ -1,7 +1,11 @@
 import { createHash, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 
-export type ReceiptKind = "artifact-manifest" | "check-run-record";
-export type ReceiptStatus = "valid" | "hash-mismatch" | "bad-signature" | "unknown-key" | "unsigned";
+export const RECEIPT_KINDS = ["artifact-manifest", "check-run-record", "gate-verdict", "milestone-report"] as const;
+export type ReceiptKind = typeof RECEIPT_KINDS[number];
+export function isReceiptKind(value: unknown): value is ReceiptKind {
+  return RECEIPT_KINDS.some(kind => kind === value);
+}
+export type ReceiptStatus = "valid" | "hash-mismatch" | "bad-signature" | "unknown-key" | "unsigned" | "unknown-kind";
 export interface Receipt {
   kind: ReceiptKind;
   payload: unknown;
@@ -54,10 +58,11 @@ export function makeReceipt(kind: ReceiptKind, payload: unknown, key: KeyObject 
 
 export function verifyReceipt(row: Receipt, projectKey: string, lookup: (id: string) => KeyObject | null): ReceiptStatus {
   if (receiptHash(row.payload) !== row.payloadHash) return "hash-mismatch";
+  const kind: unknown = row.kind;
+  if (!isReceiptKind(kind)) return typeof kind === "string" && kind.length > 0 ? "unknown-kind" : "bad-signature";
   if (row.signature === null && row.keyId === null && row.status === "unsigned") return "unsigned";
   if (typeof row.signature !== "string" || row.status !== undefined || typeof row.keyId !== "string" ||
-      !/^[a-f0-9]{32}$/.test(row.keyId) || typeof row.signedAt !== "string" ||
-      (row.kind !== "artifact-manifest" && row.kind !== "check-run-record")) return "bad-signature";
+      !/^[a-f0-9]{32}$/.test(row.keyId) || typeof row.signedAt !== "string") return "bad-signature";
   const key = lookup(row.keyId);
   if (!key) return "unknown-key";
   if (key.asymmetricKeyType !== "ed25519" || publicKeyId(key) !== row.keyId) return "bad-signature";

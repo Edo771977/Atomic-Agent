@@ -153,6 +153,7 @@ export type ApprovalCategory =
    * `shell` covers it too.
    */
   | "verify_page_local"
+  | "verify_ui_detector"
   /**
    * A clarifying question from `ask_user` (ATO-489, `user-question.ts`):
    * not an action to allow but a choice only the person can make, so no
@@ -208,6 +209,7 @@ export type ApprovalCategory =
 const AUTO_APPROVE_FROM_LEVEL: Record<ApprovalCategory, ApprovalLevel | null> = {
   fs_write_workspace: 2,
   verify_page_local: 2,
+  verify_ui_detector: 5,
   fs_write_home: 3,
   fs_trash: 3,
   http: 3,
@@ -334,6 +336,7 @@ const GRANTABLE_CATEGORY: Record<ApprovalCategory, boolean> = {
   // A hook that asks for a person asks every time.
   hook_ask: false,
   verify_page_local: true,
+  verify_ui_detector: false,
   // Each question is its own; there is nothing to allow "for the session".
   user_question: false,
   // "Let it read and message my other chats for this session" is the
@@ -381,6 +384,7 @@ export const APPROVAL_CATEGORY_LABELS: Record<ApprovalCategory, string> = {
   local_model_restart: "local model · restart",
   hook_ask: "hook · confirm",
   verify_page_local: "verification · local page probe",
+  verify_ui_detector: "verification · UI detector",
   user_question: "question for you",
   session_cross: "another chat · read / send",
   other: "uncategorised",

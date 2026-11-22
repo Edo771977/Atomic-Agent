@@ -74,9 +74,12 @@ export function withFixtureMilestoneEvidence(view: ProjectGateView): ProjectGate
         ? {
             ...m,
             runIds: ["run-1"],
+            summary: "Board renders. The timer works.",
+            criteriaBasisSummary: { check: 1, vision: 0, person: 0, unrecorded: 1 },
+            directorReportWarnings: ["The timer works."],
             attachments: [{ path: FIXTURE_SHOT_PATH, caption: "The board at start", criteria: ["c1"] }],
             criteriaFacts: [
-              { id: "c1", state: "passed" as const },
+              { id: "c1", state: "passed" as const, basis: { kind: "check" as const, checks: [{ index: 1 }] } },
               { id: "c2", state: "unverified" as const, why: "no vision-capable reviewer" },
             ],
           }

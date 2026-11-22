@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import { createEmptySessionState } from "../../session/session-state.js";
@@ -122,10 +122,41 @@ describe("foldProjectUpdate with the folder store (issue #109)", () => {
       const stale = foldProjectUpdate(first.session, result("project.brief", { ...brief, brief: { ...brief.brief, what: "Third" } }), NOW, {}, store);
       expect(stale.result.status).toBe("ok");
       expect(stale.session.project?.brief?.version).toBe(3);
+      const { applyProjectDecision } = await import("../../session/session-project.js");
+      const decide = (session: typeof chat) => {
+        const project = session.project!;
+        const decision = { gate: project.gate, version: 3, verdict: "approve" as const };
+        const applied = applyProjectDecision(project, decision, { now: NOW });
+        if (!applied.ok) throw new Error(applied.error.message);
+        const saved = store.commit(session, applied.project, { input: decision, decidedOn: project });
+        if (!saved.ok) throw new Error(saved.problem.message);
+        return saved.session;
+      };
+      const writeReport = vi.fn((_session: typeof chat, _id: string) => {
+        expect(store.load(_session).project?.milestones[0]?.summary).toBe("Saved result");
+      });
+      const approved = decide(stale.session);
+      const plan = foldProjectUpdate(approved, result("project.plan", {
+        kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], detail: "compact",
+        rows: [{ taskId: "t1", title: "Build", milestoneId: "m1", worker: "local:model", reviewer: null, reason: "preset", basis: "preset", samples: 0, estCostUsd: null, estMs: null }],
+      }), NOW, {}, store);
+      expect(plan.result.status, plan.result.summary).toBe("ok");
+      const drafted = plan.session.project!;
+      const accept = { gate: drafted.gate, version: drafted.plan!.version, verdict: "approve" as const };
+      const accepted = applyProjectDecision(drafted, accept, { now: NOW });
+      if (!accepted.ok) throw new Error(accepted.error.message);
+      const saved = store.commit(plan.session, accepted.project, { input: accept, decidedOn: drafted });
+      if (!saved.ok) throw new Error(saved.problem.message);
+      const report = result("project.milestone", { kind: "milestone", id: "m1", state: "failed", summary: "Saved result" });
+      const reporting = foldProjectUpdate(saved.session, report, NOW, { stateDir }, store, writeReport);
+      expect(reporting.result.status).toBe("ok");
+      expect(writeReport).toHaveBeenCalledTimes(1);
+      expect(writeReport).toHaveBeenCalledWith(reporting.session, "m1");
       // A damaged store refuses the update; the model reads why.
       const { writeFileSync } = await import("node:fs");
       writeFileSync(projectFilePath(folder), "{");
-      const refused = foldProjectUpdate(stale.session, result("project.brief", brief), NOW, {}, store);
+      const refused = foldProjectUpdate(reporting.session, report, NOW, { stateDir }, store, writeReport);
+      expect(writeReport).toHaveBeenCalledTimes(1);
       expect(refused.result.status).toBe("error");
       expect(refused.result.summary).toMatch(/not valid JSON/);
       expect(readFileSync(projectFilePath(folder), "utf8")).toBe("{");

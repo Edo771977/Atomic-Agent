@@ -253,10 +253,11 @@ describe("applyProjectUpdate: milestones", () => {
   });
 
   it("a run marks it in progress and records run ids once", () => {
-    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "r1" });
+    let p = update(running(), { kind: "milestone_run", id: "m1", runId: "r1", startedAt: NOW + 10 }, NOW + 20);
     p = update(p, { kind: "milestone_run", id: "m1", runId: "r1" });
     p = update(p, { kind: "milestone_run", id: "m1", runId: "r2" });
     expect(p.milestones[0]).toMatchObject({ state: "in_progress", runIds: ["r1", "r2"] });
+    expect(p.milestones[0]?.evidenceSince).toBe(NOW + 10);
   });
 
   it("a report records the summary, opens the milestone gate and bumps the plan version without un-approving it", () => {

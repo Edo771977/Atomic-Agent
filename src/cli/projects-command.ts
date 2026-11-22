@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { stateDirProjectRecords } from "../session/project-decisions.js";
-import { verifyProjectReceipts } from "../session/project-receipts.js";
+import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
+import { RECEIPT_KINDS } from "../session/receipt-signing.js";
+import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
+import { projectLessonStatus, readProjectLessons } from "../session/project-lessons.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
@@ -36,14 +38,18 @@ const PROJECTS_HELP = [
   "",
 ].join("\n");
 
+const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json] [--approve <id>@<fingerprint> | --retire <id> | --reopen <id>]\n";
+
 const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
   "",
   "Subcommands:",
-  "  verify [folder]      Verify the archived evidence receipts (default: current folder)",
+  "  verify [folder] [--json]  Verify the archived evidence receipts (default: current folder)",
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
+  "  lessons [folder] [--json] [--approve <id>@<fingerprint> | --retire <id> | --reopen <id>]",
+  "      List and decide project lessons (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -259,31 +265,51 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
     return 0;
   }
   if (sub === "verify") {
-    if (args.length > 2 || args[1]?.startsWith("-")) {
-      stderr("Usage: atomic-agent project verify [folder]\n");
+    const options = args.slice(1);
+    const folders = options.filter(arg => arg !== "--json");
+    const json = options.includes("--json");
+    if (folders.length > 1 || folders[0]?.startsWith("-") || options.length > folders.length + 1) {
+      stderr("Usage: atomic-agent project verify [folder] [--json]\n");
       return 2;
     }
     try {
-      const results = verifyProjectReceipts(deps.stateDir?.() ?? getConfig().paths.stateDir, resolve(args[1] ?? "."));
-      for (const [index, status] of results.entries()) stdout(`Receipt ${index + 1}: ${status}\n`);
-      const valid = results.filter(result => result === "valid").length;
-      stdout(`${results.length} receipts, ${valid} valid, ${results.length - valid} problems.\n`);
-      stdout("A process running as the same user with keychain access can sign replacement evidence.\n");
+      const results = verifyProjectReceiptDetails(deps.stateDir?.() ?? getConfig().paths.stateDir, resolve(folders[0] ?? "."));
+      const valid = results.filter(result => result.status === "valid").length;
+      if (json) {
+        stdout(JSON.stringify(results, null, 2) + "\n");
+      } else {
+        for (const [index, { status, projectId }] of results.entries()) {
+          const project = projectId === null ? "project unspecified" : `project ${projectId}`;
+          stdout(`Receipt ${index + 1}: ${status} (${project})\n`);
+        }
+        for (const kind of [...RECEIPT_KINDS, null]) {
+          const rows = results.filter(result => result.kind === kind);
+          if (rows.length === 0) continue;
+          const statuses = ["valid", "hash-mismatch", "bad-signature", "unknown-key", "unsigned", "unknown-kind"] as const;
+          const counts = statuses.map(status => `${rows.filter(row => row.status === status).length} ${status}`);
+          stdout(`${kind ?? "unknown kind"}: ${counts.join(", ")}\n`);
+        }
+        stdout(`${results.length} receipts, ${valid} valid, ${results.length - valid} problems.\n`);
+        stdout("A process running as the same user with keychain access can sign replacement evidence.\n");
+      }
       return valid === results.length ? 0 : 1;
     } catch {
-      stderr("Could not read the project's receipt archive.\n");
+      const error = "Could not read the project's receipt archive.";
+      if (json) stdout(JSON.stringify({ error }) + "\n");
+      stderr(error + "\n");
       return 1;
     }
   }
-  if (sub === "backlog") {
-    return backlogCommand(args.slice(1), {
+  if (sub === "backlog" || sub === "lessons") {
+    const run = sub === "backlog" ? backlogCommand : lessonsCommand;
+    return run(args.slice(1), {
       stdout,
       stderr,
       stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
       liveTurn: (folder, id) => {
         const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
         try {
-          return liveTurnOnProject(store, folder, id);
+          return sub === "lessons" ? store.liveProjectTurn(folder, id) : liveTurnOnProject(store, folder, id);
         } finally {
           if (deps.sessionStore === undefined) store.close();
         }
@@ -364,12 +390,21 @@ export function liveTurnOnProject(store: SessionStore, folder: string, id: strin
   return null;
 }
 
+type ProjectCommandIO = { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null };
+
 async function backlogCommand(
   args: string[],
-  io: { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null },
+  io: ProjectCommandIO,
 ): Promise<number> {
+  const help =
+    "Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n" +
+    "At the plan gate, use atomic-agent run --session <id> --defer-backlog <id> or --activate-backlog <id>.\n";
+  if (args.includes("--help") || args.includes("-h")) {
+    io.stdout(help);
+    return 0;
+  }
   const usage = () => {
-    io.stderr("Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n");
+    io.stderr(help);
     return 2;
   };
   let json = false;
@@ -447,4 +482,95 @@ async function backlogCommand(
   }
   io.stdout(`${openBacklog(project).length} open. Promote, drop or reopen one with --promote, --drop or --reopen <id>.\n`);
   return 0;
+}
+
+function lessonsCommand(args: string[], io: ProjectCommandIO): number {
+  const { stdout, stderr } = io;
+  if (args.includes("--help") || args.includes("-h")) {
+    stdout(LESSONS_USAGE + "List and decide the project's Markdown lessons. Defaults to the current folder. Decide between turns.\n");
+    return 0;
+  }
+  const usage = () => {
+    stderr(LESSONS_USAGE);
+    return 2;
+  };
+  const refuse = (message: string) => {
+    stderr("project lessons: " + message + "\n");
+    return 1;
+  };
+  const actions = { "--approve": "approved", "--retire": "retired", "--reopen": null } as const;
+  let json = false;
+  let decision: { id: string; state: "approved" | "retired" | null; fingerprint?: string } | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--json") json = true;
+    else if (arg === "--approve" || arg === "--retire" || arg === "--reopen") {
+      const target = args[++i];
+      if (decision !== undefined || target === undefined) return usage();
+      const [id, fingerprint, extra] = arg === "--approve" ? target.split("@") : [target];
+      if (id === undefined || !validProjectLessonId(id) || extra !== undefined ||
+          (fingerprint !== undefined && !/^[a-f0-9]{12}$/i.test(fingerprint))) return usage();
+      decision = { id, state: actions[arg], ...(fingerprint === undefined ? {} : { fingerprint: fingerprint.toLowerCase() }) };
+    } else if (arg.startsWith("-")) return usage();
+    else positional.push(arg);
+  }
+  if (positional.length > 1) return usage();
+
+  const folder = resolve(positional[0] ?? ".");
+  const records = stateDirProjectRecords(io.stateDir());
+  const found = records.read(folder);
+  if (!found.ok) {
+    if (decision !== undefined) return refuse(found.problem.message);
+    stderr(`project lessons: warning: ${found.problem.message}\n`);
+  }
+  const record = found.ok ? found.record : null;
+  const { lessons, problems } = readProjectLessons(folder);
+  const calls = { ...record?.lessonCalls };
+  if (decision !== undefined) {
+    if (record === null) return refuse("Open the project in a regular chat before deciding a lesson.");
+    const live = io.liveTurn(folder, record.id);
+    if (live !== null) return refuse(`A turn is running on ${live}, a chat on this project. Wait for it to finish, then decide.`);
+    const { id, state } = decision;
+    const lesson = lessons.find((item) => item.id === id);
+    if (lesson === undefined && (state !== null || !Object.hasOwn(calls, id))) {
+      return refuse(`No valid lesson named ${id}.`);
+    }
+    if (state === "approved" && lesson !== undefined) {
+      if (lesson.declaredStatus !== "active") return refuse(`Cannot approve ${id} with status: ${lesson.declaredStatus}. Set status: active first.`);
+      const fingerprint = lesson.hash.slice(0, 12);
+      if (decision.fingerprint === undefined) return refuse(`Current fingerprint: ${fingerprint}. Review the lesson and use --approve ${id}@${fingerprint}.`);
+      if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
+    }
+    const call = state === null ? null : { state, hash: lesson!.hash };
+    if (call !== null || Object.hasOwn(calls, id)) {
+      const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
+      if (!written.ok) return refuse(written.problem.message);
+      if (call === null) delete calls[id];
+      else calls[id] = call;
+      if (!json) stdout(`${id} is ${state ?? "reopened"} now.\n`);
+    } else if (!json) {
+      stdout(`No choice to reopen for ${id}.\n`);
+    }
+  }
+
+  const rows = lessons.map((lesson) => {
+    const { id, title, declaredStatus, always, touches } = lesson;
+    return { id, title, fingerprint: lesson.hash.slice(0, 12), declaredStatus, always, touches, ...projectLessonStatus(lesson, Object.hasOwn(calls, id) ? calls[id] : undefined) };
+  });
+  const staleChoices = Object.entries(calls).flatMap(([id, { state }]) => {
+    const row = rows.find((row) => row.id === id);
+    return row !== undefined && !row.stale ? [] : [{ id, state, reason: row === undefined ? "missing-or-invalid" : "changed" }];
+  });
+  if (json) {
+    stdout(JSON.stringify({ lessons: rows, problems, ...(staleChoices.length === 0 ? {} : { staleChoices }) }, null, 2) + "\n");
+  } else {
+    const lines = rows.map(({ id, title, declaredStatus, effectiveStatus, personState, always, touches, fingerprint }) =>
+      `${id}@${fingerprint}  ${title} (${effectiveStatus}, declared: ${declaredStatus}, person: ${personState ?? "no current choice"}, always: ${always}, touches: ${JSON.stringify(touches)})`,
+    );
+    lines.push(...staleChoices.map(({ id, state, reason }) => `Stale choice for ${id} (${state}): ${reason}.`));
+    lines.push(...problems.map(({ file, reason }) => "Skipped " + JSON.stringify(file) + ": " + reason));
+    stdout(lines.length === 0 ? "No project lessons found.\n" : lines.join("\n") + "\n");
+  }
+  return problems.some(({ file }) => file === "lessons") ? 1 : 0;
 }

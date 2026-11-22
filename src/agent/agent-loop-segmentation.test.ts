@@ -12,7 +12,7 @@ import { buildDefaultToolRegistry } from "../tools/index.js";
 import { SlotManager } from "../llm/slot-manager.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import type { SessionState } from "../session/session-state.js";
-import { stoppedTurnMarker, userTurn } from "../session/conversation-turn.js";
+import { assistantReplyTurn, stoppedTurnMarker, userTurn } from "../session/conversation-turn.js";
 import type { CompletionResult } from "../llm/llama-server-client.js";
 import type {
   CapabilitiesSummary,
@@ -335,6 +335,20 @@ describe("AgentLoop reflection segmentation (phase B)", () => {
     ]);
     expect(calls[0]!.userMessage).toBe("how are you?");
     expect(calls[0]!.assistantReply).toBe("fine, thanks");
+  });
+
+  it("does not reflect on an exposed fallback reply after a stopped turn", async () => {
+    const calls: ReflectCall[] = [];
+    const loop = makeFinishLoop({ reflectionCalls: calls,
+      segmentation: { enabled: true, triggerEveryTurns: 5, windowTurns: 4 } });
+    const session = {
+      ...createEmptySessionState({ id: "s-fallback", workingDir }),
+      macroTurnStarts: [0, 1, 2],
+      turns: [{ ...assistantReplyTurn("Restricted lesson"), restrictedProjectLessonExposure: true as const }, stoppedTurnMarker()],
+    };
+    const result = await loop.runTurn(session, { userMessage: "Wrap up", maxSteps: 2, signal: new AbortController().signal });
+    expect(result.reason).toBe("finish");
+    expect(calls).toHaveLength(0);
   });
 
   it("enabled: a 'finish' on an empty session skips reflection (no pairs to extract)", async () => {

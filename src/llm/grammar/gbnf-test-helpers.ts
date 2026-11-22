@@ -36,11 +36,11 @@ type Token =
 
 /** True when `rule` of `grammar` matches all of `input`. */
 export function gbnfAccepts(
-  grammar: string,
+  grammar: string | GbnfRules,
   rule: string,
   input: string,
 ): boolean {
-  const rules = parseGbnf(grammar);
+  const rules = typeof grammar === "string" ? parseGbnf(grammar) : grammar;
   if (!rules.has(rule)) throw new Error(`no rule named ${rule}`);
   return new Matcher(rules, input).rule(rule, 0).has(input.length);
 }

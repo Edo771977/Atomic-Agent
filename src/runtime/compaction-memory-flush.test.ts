@@ -299,3 +299,12 @@ describe("compaction memory flush: incognito chats (ATO-586)", () => {
     expect(store).not.toHaveBeenCalled();
   });
 });
+
+it("compacts a saved restricted lesson turn without flushing observations", async () => {
+  const state = history();
+  state.turns[0] = { ...state.turns[0]!, restrictedProjectLessonExposure: true };
+  const f = fixture({ mode: "extractive", memoryFlush: true }, undefined, JSON.parse(JSON.stringify(state)));
+  expect(await f.compactSession(f.state.id)).toMatchObject({ status: "compacted" });
+  expect(f.complete.mock.calls.some((call) => isFlush(call[0]))).toBe(false);
+  expect(f.store).not.toHaveBeenCalled();
+});

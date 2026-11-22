@@ -1120,6 +1120,17 @@ export class SessionStore {
     return state === null || this.projectStore === undefined ? state : this.projectStore.load(state);
   }
 
+  /** Live owners of a bound project, including chats running in a worktree. */
+  liveProjectTurn(folder: string, projectId: string): string | null {
+    const rows = this.db.prepare(`
+      SELECT id FROM sessions
+      WHERE status IN (${LIVE_STATUS_SQL_LIST}) AND json_valid(payload)
+        AND (json_extract(payload, '$.projectRef.id') = @projectId
+          OR (working_dir = @folder AND json_type(payload, '$.incognito') = 'object'))
+    `).all({ folder, projectId }) as { id: string }[];
+    return rows.find(({ id }) => this.liveTurnElsewhere(id))?.id ?? null;
+  }
+
   listByWorkingDir(workingDir: string, limit = 25): SessionState[] {
     const archive = this.turnArchive();
     return this.db.transaction((): SessionState[] => {

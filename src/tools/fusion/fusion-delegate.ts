@@ -203,7 +203,7 @@ import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
 import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
-import type { ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
@@ -219,6 +219,7 @@ export const ORCHESTRATOR_TASK_MAX_WIDTH = 2;
 
 export interface FusionDelegateDeps extends WorkerRunnerDeps {
   writeProjectReceipt?: ProjectReceiptWriter;
+  receiptProjectFolder?: () => string | undefined;
   /**
    * Whether the fan-out asks the operator before it runs. Same seam as
    * every other dangerous tool: production passes `true`, tests pass
@@ -233,7 +234,7 @@ export interface FusionDelegateDeps extends WorkerRunnerDeps {
    * (the folder's egress rule) turns that check red with its message
    * and it never runs (`contract-check-egress.ts`). Absent: no rule.
    */
-  contractCheckEgress?: (spec: Record<string, unknown>, ctx: { sessionId: string; workingDir: string }) => Error | null;
+  contractCheckEgress?: (spec: Record<string, unknown>, ctx: ToolContext) => Error | null;
   /**
    * The vision judge of visual contract checks (issue #40,
    * `vision-judge.ts`): whether a member's provider and model can take
@@ -1338,24 +1339,30 @@ export function buildFusionDelegateTool(
       }
 
       const candidateOriginalDir = ctx.workingDir;
-      const writeProjectReceipt = ctx.incognito ? undefined : deps.writeProjectReceipt;
-      const recordCheckRun: CheckRunRecorder | undefined = writeProjectReceipt === undefined
+      const receiptWriter = ctx.incognito ? undefined : deps.writeProjectReceipt;
+      const writeReceipt = (kind: "check-run-record" | "artifact-manifest", payload: () => Record<string, unknown>): void => {
+        if (receiptWriter === undefined) return;
+        writeEvidenceReceipt(receiptWriter, message => deps.logger.warn(message), {
+          id: ctx.sessionId,
+          workingDir: deps.receiptProjectFolder?.() ?? candidateOriginalDir,
+          ...(ctx.projectRef === undefined ? {} : { projectRef: ctx.projectRef }),
+        }, kind, () => ({
+          ...payload(),
+          ...(admitted.milestoneId === null ? {} : { milestoneId: admitted.milestoneId }),
+          ...(admitted.runId === undefined ? {} : { runId: admitted.runId }),
+        }));
+      };
+      const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined
         ? undefined
-        : (check, record, ok) => {
-            try {
-              writeProjectReceipt(candidateOriginalDir, "check-run-record", {
-                kind: check.kind ?? "command",
-                ...(check.task === undefined ? {} : { task: check.task }),
-                definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
-                recordHash: receiptHash(record),
-                outputHash: receiptHash(record.output),
-                exitCode: record.exitCode,
-                ok,
-              });
-            } catch {
-              deps.logger.warn("Could not record the Fusion check receipt");
-            }
-          };
+        : (check, record, ok) => writeReceipt("check-run-record", () => ({
+            kind: check.kind ?? "command",
+            ...(check.task === undefined ? {} : { task: check.task }),
+            definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
+            recordHash: receiptHash(record),
+            outputHash: receiptHash(record.output),
+            exitCode: record.exitCode,
+            ok,
+          }));
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();
       const candidateWorkerRuns = new Map<string, number>();
@@ -1594,7 +1601,7 @@ export function buildFusionDelegateTool(
       // prompt and before the runner, as dispatch does for verify.run.
       const checkEgress: ContractCheckEgressRule | undefined = deps.contractCheckEgress === undefined
         ? undefined
-        : (spec) => deps.contractCheckEgress!(spec, { sessionId: ctx.sessionId, workingDir: ctx.workingDir });
+        : (spec) => deps.contractCheckEgress!(spec, ctx);
       const checkHold = createContractCheckHold({
         runner: deps.runChecks,
         approvals: deps.approvals,
@@ -1741,6 +1748,7 @@ export function buildFusionDelegateTool(
         : undefined;
       // The checkpoint (ATO-617): written after every task and wave, so a
       // run cut off by a crash or a quit can be resumed from where it was.
+      const runStartedAt = resumedFrom?.startedAt ?? Date.now();
       const run: FusionRunRecorder | undefined = candidate === undefined ? deps.runCheckpoints?.start({
         ...(resume === undefined ? {} : { runId: resume.runId }),
         ...(directorRef === null ? {} : { director: directorRef }),
@@ -1764,10 +1772,10 @@ export function buildFusionDelegateTool(
           : candidate !== undefined && deps.runCheckpoints !== undefined
             ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
             : undefined;
-      if (evidenceRun !== undefined) {
-        checkRun = evidenceRun;
-        admitted.runId = evidenceRun.runId;
-      }
+      if (evidenceRun !== undefined) checkRun = evidenceRun;
+      const criterionRunId = evidenceRun?.runId ?? newFusionRunId();
+      admitted.runId = criterionRunId;
+      admitted.runStartedAt = runStartedAt;
       // Each worker run of a task is an attempt (issue #95): what it wrote
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.
@@ -2140,7 +2148,7 @@ export function buildFusionDelegateTool(
           // The checks' own criteria facts still stand (issue #40).
           const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
-            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined) }),
+            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined, criterionRunId) }),
             green: false,
             items: [],
             unverified:
@@ -2157,11 +2165,13 @@ export function buildFusionDelegateTool(
         const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items, input.reply);
         const judged = await judgeTask({
           ...input,
+          runId: criterionRunId,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
           ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
           ...(vision?.judgements === undefined ? {} : { facts: { ...input.facts, vision: vision.judgements } }),
           ...(projectBrief === undefined ? {} : { successCriteria: projectBrief.successCriteria }),
+          ...(approvedBrief?.deliverable === undefined ? {} : { deliverable: approvedBrief.deliverable, projectBrief: approvedBrief }),
           ...(projectBrief?.decisions === undefined ? {} : { decisions: projectBrief.decisions }),
           ...(deps.knownSecrets === undefined
             ? {}
@@ -2426,6 +2436,7 @@ export function buildFusionDelegateTool(
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
             ...(projectBrief === undefined ? {} : { project: projectBrief }),
+            ...(ctx.incognito || ctx.projectRef === undefined ? {} : { projectLessonSource: ctx.projectRef }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,
@@ -2492,6 +2503,7 @@ export function buildFusionDelegateTool(
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
             ...(projectBrief === undefined ? {} : { project: projectBrief }),
+            ...(ctx.incognito || ctx.projectRef === undefined ? {} : { projectLessonSource: ctx.projectRef }),
             parentSessionId: ctx.sessionId,
             tasks,
             concurrentTaskIds,
@@ -3367,7 +3379,7 @@ export function buildFusionDelegateTool(
           const outcomesByIndex = (parsed.contract?.checks ?? []).map(
             (_, index) => latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index),
           );
-          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
+          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex, criterionRunId));
         }
         // The run's success-criteria facts, kept with its screenshots for
         // the milestone report (issue #40, `run-criteria.ts`). A candidate
@@ -3436,7 +3448,8 @@ export function buildFusionDelegateTool(
           if (row.artifactManifest === undefined) continue;
           run?.recordArtifactManifest(row.id, row.artifactManifest);
           if (candidate === undefined && row.status === "ok" && !carriedIds.has(row.id)) {
-            writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", row.artifactManifest);
+            const manifest = row.artifactManifest;
+            writeReceipt("artifact-manifest", () => ({ ...manifest }));
           }
         }
         // Automatic replanning (ATO-941): what did not close, from the
@@ -3641,16 +3654,17 @@ export function buildFusionDelegateTool(
           rows: results,
           tasks: parsed.tasks,
           contract: parsed.contract,
-          runChecks: withContractCheckEgress(deps.runChecks, checkEgress),
+          runChecks: withContractCheckEgress(checkHold.finalRunner, checkEgress),
           holdChecks: deps.runChecks === undefined
             ? undefined
-            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress(parsed.contract?.checks ?? [], checkEgress)),
+            : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress((parsed.contract?.checks ?? []).filter(check => (check.kind ?? check.type) !== "ui"), checkEgress)),
           signal: runSignal,
           recordCheckRun,
         });
         completedCandidateReport = candidateReport;
         if (candidateReport?.status === "promoted" && candidateReport.artifactManifest !== undefined) {
-          writeProjectReceipt?.(candidateOriginalDir, "artifact-manifest", candidateReport.artifactManifest);
+          const manifest = candidateReport.artifactManifest;
+          writeReceipt("artifact-manifest", () => ({ ...manifest }));
         }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.
@@ -3890,6 +3904,7 @@ interface FanoutAdmission {
   started: boolean;
   /** The run whose folder holds the fan-out's evidence (its checkpoint's, or a candidate run's; issue #74). */
   runId?: string;
+  runStartedAt?: number;
 }
 
 /**
@@ -3921,7 +3936,10 @@ function withMilestoneRun(result: CompressedToolResult, admitted: FanoutAdmissio
   const runId =
     admitted.runId ??
     (typeof result.details.runId === "string" ? result.details.runId : `fanout-${Date.now().toString(36)}`);
-  const update: ProjectUpdate = { kind: "milestone_run", id: milestoneId, runId };
+  const update: ProjectUpdate = {
+    kind: "milestone_run", id: milestoneId, runId,
+    ...(admitted.runStartedAt === undefined ? {} : { startedAt: admitted.runStartedAt }),
+  };
   const next: CompressedToolResult = { ...result, details: { ...result.details, projectUpdate: update } };
   // Keep the non-enumerable full output the result may carry.
   for (const key of ["fullOutput", "fullOutputTruncated"] as const) {

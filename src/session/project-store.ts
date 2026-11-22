@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 
-import { normalizeProject, type ProjectState } from "./session-project.js";
+import { splitTeamMemberRef } from "../config/llm-fusion-team-config.js";
+import { getConfig } from "../config/index.js";
+import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
+import { approvedProjectLessons } from "./project-lessons.js";
+import { projectLessonReviewSelection } from "./project-lesson-projection.js";
+import { normalizeProject, currentProjectLessonsBasis, type ProjectState } from "./session-project.js";
 import { renderProjectViews } from "./project-store-views.js";
 import { withFileLock } from "./project-lock.js";
 import {
@@ -34,7 +40,7 @@ import {
  * project and writes on every change.
  */
 
-export const PROJECT_STORE_DIR_PARTS = [".atomic", "project"] as const;
+export { PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 export const PROJECT_FILE_NAME = "project.json";
 /**
  * The schema this build writes. It reads every version in
@@ -265,13 +271,23 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   if (!read.ok) return read;
   const record = options.records.read(read.stored.folder);
   if (!record.ok) return { ok: false, problem: recordProblem(record.problem, read.stored.folder) };
+  const project = resolveProject(read.stored.project, record.record, (options.now ?? Date.now)());
+  const review = project.plan?.review;
+  if (review?.lessonsBasis !== undefined && review.reviewer !== null) {
+    const provider = review.reviewerProviderId ?? splitTeamMemberRef(review.reviewer)?.providerId;
+    const folder = read.stored.folder;
+    const active = approvedProjectLessons(folder, record.record?.lessonCalls);
+    const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), folder);
+    const allowed = policy === undefined || (provider !== undefined && policy.allows(provider));
+    project[currentProjectLessonsBasis] = projectLessonReviewSelection(active, allowed).basis;
+  }
   return {
     ok: true,
     opened: {
       // The folder's project is its record's: an id written in the file is content, never a key.
       stored: record.record === null ? read.stored : { ...read.stored, id: record.record.id },
       ...(record.ignored === undefined ? {} : { notices: record.ignored.map((f) => `older record ignored: ${f}`) }),
-      project: resolveProject(read.stored.project, record.record, (options.now ?? Date.now)()),
+      project,
       decisionSeq: record.record?.seq ?? 0,
       decisions: record.record?.decisions ?? [],
     },
