@@ -149,6 +149,7 @@ export async function authorizeVerifyBatch(
     const ui = logical.kind === "ui";
     const detector = ui && artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
       ? await resolveImpeccable(ctx.workingDir, actualCwd, ctx.signal) : undefined;
+    if (ui && detector === undefined) continue;
     const detectorArgs = detector === undefined ? undefined : impeccableArgs(artifactTarget!);
     const uiVerdicts = detector === undefined ? [] : [
       guardVerifyCommand(detector.file, detectorArgs!, cwd, options.shellPolicy, false),

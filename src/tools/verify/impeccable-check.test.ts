@@ -139,6 +139,7 @@ it("runs through Fusion, preserving the evidence and failing the linked criterio
 });
 
 it("refuses network and checks read scope before asking for approval", async () => {
+  await fake(0, []);
   const { authorizeVerifyBatch } = await import("./verify-authorization.js");
   const ctx = { workingDir: root, sessionId: "test", stepIndex: 0, signal: new AbortController().signal };
   const checkReadTargets = vi.fn(async () => ({ tool: "verify.run", status: "error" as const, summary: "read denied", details: {}, truncated: false }));
@@ -308,3 +309,18 @@ it.skipIf(windows)("honors a saved deny on the npm launcher name when its real f
     spy.mockRestore();
   }
 });
+
+it.each([["style.css", "scans markup"], ["index.html", "is not installed"]])(
+  "returns uncheckable without approval or a copy for %s",
+  async (path, reason) => {
+    const { buildVerifyRunTool } = await import("./verify-run.js");
+    if (path.endsWith(".css")) await fake(0, []);
+    const request = vi.fn(async () => ({ approved: true, reason: "test" }));
+    const workspace = vi.fn(async () => { throw new Error("the project must not be copied"); });
+    const tool = buildVerifyRunTool({ approvals: { request } as never, approvalRequired: true, config: {} as never, workspace });
+    const result = await tool.run({ kind: "ui", path }, { workingDir: root, sessionId: "test", stepIndex: 0, signal: new AbortController().signal });
+    expect(result.details).toMatchObject({ artifactStatus: "uncheckable", error: expect.stringContaining(reason) });
+    expect(request).not.toHaveBeenCalled();
+    expect(workspace).not.toHaveBeenCalled();
+  },
+);

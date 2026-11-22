@@ -23,7 +23,7 @@ import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-c
 import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
 import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
 import { OUTPUT_TAIL_CHARS } from "./spawn-verify-process.js";
-import { APPROVED_IMPECCABLE, runImpeccableCheck, type ApprovedImpeccable } from "./impeccable-check.js";
+import { APPROVED_IMPECCABLE, isImpeccableMarkup, runImpeccableCheck, type ApprovedImpeccable } from "./impeccable-check.js";
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
@@ -246,8 +246,12 @@ export async function runVerify(
   const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
   const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
-    finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode === "workspace-unavailable" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
+    finish({ kind: args.kind, isolated, error, ...(args.kind === "ui" && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
+  if (args.kind === "ui" && detector === undefined) {
+    return failed(isImpeccableMarkup(args.path!) ? "impeccable is not installed" :
+      "impeccable scans markup: specify the file that uses this CSS or script", undefined);
+  }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
   if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
