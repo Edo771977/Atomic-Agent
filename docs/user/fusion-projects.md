@@ -58,8 +58,9 @@ In your paired Telegram chat, send `/backlog` to see open, promoted and dropped 
 - `/promote <id>` previews proposing the item for the next plan. You still approve that plan separately.
 - `/drop <id>` previews marking the item as dropped.
 - `/reopen <id>` previews taking back the recorded decision.
+- At the plan gate, `/defer <id>` makes a promoted item optional for this plan. `/activate <id>` makes plan coverage required again. Both commands preview the change and confirm against the displayed item and plan version.
 
-Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
+Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can promote, drop or reopen items between turns, including when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
 
 Clients using HTTP or the sidecar can tie a decision to the item shown on screen by sending the displayed `fingerprint` as `expectedFingerprint`. If the item or its recorded decision has changed, the client receives `stale-view` and the current view so it can ask you to review the item again.
 
