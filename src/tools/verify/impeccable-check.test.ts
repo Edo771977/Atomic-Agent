@@ -329,3 +329,15 @@ it("treats severity advisory as advisory without a flag", async () => {
   await fake(0, [finding("low-contrast", { severity: "advisory" })]);
   expect(await check()).toMatchObject({ artifactStatus: "pass", impeccableFindings: ["warning: low-contrast — index.html"] });
 });
+
+it("bounds verify.run Impeccable details and counts omitted entries", async () => {
+  await fake(2, Array.from({ length: 350 }, () => finding("broken-image")));
+  await writeFile(join(root, "index.html"), '<link rel="stylesheet" href="style.css">\n' + '<!-- impeccable-disable broken-image -->\n'.repeat(350));
+  const result = await check();
+  const findings = result.impeccableFindings?.join("\n") ?? "";
+  const suppressions = result.impeccableSuppressions?.join("\n") ?? "";
+  expect(result.artifactStatus).toBe("fail");
+  expect(Buffer.byteLength(JSON.stringify([result.impeccableFindings, result.impeccableSuppressions]))).toBeLessThanOrEqual(8192);
+  expect(findings).toMatch(/\+\d+ more$/);
+  expect(suppressions).toMatch(/\+\d+ more$/);
+});

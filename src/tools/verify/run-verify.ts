@@ -131,6 +131,24 @@ function finish(
   return { ...withoutSummary, summary: renderVerifyRunSummary({ ...withoutSummary, summary: "" }) };
 }
 
+// Budget the serialized arrays, including escaping and UTF-8 byte width.
+function boundedDetectorDetails(lines: readonly string[], budget: number): string[] {
+  const shown: string[] = [];
+  let used = 2;
+  for (const [index, line] of lines.entries()) {
+    const after = lines.length - index - 1;
+    const next = Buffer.byteLength(JSON.stringify(line)) + Number(index > 0);
+    const reserve = after === 0 ? 0 : Buffer.byteLength(JSON.stringify(`+${after} more`)) + 1;
+    if (used + next + reserve > budget) {
+      shown.push(`+${after + 1} more`);
+      break;
+    }
+    shown.push(line);
+    used += next;
+  }
+  return shown;
+}
+
 async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd);
   // The actual rebased argv, environment and cwd are guarded again immediately
@@ -145,8 +163,10 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     const ok = out.status === "pass";
     const text = `${out.status}: ${out.detail}`;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
+    const findingsBudget = ui?.suppressions?.length ? 4094 : 8188;
+    const suppressionsBudget = ui?.findings?.length ? 4094 : 8188;
     return finish({ ...common, artifactStatus: out.status, stdoutTail: ui === undefined ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
-      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings, impeccableSuppressions: ui.suppressions }),
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, findingsBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, suppressionsBudget) }),
       ...(out.status === "uncheckable" ? { error: ui === undefined ? text : text.split("\n", 1)[0] } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
