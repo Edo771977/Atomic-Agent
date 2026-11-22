@@ -37,6 +37,11 @@ export const criticalFiles = [
   'src/tools/verify/verify-run-summary.test.ts',
   'src/tools/verify/verify-run-args.test.ts',
   'src/tools/verify/safe-regex.test.ts',
+  // Issue #113 phase 1: deterministic document and spreadsheet checks.
+  'src/tools/verify/artifact-run.test.ts',
+  'src/tools/verify/document-check.test.ts',
+  'src/tools/verify/spreadsheet-check.test.ts',
+  'src/tools/verify/spreadsheet-e2e.test.ts',
   'src/tools/fusion/contract-check-egress.test.ts',
   // Issue #40: run folders' criteria facts and shots (paths), and the delegate seam.
   'src/tools/fusion/run-criteria.test.ts',
