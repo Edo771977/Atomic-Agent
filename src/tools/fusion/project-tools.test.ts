@@ -105,8 +105,8 @@ describe("schema v2 project tool fields", () => {
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();
-    expect([t.brief.name, t.plan.name, t.milestone.name]).toEqual([...PROJECT_TOOL_NAMES]);
-    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL]);
+    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add"]).toEqual([...PROJECT_TOOL_NAMES]);
+    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add"]);
     for (const tool of [t.brief, t.plan, t.milestone]) {
       expect(tool.readonly).toBe(true);
       expect(tool.untrustedOutput).toBeUndefined();

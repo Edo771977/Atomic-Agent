@@ -265,6 +265,7 @@ const FORMS: Record<string, CompactToolForm> = {
   "project.brief": { summary: "Draft the project brief for the person to approve; then reply." },
   "project.plan": { summary: `Plan and reply. ${GATE_AUTHORING}` },
   "project.milestone": { summary: "Report the approved milestone's result (done|failed, summary); then reply." },
+  "project.backlog.add": { summary: "Propose later work for the backlog (source, milestoneId/taskId, condition); only the person decides it." },
   reply: {
     summary:
       "Final answer to the user; ends the turn. If an exact answer format is required, `text` is only that. `attachments`: file paths to send.",

@@ -923,6 +923,21 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
       ["id", "state", "summary"],
     ),
   ],
+  [
+    "project.backlog.add",
+    obj(
+      {
+        title: stringSchema,
+        source: { type: "string", enum: ["person", "director", "worker", "reviewer"] },
+        note: stringSchema,
+        condition: stringSchema,
+        // Where it came from: the plan's ids (flat, so the strict path keeps it closed).
+        milestoneId: stringSchema,
+        taskId: stringSchema,
+      },
+      ["title", "source"],
+    ),
+  ],
 
   // ── fusion fan-out ───────────────────────────────────────────────────────
   [

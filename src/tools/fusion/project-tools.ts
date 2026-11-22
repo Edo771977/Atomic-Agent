@@ -58,8 +58,10 @@ import type { PlanReviewFn } from "./plan-reviewer.js";
 export const PROJECT_BRIEF_TOOL = "project.brief";
 export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
+/** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
+export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
 /** In catalog order. */
-export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL] as const;
+export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL] as const;
 
 /** Key of the update in the result's `details`, read by `applyStateEffects`. */
 export const PROJECT_UPDATE_DETAIL = "projectUpdate";
