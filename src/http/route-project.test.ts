@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { fixtureBacklogRuntime } from "../runtime/composition/project-backlog-test-fixture.js";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import type { ProjectDecision } from "../session/session-project.js";
@@ -214,6 +215,33 @@ describe("/api/project/backlog", () => {
     expect(ok.status).toBe(200);
     expect(ok.json).toMatchObject({ session_id: "s1", view: { gate: { kind: "plan" } } });
     expect(calls).toEqual([["s1", { id: "b2", state: "promoted" }]]);
+  });
+
+  it("checks the displayed fingerprint against project.json and returns the refreshed view", async () => {
+    const fixture = fixtureBacklogRuntime("s1");
+    Object.assign(harness.runtime, fixture.runtime);
+    try {
+      const get = async () => (await (await fetch(`${harness.baseUrl}/api/project?session=s1`)).json()) as { view: ProjectGateView };
+      const send = (state: string, expectedFingerprint?: string) => post({ session: "s1", item: "b1", state, expectedFingerprint });
+      const shown = (await get()).view.backlog!.items[0]!;
+      expect(shown.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect((await send("promoted", shown.fingerprint)).status).toBe(200);
+      const promoted = (await get()).view.backlog!.items[0]!;
+
+      fixture.renameItem("Light theme");
+      const stale = await send("dropped", promoted.fingerprint);
+      expect(stale.status).toBe(409);
+      expect(stale.json).toMatchObject({
+        error: { code: "stale-view" },
+        view: { backlog: { items: [{ title: "Light theme", state: "open", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) }] } },
+      });
+      const malformed = await send("dropped", "g".repeat(64));
+      expect(malformed.status).toBe(400);
+      expect(malformed.json).toMatchObject({ error: { message: expect.stringContaining("expectedFingerprint") } });
+      expect((await send("dropped")).status).toBe(200);
+    } finally {
+      fixture.cleanup();
+    }
   });
 
   it("refuses a malformed call, a running turn and a session without a project", async () => {

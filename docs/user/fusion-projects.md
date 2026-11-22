@@ -61,6 +61,8 @@ In your paired Telegram chat, send `/backlog` to see open, promoted and dropped 
 
 Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
 
+Clients using HTTP or the sidecar can tie a decision to the item shown on screen by sending the displayed `fingerprint` as `expectedFingerprint`. If the item or its recorded decision has changed, the client receives `stale-view` and the current view so it can ask you to review the item again.
+
 ## Take promoted backlog items into the plan
 
 The backlog holds work that is not ready for the plan yet. Only you promote, drop or reopen an item (`atomic-agent project backlog --promote <id>`, or the project card). A promoted item is for the next plan: the director cites its id on a task that will run, and the plan gate checks this (**backlog-coverage**). A plan that cites no task for a promoted item cannot be approved, and the gate names the missing item. A citation added to a task of a milestone that already started does not count. If a later plan drops the citation before that work runs, the item is required again.

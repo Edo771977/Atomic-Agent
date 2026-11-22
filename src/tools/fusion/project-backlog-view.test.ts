@@ -87,7 +87,7 @@ describe("the gate view's backlog (issue #111)", () => {
     const promoted = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
     const { backlog: _b, ...rest } = promoted;
     const v = view(rest as ProjectState);
-    expect(v.backlog).toEqual({ open: 0, seeds: [], promoted: [], stale: [{ id: "b2", state: "promoted", reason: "removed" }], items: [] });
+    expect(v.backlog).toEqual({ open: 0, seeds: [], promoted: [], stale: [{ id: "b2", state: "promoted", reason: "removed", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) }], items: [] });
     expect(v.hints).toContain("promoted item b2 was removed outside Atomic Agent");
     // No call left on a removed item: no backlog in view.
     const { backlogStates: _s, backlogCalls: _c, ...none } = rest as ProjectState;
@@ -147,7 +147,15 @@ describe("the plan gate flags the person's calls that no longer stand (review)",
     expect(v.hints).toContain("backlog item b2 changed since you promoted it: it reads open again; promote it again if you still want it");
     expect(v.hints).toContain("promoted item b1 was removed outside Atomic Agent");
     expect(v.backlog!.promoted).toEqual([]);
-    expect(v.backlog!.stale).toEqual([{ id: "b2", state: "promoted", reason: "changed" }, { id: "b1", state: "promoted", reason: "removed" }]);
+    const [changed, removed] = v.backlog!.stale;
+    const item = v.backlog!.items.find((entry) => entry.id === "b2")!;
+    expect(changed).toMatchObject({ id: "b2", reason: "changed", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(removed).toMatchObject({ id: "b1", reason: "removed", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(item.fingerprint).toBe(changed!.fingerprint);
+    expect(applyBacklogDecision(edited, { id: "b2", state: "promoted", expectedFingerprint: item.fingerprint }).ok).toBe(true);
+    expect(applyBacklogDecision(edited, { id: "b1", state: "open", expectedFingerprint: removed!.fingerprint }).ok).toBe(true);
+    expect(applyBacklogDecision(edited, { id: "b1", state: "promoted", expectedFingerprint: view(p).backlog!.items[0]!.fingerprint }))
+      .toMatchObject({ ok: false, error: { code: "stale-view" } });
   });
 });
 

@@ -788,6 +788,7 @@ export type ProjectDecisionError =
   | { code: "no-project"; message: string }
   | { code: "wrong-gate"; message: string; current: ProjectGate }
   | { code: "stale-version"; message: string; current: number | null }
+  | { code: "stale-view"; message: string }
   | { code: "verdict-not-allowed"; message: string; allowed: ProjectVerdict[] }
   | { code: "over-cap"; message: string; violations: string[] }
   | { code: "review-open"; message: string; blocks: ProjectReviewBlock[] }
