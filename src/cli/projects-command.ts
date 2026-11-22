@@ -542,6 +542,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
       if (call === null) delete calls[id];
       else calls[id] = call;
       if (!json) stdout(`${id} is ${state ?? "reopened"} now.\n`);
+    } else if (!json) {
+      stdout(`No choice to reopen for ${id}.\n`);
     }
   }
 

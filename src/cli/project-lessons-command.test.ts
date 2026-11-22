@@ -126,7 +126,9 @@ describe("project lessons", () => {
     expect(await projectCommand(["lessons", folder, "--reopen", "lesson"], io)).toBe(0);
     expect(await row()).toMatchObject({ effectiveStatus: "unapproved", stale: false });
     const reopened = records.read(folder);
+    stdout.mockClear();
     expect(await projectCommand(["lessons", folder, "--reopen", "lesson"], io)).toBe(0);
+    expect(stdout.mock.calls[0]?.[0]).toContain("No choice to reopen for lesson");
     expect(records.read(folder)).toEqual(reopened);
     const recordsDir = join(stateDir, "project-decisions");
     writeFileSync(join(recordsDir, readdirSync(recordsDir).find((name) => name.endsWith(".json"))!), "{");
