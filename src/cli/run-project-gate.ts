@@ -68,6 +68,25 @@ export async function settleProjectGate(
       ].join("\n"),
     };
   }
+  // Issue #118: the plan reviewer is advice to the person; automation never
+  // approves a plan whose review failed or that was not reviewed.
+  if (mode === "approve" && view.gate.kind === "plan" && view.planReview?.autoApprovable === false) {
+    const fails = view.planReview.outcome === "reviewed" && !view.planReview.stale;
+    return {
+      kind: "stop",
+      text: [
+        fails
+          ? "The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically."
+          : "This plan was not reviewed by the plan reviewer (or its review no longer matches the plan): a person reads it, so it is not approved automatically.",
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        fails
+          ? "Approve over the notes with your reason at the plan gate (the TUI card or the desktop),"
+          : `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
+        `or continue with: atomic-agent run --session ${sessionId} and ask the director to revise the plan.`,
+      ].join("\n"),
+    };
+  }
   if (runtime.projectDecision === undefined || view.version === null || !view.allowedVerdicts.includes("approve")) {
     return { kind: "failed", text: `${formatProjectGateText(view)}\nThis gate cannot be approved here.` };
   }
@@ -77,6 +96,20 @@ export async function settleProjectGate(
   }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
   const outcome = runtime.projectDecision(sessionId, decision);
+  if (!outcome.ok && outcome.error.code === "review-open" && view.gate.kind === "plan" && outcome.error.blocks.length > 0 && outcome.error.blocks.every((b) => b.reason.startsWith("plan review:"))) {
+    // Issue #118: approving over the plan reviewer's open notes is the
+    // person's call (approveOverReview, with a note): never taken here.
+    return {
+      kind: "stop",
+      text: [
+        `The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${outcome.error.message}`,
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        `Continue with: atomic-agent run --session ${sessionId}`,
+        "and ask the director to revise the plan, or approve over the review with a note at the plan gate (the TUI card or the desktop).",
+      ].join("\n"),
+    };
+  }
   if (!outcome.ok && outcome.error.code === "review-open" && view.gate.kind === "plan") {
     // Issue #112: a failing plan check (decision coverage, check lint) keeps the plan open:
     // the director revises it or the person defers a decision, so the run stops (exit 3).

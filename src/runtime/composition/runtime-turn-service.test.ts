@@ -533,6 +533,26 @@ describe("runtime turn ownership recipes", () => {
     expect(seen).toEqual([["projected", undefined, project]]);
   });
 
+  it("a plan still held for the plan reviewer when the turn ends reaches the person (issue #118)", async () => {
+    const seen: unknown[] = [];
+    const rows = [{ taskId: "t1", title: "Build", milestoneId: "m1", worker: "local:a", reviewer: null, reason: "", basis: "preset" as const, samples: 0, estCostUsd: 0, estMs: null }];
+    const project = {
+      brief: { version: 1, what: "x", users: "y", how: "z", successCriteria: [{ id: "c1", text: "c" }], status: "approved" as const, draftedAfterUntrusted: false },
+      plan: { rows, totals: { costUsd: 0, ms: null, unknownCostRows: 0 }, detail: "compact" as const, status: "draft" as const, version: 1, draftedAfterUntrusted: false,
+        review: { outcome: "reviewed" as const, reviewer: "c:r", results: [], round: 1, sentBack: true, basis: "0123456789abcdef", costUsd: null } },
+      milestones: [{ id: "m1", title: "Build", kind: "base" as const, state: "planned" as const, runIds: [], updatedAt: 1 }],
+      gate: { kind: "none" as const },
+    };
+    fixture.loop.runTurn.mockImplementationOnce(async (value: SessionState, options: RunTurnOptions) =>
+      result({ ...value, project } as SessionState, options));
+    const service = createRuntimeTurnService(fixture.config, {
+      ...fixture.deps,
+      onProjectTurnEnd: (_id, _before, after) => { seen.push(after); },
+    });
+    await service.runTurn(session("held"), "request");
+    expect(seen[0]).toMatchObject({ gate: { kind: "plan" }, plan: { review: { sentBack: false, heldAtTurnEnd: true } } });
+  });
+
   it("a turn queued behind a running one does not reset the running turn's usage", async () => {
     const meter = fixture.deps.telemetry.turnUsageMeter;
     const gate = deferred<void>();

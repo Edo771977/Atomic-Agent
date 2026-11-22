@@ -66,6 +66,11 @@ import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
 import { checkPlanReferences } from "../../tools/fusion/plan-references.js";
+import { createPlanReview } from "../../tools/fusion/plan-reviewer.js";
+import type { FusionTurnLedger } from "../../tools/fusion/turn-receipt.js";
+import { parseTeamMember, teamMembers } from "../../llm/run-mode/fusion-team.js";
+import { isCodexCliProvider } from "../session-director.js";
+import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { liveProjectInputsFrom } from "./runtime-project.js";
 import { currentPolicyAllows, currentProviderPolicy } from "../../llm/provider-policy.js";
 import {
@@ -912,7 +917,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   /** Upstream's past-runs journal (ATO-949, `outcome-journal.ts`). */
   outcomeJournal?: FusionDelegateDeps["outcomeJournal"];
   writeProjectReceipt?: FusionDelegateDeps["writeProjectReceipt"];
-  turnLedger?: FusionDelegateDeps["turnLedger"];
+  /** The fan-outs' receipts and the plan reviews' spend (issue #118). */
+  turnLedger?: Pick<FusionTurnLedger, "noteFanout" | "notePlanReview">;
   /**
    * What the local legs' format check sends with (`fusion-format-check.ts`):
    * the step's live base grammar and tool names, and the main local
@@ -942,6 +948,102 @@ export function registerRuntimeFusionAndReadScope(input: {
   // the live mode: `effectiveToolDescriptors()` adds and drops the
   // descriptor (and with it the `### fusion` guidance) as the resolver's
   // answer changes.
+  // Escalation (ATO-942), the reviewers and the plan reviewer (issue
+  // #118): one completion pinned to the provider asked, never the
+  // fallback chain, the folder's constraint checked before anything is sent.
+  const escalationComplete: NonNullable<FusionDelegateDeps["escalationComplete"]> = async ({ providerId, model, prompt, maxOutputTokens, signal, sessionId }) => {
+    const base = providerRegistry.getProvider(providerId);
+    if (base === undefined) {
+      throw new Error(`escalation provider ${providerId} is not configured`);
+    }
+    // A fusion team reviewer's own model (issue #37): the provider's
+    // copy built for it, which keeps the provider id the folder's
+    // constraint below is checked against.
+    const provider = model === undefined ? base : await providerRegistry.modelVariant?.(providerId, model);
+    if (provider === undefined) {
+      throw new Error(`cannot ask llm provider "${providerId}" for model "${model}"`);
+    }
+    // The folder's provider constraint (issue #33), on the provider
+    // actually returned, before the spend ceiling and anything sent.
+    assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
+    const request = {
+      prompt,
+      maxOutputTokens,
+      signal,
+    };
+    // The daily ceiling refuses a paid link before anything is sent,
+    // as the fallback seam does for every other call (ATO-649).
+    dailySpendLimit?.enforce(providerId);
+    const dailyBudget = dailySpendLimit?.budget;
+    const turnLimited = sessionId !== undefined && turnBudget?.requestLimits(sessionId) !== undefined;
+    const resolvedForBudget = turnLimited || dailyBudget !== undefined ? resolveLlmConfig(getConfig()) : undefined;
+    const entryForBudget = resolvedForBudget?.providers.find(p => p.id === providerId);
+    const baseScope = resolvedForBudget === undefined ? undefined : createRequestBudgetScope(turnLimited ? turnBudget : undefined, { ...request, sessionId }, provider, entryForBudget,
+      resolveModelPricingFor(resolvedForBudget, provider.chatModelId ?? entryForBudget?.defaultChatModel ?? entryForBudget?.model ?? null, providerId),
+      dailyBudget);
+    const scope = dailySpendLimit?.observeScope?.(providerId, { ...request, sessionId }, baseScope) ?? baseScope;
+    let result: Awaited<ReturnType<typeof provider.complete>> | undefined;
+    try {
+      result = await provider.complete({ ...request, ...(scope === undefined ? {} : { requestBudget: scope, signal: scope.signal ?? signal }) });
+    } finally {
+      scope?.finish(result);
+    }
+    // These calls go straight to the provider, past the seam that
+    // feeds the session's readout, so they are counted here on the
+    // session that delegated (ATO-1388). Priced like any other call:
+    // no known price stays "unpriced", a local server stays local.
+    if (sessionUsage !== undefined && sessionId !== undefined) {
+      try {
+        const resolved = resolveLlmConfig(getConfig());
+        const entry = resolved.providers.find((p) => p.id === providerId);
+        const model = resolveModelPricingFor(resolved, result.modelId, providerId);
+        sessionUsage.record(sessionId, {
+          providerId,
+          modelId: result.modelId,
+          ...(result.usage === undefined ? {} : { usage: result.usage }),
+          ...(model === undefined ? {} : { model }),
+          local:
+            entry !== undefined &&
+            (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url)),
+          plan: entry?.kind === "subscription-cli",
+        });
+      } catch {
+        // The readout never takes an escalation down.
+      }
+    }
+    // The same call in `llm.costTracking`'s session and day totals
+    // (ATO-1497), gated like the fallback seam's: any call with usage,
+    // no session needed.
+    if (costAccumulator !== undefined && result.usage !== undefined) {
+      try {
+        const model = resolveModelPricingFor(resolveLlmConfig(getConfig()), result.modelId, providerId);
+        costAccumulator.recordTurn({
+          modelId: result.modelId,
+          usage: result.usage,
+          ...(model === undefined ? {} : { model }),
+        });
+      } catch {
+        // Cost tracking never takes an escalation down.
+      }
+    }
+    // The model that effectively answered (issue #98). A subscription
+    // CLI echoes its configured model when it reports none: only one
+    // that differs from what it was asked for counts as reported.
+    const reportedModel = (() => {
+      const id = result.modelId ?? undefined;
+      if (id === undefined || id.length === 0) return undefined;
+      const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
+      if (entry?.kind !== "subscription-cli") return id;
+      const asked = model ?? provider.chatModelId ?? entry.defaultChatModel ?? entry.model;
+      return id === asked || id === "default" ? undefined : id;
+    })();
+    return {
+      content: result.content,
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
+      ...(reportedModel === undefined ? {} : { model: reportedModel }),
+    };
+  };
+
   toolRegistry.register(
     buildFusionDelegateTool({
       runTurn: (session, userMessage, turnOptions) =>
@@ -1062,98 +1164,7 @@ export function registerRuntimeFusionAndReadScope(input: {
       // Escalation (ATO-942): one completion pinned to the configured
       // escalation provider — never the fallback chain, so it cannot
       // land on a model the operator did not pick for it.
-      escalationComplete: async ({ providerId, model, prompt, maxOutputTokens, signal, sessionId }) => {
-        const base = providerRegistry.getProvider(providerId);
-        if (base === undefined) {
-          throw new Error(`escalation provider ${providerId} is not configured`);
-        }
-        // A fusion team reviewer's own model (issue #37): the provider's
-        // copy built for it, which keeps the provider id the folder's
-        // constraint below is checked against.
-        const provider = model === undefined ? base : await providerRegistry.modelVariant?.(providerId, model);
-        if (provider === undefined) {
-          throw new Error(`cannot ask llm provider "${providerId}" for model "${model}"`);
-        }
-        // The folder's provider constraint (issue #33), on the provider
-        // actually returned, before the spend ceiling and anything sent.
-        assertProviderAllowed(provider.id ?? providerId, { constraintsActive: () => hasProjectConstraints(getConfig()) });
-        const request = {
-          prompt,
-          maxOutputTokens,
-          signal,
-        };
-        // The daily ceiling refuses a paid link before anything is sent,
-        // as the fallback seam does for every other call (ATO-649).
-        dailySpendLimit?.enforce(providerId);
-        const dailyBudget = dailySpendLimit?.budget;
-        const turnLimited = sessionId !== undefined && turnBudget?.requestLimits(sessionId) !== undefined;
-        const resolvedForBudget = turnLimited || dailyBudget !== undefined ? resolveLlmConfig(getConfig()) : undefined;
-        const entryForBudget = resolvedForBudget?.providers.find(p => p.id === providerId);
-        const baseScope = resolvedForBudget === undefined ? undefined : createRequestBudgetScope(turnLimited ? turnBudget : undefined, { ...request, sessionId }, provider, entryForBudget,
-          resolveModelPricingFor(resolvedForBudget, provider.chatModelId ?? entryForBudget?.defaultChatModel ?? entryForBudget?.model ?? null, providerId),
-          dailyBudget);
-        const scope = dailySpendLimit?.observeScope?.(providerId, { ...request, sessionId }, baseScope) ?? baseScope;
-        let result: Awaited<ReturnType<typeof provider.complete>> | undefined;
-        try {
-          result = await provider.complete({ ...request, ...(scope === undefined ? {} : { requestBudget: scope, signal: scope.signal ?? signal }) });
-        } finally {
-          scope?.finish(result);
-        }
-        // These calls go straight to the provider, past the seam that
-        // feeds the session's readout, so they are counted here on the
-        // session that delegated (ATO-1388). Priced like any other call:
-        // no known price stays "unpriced", a local server stays local.
-        if (sessionUsage !== undefined && sessionId !== undefined) {
-          try {
-            const resolved = resolveLlmConfig(getConfig());
-            const entry = resolved.providers.find((p) => p.id === providerId);
-            const model = resolveModelPricingFor(resolved, result.modelId, providerId);
-            sessionUsage.record(sessionId, {
-              providerId,
-              modelId: result.modelId,
-              ...(result.usage === undefined ? {} : { usage: result.usage }),
-              ...(model === undefined ? {} : { model }),
-              local:
-                entry !== undefined &&
-                (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url)),
-              plan: entry?.kind === "subscription-cli",
-            });
-          } catch {
-            // The readout never takes an escalation down.
-          }
-        }
-        // The same call in `llm.costTracking`'s session and day totals
-        // (ATO-1497), gated like the fallback seam's: any call with usage,
-        // no session needed.
-        if (costAccumulator !== undefined && result.usage !== undefined) {
-          try {
-            const model = resolveModelPricingFor(resolveLlmConfig(getConfig()), result.modelId, providerId);
-            costAccumulator.recordTurn({
-              modelId: result.modelId,
-              usage: result.usage,
-              ...(model === undefined ? {} : { model }),
-            });
-          } catch {
-            // Cost tracking never takes an escalation down.
-          }
-        }
-        // The model that effectively answered (issue #98). A subscription
-        // CLI echoes its configured model when it reports none: only one
-        // that differs from what it was asked for counts as reported.
-        const reportedModel = (() => {
-          const id = result.modelId ?? undefined;
-          if (id === undefined || id.length === 0) return undefined;
-          const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
-          if (entry?.kind !== "subscription-cli") return id;
-          const asked = model ?? provider.chatModelId ?? entry.defaultChatModel ?? entry.model;
-          return id === asked || id === "default" ? undefined : id;
-        })();
-        return {
-          content: result.content,
-          ...(result.usage === undefined ? {} : { usage: result.usage }),
-          ...(reportedModel === undefined ? {} : { model: reportedModel }),
-        };
-      },
+      escalationComplete,
       // In the order the completion seam asks for a model: the provider's own first.
       resolveDefaultModel: (providerId: string) => {
         const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
@@ -1280,6 +1291,35 @@ export function registerRuntimeFusionAndReadScope(input: {
     // Issue #120: the files, scripts, commands and symbols the draft cites,
     // resolved in the project folder (stat, package.json, bundled ripgrep).
     planReferences: async (rows, projectFolder, signal) => (await checkPlanReferences(rows, { root: projectFolder, signal })).record,
+    // Issue #118: the plan reviewer, before the plan gate reaches the
+    // person: the folder's policy picks who may review (a refused
+    // provider is never asked; `escalationComplete` checks it again), and
+    // the spend counts in the turn's budget and receipt.
+    planReview: createPlanReview({
+      team: () => {
+        const team = teamContextFromConfig(getConfig(), teamMemberReachable)?.team;
+        if (team === undefined) return undefined;
+        const planReviewer = team.planReviewer === undefined ? undefined : parseTeamMember(team.planReviewer) ?? undefined;
+        return { ...(planReviewer === undefined ? {} : { planReviewer }), reviewers: teamMembers(team, "reviewers") };
+      },
+      allows: (providerId) => currentPolicyAllows(providerId) &&
+        // A restricted chat never uses a CLI reviewer that keeps its tools on (issue #71).
+        !(currentProviderPolicy() !== undefined && isCodexCliProvider(resolveLlmConfig(getConfig()), providerId)),
+      restricted: () => currentProviderPolicy() !== undefined,
+      reachable: (member) => teamContextFromConfig(getConfig(), teamMemberReachable)?.reachable(member) ?? false,
+      pinsModel: (providerId) => teamContextFromConfig(getConfig(), teamMemberReachable)?.pinsModel(providerId) ?? false,
+      complete: escalationComplete,
+      pricing: (member) => resolveModelPricingFor(resolveLlmConfig(getConfig()), member.model, member.providerId)?.pricing,
+      isLocal: (member) => {
+        const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === member.providerId);
+        return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
+      },
+      onSpend: (sessionId, spend) => {
+        if (spend.costUsd !== null) turnBudget?.addWorkerSpend(sessionId, spend.costUsd, true);
+        turnLedger?.notePlanReview(sessionId, spend);
+      },
+    }),
+    planReviewRounds: () => resolveLlmConfig(getConfig()).runMode?.fusion?.team?.planReviewRounds ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS,
     // A done milestone's criteria facts and screenshots, from its runs'
     // folders under `<stateDir>/fusion-runs` (issue #40).
     milestoneEvidence: (milestone, criteriaOrder, current) =>

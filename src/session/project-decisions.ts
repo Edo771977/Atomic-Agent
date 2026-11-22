@@ -102,7 +102,7 @@ export function projectContent(project: ProjectState): ProjectState {
     return { ...rest, status: "draft" as const };
   })();
   const plan = project.plan === undefined ? undefined : (() => {
-    const { approvedAt: _a, approvedWithUntrustedWarning: _w, checkResults: _checks, referenceCheck: _refs, ...rest } = project.plan;
+    const { approvedAt: _a, approvedWithUntrustedWarning: _w, checkResults: _checks, referenceCheck: _refs, review: _review, reviewOverride: _override, ...rest } = project.plan;
     return { ...rest, status: "draft" as const };
   })();
   // Schema v2: the backlog is content; a decision's status and a backlog

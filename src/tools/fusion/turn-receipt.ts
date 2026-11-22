@@ -54,6 +54,13 @@ interface OpenTurn {
   /** Judge and escalation calls: strong-side spend outside the orchestrator's requests. */
   judgeCostUsd: number;
   escalationCostUsd: number;
+  /** Plan reviews before the plan gate (issue #118): strong-side spend outside the orchestrator's requests. */
+  planReviews: number;
+  planReviewCostUsd: number;
+  planReviewsPriced: boolean;
+  planReviewsUnpriced: number;
+  planReviewsLocal: number;
+  planReviewsNotSent: number;
 }
 
 /** One finished fan-out, as the turn receipt counts it. */
@@ -111,6 +118,12 @@ export class FusionTurnLedger {
       sawOrchestratorTaskPriced: false,
       judgeCostUsd: 0,
       escalationCostUsd: 0,
+      planReviews: 0,
+      planReviewCostUsd: 0,
+      planReviewsPriced: false,
+      planReviewsUnpriced: 0,
+      planReviewsLocal: 0,
+      planReviewsNotSent: 0,
     });
   }
 
@@ -141,6 +154,24 @@ export class FusionTurnLedger {
     if (turn.steps.length < TURN_STEPS_RECORDED) {
       turn.steps.push({ in: completion.usage.promptTokens, cached: cached ?? null });
     }
+  }
+
+  /**
+   * One plan review of the open turn (issue #118, no-op otherwise):
+   * a call with no answer is "not sent", an unpriced local one "local".
+   */
+  notePlanReview(sessionId: string, spend: { costUsd: number | null; sent: boolean; local: boolean }): void {
+    const turn = this.turns.get(sessionId);
+    if (turn === undefined) return;
+    turn.planReviews += 1;
+    if (!spend.sent) turn.planReviewsNotSent += 1;
+    else if (spend.costUsd !== null && Number.isFinite(spend.costUsd)) {
+      turn.planReviewsPriced = true;
+      turn.planReviewCostUsd += Math.max(0, spend.costUsd);
+    } else if (spend.local) {
+      turn.planReviewsPriced = true;
+      turn.planReviewsLocal += 1;
+    } else turn.planReviewsUnpriced += 1;
   }
 
   /** One finished fan-out of the open turn (no-op otherwise). */
@@ -177,7 +208,7 @@ export class FusionTurnLedger {
     this.turns.delete(sessionId);
     if (turn === undefined) return undefined;
     if (turn.requests === 0 && turn.fanouts === 0) return undefined;
-    const side = turn.judgeCostUsd + turn.escalationCostUsd;
+    const side = turn.judgeCostUsd + turn.escalationCostUsd + turn.planReviewCostUsd;
     const record: TurnOutcomeRecord = {
       v: OUTCOME_RECORD_VERSION,
       type: "turn",
@@ -206,6 +237,17 @@ export class FusionTurnLedger {
       workerTokens: turn.workerTokens,
       workerMs: turn.workerMs,
       workerCostUsd: turn.sawWorkerPriced ? roundUsd(turn.workerCostUsd) : null,
+      ...(turn.planReviews === 0
+        ? {}
+        : {
+            planReviews: {
+              reviews: turn.planReviews,
+              costUsd: turn.planReviewsPriced ? roundUsd(turn.planReviewCostUsd) : null,
+              unpriced: turn.planReviewsUnpriced,
+              local: turn.planReviewsLocal,
+              notSent: turn.planReviewsNotSent,
+            },
+          }),
     };
     return { record, line: formatTurnReceipt(record) };
   }
@@ -248,7 +290,7 @@ function strongSpend(record: TurnOutcomeRecord): string {
   const unpricedRequests = o.requestCostUsd === null && o.requests > 0;
   const unpricedTasks = tasks.total > 0 && tasks.costUsd === null;
   const total = roundUsd(
-    (o.requestCostUsd ?? 0) + (tasks.costUsd ?? 0) + o.judgeCostUsd + o.escalationCostUsd,
+    (o.requestCostUsd ?? 0) + (tasks.costUsd ?? 0) + o.judgeCostUsd + o.escalationCostUsd + (record.planReviews?.costUsd ?? 0),
   );
   if (!unpricedRequests && !unpricedTasks) {
     return o.requestCostUsd === null && tasks.costUsd === null && total === 0
@@ -265,6 +307,7 @@ function strongSpend(record: TurnOutcomeRecord): string {
       : [tasks.costUsd === null ? `unpriced ${taskNoun}` : `${formatUsdShort(tasks.costUsd)} ${taskNoun}`]),
     ...(o.judgeCostUsd > 0 ? [`${formatUsdShort(o.judgeCostUsd)} judge`] : []),
     ...(o.escalationCostUsd > 0 ? [`${formatUsdShort(o.escalationCostUsd)} escalation`] : []),
+    ...((record.planReviews?.costUsd ?? 0) > 0 ? [`${formatUsdShort(record.planReviews!.costUsd!)} plan review`] : []),
   ].join(" + ");
 }
 
@@ -283,6 +326,11 @@ export function formatTurnReceipt(record: TurnOutcomeRecord): string {
     ...(hit === null ? [] : [`cache hit ${hit}%`]),
   ].join(", ");
   const parts = [`fusion receipt · strong ${strong}`];
+  // Issue #118: the plan reviews are their own part, as the report shows them.
+  const reviews = record.planReviews;
+  if (reviews !== undefined && reviews.reviews > 0) {
+    parts.push(`${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)} plan review${reviews.reviews === 1 ? "" : `s (${reviews.reviews})`}${planReviewExtras(reviews)}`);
+  }
   if (record.fanouts > 0) {
     const workerCost =
       record.workerCostUsd === null || record.workerCostUsd === 0
@@ -296,4 +344,14 @@ export function formatTurnReceipt(record: TurnOutcomeRecord): string {
     );
   }
   return parts.join(" · ");
+}
+
+/** " (+1 unpriced, 1 local, 1 not sent)" for the plan reviews (issue #118); empty with none of them. */
+export function planReviewExtras(r: { costUsd: number | null; unpriced: number; local?: number; notSent?: number }): string {
+  const parts = [
+    ...(r.costUsd !== null && r.unpriced > 0 ? [`+${r.unpriced} unpriced`] : []),
+    ...((r.local ?? 0) > 0 ? [`${r.local} local`] : []),
+    ...((r.notSent ?? 0) > 0 ? [`${r.notSent} not sent`] : []),
+  ];
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }

@@ -65,12 +65,31 @@ export type UserFusionTeamConfig = {
    * re-run), counted against the turn's budget: 1 to 10. Default 3.
    */
   watchMaxChecks?: number;
+  /**
+   * The model that reviews a project plan before the plan gate reaches
+   * the person (issue #118), as `"<providerId>:<model>"`. Unset: the
+   * first of `reviewers`; neither: no plan review. In a folder whose
+   * `projects.constraints` restrict providers, only a member the policy
+   * allows reviews the plan; with none, the review is skipped and the
+   * gate says so.
+   */
+  planReviewer?: string;
+  /**
+   * How many times a plan the plan reviewer fails goes back to the
+   * director before the gate reaches the person with the open notes:
+   * 0 to 3. Default 2.
+   */
+  planReviewRounds?: number;
 };
 
 export const FUSION_TEAM_REVIEW_MODES: readonly NonNullable<UserFusionTeamConfig["review"]>[] = ["on", "off"];
 export const FUSION_TEAM_REVIEW_PASSES: readonly NonNullable<UserFusionTeamConfig["reviewPasses"]>[] = [0, 1, 2];
 /** `reviewPasses` when unset. */
 export const DEFAULT_FUSION_TEAM_REVIEW_PASSES: NonNullable<UserFusionTeamConfig["reviewPasses"]> = 2;
+
+/** `planReviewRounds` when unset (issue #118). */
+export const DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS = 2;
+export const FUSION_TEAM_PLAN_REVIEW_ROUNDS_LIMIT = 3;
 
 /** `watchEveryMinutes` when unset. */
 export const DEFAULT_FUSION_TEAM_WATCH_EVERY_MINUTES = 5;
@@ -114,28 +133,39 @@ function parseMembers(
   const seen = new Set<string>();
   return raw.map((value, i) => {
     const at = `${field}[${i}]`;
-    const colon = typeof value === "string" ? value.indexOf(":") : -1;
-    if (typeof value !== "string" || colon <= 0) {
-      throw new ConfigValidationError(at, `expected "<providerId>:<model>", got ${JSON.stringify(value)}`);
-    }
-    const split = splitTeamMemberRef(value);
-    if (split === null) throw new ConfigValidationError(at, `empty model in ${JSON.stringify(value)}`);
-    if (!providerIds.has(split.providerId)) {
-      throw new ConfigValidationError(at, `unknown provider id ${JSON.stringify(split.providerId)}`);
-    }
-    // Issue #71: `default` stands for the entry's own model on a
-    // subscription CLI only. An API provider is priced and tiered by the
-    // model it names, and a server may serve a model called "default".
-    if (split.model === TEAM_MEMBER_PROVIDER_MODEL && kindOf?.(split.providerId) !== SUBSCRIPTION_CLI_KIND) {
-      throw new ConfigValidationError(
-        at,
-        `"${TEAM_MEMBER_PROVIDER_MODEL}" names the entry's own model only for a ${SUBSCRIPTION_CLI_KIND} provider; name the model of ${JSON.stringify(split.providerId)}`,
-      );
-    }
-    if (seen.has(value)) throw new ConfigValidationError(at, `duplicate member ${JSON.stringify(value)}`);
-    seen.add(value);
-    return value;
+    const member = parseMember(value, providerIds, at, kindOf);
+    if (seen.has(member)) throw new ConfigValidationError(at, `duplicate member ${JSON.stringify(value)}`);
+    seen.add(member);
+    return member;
   });
+}
+
+/** One `"<providerId>:<model>"` member checked against the providers. */
+function parseMember(
+  value: unknown,
+  providerIds: ReadonlySet<string>,
+  at: string,
+  kindOf: ((providerId: string) => string | undefined) | undefined,
+): string {
+  const colon = typeof value === "string" ? value.indexOf(":") : -1;
+  if (typeof value !== "string" || colon <= 0) {
+    throw new ConfigValidationError(at, `expected "<providerId>:<model>", got ${JSON.stringify(value)}`);
+  }
+  const split = splitTeamMemberRef(value);
+  if (split === null) throw new ConfigValidationError(at, `empty model in ${JSON.stringify(value)}`);
+  if (!providerIds.has(split.providerId)) {
+    throw new ConfigValidationError(at, `unknown provider id ${JSON.stringify(split.providerId)}`);
+  }
+  // Issue #71: `default` stands for the entry's own model on a
+  // subscription CLI only. An API provider is priced and tiered by the
+  // model it names, and a server may serve a model called "default".
+  if (split.model === TEAM_MEMBER_PROVIDER_MODEL && kindOf?.(split.providerId) !== SUBSCRIPTION_CLI_KIND) {
+    throw new ConfigValidationError(
+      at,
+      `"${TEAM_MEMBER_PROVIDER_MODEL}" names the entry's own model only for a ${SUBSCRIPTION_CLI_KIND} provider; name the model of ${JSON.stringify(split.providerId)}`,
+    );
+  }
+  return value;
 }
 
 /** Validate `llm.runMode.fusion.team` against the configured provider ids. */
@@ -177,7 +207,7 @@ export function parseFusionTeam(
     }
     out.reviewPasses = passes;
   }
-  const integerIn = (key: "watchEveryMinutes" | "watchMaxChecks", min: number, max: number): void => {
+  const integerIn = (key: "watchEveryMinutes" | "watchMaxChecks" | "planReviewRounds", min: number, max: number): void => {
     const value = obj[key];
     if (value === undefined) return;
     if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
@@ -187,6 +217,8 @@ export function parseFusionTeam(
   };
   integerIn("watchEveryMinutes", 0, FUSION_TEAM_WATCH_MAX_MINUTES);
   integerIn("watchMaxChecks", 1, FUSION_TEAM_WATCH_MAX_CHECKS_LIMIT);
+  if (obj.planReviewer !== undefined) out.planReviewer = parseMember(obj.planReviewer, providerIds, `${field}.planReviewer`, kindOf);
+  integerIn("planReviewRounds", 0, FUSION_TEAM_PLAN_REVIEW_ROUNDS_LIMIT);
   return out;
 }
 
@@ -204,10 +236,12 @@ export function teamWithoutProviders(
   const directors = keep(team.directors);
   const workers = team.workers === undefined ? undefined : keep(team.workers);
   const reviewers = team.reviewers === undefined ? undefined : keep(team.reviewers);
+  const planReviewer = team.planReviewer === undefined ? undefined : keep([team.planReviewer])[0];
   if (
     directors.length === team.directors.length &&
     workers?.length === team.workers?.length &&
-    reviewers?.length === team.reviewers?.length
+    reviewers?.length === team.reviewers?.length &&
+    planReviewer === team.planReviewer
   ) {
     return team;
   }
@@ -221,5 +255,7 @@ export function teamWithoutProviders(
     ...(team.reviewPasses === undefined ? {} : { reviewPasses: team.reviewPasses }),
     ...(team.watchEveryMinutes === undefined ? {} : { watchEveryMinutes: team.watchEveryMinutes }),
     ...(team.watchMaxChecks === undefined ? {} : { watchMaxChecks: team.watchMaxChecks }),
+    ...(planReviewer === undefined ? {} : { planReviewer }),
+    ...(team.planReviewRounds === undefined ? {} : { planReviewRounds: team.planReviewRounds }),
   };
 }

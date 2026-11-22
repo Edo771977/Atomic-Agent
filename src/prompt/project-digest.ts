@@ -1,4 +1,6 @@
 import { decisionStatusOf, projectExpectation, type ProjectState } from "../session/session-project.js";
+import { planReviewLine } from "../tools/fusion/plan-review-record.js";
+import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
 
 /** Longest `what` the digest quotes; the brief itself is the person's card, not the prompt's. */
 const WHAT_CHARS = 300;
@@ -56,7 +58,12 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       lines.push("next: draft the brief with project.brief, then reply.");
       break;
     case "draft_plan":
-      lines.push("next: draft the plan with project.plan, then reply.");
+      if (plan?.status === "draft" && plan.review?.sentBack === true) {
+        // Issue #118: the plan reviewer sent the draft back; it is not at the person's gate yet.
+        lines.push("next: revise the plan with project.plan to address the plan reviewer's notes; it reaches the person when the reviewer passes it or the rounds run out. Do not delegate.");
+        const notes = plan.review.results.filter((r) => r.verdict !== "pass").map(planReviewLine);
+        if (notes.length > 0) lines.push("plan reviewer's notes:", frameUntrustedText(notes.join("\n"), "the plan reviewer's answer (a model)"));
+      } else lines.push("next: draft the plan with project.plan, then reply.");
       break;
     case "run_milestone": {
       const tasks = plan?.rows.filter((r) => r.milestoneId === next.id).map((r) => r.taskId) ?? [];

@@ -156,3 +156,19 @@ describe("run flags for project gates", () => {
     expect(own.kind).toBe("approved");
   });
 });
+
+describe("run at a plan the plan reviewer still fails (issue #118)", () => {
+  it("auto-approval stops and says the person approves over the review, never overriding", async () => {
+    const message = "The plan stays open: the plan reviewer's notes fail it: plan review: scope: fail: drops the level editor.";
+    const rt = {
+      projectState: vi.fn(() => fixtureProjectGateView({ kind: "plan" }, { allowedVerdicts: ["approve", "edit", "cheaper", "quality", "approveOverReview", "cancel"] })),
+      projectDecision: vi.fn(() => ({ ok: false as const, error: { code: "review-open" as const, message, blocks: [{ taskId: "plan", reason: "plan review: scope: fail: drops the level editor." }] } })),
+    };
+    const step = await settleProjectGate(rt, "sess-1", "approve");
+    expect(step.kind).toBe("stop");
+    if (step.kind !== "stop") return;
+    expect(step.text).toContain(`The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${message}`);
+    expect(rt.projectDecision).toHaveBeenCalledTimes(1);
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
+  });
+});

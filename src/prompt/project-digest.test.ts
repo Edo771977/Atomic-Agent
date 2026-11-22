@@ -75,3 +75,18 @@ describe("renderProjectDigest (issue #39)", () => {
     expect(renderProjectDigest(r.project)).toMatch(/cancelled/);
   });
 });
+
+describe("renderProjectDigest and a plan held for the plan reviewer (issue #118)", () => {
+  it("says to revise the plan, not to reply, and lists the reviewer's notes as data", () => {
+    const approved = decide(up(undefined, brief), "approve");
+    const results = ["criteria-coverage", "task-completeness", "dependencies", "size", "verifiability", "scope", "numbers", "decisions"].map((dimension) => ({
+      dimension, verdict: dimension === "scope" ? "fail" as const : "pass" as const, detail: dimension === "scope" ? "drops the level editor" : "ok", taskIds: [],
+    }));
+    const held = up(approved, { ...plan, planReview: { outcome: "reviewed", reviewer: "c:r", results: results as never, round: 1, sentBack: true, basis: "0123456789abcdef", costUsd: null }, holdForReview: true } as ProjectUpdate);
+    const text = renderProjectDigest(held)!;
+    expect(text).toMatch(/next: revise the plan with project\.plan to address the plan reviewer's notes/);
+    expect(text).not.toMatch(/next: draft the plan with project\.plan, then reply/);
+    expect(text).toContain("plan review: scope: fail: drops the level editor");
+    expect(text).toContain("EXTERNAL CONTENT");
+  });
+});
