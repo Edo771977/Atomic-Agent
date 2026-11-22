@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
-import { uiExceptionTarget, validUiExceptionReason } from "../session/project-ui-exceptions.js";
+import { matchesUiException, uiExceptionTarget, validUiExceptionReason } from "../session/project-ui-exceptions.js";
 import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
@@ -630,7 +630,7 @@ function uiExceptionsCommand(args: string[], io: ProjectCommandIO): number {
     } else if (arg === "--reason") {
       if (reason !== undefined) return invalid();
       reason = args[++index]?.trim() ?? "";
-      if (!validUiExceptionReason(reason)) return invalid();
+      if (reason.startsWith("--") || !validUiExceptionReason(reason)) return invalid();
     } else {
       if (arg.startsWith("-") || folder !== undefined) return invalid();
       folder = arg;
@@ -647,6 +647,14 @@ function uiExceptionsCommand(args: string[], io: ProjectCommandIO): number {
     const record = result.record;
     if (record === null) return refuse("Open the project in a regular chat before deciding a UI exception.");
     if (io.liveTurn(record.folder, record.id) !== null) return refuse("A turn is running on this project. Wait for it to finish, then decide.");
+    if (!allow && !record.uiExceptions?.some(entry => matchesUiException(entry, target))) {
+      const message = "No matching approved UI exception to revoke.\n";
+      if (json) {
+        io.stderr(message);
+        io.stdout(JSON.stringify(record.uiExceptions ?? []) + "\n");
+      } else io.stdout(message);
+      return 0;
+    }
     const written = records.write(projectFolder, record.id, record.seq, record.state, undefined, undefined,
       reason === undefined ? { ...target, allow: false } : { ...target, allow: true, reason });
     if (!written.ok) return refuse(written.problem.message);

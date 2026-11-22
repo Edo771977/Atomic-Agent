@@ -1,3 +1,5 @@
+export const MAX_PROJECT_UI_EXCEPTIONS = 200;
+
 export interface ProjectUiException {
   rule: string;
   file?: string;
@@ -38,11 +40,18 @@ export function readProjectUiExceptions(raw: unknown): ProjectUiException[] | nu
   return exceptions;
 }
 
+export function matchesUiException(
+  entry: Pick<ProjectUiException, "rule" | "file">,
+  target: Pick<ProjectUiException, "rule" | "file">,
+): boolean {
+  return entry.rule === target.rule && entry.file === target.file;
+}
+
 export function applyUiExceptionDecision(
   current: readonly ProjectUiException[], decision?: ProjectUiExceptionDecision,
 ): readonly ProjectUiException[] {
   if (decision === undefined) return current;
   const { allow, ...entry } = decision;
-  const kept = current.filter(item => item.rule !== entry.rule || item.file !== entry.file);
+  const kept = current.filter(item => !matchesUiException(item, entry));
   return allow && "reason" in entry ? [...kept, entry] : kept;
 }

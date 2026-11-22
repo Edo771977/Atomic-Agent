@@ -512,3 +512,19 @@ it("permits a rendered URL from a folder too broad to copy", async () => {
   const raw = { kind: "ui", url: "http://localhost:8123/" };
   expect(verifyCopyRoot(raw, parseVerifyRunArgs(raw), root, root)).toMatchObject({ ok: true, root });
 });
+
+it("reads a revoked approval again after authorizing execution", async () => {
+  const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+  const stateDir = join(root, "state");
+  const records = stateDirProjectRecords(stateDir);
+  const state = { gate: { kind: "none" as const }, milestones: [] };
+  const projectRef = { folder: root, id: "revoked" };
+  const choice = { rule: "low-contrast", file: "index.html" };
+  expect(records.write(root, "revoked", 0, state, undefined, undefined, { ...choice, reason: "Logo", allow: true }).ok).toBe(true);
+  await fake(2, [finding("low-contrast")]);
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", path: "index.html" }], {
+    approvals: {} as never, approvalRequired: false, uiExceptionStateDir: stateDir,
+  }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
+  expect(records.write(root, "revoked", 1, state, undefined, undefined, { ...choice, allow: false }).ok).toBe(true);
+  expect(await executeVerify(spec!, { workingDir: root })).toMatchObject({ artifactStatus: "fail" });
+});

@@ -327,3 +327,32 @@ it.each([
     else process.env.ATOMIC_AGENT_TOOL_CHILD = previous;
   }
 });
+
+it("keeps the project record unchanged on a missing revoke and rejects a flag as a reason", async () => {
+  const folder = folderWithProject("missing-exception");
+  const records = stateDirProjectRecords(stateDir);
+  const before = records.read(folder);
+  const output = io();
+  expect(await projectCommand(["ui-exceptions", folder, "--revoke", "missing"], output)).toBe(0);
+  expect(output.out()).toContain("No matching approved UI exception");
+  expect(records.read(folder)).toEqual(before);
+  expect(await projectCommand(["ui-exceptions", folder, "--allow", "missing", "--reason", "--json"], output)).toBe(2);
+  expect(records.read(folder)).toEqual(before);
+});
+
+it("bounds new UI approvals and lets the operator update an existing one at the limit", async () => {
+  const { memoryProjectRecords } = await import("../session/project-decisions.js");
+  const records = memoryProjectRecords();
+  const state = { gate: { kind: "none" as const }, milestones: [] };
+  for (let index = 0; index < 200; index++) {
+    expect(records.write(root, "ui", index, state, undefined, undefined, {
+      allow: true, rule: "rule-" + index, reason: "Fixture",
+    }).ok).toBe(true);
+  }
+  expect(records.write(root, "ui", 200, state, undefined, undefined, {
+    allow: true, rule: "overflow", reason: "Fixture",
+  })).toMatchObject({ ok: false });
+  expect(records.write(root, "ui", 200, state, undefined, undefined, {
+    allow: true, rule: "rule-0", reason: "Updated",
+  }).ok).toBe(true);
+});

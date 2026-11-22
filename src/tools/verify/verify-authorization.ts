@@ -146,10 +146,11 @@ export async function authorizeVerifyBatch(
   const project = ctx.ruleWorkdir ?? ctx.workingDir;
   const known = [...knownSecretsFromEnv(), ...(options.knownSecrets ?? [])];
   const projectRef = ctx.incognito ? undefined : ctx.projectRef;
-  const record = projectRef !== undefined && options.uiExceptionStateDir !== undefined &&
-      snapshot.some(spec => (spec.kind ?? spec.type) === "ui")
-    ? stateDirProjectRecords(options.uiExceptionStateDir).read(projectRef.folder) : undefined;
-  const exceptions = record?.ok && record.record?.id === projectRef?.id ? record.record?.uiExceptions : undefined;
+  const stateDir = options.uiExceptionStateDir;
+  const loadExceptions = projectRef === undefined || stateDir === undefined ? undefined : () => {
+    const found = stateDirProjectRecords(stateDir).read(projectRef.folder);
+    return found.ok && found.record?.id === projectRef.id ? found.record.uiExceptions ?? [] : [];
+  };
   const plans = [];
   const services = new Map<string, NonNullable<VerifyRunArgs["ready"]>>();
   for (const spec of snapshot) {
@@ -365,7 +366,7 @@ export async function authorizeVerifyBatch(
         const exceptionFile = projectRef === undefined || logical.path === undefined ? undefined
           : relative(project, resolve(cwd, logical.path)).split(sep).join("/");
         Object.defineProperty(spec, APPROVED_IMPECCABLE, {
-          value: detector === undefined ? undefined : { ...detector, exceptions, exceptionFile, serviceUrl, path: outcome.pinnedExec?.path },
+          value: detector === undefined ? undefined : { ...detector, loadExceptions, exceptionFile, serviceUrl, path: outcome.pinnedExec?.path },
         });
       } else if (outcome.pinnedExec !== undefined) {
         // requireApproval checked the pin's argv against this check's

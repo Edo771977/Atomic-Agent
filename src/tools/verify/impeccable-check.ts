@@ -41,7 +41,7 @@ export interface ApprovedImpeccable {
   readonly path?: string;
   readonly serviceUrl?: string;
   readonly exceptionFile?: string;
-  readonly exceptions?: readonly ProjectUiException[];
+  readonly loadExceptions?: () => readonly ProjectUiException[];
 }
 
 async function fileIdentity(file: string): Promise<string> {
@@ -220,7 +220,7 @@ export async function runImpeccableCheck(
     }
     if (scan.exitCode !== 0 && scan.exitCode !== 2) return complete("uncheckable", "impeccable could not run the detector");
     if (scan.outputTruncated) return complete("uncheckable", "impeccable exceeded the output limit");
-    const report = parseReport(scan.stdout.all(), scanCwd, scanTarget, source, args.url, approved.exceptions ?? [], approved.exceptionFile);
+    const report = parseReport(scan.stdout.all(), scanCwd, scanTarget, source, args.url, approved.loadExceptions?.() ?? [], approved.exceptionFile);
     if (scan.exitCode === 2 && !report.primary) return complete("uncheckable", "impeccable returned exit 2 with no primary findings", report.findings);
     if (scan.exitCode === 0 && report.primary) return complete("uncheckable", "impeccable returned primary findings with exit 0", report.findings);
     if (report.usedExceptions.length > 0) usedExceptions = report.usedExceptions;
