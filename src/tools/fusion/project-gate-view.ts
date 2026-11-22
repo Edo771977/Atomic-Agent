@@ -9,6 +9,7 @@ import {
   planReviewFactsOf,
   planReviewPersonCalls,
   type ProjectState,
+  type ProjectMilestone,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
 import { verifyProjectReceiptDetails } from "../../session/project-receipts.js";
@@ -85,7 +86,7 @@ export const deferredHint = (id: string, title: string): string => `promoted fro
 export const CHANGED_OUTSIDE_HINT =
   "This changed outside Atomic Agent since your last decision (project.json was edited, or the project came from another machine): read it before approving.";
 
-function milestoneEvidence(input: ProjectGateViewInput, milestoneId: string): MilestoneEvidenceReceipts | undefined {
+function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilestone): MilestoneEvidenceReceipts | undefined {
   const source = input.receiptSource;
   if (source === undefined) return undefined;
   const counts: MilestoneEvidenceReceipts = { valid: 0, unsigned: 0, problems: 0 };
@@ -93,7 +94,10 @@ function milestoneEvidence(input: ProjectGateViewInput, milestoneId: string): Mi
     const { receipts, partial } = verifyProjectReceiptDetails(source.stateDir, source.folder, {
       projectId: source.projectId,
       sessionId: input.sessionId,
-      milestoneId,
+      milestoneId: milestone.id,
+      runIds: milestone.runIds,
+      version: gateVersion(input.project),
+      since: milestone.corrections?.at(-1)?.at,
     });
     for (const { status } of receipts) {
       if (status === "valid" || status === "unsigned") counts[status]++;
@@ -222,7 +226,8 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
   const evidenceMilestone = project.gate.kind === "milestone" ? project.gate.id : null;
-  const evidenceReceipts = evidenceMilestone === null ? undefined : milestoneEvidence(input, evidenceMilestone);
+  const milestone = project.milestones.find(m => m.id === evidenceMilestone);
+  const evidenceReceipts = milestone === undefined ? undefined : milestoneEvidence(input, milestone);
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);

@@ -1349,6 +1349,7 @@ export function buildFusionDelegateTool(
         }, kind, () => ({
           ...payload(),
           ...(admitted.milestoneId === null ? {} : { milestoneId: admitted.milestoneId }),
+          ...(admitted.runId === undefined ? {} : { runId: admitted.runId }),
         }));
       };
       const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined
@@ -1770,10 +1771,8 @@ export function buildFusionDelegateTool(
           : candidate !== undefined && deps.runCheckpoints !== undefined
             ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
             : undefined;
-      if (evidenceRun !== undefined) {
-        checkRun = evidenceRun;
-        admitted.runId = evidenceRun.runId;
-      }
+      if (evidenceRun !== undefined) checkRun = evidenceRun;
+      admitted.runId = evidenceRun?.runId ?? newFusionRunId();
       // Each worker run of a task is an attempt (issue #95): what it wrote
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.

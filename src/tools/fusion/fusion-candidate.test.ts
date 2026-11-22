@@ -99,7 +99,7 @@ it.each([true, false])("archives check-run records and only delivered candidate 
   f.deps.runChecks = async () => ({ ok: passing, results: [{ ok: passing, exitCode, stdoutTail: output }] });
   const result = await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, { ...f.ctx, projectRef: { id: "bound", folder: f.root } });
   expect(writeProjectReceipt).toHaveBeenCalledWith(f.root, "check-run-record", {
-    projectId: "bound", kind: "command", ok: passing, exitCode,
+    projectId: "bound", runId: expect.any(String), kind: "command", ok: passing, exitCode,
     definitionHash: receiptHash(contract.checks[0]),
     outputHash: receiptHash(output),
     recordHash: receiptHash({ command: "integration", exitCode, output, tests: [] }),

@@ -120,9 +120,9 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
         write: vi.fn((_key: string, value: string) => { pem = value; return true; }),
       };
       const evidence = { projectId: "project-one", milestoneId: "m1" };
-      appendProjectReceipt(dir, dir, "artifact-manifest", { ...evidence, result: "before" }, keychain);
-      appendProjectReceipt(dir, dir, "check-run-record", evidence, { read: () => ({ ok: false }), write: () => false });
-      appendProjectReceipt(dir, dir, "milestone-report", evidence, keychain);
+      appendProjectReceipt(dir, dir, "artifact-manifest", { ...evidence, runId: "r1", result: "before" }, keychain);
+      appendProjectReceipt(dir, dir, "check-run-record", { ...evidence, runId: "r1" }, { read: () => ({ ok: false }), write: () => false });
+      appendProjectReceipt(dir, dir, "milestone-report", { ...evidence, version: gateVersion(project) }, keychain);
       appendProjectReceipt(dir, dir, "gate-verdict", evidence, keychain);
       appendProjectReceipt(dir, dir, "milestone-report", { ...evidence, milestoneId: "m2" }, keychain);
       appendProjectReceipt(dir, dir, "check-run-record", { ...evidence, projectId: "project-two" }, keychain);
@@ -146,6 +146,42 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
       expect(keychain.write).not.toHaveBeenCalled();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["corrected", "superseded"] as const)("excludes replaced evidence from a %s milestone", scenario => {
+    const folder = mkdtempSync(join(tmpdir(), "revision-receipts-"));
+    try {
+      let project = approved(up(approved(up(undefined, brief)), plan));
+      project = up(project, { kind: "milestone_run", id: "m1", runId: "old" });
+      project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "First" });
+      const previousVersion = gateVersion(project);
+      const old = project.milestones[0]!;
+      project = {
+        ...project,
+        plan: { ...project.plan!, version: previousVersion! + 1 },
+        milestones: project.milestones.map(m => m.id !== "m1" ? m : {
+          ...m, runIds: scenario === "corrected" ? ["old", "new"] : ["new"],
+          ...(scenario === "corrected" ? { corrections: [{ note: "Retry", at: NOW + 1 }] } : {}),
+        }),
+      };
+      const session = createEmptySessionState({ id: "s1", workingDir: folder });
+      session.project = project;
+      session.projectRef = { folder, id: "project-one", revision: 1, decisionSeq: 1 };
+      const keychain = { read: () => ({ ok: false as const }), write: () => false };
+      const payload = { projectId: "project-one", milestoneId: old.id };
+      vi.useFakeTimers({ now: NOW });
+      appendProjectReceipt(folder, folder, "artifact-manifest", { ...payload, runId: "old" }, keychain);
+      appendProjectReceipt(folder, folder, "milestone-report", { ...payload, version: previousVersion }, keychain);
+      vi.setSystemTime(NOW + 2);
+      appendProjectReceipt(folder, folder, "artifact-manifest", { ...payload, runId: "new" }, keychain);
+      appendProjectReceipt(folder, folder, "check-run-record", payload, keychain);
+      appendProjectReceipt(folder, folder, "milestone-report", { ...payload, version: gateVersion(project) }, keychain);
+      const { runtime } = harness({ session, receiptStateDir: folder });
+      expect(runtime.projectState("s1")?.milestones[0]?.evidenceReceipts).toMatchObject({ unsigned: 2, problems: 0 });
+    } finally {
+      vi.useRealTimers();
+      rmSync(folder, { recursive: true, force: true });
     }
   });
 

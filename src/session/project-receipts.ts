@@ -117,6 +117,9 @@ interface MilestoneReceiptScope {
   projectId: string | null;
   sessionId: string;
   milestoneId: string;
+  runIds?: readonly string[];
+  version?: number | null;
+  since?: number;
 }
 
 interface ScopedReceiptVerification {
@@ -188,7 +191,11 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
         // stays unverified and is used only to surface the problem on the card.
         matched = kind !== "gate-verdict" && id === scope.projectId &&
           row?.payload?.milestoneId === scope.milestoneId &&
-          (id !== null || row?.payload?.sessionId === scope.sessionId);
+          (id !== null || row?.payload?.sessionId === scope.sessionId) &&
+          (scope.runIds === undefined || (kind === "milestone-report"
+            ? row.payload.version === scope.version
+            : scope.runIds.includes(row.payload.runId) &&
+              (scope.since === undefined || !(Date.parse(row.signedAt) < scope.since))));
       }
       if (!matched) continue;
       const status = verifyReceipt(row, projectKey, lookup);
