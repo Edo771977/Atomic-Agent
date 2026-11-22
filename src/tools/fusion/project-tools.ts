@@ -528,7 +528,8 @@ async function reviewDraft(
       // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
       ...(() => {
         const backlog = [
-          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: "promoted" as const })),
+          // Issue #146: one the person deferred at the plan gate is not this plan's to take in.
+          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: project.backlogCalls?.[b.id]?.deferred === true ? "deferred" as const : "promoted" as const })),
           ...openBacklog(project).map((b) => ({ id: b.id, title: b.title, state: "open" as const, ...(b.condition === undefined ? {} : { condition: b.condition }) })),
         ];
         return backlog.length === 0 ? {} : { backlog };

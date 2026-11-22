@@ -477,4 +477,24 @@ describe("plan reviewer at project.plan: the backlog (issue #111)", () => {
       { id: "b2", title: "Sounds", state: "open", condition: "when the UI exists" },
     ]);
   });
+
+  it("is told a deferred item's state and given the backlog-coverage result as a deterministic check (issue #146)", async () => {
+    let p = applyProjectUpdate(approvedBrief(), { kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director" } }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    p = applyProjectUpdate(p.project, { kind: "backlog_add", item: { id: "b2", title: "Sounds", source: "director" } }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const { applyBacklogDecision } = await import("../../session/project-backlog.js");
+    let project = p.project;
+    for (const id of ["b1", "b2"]) {
+      const r = applyBacklogDecision(project, { id, state: "promoted" });
+      if (!r.ok) throw new Error(r.error.message);
+      project = r.project;
+    }
+    project = { ...project, backlogCalls: { ...project.backlogCalls, b2: { ...project.backlogCalls!.b2!, deferred: true } } };
+    const planReview = vi.fn(async () => null);
+    await draft(project, coveredPlan, { planReview });
+    const input = (planReview.mock.calls[0] as unknown as [{ input: { backlog?: unknown; planChecks: Array<{ dimension: string; verdict: string; detail: string }> } }])[0].input;
+    expect(input.backlog).toEqual([{ id: "b1", title: "Export PDF", state: "promoted" }, { id: "b2", title: "Sounds", state: "deferred" }]);
+    expect(input.planChecks).toContainEqual(expect.objectContaining({ dimension: "backlog-coverage", verdict: "fail", detail: expect.stringContaining("b1 (Export PDF)") }));
+  });
 });
