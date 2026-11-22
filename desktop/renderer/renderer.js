@@ -2423,7 +2423,7 @@ function projectCardContinue(sid, text) {
 function projectCardStart() {
   if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
   PCARD = createProjectCard({
-    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body)},
+    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body), backlog: (body) => BR.projectBacklog(body)},
     draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) { pcDraw(document, host, model, on); pcPlace(window, host); } },
     onContinue: projectCardContinue,
     onRevise: () => { const e = $('#entry'); if (e) e.focus(); },

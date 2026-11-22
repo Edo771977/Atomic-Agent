@@ -393,6 +393,100 @@ function pcPlanReview(view) {
   return {results, warning, summary};
 }
 
+/* ---------- issue #146: the backlog ---------- */
+
+/** How an item's source reads (project-backlog.ts backlogSourceLabel). */
+function pcBacklogSource(item) {
+  return item.fromPerson === true ? 'director (from your message)' : pcStr(item.source);
+}
+
+/**
+ * The calls an item takes, as [label, state], like the TUI's backlog
+ * (project-card-state.ts projectBacklogActions): an open item is promoted
+ * or dropped, a decided one reopened. A call made stale outside Atomic
+ * Agent (the item reads open) can be made again or let go (`open` clears
+ * it); a promoted item removed outside can only be cleared.
+ */
+function pcBacklogActions(item, stale) {
+  if (stale && stale.reason === 'removed') return [['Clear', 'open']];
+  if (stale) return [[stale.state === 'promoted' ? 'Promote again' : 'Promote', 'promoted'], [stale.state === 'dropped' ? 'Drop again' : 'Drop', 'dropped'], ['Keep open', 'open']];
+  if (!item) return [];
+  return item.state === 'open' ? [['Promote', 'promoted'], ['Drop', 'dropped']] : [['Reopen', 'open']];
+}
+
+/** What a promoted item's call stands at, worded as `atomic-agent project backlog`. */
+function pcBacklogStateText(item) {
+  if (item.state === 'promoted') {
+    if (Number.isInteger(item.plannedIn)) return 'promoted, taken in by plan v' + item.plannedIn;
+    return item.deferred === true ? 'promoted, deferred at the plan gate, not in any plan' : 'promoted, not in any plan';
+  }
+  if (item.state === 'open' && pcStr(item.condition)) return 'seed · When: ' + pcStr(item.condition);
+  return pcStr(item.state);
+}
+
+/** The core's hints the Backlog section says itself (project-gate-view.ts, project-gate-text.ts seedHint), so they are not drawn twice. */
+function pcBacklogHints(backlog) {
+  const out = new Set();
+  for (const s of backlog.seeds) out.add('seed ' + s.id + ' "' + s.title + '" (when: ' + s.condition + '): yours to promote if it is met');
+  for (const b of backlog.promoted) {
+    out.add('promoted from the backlog: ' + b.id + ' "' + b.title + '": check this plan takes it in before approving');
+    out.add('promoted from the backlog, deferred by you: ' + b.id + ' "' + b.title + '": this plan need not take it in; set it active again to require it');
+  }
+  for (const s of backlog.stale) {
+    out.add(s.reason === 'removed' ? 'promoted item ' + s.id + ' was removed outside Atomic Agent'
+      : 'backlog item ' + s.id + ' changed since you ' + s.state + ' it: it reads open again; ' + (s.state === 'promoted' ? 'promote' : 'drop') + ' it again if you still want it');
+  }
+  return out;
+}
+
+/** The view's backlog as plain data, or null without one. Author text stays text. */
+function pcBacklogModel(view) {
+  const b = view && view.backlog;
+  if (!b || typeof b !== 'object') return null;
+  const backlog = {
+    open: pcNum(b.open) || 0,
+    seeds: pcList(b.seeds).filter((x) => x && typeof x.id === 'string').map((x) => ({id: x.id, title: pcStr(x.title), condition: pcStr(x.condition)})),
+    promoted: pcList(b.promoted).filter((x) => x && typeof x.id === 'string'),
+    stale: pcList(b.stale).filter((x) => x && typeof x.id === 'string' && (x.state === 'promoted' || x.state === 'dropped')),
+    items: pcList(b.items).filter((x) => x && typeof x.id === 'string' && ['open', 'promoted', 'dropped'].includes(x.state)),
+  };
+  const staleOf = (id) => backlog.stale.find((x) => x.id === id) || null;
+  const entry = (item, stale) => ({
+    id: item ? item.id : stale.id,
+    title: item ? pcStr(item.title) : '',
+    note: item ? pcStr(item.note) : '',
+    state: item ? item.state : 'removed',
+    meta: item ? [pcBacklogStateText(item), 'from ' + pcBacklogSource(item)].filter(Boolean).join(' · ') : '',
+    stale: !stale ? null : stale.reason === 'removed'
+      ? 'removed outside Atomic Agent since you ' + stale.state + ' it'
+      : 'changed outside Atomic Agent since you ' + stale.state + ' it: it reads open again',
+    actions: pcBacklogActions(item, stale),
+  });
+  const items = backlog.items.map((item) => entry(item, staleOf(item.id)))
+    .concat(backlog.stale.filter((s) => s.reason === 'removed' && !backlog.items.some((i) => i.id === s.id)).map((s) => entry(null, s)));
+  const summary = [backlog.open + ' open'].concat(backlog.seeds.length ? [backlog.seeds.length + ' seed' + (backlog.seeds.length === 1 ? '' : 's')] : [],
+    backlog.promoted.length ? [backlog.promoted.length + ' promoted'] : []).join(' · ');
+  return {summary, items, hints: pcBacklogHints(backlog)};
+}
+
+/** The backlog call `{sessionId, item, state}` for main (agent:projectBacklog), or {error} when the view offers no such call. */
+function pcBacklogCall(state, sid, id, to) {
+  const backlog = pcBacklogModel(state.view);
+  const item = backlog && backlog.items.find((i) => i.id === id);
+  if (!item || !item.actions.some(([, s]) => s === to)) return {error: 'This backlog call is unavailable'};
+  return {body: {sessionId: sid, item: id, state: to}};
+}
+
+/** What the window does with main's answer to a backlog call: the view to draw, and a notice or an error. */
+function pcBacklogOutcome(res, id, to) {
+  if (!res || res.supported === false) return {error: 'This agent cannot take backlog calls; update it.'};
+  if (res.ok) return {view: res.view || null, notice: id + (to === 'promoted' ? ' promoted for the next plan.' : to === 'dropped' ? ' dropped.' : ' is open again.')};
+  const view = res.view || null;
+  if (res.code === 'turn-running') return {view, error: 'A turn is running in this chat. Decide once it has finished.'};
+  if (res.status === 404 && !view) return {closed: true, notice: 'This chat has no Fusion project any more.'};
+  return {view, error: res.error || 'The backlog call did not go through'};
+}
+
 /** Everything the card draws, as plain data (no DOM). */
 function pcModel(state) {
   const view = state.view;
@@ -444,7 +538,8 @@ function pcModel(state) {
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
-  const hints = pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT));
+  const backlog = pcBacklogModel(view);
+  const hints = pcList(view.hints).map(pcStr).filter((h) => h && !(changedOutside && h === PC_CHANGED_OUTSIDE_HINT) && !(backlog && backlog.hints.has(h)));
   const checks = gate === 'plan' ? hints.map(pcPlanCheck).filter(Boolean) : [];
   const review = gate === 'plan' ? pcPlanReview(view) : null;
   const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
@@ -460,6 +555,7 @@ function pcModel(state) {
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
     hints: gate === 'plan' ? hints.filter((h) => !pcPlanCheck(h) && (!review || !/^(?:plan review\b|plan not reviewed\b|notes on an earlier version:)/i.test(h))) : hints,
     checks, review, decisions,
+    backlog: backlog && {summary: backlog.summary, items: backlog.items},
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
@@ -607,6 +703,34 @@ function pcDrawDecisions(doc, body, model, on) {
   body.appendChild(list);
 }
 
+/** Issue #146: the Backlog section, each item with the calls it takes (textContent only: items are author content). */
+function pcDrawBacklog(doc, body, model, on) {
+  const b = model.backlog;
+  if (!b || !b.items.length) return;
+  const section = pcEl(doc, 'section', 'pc-backlog');
+  section.setAttribute('aria-label', 'Backlog');
+  section.appendChild(pcEl(doc, 'h3', 'pc-section-title', 'Backlog'));
+  section.appendChild(pcEl(doc, 'p', 'pc-meta', b.summary));
+  const list = pcEl(doc, 'ul', 'pc-rows');
+  for (const item of b.items) {
+    const li = pcEl(doc, 'li', 'pc-row pc-backlog-item is-' + item.state);
+    li.appendChild(pcEl(doc, 'div', 'pc-row-title', item.title ? item.id + ' · ' + item.title : item.id));
+    if (item.note) li.appendChild(pcEl(doc, 'div', 'pc-reason', item.note));
+    if (item.meta) li.appendChild(pcEl(doc, 'div', 'pc-meta', item.meta));
+    if (item.stale) li.appendChild(pcEl(doc, 'p', 'pc-warn-item', '⚠ ' + item.stale));
+    const acts = pcEl(doc, 'div', 'pc-item-actions');
+    for (const [label, to] of item.actions) {
+      const button = pcButton(doc, label, 'btn btn-s xs', () => on({type: 'backlog', id: item.id, state: to}), model.busy);
+      button.setAttribute('aria-label', label + ' ' + item.id);
+      acts.appendChild(pcFocusKey(button, 'backlog:' + item.id + ':' + to));
+    }
+    if (acts.children.length) li.appendChild(acts);
+    list.appendChild(li);
+  }
+  section.appendChild(list);
+  body.appendChild(section);
+}
+
 function pcDraw(doc, host, model, on) {
   /* Accessibility: what had the focus is found again after the paint, by
      what it does; a correction box being typed in is kept as it is (the
@@ -686,6 +810,7 @@ function pcDraw(doc, host, model, on) {
   }
   // One-line advice from the agent (issue #54), worded as the TUI card.
   for (const h of model.hints) body.appendChild(pcEl(doc, 'p', 'pc-hint', 'ℹ ' + h));
+  pcDrawBacklog(doc, body, model, on);
   if (model.milestones.length) {
     const ul = pcEl(doc, 'ul', 'pc-milestones');
     for (const m of model.milestones) {
@@ -853,6 +978,7 @@ function createProjectCard(opts) {
         clearTimeout(cancelTimer);
         return decide(a.verdict);
       case 'decision-status': return decide('edit', a);
+      case 'backlog': return backlogCall(a.id, a.state);
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
@@ -884,6 +1010,26 @@ function createProjectCard(opts) {
       paint();
     }
     flush();
+  }
+  /* Issue #146: the person's call on a backlog item. It moves no gate, so the
+     card stays on the same gate; the agent answers with the view it leaves. */
+  async function backlogCall(id, to) {
+    if (state.busy || deciding.has(key())) return;
+    const here = sid;
+    const built = pcBacklogCall(state, here, id, to);
+    if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
+    state = pcReduce(state, {type: 'sending'}); paint();
+    const call = opts.api.backlog ? () => opts.api.backlog(built.body) : () => ({supported: false});
+    const res = await Promise.resolve().then(call).catch((e) => ({supported: true, ok: false, status: 0, code: null, error: String(e)}));
+    const out = pcBacklogOutcome(res, id, to);
+    if (out.closed) store.drop(here);
+    else if (out.view) store.put(here, out.view);
+    if (here !== sid) return;
+    setView(store.get(here), out.notice);
+    if (out.error) state = pcReduce(state, {type: 'failed', error: out.error});
+    else if (out.notice && state.view) state = pcReduce(state, {type: 'notice', notice: out.notice});
+    else state.busy = false;
+    paint(); notify();
   }
   function flush() {
     if (!sid || !pending.has(sid)) return;
@@ -945,6 +1091,7 @@ if (typeof module !== 'undefined') {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
+    pcBacklogModel, pcBacklogCall, pcBacklogOutcome,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };
 }

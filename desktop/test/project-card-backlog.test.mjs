@@ -111,3 +111,157 @@ test('the card reads every plan check dimension the core names', () => {
     assert.deepEqual(model.checks.map((c) => c.dimension), [d], d);
   }
 });
+
+/* ---------------- the DOM and the controller ---------------- */
+
+function fakeDoc() {
+  const doc = {activeElement: null};
+  class El {
+    constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.listeners = {}; this._text = ''; this.className = ''; this.hidden = false; this.disabled = false; }
+    appendChild(c) { this.children.push(c); c.parentNode = this; return c; }
+    removeChild(c) { this.children.splice(this.children.indexOf(c), 1); return c; }
+    get firstChild() { return this.children[0] || null; }
+    set textContent(v) { this._text = String(v); this.children = []; }
+    get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
+    set innerHTML(_v) { throw new Error('innerHTML used'); }
+    setAttribute(k, v) { this.attrs[k] = String(v); }
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+    focus() { doc.activeElement = this; }
+    contains(x) { for (let n = x; n; n = n.parentNode) if (n === this) return true; return false; }
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+    fire(type) { for (const fn of this.listeners[type] || []) fn({target: this}); }
+    findAll(pred) { const out = []; const walk = (e) => { if (pred(e)) out.push(e); e.children.forEach(walk); }; walk(this); return out; }
+  }
+  return Object.assign(doc, {createElement: (t) => new El(t)});
+}
+const draw = (model, on = () => {}) => { const doc = fakeDoc(); const host = doc.createElement('div'); C.pcDraw(doc, host, model, on); return host; };
+const buttons = (host) => host.findAll((e) => e.tagName === 'BUTTON');
+const byLabel = (host, label) => buttons(host).find((b) => b.getAttribute('aria-label') === label);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+function controller({backlog, decide, read}) {
+  const drawn = [];
+  const card = C.createProjectCard({
+    api: {read: async (sid) => (read ? read(sid) : {supported: true, ok: true, view: null}), decide: async (body) => decide(body), backlog: async (body) => backlog(body)},
+    draw: (model, on) => drawn.push({model, on}),
+    onContinue: () => true,
+  });
+  return {card, last: () => drawn.at(-1)};
+}
+
+test('the backlog section lists every item with its call, author text as text, and the buttons each state takes', () => {
+  let p = project();
+  p = call(p, 'b3', 'promoted');
+  p = call(p, 'b4', 'dropped');
+  const host = draw(C.pcModel(C.pcInitial(view(p))));
+  const section = host.findAll((e) => e.className === 'pc-backlog')[0];
+  assert.ok(section, 'a Backlog section');
+  assert.match(section.textContent, /^Backlog/);
+  assert.match(section.textContent, /2 open · 1 seed · 1 promoted/);
+  assert.match(section.textContent, /b3 · Dark <b>theme<\/b>/, 'the title as the author wrote it');
+  assert.match(section.textContent, /From <img src=x onerror=alert\(1\)>/);
+  assert.equal(host.findAll((e) => e.tagName === 'IMG' || e.tagName === 'B').length, 0, 'never markup');
+  assert.match(section.textContent, /b2 · Online play[\s\S]*seed · When: the local game is stable/);
+  assert.match(section.textContent, /promoted, not in any plan/);
+  assert.match(section.textContent, /b4 · Sound[\s\S]*dropped/);
+  assert.deepEqual(['b1', 'b2', 'b3', 'b4'].map((id) => buttons(section).filter((b) => / b\d$/.test(b.getAttribute('aria-label') || '') && b.getAttribute('aria-label').endsWith(' ' + id)).map((b) => b.textContent)),
+    [['Promote', 'Drop'], ['Promote', 'Drop'], ['Reopen'], ['Reopen']]);
+  // The seed's own hint is drawn by the section, not again as a loose line.
+  assert.equal(host.findAll((e) => e.className === 'pc-hint' && /^ℹ seed /.test(e.textContent)).length, 0);
+});
+
+test('a call made stale outside Atomic Agent is flagged with what to do, and a removed item can be cleared', () => {
+  let p = call(call(project(), 'b3', 'promoted'), 'b4', 'dropped');
+  // b3 edited by hand in project.json; b4 removed (a dropped item removed is no stale call), so promote b1 and remove it.
+  p = call(p, 'b1', 'promoted');
+  p = {...p, backlog: p.backlog.filter((b) => b.id !== 'b1').map((b) => (b.id === 'b3' ? {...b, title: 'Dark theme and high contrast'} : b))};
+  const v = view(p);
+  assert.equal(JSON.stringify(v.backlog.stale.map((s) => [s.id, s.reason]).sort()), JSON.stringify([['b1', 'removed'], ['b3', 'changed']]));
+  const host = draw(C.pcModel(C.pcInitial(v)));
+  const section = host.findAll((e) => e.className === 'pc-backlog')[0];
+  assert.match(section.textContent, /b3 · Dark theme and high contrast[\s\S]*changed outside Atomic Agent since you promoted it: it reads open again/);
+  assert.match(section.textContent, /b1[\s\S]*removed outside Atomic Agent since you promoted it/);
+  assert.deepEqual(buttons(section).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Promote again', 'Drop', 'Keep open']);
+  assert.deepEqual(buttons(section).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b1')).map((b) => b.textContent), ['Clear']);
+  assert.equal(host.findAll((e) => e.className === 'pc-warn-item').length, 2, 'both flagged as warnings');
+});
+
+test('Promote sends {sessionId, item, state} through the backlog call; the view it answers is drawn, the gate stays', async () => {
+  const sent = [];
+  let p = project();
+  const c = controller({
+    read: () => ({supported: true, ok: true, view: view(p)}),
+    backlog: (body) => { sent.push(body); p = call(p, body.item, body.state); return {supported: true, ok: true, view: view(p)}; },
+    decide: () => { throw new Error('a backlog call is not a gate verdict'); },
+  });
+  c.card.follow('ses-1');
+  await tick();
+  const host = draw(c.last().model, c.last().on);
+  byLabel(host, 'Promote b3').fire('click');
+  assert.equal(c.last().model.busy, true);
+  await tick(); await tick();
+  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'promoted'}]);
+  const after = c.last().model;
+  assert.equal(after.busy, false);
+  assert.equal(after.gate, 'plan');
+  assert.equal(after.backlog.items.find((i) => i.id === 'b3').state, 'promoted');
+  assert.match(after.notice, /b3 promoted/);
+  byLabel(draw(after, c.last().on), 'Reopen b3').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent.at(-1), {sessionId: 'ses-1', item: 'b3', state: 'open'});
+  assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'open');
+});
+
+test('a refused backlog call keeps the card and says why; a turn running asks to wait', async () => {
+  const p = project();
+  const answers = [
+    {supported: true, ok: false, status: 409, code: 'turn-running', error: 'a turn is running', view: view(p)},
+    {supported: true, ok: false, status: 400, code: 'invalid', error: 'the backlog has no item b3', view: view(p)},
+    {supported: false},
+  ];
+  const c = controller({read: () => ({supported: true, ok: true, view: view(p)}), backlog: () => answers.shift(), decide: () => ({})});
+  c.card.follow('ses-1');
+  await tick();
+  c.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick(); await tick();
+  assert.match(c.last().model.error, /turn is running/);
+  c.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick(); await tick();
+  assert.equal(c.last().model.error, 'the backlog has no item b3');
+  c.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick(); await tick();
+  assert.match(c.last().model.error, /update it/);
+  assert.equal(c.last().model.gate, 'plan');
+});
+
+test('the card offers only calls the view allows: no unknown item, no state the item already has', async () => {
+  const sent = [];
+  const c = controller({read: () => ({supported: true, ok: true, view: view(project())}), backlog: (b) => { sent.push(b); return {supported: true, ok: true, view: view(project())}; }, decide: () => ({})});
+  c.card.follow('ses-1');
+  await tick();
+  for (const a of [{id: 'b9', state: 'promoted'}, {id: 'b1', state: 'open'}, {id: 'b1', state: 'deferred'}]) c.last().on({type: 'backlog', ...a});
+  await tick();
+  assert.deepEqual(sent, []);
+  assert.ok(c.last().model.error);
+});
+
+test('the backlog hints the section says itself are the core\'s own sentences', () => {
+  for (const template of [
+    '`promoted from the backlog: ${id} "${title}": check this plan takes it in before approving`',
+    '`promoted from the backlog, deferred by you: ${id} "${title}": this plan need not take it in; set it active again to require it`',
+    '`promoted item ${s.id} was removed outside Atomic Agent`',
+    '`backlog item ${s.id} changed since you ${s.state} it: it reads open again; ${s.state === "promoted" ? "promote" : "drop"} it again if you still want it`',
+  ]) assert.ok(VIEW_SRC.includes(template), template);
+  const hints = C.pcBacklogModel({backlog: {open: 1, seeds: [{id: 'b2', title: 'T', condition: 'c'}], promoted: [{id: 'b3', title: 'U'}],
+    stale: [{id: 'b5', state: 'promoted', reason: 'removed'}, {id: 'b6', state: 'dropped', reason: 'changed'}], items: []}}).hints;
+  assert.ok(hints.has(TEXT.seedHint('b2', 'T', 'c')));
+  assert.ok(hints.has('promoted from the backlog: b3 "U": check this plan takes it in before approving'));
+  assert.ok(hints.has('promoted from the backlog, deferred by you: b3 "U": this plan need not take it in; set it active again to require it'));
+  assert.ok(hints.has('promoted item b5 was removed outside Atomic Agent'));
+  assert.ok(hints.has('backlog item b6 changed since you dropped it: it reads open again; drop it again if you still want it'));
+});
+
+test('the page hands the card the bridge\'s backlog call', () => {
+  const renderer = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(renderer, /createProjectCard\(\{\s*api: \{[^\n]*backlog: \(body\) => BR\.projectBacklog\(body\)/);
+});

@@ -72,3 +72,8 @@
 .pc-result.is-fail{color:var(--critical)}
 .pc-assessment-detail{margin:4px 0;white-space:pre-wrap;font-size:var(--fs-cap)}
 .pc-review-warning{flex:1 0 100%;box-sizing:border-box;overflow-wrap:anywhere}
+/* Issue #146: the Backlog section (project-card.js pcDrawBacklog). */
+.pc-backlog{display:grid;gap:4px;min-width:0}
+.pc-backlog-item.is-dropped .pc-row-title{color:var(--ink-2)}
+.pc-warn-item{margin:2px 0 0;font-size:var(--fs-cap);color:var(--warn);overflow-wrap:anywhere}
+.pc-item-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
