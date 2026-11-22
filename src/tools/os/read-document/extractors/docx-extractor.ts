@@ -1,4 +1,9 @@
-import type { Extractor } from "./extractor-types.js";
+import type { ExtractorInput, ExtractResult } from "./extractor-types.js";
+
+type DocxOptions = {
+  includeEmbeddedStyleMap?: boolean;
+  externalFileAccess?: boolean;
+};
 
 /**
  * DOCX text extractor backed by `mammoth`.
@@ -10,7 +15,7 @@ import type { Extractor } from "./extractor-types.js";
  * lists (`-`), and tables (`|`), which give the model cheap structural
  * hints.
  */
-export const docxExtractor: Extractor = async (input) => {
+export async function docxExtractor(input: ExtractorInput, options?: DocxOptions): Promise<ExtractResult> {
   const mammoth = await loadMammoth();
   const warnings: string[] = [];
 
@@ -19,7 +24,7 @@ export const docxExtractor: Extractor = async (input) => {
       ? mammoth.extractRawText
       : mammoth.convertToMarkdown;
 
-  const result = await convertFn({ buffer: input.data });
+  const result = await convertFn({ buffer: input.data }, options);
   for (const msg of result.messages) {
     if (msg.type === "error" || msg.type === "warning") {
       warnings.push(`${msg.type}: ${msg.message}`);
@@ -31,7 +36,7 @@ export const docxExtractor: Extractor = async (input) => {
     text,
     warnings,
   };
-};
+}
 
 function normaliseMarkdown(raw: string): string {
   return (
@@ -46,7 +51,7 @@ function normaliseMarkdown(raw: string): string {
   );
 }
 
-type MammothFn = (options: { buffer: Buffer }) => Promise<{
+type MammothFn = (input: { buffer: Buffer }, options?: DocxOptions) => Promise<{
   value: string;
   messages: Array<{ type: string; message: string }>;
 }>;

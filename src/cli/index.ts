@@ -314,24 +314,18 @@ function userArgsFromArgv(): string[] {
   return argv.slice(2);
 }
 
-// Before any command can issue a request: undici applies a 300 s deadline
-// of its own beneath every AbortSignal this process arms, and a request
-// that hits it fails as a bare `fetch failed` naming nothing. Installed
-// here without a config — `getConfig()` writes a config file on first
-// use, which an install or `--help` must not do — so this is the floor
-// off the shipped defaults; `createAgentRuntime` widens it from the real
-// config when a command actually builds a runtime. See
-// `installTransportDeadlines`.
-installTransportDeadlines();
-// Offline mode (ATO-1084) for every command, not only those that build a
-// runtime: `update` and the hub commands never do. Read-only, and a
-// missing or broken config.json leaves it off.
-applyOfflineModeFromConfigFile();
-
 async function main(): Promise<number> {
+  const [command, ...rest] = userArgsFromArgv();
+  if (command === "--internal-verify-artifact" && process.send) {
+    return (await import("../tools/verify/artifact-reader.js")).serveArtifactCheck();
+  }
   // Windows only: UTF-8 console code page for this run, restored on exit.
   ensureUtf8Console();
-  const [command, ...rest] = userArgsFromArgv();
+  // Install shipped transport deadlines without creating a user config.
+  // A command that creates a runtime widens them from the actual config.
+  installTransportDeadlines();
+  // Read the offline flag even for commands that do not create a runtime.
+  applyOfflineModeFromConfigFile();
   if (command === "-h" || command === "--help") {
     printHelp();
     return 0;
