@@ -305,3 +305,25 @@ it("saves and revokes UI exceptions in the record without rewriting the project 
     store.close();
   }
 });
+
+it.each([
+  ["ui-exceptions", "--allow", "low-contrast", "--reason", "Logo"],
+  ["ui-exceptions", "--revoke", "low-contrast"],
+  ["lessons", "--approve", "lesson@0123456789ab"],
+  ["lessons", "--retire", "lesson"],
+  ["lessons", "--reopen", "lesson"],
+  ["backlog", "--promote", "b1"],
+  ["backlog", "--drop", "b1"],
+  ["backlog", "--reopen", "b1"],
+])("refuses agent child CLI decisions for %s %s", async (sub, ...args) => {
+  const output = io();
+  const previous = process.env.ATOMIC_AGENT_TOOL_CHILD;
+  process.env.ATOMIC_AGENT_TOOL_CHILD = "";
+  try {
+    expect(await projectCommand([sub, join(root, "other-project"), ...args], output)).toBe(1);
+    expect(output.err()).toContain("operator's own terminal");
+  } finally {
+    if (previous === undefined) delete process.env.ATOMIC_AGENT_TOOL_CHILD;
+    else process.env.ATOMIC_AGENT_TOOL_CHILD = previous;
+  }
+});

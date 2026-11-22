@@ -227,3 +227,13 @@ function filterGitConfigEnv(
   });
   return env;
 }
+
+/** Mark subprocesses started by tools so an inherited CLI can refuse operator decisions. */
+export const AGENT_TOOL_CHILD_ENV = "ATOMIC_AGENT_TOOL_CHILD";
+
+export function markAgentToolChild(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(Object.entries(env).filter(([name]) => name.toUpperCase() !== AGENT_TOOL_CHILD_ENV)),
+    [AGENT_TOOL_CHILD_ENV]: "1",
+  };
+}

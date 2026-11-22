@@ -28,7 +28,7 @@ import { isSeaBuild } from "../../runtime/self-invocation.js";
 import { resolveWindowsCliInvocation } from "../../llm/provider/subscription-cli/windows-cli-shim.js";
 import { SubscriptionCliNotInstalledError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
-import { buildCommandEnv } from "../../sandbox/command-env.js";
+import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
 import { checkFileParses } from "../os/fs/fs-parse-check.js";
 import { type SyntaxFileResult, tailOfOutput } from "./syntax-check-types.js";
 
@@ -98,7 +98,7 @@ export function runChecker(
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-        env,
+        env: markAgentToolChild(env),
       });
     } catch (err) {
       // Windows rejects direct batch-file spawns synchronously. Invalid

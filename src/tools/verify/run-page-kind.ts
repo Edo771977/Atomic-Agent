@@ -8,6 +8,7 @@
  * headless. When none launches the run fails with `no browser
  * available: …`. It never passes for want of a browser.
  */
+import { markAgentToolChild } from "../../sandbox/command-env.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -71,6 +72,7 @@ export function defaultBrowserLauncher(
   return async () => {
     const pw = await loadPlaywrightCore();
     const reasons: string[] = [];
+    const env = markAgentToolChild(process.env);
     const args = config.browser.noSandbox ? ["--no-sandbox"] : [];
     let executable: string | null = null;
     try {
@@ -84,7 +86,7 @@ export function defaultBrowserLauncher(
     }
     if (executable !== null) {
       try {
-        return await pw.chromium.launch({ executablePath: executable, headless: true, args });
+        return await pw.chromium.launch({ executablePath: executable, headless: true, args, env });
       } catch (err) {
         reasons.push(`${executable}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
       }
@@ -92,7 +94,7 @@ export function defaultBrowserLauncher(
       reasons.push("no Chromium-family browser found (Chrome, Edge, Brave, Chromium)");
     }
     try {
-      return await pw.chromium.launch({ headless: true, args });
+      return await pw.chromium.launch({ headless: true, args, env });
     } catch (err) {
       reasons.push(`playwright chromium: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
     }

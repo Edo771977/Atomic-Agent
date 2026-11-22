@@ -1,3 +1,4 @@
+import { projectDecisionOriginRefusal } from "./project-decision-origin.js";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
@@ -439,6 +440,11 @@ async function backlogCommand(
     else positional.push(a);
   }
   if (positional.length > 1) return usage();
+  const refusal = call === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) {
+    io.stderr(`${refusal}\n`);
+    return 1;
+  }
   const folder = resolve(positional[0] ?? ".");
   const stateDir = io.stateDir();
   const options = { stateDir, records: stateDirProjectRecords(stateDir) };
@@ -534,6 +540,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
   }
   if (positional.length > 1) return usage();
 
+  const refusal = decision === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) return refuse(refusal);
   const folder = resolve(positional[0] ?? ".");
   const records = stateDirProjectRecords(io.stateDir());
   const found = records.read(folder);
@@ -629,6 +637,8 @@ function uiExceptionsCommand(args: string[], io: ProjectCommandIO): number {
     }
   }
   if (allow !== (reason !== undefined)) return invalid();
+  const refusal = target === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) return refuse(refusal);
   const projectFolder = resolve(folder ?? ".");
   const records = stateDirProjectRecords(io.stateDir());
   let result = records.read(projectFolder);
