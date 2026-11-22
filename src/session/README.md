@@ -124,4 +124,4 @@ The Markdown is author content. The person's choices are kept as `lessonCalls` i
 
 A lesson enters prompts only when the file declares `status: active` and the current fingerprint has the person's approval. These lessons are project data, stored and read separately from personal memory. Incognito chats have no persisted lesson choices.
 
-In a provider-constrained project, sending an active lesson to the director, plan reviewer or worker makes personal memory read-only for that turn. Runtime dispatch refuses memory writes and skips background reflection. Turns without lesson exposure retain their normal memory behavior. The stable tool prefix stays the same.
+The session records restricted lesson exposure on the first transcript entry of the affected turn. The marker survives reload and archiving. See [how runtime handles memory for restricted lessons](../runtime/README.md#memory-and-restricted-project-lessons).
