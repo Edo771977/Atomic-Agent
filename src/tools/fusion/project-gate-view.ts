@@ -169,7 +169,12 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     : {
         open: openBacklog(project).length,
         seeds: openSeeds(project).map((b) => ({ id: b.id, title: b.title, condition: b.condition! })),
-        promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}) })),
+        promoted: promotedForPlan(project).map((b) => ({
+          id: b.id,
+          title: b.title,
+          ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}),
+          citedBy: (plan?.rows ?? []).filter((r) => (r.backlog ?? []).includes(b.id)).map((r) => r.taskId),
+        })),
         stale: staleBacklogCalls(project),
         items: (project.backlog ?? []).map((b) => {
           const promoted = backlogStateOf(project, b.id) === "promoted";

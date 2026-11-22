@@ -163,7 +163,7 @@ describe("deferring a promoted item at the plan gate (issue #146)", () => {
     const shown = view(r);
     expect(shown.hints).toContainEqual(expect.stringMatching(/^backlog-coverage: pass: .*Not required: b1 \(deferred\)/));
     expect(shown.hints).toContain('promoted from the backlog, deferred by you: b1 "Export to PDF": this plan need not take it in; set it active again to require it');
-    expect(shown.backlog?.promoted).toEqual([{ id: "b1", title: "Export to PDF", deferred: true }]);
+    expect(shown.backlog?.promoted).toEqual([{ id: "b1", title: "Export to PDF", deferred: true, citedBy: [] }]);
     expect(shown.backlog?.items.find((b) => b.id === "b1")).toMatchObject({ state: "promoted", deferred: true });
     expect(ok(approve(r)).plan?.status).toBe("approved");
     // An old card cannot approve the plan the deferral changed.
@@ -354,5 +354,19 @@ describe("a citation on a milestone that already started (issue #146 review)", (
     p = ok(applyProjectUpdate(p, { kind: "milestone_run", id: "m1", runId: "run-1" }, 5));
     const replanned = plan(p, [row("t1", "m1"), row("t2", "m2")], 6);
     expect(promotedForPlan(replanned)).toEqual([]);
+  });
+});
+
+describe("where the person sees a promoted item's citations (issue #146 review)", () => {
+  it("the gate view lists the tasks citing each promoted item, and PLAN.md lists each task's citations", async () => {
+    const p = plan(withBacklog(["b1", "b2"]), [row("t1", "m1", ["b1"]), row("t2", "m1")]);
+    expect(view(p).backlog?.promoted).toEqual([
+      { id: "b1", title: "Export to PDF", citedBy: ["t1"] },
+      { id: "b2", title: "Dark mode", citedBy: [] },
+    ]);
+    const { renderProjectViews } = await import("./project-store-views.js");
+    const planMd = renderProjectViews({ name: "Notes", updatedAt: 1 }, p)["PLAN.md"];
+    expect(planMd).toContain("- `t1` Task t1: local:model; backlog: b1");
+    expect(planMd).toContain("- `t2` Task t2: local:model\n");
   });
 });

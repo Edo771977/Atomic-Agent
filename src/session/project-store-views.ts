@@ -85,7 +85,11 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
       planLines.push(`## ${m.title} (\`${m.id}\`, ${m.kind})`, "");
       const rows = plan.rows.filter((r) => r.milestoneId === m.id);
       if (rows.length === 0) planLines.push("(no tasks)");
-      for (const r of rows) planLines.push(`- \`${r.taskId}\` ${r.title}: ${r.worker}${r.reviewer === null ? "" : `, reviewed by ${r.reviewer}`}`);
+      for (const r of rows) {
+        // Issue #146: the backlog items the task takes in.
+        const backlog = (r.backlog ?? []).length === 0 ? "" : `; backlog: ${r.backlog!.join(", ")}`;
+        planLines.push(`- \`${r.taskId}\` ${r.title}: ${r.worker}${r.reviewer === null ? "" : `, reviewed by ${r.reviewer}`}${backlog}`);
+      }
       planLines.push("");
     }
   }

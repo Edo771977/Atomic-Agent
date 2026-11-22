@@ -76,7 +76,7 @@ describe("the gate view's backlog (issue #111)", () => {
   it("at the plan gate, a promoted item is said to wait for this plan", () => {
     const p = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
     const v = view(p);
-    expect(v.backlog!.promoted).toEqual([{ id: "b2", title: "Idea b2" }]);
+    expect(v.backlog!.promoted).toEqual([{ id: "b2", title: "Idea b2", citedBy: [] }]);
     expect(v.hints).toContain('promoted from the backlog: b2 "Idea b2": check this plan takes it in before approving');
     // Issue #146: approval needs a task that cites it; the director redrafts with one.
     const cited = up(p, { ...plan, rows: [{ ...row("t1", "m1"), backlog: ["b2"] }, row("t2", "m2")] } as ProjectUpdate);

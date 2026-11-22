@@ -95,8 +95,12 @@ export interface ProjectGateView {
 export interface ProjectGateBacklog {
   open: number;
   seeds: Array<{ id: string; title: string; condition: string }>;
-  /** Issue #146: `deferred` when the person deferred it at the plan gate (still promoted, not required in the plan). */
-  promoted: Array<{ id: string; title: string; deferred?: true }>;
+  /**
+   * Issue #146: `deferred` when the person deferred it at the plan gate
+   * (still promoted, not required in the plan); `citedBy`, the plan's
+   * tasks whose `backlog` cites it.
+   */
+  promoted: Array<{ id: string; title: string; deferred?: true; citedBy?: string[] }>;
   /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
   stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
   /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
