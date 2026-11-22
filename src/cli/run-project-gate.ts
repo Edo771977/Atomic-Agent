@@ -37,7 +37,6 @@ type DecisionStatusStep = { kind: "updated" | "failed"; text: string };
 function showWaitingGate(view: ProjectGateView, sessionId: string): string {
   return [
     formatProjectGateText(view),
-    ...(view.lessonCoverage ?? []).map((lesson) => `${lesson.id} ${lesson.title} (${lesson.deferred ? "deferred" : "active"}) · cited by ${lesson.citedBy.join(", ") || "none"}`),
     ...((view.lessonCoverage?.length ?? 0) === 0 ? [] : [
       `Change lesson status with: atomic-agent run --session ${sessionId} --defer-lesson <id> or --activate-lesson <id>.`,
     ]),

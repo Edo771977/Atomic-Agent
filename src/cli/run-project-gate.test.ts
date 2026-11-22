@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
+import { formatProjectGateText } from "../session/project-gate-text.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
 import { editProjectStatuses, settleProjectGate } from "./run-project-gate.js";
@@ -16,6 +17,12 @@ function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
 }
 
 describe("run at a project gate", () => {
+  it("includes lesson rows in the shared plan text", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, {
+      lessonCoverage: [{ id: "storage", title: "Keep local", deferred: true, citedBy: ["t1"], missingFrom: ["t2"] }],
+    });
+    expect(formatProjectGateText(view)).toMatch(/Lessons:[\s\S]*storage Keep local \(deferred\).*t1/);
+  });
   it("stops with a readable summary, the session id and how to approve", async () => {
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }));
     const step = await settleProjectGate(rt, "sess-1", "stop");
