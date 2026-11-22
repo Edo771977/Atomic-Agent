@@ -114,7 +114,7 @@ describe("backlog coverage at the plan gate (issue #146)", () => {
     const refused = approve(late);
     expect(refused.ok).toBe(false);
     if (refused.ok) return;
-    expect(refused.error.message).toContain("t1 is in a finished milestone (m1); cite b1 on a task that will run");
+    expect(refused.error.message).toContain("t1 is in a milestone that already started (m1); cite b1 on a task that will run");
     expect(ok(approve(plan(p, [row("t1", "m1"), row("t2", "m2", ["b1"])], 7))).backlogCalls?.b1?.plannedIn).toBeGreaterThan(0);
   });
 });
@@ -327,5 +327,32 @@ describe("an item stays taken in only while the plan still holds it (issue #146 
     const p = plan(withBacklog(["b1"]), [row("t1", "m1")]);
     const legacy: ProjectState = { ...p, backlogCalls: { b1: { hash: p.backlogCalls!.b1!.hash, plannedIn: 1 } } };
     expect(promotedForPlan(normalizeProject(JSON.parse(JSON.stringify(legacy)))!)).toEqual([]);
+  });
+});
+
+describe("a citation on a milestone that already started (issue #146 review)", () => {
+  it("does not cover an item: adding backlog to a dispatched task adds no work", () => {
+    let p = ok(approve(plan(withBacklog([]), [row("t1", "m1"), row("t2", "m2")])));
+    p = ok(applyProjectUpdate(p, { kind: "milestone_run", id: "m1", runId: "run-1" }, 5));
+    expect(p.milestones[0]!.state).toBe("in_progress");
+    p = ok(applyBacklogDecision(p, { id: "b1", state: "promoted" }));
+    // The director cites b1 on m1's running task.
+    const late = plan(p, [row("t1", "m1", ["b1"]), row("t2", "m2")], 6);
+    expect(late.milestones[0]!.state).toBe("in_progress");
+    const refused = approve(late);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.error.message).toContain("t1 is in a milestone that already started (m1); cite b1 on a task that will run");
+    // Cited on m2's task, which has not started, it is covered and taken in.
+    const covered = ok(approve(plan(p, [row("t1", "m1"), row("t2", "m2", ["b1"])], 6)));
+    expect(covered.backlogCalls?.b1?.plannedIn).toBe(covered.plan!.version);
+    expect(covered.milestones[1]!.backlogCited).toEqual(["b1"]);
+  });
+
+  it("an item a running milestone was approved with stays taken in while it runs", () => {
+    let p = ok(approve(plan(withBacklog(["b1"]), [row("t1", "m1", ["b1"]), row("t2", "m2")])));
+    p = ok(applyProjectUpdate(p, { kind: "milestone_run", id: "m1", runId: "run-1" }, 5));
+    const replanned = plan(p, [row("t1", "m1"), row("t2", "m2")], 6);
+    expect(promotedForPlan(replanned)).toEqual([]);
   });
 });

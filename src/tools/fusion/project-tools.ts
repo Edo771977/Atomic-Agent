@@ -615,7 +615,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
       const criteria = ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []);
-      const planChecks = evaluatePlanChecks(rows, criteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...(ctx.project === undefined ? {} : backlogCheckOptions(ctx.project, { status: "draft" })) }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const planChecks = evaluatePlanChecks(rows, criteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...(ctx.project === undefined ? {} : backlogCheckOptions(folded !== null && folded.ok ? folded.project : ctx.project, { status: "draft" })) }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       // Issue #118: the plan reviewer, before the gate reaches the person.
       const review = await reviewDraft(deps, ctx, { update, rows, criteria, planChecks });
       if (review !== undefined) update = { ...update, planReview: review, ...(review.sentBack ? { holdForReview: true as const } : {}) };

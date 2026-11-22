@@ -34,6 +34,8 @@ export interface PlanBacklogItem {
 export interface PlanBacklog {
   items: readonly PlanBacklogItem[];
   known: readonly string[];
+  /** Milestones whose work was dispatched: a citation on their tasks covers nothing. */
+  started: readonly string[];
 }
 
 /** A decision of the last approved brief with the person's status for it (issue #112). */
@@ -81,13 +83,15 @@ function decisionCoverage(rows: readonly AssignmentRow[], decisions: readonly Pl
 /**
  * Issue #146, the decision rule (#112) for the backlog: every item the
  * person promoted that no approved plan took in must be cited by a task
- * of a milestone that will still run; one that is not fails, whatever the
- * caller's policy (the person can defer it at the plan gate). A finished
- * milestone's task never counts: its work ran before the item was taken
- * in. Ids that are no backlog item warn. No result without waiting items
+ * of a milestone not started yet; one that is not fails, whatever the
+ * caller's policy (the person can defer it at the plan gate). A started
+ * milestone's task never counts: its work was dispatched before the
+ * citation (the rule is stricter than #112's for decisions, where only a
+ * finished milestone's later citations are ignored). Ids that are no backlog item warn. No result without waiting items
  * or stray ids.
  */
-function backlogCoverage(rows: readonly AssignmentRow[], backlog: PlanBacklog, finished: ReadonlyMap<string, readonly string[]>): PlanCheckResult[] {
+function backlogCoverage(rows: readonly AssignmentRow[], backlog: PlanBacklog): PlanCheckResult[] {
+  const started = new Set(backlog.started);
   const known = new Set(backlog.known);
   const strays = rows.flatMap((r) => {
     const unknown = (r.backlog ?? []).filter((id) => !known.has(id));
@@ -100,11 +104,11 @@ function backlogCoverage(rows: readonly AssignmentRow[], backlog: PlanBacklog, f
     taskIds: strays.map((s) => s.taskId),
   }];
   if (backlog.items.length === 0) return stray;
-  const cited = new Set(rows.filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
+  const cited = new Set(rows.filter((r) => !started.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
   const missing = backlog.items.filter((b) => !b.deferred && !cited.has(b.id));
   const late = (id: string) => rows
-    .filter((r) => finished.has(r.milestoneId) && (r.backlog ?? []).includes(id))
-    .map((r) => ` ${r.taskId} is in a finished milestone (${r.milestoneId}); cite ${id} on a task that will run.`)
+    .filter((r) => started.has(r.milestoneId) && (r.backlog ?? []).includes(id))
+    .map((r) => ` ${r.taskId} is in a milestone that already started (${r.milestoneId}); cite ${id} on a task that will run.`)
     .join("");
   const deferred = backlog.items.filter((b) => b.deferred);
   const aside = deferred.length === 0 ? "" : ` Not required: ${deferred.map((b) => `${b.id} (deferred)`).join(", ")}.`;
@@ -139,7 +143,7 @@ export function evaluatePlanChecks(
     { dimension: "criteria-coverage", verdict: missing.length === 0 ? "pass" : "warn", detail: missing.length === 0 ? "Every approved criterion is named by a plan check." : `No plan check names approved criteria: ${missing.map((c) => c.id).join(", ")}.`, taskIds: [] },
     { dimension: "verifiability", verdict: bare.length === 0 ? "pass" : "warn", detail: bare.length === 0 ? "No task is missing checks in a plan that uses them." : `Tasks without checks: ${bare.join(", ")}.`, taskIds: bare },
     ...decisionCoverage(rows, decisions, finished),
-    ...(options.backlog === undefined ? [] : backlogCoverage(rows, options.backlog, finished)),
+    ...(options.backlog === undefined ? [] : backlogCoverage(rows, options.backlog)),
   ];
   const promoted = results.map((r): PlanCheckResult => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
   // Issue #120: the person decides on what the plan cites; never promoted to a failure.

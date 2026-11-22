@@ -23,7 +23,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
-import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, openBacklog, promotedForPlan, type ProjectBacklogDraft } from "./project-backlog.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, milestoneStarted, openBacklog, promotedForPlan, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
@@ -1766,6 +1766,7 @@ export function backlogCheckOptions(project: BacklogCallsView, plan: Pick<Projec
     backlog: {
       items: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, deferred: project.backlogCalls?.[b.id]?.deferred === true })),
       known: (project.backlog ?? []).map((b) => b.id),
+      started: (project.milestones ?? []).filter(milestoneStarted).map((m) => m.id),
     },
   };
 }
@@ -2239,7 +2240,7 @@ function planUpdate(
     rows,
     ...(referenceCheck === undefined ? {} : { referenceCheck }),
     ...(review === undefined ? {} : { review }),
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...backlogCheckOptions(project, { status: "draft" }) }, planDecisionsOf(project), finishedCitationsOf(milestones)),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...backlogCheckOptions({ ...project, plan: { ...project.plan, rows } as ProjectPlan, milestones }, { status: "draft" }) }, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
