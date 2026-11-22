@@ -1,4 +1,5 @@
-import { reviewerProjectLessons, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
+import { recordRestrictedProjectLessonExposure } from "../../session/project-lesson-exposure.js";
+import { lessonSourceIsRestricted, reviewerProjectLessons, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
 import type { ProjectLessonSource } from "../../session/project-lessons.js";
 import { TEAM_MEMBER_PROVIDER_MODEL } from "../../config/llm-fusion-team-config.js";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
@@ -327,6 +328,9 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
       signal: signal ?? new AbortController().signal,
       sessionId,
     });
+    if (run.answered > 0 && selection?.data.length && lessonSource !== undefined && lessonSourceIsRestricted(lessonSource)) {
+      recordRestrictedProjectLessonExposure();
+    }
     deps.onSpend?.(sessionId, { costUsd: run.costUsd, sent: run.answered > 0, local: deps.isLocal?.(member) ?? false }, member);
     return run.outcome === "reviewed"
       ? { outcome: "reviewed", reviewer: member.ref, results: run.results, costUsd: run.costUsd, ...(selection === undefined ? {} : { lessonsBasis: selection.basis }) }

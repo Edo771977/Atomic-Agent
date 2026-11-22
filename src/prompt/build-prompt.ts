@@ -1,3 +1,4 @@
+import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { isIncognitoSession } from "../session/incognito.js";
 import { readProjectRef } from "../session/session-project-store.js";
 import { projectLessonSelection, projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
@@ -281,8 +282,11 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   const lessonSource = input.session.project?.brief?.status === "approved" && input.session.project.cancelledAt === undefined &&
     !isIncognitoSession(input.session) ? readProjectRef(input.session) : null;
   const projectLessons = projectLessonSelection(lessonSource === null ? [] : projectLessonsForProvider(lessonSource, input.modelMode?.providerId));
+  const restrictedLessonData = projectLessons.data.length > 0 && lessonSource !== null &&
+    resolveProjectConstraint(config, lessonSource.folder) !== undefined
+    ? { restrictedProjectLessonData: true as const } : {};
   if (input.modelMode?.mode === "cloud") {
-    return buildCloudPrompt(input, stablePrefix, projectLessonDataBlock(projectLessons.data, projectLessons.omitted));
+    return { ...buildCloudPrompt(input, stablePrefix, projectLessonDataBlock(projectLessons.data, projectLessons.omitted)), ...restrictedLessonData };
   }
 
   const sessionParts = buildSessionSectionParts(input.session, limits.session);
@@ -646,6 +650,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   };
 
   return {
+    ...restrictedLessonData,
     text,
     stablePrefix,
     tail,

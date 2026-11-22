@@ -1,3 +1,4 @@
+import { restrictedProjectLessonsExposed } from "../../session/project-lesson-exposure.js";
 import { chatLinesOf, groundingTextsOf } from "../../memory/name-grounding.js";
 import type {
   AgentLoopDependencies,
@@ -479,7 +480,7 @@ export function finalizeFailedAgentTurn(
  * (`ephemeral`) and not a `memoryReadOnly` turn (a `skill eval` run).
  */
 function writesMemory(options: Pick<RunTurnOptions, "ephemeral" | "memoryReadOnly">): boolean {
-  return options.ephemeral !== true && options.memoryReadOnly !== true;
+  return options.ephemeral !== true && options.memoryReadOnly !== true && !restrictedProjectLessonsExposed();
 }
 
 /**

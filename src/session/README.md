@@ -123,3 +123,5 @@ Invalid files are skipped whole and reported. All files with the same parsed ID 
 The Markdown is author content. The person's choices are kept as `lessonCalls` in the folder's protected decision record under `<stateDir>/project-decisions/`. Approve or retire a lesson to bind the choice to the SHA-256 fingerprint of its current Markdown, including the front matter and section text. An edit makes the choice stale. A missing or invalid lesson also leaves a stale choice that can be cleared by reopening it. Copying the folder starts with fresh choices.
 
 A lesson enters prompts only when the file declares `status: active` and the current fingerprint has the person's approval. These lessons are project data, stored and read separately from personal memory. Incognito chats have no persisted lesson choices.
+
+In a provider-constrained project, sending an active lesson to the director, plan reviewer or worker makes personal memory read-only for that turn. Runtime dispatch refuses memory writes and skips background reflection. Turns without lesson exposure retain their normal memory behavior. The stable tool prefix stays the same.

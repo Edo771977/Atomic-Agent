@@ -1,3 +1,4 @@
+import { trackProjectLessonExposure } from "../session/project-lesson-exposure.js";
 import { loopDetectorVerdict } from "../llm/reliability/failure-catalog.js";
 import { resolveModelMode } from "../llm/model-mode.js";
 import { prepareStepPrompt, refreshStepWorkspace } from "./step/step-inference.js";
@@ -124,7 +125,7 @@ export class AgentLoop {
     this.deps.forgetDeclinedApprovals?.(session.id);
     this.deps.clearUntrustedContent?.(session.id);
     try {
-      return await this.runTurnInner(session, options);
+      return await trackProjectLessonExposure(() => this.runTurnInner(session, options));
     } finally {
       this.deps.compaction?.close(session.id);
       // Every ordinary exit already closed the window through

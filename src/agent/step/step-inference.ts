@@ -1,3 +1,4 @@
+import { recordRestrictedProjectLessonExposure } from "../../session/project-lesson-exposure.js";
 import type { StepContext, StepDependencies, LlmStreamParams } from "./step-contract.js";
 import { getConfig } from "../../config/index.js";
 import { NO_SERVER_TEMPLATE, resolveServerTemplatePolicy, thinkingDisabledOnBuiltPrompt } from "../../llm/server-template-policy.js";
@@ -414,6 +415,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
       if (next.cloudContext) ctx.session = { ...ctx.session, cloudContext: next.cloudContext };
       deps.onEvent?.({ type: "prompt_built", prompt: next, slotId: slot.slotId });
       if (next.contextBudget) assertContextCapacity(next.text + JSON.stringify(wire?.tools ?? llmParams.tools ?? []), next.contextBudget);
+      if (next.restrictedProjectLessonData) recordRestrictedProjectLessonExposure();
       return { prompt: next.text, messages: next.messages, contextBudget: next.contextBudget,
         ...(wire ? { grammar: wire.grammar, tools: wire.tools, toolWireNames: wire.toolWireNames, toolChoice: wire.toolChoice, parallelToolCalls: wire.parallelToolCalls } : {}),
         ...(template.useServerTemplate ? { chat: { system: next.stablePrefix, user: next.tail,
@@ -469,6 +471,10 @@ export async function runInitialCompletion(
         reportWait,
       )
     : await deps.llmComplete(llmParams);
+  if (prompt.restrictedProjectLessonData &&
+      (completion.servedModelMode === undefined || completion.servedModelMode.providerId === prompt.modelMode?.providerId)) {
+    recordRestrictedProjectLessonExposure();
+  }
   const durationMs = Date.now() - startedAt;
   // How much of the completion was thinking, in the budget's units, so
   // a trace shows a step that hit the reasoning bound (`reasoningTokens`

@@ -17,6 +17,10 @@ export function projectLessonsForProvider(source: ProjectLessonSource, providerI
   return activeProjectLessons(source, config.paths.stateDir);
 }
 
+export function lessonSourceIsRestricted(source: ProjectLessonSource): boolean {
+  return resolveProjectConstraint(getConfig(), source.folder) !== undefined;
+}
+
 export function reviewerProjectLessons(source: ProjectLessonSource, providerId: string) {
   const config = getConfig();
   const active = activeProjectLessons(source, config.paths.stateDir);
