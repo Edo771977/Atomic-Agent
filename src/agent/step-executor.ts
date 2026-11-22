@@ -1,7 +1,10 @@
 export type { ApprovalBarrierReport } from "./step/step-batch-policy.js";
 export { approvalBarrierSegments, emptyApprovalBarrierReport, formatApprovalBarrierNotice } from "./step/step-batch-policy.js";
 import { chatLinesOf, groundingTextsOf } from "../memory/name-grounding.js";
+import { restrictedProjectLessonsExposed } from "../session/project-lesson-exposure.js";
+import { memoryReadOnlyToolFilter } from "./tool-resource-class.js";
 import { isIncognitoSession } from "../session/incognito.js";
+import { readProjectRef } from "../session/session-project-store.js";
 import { createStepBatchPolicy, executeCallsInOrder, emptyApprovalBarrierReport, executeWithApprovalBarriers, formatApprovalBarrierNotice } from "./step/step-batch-policy.js";
 import { parseStepBatch, finishStepBatchRepair } from "./step/step-batch-parsing.js";
 import { prepareStepDispatch } from "./step/step-evidence.js";
@@ -266,6 +269,8 @@ async function executeStepInner(
     deps.profileWindowApplies === false
       ? deps.contextWindow
       : (deps.profile.contextWindow ?? deps.contextWindow);
+  const projectRef = ctx.session.project === undefined ? null : readProjectRef(ctx.session);
+  const toolFilter = restrictedProjectLessonsExposed() ? memoryReadOnlyToolFilter(ctx.toolFilter) : ctx.toolFilter;
   const batchOutcome = await runBatch(inputs, deps.registry, {
     ...(ctx.workspace ? { workspaceSkills: ctx.workspace.skills } : {}),
     ...(typeof stepWindow === "number" && stepWindow > 0 ? { contextWindowTokens: stepWindow } : {}),
@@ -283,11 +288,11 @@ async function executeStepInner(
     ...(deps.providerId !== undefined ? { providerId: deps.providerId } : {}),
     // The fusion project's gate is enforced at dispatch (issue #39).
     ...(ctx.session.project !== undefined ? { project: ctx.session.project } : {}),
-    ...(ctx.session.projectRef !== undefined ? { projectRef: ctx.session.projectRef } : {}),
+    ...(projectRef === null ? {} : { projectRef }),
     ...(deps.tracker ? { tracker: deps.tracker } : {}),
     ...(ctx.terminalOnly ? { terminalOnly: true } : {}),
     ...(ctx.toolSet !== undefined ? { toolSet: ctx.toolSet } : {}),
-    ...(ctx.toolFilter !== undefined ? { toolFilter: ctx.toolFilter } : {}),
+    ...(toolFilter === undefined ? {} : { toolFilter }),
     ...(deps.isPlanMode ? { isPlanMode: deps.isPlanMode } : {}),
     ...(deps.isFusionOrchestrator
       ? {

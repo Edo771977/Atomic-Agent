@@ -442,7 +442,11 @@ export type ProjectGate =
   | { kind: "plan" }
   | { kind: "milestone"; id: string };
 
+/** Current on-disk lesson coverage. Symbols stay out of project and session JSON. */
+export const currentProjectLessonsBasis = Symbol("currentProjectLessonsBasis");
+
 export interface ProjectState {
+  [currentProjectLessonsBasis]?: string;
   brief?: ProjectBrief;
   plan?: ProjectPlan;
   /** In plan order; the order milestones are approved and run in. */
@@ -884,7 +888,7 @@ export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[
  * text, which a file edit changes). A change of one at the gate makes the
  * review stale, like a row edit.
  */
-export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls">): PlanReviewPersonCalls {
+export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlogStates" | "backlogCalls" | typeof currentProjectLessonsBasis>): PlanReviewPersonCalls {
   // The record's own calls, whatever the items' text reads now: an edit of project.json (no person) never changes them.
   const deferred = Object.entries(project.backlogCalls ?? {})
     .filter(([id, call]) => call.deferred === true && project.backlogStates?.[id] === "promoted")
@@ -892,6 +896,7 @@ export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatu
   return {
     ...(project.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
     ...(deferred.length === 0 ? {} : { backlogDeferred: deferred }),
+    ...(project[currentProjectLessonsBasis] === undefined ? {} : { lessonsBasis: project[currentProjectLessonsBasis] }),
   };
 }
 

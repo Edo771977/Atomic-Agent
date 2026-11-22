@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+import type { ProjectLesson } from "../../session/project-lessons.js";
+import { projectLessonsForTask } from "./worker-project-lessons.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -37,6 +40,32 @@ const TASK = {
 };
 
 describe("renderWorkerBrief", () => {
+  it("includes only lessons matching declared files and checks attributed to the task", () => {
+    const lesson = (id: string, touches: string[]): ProjectLesson => ({
+      id, title: id, touches, source: "person", declaredStatus: "active", always: false, approvedByPerson: false,
+      sections: { decided: "", watchOut: "", triedAndRuledOut: "" }, hash: "",
+    });
+    const workingDir = resolve("project");
+    const task = { ...TASK, files: ["src/main.ts"] };
+    const contract = { checks: [
+      { task: "t1", kind: "document", path: "docs/guide.md" },
+      { task: "t2", kind: "document", path: "docs/other.md" },
+    ] };
+    const lessons = projectLessonsForTask([
+      lesson("file-match", ["src/main.ts"]), lesson("check-match", ["docs/guide.md"]),
+      lesson("other-task", ["docs/other.md"]), lesson("empty-touches", []),
+      lesson("prefix-near-miss", ["src/mai"]),
+    ], task, contract, workingDir);
+    expect(lessons.map((item) => item.id)).toEqual(["file-match", "check-match"]);
+    const originalTask = { ...TASK, files: ["/ORIGINAL/src/main.ts", "/outside/src/main.ts"] };
+    const matched = projectLessonsForTask([
+      lesson("directory-match", ["SRC/"]), lesson("no-glob", ["src/*.ts"]),
+      lesson("check-match", ["docs/guide.md"]),
+    ], originalTask, { checks: [{ task: "t1", kind: "document", path: "/original/docs/guide.md" }] },
+      "/worktree", "/original", "darwin");
+    expect(matched.map((item) => item.id)).toEqual(["directory-match", "check-match"]);
+  });
+
   it("opens by naming the frame the worker is in", () => {
     // A worker session has no transcript, so an instruction that reads
     // like the middle of a conversation gets answered as if it were.

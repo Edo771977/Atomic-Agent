@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeStep } from "./step-executor.js";
-import { ToolRegistry } from "../tools/tool-registry.js";
+import { ToolRegistry, type ToolContext } from "../tools/tool-registry.js";
 import { compressToolResult } from "../compressor/result-compressor.js";
 import { SlotManager } from "../llm/slot-manager.js";
 import {
@@ -76,13 +76,21 @@ describe("executeStep rare tool autoload", () => {
     grammarsDir = join(process.cwd(), "grammars");
   });
 
-  it("injects loadedTools entry when a rare tool execution throws", async () => {
+  const ref = { folder: "/w", id: "project", revision: 1, decisionSeq: 0 };
+  it.each([
+    { name: "with a valid binding", project: true, incognito: false, storedRef: ref, expected: ref },
+    { name: "in incognito with a valid binding", project: true, incognito: true, storedRef: ref, expected: ref },
+    { name: "with a stale binding and no project", project: false, incognito: false, storedRef: ref, expected: undefined },
+    { name: "with a malformed binding", project: true, incognito: false, storedRef: { ...ref, folder: 42 }, expected: undefined },
+  ])("preserves rare-tool autoload and passes only a valid project binding $name", async ({ project, incognito, storedRef, expected }) => {
+    let toolContext: ToolContext | undefined;
     const registry = new ToolRegistry();
     registry.register({
       name: "os.git.show",
       description: "test",
       readonly: true,
-      async run() {
+      async run(_args, context) {
+        toolContext = context;
         throw new Error("invalid args for test");
       },
     });
@@ -100,7 +108,13 @@ describe("executeStep rare tool autoload", () => {
     });
 
     const grammar = await buildGrammar(PLAIN_INSTRUCT_PROFILE, grammarsDir);
-    const session = createEmptySessionState({ id: "s-auto", workingDir: "/w" });
+    const session = createEmptySessionState({
+      id: "s-auto", workingDir: "/w",
+      ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}),
+    });
+    if (project) session.project = { gate: { kind: "none" }, milestones: [] };
+    // Stored sessions can contain older or malformed JSON.
+    Object.assign(session, { projectRef: storedRef });
     const completionBody = JSON.stringify({
       tool: "os.git.show",
       args: { revision: "HEAD" },
@@ -139,6 +153,9 @@ describe("executeStep rare tool autoload", () => {
       },
     );
 
+    expect(toolContext).toBeDefined();
+    expect(toolContext?.projectRef).toEqual(expected);
+    expect(toolContext?.incognito === true).toBe(incognito);
     expect(outcome.toolResults).toHaveLength(1);
     expect(outcome.toolResults[0]!.status).toBe("error");
     const names = outcome.nextSession.loadedTools.map((t) => t.name);

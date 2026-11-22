@@ -1,3 +1,4 @@
+import { rememberRestrictedProjectLessonExposure, trackProjectLessonExposure } from "../session/project-lesson-exposure.js";
 import { loopDetectorVerdict } from "../llm/reliability/failure-catalog.js";
 import { resolveModelMode } from "../llm/model-mode.js";
 import { prepareStepPrompt, refreshStepWorkspace } from "./step/step-inference.js";
@@ -124,7 +125,7 @@ export class AgentLoop {
     this.deps.forgetDeclinedApprovals?.(session.id);
     this.deps.clearUntrustedContent?.(session.id);
     try {
-      return await this.runTurnInner(session, options);
+      return await trackProjectLessonExposure(() => this.runTurnInner(session, options));
     } finally {
       this.deps.compaction?.close(session.id);
       // Every ordinary exit already closed the window through
@@ -148,6 +149,7 @@ export class AgentLoop {
     session: SessionState,
     options: RunTurnOptions,
   ): Promise<RunTurnResult> {
+    const turnTranscriptStart = session.turns.length;
     const preparedTurn = prepareAgentTurn(session, options, this.deps);
     let state = preparedTurn.state;
     const {
@@ -852,7 +854,7 @@ export class AgentLoop {
           turn.engineWaitVerdicts = null;
           turn.lockNoProcessSinceWaitedMs = null;
         }
-        state = outcome.nextSession;
+        state = rememberRestrictedProjectLessonExposure(outcome.nextSession, turnTranscriptStart);
         state = countReplanCadenceStep(state, replanEveryNSteps, outcome.toolResults);
         turn.stepsTaken += 1;
         // A step that came back ends a run of out-of-memory restarts.
@@ -1281,7 +1283,7 @@ export class AgentLoop {
             category: "transport", cancelled: false, creditRefused: false,
           }, { state, stepIndex: i }, this.deps, turn);
           return finalizeFailedAgentTurn({
-            state, options, cancelled: false, category: failed.category,
+            state, options, turnTranscriptStart, cancelled: false, category: failed.category,
             runError: failed.runError, creditRefused: false,
             stepsTaken: turn.stepsTaken, turnIndex, turnStartedAt, surfacedLessonIds, toolsRan,
             ...(this.deps.priceCompletion ? { spendUsd: turn.spendUsd } : {}),
@@ -1296,7 +1298,7 @@ export class AgentLoop {
           });
         }
         return finalizeFailedAgentTurn({
-          state, options, cancelled: decision.cancelled, category: decision.category,
+          state, options, turnTranscriptStart, cancelled: decision.cancelled, category: decision.category,
           runError: decision.runError, creditRefused: decision.creditRefused,
           stepsTaken: turn.stepsTaken, turnIndex, turnStartedAt, surfacedLessonIds, toolsRan,
           ...(this.deps.priceCompletion ? { spendUsd: turn.spendUsd } : {}),
@@ -1306,7 +1308,7 @@ export class AgentLoop {
     }
 
     return finalizeAgentTurn({
-      state, options, reason: turn.reason, stepsTaken: turn.stepsTaken, turnIndex, turnStartedAt,
+      state, options, turnTranscriptStart, reason: turn.reason, stepsTaken: turn.stepsTaken, turnIndex, turnStartedAt,
       taskStartedAt, stepCeiling, stopCause: turn.stopCause, creditStop: turn.creditStop, endedOnFinalizationStep: turn.endedOnFinalizationStep,
       ...(turn.turnBudgetStop !== null ? { turnBudget: {
         // The report's own priced cost is overspend on top of the refusal's figure.

@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resetConfigCache } from "../config/index.js";
+import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { readProjectLessons } from "../session/project-lessons.js";
+import { createSessionProjectStore } from "../session/session-project-store.js";
+import type { AgentLoopDependencies } from "./agent-contract.js";
 import { AgentLoop } from "./agent-loop.js";
 import type { MemoryContextProvider } from "./agent-loop.js";
 import { buildDefaultToolRegistry } from "../tools/index.js";
@@ -99,18 +104,21 @@ function makeLoop(deps: {
   reflectionRunner: ReflectionRunner;
   profileFactsProvider?: () => readonly ProfileFact[];
   logger?: StructuredLogger;
+  llmComplete?: AgentLoopDependencies["llmComplete"];
+  reflectionSegmentation?: AgentLoopDependencies["reflectionSegmentation"];
 }): AgentLoop {
   return new AgentLoop({
     registry: buildDefaultToolRegistry(),
     slotManager: new SlotManager(2),
     grammar: 'root ::= "ok"',
-    llmComplete: async () =>
-      makeCompletion(JSON.stringify({ tool: "reply", args: { text: "ok" } })),
+    llmComplete: deps.llmComplete ?? (async () =>
+      makeCompletion(JSON.stringify({ tool: "reply", args: { text: "ok" } }))),
     toolDescriptors: TOOLS,
     capabilities: CAPS,
     skillCatalog: SKILLS,
     memoryContextProvider: NOOP_PROVIDER,
     reflectionRunner: deps.reflectionRunner,
+    ...(deps.reflectionSegmentation === undefined ? {} : { reflectionSegmentation: deps.reflectionSegmentation }),
     ...(deps.profileFactsProvider
       ? { profileFactsProvider: deps.profileFactsProvider }
       : {}),
@@ -170,6 +178,68 @@ describe("AgentLoop reflection is background work, never a turn hazard", () => {
 
   afterEach(() => {
     rmSync(workingDir, { recursive: true, force: true });
+  });
+
+  it("only suppresses reflection on turns exposed to a restricted project lesson", async () => {
+    const stateDir = join(workingDir, "state");
+    mkdirSync(stateDir);
+    vi.stubEnv("ATOMIC_AGENT_STATE_DIR", stateDir);
+    writeFileSync(join(stateDir, "config.json"), JSON.stringify({
+      projects: { constraints: { [workingDir]: { allowedProviders: ["local-llama"] } } },
+    }));
+    resetConfigCache();
+    try {
+      const records = stateDirProjectRecords(stateDir);
+      const store = createSessionProjectStore({ stateDir, records });
+      const created = store.commit(createEmptySessionState({ id: "protected", workingDir }), {
+        gate: { kind: "none" }, milestones: [],
+        brief: { version: 1, status: "approved", what: "Build", users: "Team", how: "Code", successCriteria: [], draftedAfterUntrusted: false },
+      });
+      if (!created.ok) throw new Error(created.problem.message);
+      const reflect = vi.fn(async () => {});
+      const sent: string[] = [];
+      const prefixes: string[] = [];
+      const loop = makeLoop({
+        reflectionRunner: { reflect, abortPending() {} },
+        reflectionSegmentation: { enabled: true, triggerEveryTurns: 1, windowTurns: 2 },
+        llmComplete: async (args) => {
+          sent.push(args.prompt);
+          prefixes.push(args.messages?.system ?? "");
+          return makeCompletion(JSON.stringify({ tool: "reply", args: { text: "ok" } }));
+        },
+      });
+      const options = {
+        userMessage: "hello", maxSteps: 2, signal: new AbortController().signal,
+        modelModePolicy: { activeProviderId: "local-llama", providers: [] },
+      };
+      await loop.runTurn(created.session, options);
+      expect(reflect).toHaveBeenCalledTimes(1);
+      const dir = join(workingDir, ".atomic", "project", "lessons");
+      mkdirSync(dir);
+      writeFileSync(join(dir, "lesson.md"), "---\nid: lesson\ntitle: Restricted lesson\nsource: person\ntouches: []\nstatus: active\nalways: false\n---\n## Decided\nKeep it local\n## Tried and ruled out\n## Watch out\n");
+      const record = records.read(workingDir);
+      if (!record.ok || record.record === null) throw new Error("Need project record");
+      const { id, seq, state } = record.record;
+      const lesson = readProjectLessons(workingDir).lessons[0]!;
+      expect(records.write(workingDir, id, seq, state, undefined, { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
+      const exposed = await loop.runTurn(created.session, options);
+      expect(sent[0]).not.toContain("Restricted lesson");
+      expect(sent[1]).toContain("Restricted lesson");
+      expect(prefixes[0]).toBe(prefixes[1]);
+      expect(reflect).toHaveBeenCalledTimes(1);
+      const after = records.read(workingDir);
+      if (!after.ok || after.record === null) throw new Error("Need project record");
+      expect(records.write(workingDir, id, after.record.seq, after.record.state, undefined, { id: lesson.id, call: null }).ok).toBe(true);
+      const reloaded = JSON.parse(JSON.stringify(exposed.session));
+      const following = await loop.runTurn(reloaded, options);
+      expect(sent[2]).not.toContain("Restricted lesson");
+      expect(reflect).toHaveBeenCalledTimes(1);
+      await loop.runTurn(following.session, options);
+      expect(reflect).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllEnvs();
+      resetConfigCache();
+    }
   });
 
   it("a rejecting reflectionRunner raises no unhandled rejection", async () => {

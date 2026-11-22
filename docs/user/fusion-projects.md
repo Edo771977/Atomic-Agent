@@ -27,11 +27,21 @@ Open `.atomic/project/BRIEF.md`, `PLAN.md` or `STATUS.md` for a readable snapsho
 
 Approvals, decision status, milestone progress and evidence are kept in the Atomic Agent data directory. Editing the saved brief or plan outside Atomic Agent reopens the affected gate for your approval. Copying the folder gives you the project content with fresh gates and no carried approvals. Deleting a chat leaves its folder's project available to resume.
 
-## List project lessons
+## Approve project lessons
 
-Save lessons as Markdown files in `.atomic/project/lessons/` so they travel with the project folder. Run `atomic-agent project lessons ./my-project` to see the lessons and validation problems. Omit the folder to use your current directory, or add `--json` for structured output.
+Save lessons as Markdown files in `.atomic/project/lessons/` so they travel with the project folder. To see the lessons, their effective status and any stale choices, run `atomic-agent project lessons ./my-project`. Omit the folder to use the current directory, or add `--json` for structured output.
 
-The command only reads the chosen project's lesson files. Even a file marked `active` has no approval from you in this phase. Lessons are currently for inspection and have no effect on prompts or plans. See the [lesson file format](../../src/session/README.md#project-lesson-files).
+Open the project in a regular chat. Between turns, use these commands from your terminal.
+
+~~~sh
+atomic-agent project lessons ./my-project --approve local-storage@0123456789ab
+atomic-agent project lessons ./my-project --retire local-storage
+atomic-agent project lessons ./my-project --reopen local-storage
+~~~
+
+Replace the example fingerprint with the one displayed for the lesson. Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
+
+The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to flag a binding choice for planning and review. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
 ## Read the plan checks
 

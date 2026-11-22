@@ -120,6 +120,32 @@ describe("plan reviewer answer", () => {
 
 describe("reviewPlan", () => {
   const member = m("cloud:model-r");
+  it.each(["Active lessons were not supplied by the folder policy.", "3 more lessons were not shown."])(
+    "reports incomplete lesson coverage: %s", async (lessonOmission) => {
+      const complete = fakeReviewer(answer());
+      const run = await reviewPlan({ input: input([checked("t1")], { lessonOmission }), member, pricing: undefined, complete, signal, sessionId: "s" });
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining(lessonOmission) }));
+      expect(run).toMatchObject({ outcome: "reviewed", results: expect.arrayContaining([
+        expect.objectContaining({ dimension: "lessons", verdict: "warn", detail: lessonOmission }),
+      ]) });
+    },
+  );
+
+  it("reports a task that repeats a ruled-out approach", async () => {
+    const lessons = [{ id: "storage", title: "Storage", always: true, sections: { triedAndRuledOut: "Use X", decided: "Use Y", watchOut: "" } }];
+    const complete: EscalationComplete = vi.fn(async ({ prompt }) => {
+      const conflicts = prompt.includes('"triedAndRuledOut": "Use X"') && prompt.includes('"title": "Use X"');
+      return { content: answer(conflicts ? { lessons: { verdict: "fail", detail: "X was ruled out", taskIds: ["t1"] } } : {}) };
+    });
+    const run = await reviewPlan({ input: input([row("t1", { title: "Use X" })], { lessons }), member, pricing: undefined, complete, signal, sessionId: "s" });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringMatching(/EXTERNAL CONTENT[\s\S]*"always": true/),
+    }));
+    expect(run).toMatchObject({ outcome: "reviewed", results: expect.arrayContaining([
+      { dimension: "lessons", verdict: "fail", detail: "X was ruled out", taskIds: ["t1"] },
+    ]) });
+  });
+
   it("stores the model's own verdicts; the facts floor fails criteria coverage and verifiability when used", async () => {
     const rows = [checked("t1"), row("t2")];
     const run = await reviewPlan({ input: input(rows, { criteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Keys" }] }), member, pricing: undefined, complete: fakeReviewer(answer()), signal, sessionId: "s" });
@@ -167,6 +193,19 @@ describe("plan review record", () => {
   const facts = { criteria: [{ id: "c1" }], planChecks: [] };
   const results = PLAN_REVIEW_DIMENSIONS.map((dimension): PlanReviewResult => ({ dimension, verdict: dimension === "size" ? "fail" : "pass", detail: "d", taskIds: dimension === "size" ? ["t2"] : [] }));
   const record: PlanReviewRecord = { outcome: "reviewed", reviewer: "cloud:r", results, round: 3, sentBack: false, basis: planReviewBasis(rows, ids), costUsd: 0.01 };
+  it("makes a passing review stale when a lesson is activated", () => {
+    const review = { ...record, results: record.results.map((result) => ({ ...result, verdict: "pass" as const })), lessonsBasis: "0000000000000000" };
+    expect(readPlanReviewRecord({ ...review, reviewerProviderId: "actual-provider" })).toMatchObject({ lessonsBasis: review.lessonsBasis, reviewerProviderId: "actual-provider" });
+    expect(planReviewHints({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: "1111111111111111" } })[0]).toMatch(/stale.*the lessons changed/);
+  });
+  it("clears a lesson review block when the rejected approach's lesson is retired", () => {
+    const review = {
+      ...record, lessonsBasis: "1111111111111111",
+      results: record.results.map((result): PlanReviewResult => ({ ...result, verdict: result.dimension === "lessons" ? "fail" : "pass" })),
+    };
+    expect(openPlanReviewFails({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: review.lessonsBasis } }).map((r) => r.dimension)).toEqual(["lessons"]);
+    expect(openPlanReviewFails({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: "0000000000000000" } })).toEqual([]);
+  });
   it("reads back what it wrote and refuses a malformed one", () => {
     expect(readPlanReviewRecord(JSON.parse(JSON.stringify(record)))).toEqual(record);
     expect(readPlanReviewRecord({ ...record, results: results.slice(1) })).toBeUndefined();
@@ -176,7 +215,7 @@ describe("plan review record", () => {
   it("names open fails while fresh, and reads as stale once the rows change", () => {
     expect(openPlanReviewFails({ rows, review: record }, ids, facts).map((r) => r.dimension)).toEqual(["size"]);
     expect(planReviewBlocks({ rows, review: record }, ids, facts)).toEqual([{ taskId: "t2", reason: expect.stringContaining("plan review: size: fail") }]);
-    expect(planReviewHints({ rows, review: record }, ids, facts)[0]).toMatch(/plan review 3 by cloud:r: 7 pass, 0 warn, 1 fail; open notes/);
+    expect(planReviewHints({ rows, review: record }, ids, facts)[0]).toMatch(/plan review 3 by cloud:r: 8 pass, 0 warn, 1 fail; open notes/);
     const changed = [checked("t1"), { ...checked("t2"), title: "Build a smaller t2" }];
     expect(openPlanReviewFails({ rows: changed, review: record }, ids, facts)).toEqual([]);
     expect(planReviewHints({ rows: changed, review: record }, ids, facts)).toEqual([expect.stringMatching(/stale/), expect.stringMatching(/^notes on an earlier version: plan review: size: fail/)]);
