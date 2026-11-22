@@ -257,3 +257,14 @@ export function markPromotedPlanned(project: ProjectState, version: number): Pro
   for (const b of waiting) calls[b.id] = { ...calls[b.id]!, plannedIn: version };
   return { ...project, backlogCalls: calls };
 }
+
+/**
+ * A surface's request for {@link applyBacklogDecision} (`item`, `state`),
+ * shape only: the HTTP route and the sidecar command. A message when malformed.
+ */
+export function parseBacklogDecision(raw: Record<string, unknown>): ProjectBacklogDecision | string {
+  const id = typeof raw.item === "string" ? raw.item.trim() : "";
+  if (id.length === 0 || id.length > PROJECT_LIMITS.id) return "item must be a backlog item's id";
+  if (raw.state !== "promoted" && raw.state !== "dropped" && raw.state !== "open") return "state must be promoted, dropped or open";
+  return { id, state: raw.state };
+}
