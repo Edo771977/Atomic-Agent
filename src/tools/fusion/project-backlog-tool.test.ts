@@ -70,8 +70,10 @@ describe("project.backlog.add: the tool", () => {
     const result = await tool.run({ title: "Export PDF", source: "director", condition: "when the report page exists" }, { ...ctx, project: p });
     expect(result.status).toBe("ok");
     const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
-    expect(update).toEqual({ kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director", condition: "when the report page exists" } });
-    expect(result.summary).toMatch(/b1/);
+    // The id is the fold's: two calls of one step never share one.
+    expect(update).toEqual({ kind: "backlog_add", item: { title: "Export PDF", source: "director", condition: "when the report page exists" } });
+    expect(result.summary).not.toMatch(/\bb1\b/);
+    expect(result.summary).toMatch(/proposed/);
     expect(result.summary).toMatch(/only the person/i);
     expect(result.summary).toMatch(/seed/i);
   });
@@ -120,5 +122,18 @@ describe("project.backlog.add: who sees it", () => {
     expect(d).toBeDefined();
     expect(d!.argsJsonSchema).toBeDefined();
     expect(listKnownToolResourceClasses()[PROJECT_BACKLOG_ADD_TOOL]).toBe("pure_read");
+  });
+});
+
+describe("project.backlog.add: ids in one step (review)", () => {
+  it("two calls from the same step's snapshot fold as two items with their own ids", async () => {
+    const tool = buildProjectBacklogTool();
+    const session: SessionState = { ...createEmptySessionState({ id: "s", workingDir: "/tmp/p" }), project: project() };
+    const a = await tool.run({ title: "First", source: "director" }, { ...ctx, project: session.project });
+    const b = await tool.run({ title: "Second", source: "director" }, { ...ctx, project: session.project });
+    const once = foldProjectUpdate(session, a, NOW);
+    const twice = foldProjectUpdate(once.session, b, NOW);
+    expect(twice.result.status).toBe("ok");
+    expect(twice.session.project?.backlog?.map((x) => `${x.id} ${x.title}`)).toEqual(["b1 First", "b2 Second"]);
   });
 });

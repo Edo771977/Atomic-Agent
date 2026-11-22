@@ -1,5 +1,5 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
-import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, nextBacklogId, type ProjectBacklogDraft } from "../../session/project-backlog.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, type ProjectBacklogDraft } from "../../session/project-backlog.js";
 import type { ProjectBacklogSource, ProjectUpdate } from "../../session/session-project.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import { PROJECT_BACKLOG_ADD_TOOL, PROJECT_UPDATE_DETAIL } from "./project-tools.js";
@@ -68,13 +68,14 @@ export function buildProjectBacklogTool(): ToolDefinition {
     async run(rawArgs, ctx) {
       const parsed = parseProjectBacklogArgs(rawArgs);
       if (!parsed.ok) return refuse(parsed.problems);
-      const item: ProjectBacklogDraft = { id: nextBacklogId(ctx.project), ...parsed.item };
+      // No id: the fold allocates it against the project as it stands then.
+      const item: ProjectBacklogDraft = { ...parsed.item };
       // The fold is the authority; checked here too so the reason reaches the director at once.
       const check = applyBacklogAdd(ctx.project, item, 0);
       if (!check.ok) return refuse([check.error.message]);
       const update: ProjectUpdate = { kind: "backlog_add", item };
       const output = [
-        `Backlog item ${item.id} added (source ${item.source}): ${item.title}.`,
+        `Backlog item proposed (source ${item.source}): ${item.title}. It gets the next b<n> id when it is recorded; \`### fusion project\` counts it.`,
         ...(item.condition === undefined ? [] : [`A seed: shown to the person with its condition at each plan and milestone gate while it is open.`]),
         "It is a proposal, not part of the plan: only the person promotes it (then draft it into the next plan) or drops it. Say so in your reply; keep working on the current step.",
       ].join(" ");

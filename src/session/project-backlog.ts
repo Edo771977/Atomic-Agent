@@ -38,7 +38,8 @@ export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person
 
 /** What `project.backlog.add` folds in; `createdAt` is the fold's. */
 export interface ProjectBacklogDraft {
-  id: string;
+  /** Absent: the fold allocates the next id ({@link nextBacklogId}), so two adds of one step never share one. */
+  id?: string;
   title: string;
   note?: string;
   condition?: string;
@@ -155,7 +156,7 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
   if (backlog.length >= PROJECT_LIMITS.backlogStored) {
     return invalid(`project.json keeps ${PROJECT_LIMITS.backlogStored} backlog items, dropped ones included; ask the person to remove dropped items from it`);
   }
-  const id = normalizeCriterionId(raw.id);
+  const id = raw.id === undefined ? nextBacklogId(project) : normalizeCriterionId(raw.id);
   if (id === null) return invalid(`a backlog id must be 1..${PROJECT_LIMITS.criterionId} characters of a-z, 0-9 and -`);
   if (reservedIds(project).has(id)) return invalid(`backlog id ${id} is used already (by an item or by the person's call on one); take ${nextBacklogId(project)}`);
   const title = typeof raw.title === "string" ? clip(raw.title, PROJECT_LIMITS.title) : "";
