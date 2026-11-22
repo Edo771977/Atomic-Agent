@@ -1,5 +1,5 @@
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
-import { projectGateNotice, runProjectCommand } from "./project-command.js";
+import { projectGateNotice, runDecisionStatusCommand, runProjectCommand } from "./project-command.js";
 import {
   buildStatusSnapshot,
   createSnapshotCadence,
@@ -303,6 +303,7 @@ function helpText(ctx: InboundContext): string {
     "  /new — rotate this chat to a fresh session (current one is archived)\n" +
     "  /model — show the provider and model in use; /model <provider> [model-id] switches\n" +
     "  /plan — the fusion project gate waiting on you; /plan approve <version> or /plan cancel decides it\n" +
+    "  /defer <id> or /reactivate <id> — review a status change for a decision at the project plan gate\n" +
     "  /cron — list scheduled tasks; /cron add <cron> <task>, /cron pause|resume|delete <id> (/cron help)\n" +
     "  /cancel — abort this chat's current turn if one is running"
   );
@@ -789,18 +790,23 @@ async function handleSlashCommand(
       );
       return;
     }
-    case "/plan": {
+    case "/plan":
+    case "/defer":
+    case "/reactivate": {
       // Issue #39: the fusion project gate's text fallback.
       const sessionId = ctx.sessionPointer.get(ref.key).current;
       if (sessionId && channelSendWithheld(ctx.runtime, sessionId)()) {
         await sendText(ctx, ref.target, CHANNEL_RESTRICTED_NOTICE);
         return;
       }
-      const out = await runProjectCommand(rest, {
+      const deps = {
         runtime: ctx.runtime,
         sessionId: sessionId ?? null,
         busy: ctx.inflight.has(ref.key),
-      });
+      };
+      const out = verb === "/plan"
+        ? await runProjectCommand(rest, deps)
+        : runDecisionStatusCommand(verb === "/defer" ? "defer" : "reactivate", rest, deps);
       await sendText(ctx, ref.target, out.text);
       if (out.continueWith !== null) await dispatchToRuntime(out.continueWith, ref, ctx);
       return;

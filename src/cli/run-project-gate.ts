@@ -1,7 +1,8 @@
 import type { AgentRuntime } from "../runtime/runtime-contract.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { formatProjectGateText, projectApprovalLine, staleApprovalReason } from "../session/project-gate-text.js";
-import type { ProjectDecision, ProjectState } from "../session/session-project.js";
+import type { ProjectGateView } from "../session/project-gate-view.js";
+import type { PersonDecisionStatus, ProjectDecision, ProjectState } from "../session/session-project.js";
 
 /**
  * `run` at a fusion project gate (issue #39). An unattended run never
@@ -31,6 +32,43 @@ export type ProjectGateStep =
   | { kind: "failed"; text: string };
 
 type GateRuntime = Pick<AgentRuntime, "projectState" | "projectDecision">;
+type DecisionStatusStep = { kind: "updated" | "failed"; text: string };
+
+function showWaitingGate(view: ProjectGateView, sessionId: string): string {
+  return [
+    formatProjectGateText(view),
+    `session: ${sessionId}`,
+    `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
+    ...(view.gate.kind === "plan" && (view.decisions?.length ?? 0) > 0
+      ? [`Change decision status with: atomic-agent run --session ${sessionId} --defer-decision <id> or --reactivate-decision <id>.`]
+      : []),
+    "Or continue the chat with --session to ask the director for changes.",
+  ].join("\n");
+}
+
+/** A person's explicit plan edit leaves the new version waiting for approval. */
+export function editProjectDecisionStatuses(
+  runtime: GateRuntime,
+  sessionId: string,
+  decisionStatus: Readonly<Record<string, PersonDecisionStatus>>,
+): DecisionStatusStep {
+  const view = runtime.projectState?.(sessionId) ?? null;
+  if (view?.gate.kind !== "plan" || view.version === null) {
+    return { kind: "failed", text: "Decision status can be changed only at the plan gate." };
+  }
+  const unknownId = Object.keys(decisionStatus).find((id) => !view.decisions?.some((decision) => decision.id === id));
+  if (unknownId !== undefined) {
+    return { kind: "failed", text: `${unknownId} is not a decision of the approved brief.` };
+  }
+  if (runtime.projectDecision === undefined || !view.allowedVerdicts.includes("edit")) {
+    return { kind: "failed", text: "Decision status cannot be changed at this plan gate." };
+  }
+  const outcome = runtime.projectDecision(sessionId, {
+    gate: view.gate, version: view.version, verdict: "edit", edits: { decisionStatus },
+  });
+  if (!outcome.ok) return { kind: "failed", text: `Decision status was not changed: ${outcome.error.message}` };
+  return { kind: "updated", text: showWaitingGate(outcome.view, sessionId) };
+}
 
 /**
  * `mode`: `stop` prints the gate; `approve` approves its current version
@@ -61,10 +99,7 @@ export async function settleProjectGate(
       text: [
         ...(failedMilestone ? ["The milestone failed: this needs a person, so it is not approved automatically."] : []),
         ...(changedOutside ? ["This gate changed outside Atomic Agent since it was last decided: a person reads it, so it is not approved automatically."] : []),
-        formatProjectGateText(view),
-        `session: ${sessionId}`,
-        `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
-        "Or continue the chat with --session to ask the director for changes.",
+        showWaitingGate(view, sessionId),
       ].join("\n"),
     };
   }
@@ -135,7 +170,7 @@ export async function settleProjectGate(
         formatProjectGateText(view),
         `session: ${sessionId}`,
         `Continue with: atomic-agent run --session ${sessionId}`,
-        "and ask the director to revise the plan, or defer the decision at the plan gate (the TUI card or the desktop).",
+        `Ask the director to revise the plan, or defer a decision with: atomic-agent run --session ${sessionId} --defer-decision <id>`,
       ].join("\n"),
     };
   }
