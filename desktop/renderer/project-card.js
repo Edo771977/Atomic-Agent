@@ -276,6 +276,15 @@ function pcDecision(state, sid, verdict, statusEdit) {
     body.edits = {backlogStatus: {[item.id]: statusEdit.status}};
     return {body};
   }
+  if (verdict === 'edit' && statusEdit && statusEdit.lesson !== undefined) {
+    const lesson = pcList(view.lessonCoverage).find((item) => item && item.id === statusEdit.lesson);
+    if (view.gate.kind !== 'plan' || state.mode !== 'view' || view.version !== statusEdit.version ||
+        !lesson || pcLessonStatusAction(lesson)?.[1] !== statusEdit.status) {
+      return {error: 'This lesson status change is unavailable'};
+    }
+    body.edits = {lessonStatus: {[lesson.id]: statusEdit.status}};
+    return {body};
+  }
   if (verdict === 'edit' && statusEdit) {
     const decision = pcList(view.decisions).find((d) => d && d.id === statusEdit.id);
     if (view.gate.kind !== 'plan' || state.mode !== 'view' || !decision ||
@@ -505,8 +514,13 @@ function pcDecisionStatusActions(decision) {
   return [];
 }
 
+function pcLessonStatusAction(lesson) {
+  if (!/^[a-z0-9-]{1,64}$/.test(lesson.id)) return null;
+  return lesson.deferred === true ? ['Reactivate', 'active'] : ['Defer', 'deferred'];
+}
+
 function pcPlanCheck(hint) {
-  const match = /^(check-lint|criteria-coverage|verifiability|decision-coverage|backlog-coverage|references): (pass|warn|fail): ([\s\S]*)$/.exec(hint);
+  const match = /^(check-lint|criteria-coverage|verifiability|decision-coverage|backlog-coverage|lesson-coverage|references): (pass|warn|fail): ([\s\S]*)$/.exec(hint);
   return match ? {dimension: match[1], verdict: match[2], detail: match[3], taskIds: []} : null;
 }
 
@@ -738,6 +752,12 @@ function pcModel(state, env) {
     id: d.id, text: pcStr(d.text), status: pcStr(d.status), citedBy: pcList(d.citedBy).map(pcStr).filter(Boolean),
     actions: canEditStatus ? pcDecisionStatusActions(d) : [],
   }));
+  const lessons = gate === 'plan' ? pcList(view.lessonCoverage).filter((lesson) => lesson && typeof lesson.id === 'string').map((lesson) => ({
+    id: lesson.id, title: pcStr(lesson.title), deferred: lesson.deferred === true,
+    citedBy: pcList(lesson.citedBy).map(pcStr).filter(Boolean),
+    missingFrom: pcList(lesson.missingFrom).map(pcStr).filter(Boolean),
+    action: canEditStatus ? pcLessonStatusAction(lesson) : null,
+  })) : [];
   return {
     kind: 'gate', changedOutside,
     gate, version: view.version, headline: pcHeadline(view),
@@ -745,7 +765,8 @@ function pcModel(state, env) {
     scopeNote: gate === 'plan' && rows.length ? PC_WRITE_SCOPE_NOTE : null,
     violations: pcList(view.violations).map((v) => ({hard: v.severity === 'hard', text: pcStr(v.message)})),
     hints: gate === 'plan' ? hints.filter((h) => !pcPlanCheck(h) && (!review || !/^(?:plan review\b|plan not reviewed\b|notes on an earlier version:)/i.test(h))) : hints,
-    checks, review, decisions,
+    checks, review, decisions, lessons,
+    lessonWaitTurn: turnRunning ? PC_WAIT_TURN : null,
     backlog: backlog && {summary: backlog.summary, items: backlog.items, waitTurn: turnRunning ? PC_WAIT_TURN : null},
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
@@ -897,6 +918,37 @@ function pcDrawDecisions(doc, body, model, on) {
   body.appendChild(list);
 }
 
+function pcDrawLessons(doc, body, model, on) {
+  if (!model.lessons.length) return;
+  const section = pcEl(doc, 'section', 'pc-lessons');
+  section.setAttribute('aria-label', 'Lessons');
+  section.appendChild(pcEl(doc, 'h3', 'pc-section-title', 'Lessons'));
+  const waitTurn = model.lessonWaitTurn;
+  if (waitTurn && model.lessons.some((lesson) => lesson.action)) {
+    section.appendChild(pcEl(doc, 'p', 'pc-hint', waitTurn));
+  }
+  const list = pcEl(doc, 'ul', 'pc-rows');
+  for (const lesson of model.lessons) {
+    const li = pcEl(doc, 'li', 'pc-row');
+    li.appendChild(pcEl(doc, 'div', 'pc-row-title', lesson.id + ' · ' + lesson.title));
+    const cited = lesson.citedBy.length ? 'Cited by: ' + lesson.citedBy.join(', ') : 'No citing tasks';
+    li.appendChild(pcEl(doc, 'div', 'pc-meta', (lesson.deferred ? 'deferred' : 'active') + ' · ' + cited));
+    if (!lesson.deferred && lesson.missingFrom.length) {
+      li.appendChild(pcEl(doc, 'div', 'pc-meta', 'Missing from: ' + lesson.missingFrom.join(', ')));
+    }
+    if (lesson.action) {
+      const [label, status] = lesson.action;
+      const button = pcButton(doc, label, 'btn btn-s xs',
+        () => on({type: 'lesson-status', lesson: lesson.id, status, version: model.version}), model.busy || !!waitTurn, waitTurn);
+      button.setAttribute('aria-label', label + ' ' + lesson.id);
+      li.appendChild(pcFocusKey(button, 'lesson:' + lesson.id + ':' + status));
+    }
+    list.appendChild(li);
+  }
+  section.appendChild(list);
+  body.appendChild(section);
+}
+
 /** Issue #146: the Backlog section, each item with the calls it takes (textContent only: items are author content). */
 function pcDrawBacklog(doc, body, model, on) {
   const b = model.backlog;
@@ -974,6 +1026,7 @@ function pcDraw(doc, host, model, on) {
     body.appendChild(b);
   }
   pcDrawDecisions(doc, body, model, on);
+  pcDrawLessons(doc, body, model, on);
   pcDrawAssessment(doc, body, 'Plan checks', model.checks);
   if (model.review) pcDrawAssessment(doc, body, 'Plan review', model.review.results, model.review.summary);
   if (model.rows.length) {
@@ -1222,7 +1275,9 @@ function createProjectCard(opts) {
       case 'decision-status': return decide('edit', a);
       case 'backlog':
       case 'backlog-status':
+      case 'lesson-status':
         if (turnRunning()) { state = pcReduce(state, {type: 'failed', error: 'A turn is running in this chat. ' + PC_WAIT_TURN + '.'}); return paint(); }
+        if (a.type === 'lesson-status') return decide('edit', a);
         return a.type === 'backlog' ? backlogCall(a.id, a.state) : decide('edit', {backlog: a.id, status: a.status});
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();

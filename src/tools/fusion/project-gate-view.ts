@@ -4,6 +4,7 @@ import {
   finishedCitationsOf,
   gateVersion,
   planDecisionsOf,
+  planLessonsOf,
   projectExpectation,
   planCheckData,
   planReviewFactsOf,
@@ -229,6 +230,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
+  const lessonCoverage = project.gate.kind === "plan" ? planLessonsOf(project, plan?.rows ?? []) : [];
   const decisions = (project.brief?.decisions ?? []).map((d) => ({
     id: d.id,
     text: d.text,
@@ -254,6 +256,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
         }),
     ...(changedOutside ? { changedOutside: true as const } : {}),
     ...(decisions.length === 0 ? {} : { decisions }),
+    ...(lessonCoverage.length === 0 ? {} : { lessonCoverage }),
     ...(backlog === undefined ? {} : { backlog }),
     schema: 1,
     sessionId: input.sessionId,

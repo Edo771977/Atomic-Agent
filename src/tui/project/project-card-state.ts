@@ -76,6 +76,7 @@ export interface ProjectCardActionInfo {
   key: string;
   /** Issue #112: an `edit` that sets these decisions' status instead of editing rows. */
   decisionStatus?: Record<string, "active" | "deferred">;
+  lessonStatus?: Record<string, "active" | "deferred">;
 }
 
 /**
@@ -120,6 +121,22 @@ export function projectCardActions(view: ProjectGateView): ProjectCardActionInfo
     const at = actions.findIndex((a) => a.verdict === "cancel");
     const toggle: ProjectCardActionInfo = { verdict: "edit", label: `${to === "deferred" ? "defer" : "reactivate"} ${ids.join(", ")}`, key: "d", decisionStatus: Object.fromEntries(ids.map((id) => [id, to])) };
     actions.splice(at === -1 ? actions.length : at, 0, toggle);
+  }
+  if (plan) {
+    const lessons = view.lessonCoverage ?? [];
+    const uncovered = lessons.filter((lesson) => !lesson.deferred && lesson.missingFrom.length > 0);
+    const deferred = lessons.filter((lesson) => lesson.deferred);
+    const edits = [
+      { key: "l", label: "defer uncovered lessons", status: "deferred", lessons: uncovered },
+      { key: "r", label: "reactivate lessons", status: "active", lessons: deferred },
+    ] as const;
+    for (const { key, label, status, lessons } of edits) {
+      if (lessons.length === 0) continue;
+      const at = actions.findIndex((action) => action.verdict === "cancel");
+      actions.splice(at === -1 ? actions.length : at, 0, {
+        verdict: "edit", label, key, lessonStatus: Object.fromEntries(lessons.map(({ id }) => [id, status])),
+      });
+    }
   }
   return actions;
 }

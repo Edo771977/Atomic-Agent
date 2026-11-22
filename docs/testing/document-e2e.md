@@ -32,6 +32,28 @@ The first command runs the configured models. Tool approvals follow the current 
 
 Run the model-free report test with `npx vitest run scripts/e2e-artifacts.test.ts`.
 
+## Prova ermetica
+
+Dalla radice del repository, con Node 25.7 o successivo e le dipendenze installate:
+
+```sh
+npx vitest run src/cli/run-fusion-document.test.ts
+```
+
+Il test avvia la CLI reale con il prompt italiano e cartelle temporanee separate
+per il progetto e i dati. Un server su localhost fornisce risposte deterministiche
+per il director, il worker e i due revisori. Le connessioni esterne sono bloccate
+e le chiavi di firma sono tenute in memoria, senza accedere al portachiavi del
+sistema.
+
+La prima variante verifica le approvazioni automatiche dal brief alla consegna,
+compresa la revisione di un piano con un titolo di oltre 160 caratteri (issue
+#156). Controlla il verdetto del revisore del task, la chiusura della milestone,
+la verifica indipendente di `report.md` e le ricevute con `project verify`.
+La seconda variante verifica che il risultato di `project.plan` avvisi quando
+il director assegna un revisore con `team.review: "off"` e che la consegna
+arrivi comunque a termine.
+
 ## Document parser fixtures
 
 The [brief](fixtures/document/brief.txt) asks for a weekly service report in
