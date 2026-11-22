@@ -1,9 +1,12 @@
+/// <reference path="../../../scripts/pdfkit.d.ts" />
+
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
 import { describe, expect, it } from "vitest";
 
+import type { ApprovalGate } from "../../approval/approval-gate.js";
 import { evaluateDocument, parseDocumentSpec } from "./document-check.js";
 import { buildVerifyRunTool } from "./verify-run.js";
 
@@ -109,6 +112,7 @@ describe("document checks", () => {
 
 describe("document delivery fixture through verify.run", () => {
   const tool = buildVerifyRunTool({
+    approvals: {} as ApprovalGate,
     approvalRequired: false,
     config: { browser: {
       enabled: false, channel: "chrome", headless: true, cdpUrl: null,
@@ -124,7 +128,7 @@ describe("document delivery fixture through verify.run", () => {
   ])("%s returns %s", async (path, status, detail) => {
     const outcome = await tool.run(
       { kind: "document", path: join("document", path), ...criteria },
-      { workingDir: dirname(fixtureDir), sessionId: "document-e2e", stepIndex: 0 },
+      { workingDir: dirname(fixtureDir), sessionId: "document-e2e", stepIndex: 0, signal: new AbortController().signal },
     );
     expect(outcome.status).toBe(status);
     expect(outcome.summary).toContain(detail);
