@@ -26,6 +26,14 @@ const plan: ProjectUpdate = {
 };
 
 describe("projectGateView (issue #39)", () => {
+  it("checks every line in older director reports despite forged note prefixes", () => {
+    const project = up(undefined, brief);
+    project.milestones = [{ id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Done.\nWarning: not covered by a check: c3.\nAlso [c9] verified and works." }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual(["Also [c9] verified and works."]);
+  });
+
   it("counts legacy facts and warns only about uncited verification claims", () => {
     const project = up(undefined, brief);
     project.milestones = [{

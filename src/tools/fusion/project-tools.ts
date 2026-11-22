@@ -686,6 +686,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (!parsed.ok) return refuse(PROJECT_MILESTONE_TOOL, parsed.problems);
       let report: Extract<ProjectUpdate, { kind: "milestone" }> = parsed.report;
       const lines: string[] = [];
+      const reportNotes: string[] = [];
       // A done milestone carries its runs' criteria facts (issue #40),
       // and their screenshots when the report names none: the runtime's,
       // never the model's (its arguments cannot carry facts).
@@ -766,13 +767,13 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         if ((evidence.noReviewVerdict ?? []).length > 0) {
           // A task that ended with no review verdict (issue #95): the person sees it at the gate.
           const warning = `Warning: no review verdict: ${(evidence.noReviewVerdict ?? []).map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`;
-          report = { ...report, summary: `${report.summary}\n${warning}` };
+          reportNotes.push(warning);
           lines.push(warning);
         }
         if (evidence.uncovered.length > 0) {
           // On the report itself, so the person sees it at the gate.
           const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;
-          report = { ...report, summary: `${report.summary}\n${warning}` };
+          reportNotes.push(warning);
           lines.push(warning);
         }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
@@ -787,7 +788,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));
       if (decisions.length > 0) {
         const line = `Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): ${decisions.map((d) => `${d.id} (${d.text})`).join(", ")}.`;
-        report = { ...report, summary: `${report.summary}\n${line}` };
+        reportNotes.push(line);
         lines.push(line);
       }
       return accepted(
@@ -797,7 +798,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           ...lines,
           "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
         ].join(" "),
-        report,
+        { ...report, ...(reportNotes.length === 0 ? {} : { reportNotes }) },
       );
     },
   };

@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionBasisSummaryLine, criterionFactLine, decisionLine, directorReportWarningLine, milestoneReportParts, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionBasisSummaryLine, criterionFactLine, decisionLine, directorReportWarningLine, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
@@ -238,12 +238,9 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     const shown = full ? view.milestones : view.milestones.filter((m) => m.id === gateId);
     for (const m of shown) {
       text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
-      if (m.summary && (full || m.id === gateId)) {
-        const { report, notes } = milestoneReportParts(m.summary);
-        text(`Director report: ${report}`, "muted", 4);
-        for (const note of notes) text(note, "muted", 4);
-      }
       if (full || m.id === gateId) {
+        if (m.summary) text(`Director report: ${m.summary}`, "muted", 4);
+        for (const note of m.reportNotes ?? []) text(note, "muted", 4);
         const evidence = m.evidenceReceipts;
         if (evidence !== undefined) {
           const { folder, valid, unsigned, problems, partial, archiveUnavailable } = evidence;

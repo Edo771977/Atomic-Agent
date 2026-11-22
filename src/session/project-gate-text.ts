@@ -29,15 +29,6 @@ export function criterionBasisSummaryLine(counts: ProjectCriterionBasisSummary):
   return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.filter(Boolean).join(", ")}`;
 }
 
-// Existing summaries can contain appended runtime or approval notes.
-const REPORT_NOTE = /^(?:Warning: (?:no review verdict:|not covered by a check:)|Decisions cited by this milestone's tasks, not verified automatically|approved over open review by the person: )/u;
-
-export function milestoneReportParts(summary: string): { report: string; notes: string[] } {
-  const lines = summary.split(/\r?\n/u);
-  const noteAt = lines.findIndex((line, index) => index > 0 && REPORT_NOTE.test(line));
-  return noteAt < 0 ? { report: summary, notes: [] } : { report: lines.slice(0, noteAt).join("\n"), notes: lines.slice(noteAt) };
-}
-
 /** A claim needs a passed criterion cited by bracketed ID or by its full text in the same sentence. */
 export function directorReportWarnings(
   report: string,
@@ -201,10 +192,8 @@ export function formatProjectGateText(view: ProjectGateView): string {
     if (view.gate.kind === "milestone") {
       const id = view.gate.id;
       const milestone = view.milestones.find((m) => m.id === id);
-      if (milestone?.summary) {
-        const { report, notes } = milestoneReportParts(milestone.summary);
-        out.push(`  Director report: ${report}`, ...notes.map((note) => `  ${note}`));
-      }
+      if (milestone?.summary) out.push(`  Director report: ${milestone.summary}`);
+      for (const note of milestone?.reportNotes ?? []) out.push(`  ${note}`);
       for (const warning of milestone?.directorReportWarnings ?? []) out.push(`  ${directorReportWarningLine(warning)}`);
       const facts = milestone?.criteriaFacts ?? [];
       if (facts.length > 0) out.push(`  ${criterionBasisSummaryLine(milestone?.criteriaBasisSummary ?? summarizeCriterionBases(facts))}`, ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
