@@ -255,7 +255,7 @@ const FORMS: Record<string, CompactToolForm> = {
   "mcp.prompt.get": { summary: "Render an MCP prompt template.", tier: RARE },
   "verify.syntax": { summary: "Syntax-check files. Read-only.", tier: RARE },
   "verify.run": {
-    summary: "Run what was built (command, service or page) on a throwaway copy and check the result.",
+    summary: "Check a command, service or page in a throwaway copy, or check a local document or spreadsheet offline.",
     tier: RARE,
   },
   "fusion.delegate": {

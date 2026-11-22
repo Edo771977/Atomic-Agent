@@ -66,6 +66,10 @@ export const STRICT_ARGS_LIMITS = {
   totalChars: 120_000,
 } as const;
 
+// This built-in's command, page and artifact fields can need 122 rules
+// when no other tool has already contributed its shared rule bodies.
+const VERIFY_RUN_RULE_LIMIT = 128;
+
 /** The rule `tool-call` gains, listing every generated call rule. */
 export const STRICT_CALL_RULE = "strict-args-call";
 
@@ -193,7 +197,10 @@ function convertTool(name: string, schema: unknown, table: RuleTable): Converted
       schema,
       `args-${name}`,
       table,
-      { maxRules: STRICT_ARGS_LIMITS.perToolRules, maxChars: STRICT_ARGS_LIMITS.perToolChars },
+      {
+        maxRules: name === "verify.run" ? VERIFY_RUN_RULE_LIMIT : STRICT_ARGS_LIMITS.perToolRules,
+        maxChars: STRICT_ARGS_LIMITS.perToolChars,
+      },
       (sink, argsRule) => {
         seen.plain = argsRule === HOST_RULES.object;
         const ws = HOST_RULES.ws;

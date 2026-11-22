@@ -16,6 +16,27 @@ import {
  */
 
 describe("default tool argsJsonSchema map", () => {
+  it("advertises deterministic document and spreadsheet checks through verify.run", () => {
+    expect(getDefaultArgsJsonSchema("verify.run")).toMatchObject({
+      required: ["kind"],
+      additionalProperties: false,
+      properties: {
+        kind: { enum: ["command", "service", "page", "document", "spreadsheet"] },
+        path: { type: "string" },
+        requiredSections: { type: "array", items: { type: "string" } },
+        wordRange: { required: ["min", "max"], additionalProperties: false },
+        language: { enum: ["en", "it", "es", "fr", "de", "pt"] },
+        extraPlaceholders: { type: "array", items: { type: "string" } },
+        requiredSheets: { type: "array", items: { type: "string" } },
+        requiredColumns: { items: { required: ["sheet", "columns"], additionalProperties: false } },
+        totals: { items: {
+          required: ["sheet", "range", "totalCell", "tolerance"],
+          additionalProperties: false,
+        } },
+      },
+    });
+  });
+
   it("advertises additive v2 brief fields and plan check specs", () => {
     expect(getDefaultArgsJsonSchema("project.brief")).toMatchObject({ properties: { deliverable: { enum: ["code", "document", "spreadsheet", "research", "files", "game"] }, decisions: { type: "array", maxItems: 20 } } });
     expect(getDefaultArgsJsonSchema("project.plan")).toMatchObject({ properties: { tasks: { items: { properties: { checks: { type: "array", maxItems: 16 }, decisions: { type: "array", maxItems: 20 } } } } } });

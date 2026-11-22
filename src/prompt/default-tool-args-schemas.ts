@@ -1069,7 +1069,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     "verify.run",
     obj(
       {
-        kind: { type: "string", enum: ["command", "service", "page"] },
+        kind: { type: "string", enum: ["command", "service", "page", "document", "spreadsheet"] },
         cwd: stringSchema,
         // A map of arbitrary keys, like `os.http.request.headers`; the
         // strict converter refuses it, knowingly.
@@ -1115,6 +1115,22 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
         screenshot: obj({ fullPage: booleanSchema }),
         stdin: stringSchema,
         checks: stringArraySchema,
+        requiredSections: stringArraySchema,
+        wordRange: obj({ min: integerSchema, max: integerSchema }, ["min", "max"]),
+        language: { type: "string", enum: ["en", "it", "es", "fr", "de", "pt"] },
+        extraPlaceholders: stringArraySchema,
+        requiredSheets: stringArraySchema,
+        requiredColumns: {
+          type: "array",
+          items: obj({ sheet: stringSchema, columns: stringArraySchema }, ["sheet", "columns"]),
+        },
+        totals: {
+          type: "array",
+          items: obj(
+            { sheet: stringSchema, range: stringSchema, totalCell: stringSchema, tolerance: numberSchema },
+            ["sheet", "range", "totalCell", "tolerance"],
+          ),
+        },
       },
       ["kind"],
     ),

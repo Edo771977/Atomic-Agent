@@ -20,7 +20,8 @@ import { runCommandKind } from "./run-command-kind.js";
 import { type BrowserLauncher, defaultBrowserLauncher, type PageRunOutcome, runPageKind } from "./run-page-kind.js";
 import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-service-kind.js";
 import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-checks.js";
-import { parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
+import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
+import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
@@ -31,6 +32,7 @@ export interface VerifyRunResult {
   readonly ok: boolean;
   readonly kind: VerifyRunKind;
   readonly isolated: boolean;
+  readonly artifactStatus?: ArtifactOutcome["status"];
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -132,6 +134,15 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
+  if (isArtifactKind(args.kind)) {
+    const out = await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal);
+    const ok = out.status === "pass";
+    const text = `${out.status}: ${out.detail}`;
+    const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
+    return finish({ ...common, artifactStatus: out.status, stdoutTail: text, exitCode,
+      ...(out.status === "uncheckable" ? { error: text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
+      { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
+  }
   if (args.kind === "command") {
     const out = await runCommandKind(args, { cwd, signal: ctx.signal });
     const runOk = out.spawnError === undefined && !out.timedOut && out.exitCode === 0;
@@ -229,6 +240,16 @@ export async function runVerify(
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
     finish({ kind: args.kind, isolated, error, ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
+  // A file check snapshots only the approved regular file into a disposable
+  // offline parser. No project command runs and no workspace tree is copied.
+  if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
+    try {
+      const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started);
+      return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
+    } catch (error) {
+      return failed(error instanceof Error ? error.message : "uncheckable artifact", ctx.signal?.aborted ? "cancelled" : undefined);
+    }
+  }
   let workspace: VerifyWorkspace | undefined;
   let result: VerifyRunResult;
   let executionResult: VerifyRunResult | undefined;

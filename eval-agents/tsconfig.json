@@ -17,7 +17,8 @@
     "../eval/harness/parse-trace-metrics.ts",
     "../eval-memory/config/environment.ts",
     "../eval-memory/harness/memory-profiles.ts",
-    "../src/config/config-schema.ts"
+    "../src/config/config-schema.ts",
+    "../src/tools/os/read-document/extractors/pdf-worker-ambient.d.ts"
   ],
   "exclude": ["node_modules", "reports", "datasets/gaia/hf"]
 }
