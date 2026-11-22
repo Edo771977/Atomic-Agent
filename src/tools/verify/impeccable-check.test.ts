@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -199,7 +199,7 @@ it("pins the authorized executable and refuses a higher-priority launcher plante
     expect(request).toHaveBeenCalledWith(expect.objectContaining({
       category: "verify_ui_detector", preview: expect.stringContaining("impeccable"), reason: expect.stringContaining("impeccable"),
       commandArgv: [executable, "detect", "--json", "--no-config", join(root, "index.html")],
-      commandSegments: [[executable, "detect", "--json", "--no-config", join(root, "index.html")]],
+      commandSegments: expect.arrayContaining([[executable, "detect", "--json", "--no-config", join(root, "index.html")]]),
     }), expect.anything());
     expect(checkCommandReads).toHaveBeenCalled();
   } finally {
@@ -280,4 +280,29 @@ it("bounds both kinds of Fusion evidence and reports omitted entries", async () 
   expect(findings.length + suppressions.length).toBeLessThanOrEqual(CHECK_OUTPUT_CHARS);
   expect(findings).toMatch(/\+\d+ more$/);
   expect(suppressions).toMatch(/\+\d+ more$/);
+});
+
+it.skipIf(windows)("honors a saved deny on the npm launcher name when its real file is cli.js", async () => {
+  const { buildVerifyRunTool } = await import("./verify-run.js");
+  const { matchRules } = await import("../../approval/approval-rules.js");
+  const spawn = await import("./spawn-verify-process.js");
+  const spy = vi.spyOn(spawn, "spawnVerifyProcess");
+  try {
+    await fake(0, []);
+    await rename(join(bin, "impeccable"), join(bin, "cli.js"));
+    await symlink("cli.js", join(bin, "impeccable"));
+    const ruleDecisionFor = (req: Parameters<typeof matchRules>[1]) => matchRules([{
+      decision: "deny", tool: "os.shell.run", category: "shell", commandPrefix: ["impeccable", "detect"],
+    }] as never, req)?.decision ?? null;
+    const request = vi.fn(async (req: Parameters<typeof matchRules>[1]) => ({
+      approved: ruleDecisionFor(req) !== "deny", reason: "blocked by saved impeccable rule", automatic: true,
+    }));
+    const tool = buildVerifyRunTool({ approvals: { request, ruleDecisionFor } as never, approvalRequired: true, config: {} as never });
+    await expect(tool.run({ kind: "ui", path: "index.html" }, {
+      workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0,
+    })).rejects.toThrow("blocked by saved impeccable rule");
+    expect(spy).not.toHaveBeenCalled();
+  } finally {
+    spy.mockRestore();
+  }
 });

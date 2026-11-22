@@ -1,5 +1,5 @@
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { ApprovalDeniedError, requireApproval, type DangerousToolOptions } from "../../approval/dangerous-tool.js";
 import { knownSecretsFromEnv, maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import { isSecretEnvName } from "../../sandbox/command-env.js";
@@ -157,14 +157,18 @@ export async function authorizeVerifyBatch(
     const refused = uiVerdicts.find(verdict => verdict.action === "block");
     if (refused !== undefined) throw new VerifyGuardRefusal(refused.rule, refused.reason);
     const commands = detector === undefined ? verifyRunCommands(logical) : [{ cmd: detector.file, args: detectorArgs! }];
-    const commandSegments = commands.flatMap(c => ui ? [[c.cmd, ...c.args]] : shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
+    const commandSegments = detector === undefined
+      ? commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)))
+      : [detector.file, ...(basename(detector.file) === "impeccable" ? [] : ["impeccable"])].flatMap(exe => [
+        [exe, ...detectorArgs!], [exe, "--version"],
+      ]);
     const stdinScript = verifyRunStdinScript(logical);
     const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args))));
     const targetPaths = ui ? [] : commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
     const dangerous = guard.dangerous.length > 0 || uiVerdicts.some(verdict => verdict.action === "approval_required" && verdict.rule.startsWith("dangerous."));
     // A script fed on stdin is not what a grant for the program approved.
     const first = commands.length === 1 && stdinScript === null ? commands[0] : undefined;
-    const shape = first === undefined || dangerous ? undefined : shellGrantShape(first.cmd, [first.cmd, ...first.args].join(" "), needsShellInterpretation(first.cmd, first.args));
+    const shape = first === undefined || dangerous || ui ? undefined : shellGrantShape(first.cmd, [first.cmd, ...first.args].join(" "), needsShellInterpretation(first.cmd, first.args));
     const commandArgv = first === undefined ? undefined : ui ? [first.cmd, ...first.args] : shellCommandArgv(first.cmd, first.args, needsShellInterpretation(first.cmd, first.args), shape);
     const env = Object.fromEntries(Object.entries(logical.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => [name, isSecretEnvName(name) ? `[redacted:env:${name}]` : value]));
     const metadata = JSON.stringify({ commandArgv, commandSegments, targetPaths });
@@ -176,7 +180,7 @@ export async function authorizeVerifyBatch(
     }
     const previewKnown = [...known, ...knownSecretsFromEnv(logical.env)];
     const localExecutable = detector === undefined ? undefined : [detector.candidate, detector.file].map(file =>
-      relative(ctx.workingDir, file)).find(file => file && file !== ".." && !/^[.][.][\\/]/.test(file) && !isAbsolute(file));
+      relative(ctx.workingDir, file)).find(file => file && file !== ".." && !file.startsWith(`..${sep}`) && !isAbsolute(file));
     const execution = ui
       ? detector === undefined ? "no detector process will run" : "run installed impeccable in a private copy of this project"
       : artifactTarget === undefined
@@ -184,6 +188,7 @@ export async function authorizeVerifyBatch(
       : "read a bounded file snapshot with an offline parser";
     const preview = [
       ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, !ui && needsShellInterpretation(c.cmd, c.args)), previewKnown)),
+      ...(detector === undefined ? [] : [maskVerificationSecrets(formatShellPreview(detector.file, ["--version"], false), previewKnown)]),
       ...(localExecutable === undefined ? [] : [`project executable: ${maskVerificationSecrets(localExecutable, previewKnown)}`]),
       JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution }, previewKnown), null, 2),
       ...(options.copyNote === undefined ? [] : [options.copyNote]),
