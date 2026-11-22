@@ -127,6 +127,10 @@ describe("project lessons", () => {
     const reopened = records.read(folder);
     expect(await projectCommand(["lessons", folder, "--reopen", "lesson"], io)).toBe(0);
     expect(records.read(folder)).toEqual(reopened);
+    const recordsDir = join(stateDir, "project-decisions");
+    writeFileSync(join(recordsDir, readdirSync(recordsDir).find((name) => name.endsWith(".json"))!), "{");
+    expect(await row()).toMatchObject({ id: "lesson", approvedByPerson: false });
+    expect(stderr).toHaveBeenLastCalledWith(expect.stringMatching(/warning.*record/i));
   });
 
   it("projects only current active lessons into each prompt and honors folder provider constraints", async () => {

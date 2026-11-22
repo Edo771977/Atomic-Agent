@@ -513,8 +513,11 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
   const folder = resolve(positional[0] ?? ".");
   const records = stateDirProjectRecords(io.stateDir());
   const found = records.read(folder);
-  if (!found.ok) return refuse(found.problem.message);
-  const record = found.record;
+  if (!found.ok) {
+    if (decision !== undefined) return refuse(found.problem.message);
+    stderr(`project lessons: warning: ${found.problem.message}\n`);
+  }
+  const record = found.ok ? found.record : null;
   const { lessons, problems } = readProjectLessons(folder);
   const calls = { ...record?.lessonCalls };
   if (decision !== undefined) {
