@@ -346,23 +346,42 @@ export async function authorizeVerifyBatch(
       withdraw?.();
     }
   }
-  for (const { logical, spec } of plans) {
-    if (logical.kind !== "research" || !logical.network) continue;
-    const approve: ResearchApproval = async links => {
-      if (options.researchNetworkRefusal !== undefined) return maskVerificationSecrets(options.researchNetworkRefusal, known);
-      if (isOfflineNetwork()) return "runtime is offline";
-      if (typeof options.approvals.request !== "function") return "network approval unavailable";
-      ctx.signal.throwIfAborted();
-      const urls = links.map(link => maskVerificationSecrets(link.url, known));
-      const decision = await options.approvals.request({
-        sessionId: ctx.sessionId, tool: "verify.run", category: "http", workdir: project,
-        reason: `verify the reachability of ${urls.length} research URL(s)`,
-        preview: urls.join("\n"), affectedResources: urls,
-      }, { signal: ctx.signal, requireExplicitDecision: true });
-      return decision.approved && decision.automatic !== true ? undefined : "explicit network approval unavailable or declined";
-    };
-    Object.defineProperty(spec, APPROVE_RESEARCH_LINKS, { value: approve });
-  }
   ctx.signal.throwIfAborted();
-  return snapshot;
+  return snapshot.map(spec => attachResearchNetworkApproval(spec, options, ctx));
+}
+
+/** Attach the lazy network approval without repeating the local preflight. */
+export function researchUrlMayBeDisclosed(url: string, known: readonly KnownSecret[]): boolean {
+  if (maskVerificationSecrets(url, known) !== url) return false;
+  try {
+    const decoded = decodeURIComponent(url);
+    return maskVerificationSecrets(decoded, known) === decoded;
+  } catch {
+    return false;
+  }
+}
+
+export function attachResearchNetworkApproval(
+  spec: Record<string, unknown>,
+  options: Pick<VerifyAuthorizationOptions, "approvals" | "knownSecrets" | "researchNetworkRefusal">,
+  ctx: Pick<VerifyAuthorizationContext, "sessionId" | "signal" | "workingDir" | "ruleWorkdir">,
+): Record<string, unknown> {
+  if ((spec.kind ?? spec.type) !== "research" || spec.network !== true) return spec;
+  const project = ctx.ruleWorkdir ?? ctx.workingDir;
+  const known = [...knownSecretsFromEnv(), ...(options.knownSecrets ?? [])];
+  const approve: ResearchApproval = async links => {
+    if (options.researchNetworkRefusal !== undefined) return maskVerificationSecrets(options.researchNetworkRefusal, known);
+    if (isOfflineNetwork()) return "runtime is offline";
+    if (typeof options.approvals.request !== "function") return "network approval unavailable";
+    ctx.signal.throwIfAborted();
+    const urls = links.map(link => link.url);
+    if (urls.some(url => !researchUrlMayBeDisclosed(url, known))) return "source URLs contain a hidden value";
+    const decision = await options.approvals.request({
+      sessionId: ctx.sessionId, tool: "verify.run", category: "http", workdir: project,
+      reason: `verify the reachability of ${urls.length} research URL(s)`,
+      preview: urls.join("\n"), affectedResources: urls,
+    }, { signal: ctx.signal, requireExplicitDecision: true });
+    return decision.approved && decision.automatic !== true ? undefined : "explicit network approval unavailable or declined";
+  };
+  return Object.defineProperty({ ...spec }, APPROVE_RESEARCH_LINKS, { value: approve });
 }

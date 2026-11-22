@@ -10,7 +10,7 @@
 import { resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
-import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
+import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
@@ -168,15 +168,20 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
   if (ui !== undefined || isArtifactKind(args.kind)) {
     let out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal, args.kind === "files" ? ctx.changedPaths : undefined) : ui!;
+    const delivery = args.kind === "research" || args.kind === "files";
+    const known = delivery ? [...knownSecretsFromEnv(), ...(ctx.knownSecrets ?? [])] : [];
     if (args.kind === "research" && out.links?.length) {
-      const refusal = approveResearch === undefined || out.linkLimit ? "network disabled or approval unavailable"
-        : await approveResearch(out.links);
-      out = await checkResearchLinks(out, refusal === undefined ? ctx.researchProbe ?? probeResearchLink : undefined, args.timeoutMs, ctx.signal, refusal);
+      const eligible = out.links.filter(link => !link.ambiguous);
+      const refusal = out.status === "fail" ? "local research check failed"
+        : approveResearch === undefined || out.linkLimit || !eligible.length ? "network disabled or approval unavailable"
+        : await approveResearch(eligible);
+      const probe: ResearchProbe = ctx.researchProbe ?? ((url, signal) => probeResearchLink(url, signal, {
+        allowUrl: target => researchUrlMayBeDisclosed(target, known),
+      }));
+      out = await checkResearchLinks(out, refusal === undefined ? probe : undefined, args.timeoutMs, ctx.signal, refusal);
     }
     const ok = out.status === "pass";
     const detail = `${out.status}: ${out.detail}`;
-    const delivery = args.kind === "research" || args.kind === "files";
-    const known = delivery ? [...knownSecretsFromEnv(), ...(ctx.knownSecrets ?? [])] : [];
     const text = delivery ? maskVerificationSecrets(detail, known) : detail;
     const researchLinks = out.researchLinks?.map(link => ({
       ...link, url: maskVerificationSecrets(link.url, known), reason: maskVerificationSecrets(link.reason, known),
