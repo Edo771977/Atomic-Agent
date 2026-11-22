@@ -426,7 +426,9 @@ async function backlogCommand(
   const items = (project.backlog ?? []).map((b) => {
     const state = backlogStateOf(project, b.id);
     const plannedIn = state === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
-    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }) };
+    // Issue #146: deferred by the person at the plan gate, so no plan has to take it in.
+    const deferred = state === "promoted" && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
+    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
   });
   if (json) {
     io.stdout(`${JSON.stringify({ folder, open: openBacklog(project).length, items }, null, 2)}\n`);
@@ -438,7 +440,7 @@ async function backlogCommand(
   }
   for (const b of items) {
     const from = [`from ${backlogSourceLabel(b)}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
-    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? "promoted, not in any plan" : `promoted, taken in by plan v${b.plannedIn}`;
+    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? (b.deferred === true ? "promoted, deferred at the plan gate, not in any plan" : "promoted, not in any plan") : `promoted, taken in by plan v${b.plannedIn}`;
     io.stdout(`${b.id} ${state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
     if (b.note !== undefined) io.stdout(`    ${b.note}\n`);
   }

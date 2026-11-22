@@ -37,8 +37,10 @@ export function backlogSourceLabel(item: Pick<ProjectBacklogItem, "source" | "fr
  * workers and reviewers only suggest them in their replies. Only the
  * person promotes, drops or reopens one ({@link applyBacklogDecision},
  * never an automatic approval). A promoted item is a proposal for the
- * next plan: the director drafts it in, and the plan the person approves
- * next takes it in ({@link markPromotedPlanned}). An item with a
+ * next plan: the director drafts it in on a task that cites it
+ * (`rows[].backlog`, issue #146), the plan cannot be approved until each
+ * is cited or the person defers it at the plan gate, and the approved
+ * plan takes in the items it cites ({@link markPromotedPlanned}). An item with a
  * `condition` is a seed: shown to the person at each plan and milestone
  * gate while open; nothing activates by itself.
  */
@@ -249,12 +251,24 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
   };
 }
 
-/** The person approved plan `version`: every promoted item waiting for a plan is recorded as taken in by it. */
+/**
+ * The person approved plan `version` (issue #146): each promoted item
+ * waiting for a plan that a task of a milestone still to run cites
+ * (`rows[].backlog`) is recorded as taken in by it, its deferral, if
+ * any, dropped. One the plan does not cite (the person deferred it)
+ * keeps waiting; a citation on a done or reviewed milestone's task
+ * takes nothing in.
+ */
 export function markPromotedPlanned(project: ProjectState, version: number): ProjectState {
-  const waiting = promotedForPlan(project);
-  if (waiting.length === 0) return project;
+  const finished = new Set(project.milestones.filter((m) => m.state === "done" || m.state === "reviewed").map((m) => m.id));
+  const cited = new Set((project.plan?.rows ?? []).filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
+  const taken = promotedForPlan(project).filter((b) => cited.has(b.id));
+  if (taken.length === 0) return project;
   const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
-  for (const b of waiting) calls[b.id] = { ...calls[b.id]!, plannedIn: version };
+  for (const b of taken) {
+    const { deferred: _d, ...call } = calls[b.id]!;
+    calls[b.id] = { ...call, plannedIn: version };
+  }
   return { ...project, backlogCalls: calls };
 }
 

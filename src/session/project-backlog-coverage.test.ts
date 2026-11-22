@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyBacklogDecision } from "./project-backlog.js";
+import { applyBacklogDecision, promotedForPlan } from "./project-backlog.js";
 import { stateDirProjectRecords } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
@@ -259,5 +259,34 @@ describe("a deferral is record-owned (issue #146)", () => {
     const record = options.records.read(folder);
     expect(record.ok && record.record?.state.backlogCalls?.b1?.deferred).toBe(true);
     expect(decide((p) => ({ gate: p.gate, version: gateVersion(p)!, verdict: "approve" })).plan?.status).toBe("approved");
+  });
+});
+
+describe("plannedIn records only what the approved plan cites (issue #146)", () => {
+  const defer = (p: ProjectState, backlogStatus: Record<string, string>) =>
+    ok(applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: { backlogStatus } as never }, { now: 5 }));
+
+  it("a deferred item no task cites stays promoted and waiting; a cited one is taken in by the version approved", () => {
+    const p = defer(plan(withBacklog(["b1", "b2"]), [row("t1", "m1", ["b2"])]), { b1: "deferred" });
+    const approved = ok(approve(p));
+    expect(approved.backlogCalls?.b2?.plannedIn).toBe(p.plan!.version);
+    expect(approved.backlogCalls?.b1?.plannedIn).toBeUndefined();
+    expect(approved.backlogCalls?.b1?.deferred).toBe(true);
+    expect(promotedForPlan(approved).map((b) => b.id)).toEqual(["b1"]);
+  });
+
+  it("a deferred item the plan cites anyway is taken in, and its deferral goes with it", () => {
+    const p = defer(plan(withBacklog(["b1"]), [row("t1", "m1", ["b1"])]), { b1: "deferred" });
+    const approved = ok(approve(p));
+    expect(approved.backlogCalls?.b1).toEqual({ hash: expect.any(String), plannedIn: p.plan!.version });
+  });
+
+  it("a citation on a finished milestone's task does not take an item in", () => {
+    let p = ok(approve(plan(withBacklog([]), [row("t1", "m1"), row("t2", "m2")])));
+    p = ok(applyProjectUpdate(p, { kind: "milestone_run", id: "m1", runId: "run-1" }, 5));
+    p = ok(approve(ok(applyProjectUpdate(p, { kind: "milestone", id: "m1", state: "done", summary: "Built" }, 6))));
+    p = ok(applyBacklogDecision(p, { id: "b1", state: "promoted" }));
+    const late = defer(plan(p, [row("t1", "m1", ["b1"]), row("t2", "m2")], 7), { b1: "deferred" });
+    expect(ok(approve(late)).backlogCalls?.b1?.plannedIn).toBeUndefined();
   });
 });
