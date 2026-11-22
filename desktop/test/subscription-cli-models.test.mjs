@@ -8,6 +8,14 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const m = require("../out/main/subscription-cli-models.js");
+const { providerModels, withCliStandIn } = require("../out/main/agent-cli.js");
+
+const config = { llm: { providers: [
+  { id: "codex-work", kind: "subscription-cli", subscriptionCli: { cli: "codex" } },
+  { id: "claude-work", kind: "subscription-cli", subscriptionCli: { cli: "claude" } },
+  { id: "api-work", kind: "openai-compatible" },
+] } };
+const hooks = { configHint: () => config };
 
 const core = readFileSync(new URL("../../src/llm/provider/subscription-cli/claude-cli-models.ts", import.meta.url), "utf8");
 function coreList(name) {
@@ -36,9 +44,23 @@ test("a Codex entry lists only what it pinned, and nothing when it pinned nothin
     [{ provider: "codex-cli", id: "gpt-5-codex" }]);
 });
 
-test("main answers a subscription provider's list before any agent call", () => {
-  const src = readFileSync(new URL("../main/agent-cli.ts", import.meta.url), "utf8");
-  const fn = src.slice(src.indexOf("export async function providerModels("));
-  assert.ok(fn.indexOf("kind === SUBSCRIPTION_CLI_KIND") > 0);
-  assert.ok(fn.indexOf("kind === SUBSCRIPTION_CLI_KIND") < fn.indexOf("cli(args"), "short-circuit comes before the models search");
+test("main answers the saved subscription's list locally even with a missing or incorrect caller kind", async () => {
+  const noSearch = async () => assert.fail("the provider has no HTTP endpoint");
+  await withCliStandIn(noSearch, async () => {
+    assert.deepEqual(await providerModels("codex-work", "", { live: true }), { ok: true, models: [] });
+    const claude = await providerModels("claude-work", "openai-compatible", { live: true });
+    assert.equal(claude.ok, true);
+    assert.deepEqual(claude.models.map((model) => model.id), m.CLAUDE_CLI_CHAT_MODELS);
+  }, hooks);
+});
+
+test("a saved API provider uses its own catalogue when the caller names the subscription kind", async () => {
+  const models = [{ provider: "api-work", id: "api-model" }];
+  const search = async (args) => {
+    assert.deepEqual(args.slice(0, 5), ["models", "search", " ", "--provider", "api-work"]);
+    assert.ok(args.includes("--refresh"));
+    return { ok: true, stdout: JSON.stringify(models), stderr: "" };
+  };
+  const result = await withCliStandIn(search, () => providerModels("api-work", "subscription-cli", { live: true }), hooks);
+  assert.deepEqual(result, { ok: true, models });
 });

@@ -2405,4 +2405,9 @@ To make Codex the reviewer:
 1. Open Settings › Models › Add provider › "OpenAI Codex subscription" and sign in with `codex login`.
 2. In a chat on Fusion, open the Reviewer seat › Add a reviewer… › Codex.
 
+In Settings › Models › Add provider, selecting an added subscription opens its
+model list while keeping the active chat provider. Codex chooses its own model
+when none is pinned. Claude Code shows its built-in choices. If the list request
+fails, **Try again** reloads the same provider.
+
 Codex then becomes that chat's reviewer, and other chats can pick it in their Reviewer seat. Codex runs `codex exec -s read-only`: it cannot change files, but its own shell can read outside the chat's folder. So in a restricted chat it is shown disabled.
