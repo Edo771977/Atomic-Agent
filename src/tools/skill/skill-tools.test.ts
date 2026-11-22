@@ -436,19 +436,20 @@ describe("skill tools", () => {
 
   it("skill.run_script auto-approves the read-only gog setup check", async () => {
     const skills = await installGogWorkspace();
+    const beforeRun = new Error("reached the script runner");
     const gate = new ApprovalGate({
       emit: (req) => gate.reject(req.approvalId, "denied"),
     });
     const tool = buildSkillRunScriptTool(skills, {
       approvals: gate,
       approvalRequired: true,
+      onSkillUsed: () => { throw beforeRun; },
     });
-    const result = await tool.run(
+    // Reaching the run boundary proves the exemption without requiring Bash.
+    await expect(tool.run(
       { skill: "gog-workspace", script: "check-gog.sh" },
       makeCtx(base),
-    );
-    expect(result.status).toBe("ok");
-    expect(result.summary).toContain("gog auth doctor succeeded");
+    )).rejects.toBe(beforeRun);
   });
 
   it("skill.run_script asks before running a project gog-workspace check", async () => {

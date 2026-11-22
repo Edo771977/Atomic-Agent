@@ -89,7 +89,7 @@ describe("schema v2 fields: shape, caps, validation", () => {
     ];
     raw.brief.decisions.splice(1, 0, { id: "BAD ID", text: "x" }, { id: "d1", text: "repeat" }, "plain text");
     raw.backlog = [
-      ...Array.from({ length: 50 }, (_, i) => item(`b${i + 1}`, i === 0 ? { title: long, note: long, condition: long } : {})),
+      ...Array.from({ length: PROJECT_LIMITS.backlogStored + 18 }, (_, i) => item(`b${i + 1}`, i === 0 ? { title: long, note: long, condition: long } : {})),
     ];
     raw.backlog.splice(1, 0, { id: "b-bad", title: "", source: "director", createdAt: 1 }, { id: "b-src", title: "x", source: "martian", createdAt: 1 });
     raw.decisionStatus = { d1: "informational", d2: "bogus", "BAD ID": "deferred" };
@@ -100,7 +100,7 @@ describe("schema v2 fields: shape, caps, validation", () => {
     expect(read.brief?.decisions).toHaveLength(PROJECT_LIMITS.decisions);
     expect(read.brief?.decisions?.[0]?.text.length).toBe(PROJECT_LIMITS.shortText);
     expect(read.brief?.decisions?.map((d) => d.id).slice(0, 3)).toEqual(["d1", "d2", "d3"]);
-    expect(read.backlog).toHaveLength(PROJECT_LIMITS.backlog);
+    expect(read.backlog).toHaveLength(PROJECT_LIMITS.backlogStored);
     expect(read.backlog?.[0]?.title.length).toBe(PROJECT_LIMITS.title);
     expect(read.backlog?.[0]?.note?.length).toBe(PROJECT_LIMITS.shortText);
     expect(read.backlog?.some((b) => b.id === "b-bad" || b.id === "b-src")).toBe(false);
@@ -261,6 +261,20 @@ describe("schema v2 fields: ownership and hashing", () => {
     expect(gateContentHash(otherDeliverable, { kind: "brief" })).not.toBe(gateContentHash(before, { kind: "brief" }));
     const otherRowDecisions: ProjectState = { ...before, plan: { ...before.plan!, rows: before.plan!.rows.map((r) => ({ ...r, decisions: ["d2"] })) } };
     expect(gateContentHash(otherRowDecisions, { kind: "plan" })).not.toBe(gateContentHash(before, { kind: "plan" }));
+  });
+
+  it("a plan row's backlog citations are author content in the plan's hash (issue #146)", () => {
+    const p = withFields();
+    const cited: ProjectState = { ...p, plan: { ...p.plan!, rows: p.plan!.rows.map((r, i) => (i === 0 ? { ...r, backlog: ["b2"] } : r)) } };
+    expect(normalizeProject(JSON.parse(JSON.stringify(cited)))).toEqual(cited);
+    expect(gateContentHash(cited, { kind: "plan" })).not.toBe(gateContentHash(p, { kind: "plan" }));
+    const raw = JSON.parse(JSON.stringify(cited));
+    raw.plan.rows[0].backlog = ["Not An Id"];
+    expect(normalizeProject(raw)).toBeUndefined();
+    raw.plan.rows[0].backlog = ["b2", "b2"];
+    expect(normalizeProject(raw)).toBeUndefined();
+    raw.plan.rows[0].backlog = [];
+    expect(normalizeProject(raw)?.plan?.rows[0]?.backlog).toBeUndefined();
   });
 });
 

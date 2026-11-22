@@ -41,6 +41,7 @@ import type { AgentLoop } from "../agent/agent-loop.js";
 import type { AgentLoopEvent, RunTurnResult } from "../agent/agent-contract.js";
 import type { GoalSpec, GoalState } from "../agent/goal/index.js";
 import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import type { RuntimeProjectDecisionResult } from "./project-decision-contract.js";
 import type { SessionStore, FusionWorkerMeta, SessionState } from "../session/index.js";
@@ -698,6 +699,16 @@ export interface AgentRuntime {
   projectDecision?(
     sessionId: string,
     decision: ProjectDecision,
+  ): RuntimeProjectDecisionResult;
+  /**
+   * Issue #111: the person's call on a project backlog item (promote,
+   * drop, or `open` to take a call back). Between turns only; moves no
+   * gate and is never taken by an automatic approval. Optional like
+   * `projectDecision`.
+   */
+  projectBacklogDecision?(
+    sessionId: string,
+    decision: ProjectBacklogDecision,
   ): RuntimeProjectDecisionResult;
   /**
    * Inline counterpart to `runTurn` — runs the agent loop and

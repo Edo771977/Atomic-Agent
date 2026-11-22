@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
-import { settleProjectGate } from "./run-project-gate.js";
+import { editProjectDecisionStatuses, settleProjectGate } from "./run-project-gate.js";
 
 function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
   return {
@@ -133,6 +133,30 @@ describe("run at a project gate", () => {
 });
 
 describe("run flags for project gates", () => {
+  it("parses decision edits with a continued session and rejects conflicting actions", () => {
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "D1, d2", "--reactivate-decision", "d3"]))
+      .toMatchObject({ decisionStatus: { d1: "deferred", d2: "deferred", d3: "active" } });
+    expect(parseRunArgs(["--defer-decision", "d1"])).toEqual({ error: "decision status edits need --session <id>" });
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1,"])).toMatchObject({ error: expect.stringContaining("--defer-decision") });
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1", "--reactivate-decision", "d1"]))
+      .toMatchObject({ error: expect.stringContaining("d1") });
+    for (const flag of ["--auto-approve-project", "--approve"]) {
+      expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1", flag]))
+        .toMatchObject({ error: expect.stringContaining(flag) });
+    }
+  });
+
+  it("refuses status edits outside the plan gate or against an unknown brief decision", () => {
+    const brief = runtime(fixtureProjectGateView({ kind: "brief" }));
+    const plan = runtime(fixtureProjectGateView({ kind: "plan" }));
+    expect(editProjectDecisionStatuses(brief, "s", { d1: "active" }))
+      .toMatchObject({ kind: "failed", text: expect.stringContaining("only at the plan gate") });
+    expect(editProjectDecisionStatuses(plan, "s", { d9: "deferred" }))
+      .toMatchObject({ kind: "failed", text: expect.stringContaining("d9 is not a decision of the approved brief") });
+    expect(brief.projectDecision).not.toHaveBeenCalled();
+    expect(plan.projectDecision).not.toHaveBeenCalled();
+  });
+
   it("parses --session, --approve and --auto-approve-project", () => {
     expect(parseRunArgs(["--session", "abc", "--approve", "3"])).toMatchObject({ session: "abc", approve: true, approveVersion: 3, autoApproveProject: false });
     expect(parseRunArgs(["--session", "abc", "--approve"])).toMatchObject({ approve: true, approveVersion: null });
@@ -170,5 +194,33 @@ describe("run at a plan the plan reviewer still fails (issue #118)", () => {
     expect(step.text).toContain(`The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${message}`);
     expect(rt.projectDecision).toHaveBeenCalledTimes(1);
     expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
+  });
+});
+
+describe("run at a plan gate with promoted backlog items (issue #111 review)", () => {
+  const backlog = { open: 0, seeds: [], promoted: [{ id: "b2", title: "PDF export" }], stale: [], items: [] };
+
+  it("--auto-approve-project stops while an item the person promoted waits for a plan", async () => {
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog }, fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "sess-1", "approve");
+    expect(step.kind).toBe("stop");
+    expect(step.kind === "stop" && step.text).toContain("The person promoted backlog items for this plan (b2 PDF export): a person checks the plan takes them in, so it is not approved automatically.");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("an automatic approval never defers an item: it stops, and an explicit approval sends no edits (issue #146)", async () => {
+    const deferred = { ...backlog, promoted: [{ id: "b2", title: "PDF export", deferred: true as const }] };
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog: deferred }, fixtureProjectGateView({ kind: "none" }));
+    expect((await settleProjectGate(rt, "sess-1", "approve")).kind).toBe("stop");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
+  });
+
+  it("a person's --approve <version> still approves it (a warning, not a block)", async () => {
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog }, fixtureProjectGateView({ kind: "none" }));
+    const step = await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(step.kind).not.toBe("stop");
+    expect(rt.projectDecision).toHaveBeenCalledTimes(1);
   });
 });

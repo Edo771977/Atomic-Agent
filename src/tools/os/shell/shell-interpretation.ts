@@ -5,6 +5,7 @@
  * shell.ts, which keeps the tool itself.
  */
 
+import { statSync } from "node:fs";
 import {
   buildDirectInvocation,
   buildSubshellInvocation,
@@ -145,7 +146,16 @@ export function needsShellInterpretation(
   ) {
     return true;
   }
-  if (args.length === 0 && /\s/.test(cmd.trim())) return true;
+  if (args.length === 0 && /\s/.test(cmd.trim())) {
+    // A drive-qualified application name can itself contain spaces. Prefer
+    // direct spawn when the whole string names the executable on disk.
+    if (process.platform === "win32" && /^[A-Z]:[\\/][^:"\r\n]*\.exe$/i.test(cmd)) {
+      try {
+        if (statSync(cmd, { throwIfNoEntry: false })?.isFile()) return false;
+      } catch { /* An unreadable path cannot establish a direct executable. */ }
+    }
+    return true;
+  }
   return false;
 }
 

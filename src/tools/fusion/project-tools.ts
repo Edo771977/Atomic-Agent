@@ -1,5 +1,6 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
+import { sameMember } from "./member-identity.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
   CRITERION_ID_PATTERN,
@@ -10,9 +11,12 @@ import {
   applyProjectUpdate,
   finishedCitationsOf,
   normalizeCriterionId,
+  backlogCheckOptions,
   planDecisionsOf,
+  planReviewPersonCalls,
   planTotals,
   projectVerdictResets,
+  storedPlanRow,
   type AssignmentRow,
   type MilestoneKind,
   type ProjectBriefDraft,
@@ -23,8 +27,11 @@ import {
   type ProjectMilestone,
   type ProjectMilestoneAttachment,
   type ProjectGameBrief,
+  type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
+import { openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
+import { backlogDataBlock } from "../../prompt/project-digest.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
@@ -37,7 +44,7 @@ import { parsePlanRowChecks } from "./contract-check-spec.js";
 import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
-import { planReviewBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
+import { planReviewBasis, planReviewCallsBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
 import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
@@ -58,8 +65,10 @@ import type { PlanReviewFn } from "./plan-reviewer.js";
 export const PROJECT_BRIEF_TOOL = "project.brief";
 export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
+/** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
+export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
 /** In catalog order. */
-export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL] as const;
+export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL] as const;
 
 /** Key of the update in the result's `details`, read by `applyStateEffects`. */
 export const PROJECT_UPDATE_DETAIL = "projectUpdate";
@@ -79,6 +88,8 @@ export interface ProjectPlanContext {
   reviewerFor: (worker: TeamMember) => TeamMember | null;
   /** Whether tasks get a review at all (`reviewEnabled`). */
   reviewOn: boolean;
+  /** Why review is off for this run, for the director; absent while it is on. */
+  reviewOffReason?: string;
   /** The outcome log's rows (`readRoutingHistory`). */
   records: readonly OutcomeRecord[];
   pricing: (member: TeamMember) => WorkerPricing | undefined;
@@ -218,6 +229,8 @@ export function parseProjectBriefArgs(raw: Record<string, unknown>): Parsed<{ br
 export interface ProjectPlanTaskArgs {
   checks?: ContractCheck[];
   decisions?: string[];
+  /** Issue #146: the backlog items this task takes in. */
+  backlog?: string[];
   id: string;
   title: string;
   milestone: string;
@@ -268,12 +281,14 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         problems.push(`task ${i + 1} needs a short \`id\` without spaces (the id its fusion.delegate task will carry)`);
         continue;
       }
-      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions"], `task ${id}`));
+      problems.push(...unknownKeys(t, ["id", "title", "milestone", "worker", "reviewer", "checks", "decisions", "backlog"], `task ${id}`));
       const checkProblems: string[] = [];
       const checks = parsePlanRowChecks(t.checks, id, checkProblems);
       problems.push(...checkProblems.map((p) => `task ${id}: ${p}`));
       const decisions = Array.isArray(t.decisions) ? t.decisions.map(normalizeCriterionId) : [];
       if (t.decisions !== undefined && (!Array.isArray(t.decisions) || decisions.length > PROJECT_LIMITS.decisions || decisions.includes(null) || new Set(decisions).size !== decisions.length)) problems.push(`task ${id}: decisions must be unique decision ids (at most ${PROJECT_LIMITS.decisions})`);
+      const backlog = Array.isArray(t.backlog) ? t.backlog.map(normalizeCriterionId) : [];
+      if (t.backlog !== undefined && (!Array.isArray(t.backlog) || backlog.length > PROJECT_LIMITS.backlog || backlog.includes(null) || new Set(backlog).size !== backlog.length)) problems.push(`task ${id}: backlog must be unique backlog item ids (at most ${PROJECT_LIMITS.backlog})`);
       if (!nonEmpty(t.title)) problems.push(`task ${id} needs a \`title\``);
       const milestone = typeof t.milestone === "string" ? t.milestone.trim() : "";
       if (!ids.has(milestone)) problems.push(`task ${id} names milestone ${JSON.stringify(t.milestone)}, which \`milestones\` does not list`);
@@ -286,6 +301,7 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
         milestone,
         ...(t.checks === undefined ? {} : { checks }),
         ...(t.decisions === undefined ? {} : { decisions: decisions as string[] }),
+        ...(t.backlog === undefined ? {} : { backlog: backlog as string[] }),
         ...(typeof t.worker === "string" ? { worker: t.worker.trim() } : {}),
         ...(t.reviewer === null ? { reviewer: null } : typeof t.reviewer === "string" ? { reviewer: t.reviewer.trim() } : {}),
       });
@@ -299,14 +315,25 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
 function findMember(members: readonly TeamMember[], name: string): TeamMember | undefined {
   const exact = members.find((m) => m.ref === name);
   if (exact !== undefined) return exact;
+  // By identity (issue #98): `codex-cli`, `codex-cli:` and `codex-cli:default` are one member.
+  const same = members.filter((m) => sameMember(m.ref, name));
+  if (same.length === 1) return same[0];
   const byModel = members.filter((m) => m.model === name);
-  return byModel.length === 1 ? byModel[0] : undefined;
+  if (byModel.length === 1) return byModel[0];
+  // A bare provider names its only member there; two or more stay ambiguous.
+  const trimmed = name.trim();
+  const bare = trimmed.endsWith(":") ? trimmed.slice(0, -1) : trimmed;
+  if (bare.includes(":")) return undefined;
+  const byProvider = members.filter((m) => m.providerId === bare);
+  return byProvider.length === 1 ? byProvider[0] : undefined;
 }
 
 /** The plan's rows with workers, reviewers and estimates, or the problems. */
-export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContext): { ok: true; rows: AssignmentRow[] } | { ok: false; problems: string[] } {
+export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContext): { ok: true; rows: AssignmentRow[]; notes: string[] } | { ok: false; problems: string[] } {
   const problems: string[] = [];
   const rows: AssignmentRow[] = [];
+  // A reviewer named while review is off is accepted with no review, never silently: the director must not promise one.
+  const notes: string[] = [];
   const listed = (list: readonly TeamMember[]) => list.map((m) => `\`${m.ref}\``).join(", ") || "none";
   for (const task of plan.tasks) {
     let worker: TeamMember | null | undefined;
@@ -324,7 +351,12 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       }
     }
     let reviewer: TeamMember | null;
-    if (!context.reviewOn) reviewer = null;
+    if (!context.reviewOn) {
+      reviewer = null;
+      if (typeof task.reviewer === "string") {
+        notes.push(`task ${task.id}: review is off for this run (${context.reviewOffReason ?? "no review is enabled"}), so ${task.reviewer} will not review it; do not tell the person it will.`);
+      }
+    }
     else if (task.reviewer === null) reviewer = null;
     else if (task.reviewer !== undefined) {
       const found = findMember(context.reviewers, task.reviewer);
@@ -351,6 +383,7 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
     rows.push(withReviewEstimate({
       ...(task.checks === undefined ? {} : { checks: task.checks }),
       ...(task.decisions === undefined ? {} : { decisions: task.decisions }),
+      ...(task.backlog === undefined ? {} : { backlog: task.backlog }),
       taskId: task.id,
       title: task.title,
       milestoneId: task.milestone,
@@ -364,7 +397,26 @@ export function enrichPlanRows(plan: ProjectPlanArgs, context: ProjectPlanContex
       ...(est.local === true ? { local: true as const } : {}),
     }, reviewEst));
   }
-  return problems.length > 0 ? { ok: false, problems } : { ok: true, rows };
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, rows, notes };
+}
+
+/**
+ * The enriched rows as the store keeps them, with a note for each title
+ * it shortens. A row the store would refuse stays as drafted: the fold
+ * refuses it as before.
+ */
+function storedRows(rows: readonly AssignmentRow[], milestoneIds: readonly string[]): { rows: AssignmentRow[]; notes: string[] } {
+  const ids = new Set(milestoneIds);
+  const notes: string[] = [];
+  const kept = rows.map((row) => {
+    const stored = storedPlanRow(row, ids);
+    if (stored === null) return row;
+    if (stored.title !== row.title.replace(/\s+/g, " ").trim()) {
+      notes.push(`task ${row.taskId}: title shortened to ${PROJECT_LIMITS.title} characters; put the details in its checks.`);
+    }
+    return stored;
+  });
+  return { rows: kept, notes };
 }
 
 // -------------------------------------------------------------- milestone
@@ -503,6 +555,15 @@ async function reviewDraft(
       rows: draft.rows,
       planChecks: draft.planChecks,
       ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
+      // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
+      ...(() => {
+        const backlog = [
+          // Issue #146: one the person deferred at the plan gate is not this plan's to take in.
+          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: project.backlogCalls?.[b.id]?.deferred === true ? "deferred" as const : "promoted" as const })),
+          ...openBacklog(project).map((b) => ({ id: b.id, title: b.title, state: "open" as const, ...(b.condition === undefined ? {} : { condition: b.condition }) })),
+        ];
+        return backlog.length === 0 ? {} : { backlog };
+      })(),
     },
     sessionId: ctx.sessionId,
     signal: ctx.signal,
@@ -512,7 +573,25 @@ async function reviewDraft(
   const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
   // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
   const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
-  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
+  // Issue #146: read under the person's calls as they stand; changing one at the gate makes it stale.
+  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)), callsBasis: planReviewCallsBasis(planReviewPersonCalls(project)) };
+}
+
+/** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */
+function backlogLines(project: ProjectState | undefined): string[] {
+  if (project === undefined) return [];
+  const promoted = promotedForPlan(project);
+  const seeds = openSeeds(project);
+  const block = backlogDataBlock([
+    ...promoted.map((b) => `promoted: ${b.id} ${b.title}`),
+    ...seeds.map((b) => `seed: ${b.id} ${b.title} (when: ${b.condition})`),
+  ]);
+  if (block === null) return [];
+  return [
+    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in on a task that will run and cite its id in that task's backlog; the plan cannot be approved until each is cited (or the person defers it)."]),
+    ...(seeds.length === 0 ? [] : ["Open seeds are shown to the person at the gate: tell them which conditions look met; only they promote one."]),
+    block,
+  ];
 }
 
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
@@ -545,7 +624,9 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const context = deps.planContext();
       const enriched = enrichPlanRows(parsed.plan, context);
       if (!enriched.ok) return refuse(PROJECT_PLAN_TOOL, enriched.problems);
-      const rows = enriched.rows;
+      // Reviewed, reference-checked and plan-checked as the store keeps them, so no basis is stale on arrival.
+      const kept = storedRows(enriched.rows, parsed.plan.milestones.map((m) => m.id));
+      const rows = kept.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
       const referenceCheck = deps.planReferences === undefined ? undefined : await deps.planReferences(rows, ctx.workingDir, ctx.signal).catch((err: unknown): PlanReferenceRecord => {
@@ -565,7 +646,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
       const criteria = ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []);
-      const planChecks = evaluatePlanChecks(rows, criteria, referenceCheck === undefined ? {} : { references: referenceCheck }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const planChecks = evaluatePlanChecks(rows, criteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...(ctx.project === undefined ? {} : backlogCheckOptions(folded !== null && folded.ok ? folded.project : ctx.project, { status: "draft" })) }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       // Issue #118: the plan reviewer, before the gate reaches the person.
       const review = await reviewDraft(deps, ctx, { update, rows, criteria, planChecks });
       if (review !== undefined) update = { ...update, planReview: review, ...(review.sentBack ? { holdForReview: true as const } : {}) };
@@ -577,9 +658,12 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .filter((r) => r.milestoneId === m.id)
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
+        ...enriched.notes,
+        ...kept.notes,
         "Use these task ids in fusion.delegate when the milestone is approved.",
+        ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
-        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
+        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks, ...(ctx.project === undefined ? {} : { personCalls: planReviewPersonCalls(ctx.project) }) }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,
       ];
       // Issue #77: say which results stop counting, so the reply can tell the person.

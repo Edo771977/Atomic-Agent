@@ -22,6 +22,31 @@ function fixture(runtime: Record<string, unknown>, busy: string[] = []) {
 const plan = { gate: { kind: "plan" as const }, version: 3, verdict: "approve" as const };
 
 describe("project decisions from the TUI", () => {
+  it("only sends the explicit backlog call and keeps its returned project without starting a turn", async () => {
+    const view = fixtureProjectGateView({ kind: "none" });
+    const project = { milestones: [], gate: { kind: "none" as const } };
+    const decide = vi.fn(() => ({ ok: true, project, view }));
+    const f = fixture({ projectBacklogDecision: decide, projectState: () => view });
+    f.app.openProjectView();
+    expect(decide).not.toHaveBeenCalled();
+    await f.app.decideProjectBacklog("s1", { id: "b1", state: "dropped" });
+    expect(decide).toHaveBeenCalledExactlyOnceWith("s1", { id: "b1", state: "dropped" });
+    expect(f.app).toMatchObject({ session: { project } });
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+  it("reports busy and denied backlog edits without continuing or changing the session", () => {
+    const edit = { id: "b1", state: "promoted" } as const;
+    const decide = vi.fn(() => ({ ok: false, error: { message: "Project was cancelled." } }));
+    const busy = fixture({ projectBacklogDecision: decide }, ["s1"]);
+    busy.app.decideProjectBacklog("s1", edit);
+    expect(decide).not.toHaveBeenCalled();
+    expect(busy.emit).toHaveBeenCalledWith({ type: "project_card_failed", error: expect.stringMatching(/turn is running/i) });
+    const f = fixture({ projectBacklogDecision: decide });
+    f.app.decideProjectBacklog("s1", edit);
+    expect(f.emit).toHaveBeenCalledWith({ type: "project_card_failed", error: "Project was cancelled." });
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("takes the decided project into the chat's own session copy before the next turn", async () => {
     // B's runtime saves the decision to the store, while the TUI keeps its
     // own copy of the session and runs (and saves) the next turn on it.

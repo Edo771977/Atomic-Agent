@@ -431,7 +431,7 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     summary:
       "Draft or revise the plan for the approved brief: milestones in run order and the tasks of each. Each task gets a worker (yours to name from the ### fusion team, else the default), a reviewer and a cost/time estimate; the person approves, edits or picks a cheaper/higher-quality variant. Use the same task ids in fusion.delegate. After calling it, reply." + " " + GATE_AUTHORING,
     argsSchema:
-      "{ milestones: [{ id: string, title: string, kind: 'base' | 'ui' | 'logic' | 'polish' | 'other' }] /* 1..16, in run order */, tasks: [{ id: string, title: string, milestone: string /* a milestone id */, worker?: string /* a team worker */, reviewer?: string | null /* a team reviewer; null: no review */, decisions?: string[] /* max 20 decision ids */, checks?: object[] /* max 16 ContractCheck specs, implicit task; copied exactly to fusion.delegate, including negative */ }] /* 1..64 */ }",
+      "{ milestones: [{ id: string, title: string, kind: 'base' | 'ui' | 'logic' | 'polish' | 'other' }] /* 1..16, in run order */, tasks: [{ id: string, title: string, milestone: string /* a milestone id */, worker?: string /* a team worker */, reviewer?: string | null /* a team reviewer; null: no review */, decisions?: string[] /* max 20 decision ids */, backlog?: string[] /* max 32 backlog item ids this task takes in */, checks?: object[] /* max 16 ContractCheck specs, implicit task; copied exactly to fusion.delegate, including negative */ }] /* 1..64 */ }",
     examples: [
       '{"milestones":[{"id":"base","title":"Board and snake","kind":"base"},{"id":"ui","title":"Score and restart","kind":"ui"}],"tasks":[{"id":"board","title":"Canvas board and game loop","milestone":"base"},{"id":"score","title":"Score panel and restart button","milestone":"ui"}]}',
     ],
@@ -443,6 +443,15 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     argsSchema:
       "{ id: string, state: 'done' | 'failed', summary: string, attachments?: [{ path: string /* a screenshot a check of this milestone's runs saved, as its result names it */, caption: string, criteria?: string[] /* the criterion ids it shows */ }] /* up to 8 */ }",
     examples: ['{"id":"base","state":"done","summary":"Board, snake and apples work; arrow keys steer; checked in the page run."}'],
+  },
+  {
+    // Issue #111: mounted with the other project tools.
+    name: "project.backlog.add",
+    summary:
+      "Propose an item for the project's backlog: later work, an idea or a deferred fix that is not in the plan. `source` says who proposed it: you (with `fromPerson: true` when the person said \"add to backlog: …\"), or a worker or reviewer that named it in its reply (then `taskId` is its plan task). With a `condition` it is a seed, shown to the person at each plan and milestone gate. It opens no gate and does not change the plan: only the person promotes or drops it.",
+    argsSchema:
+      "{ title: string, source: 'director' | 'worker' | 'reviewer', fromPerson?: true /* the person asked for it in their message */, note?: string, condition?: string /* when it becomes relevant: a seed */, milestoneId?: string, taskId?: string /* the plan's milestone or task it came from */ }",
+    examples: ['{"title":"Export the report as PDF","source":"director","fromPerson":true,"condition":"when the report page exists","milestoneId":"base"}'],
   },
   {
     // Frequent tier: a checklist only helps when the model keeps it from

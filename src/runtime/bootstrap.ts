@@ -1300,6 +1300,7 @@ export async function createAgentRuntime(
     controlGoal,
     projectState: runtimeProject.projectState,
     projectDecision: runtimeProject.projectDecision,
+    projectBacklogDecision: runtimeProject.projectBacklogDecision,
     executeTurn,
     previewPrompt,
     compactSession: compaction.compactSession,

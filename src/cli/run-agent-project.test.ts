@@ -200,6 +200,28 @@ describe("run at a fusion project gate", () => {
     expect(stderr).toContain(`nothing waits for approval on session ${id}`);
   }, 60_000);
 
+  it("changes decision status at the plan gate and prints how to approve the new version", async () => {
+    const d1 = { id: "d1", text: "Use SQLite", status: "active" as const, citedBy: [] };
+    const d2 = { id: "d2", text: "No new dependencies", status: "deferred" as const, citedBy: [] };
+    project.openAfterTurn = [{ ...planGate, decisions: [d1, d2] }];
+    feed(["build the game\n"]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval"])).toBe(3);
+    const id = sessionIdIn(stderr);
+    project.after = { ...planGate, version: 4, decisions: [{ ...d1, status: "deferred" }, { ...d2, status: "active" }] };
+    stderr = "";
+    project.messages = [];
+    feed(["this must not become a turn\n"]);
+    expect(await runAgentCommand([
+      "--cwd", workingDir, "--no-approval", "--session", id, "--defer-decision", "d1", "--reactivate-decision", "d2",
+    ])).toBe(3);
+    expect(project.decisions).toEqual([
+      { gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { decisionStatus: { d1: "deferred", d2: "active" } } },
+    ]);
+    expect(project.messages).toEqual([]);
+    expect(stderr).toContain("d1 Use SQLite (deferred)");
+    expect(stderr).toContain(`atomic-agent run --session ${id} --approve 4`);
+  }, 60_000);
+
   it("--auto-approve-project approves every gate as it opens and says so", async () => {
     const milestoneGate = fixtureProjectGateView({ kind: "milestone", id: "m1" });
     // The plan gate opens after the first turn; the continuing turn ends at the milestone gate.
@@ -208,7 +230,10 @@ describe("run at a fusion project gate", () => {
     feed(["build the game\n"]);
     const code = await runAgentCommand(["--cwd", workingDir, "--no-approval", "--auto-approve-project"]);
     expect(code).toBe(0);
-    expect(project.decisions.map((d) => d.gate.kind)).toEqual(["plan", "milestone"]);
+    expect(project.decisions).toEqual([
+      { gate: { kind: "plan" }, version: 3, verdict: "approve" },
+      { gate: { kind: "milestone", id: "m1" }, version: 3, verdict: "approve" },
+    ]);
     expect(stderr).toContain("project: approved the plan (version 3)");
     expect(stderr).toContain('project: approved milestone "Base" (version 3)');
   }, 60_000);

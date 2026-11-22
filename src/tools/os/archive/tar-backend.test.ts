@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { requireSymlinks } from "../../../test-symlink-support.js";
 import {
   existsSync,
   lstatSync,
@@ -144,7 +145,8 @@ function extractWithLinks(data: Buffer, destDir: string) {
 }
 
 describe("TarBackend symlink containment", () => {
-  it("does not write through a chain of symlinks the archive created", async () => {
+  it("does not write through a chain of symlinks the archive created", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "ws", "out");
       const data = await buildTar([
@@ -162,7 +164,8 @@ describe("TarBackend symlink containment", () => {
     });
   });
 
-  it("does not hard-link a file reached through an archive symlink", async () => {
+  it("does not hard-link a file reached through an archive symlink", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "out");
       writeFileSync(join(root, "secret.txt"), "secret");
@@ -177,7 +180,8 @@ describe("TarBackend symlink containment", () => {
     });
   });
 
-  it("does not write a file through a symlink at the entry path", async () => {
+  it("does not write a file through a symlink at the entry path", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "out");
       const data = await buildTar([
@@ -191,7 +195,8 @@ describe("TarBackend symlink containment", () => {
     });
   });
 
-  it("removes a symlink whose real target leaves destDir via another link", async () => {
+  it("removes a symlink whose real target leaves destDir via another link", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "out");
       const data = await buildTar([
@@ -206,7 +211,8 @@ describe("TarBackend symlink containment", () => {
     });
   });
 
-  it("removes an escaping chained link even when extraction fails later", async () => {
+  it("removes an escaping chained link even when extraction fails later", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "out");
       const data = await buildTar([
@@ -223,7 +229,8 @@ describe("TarBackend symlink containment", () => {
     });
   });
 
-  it("keeps a symlink that stays inside destDir", async () => {
+  it("keeps a symlink that stays inside destDir", async (context) => {
+    requireSymlinks(context);
     await withTmp(async (root) => {
       const dest = join(root, "out");
       const data = await buildTar([

@@ -475,4 +475,11 @@ describe("ClaudeCodeImporter", () => {
     expect(decodeProjectSlug("-Users-me-gone", isDir)).toBeNull();
     expect(decodeProjectSlug("C--work", isDir)).toBeNull();
   });
+
+  it("decodes a Windows drive slug and preserves dots and dashes in folder names", () => {
+    const dirs = new Set(["D:\\code", "D:\\code\\my.app", "D:\\code\\my.app\\shop-app"]);
+    const isDir = (path: string) => dirs.has(path);
+    expect(decodeProjectSlug("D--code-my-app-shop-app", isDir, "win32")).toBe("D:\\code\\my.app\\shop-app");
+    expect(decodeProjectSlug("C--code-my-app-shop-app", isDir, "win32")).toBeNull();
+  });
 });

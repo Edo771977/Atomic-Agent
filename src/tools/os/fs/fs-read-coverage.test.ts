@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { requireSymlinks } from "../../../test-symlink-support.js";
 import {
   mkdtemp,
   realpath,
@@ -88,7 +89,8 @@ describe("os.fs.read coverage detail", () => {
     expect(coverage.endLine).toBe(5);
   });
 
-  it("gives a symlink and its target the same identity", async () => {
+  it("gives a symlink and its target the same identity", async (context) => {
+    requireSymlinks(context);
     await writeFile(join(dir, "real.txt"), "alpha\nbeta\n", "utf8");
     await symlink(join(dir, "real.txt"), join(dir, "link.txt"));
     const direct = await readCoverageOf(dir, { path: "real.txt" });

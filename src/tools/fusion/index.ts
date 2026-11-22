@@ -211,7 +211,9 @@ export type {
   RowEstimate,
   VariantContext,
 } from "./project-estimate.js";
+export { buildProjectBacklogTool, parseProjectBacklogArgs } from "./project-backlog-tool.js";
 export {
+  PROJECT_BACKLOG_ADD_TOOL,
   PROJECT_BRIEF_TOOL,
   PROJECT_MILESTONE_TOOL,
   PROJECT_PLAN_TOOL,

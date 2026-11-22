@@ -3,6 +3,37 @@
 Status: current
 Owner: repository maintainers
 
+## Live Fusion run
+
+The [Italian prompt](fixtures/document/prompt.txt) asks a Fusion worker to produce `report.md`, an Italian service report with the headings **Sintesi**, **Risultati** and **Prossimi passi**, 80–130 words, and no placeholders. The [Italian reference](fixtures/document/live-report.md) passes these criteria. The automated runner test also removes the required heading and inserts a placeholder to exercise the failures.
+
+Use PowerShell 7 from the repository root with Node 25.7 or newer, installed repository dependencies, and an `atomic-agent` build configured for Fusion with a reachable director, worker and reviewer.
+
+```powershell
+$root = Join-Path ([System.IO.Path]::GetTempPath()) ("atomic-e2e-document-" + [guid]::NewGuid())
+$run = Join-Path $root "project"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+$stateDir = if ($env:ATOMIC_AGENT_STATE_DIR) { $env:ATOMIC_AGENT_STATE_DIR } else { Join-Path $HOME ".atomic-agent" }
+
+Get-Content -Encoding utf8 docs/testing/fixtures/document/prompt.txt |
+  atomic-agent run --cwd $run --reviewer team --auto-approve-project `
+    1> (Join-Path $root "run-stdout.txt") 2> (Join-Path $root "run-stderr.txt")
+$runExit = $LASTEXITCODE
+
+node scripts/e2e-artifacts.mjs --cwd $run --fixture document --state-dir $stateDir --output (Join-Path $root "report.json")
+$reportExit = $LASTEXITCODE
+Get-Content (Join-Path $root "report.json")
+"Fusion exit: $runExit. Report exit: $reportExit. Logs: $root"
+```
+
+The first command runs the configured models. Tool approvals follow the current policy. The report command runs locally afterward and can also report a run that stopped at a gate. It looks up the newest session in the working folder, or the session selected with `--session <id>`. Leave `--output` off to print JSON to stdout. Run each attempt in a fresh folder so its saved evidence identifies that attempt.
+
+`artifact.checks` lists the individual file checks and their results. The verifier applies its default placeholder check to every document check. `execution` shows the recorded project gate, milestone state and keyed worker outcomes. `workerExecutions.count` counts recorded invocations only when the matching task outcome records explicitly count them. Otherwise the count is `null` and `known` reports the sum that could be verified from those records. The runner exits 0 when both artifact checks and execution evidence pass, 1 for a blocker and 2 for invalid arguments.
+
+Run the model-free report test with `npx vitest run scripts/e2e-artifacts.test.ts`.
+
+## Document parser fixtures
+
 The [brief](fixtures/document/brief.txt) asks for a weekly service report in
 English. The [test](../../src/tools/verify/document-check.test.ts) executes these
 files through the `verify.run` tool with the same criteria:

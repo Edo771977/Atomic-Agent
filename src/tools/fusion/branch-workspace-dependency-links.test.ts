@@ -2,6 +2,7 @@ import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, write
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { requireSymlinks } from "../../test-symlink-support.js";
 import { runIsolatedWave } from "./branch-merge.js";
 import { createBranchSet } from "./branch-workspace.js";
 import { createCandidateIntegration } from "./candidate-integration.js";
@@ -179,10 +180,11 @@ async function workspaceProject(): Promise<string> {
   return root;
 }
 
-it.each([
+it.for([
   ["symlinks allowed", () => undefined],
   ["only junctions allowed", (_target: string, type: string | undefined) => type === "junction" ? undefined : "EPERM"],
-] as const)("points a candidate's dependency links into the project at the candidate (%s)", async (_label, deny) => {
+] as const)("points a candidate's dependency links into the project at the candidate (%s)", async ([_label, deny], context) => {
+  requireSymlinks(context);
   const root = await workspaceProject();
   links.deny = deny;
   const candidate = await createCandidateIntegration(root, { git: async () => null });
@@ -198,7 +200,8 @@ it.each([
   } finally { await candidate.cleanup(); }
 });
 
-it("recreates a candidate's directory dependency links with an explicit dir type", async () => {
+it("recreates a candidate's directory dependency links with an explicit dir type", async (context) => {
+  requireSymlinks(context);
   // Windows guesses an untyped link's type from its target, and the target
   // rewritten into the candidate may not be copied yet: the link would be a
   // broken file link (realpath EPERM on a real Windows runner).
@@ -214,7 +217,8 @@ it("recreates a candidate's directory dependency links with an explicit dir type
   } finally { await candidate.cleanup(); }
 });
 
-it("keeps a candidate's dependency link outside the project pointing where it did", async () => {
+it("keeps a candidate's dependency link outside the project pointing where it did", async (context) => {
+  requireSymlinks(context);
   const root = await project();
   const outside = await realpath(await mkdtemp(join(tmpdir(), "atag-dep-outside-"))); roots.push(outside);
   await symlink(outside, join(root, "node_modules", "global"), "dir");
@@ -224,7 +228,8 @@ it("keeps a candidate's dependency link outside the project pointing where it di
   } finally { await candidate.cleanup(); }
 });
 
-it("names the link a candidate cannot recreate when no link kind is available", async () => {
+it("names the link a candidate cannot recreate when no link kind is available", async (context) => {
+  requireSymlinks(context);
   const root = await workspaceProject();
   links.deny = () => "EPERM";
   await expect(createCandidateIntegration(root, { git: async () => null })).rejects.toThrow(
@@ -246,10 +251,11 @@ async function monorepo(link: (top: string, app: string) => string, commit = tru
   return { top, app };
 }
 
-it.each([
+it.for([
   ["absolute", (top: string) => join(top, "packages", "lib")],
   ["relative", () => join("..", "..", "lib")],
-] as const)("points a worktree candidate's %s dependency link into the repository at the candidate's worktree", async (_label, target) => {
+] as const)("points a worktree candidate's %s dependency link into the repository at the candidate's worktree", async ([_label, target], context) => {
+  requireSymlinks(context);
   const { top, app } = await monorepo(target);
   const candidate = await createCandidateIntegration(app, {});
   try {
@@ -262,7 +268,8 @@ it.each([
   } finally { await candidate.cleanup(); }
 });
 
-it("refuses a folder-copy candidate whose dependency link points into the repository outside the copied folder", async () => {
+it("refuses a folder-copy candidate whose dependency link points into the repository outside the copied folder", async (context) => {
+  requireSymlinks(context);
   // No commit yet: Git cannot snapshot, so only the working directory is copied.
   const { top, app } = await monorepo(top => join(top, "packages", "lib"), false);
   await expect(createCandidateIntegration(app, {})).rejects.toThrow(
@@ -271,7 +278,8 @@ it("refuses a folder-copy candidate whose dependency link points into the reposi
   expect(await readFile(join(top, "packages", "lib", "index.js"), "utf8")).toBe("original lib\n");
 });
 
-it("recreates a relative dependency link leaving the project as its absolute original target", async () => {
+it("recreates a relative dependency link leaving the project as its absolute original target", async (context) => {
+  requireSymlinks(context);
   const holder = await realpath(await mkdtemp(join(tmpdir(), "atag-dep-holder-"))); roots.push(holder);
   const root = join(holder, "proj");
   await mkdir(join(root, "node_modules"), { recursive: true });

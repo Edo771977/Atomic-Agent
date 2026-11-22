@@ -1,3 +1,5 @@
+import { join, parse, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { fakeSession } from "../test-fixtures.js";
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
@@ -17,9 +19,15 @@ import {
   localFileChipLabel,
 } from "./chat-link-buttons.js";
 
+const ROOT = parse(resolve(".")).root;
+const WORKING_DIR = join(ROOT, "tmp", "links");
+const DASHBOARD = join(WORKING_DIR, "canvas", "dashboard.html");
+const REPORT = join(WORKING_DIR, "report.htm");
+const PAGE = join(ROOT, "srv", "page.html");
+
 const SESSION: TuiSessionInfo = fakeSession({
   sessionId: "links",
-  workingDir: "/tmp/links",
+  workingDir: WORKING_DIR,
   llamaUrl: "http://127.0.0.1:8080",
   browserChannel: "chrome",
   browserHeadless: false,
@@ -246,33 +254,25 @@ describe("ChatLinkButtons", () => {
 });
 
 /** Files the fake disk holds for the local-page tests (ATO-1139). */
-const ON_DISK = new Set([
-  "/tmp/links/canvas/dashboard.html",
-  "/tmp/links/report.htm",
-  "/srv/page.html",
-]);
+const ON_DISK = new Set([DASHBOARD, REPORT, PAGE]);
 const fakeIsFile = (path: string): boolean => ON_DISK.has(path);
 
 describe("extractLocalHtmlFiles", () => {
-  it("finds absolute, relative and file:// pages that exist", () => {
+  it("finds relative and file:// pages that exist", () => {
     expect(
       extractLocalHtmlFiles(
-        "Wrote canvas/dashboard.html, also file:///srv/page.html and `./report.htm`.",
-        "/tmp/links",
+        `Wrote canvas/dashboard.html, also ${pathToFileURL(PAGE).href} and \`./report.htm\`.`,
+        WORKING_DIR,
         fakeIsFile,
       ),
-    ).toEqual([
-      "/tmp/links/canvas/dashboard.html",
-      "/srv/page.html",
-      "/tmp/links/report.htm",
-    ]);
+    ).toEqual([DASHBOARD, PAGE, REPORT]);
   });
 
   it("skips pages that are not on disk and web URLs", () => {
     expect(
       extractLocalHtmlFiles(
-        "see /nope/missing.html and https://example.com/index.html",
-        "/tmp/links",
+        `see ${join(ROOT, "nope", "missing.html")} and https://example.com/index.html`,
+        WORKING_DIR,
         fakeIsFile,
       ),
     ).toEqual([]);
@@ -281,27 +281,27 @@ describe("extractLocalHtmlFiles", () => {
   it("dedupes one page spelled two ways", () => {
     expect(
       extractLocalHtmlFiles(
-        "/srv/page.html (file:///srv/page.html)",
-        "/tmp/links",
+        `${PAGE} (${pathToFileURL(PAGE).href})`,
+        WORKING_DIR,
         fakeIsFile,
       ),
-    ).toEqual(["/srv/page.html"]);
+    ).toEqual([PAGE]);
   });
 
   it("ignores files that are not html", () => {
     expect(
-      extractLocalHtmlFiles("notes at /srv/page.md", "/tmp/links", () => true),
+      extractLocalHtmlFiles("notes at ./page.md", WORKING_DIR, () => true),
     ).toEqual([]);
   });
 });
 
 describe("localFileChipLabel", () => {
   it("says only what it does when the message has one page", () => {
-    expect(localFileChipLabel("/srv/page.html", false)).toBe("open in browser");
+    expect(localFileChipLabel(PAGE, false)).toBe("open in browser");
   });
 
   it("names the file when there are several", () => {
-    expect(localFileChipLabel("/srv/page.html", true)).toBe(
+    expect(localFileChipLabel(PAGE, true)).toBe(
       "open page.html in browser",
     );
   });
@@ -330,7 +330,7 @@ describe("ChatLinkButtons local pages", () => {
   it("puts the page before web links under the same cap", () => {
     const app = mount(
       <ChatLinkButtons
-        text="https://a.io https://b.io https://c.io and /srv/page.html"
+        text={`https://a.io https://b.io https://c.io and ${PAGE}`}
         isFile={fakeIsFile}
       />,
     );
@@ -350,7 +350,7 @@ describe("ChatLinkButtons local pages", () => {
       { opened },
     );
     await clickChip(app, "[open in browser]", opened);
-    expect(opened).toEqual(["local:/tmp/links/canvas/dashboard.html"]);
+    expect(opened).toEqual([`local:${DASHBOARD}`]);
     app.unmount();
   });
 });
@@ -366,7 +366,7 @@ function canvasCard(overrides: Partial<ToolCardEntry> = {}): ToolCardEntry {
     truncated: false,
     details: {
       canvas: {
-        path: "/tmp/links/canvas/dashboard.html",
+        path: DASHBOARD,
         title: "Sales",
         kind: "chart",
         bytes: 1200,
@@ -381,7 +381,7 @@ function canvasCard(overrides: Partial<ToolCardEntry> = {}): ToolCardEntry {
 describe("canvasPagesFromToolCards", () => {
   it("reads the page from an ok canvas.render card", () => {
     expect(canvasPagesFromToolCards([canvasCard()])).toEqual([
-      { path: "/tmp/links/canvas/dashboard.html", title: "Sales" },
+      { path: DASHBOARD, title: "Sales" },
     ]);
   });
 
@@ -412,7 +412,7 @@ describe("ChatLinkButtons canvas cards", () => {
       { opened },
     );
     await clickChip(app, "[open Sales in browser]", opened);
-    expect(opened).toEqual(["local:/tmp/links/canvas/dashboard.html"]);
+    expect(opened).toEqual([`local:${DASHBOARD}`]);
     app.unmount();
   });
 
@@ -438,7 +438,7 @@ describe("ChatLinkButtons canvas cards", () => {
           canvasCard({
             details: {
               canvas: {
-                path: "/srv/page.html",
+                path: PAGE,
                 title: "Quarterly revenue by region and product line",
               },
             },

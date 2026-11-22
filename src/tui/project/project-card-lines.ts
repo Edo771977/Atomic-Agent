@@ -8,10 +8,12 @@
 
 import { pathToFileURL } from "node:url";
 
-import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine } from "../../session/project-gate-text.js";
+import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, criterionFactLine, decisionLine, seedHint } from "../../session/project-gate-text.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
+  backlogIds,
+  projectBacklogActions,
   projectCardActions,
   projectCardIsFull,
   projectFieldValue,
@@ -118,6 +120,28 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     for (const s of wrap(t, inner - indent - 1)) out.push(line(`${" ".repeat(indent)}${s}`, tone));
   };
 
+  if (card.mode === "backlog") {
+    const backlog = view.backlog;
+    const ids = backlogIds(view);
+    for (const id of ids) {
+      const item = backlog?.items.find(entry => entry.id === id);
+      const stale = backlog?.stale.find(entry => entry.id === id);
+      const selected = id === card.backlogId;
+      const label = item ? `${id} ${item.title} · ${item.state}` : id;
+      for (const [index, part] of wrap(label, inner - 3).entries()) {
+        out.push({ segments: [{ text: `${selected && index === 0 ? "›" : " "} ${part}`, inverse: selected, bold: selected }] });
+      }
+      if (stale) text(stale.reason === "removed" ? "removed outside Atomic Agent" : `changed since you ${stale.state} it`, "warn", 3);
+      if (selected && item?.note) text(item.note, "plain", 3);
+      if (selected && item?.condition) text(`When: ${item.condition}`, "plain", 3);
+    }
+    const actions = projectBacklogActions(card).map(action => `${action.key} ${action.label}`);
+    out.push(line(card.error ?? (card.pending ? "Deciding…" : card.backlogNotice || (ids.length ? "↑↓ select an item" : "Backlog is empty.")),
+      card.error ? "error" : "muted"));
+    out.push(line(" " + [...actions, "esc back"].join(" · "), "muted"));
+    return out;
+  }
+
   const brief = view.brief;
   if (brief?.draftedAfterUntrusted) {
     text("⚠ This brief was drafted after outside content entered the chat. Read it before approving.", "warn");
@@ -172,7 +196,26 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   }
 
   for (const v of view.violations) text(`${v.severity === "hard" ? "✕" : "!"} ${v.message}`, v.severity === "hard" ? "error" : "warn");
-  for (const hint of view.hints ?? []) text(`ℹ ${hint}`, "muted");
+  // Issue #111: the backlog's count; its seeds with their condition where a plan or milestone waits.
+  const backlog = view.backlog;
+  if (backlog !== undefined) {
+    const parts = [`${backlog.open} open`, ...(backlog.seeds.length === 0 ? [] : [`${backlog.seeds.length} seed${backlog.seeds.length === 1 ? "" : "s"}`]), ...(backlog.promoted.length === 0 ? [] : [`${backlog.promoted.length} promoted`])];
+    text(`Backlog: ${parts.join(" · ")}`, "muted");
+    if (view.gate.kind === "plan" || view.gate.kind === "milestone") {
+      for (const s of backlog.seeds) text(`seed ${s.id} ${s.title} — ${s.condition}`, "plain", 3);
+    }
+    // Issue #146: at the plan gate, each promoted item with the tasks that take it in.
+    if (view.gate.kind === "plan") {
+      for (const b of backlog.promoted) {
+        const cited = b.citedBy ?? [];
+        const state = b.deferred === true ? "deferred" : `cited by ${cited.length === 0 ? "no task" : cited.join(", ")}`;
+        text(`promoted ${b.id} ${b.title} (${state})`, b.deferred !== true && cited.length === 0 ? "warn" : "plain", 3);
+      }
+    }
+  }
+  // The seeds' own hints are drawn above from the structured backlog; every other hint stays.
+  const seedHints = new Set((backlog?.seeds ?? []).map((s) => seedHint(s.id, s.title, s.condition)));
+  for (const hint of view.hints ?? []) if (!seedHints.has(hint)) text(`ℹ ${hint}`, "muted");
 
   if (view.milestones.length > 0 && view.gate.kind !== "brief") {
     const gateId = view.gate.kind === "milestone" ? view.gate.id : null;
@@ -213,7 +256,8 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     buttons.push({ text: " " });
   });
   out.push({ segments: buttons });
-  out.push(line(card.pending ? " deciding…" : " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
+  const backlogHint = backlogIds(view).length ? " b Backlog ·" : "";
+  out.push(line(card.pending ? " deciding…" : backlogHint + " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
   return out;
 }
 
@@ -249,5 +293,6 @@ export function projectResumeLine(view: ProjectGateView): string | null {
   }
   const running = view.milestones.find((m) => m.state === "in_progress");
   const resume = running !== undefined ? ` · ${running.title} was cut off mid-run: /fusion resume continues it` : "";
-  return `Project — last done: ${done?.title ?? "nothing yet"} · next: ${next}${resume}`;
+  const open = view.backlog?.open ?? 0;
+  return `Project — last done: ${done?.title ?? "nothing yet"} · next: ${next}${resume}${open === 0 ? "" : ` · backlog: ${open} open`}`;
 }

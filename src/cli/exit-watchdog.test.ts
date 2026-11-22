@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
@@ -12,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
  * thread: it ends the process even when the main loop never yields, and
  * early when memory grows past its cap.
  */
-const MODULE = JSON.stringify(join(process.cwd(), "src", "cli", "hard-exit-deadline.ts"));
+const MODULE = JSON.stringify(pathToFileURL(join(process.cwd(), "src", "cli", "hard-exit-deadline.ts")).href);
 
 interface Ended { code: number | null; signal: NodeJS.Signals | null; stderr: string; ms: number }
 

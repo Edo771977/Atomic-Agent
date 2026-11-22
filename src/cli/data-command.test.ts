@@ -34,7 +34,7 @@ describe("atag data (ATO-579)", () => {
   it("backup leaves out models and the browser profile; restore brings the rest back and keeps the models here", async () => {
     const archive = join(root, "b.tar.gz");
     expect(await run(["backup", archive])).toBe(0);
-    expect(statSync(archive).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(archive).mode & 0o777).toBe(0o600);
     writeFileSync(join(state, "config.json"), '{"version":2}\n');
 
     expect(await run(["restore", archive])).toBe(2);

@@ -60,7 +60,7 @@ describe("ToolOutputSpill (ATO-663)", () => {
     expect(path as string).toContain(join(base, "s-1"));
   });
 
-  it("keeps the folder and the file owner-only", async () => {
+  it.skipIf(process.platform === "win32")("keeps the folder and the file owner-only on POSIX", async () => {
     const spilled = await spill.spill("os.shell.run", "s-1", shellResult(longLog(50)));
     const path = spilled.details[FULL_OUTPUT_PATH_DETAIL] as string;
     expect(statSync(path).mode & 0o777).toBe(0o600);
@@ -121,7 +121,7 @@ describe("ToolOutputSpill (ATO-663)", () => {
   it("refuses a session folder that is a symlink", async () => {
     const elsewhere = mkdtempSync(join(tmpdir(), "atomic-spill-target-"));
     try {
-      symlinkSync(elsewhere, join(base, "s-1"));
+      symlinkSync(elsewhere, join(base, "s-1"), process.platform === "win32" ? "junction" : "dir");
       const result = shellResult(longLog(100));
       expect(await spill.spill("os.shell.run", "s-1", result)).toBe(result);
     } finally {
@@ -155,7 +155,7 @@ describe("ToolOutputSpill (ATO-663)", () => {
     const parent = mkdtempSync(join(tmpdir(), "atomic-spill-link-"));
     try {
       const link = join(parent, "base");
-      symlinkSync(base, link);
+      symlinkSync(base, link, process.platform === "win32" ? "junction" : "dir");
       const linked = new ToolOutputSpill({ baseDir: link });
       expect(linked.sweepStale()).toBe(0);
       linked.removeSession("s-1");
@@ -348,7 +348,7 @@ describe("read scope for saved tool outputs", () => {
     const outside = mkdtempSync(join(tmpdir(), "atomic-spill-outside-"));
     try {
       writeFileSync(join(outside, "secret.txt"), "no");
-      symlinkSync(outside, join(dir, "link"));
+      symlinkSync(outside, join(dir, "link"), process.platform === "win32" ? "junction" : "dir");
       expect(
         checkWorkerRead("os.fs.read", { path: join(dir, "link", "secret.txt") }, workerCtx(), []),
       ).not.toBeNull();

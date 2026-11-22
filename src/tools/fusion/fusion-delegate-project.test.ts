@@ -193,6 +193,20 @@ describe("fusion.delegate with a project (issue #39)", () => {
     expect(message).not.toContain("Italian UI");
   });
 
+  it("a worker's brief carries the backlog items its task cites, framed as data (issue #146)", async () => {
+    let p = approve(up(undefined, brief));
+    p = up(p, { kind: "backlog_add", item: { title: "Export to PDF", note: "after the board", source: "director" } } as ProjectUpdate);
+    const { applyBacklogDecision } = await import("../../session/project-backlog.js");
+    const promoted = applyBacklogDecision(p, { id: "b1", state: "promoted" });
+    if (!promoted.ok) throw new Error(promoted.error.message);
+    const cited = { ...plan, rows: [{ ...row("board", "m1"), backlog: ["b1"] }, row("score", "m2")] };
+    const d = deps();
+    await buildFusionDelegateTool(d).run({ tasks: [task("board")] }, ctx(approve(up(promoted.project, cited))));
+    const message = (d.runTurn as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
+    expect(message).toContain("BACKLOG ITEMS THIS TASK TAKES IN");
+    expect(message).toContain("b1: Export to PDF (after the board)");
+  });
+
   it("a task outside the plan, another worker or a write outside the folder still asks", async () => {
     for (const tasks of [
       [task("board"), task("extra")],

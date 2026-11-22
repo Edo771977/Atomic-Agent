@@ -100,13 +100,30 @@ describe("schema v2 project tool fields", () => {
     const folded = applyProjectUpdate(approved.project, update, NOW);
     expect(folded.ok && folded.project.plan?.checkResults).toEqual(result.details.planChecks);
   });
+  it("a plan task may cite backlog items by id (issue #146)", () => {
+    const plan = (backlog: unknown) => parseProjectPlanArgs({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", backlog }] });
+    expect(plan(["b1", "b2"])).toMatchObject({ ok: true, plan: { tasks: [{ backlog: ["b1", "b2"] }] } });
+    for (const bad of ["b1", ["Not An Id"], ["b1", "b1"], [7]]) expect(plan(bad), JSON.stringify(bad)).toMatchObject({ ok: false });
+  });
+  it("carries a task's backlog citations to its plan row (issue #146)", async () => {
+    const p = applyProjectUpdate(undefined, { kind: "brief", brief: briefArgs, draftedAfterUntrusted: false }, NOW);
+    if (!p.ok) throw new Error(p.error.message);
+    const approved = applyProjectDecision(p.project, { gate: p.project.gate, version: gateVersion(p.project)!, verdict: "approve" }, { now: NOW });
+    if (!approved.ok) throw new Error(approved.error.message);
+    const result = await tools().plan.run({ milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build", milestone: "m1", backlog: ["b1"] }] }, { ...ctx, project: approved.project });
+    expect(result.status).toBe("ok");
+    const update = result.details[PROJECT_UPDATE_DETAIL] as ProjectUpdate;
+    expect(update).toMatchObject({ rows: [{ backlog: ["b1"] }] });
+    const folded = applyProjectUpdate(approved.project, update, NOW);
+    expect(folded.ok && folded.project.plan?.rows[0]?.backlog).toEqual(["b1"]);
+  });
 });
 
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();
-    expect([t.brief.name, t.plan.name, t.milestone.name]).toEqual([...PROJECT_TOOL_NAMES]);
-    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL]);
+    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add"]).toEqual([...PROJECT_TOOL_NAMES]);
+    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add"]);
     for (const tool of [t.brief, t.plan, t.milestone]) {
       expect(tool.readonly).toBe(true);
       expect(tool.untrustedOutput).toBeUndefined();
