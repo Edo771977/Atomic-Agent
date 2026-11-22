@@ -1,6 +1,6 @@
 import { isIncognitoSession } from "../session/incognito.js";
 import { readProjectRef } from "../session/session-project-store.js";
-import { projectLessonData, projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
+import { projectLessonSelection, projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
 import { projectSessionConversation } from "../session/session-compaction.js";
 import { buildCloudPrompt } from "./build-cloud-prompt.js";
 import {
@@ -280,9 +280,9 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
 
   const lessonSource = input.session.project?.brief?.status === "approved" && input.session.project.cancelledAt === undefined &&
     !isIncognitoSession(input.session) ? readProjectRef(input.session) : null;
-  const projectLessons = lessonSource === null ? [] : projectLessonData(projectLessonsForProvider(lessonSource, input.modelMode?.providerId));
+  const projectLessons = projectLessonSelection(lessonSource === null ? [] : projectLessonsForProvider(lessonSource, input.modelMode?.providerId));
   if (input.modelMode?.mode === "cloud") {
-    return buildCloudPrompt(input, stablePrefix, projectLessonDataBlock(projectLessons));
+    return buildCloudPrompt(input, stablePrefix, projectLessonDataBlock(projectLessons.data, projectLessons.omitted));
   }
 
   const sessionParts = buildSessionSectionParts(input.session, limits.session);
@@ -416,10 +416,10 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   );
 
   // `contextWindow` was resolved above, before the stable prefix.
-  const projectDigest = renderProjectDigest(input.session.project, projectLessons);
+  const projectDigest = renderProjectDigest(input.session.project, projectLessons.data, projectLessons.omitted);
   const sessionTokenEstimate =
     estimateTokens(sessionPartsForBudget) + loadedToolsTokens + projectTokens +
-    (projectLessons.length === 0 ? 0 : estimateTokens(projectLessonDataBlock(projectLessons) ?? ""));
+    (projectLessons.data.length === 0 ? 0 : estimateTokens(projectLessonDataBlock(projectLessons.data, projectLessons.omitted) ?? ""));
   const conversationCapEffective = computeEffectiveConversationCap({
     configuredCap: limits.conversation,
     ...(conversationCapAuto ? { autoFill: true } : {}),

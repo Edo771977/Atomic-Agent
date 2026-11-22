@@ -1,3 +1,5 @@
+import { projectLessonDataBlock, projectLessonSelection } from "./project-lessons-data.js";
+import { PROJECT_LIMITS } from "../session/project-limits.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -97,4 +99,18 @@ describe("renderProjectDigest and a plan held for the plan reviewer (issue #118)
     expect(text).toContain("plan review: lessons: fail");
     expect(text).not.toContain("quotes previously active lesson text");
   });
+});
+
+it("bounds escaped lesson data and reports the number omitted", () => {
+  const selection = projectLessonSelection(Array.from({ length: 15 }, (_, index) => ({
+    id: String(index), title: "T".repeat(400), always: index === 14, hash: "",
+    source: "person", touches: [], declaredStatus: "active", approvedByPerson: false,
+    sections: { decided: "\\".repeat(600), watchOut: "\\".repeat(600), triedAndRuledOut: "\\".repeat(600) },
+  })));
+  expect(selection.data[0]).toMatchObject({ id: "14" });
+  expect(selection.data[0]!.title).toHaveLength(PROJECT_LIMITS.title);
+  expect(selection.omitted).toBeGreaterThan(3);
+  const text = projectLessonDataBlock(selection.data, selection.omitted)!;
+  expect(text.length).toBeLessThanOrEqual(8000);
+  expect(text).toContain(`${selection.omitted} more lessons were not shown`);
 });

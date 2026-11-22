@@ -30,7 +30,7 @@ const clip = (text: string, max: number): string => {
  * the milestones, the gate, and what to do next — including, while a
  * gate is open, not to delegate.
  */
-export function renderProjectDigest(project: ProjectState | undefined, lessons: readonly ProjectLessonData[] = []): string | null {
+export function renderProjectDigest(project: ProjectState | undefined, lessons: readonly ProjectLessonData[] = [], omitted = 0): string | null {
   if (project === undefined) return null;
   const lines: string[] = [];
   if (project.cancelledAt !== undefined) {
@@ -114,7 +114,7 @@ export function renderProjectDigest(project: ProjectState | undefined, lessons: 
     default:
       break;
   }
-  const lessonBlock = projectLessonDataBlock(lessons);
+  const lessonBlock = projectLessonDataBlock(lessons, omitted);
   if (lessonBlock !== null) {
     lines.push(DIRECTOR_LESSONS_GUIDANCE, lessonBlock);
   }

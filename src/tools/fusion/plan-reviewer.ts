@@ -1,4 +1,4 @@
-import { projectLessonData, projectLessonsForProvider, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
+import { projectLessonSelection, projectLessonsForProvider, type ProjectLessonData } from "../../prompt/project-lessons-data.js";
 import type { ProjectLessonSource } from "../../session/project-lessons.js";
 import { TEAM_MEMBER_PROVIDER_MODEL } from "../../config/llm-fusion-team-config.js";
 import { completionCostUsd } from "../../llm/provider/usage-cost.js";
@@ -306,7 +306,7 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
     if (pick.kind === "skip") return { outcome: "skipped", reviewer: null, results: [], reason: pick.reason, costUsd: null };
     const member = pick.member;
     const pin = deps.pinsModel(member.providerId) && member.model !== TEAM_MEMBER_PROVIDER_MODEL ? member.model : undefined;
-    const lessons = lessonSource === undefined ? input.lessons : projectLessonData(projectLessonsForProvider(lessonSource, member.providerId));
+    const lessons = lessonSource === undefined ? input.lessons : projectLessonSelection(projectLessonsForProvider(lessonSource, member.providerId)).data;
     const run = await reviewPlan({
       input: { ...input, ...(lessons === undefined ? {} : { lessons }) },
       member,

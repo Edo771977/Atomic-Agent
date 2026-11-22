@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import { projectLessonData, projectLessonDataBlock, projectLessonsForProvider } from "../../prompt/project-lessons-data.js";
+import { projectLessonSelection, projectLessonDataBlock, projectLessonsForProvider } from "../../prompt/project-lessons-data.js";
 import type { ProjectLesson, ProjectLessonSource } from "../../session/project-lessons.js";
 import type { DelegateContract } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
@@ -30,5 +30,6 @@ export function workerProjectLessonBlock(
 ): string | null {
   const active = projectLessonsForProvider(source, providerId);
   if (active.length === 0) return null;
-  return projectLessonDataBlock(projectLessonData(projectLessonsForTask(active, task, contract, workingDir)));
+  const selection = projectLessonSelection(projectLessonsForTask(active, task, contract, workingDir));
+  return projectLessonDataBlock(selection.data, selection.omitted);
 }
