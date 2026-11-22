@@ -452,6 +452,7 @@ export const currentProjectLessons = Symbol("currentProjectLessons");
 
 interface ProjectLessonScope {
   active: readonly ProjectLesson[];
+  stale?: readonly string[];
   taskPaths: (row: AssignmentRow) => readonly string[];
   matches: (touches: readonly string[], paths: readonly string[]) => boolean;
 }
@@ -1868,6 +1869,7 @@ export function planCheckData(project: BacklogCallsView & LessonCallsView, plan:
     ...backlogCheckOptions(project, plan),
     ...(plan.status !== "draft" ? {} : {
       lessons: planLessonsOf(project, plan.rows),
+      staleLessonIds: project[currentProjectLessons]?.stale ?? [],
       activeLessonIds: project[currentProjectLessons]?.active.map((lesson) => lesson.id) ?? [],
     }),
   };

@@ -168,8 +168,9 @@ describe("project store (issue #109)", () => {
     expect(coverage(makePlan())).toEqual([expect.stringMatching(/fail.*storage.*build.*verify/)]);
     expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/pass/)]);
     writeFileSync(file, text.replace("Keep storage local", "Use SQLite"));
-    expect(coverage(makePlan())).toEqual([]);
-    expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/warn.*storage/), expect.stringMatching(/warn.*storage/)]);
+    expect(coverage(makePlan())).toEqual([expect.stringMatching(/warn.*storage.*changed or was removed/)]);
+    rmSync(file);
+    expect(coverage(makePlan())).toEqual([expect.stringMatching(/warn.*storage.*changed or was removed/)]);
   });
 
   it("writes content only, with a schema version, and readable views", () => {

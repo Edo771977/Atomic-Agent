@@ -6,7 +6,7 @@ import { splitTeamMemberRef } from "../config/llm-fusion-team-config.js";
 import { getConfig } from "../config/index.js";
 import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
-import { approvedProjectLessons } from "./project-lessons.js";
+import { projectLessonStatus, readProjectLessons } from "./project-lessons.js";
 import { lessonsForCurrentPlan, projectLessonReviewSelection } from "./project-lesson-projection.js";
 import { lessonTouchesTask, taskReferencePaths } from "../tools/fusion/plan-references.js";
 import { normalizeProject, currentProjectLessons, currentProjectLessonsBasis, planReviewFactsOf, type ProjectState } from "./session-project.js";
@@ -274,15 +274,23 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   if (!record.ok) return { ok: false, problem: recordProblem(record.problem, read.stored.folder) };
   const project = resolveProject(read.stored.project, record.record, (options.now ?? Date.now)());
   const projectFolder = read.stored.folder;
-  const active = approvedProjectLessons(projectFolder, record.record?.lessonCalls);
-  if (active.length > 0) {
+  const calls = Object.entries(record.record?.lessonCalls ?? {});
+  const lessons = calls.length === 0 ? [] : readProjectLessons(projectFolder).lessons;
+  const byId = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+  const active = calls.flatMap(([id, call]) => {
+    const lesson = byId.get(id);
+    return lesson !== undefined && projectLessonStatus(lesson, call).effectiveStatus === "active" ? [lesson] : [];
+  });
+  const stale = calls.filter(([id, call]) =>
+    call.state === "approved" && call.always !== false && byId.get(id)?.hash !== call.hash).map(([id]) => id);
+  if (active.length > 0 || stale.length > 0) {
     project[currentProjectLessons] = {
-      active,
+      active, stale,
       taskPaths: (row) => taskReferencePaths(row.files ?? [], row.checks ?? [], projectFolder),
       matches: (touches, paths) => lessonTouchesTask(touches, paths, process.platform),
     };
   }
-  if (project.plan?.status === "draft" && (active.length > 0 || project.plan.rows.some((row) => row.lessons !== undefined))) {
+  if (project.plan?.status === "draft" && (active.length > 0 || stale.length > 0 || project.plan.rows.some((row) => row.lessons !== undefined))) {
     project.plan = { ...project.plan, checkResults: [...planReviewFactsOf(project).planChecks] };
   }
   const review = project.plan?.review;

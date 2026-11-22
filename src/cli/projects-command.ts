@@ -533,7 +533,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
     if (live !== null) return refuse(`A turn is running on ${live}, a chat on this project. Wait for it to finish, then decide.`);
     const { id, state } = decision;
     const lesson = lessons.find((item) => item.id === id);
-    if (lesson === undefined && (state !== null || !Object.hasOwn(calls, id))) {
+    const previous = Object.hasOwn(calls, id) ? calls[id] : undefined;
+    if (lesson === undefined && (state === "approved" || previous === undefined)) {
       return refuse(`No valid lesson named ${id}.`);
     }
     if (state === "approved" && lesson !== undefined) {
@@ -542,7 +543,9 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
       if (decision.fingerprint === undefined) return refuse(`Current fingerprint: ${fingerprint}. Review the lesson and use --approve ${id}@${fingerprint}.`);
       if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
     }
-    const call = state === null ? null : { state, hash: lesson!.hash };
+    const call = state === null ? null : lesson === undefined
+      ? { ...previous!, state }
+      : { state, hash: lesson.hash, always: lesson.always };
     if (call !== null || Object.hasOwn(calls, id)) {
       const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
       if (!written.ok) return refuse(written.problem.message);

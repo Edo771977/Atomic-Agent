@@ -22,6 +22,7 @@ export interface PlanCheckOptions {
   backlog?: PlanBacklog;
   lessons?: PlanLessonCoverage[];
   activeLessonIds?: readonly string[];
+  staleLessonIds?: readonly string[];
 }
 
 export interface PlanLessonCoverage {
@@ -36,6 +37,10 @@ function lessonCoverage(rows: readonly AssignmentRow[], options: PlanCheckOption
   if (options.activeLessonIds === undefined) return [];
   const results: PlanCheckResult[] = [];
   const active = new Set(options.activeLessonIds);
+  for (const id of options.staleLessonIds ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [],
+    detail: `Approved lesson ${id} changed or was removed. Approve it again or retire it.`,
+  });
   for (const row of rows) {
     const stray = (row.lessons ?? []).filter((id) => !active.has(id));
     if (stray.length > 0) results.push({
