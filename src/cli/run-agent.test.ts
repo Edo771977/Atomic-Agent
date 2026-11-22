@@ -730,6 +730,7 @@ describe("the run banner skills row", () => {
 it.each([
   ["--approve", "1"], ["--auto-approve-project"], ["--defer-decision", "d1"],
   ["--reactivate-decision", "d1"], ["--defer-backlog", "b1"], ["--activate-backlog", "b1"],
+  ["--defer-lesson", "lesson"], ["--activate-lesson", "lesson"],
 ])("refuses an agent child run decision via %s", (...flags) => {
   const previous = process.env.ATOMIC_AGENT_TOOL_CHILD;
   process.env.ATOMIC_AGENT_TOOL_CHILD = "1";

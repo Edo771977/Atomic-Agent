@@ -312,7 +312,7 @@ export function parseRunArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
-  if (approve || autoApproveProject || decisionStatus.size > 0 || backlogStatus.size > 0) {
+  if (approve || autoApproveProject || decisionStatus.size > 0 || backlogStatus.size > 0 || lessonStatus.size > 0) {
     const refusal = projectDecisionOriginRefusal();
     if (refusal !== undefined) return { error: refusal };
   }
