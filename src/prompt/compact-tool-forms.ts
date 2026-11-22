@@ -25,7 +25,7 @@ export interface CompactToolForm {
 
 const RARE = "rare" as const;
 const GATE_AUTHORING =
-  'Check actual results. Measure from source. Print and assert a success-only marker. For absence, rerun via `negative` on known-present input that must fail. Pair `exit 0` and `stdout contains "passed"` with `stdout not contains "Tests: 0 passed"`.';
+  'Read, measure, assert success-only. Absence: negative. exit 0 + stdout not contains "Tests: 0 passed".';
 
 const FORMS: Record<string, CompactToolForm> = {
   "browser.navigate": {
@@ -259,11 +259,11 @@ const FORMS: Record<string, CompactToolForm> = {
     tier: RARE,
   },
   "fusion.delegate": {
-    summary: `Delegate independent tasks alone. ${GATE_AUTHORING}`,
+    summary: `Delegate alone. ${GATE_AUTHORING}`,
     tier: RARE,
   },
   "project.brief": { summary: "Draft the project brief for the person to approve; then reply." },
-  "project.plan": { summary: `Draft milestones and tasks for the approved brief. ${GATE_AUTHORING} Then reply.` },
+  "project.plan": { summary: `Plan and reply. ${GATE_AUTHORING}` },
   "project.milestone": { summary: "Report the approved milestone's result (done|failed, summary); then reply." },
   reply: {
     summary:

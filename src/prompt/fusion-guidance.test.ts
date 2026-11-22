@@ -235,7 +235,14 @@ describe("director check authoring (issue #122)", () => {
     for (const descriptor of toolDescriptors) {
       const summary = compact ? descriptor.compact?.summary ?? "" : descriptor.summary;
       expect(prefix).toContain(summary);
-      expect(summary.length).toBeLessThan(compact ? 320 : 1250);
+      if (compact) {
+        expect(summary.length).toBeLessThan(120);
+        expect(summary).toContain("Read, measure, assert success-only.");
+        expect(summary).toContain("Absence: negative.");
+        expect(summary).toContain('exit 0 + stdout not contains "Tests: 0 passed"');
+        continue;
+      }
+      expect(summary.length).toBeLessThan(1250);
       expect(summary).toMatch(/(?:observe|check) actual results?|observe the actual result/i);
       expect(summary).toMatch(/measure (?:numbers )?from source/i);
       expect(summary).toMatch(/print and assert a success-only marker/i);
