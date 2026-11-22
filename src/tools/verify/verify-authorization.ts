@@ -361,7 +361,7 @@ export async function authorizeVerifyBatch(
           throw new Error("verify.run: the pinned file differs from the approved impeccable executable");
         }
         const exceptionFile = projectRef === undefined || logical.path === undefined ? undefined
-          : relative(projectRef.folder, resolve(cwd, logical.path)).split(sep).join("/");
+          : relative(project, resolve(cwd, logical.path)).split(sep).join("/");
         Object.defineProperty(spec, APPROVED_IMPECCABLE, {
           value: detector === undefined ? undefined : { ...detector, exceptions, exceptionFile, serviceUrl, path: outcome.pinnedExec?.path },
         });

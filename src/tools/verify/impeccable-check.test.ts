@@ -469,3 +469,20 @@ it("isolates an invalid service readiness URL from sibling checks", async () => 
     artifactStatus: "uncheckable", error: expect.stringContaining("loopback"),
   });
 });
+
+it("matches a file exception in a session working copy", async () => {
+  const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+  const stateDir = join(root, "state");
+  const worktree = join(root, "worktree");
+  await mkdir(worktree);
+  await writeFile(join(worktree, "index.html"), "<p>Hello</p>");
+  await writeFile(join(worktree, "style.css"), "p { color: #aaa; }");
+  const projectRef = { folder: root, id: "worktree-ui" };
+  expect(stateDirProjectRecords(stateDir).write(root, projectRef.id, 0, { gate: { kind: "none" }, milestones: [] },
+    undefined, undefined, { rule: "low-contrast", file: "index.html", reason: "Logo", allow: true }).ok).toBe(true);
+  await fake(2, [finding("low-contrast")]);
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", path: "index.html" }], {
+    approvals: {} as never, approvalRequired: false, uiExceptionStateDir: stateDir,
+  }, { workingDir: worktree, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
+  expect(await executeVerify(spec!, { workingDir: worktree })).toMatchObject({ artifactStatus: "pass" });
+});
