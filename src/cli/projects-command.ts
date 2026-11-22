@@ -284,7 +284,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
         for (const kind of [...RECEIPT_KINDS, null]) {
           const rows = results.filter(result => result.kind === kind);
           if (rows.length === 0) continue;
-          const statuses = ["valid", "hash-mismatch", "bad-signature", "unknown-key", "unsigned"] as const;
+          const statuses = ["valid", "hash-mismatch", "bad-signature", "unknown-key", "unsigned", "unknown-kind"] as const;
           const counts = statuses.map(status => `${rows.filter(row => row.status === status).length} ${status}`);
           stdout(`${kind ?? "unknown kind"}: ${counts.join(", ")}\n`);
         }

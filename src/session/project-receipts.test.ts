@@ -128,3 +128,18 @@ it("signs milestone facts and attachment fingerprints without copying free text 
     expect(text).not.toContain(privateText);
   }
 });
+
+it("reports a future receipt kind distinctly for signed and unsigned rows", async () => {
+  const { dir, append } = setup();
+  append();
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const row = JSON.parse(readFileSync(path, "utf8"));
+  const future = { ...row, kind: "future-evidence" };
+  const unsigned = { ...future, signature: null, keyId: null, status: "unsigned" };
+  const malformed = { ...row, kind: null };
+  writeFileSync(path, [future, unsigned, malformed].map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  expect(verifyProjectReceipts(dir, dir)).toEqual(["unknown-kind", "unknown-kind", "bad-signature"]);
+  const stdout = vi.fn();
+  expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout })).toBe(1);
+  expect(stdout.mock.calls.flat().join("")).toContain("2 unknown-kind");
+});

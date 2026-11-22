@@ -5,7 +5,7 @@ export type ReceiptKind = typeof RECEIPT_KINDS[number];
 export function isReceiptKind(value: unknown): value is ReceiptKind {
   return RECEIPT_KINDS.some(kind => kind === value);
 }
-export type ReceiptStatus = "valid" | "hash-mismatch" | "bad-signature" | "unknown-key" | "unsigned";
+export type ReceiptStatus = "valid" | "hash-mismatch" | "bad-signature" | "unknown-key" | "unsigned" | "unknown-kind";
 export interface Receipt {
   kind: ReceiptKind;
   payload: unknown;
@@ -58,7 +58,8 @@ export function makeReceipt(kind: ReceiptKind, payload: unknown, key: KeyObject 
 
 export function verifyReceipt(row: Receipt, projectKey: string, lookup: (id: string) => KeyObject | null): ReceiptStatus {
   if (receiptHash(row.payload) !== row.payloadHash) return "hash-mismatch";
-  if (!isReceiptKind(row.kind)) return "bad-signature";
+  const kind: unknown = row.kind;
+  if (!isReceiptKind(kind)) return typeof kind === "string" && kind.length > 0 ? "unknown-kind" : "bad-signature";
   if (row.signature === null && row.keyId === null && row.status === "unsigned") return "unsigned";
   if (typeof row.signature !== "string" || row.status !== undefined || typeof row.keyId !== "string" ||
       !/^[a-f0-9]{32}$/.test(row.keyId) || typeof row.signedAt !== "string") return "bad-signature";
