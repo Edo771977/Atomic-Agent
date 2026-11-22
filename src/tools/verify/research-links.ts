@@ -3,9 +3,14 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { offlineRefusal } from "../../llm/offline-network.js";
-import { assertHostAllowed, isBlockedIp, parseHttpUrl, type HostLookup } from "../os/web/web-fetch-ssrf-guard.js";
+import { assertHostAllowed, parseHttpUrl, type HostLookup } from "../os/web/web-fetch-ssrf-guard.js";
 import type { ArtifactOutcome } from "./artifact-process.js";
 import { MAX_RESEARCH_LINKS, type ResearchLink, type ResearchLinkVerdict } from "./research-check.js";
+
+const PROXY_KEYS = new Set(["http_proxy", "https_proxy", "all_proxy", "npm_config_proxy", "npm_config_https_proxy", "npm_config_http_proxy"]);
+const MAX_DNS_LOOKUPS = 4;
+const MAX_REDIRECTS = 3;
+let activeLookups = 0;
 
 type Verdict = Pick<ResearchLinkVerdict, "status" | "reason">;
 export type ResearchProbe = (url: string, signal: AbortSignal) => Promise<Verdict>;
@@ -17,7 +22,7 @@ function requestHeaders(url: URL, ip: string, method: "HEAD" | "GET", signal: Ab
     const req = request(url, {
       method, signal, agent: false, family: isIP(ip),
       lookup: (_host, _options, callback) => callback(null, ip, isIP(ip)),
-      headers: method === "GET" ? { Range: "bytes=0-0" } : {},
+      headers: { "User-Agent": "Atomic-Agent-Research/1.0", ...(method === "GET" ? { Range: "bytes=0-0" } : {}) },
     }, response => {
       const { statusCode, headers } = response;
       response.destroy();
@@ -28,38 +33,59 @@ function requestHeaders(url: URL, ip: string, method: "HEAD" | "GET", signal: Ab
   });
 }
 
-export async function probeResearchLink(raw: string, signal: AbortSignal, deps: { lookup?: HostLookup; request?: typeof requestHeaders } = {}): Promise<Verdict> {
-  let dnsMissing = false;
-  try {
-    const url = parseHttpUrl(raw);
-    if (url.username || url.password) return { status: "unverified", reason: "URL contains credentials" };
-    if (offlineRefusal(url, "verify.run research")) return { status: "unverified", reason: "runtime is offline" };
-    const lookup = deps.lookup ?? (host => dnsLookup(host, { all: true }));
-    const addresses = await assertHostAllowed(url, { lookup: async host => {
-      try { return await lookup(host); }
-      catch (error) {
-        dnsMissing = (error as NodeJS.ErrnoException).code === "ENOTFOUND";
-        throw error;
-      }
-    } });
+interface ProbeDeps {
+  lookup?: HostLookup;
+  request?: typeof requestHeaders;
+  env?: NodeJS.ProcessEnv;
+  allowUrl?: (url: string) => boolean;
+}
+
+async function requestPinned(url: URL, ips: readonly string[], request: typeof requestHeaders, signal: AbortSignal) {
+  for (const ip of ips) {
     signal.throwIfAborted();
-    const request = deps.request ?? requestHeaders;
-    let response = await request(url, addresses[0]!, "HEAD", signal);
-    if (response.status === 405 || response.status === 501) response = await request(url, addresses[0]!, "GET", signal);
-    const { status, location } = response;
-    if (status === 404 || status === 410) return { status: "missing", reason: `HTTP ${status}` };
-    if (status >= 200 && status < 300) return { status: "verified", reason: `HTTP ${status}` };
-    if (status >= 300 && status < 400 && location !== undefined) {
-      const redirect = parseHttpUrl(new URL(location, url).href);
-      if (isBlockedIp(redirect.hostname.replace(/^\[|\]$/gu, "")) || redirect.hostname.toLowerCase() === "localhost") {
-        return { status: "unverified", reason: "redirect to a private/internal address refused" };
-      }
-      return { status: "unverified", reason: "redirect not followed" };
+    const attempt = ips.length === 1 ? signal : AbortSignal.any([signal, AbortSignal.timeout(500)]);
+    try {
+      const head = await request(url, ip, "HEAD", attempt);
+      if (![404, 405, 410, 501].includes(head.status)) return head;
+      return await request(url, ip, "GET", attempt);
+    } catch {
+      signal.throwIfAborted();
     }
-    return { status: "unverified", reason: `HTTP ${status}` };
+  }
+  throw new Error("no pinned address answered");
+}
+
+export async function probeResearchLink(raw: string, signal: AbortSignal, deps: ProbeDeps = {}): Promise<Verdict> {
+  if (Object.entries(deps.env ?? process.env).some(([key, value]) => value?.trim() && PROXY_KEYS.has(key.toLowerCase()))) {
+    return { status: "unverified", reason: "proxy configured and pinned proxy transport unavailable" };
+  }
+  try {
+    let url = parseHttpUrl(raw);
+    const request = deps.request ?? requestHeaders;
+    const resolveHost = deps.lookup ?? (host => dnsLookup(host, { all: true }));
+    const lookup: HostLookup = async host => {
+      signal.throwIfAborted();
+      if (activeLookups >= MAX_DNS_LOOKUPS) throw new Error("DNS lookup capacity exhausted");
+      activeLookups += 1;
+      try { return await resolveHost(host); }
+      finally { activeLookups -= 1; }
+    };
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+      signal.throwIfAborted();
+      if (url.username || url.password || deps.allowUrl?.(url.href) === false) return { status: "unverified", reason: "URL contains credentials or a hidden value" };
+      if (offlineRefusal(url, "verify.run research")) return { status: "unverified", reason: "runtime is offline" };
+      const addresses = await assertHostAllowed(url, { lookup });
+      const { status, location } = await requestPinned(url, [...new Set(addresses)], request, signal);
+      if (status === 404 || status === 410) return { status: "missing", reason: "HTTP " + status + " confirmed by GET" };
+      if (status >= 200 && status < 300) return { status: "verified", reason: "HTTP " + status };
+      if (![301, 302, 303, 307, 308].includes(status) || !location) return { status: "unverified", reason: "HTTP " + status };
+      if (redirects === MAX_REDIRECTS) break;
+      url = parseHttpUrl(new URL(location, url).href);
+    }
+    return { status: "unverified", reason: "redirect limit exceeded" };
   } catch {
-    return dnsMissing ? { status: "missing", reason: "domain does not resolve" }
-      : { status: "unverified", reason: signal.aborted ? "probe cancelled or timed out" : "connection or address check failed" };
+    // getaddrinfo ENOTFOUND also covers non-authoritative resolver failures.
+    return { status: "unverified", reason: signal.aborted ? "probe cancelled or timed out" : "connection, DNS or address check failed" };
   }
 }
 
@@ -80,9 +106,10 @@ export async function checkResearchLinks(out: ArtifactOutcome, probe?: ResearchP
   const deadline = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
   const researchLinks: ResearchLinkVerdict[] = [];
   let status = local.status;
-  for (const { url, citations } of links.slice(0, MAX_RESEARCH_LINKS)) {
+  for (const { url, citations, ambiguous } of links.slice(0, MAX_RESEARCH_LINKS)) {
     const linkTimeout = AbortSignal.any([deadline, AbortSignal.timeout(2_000)]);
-    const result: Verdict = overLimit || probe === undefined
+    const result: Verdict = ambiguous ? { status: "unverified", reason: "ambiguous URL punctuation" }
+      : overLimit || probe === undefined
       ? { status: "unverified", reason: overLimit ? "URL limit exceeded" : reason }
       : await boundedProbe(probe, url, linkTimeout);
     if (result.status === "missing") status = "fail";
