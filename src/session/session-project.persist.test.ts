@@ -18,6 +18,7 @@ import {
   readProject,
   withProject,
   type AssignmentRow,
+  type ProjectCriterionFact,
   type ProjectCriterionInput,
   type ProjectState,
   type ProjectUpdate,
@@ -71,7 +72,9 @@ describe("project state across a session save and load (issue #80)", () => {
 
   /** Save the project on the session, then read it back from disk. */
   function reopen(project: ProjectState): ProjectState {
-    store.save(withProject(createEmptySessionState({ id: "s1", workingDir: "/w" }), project));
+    store.save(withProject(createEmptySessionState({ id: "s1", workingDir: tmp }), project));
+    store.close();
+    store = new SessionStore({ dbFile: join(tmp, "sessions.sqlite") });
     const loaded = store.load("s1");
     const back = loaded === null ? undefined : readProject(loaded);
     if (back === undefined) throw new Error("project lost on reload");
@@ -92,26 +95,34 @@ describe("project state across a session save and load (issue #80)", () => {
   it("a criterion id removed and reused for a new requirement carries no pass; the old one stays with its text", () => {
     const offline = { id: "a", text: "works offline" };
     const levels = { id: "lv", text: "Has three levels" };
+    const offlinePass: ProjectCriterionFact = {
+      id: offline.id,
+      state: "passed",
+      basis: { kind: "check", checks: [{ index: 1, runId: "run-1", outputHash: "a".repeat(64) }] },
+    };
+    const collaboration = { id: offline.id, text: "supports live collaboration" };
     let p = approve(fold(approve(fold(undefined, brief([offline, levels]))), plan()));
     p = fold(p, { kind: "milestone_run", id: "a", runId: "run-1" });
-    p = approve(fold(p, { kind: "milestone", id: "a", state: "done", summary: "Offline works", criteriaFacts: [{ id: "a", state: "passed" }, { id: "lv", state: "passed" }] }));
+    p = approve(fold(p, { kind: "milestone", id: "a", state: "done", summary: "Offline works", criteriaFacts: [offlinePass, { id: "lv", state: "passed" }] }));
+    p = reopen(p);
+    expect(p.milestones[0]?.criteriaFacts).toContainEqual(offlinePass);
     expect(p.milestones[0]!.state).toBe("reviewed");
     // Remove criterion a, keep the other; persist and reopen.
     p = reopen(approve(fold(p, brief([levels]))));
     // Reuse the id for a different requirement, approved in a later brief.
-    p = reopen(approve(fold(p, brief([levels, { id: "a", text: "supports live collaboration" }]))));
+    p = reopen(approve(fold(p, brief([levels, collaboration]))));
     const m = p.milestones[0]!;
     // The verdict on the kept criterion stands; the reused id has no evidence until it is verified.
     expect(m.state).toBe("reviewed");
     expect(m.criteriaFacts).toEqual([{ id: "lv", state: "passed" }]);
-    expect((m.criteriaFacts ?? []).some((f) => f.id === "a")).toBe(false);
+    expect(p.approvedCriteria).toEqual([levels, collaboration]);
     // The earlier pass stays in history, tied to its original text.
     expect(m.history).toEqual([
       expect.objectContaining({
         state: "reviewed",
         cause: "brief-removed",
         runIds: ["run-1"],
-        criteriaFacts: [{ id: "a", state: "passed" }],
+        criteriaFacts: [offlinePass],
         criteria: [offline],
       }),
     ]);
