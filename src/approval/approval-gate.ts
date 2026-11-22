@@ -63,6 +63,8 @@ export interface ApprovalRequest {
    * the shell tool knows the guard verdict, and so on).
    */
   category: ApprovalCategory;
+  /** An explicit one-time decision cannot create a standing grant. */
+  oneShot?: true;
   reason: string;
   /** Human-readable preview of the action (command, diff snippet, URL, …). */
   preview?: string;
@@ -776,7 +778,7 @@ export class ApprovalGate {
 
   request(
     params: Omit<ApprovalRequest, "approvalId"> & { approvalId?: string },
-    { signal }: { signal?: AbortSignal } = {},
+    { signal, requireExplicitDecision }: { signal?: AbortSignal; requireExplicitDecision?: boolean } = {},
   ): Promise<ApprovalDecision> {
     const approvalId = params.approvalId ?? randomUUID();
     const workdir = params.workdir ?? currentApprovalWorkdir();
@@ -788,6 +790,7 @@ export class ApprovalGate {
     const request: ApprovalRequest = {
       ...params,
       approvalId,
+      ...(requireExplicitDecision ? { oneShot: true as const } : {}),
       ...(workdir !== undefined ? { workdir } : {}),
       ...(questionSources.length > 0 ? { riskNote: formatQuestionTaintNote(questionSources) } : {}),
     };
@@ -832,7 +835,7 @@ export class ApprovalGate {
       });
     }
     const auto =
-      rule?.decision === "ask" || this.taintHeld.has(approvalId)
+      requireExplicitDecision || rule?.decision === "ask" || this.taintHeld.has(approvalId)
         ? null
         : this.autoApproval(request);
     if (auto) {
@@ -847,7 +850,7 @@ export class ApprovalGate {
       }
       return Promise.resolve({ approvalId, approved: true, reason: auto });
     }
-    if (rule?.decision === "allow") {
+    if (!requireExplicitDecision && rule?.decision === "allow") {
       recordAutoApproval(
         "rule",
         request.category,
@@ -860,7 +863,7 @@ export class ApprovalGate {
       });
     }
     // An "ask" rule means the person wants the prompt: no model rates it away.
-    if (rule?.decision !== "ask" && this.shouldReviewRisk(request)) {
+    if (!requireExplicitDecision && rule?.decision !== "ask" && this.shouldReviewRisk(request)) {
       return this.requestAfterReview(request, signal);
     }
     // Would prompt from here on. A session under a refuse policy gets its
@@ -1388,7 +1391,7 @@ export class ApprovalGate {
     request: ApprovalRequest,
     scope: ApprovalGrantScope,
   ): void {
-    if (!isGrantableCategory(request.category)) return;
+    if (request.oneShot || !isGrantableCategory(request.category)) return;
     if (scope === "always") {
       this.saveAlwaysRule(request);
       return;
@@ -1557,7 +1560,7 @@ function scopedGrantId(category: ApprovalCategory, key: string): string {
  * is offered only when it names exactly one host.
  */
 export function canGrantCategory(request: ApprovalRequest): boolean {
-  if (!isGrantableCategory(request.category)) return false;
+  if (request.oneShot || !isGrantableCategory(request.category)) return false;
   if (isSiteScopedCategory(request.category)) return siteGrantHost(request) !== null;
   return true;
 }
@@ -1609,6 +1612,7 @@ function withSites(
  * so `[a]` is never offered where the binary name hides what runs.
  */
 export function canGrantShape(request: ApprovalRequest): boolean {
+  if (request.oneShot) return false;
   return request.category === "shell" && Boolean(request.commandShape);
 }
 

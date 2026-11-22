@@ -116,7 +116,7 @@ function uncheckable(detail: string): DocumentResult {
   return { status: "uncheckable", detail };
 }
 
-async function extractDocument(bytes: Buffer, extension: string): Promise<Extraction> {
+export async function extractDocument(bytes: Buffer, extension: string, preserveMarkup = false): Promise<Extraction> {
   const input = { data: bytes, sourcePath: extension };
   let text: string;
   if (extension === ".docx") {
@@ -143,7 +143,7 @@ async function extractDocument(bytes: Buffer, extension: string): Promise<Extrac
   if (text.length > MAX_EXTRACTED_CHARS) {
     return uncheckable(`document exceeds the ${MAX_EXTRACTED_CHARS}-character text limit`);
   }
-  if (extension === ".md" || extension === ".docx") {
+  if (!preserveMarkup && (extension === ".md" || extension === ".docx")) {
     const tokens = Lexer.lex(text, { gfm: true });
     const headings = tokens
       .filter((token): token is Tokens.Heading => token.type === "heading")

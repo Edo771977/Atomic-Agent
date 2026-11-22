@@ -108,6 +108,7 @@ export type ContractCheckRunner = ((
      * are named by it (issue #40).
      */
     checkTasks?: readonly (string | undefined)[];
+    changedPaths?: readonly string[];
     /** The fusion run the checks belong to: its screenshots are kept with the run. */
     run?: ContractCheckRun;
   },
@@ -593,6 +594,7 @@ export async function runContractChecks(
     knownSecrets?: readonly KnownSecret[];
     inputIntegrity?: VerificationInputIntegrity;
     /** A task's declared files, hashed as each of its checks runs on them (issue #104 review). */
+    changedPaths?: readonly string[];
     filesOf?: (taskId: string) => readonly string[];
     recordCheckRun?: CheckRunRecorder;
   },
@@ -631,7 +633,7 @@ export async function runContractChecks(
       negativeResults.set(i, ran.results[0]);
     }
     results = (
-      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), checkTasks: checks.map((check) => check.task) })
+      await runner(specs, { workingDir: ctx.workingDir, signal: ctx.signal, ...(ctx.inputIntegrity === undefined ? {} : { inputIntegrity: ctx.inputIntegrity }), ...(ctx.changedPaths === undefined ? {} : { changedPaths: ctx.changedPaths }), checkTasks: checks.map((check) => check.task) })
     ).results;
   } catch (error) {
     // Held after outside content (`contract-check-hold.ts`): its own note,
@@ -679,7 +681,7 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
-      ...((check.kind ?? check.type) !== "ui" || result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
+      ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
       ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),

@@ -190,12 +190,15 @@ export function buildMergeGate(input: MergeGateInput): MergeGate {
     const own = gatedChecks(input.contract, row.id, input.concurrent);
     const ran = new Set<number>();
     if (own.length > 0) {
+      const needsChanges = own.some(({ check }) => (check.kind ?? check.type) === "files" && typeof check.within === "string");
+      const changedPaths = needsChanges ? await workspace.changedPaths?.(input.signal).catch(() => undefined) : undefined;
       const checks = await runContractChecks(
         own.map(({ index }) => contract!.checks![index]!),
         input.runChecks,
         {
           workingDir: workspace.dir,
           signal: input.signal,
+          ...(changedPaths === undefined ? {} : { changedPaths }),
           ...(input.knownSecrets === undefined ? {} : { knownSecrets: input.knownSecrets }),
           recordCheckRun: input.recordCheckRun,
           filesOf: (taskId) => input.tasks.find((t) => t.id === taskId)?.files ?? [],

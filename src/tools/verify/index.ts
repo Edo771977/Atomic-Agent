@@ -126,6 +126,7 @@ export function registerVerifyTools(
   registry.register(verifySyntaxTool);
   registry.register(
     buildVerifyRunTool({
+      researchEgress: (spec, ctx) => registry.dispatchRefusal("verify.run", spec, ctx) ?? registry.dispatchRefusal("os.http.request", {}, ctx),
       approvals: options.approvals,
       approvalRequired: options.approvalRequired,
       config: options.config,

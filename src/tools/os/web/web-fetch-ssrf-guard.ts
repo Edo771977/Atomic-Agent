@@ -127,6 +127,8 @@ const BLOCKED_IPV6: ReadonlyArray<readonly [string, number]> = [
   ["fc00::", 7], // unique-local
   ["fe80::", 10], // link-local
   ["ff00::", 8], // multicast
+  ["64:ff9b::", 96], // NAT64
+  ["2002::", 16], // 6to4
   ["2001:db8::", 32], // documentation
 ];
 

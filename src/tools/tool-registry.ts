@@ -14,6 +14,7 @@ import {
   knownSecretsFromEnv,
   type KnownSecret,
 } from "../error-reporting/secret-detector.js";
+import { EgressNotAllowedError, isNetworkedResearch } from "./tool-egress.js";
 import type { ToolRole } from "./tool-roles.js";
 import type { FileReadVersions } from "./os/fs/fs-read-freshness.js";
 import { fileStem, type ToolOutputSpill } from "./tool-output-spill.js";
@@ -253,7 +254,7 @@ export class ToolRegistry {
     ctx: Pick<ToolContext, "sessionId" | "workingDir">,
   ): CompressedToolResult | null {
     const refused = this.dispatchRefusal(name, args, ctx);
-    if (refused === null) return null;
+    if (refused === null || this.canRunResearchOffline(name, args, refused)) return null;
     const code = (refused as { code?: unknown }).code;
     return compressToolResult({
       tool: name,
@@ -261,6 +262,16 @@ export class ToolRegistry {
       output: refused.message,
       details: { errorName: refused.name, ...(typeof code === "string" ? { code } : {}), refusedBeforeDispatch: true },
     });
+  }
+
+  /** Apply the dispatch read observation for work executed outside invoke(), such as Fusion checks. */
+  observeDispatch(name: string, args: Record<string, unknown>, ctx: ToolContext): void {
+    this.onDispatch?.(name, args, ctx);
+  }
+
+  private canRunResearchOffline(name: string, args: Record<string, unknown>, error: Error): boolean {
+    // The verification tool rechecks this refusal and withholds the network capability.
+    return error instanceof EgressNotAllowedError && error.egressClass === "http" && isNetworkedResearch(name, args);
   }
 
   async invoke(
@@ -289,9 +300,9 @@ export class ToolRegistry {
       // policy: the backstop for callers that did not ask
       // `refusalBeforeDispatch`, and the check for a call that both reads
       // and sends.
-      this.onDispatch?.(name, runArgs, ctx);
+      this.observeDispatch(name, runArgs, ctx);
       const refused = this.dispatchGuard?.(name, runArgs, ctx) ?? null;
-      if (refused !== null) throw refused;
+      if (refused !== null && !this.canRunResearchOffline(name, runArgs, refused)) throw refused;
       // Checkpoint hook (ATO-1056) after the guards: a refused call saves
       // nothing. A hook never stops the call.
       if (this.beforeInvoke !== undefined) {

@@ -55,3 +55,8 @@ describe("readTaintTargets", () => {
     expect(readTaintTargets("os.fs.edit", { path: source, oldString: "a", newString: "b" }, wd)).toEqual([source]);
   });
 });
+
+it("taints research link probes with the source document's folder", () => {
+  expect(readTaintTargets("verify.run", { type: "research", cwd: "restricted", path: "sources.md", network: true }, wd))
+    .toEqual([resolve(wd, "restricted", "sources.md")]);
+});
