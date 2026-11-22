@@ -88,3 +88,17 @@ describe("contract checks under the folder's egress rule (issue #40)", () => {
     expect(withContractCheckEgress(inner, undefined)).toBe(inner);
   });
 });
+
+it("requires browser egress for served UI checks while keeping source checks offline", async () => {
+  const inner = runner();
+  const wrapped = withContractCheckEgress(inner, refuse("constrained"))!;
+  const source = { kind: "ui", path: "index.html" };
+  const out = await wrapped([
+    { type: "ui", url: "http://localhost:4173/" },
+    { kind: "ui", service: "preview" },
+    source,
+  ], { workingDir: "/work/secret", signal });
+  expect(inner.mock.calls[0]![0]).toEqual([source]);
+  expect(out.results.map(result => result.ok)).toEqual([false, false, true]);
+  expect(out.results[0]?.error).toContain('"browser"');
+});

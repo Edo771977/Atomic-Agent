@@ -1610,6 +1610,9 @@ export function buildFusionDelegateTool(
         // The operator's project, not a candidate copy: rules and the prompt name it.
         workingDir: candidateOriginalDir,
         sourceWorkingDir: ctx.workingDir,
+        ...(ctx.incognito || ctx.projectRef === undefined ? {} : {
+          uiExceptions: { stateDir: getConfig().paths.stateDir, projectRef: ctx.projectRef },
+        }),
         tool: FUSION_DELEGATE_TOOL,
         // Declared checks and provide examples (ATO-1362) are described
         // and held as one batch.

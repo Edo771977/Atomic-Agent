@@ -7,7 +7,7 @@ import type { ContractCheckResult, ContractCheckRun, ContractCheckRunner } from 
  * A contract check is a `verify.run` spec, but the fan-out runs it
  * through the verify family directly, not through the tool registry, so
  * the registry's dispatch guard (`tool-egress.ts`) never saw it. A page
- * is browser egress, and research link probes use HTTP egress.
+ * or rendered UI check is browser egress, and research link probes use HTTP egress.
  * `refuse` is that same guard, asked for `verify.run` with the spec, as
  * the delegating session: a spec it refuses never reaches the runner
  * (nor the operator's approval prompt) and comes back with the guard's

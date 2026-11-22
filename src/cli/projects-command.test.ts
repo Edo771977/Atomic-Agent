@@ -277,3 +277,31 @@ describe("project backlog (issue #111)", () => {
     expect(await projectCommand(["backlog", empty], io())).toBe(1);
   });
 });
+
+it("saves and revokes UI exceptions in the record without rewriting the project file", async () => {
+  const folder = folderWithProject("ui");
+  const before = readFileSync(projectFilePath(folder), "utf8");
+  const store = new SessionStore({ dbFile: join(stateDir, "sessions.db") });
+  try {
+    const deps = { ...io(), sessionStore: store };
+    const allow = ["ui-exceptions", folder, "--allow", "low-contrast:index.html", "--reason", "Brand logo"];
+    const chat = projects.prepareTurn(createEmptySessionState({ id: "busy", workingDir: folder }), true);
+    store.save(chat);
+    expect(store.beginTurn(chat.id)).toBe(true);
+    expect(await projectCommand(allow, deps)).toBe(1);
+    store.releaseTurn(chat.id, { status: "completed" });
+    expect(await projectCommand(allow, deps)).toBe(0);
+    expect(stateDirProjectRecords(stateDir).read(folder)).toMatchObject({
+      record: { uiExceptions: [{ rule: "low-contrast", file: "index.html", reason: "Brand logo" }] },
+    });
+    expect(await projectCommand(["ui-exceptions", folder, "--revoke", "low-contrast:index.html"], deps)).toBe(0);
+    expect(readFileSync(projectFilePath(folder), "utf8")).toBe(before);
+    const privateFolder = join(root, "private");
+    mkdirSync(privateFolder);
+    expect(projects.commit(createEmptySessionState({ id: "private", workingDir: privateFolder,
+      incognito: { since: Date.now(), owner: "test" } }), { gate: { kind: "none" }, milestones: [] }).ok).toBe(true);
+    expect(await projectCommand(["ui-exceptions", privateFolder, ...allow.slice(2)], deps)).toBe(1);
+  } finally {
+    store.close();
+  }
+});
