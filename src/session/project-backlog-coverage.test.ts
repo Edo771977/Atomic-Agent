@@ -4,11 +4,14 @@
  * before the plan can be approved; the plan gate names what is missing.
  * The rule and its wording follow decision coverage (#112).
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyBacklogDecision } from "./project-backlog.js";
+import { stateDirProjectRecords } from "./project-decisions.js";
+import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
 import {
   applyProjectDecision,
@@ -16,6 +19,7 @@ import {
   gateVersion,
   normalizeProject,
   type AssignmentRow,
+  type ProjectDecision,
   type ProjectState,
 } from "./session-project.js";
 
@@ -141,5 +145,119 @@ describe("older projects and running plans (issue #146)", () => {
     expect(p.milestones.map((m) => m.state)).toEqual(["reviewed", "approved"]);
     // The next draft must take it in (or the person defers it).
     expect(approve(plan(p, [row("t1", "m1"), row("t2", "m2")], 7))).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+});
+
+describe("deferring a promoted item at the plan gate (issue #146)", () => {
+  const defer = (p: ProjectState, backlogStatus: Record<string, string>) =>
+    applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: { backlogStatus } as never }, { now: 5 });
+
+  it("the person's deferral unblocks the plan, keeps the item promoted and the rows, and is shown", () => {
+    const p = plan(withBacklog(), [row("t1", "m1")]);
+    const r = ok(defer(p, { b1: "deferred" }));
+    expect(r.backlogCalls?.b1?.deferred).toBe(true);
+    expect(r.backlogStates).toEqual({ b1: "promoted" });
+    expect(r.gate).toEqual({ kind: "plan" });
+    expect(gateVersion(r)).toBe(gateVersion(p)! + 1);
+    expect(r.plan?.rows).toEqual(p.plan?.rows);
+    const shown = view(r);
+    expect(shown.hints).toContainEqual(expect.stringMatching(/^backlog-coverage: pass: .*Not required: b1 \(deferred\)/));
+    expect(shown.hints).toContain('promoted from the backlog, deferred by you: b1 "Export to PDF": this plan need not take it in; set it active again to require it');
+    expect(shown.backlog?.promoted).toEqual([{ id: "b1", title: "Export to PDF", deferred: true }]);
+    expect(shown.backlog?.items.find((b) => b.id === "b1")).toMatchObject({ state: "promoted", deferred: true });
+    expect(ok(approve(r)).plan?.status).toBe("approved");
+    // An old card cannot approve the plan the deferral changed.
+    expect(applyProjectDecision(r, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now: 6 })).toMatchObject({ ok: false, error: { code: "stale-version" } });
+    // Setting it active again puts the block back; the deferral reads back from the record.
+    expect(normalizeProject(JSON.parse(JSON.stringify(r)))?.backlogCalls).toEqual(r.backlogCalls);
+    const back = ok(defer(r, { b1: "active" }));
+    expect(back.backlogCalls?.b1?.deferred).toBeUndefined();
+    expect(approve(back)).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+
+  it("a promotion given again clears the deferral", () => {
+    const r = ok(defer(plan(withBacklog(), [row("t1", "m1")]), { b1: "deferred" }));
+    const again = ok(applyBacklogDecision(r, { id: "b1", state: "promoted" }));
+    expect(again.backlogCalls?.b1?.deferred).toBeUndefined();
+  });
+
+  it("an item not promoted, unknown or already taken in, a bad status, or another gate is refused", () => {
+    const p = plan(withBacklog(), [row("t1", "m1")]);
+    for (const bad of [{ b2: "deferred" }, { b9: "deferred" }, { b1: "dropped" }, { b1: "bogus" }] as Record<string, string>[]) {
+      expect(defer(p, bad), JSON.stringify(bad)).toMatchObject({ ok: false, error: { code: "invalid" } });
+    }
+    const taken = ok(approve(plan(withBacklog(), [row("t1", "m1", ["b1"])])));
+    const replanned = plan(taken, [row("t1", "m1", ["b1"]), row("t2", "m2")], 8);
+    expect(defer(replanned, { b1: "deferred" })).toMatchObject({ ok: false, error: { code: "invalid" } });
+    const atBrief = ok(applyProjectUpdate(undefined, { kind: "brief", brief: { what: "x", users: "y", how: "z", successCriteria: criteria }, draftedAfterUntrusted: false }, 1));
+    expect(defer(atBrief, { b1: "deferred" })).toMatchObject({ ok: false, error: { code: "invalid" } });
+  });
+
+  it("no director update carries a deferral: a plan update keeps the person's, and a forged one in a stored call is dropped unless promoted", () => {
+    const r = ok(defer(plan(withBacklog(), [row("t1", "m1")]), { b1: "deferred" }));
+    const redraft = plan(r, [row("t1", "m1"), row("t2", "m1")], 9);
+    expect(redraft.backlogCalls?.b1?.deferred).toBe(true);
+    const raw = JSON.parse(JSON.stringify(withBacklog(["b1"])));
+    raw.backlogStates.b2 = "dropped";
+    raw.backlogCalls.b2 = { hash: raw.backlogCalls.b1.hash, deferred: true };
+    expect(normalizeProject(raw)?.backlogCalls?.b2?.deferred).toBeUndefined();
+  });
+
+  it("the wire parse takes edits.backlogStatus and refuses anything else", async () => {
+    const { parseProjectDecision } = await import("./project-decision-parse.js");
+    expect(parseProjectDecision({ gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { backlogStatus: { b1: "deferred" } } })).toEqual({
+      gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { backlogStatus: { b1: "deferred" } },
+    });
+    for (const bad of [[], "deferred", { b1: 1 }, { b1: "dropped" }, { "Bad Id": "deferred" }]) {
+      expect(typeof parseProjectDecision({ gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { backlogStatus: bad } }), JSON.stringify(bad)).toBe("string");
+    }
+  });
+});
+
+describe("a deferral is record-owned (issue #146)", () => {
+  let folder: string;
+  let stateDir: string;
+  let options: ProjectStoreOptions;
+  beforeEach(() => {
+    folder = mkdtempSync(join(tmpdir(), "aa-backlog-cov-"));
+    stateDir = mkdtempSync(join(tmpdir(), "aa-backlog-cov-state-"));
+    options = { stateDir, records: stateDirProjectRecords(stateDir), now: () => 1_700_000_500_000 };
+  });
+  afterEach(() => {
+    rmSync(folder, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+  const open = () => {
+    const r = openProject(folder, options);
+    if (!r.ok) throw new Error(r.problem.message);
+    return r.opened;
+  };
+  const decide = (decision: (p: ProjectState) => ProjectDecision) => {
+    const opened = open();
+    const d = decision(opened.project);
+    const r = ok(applyProjectDecision(opened.project, d, { now: 9 }));
+    const saved = commitProject(folder, opened.stored.id, { revision: opened.stored.revision, decisionSeq: opened.decisionSeq }, r, { ...options, decision: d, decidedOn: opened.project });
+    if (!saved.ok) throw new Error(saved.problem.message);
+    return saved.opened.project;
+  };
+
+  it("is recorded in the state dir, never in project.json; one written into project.json does nothing", () => {
+    const created = createProject(folder, plan(withBacklog(), [row("t1", "m1")]), options);
+    if (!created.ok) throw new Error(created.problem.message);
+    // Forged in the file: the plan stays blocked.
+    const file = projectFilePath(folder);
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    json.project.backlogCalls = { b1: { hash: "0000000000000000", deferred: true } };
+    json.project.backlog[0].deferred = true;
+    writeFileSync(file, JSON.stringify(json));
+    const forged = open().project;
+    expect(forged.backlogCalls?.b1?.deferred).toBeUndefined();
+    expect(approve(forged)).toMatchObject({ ok: false, error: { code: "review-open" } });
+    decide((p) => ({ gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: { backlogStatus: { b1: "deferred" } } }));
+    expect(open().project.backlogCalls?.b1?.deferred).toBe(true);
+    expect(JSON.parse(readFileSync(file, "utf8")).project.backlogCalls).toBeUndefined();
+    const record = options.records.read(folder);
+    expect(record.ok && record.record?.state.backlogCalls?.b1?.deferred).toBe(true);
+    expect(decide((p) => ({ gate: p.gate, version: gateVersion(p)!, verdict: "approve" })).plan?.status).toBe("approved");
   });
 });

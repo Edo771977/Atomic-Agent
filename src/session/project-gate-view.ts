@@ -84,7 +84,9 @@ export interface ProjectGateView {
    * ones with a condition (shown with it at plan and milestone gates, as
    * `hints` too); `promoted` waits for the next plan the person approves.
    * Promote or drop goes through `runtime.projectBacklogDecision`, never a
-   * gate verdict.
+   * gate verdict. Issue #146: at the plan gate a promoted item no task
+   * cites blocks approval (`backlog-coverage`); the person may send
+   * `edit` with `edits.backlogStatus` to defer it.
    */
   backlog?: ProjectGateBacklog;
 }
@@ -93,11 +95,12 @@ export interface ProjectGateView {
 export interface ProjectGateBacklog {
   open: number;
   seeds: Array<{ id: string; title: string; condition: string }>;
-  promoted: Array<{ id: string; title: string }>;
+  /** Issue #146: `deferred` when the person deferred it at the plan gate (still promoted, not required in the plan). */
+  promoted: Array<{ id: string; title: string; deferred?: true }>;
   /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
   stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
   /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
-  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number }>;
+  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true }>;
 }
 
 /** The plan reviewer's notes as the card shows them (issue #118). */

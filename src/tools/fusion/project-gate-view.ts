@@ -74,6 +74,8 @@ export { seedHint };
 
 /** The plan gate's hint for an item the person promoted (issue #111). */
 export const promotedHint = (id: string, title: string): string => `promoted from the backlog: ${id} "${title}": check this plan takes it in before approving`;
+/** The plan gate's hint for a promoted item the person deferred (issue #146). */
+export const deferredHint = (id: string, title: string): string => `promoted from the backlog, deferred by you: ${id} "${title}": this plan need not take it in; set it active again to require it`;
 
 /** The gate card's payload. Pure. */
 /** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
@@ -141,7 +143,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
   }
   if (project.gate.kind === "plan") {
-    for (const b of promotedForPlan(project)) hints.push(promotedHint(b.id, b.title));
+    for (const b of promotedForPlan(project)) hints.push(project.backlogCalls?.[b.id]?.deferred === true ? deferredHint(b.id, b.title) : promotedHint(b.id, b.title));
     // Review of #111: a call bound to text that changed, or to an item removed, outside Atomic Agent.
     for (const s of staleBacklogCalls(project)) {
       hints.push(s.reason === "removed"
@@ -159,11 +161,13 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     : {
         open: openBacklog(project).length,
         seeds: openSeeds(project).map((b) => ({ id: b.id, title: b.title, condition: b.condition! })),
-        promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title })),
+        promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, ...(project.backlogCalls?.[b.id]?.deferred === true ? { deferred: true as const } : {}) })),
         stale: staleBacklogCalls(project),
         items: project.backlog!.map((b) => {
-          const plannedIn = backlogStateOf(project, b.id) === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
-          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }) };
+          const promoted = backlogStateOf(project, b.id) === "promoted";
+          const plannedIn = promoted ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+          const deferred = promoted && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
+          return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
         }),
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.

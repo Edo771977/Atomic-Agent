@@ -500,7 +500,18 @@ export interface ProjectState {
 export interface ProjectBacklogCall {
   hash: string;
   plannedIn?: number;
+  /**
+   * Issue #146: the person deferred this promoted item at the plan gate
+   * (`ProjectEdits.backlogStatus`): it stays promoted but no plan has to
+   * cite it until they set it active again. A new call on the item (a
+   * promotion given again, a drop, a reopen) clears it. Record only.
+   */
+  deferred?: true;
 }
+
+/** What the person may set for a promoted backlog item at the plan gate (issue #146). */
+export type PersonBacklogStatus = "active" | "deferred";
+export const PERSON_BACKLOG_STATUSES: readonly PersonBacklogStatus[] = ["active", "deferred"];
 
 /**
  * `metadata.projectGates`: whether this session runs the project flow
@@ -715,6 +726,15 @@ export interface ProjectEdits {
    * the project's record, never in `project.json`.
    */
   decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
+  /**
+   * Plan gate (issue #146): the person's status for backlog items they
+   * promoted that no approved plan took in, by id. `deferred` takes one
+   * out of the plan's backlog coverage (it stays promoted); `active` puts
+   * it back. Only the person sets these (no director update and no
+   * automatic approval carries them); recorded in the project's record
+   * ({@link ProjectBacklogCall.deferred}), never in `project.json`.
+   */
+  backlogStatus?: Readonly<Record<string, PersonBacklogStatus>>;
   /**
    * Milestone gate: what is wrong with the result. The milestone goes
    * back to `approved` for another run, the note recorded on it
@@ -1078,7 +1098,7 @@ function readBacklogCalls(raw: unknown, states: Record<string, ProjectBacklogSta
   const out: Record<string, ProjectBacklogCall> = {};
   for (const [id, value] of Object.entries(raw)) {
     if (states[id] === undefined || !isObject(value) || typeof value.hash !== "string" || !/^[0-9a-f]{16}$/.test(value.hash)) continue;
-    out[id] = { hash: value.hash, ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number } : {}) };
+    out[id] = { hash: value.hash, ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number } : {}), ...(value.deferred === true && states[id] === "promoted" ? { deferred: true as const } : {}) };
   }
   return Object.keys(out).length === 0 ? undefined : out;
 }
@@ -1700,7 +1720,7 @@ export function backlogCheckOptions(project: Pick<ProjectState, "backlog" | "bac
   if (plan.status === "approved") return {};
   return {
     backlog: {
-      items: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, deferred: false })),
+      items: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, deferred: project.backlogCalls?.[b.id]?.deferred === true })),
       known: (project.backlog ?? []).map((b) => b.id),
     },
   };
@@ -2453,6 +2473,9 @@ function decideProject(
   if (decision.verdict === "edit" && decision.edits?.decisionStatus !== undefined && gate.kind !== "plan") {
     return refuse({ code: "invalid", message: "A decision's status is set at the plan gate." });
   }
+  if (decision.verdict === "edit" && decision.edits?.backlogStatus !== undefined && gate.kind !== "plan") {
+    return refuse({ code: "invalid", message: "A promoted backlog item is deferred at the plan gate." });
+  }
 
   if (decision.verdict === "approveOverReview" && gate.kind === "milestone") {
     // The person's call over open reviews (issue #98): with a note, the
@@ -2641,7 +2664,23 @@ function decideProject(
       }
       decisionStatus = Object.keys(next).length === 0 ? undefined : next;
     }
-    if (statusEdit !== undefined && (decision.edits?.rows ?? []).length === 0) {
+    // Issue #146: the person defers a promoted item waiting for a plan, or sets it active again.
+    const backlogEdit = decision.verdict === "edit" ? decision.edits?.backlogStatus : undefined;
+    let backlogCalls = project.backlogCalls;
+    if (backlogEdit !== undefined) {
+      const waiting = new Set(promotedForPlan(project).map((b) => b.id));
+      const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
+      for (const [id, status] of Object.entries(backlogEdit)) {
+        if (!waiting.has(id)) return refuse({ code: "invalid", message: `backlog item ${id} is no item you promoted that waits for a plan` });
+        if (!(PERSON_BACKLOG_STATUSES as readonly string[]).includes(status)) {
+          return refuse({ code: "invalid", message: `backlog item ${id}: status must be one of ${PERSON_BACKLOG_STATUSES.join(", ")}` });
+        }
+        const { deferred: _d, ...call } = calls[id]!;
+        calls[id] = status === "deferred" ? { ...call, deferred: true } : call;
+      }
+      backlogCalls = calls;
+    }
+    if ((statusEdit !== undefined || backlogEdit !== undefined) && (decision.edits?.rows ?? []).length === 0) {
       // Only the decisions' status changed: the rows stay as they are.
       rows = plan.rows.map((r) => ({ ...r }));
     } else if (decision.verdict === "edit") {
@@ -2660,8 +2699,8 @@ function decideProject(
       if (read === null) return refuse({ code: "invalid", message: "the re-estimated plan has a malformed task" });
       checked.push(read);
     }
-    const { decisionStatus: _status, ...rest } = project;
-    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }) };
+    const { decisionStatus: _status, backlogCalls: _calls, ...rest } = project;
+    const next: ProjectState = { ...rest, ...(decisionStatus === undefined ? {} : { decisionStatus }), ...(backlogCalls === undefined ? {} : { backlogCalls }) };
     return {
       ok: true,
       project: {
