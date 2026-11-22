@@ -39,12 +39,18 @@ The director can propose decisions in the brief, such as “Use SQLite for local
 
 Ask the director to add the missing citation. If the decision can wait, defer it explicitly from the plan gate. In the terminal UI project card, press `d` to defer uncited decisions. Review and approve the updated plan. Decision status is saved with your approvals.
 
+## Take promoted backlog items into the plan
+
+The backlog holds work that is not ready for the plan yet. Only you promote, drop or reopen an item (`atomic-agent project backlog --promote <id>`, or the project card). A promoted item is for the next plan: the director cites its id on a task that will run, and the plan gate checks this (**backlog-coverage**). A plan that cites no task for a promoted item cannot be approved, and the gate names the missing item. A citation added to a task of a milestone that already finished does not count.
+
+If the item can wait, defer it from the plan gate. It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft.
+
 ## Read the plan review
 
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.
 
 - **Plan not reviewed** means you should check the plan yourself. A skipped or unavailable review can leave the plan in this state.
-- **Notes on an earlier version** means the rows or milestone order changed after the review. Read those notes alongside the current plan.
+- **Notes on an earlier version** means the rows or milestone order changed after the review, or you changed a decision's status or deferred a backlog item at the gate. Those notes no longer block your plain approval; read them alongside the current plan. Automatic approval still stops there.
 - **Approve over review** is available when the current review blocks approval and the gate allows an override. Write why you are proceeding. The reason is saved with the approval. Failed plan checks still block approval.
 
 For a CLI run, `--auto-approve-project` approves eligible gates as they open. It stops for open plan review failures, or when a required review is missing, skipped or stale. It also stops for changes made outside Atomic Agent, failed plan checks and milestone results that need your decision. Review the gate and the version it prints. To approve an eligible version yourself, use:
