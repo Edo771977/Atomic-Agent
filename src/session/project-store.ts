@@ -284,7 +284,8 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   const stale = calls.filter(([id, call]) =>
     call.state === "approved" && call.always !== false && byId.get(id)?.hash !== call.hash).map(([id]) => id);
   const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), projectFolder);
-  if (active.length > 0 || stale.length > 0) {
+  const hasCitations = project.plan?.rows.some((row) => row.lessons !== undefined) === true;
+  if (record.record !== null && (calls.length > 0 || hasCitations)) {
     project[currentProjectLessons] = {
       active, stale,
       workerGetsLessons: (ref) => {
@@ -295,7 +296,7 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
       matches: (touches, paths) => lessonTouchesTask(touches, paths, process.platform),
     };
   }
-  if (project.plan?.status === "draft" && (active.length > 0 || stale.length > 0 || project.plan.rows.some((row) => row.lessons !== undefined))) {
+  if (project.plan?.status === "draft" && (active.length > 0 || stale.length > 0 || hasCitations)) {
     project.plan = { ...project.plan, checkResults: [...planReviewFactsOf(project).planChecks] };
   }
   const review = project.plan?.review;

@@ -1872,19 +1872,19 @@ export function planCheckData(project: BacklogCallsView & LessonCallsView, plan:
   return {
     ...referenceOptions(plan),
     ...backlogCheckOptions(project, plan),
-    ...(plan.status !== "draft" ? {} : {
+    ...(plan.status !== "draft" || scope === undefined ? {} : {
       lessons: planLessonsOf(project, plan.rows),
-      staleLessonIds: scope?.stale ?? [],
-      undeclaredLessonTasks: scope !== undefined && hasScopedLessons
+      staleLessonIds: scope.stale ?? [],
+      undeclaredLessonTasks: hasScopedLessons
         ? plan.rows.filter((row) => !started.has(row.milestoneId) && scope.taskPaths(row).length === 0).map((row) => row.taskId)
         : [],
       blockedLessonWorkers: plan.rows.flatMap((row) => {
-        if (started.has(row.milestoneId) || scope?.workerGetsLessons?.(row.worker) !== false) return [];
+        if (started.has(row.milestoneId) || scope.workerGetsLessons?.(row.worker) !== false) return [];
         const lessonIds = scope.active.filter((lesson) => lesson.always && row.lessons?.includes(lesson.id)
           && project.lessonDeferred?.[lesson.id] !== lesson.hash).map((lesson) => lesson.id);
         return lessonIds.length > 0 ? [{ taskId: row.taskId, lessonIds }] : [];
       }),
-      activeLessonIds: project[currentProjectLessons]?.active.map((lesson) => lesson.id) ?? [],
+      activeLessonIds: scope.active.map((lesson) => lesson.id),
     }),
   };
 }

@@ -178,6 +178,8 @@ describe("project store (issue #109)", () => {
     delete undeclared.plan!.rows[0]!.files;
     expect(coverage(undeclared)).toContainEqual(expect.stringMatching(/warn.*build.*no declared/));
     expect(coverage(makePlan(["storage"]))).toEqual([expect.stringMatching(/pass/)]);
+    const reloaded = normalizeProject(JSON.parse(JSON.stringify(makePlan(["storage"]))))!;
+    expect(coverage(reloaded)).toEqual([]);
     writeFileSync(file, text.replace("Keep storage local", "Use SQLite"));
     expect(coverage(makePlan())).toEqual([expect.stringMatching(/warn.*storage.*changed or was removed/)]);
     rmSync(file);
