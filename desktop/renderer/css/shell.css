@@ -489,6 +489,11 @@
    with Switch as the one thing left to decide. */
 .dlc-row.is-ready{background:color-mix(in srgb, var(--success) 8%, var(--well))}
 .dlc-row.is-ready .dlc-line{white-space:normal;overflow-wrap:anywhere}
+.dlc-core-waiting{display:grid;gap:7px;min-width:0}
+.dlc-core-waiting .dlc-top{flex-wrap:wrap}
+.dlc-core-waiting .dlc-name{flex-basis:max-content}
+.dlc-core-waiting .dlc-name,.dlc-core-waiting .dlc-line{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.dlc-core-actions{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
 .dlc-switch{height:24px;padding:0 11px}
 .dlc-x:focus-visible,.dlc-fold:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 /* The setup screen's cloud offer, now a quiet link under the rows. */
