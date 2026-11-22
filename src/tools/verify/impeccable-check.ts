@@ -8,6 +8,7 @@ import { readArtifactSnapshot } from "./artifact-snapshot.js";
 import { spawnVerifyProcess } from "./spawn-verify-process.js";
 import { guardVerifyCommand } from "./verify-run-guard.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
+import type { ProjectUiException } from "../../session/project-ui-exceptions.js";
 import type { VerifyRunArgs } from "./verify-run-args.js";
 
 // Accessibility and visibly broken assets block delivery. Other detector rules
@@ -20,6 +21,7 @@ interface ImpeccableOutcome extends ArtifactOutcome {
   version?: string;
   findings?: readonly string[];
   suppressions?: readonly string[];
+  usedExceptions?: readonly string[];
 }
 
 export function impeccableArgs(file: string): string[] {
@@ -37,6 +39,9 @@ export interface ApprovedImpeccable {
   readonly file: string;
   readonly identity: string;
   readonly path?: string;
+  readonly serviceUrl?: string;
+  readonly exceptionFile?: string;
+  readonly loadExceptions?: () => readonly ProjectUiException[];
 }
 
 async function fileIdentity(file: string): Promise<string> {
@@ -74,29 +79,37 @@ async function assertImpeccableIdentity(approved: ApprovedImpeccable): Promise<v
   throw new Error("impeccable executable changed after approval");
 }
 
-function parseReport(text: string, workspace: string, snapshot: string, source: string) {
+function parseReport(text: string, workspace: string, snapshot: string, source: string, url: string | undefined, exceptions: readonly ProjectUiException[], exceptionFile?: string) {
   const rows: unknown = JSON.parse(text);
   if (!Array.isArray(rows)) throw new Error("impeccable returned invalid findings");
   const findings: string[] = [];
   let chars = 0;
   let severe = false;
   let primary = false;
+  const used = new Map<ProjectUiException, string>();
   for (const row of rows) {
     if (row === null || typeof row !== "object" || !("antipattern" in row) || !("file" in row) ||
         typeof row.antipattern !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(row.antipattern) ||
-        typeof row.file !== "string" || relative(resolve(workspace, row.file), resolve(workspace, snapshot)) !== "") {
+        typeof row.file !== "string" || (url === undefined ? relative(resolve(workspace, row.file), snapshot) !== "" : new URL(row.file).href !== new URL(url).href)) {
       throw new Error("impeccable returned a finding without a valid rule or checked file");
     }
     const advisory = ("advisory" in row && row.advisory === true) || ("severity" in row && row.severity === "advisory");
     primary ||= !advisory;
-    const blocking = !advisory && (SEVERE_RULES.has(row.antipattern) || ("severity" in row && row.severity === "error"));
+    const rule = row.antipattern;
+    const exception = exceptions.find(entry => entry.rule === rule && exceptionFile !== undefined && entry.file === exceptionFile)
+      ?? exceptions.find(entry => entry.rule === rule && entry.file === undefined);
+    if (exception !== undefined && !used.has(exception)) {
+      const scope = exception.file === undefined ? "" : `:${exception.file}`;
+      used.set(exception, `${rule}${scope} — approved by the operator: ${exception.reason}`);
+    }
+    const blocking = exception === undefined && !advisory && (SEVERE_RULES.has(row.antipattern) || ("severity" in row && row.severity === "error"));
     severe ||= blocking;
     const detail = `${blocking ? "severe" : "warning"}: ${row.antipattern} — ${source}`;
     chars += detail.length + 1;
     if (chars > MAX_REPORT_CHARS) throw new Error("impeccable findings report exceeds the output limit");
     findings.push(detail);
   }
-  return { findings, severe, primary };
+  return { findings, severe, primary, usedExceptions: [...used.values()] };
 }
 
 function suppressionLines(source: string, bytes: Buffer) {
@@ -126,29 +139,30 @@ export async function runImpeccableCheck(
   const deadline = performance.now() + timeoutMs;
   let version: string | undefined;
   let suppressions: string[] = [];
+  let usedExceptions: string[] | undefined;
   const complete = (status: ArtifactOutcome["status"], reason: string, findings: string[] = [], timedOut = false): ImpeccableOutcome => {
     const evidence = [...findings, ...suppressions].join("\n");
     const head = [reason, ...(version === undefined ? [] : [`impeccable version: ${version}`])].join("\n");
     if (evidence.length > MAX_REPORT_CHARS) {
       return { status: "uncheckable", detail: `${head}\nimpeccable report exceeds the output limit`, version, suppressions };
     }
-    return { status, detail: evidence ? `${head}\n${evidence}` : head, version, findings, suppressions, ...(timedOut ? { timedOut } : {}) };
+    return { status, detail: evidence ? `${head}\n${evidence}` : head, version, findings, suppressions, usedExceptions, ...(timedOut ? { timedOut } : {}) };
   };
   const timeout = () => complete("uncheckable", `impeccable timed out after ${timeoutMs} ms`, [], true);
 
   try {
-    const source = relative(root, resolve(cwd, args.path!));
-    const target = resolve(cwd, args.path!);
-    if (!isImpeccableMarkup(source)) {
+    const source = args.url ?? relative(root, resolve(cwd, args.path!));
+    if (args.url === undefined && !isImpeccableMarkup(source)) {
       return complete("uncheckable", "impeccable scans markup: specify the file that uses this CSS or script");
     }
     if (approved === undefined) return complete("uncheckable", "impeccable is not installed");
     const executable = approved.file;
-    const bytes = await readArtifactSnapshot(root, relative(root, cwd), args.path!);
-    const markers = suppressionLines(source, bytes);
+    const markers = args.url === undefined
+      ? suppressionLines(source, await readArtifactSnapshot(root, relative(root, cwd), args.path!))
+      : { findings: [], potentiallyActive: false };
     suppressions = markers.findings;
     const scanCwd = await realpath(cwd);
-    const scanTarget = await realpath(target);
+    const scanTarget = args.url ?? await realpath(resolve(cwd, args.path!));
 
     const run = async (argv: string[]) => {
       await assertImpeccableIdentity(approved);
@@ -159,7 +173,7 @@ export async function runImpeccableCheck(
       if (remaining <= 0) return undefined;
       const batch = process.platform === "win32" && executable.endsWith(".cmd");
       if (batch && /[%!^&|<>()\r\n]/.test(scanTarget)) {
-        throw new Error("impeccable cannot pass this markup path safely to a Windows command shim");
+        throw new Error("impeccable cannot pass this target safely to a Windows command shim");
       }
       const invocation = batch
         ? buildSubshellInvocation(`"%ATOMIC_IMPECCABLE_EXECUTABLE%" ${argv[0] === "detect" ? 'detect --json --no-config "%ATOMIC_IMPECCABLE_TARGET%"' : "--version"}`)
@@ -175,14 +189,15 @@ export async function runImpeccableCheck(
           IMPECCABLE_DOWNLOAD_BASE: "atomic-offline:",
           IMPECCABLE_BIN: "",
           ...(approved.path === undefined ? {} : { PATH: approved.path }),
+          ...(args.url === undefined ? {} : { NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1" }),
           DO_NOT_TRACK: "1",
-          IMPECCABLE_SAMPLE_CACHE: join(root, ".impeccable-sample-cache"),
+          ...(args.url === undefined ? { IMPECCABLE_SAMPLE_CACHE: join(root, ".impeccable-sample-cache") } : {}),
           npm_config_offline: "true",
         },
       });
       const exit = await processRun.exited;
       signal?.throwIfAborted();
-      return { ...exit, stdout: processRun.stdout, outputTruncated: processRun.stdout.truncated || processRun.stderr.truncated };
+      return { ...exit, stdout: processRun.stdout, stderr: processRun.stderr, outputTruncated: processRun.stdout.truncated || processRun.stderr.truncated };
     };
 
     const versionRun = await run(["--version"]);
@@ -197,13 +212,22 @@ export async function runImpeccableCheck(
     const scan = await run(impeccableArgs(scanTarget));
     if (scan === undefined || scan.timedOut) return timeout();
     if (scan.exitCode === 127 || scan.exitCode === 9009) return complete("uncheckable", "impeccable is not installed");
-    if (scan.exitCode === 1) return complete("uncheckable", "impeccable could not complete the scan (exit 1)");
+    if (scan.exitCode === 1) {
+      const missingBrowser = args.url !== undefined && /(?:no|not found|could not find|cannot find|not installed)[^\r\n]*(?:chrome|chromium|edge|browser)|(?:chrome|chromium|edge|browser)[^\r\n]*(?:not found|not installed)/i.test(scan.stderr.all());
+      return complete("uncheckable", missingBrowser
+        ? "impeccable needs an installed browser (Chrome or Edge)"
+        : "impeccable could not complete the scan (exit 1)");
+    }
     if (scan.exitCode !== 0 && scan.exitCode !== 2) return complete("uncheckable", "impeccable could not run the detector");
     if (scan.outputTruncated) return complete("uncheckable", "impeccable exceeded the output limit");
-    const report = parseReport(scan.stdout.all(), scanCwd, scanTarget, source);
+    const report = parseReport(scan.stdout.all(), scanCwd, scanTarget, source, args.url, approved.loadExceptions?.() ?? [], approved.exceptionFile);
     if (scan.exitCode === 2 && !report.primary) return complete("uncheckable", "impeccable returned exit 2 with no primary findings", report.findings);
     if (scan.exitCode === 0 && report.primary) return complete("uncheckable", "impeccable returned primary findings with exit 0", report.findings);
+    if (report.usedExceptions.length > 0) usedExceptions = report.usedExceptions;
     const fail = scan.exitCode === 2 && report.severe;
+    if (!fail && args.url !== undefined) {
+      return complete("uncheckable", "a rendered scan cannot rule out suppressions inserted by the page; also check the source file (path)", report.findings);
+    }
     if (!fail && markers.potentiallyActive) {
       return complete("uncheckable", "impeccable suppression markers could hide findings", report.findings);
     }

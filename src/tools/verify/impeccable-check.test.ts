@@ -29,7 +29,7 @@ function finding(antipattern: string, extra = {}) {
     severity: "warning", file: "./index.html", line: 2, snippet: "Fixture", ...extra };
 }
 
-async function fake(exit: number, payload: unknown, name = "impeccable") {
+async function fake(exit: number, payload: unknown, name = "impeccable", url?: string, diagnostic?: string) {
   const script = join(bin, `${name}.cjs`);
   await writeFile(script, `
     const args = process.argv.slice(2);
@@ -37,9 +37,10 @@ async function fake(exit: number, payload: unknown, name = "impeccable") {
     else if (args.slice(0, 3).join(" ") === "detect --json --no-config" && args.length === 4) {
       const fs = require("node:fs");
       const path = require("node:path");
-      if (!fs.readFileSync(path.join(path.dirname(args[3]), "style.css"), "utf8").includes("#aaa")) process.exit(97);
+      if (${url !== undefined} ? args[3] !== ${JSON.stringify(url ?? "")} : !fs.readFileSync(path.join(path.dirname(args[3]), "style.css"), "utf8").includes("#aaa")) process.exit(97);
       if (process.env.DO_NOT_TRACK !== "1") process.exit(98);
       if (${payload !== undefined}) console.log(${JSON.stringify(JSON.stringify(payload))});
+      if (${diagnostic !== undefined}) console.error(${JSON.stringify(diagnostic ?? "")});
       process.exitCode = ${exit};
     } else process.exitCode = 99;
   `);
@@ -381,4 +382,149 @@ it("returns an uncheckable standalone result on UI approval denial", async () =>
   });
   expect(result.details).toMatchObject({ artifactStatus: "uncheckable", error: expect.stringContaining("denied") });
   expect(workspace).not.toHaveBeenCalled();
+});
+
+it.each([0, 2])("passes the approved loopback URL to impeccable (exit %i)", async exit => {
+  const url = "http://127.0.0.1:8123/";
+  await fake(exit, exit === 0 ? [] : [finding("low-contrast", { file: url })], "impeccable", url);
+  const request = vi.fn(async () => ({ approved: true }));
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", url }], {
+    approvals: { request } as never, approvalRequired: true,
+  }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 });
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({
+    category: "verify_ui_detector", preview: expect.stringContaining(url),
+  }), expect.anything());
+  expect(await executeVerify(spec!, { workingDir: root })).toMatchObject({ artifactStatus: exit === 0 ? "uncheckable" : "fail" });
+});
+
+it("rejects non-loopback UI URLs before authorization", async () => {
+  for (const url of ["http://example.com:8123/", "http://localhost:8123/ https://example.com/",
+    "http://localhost:8123@example.com/", "http://127.0.0.1/", "https://127.0.0.1:8123/"]) {
+    await expect(approve({ kind: "ui", url }, root)).rejects.toThrow(/loopback/);
+  }
+});
+
+it("reports a missing installed browser", async () => {
+  const url = "http://localhost:8123/";
+  await fake(1, undefined, "impeccable", url, "Error: No Chrome, Chromium, Edge, or Brave installation found for URL scanning. Install Google Chrome, or point IMPECCABLE_BROWSER at a Chromium-based browser executable.");
+  expect(await runVerify({ kind: "ui", url }, { workingDir: root })).toMatchObject({
+    artifactStatus: "uncheckable", error: expect.stringContaining("Chrome or Edge"),
+  });
+});
+
+it("downgrades a file-scoped severe finding only until the operator revokes it", async () => {
+  const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+  const stateDir = join(root, "state");
+  const records = stateDirProjectRecords(stateDir);
+  const state = { gate: { kind: "none" as const }, milestones: [] };
+  const projectRef = { folder: root, id: "ui-project" };
+  const exception = { rule: "low-contrast", file: "index.html", reason: "Brand logo" };
+  expect(records.write(root, projectRef.id, 0, state, undefined, undefined, { ...exception, allow: true }).ok).toBe(true);
+  const scan = async (path: string) => {
+    await fake(2, [finding("low-contrast", { file: path })]);
+    const [spec] = await authorizeVerifyBatch([{ kind: "ui", path }], {
+      approvals: {} as never, approvalRequired: false, uiExceptionStateDir: stateDir,
+    }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
+    return executeVerify(spec!, { workingDir: root });
+  };
+  expect(await scan("index.html")).toMatchObject({
+    artifactStatus: "pass",
+    impeccableFindings: ["warning: low-contrast — index.html"],
+    impeccableExceptions: ["low-contrast:index.html — approved by the operator: Brand logo"],
+  });
+  await writeFile(join(root, "other.html"), "<p>Hello</p>");
+  expect(await scan("other.html")).toMatchObject({ artifactStatus: "fail" });
+  expect(records.write(root, projectRef.id, 1, state, undefined, undefined, { ...exception, allow: false }).ok).toBe(true);
+  expect(await scan("index.html")).toMatchObject({ artifactStatus: "fail" });
+});
+
+it("scans the address of a named service while it is ready in the same batch", async () => {
+  const { runChecks } = await import("./run-verify.js");
+  const url = "http://127.0.0.1:8123/preview";
+  await fake(0, [], "impeccable", url);
+  const controller = new AbortController();
+  const specs = [
+    { kind: "service", id: "preview", start: { cmd: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] }, ready: { url } },
+    { kind: "ui", service: "preview" },
+  ];
+  const { createContractCheckHold } = await import("../fusion/contract-check-hold.js");
+  const hold = createContractCheckHold({
+    approvals: {}, approvalRequired: false, sessionId: "test", workingDir: root,
+    tool: "fusion.delegate", checks: specs, signal: controller.signal,
+    runner: (batch, ctx) => runChecks(batch, { ...ctx, fetchImpl: async () => ({ status: 200, text: async () => "" }) }),
+  });
+  expect(await hold.finalRunner!(specs, { workingDir: root, signal: controller.signal })).toMatchObject({ ok: false, results: [{ kind: "service", ready: true }, { kind: "ui", artifactStatus: "uncheckable" }] });
+});
+
+it("isolates an invalid service readiness URL from sibling checks", async () => {
+  const signal = new AbortController().signal;
+  const [service, ui, command] = await authorizeVerifyBatch([
+    { kind: "service", id: "preview", start: { cmd: "node" }, ready: { url: "https://example.com/" } },
+    { kind: "ui", service: "preview" },
+    { kind: "command", cmd: "node", args: ["--version"] },
+  ], { approvals: {} as never, approvalRequired: false }, { workingDir: root, sessionId: "test", stepIndex: 0, signal });
+  expect(service?.kind).toBe("service");
+  expect(command?.kind).toBe("command");
+  expect(await executeVerify(ui!, { workingDir: root })).toMatchObject({
+    artifactStatus: "uncheckable", error: expect.stringContaining("loopback"),
+  });
+});
+
+it("matches a file exception in a session working copy", async () => {
+  const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+  const stateDir = join(root, "state");
+  const worktree = join(root, "worktree");
+  await mkdir(worktree);
+  await writeFile(join(worktree, "index.html"), "<p>Hello</p>");
+  await writeFile(join(worktree, "style.css"), "p { color: #aaa; }");
+  const projectRef = { folder: root, id: "worktree-ui" };
+  expect(stateDirProjectRecords(stateDir).write(root, projectRef.id, 0, { gate: { kind: "none" }, milestones: [] },
+    undefined, undefined, { rule: "low-contrast", file: "index.html", reason: "Logo", allow: true }).ok).toBe(true);
+  await fake(2, [finding("low-contrast")]);
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", path: "index.html" }], {
+    approvals: {} as never, approvalRequired: false, uiExceptionStateDir: stateDir,
+  }, { workingDir: worktree, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
+  expect(await executeVerify(spec!, { workingDir: worktree })).toMatchObject({ artifactStatus: "pass" });
+});
+
+it("attributes findings to the normalized rendered URL", async () => {
+  const url = "http://localhost:08080";
+  await fake(2, [finding("low-contrast", { file: "http://localhost:8080/" })], "impeccable", url);
+  expect(await runVerify({ kind: "ui", url }, { workingDir: root })).toMatchObject({ artifactStatus: "fail" });
+});
+
+it("discloses browser navigation and scans a standalone URL without a project copy", async () => {
+  const url = "http://localhost:8080/";
+  await fake(2, [finding("low-contrast", { file: url })], "impeccable", url);
+  const request = vi.fn(async () => ({ approved: true }));
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", url }], {
+    approvals: { request } as never, approvalRequired: true,
+  }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0 });
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({ preview: expect.stringMatching(/browser.*external.*redirect/i) }), expect.anything());
+  const workspace = vi.fn(async () => { throw new Error("no project copy required"); });
+  expect(await executeVerify(spec!, { workingDir: root, workspace })).toMatchObject({ artifactStatus: "fail" });
+  expect(workspace).not.toHaveBeenCalled();
+});
+
+it("permits a rendered URL from a folder too broad to copy", async () => {
+  const { verifyCopyRoot } = await import("./verify-copy-root.js");
+  const { parseVerifyRunArgs } = await import("./verify-run-args.js");
+  const raw = { kind: "ui", url: "http://localhost:8123/" };
+  expect(verifyCopyRoot(raw, parseVerifyRunArgs(raw), root, root)).toMatchObject({ ok: true, root });
+});
+
+it("reads a revoked approval again after authorizing execution", async () => {
+  const { stateDirProjectRecords } = await import("../../session/project-decisions.js");
+  const stateDir = join(root, "state");
+  const records = stateDirProjectRecords(stateDir);
+  const state = { gate: { kind: "none" as const }, milestones: [] };
+  const projectRef = { folder: root, id: "revoked" };
+  const choice = { rule: "low-contrast", file: "index.html" };
+  expect(records.write(root, "revoked", 0, state, undefined, undefined, { ...choice, reason: "Logo", allow: true }).ok).toBe(true);
+  await fake(2, [finding("low-contrast")]);
+  const [spec] = await authorizeVerifyBatch([{ kind: "ui", path: "index.html" }], {
+    approvals: {} as never, approvalRequired: false, uiExceptionStateDir: stateDir,
+  }, { workingDir: root, signal: new AbortController().signal, sessionId: "test", stepIndex: 0, projectRef });
+  expect(records.write(root, "revoked", 1, state, undefined, undefined, { ...choice, allow: false }).ok).toBe(true);
+  expect(await executeVerify(spec!, { workingDir: root })).toMatchObject({ artifactStatus: "fail" });
 });

@@ -1,3 +1,4 @@
+import { projectDecisionOriginRefusal } from "./project-decision-origin.js";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -310,6 +311,10 @@ export function parseRunArgs(
       default:
         return { error: `unknown flag: ${flag}` };
     }
+  }
+  if (approve || autoApproveProject || decisionStatus.size > 0 || backlogStatus.size > 0 || lessonStatus.size > 0) {
+    const refusal = projectDecisionOriginRefusal();
+    if (refusal !== undefined) return { error: refusal };
   }
   if (decisionStatus.size > 0) {
     if (session === null) return { error: "decision status edits need --session <id>" };

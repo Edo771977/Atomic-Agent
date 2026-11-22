@@ -130,6 +130,7 @@ export function registerVerifyTools(
       approvals: options.approvals,
       approvalRequired: options.approvalRequired,
       config: options.config,
+      uiExceptionStateDir: options.uiExceptionStateDir,
       ...(options.checkCommandReads === undefined ? {} : { checkCommandReads: options.checkCommandReads }),
       ...(options.checkReadTargets === undefined ? {} : { checkReadTargets: options.checkReadTargets }),
       ...(options.knownSecrets === undefined ? {} : { knownSecrets: options.knownSecrets }),
