@@ -230,7 +230,14 @@ export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: rea
   if (review.outcome === "not-run") return { hints: [`plan not reviewed: ${review.reason ?? "no answer"}${by === "" ? "" : ` (asked${by})`}; this is not a pass`], autoApprovable: !configured };
   const results = effectivePlanReview(plan, milestoneIds, facts);
   if (results === undefined) {
-    return { hints: [`plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`], autoApprovable: true };
+    // The person's own edit at the gate is their decision: nothing blocks, but the notes stay in view.
+    return {
+      hints: [
+        `plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`,
+        ...review.results.filter((r) => r.verdict !== "pass").map((r) => `notes on an earlier version: ${planReviewLine(r)}`),
+      ],
+      autoApprovable: !configured,
+    };
   }
   const fails = results.some((r) => r.verdict === "fail");
   const head = `plan review ${review.round}${by}: ${tally(results)}${fails ? "; open notes below: approve over them only with a note (approveOverReview)" : ""}`;

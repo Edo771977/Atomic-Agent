@@ -358,3 +358,27 @@ describe("a plan with no review recorded (review round, issue #118)", () => {
     expect(view.hints.some((h) => /plan review|not reviewed/.test(h))).toBe(false);
   });
 });
+
+describe("a review the person's own edit made stale (review round, issue #118)", () => {
+  it("keeps the earlier notes visible, lets the person approve, and stops automation", async () => {
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const atGate = (await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+    const cheaper = applyProjectDecision(atGate, { gate: atGate.gate, version: gateVersion(atGate)!, verdict: "cheaper" }, { now: NOW + 1, replan: (rows) => rows.map((r) => ({ ...r, worker: "local:other" })) });
+    if (!cheaper.ok) throw new Error(cheaper.error.message);
+    const state = { project: cheaper.project };
+    const viewOf = () => projectGateView({ sessionId: "s1", project: state.project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+    const view = viewOf();
+    expect(view.hints).toContainEqual(expect.stringMatching(/plan review is stale/));
+    expect(view.hints).toContainEqual("notes on an earlier version: plan review: scope: fail: drops the level editor");
+    expect(view.planReview).toMatchObject({ stale: true, autoApprovable: false });
+    const rt = {
+      projectState: viewOf,
+      projectDecision: (_id: string, d: Parameters<typeof applyProjectDecision>[1]) => {
+        const r = applyProjectDecision(state.project, d, { now: NOW + 2 });
+        return r.ok ? { ok: true as const, project: r.project, view: viewOf() } : r;
+      },
+    };
+    expect((await settleProjectGate(rt, "s1", "approve")).kind).toBe("stop");
+    expect(applyProjectDecision(state.project, { gate: state.project.gate, version: gateVersion(state.project)!, verdict: "approve" }, { now: NOW + 3 }).ok).toBe(true);
+  });
+});

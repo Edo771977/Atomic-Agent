@@ -143,6 +143,6 @@ describe("plan review record", () => {
     expect(planReviewHints({ rows, review: record }, ids, facts)[0]).toMatch(/plan review 3 by cloud:r: 7 pass, 0 warn, 1 fail; open notes/);
     const changed = [checked("t1"), { ...checked("t2"), title: "Build a smaller t2" }];
     expect(openPlanReviewFails({ rows: changed, review: record }, ids, facts)).toEqual([]);
-    expect(planReviewHints({ rows: changed, review: record }, ids, facts)).toEqual([expect.stringMatching(/stale/)]);
+    expect(planReviewHints({ rows: changed, review: record }, ids, facts)).toEqual([expect.stringMatching(/stale/), expect.stringMatching(/^notes on an earlier version: plan review: size: fail/)]);
   });
 });
